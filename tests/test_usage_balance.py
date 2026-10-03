@@ -139,52 +139,22 @@ class WeeklyBalance(unittest.TestCase):
         self.assertFalse(providers["openai"]["exhausted"])
         self.assertEqual(usage.pick_order(self.cfg, providers, ["astra"]), ["astra"])
 
-    def test_v5h_each_reset_adds_one_whole_allowance_never_a_percentage(self):
+    def test_v5h_a_reset_in_hand_adds_nothing_to_the_budget(self):
         providers = self.providers(20, 20)      # anthropic: 0.8 left of half a week, budget 1.6
         meter = providers["openai"]["meters"][0]
         meter.update(used=60, resets_at=self.now + 604800)     # a whole window still to go
-        for resets, budget, order in ((0, 0.4, ["opus", "astra"]), (1, 1.4, ["opus", "astra"]),
-                                      (2, 2.4, ["astra", "opus"]), (100, 100.4, ["astra", "opus"])):
+        for resets in (0, 1, 2, 100, None):
             with self.subTest(resets=resets):
                 providers["openai"]["resets"] = resets
                 usage._gate_flags(providers, self.now, self.cfg)
-                self.assertEqual(usage.model_budget(self.cfg, "astra", providers), (budget, None))
-                # the count itself, because this window has all of its time left
-                self.assertEqual(providers["openai"]["budget_from_resets"], float(resets))
-                self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"]), order)
-
-    def test_v5h_a_reset_in_hand_ranks_the_week_it_is_held_against(self):
-        providers = self.owner_week()
-        budget, reason = usage.model_budget(self.cfg, "astra", providers)
-        self.assertIsNone(reason)
-        self.assertAlmostEqual(budget, 2.03, delta=0.02)
-        self.assertEqual(providers["openai"]["budget"], 2.031)
-        self.assertAlmostEqual(usage.model_budget(self.cfg, "opus", providers)[0], 1.36, delta=0.02)
-        for role in ("executor", "reviewer"):
-            self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"], role=role),
-                             ["astra", "opus"])
-        self.assertEqual(run.pick_models(self.cfg, providers, None, None, lambda _: None),
-                         ("astra", "opus"))
-
-    def test_v5h_the_same_week_without_a_reset_is_picked_last(self):
-        providers = self.owner_week(resets=0)
-        self.assertAlmostEqual(usage.model_budget(self.cfg, "astra", providers)[0], 0.49,
-                               delta=0.005)
-        self.assertEqual(providers["openai"]["budget_from_resets"], 0)
-        self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"]),
-                         ["opus", "astra"])
-        self.assertNotIn("in hand", usage.render(self.cfg, providers, ["opus", "astra"]))
-
-    def test_v5h_an_uncountable_reset_adds_nothing_and_is_not_unknown(self):
-        providers = self.owner_week(resets=None)
-        budget, reason = usage.model_budget(self.cfg, "astra", providers)
-        self.assertIsNone(reason)
-        self.assertAlmostEqual(budget, 0.49, delta=0.005)
-        self.assertIsNone(providers["openai"]["budget_reason"])
-        self.assertEqual(providers["openai"]["budget_from_resets"], 0)
-        self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"]),
-                         ["opus", "astra"])
-        self.assertNotIn("in hand", usage.render(self.cfg, providers, ["opus", "astra"]))
+                # one nobody spends is not usage ak can run on, and an uncountable one is
+                # not an unknown reading
+                self.assertEqual(usage.model_budget(self.cfg, "astra", providers), (0.4, None))
+                self.assertEqual(providers["openai"]["headroom"], 0.4)
+                self.assertNotIn("budget_from_resets", providers["openai"])
+                self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"]),
+                                 ["opus", "astra"])
+                self.assertNotIn("in hand", usage.render(self.cfg, providers, ["opus", "astra"]))
 
     def test_v5h_a_spent_meter_holding_a_reset_is_still_excluded(self):
         providers = self.providers(20, 20)
@@ -203,65 +173,27 @@ class WeeklyBalance(unittest.TestCase):
         usage._gate_flags(providers, self.now, self.cfg)
         self.assertEqual(usage.pick_order(self.cfg, providers, self.workers)[0], "astra")
 
-    def test_v5h_usage_output_names_the_reset_and_ranks_with_it(self):
-        providers = self.owner_week()
+    def test_v5h_usage_shows_the_resets_held_and_ranks_without_them(self):
+        providers = self.owner_week(resets=2)
         with patch.object(usage, "collect", return_value=providers), \
                 patch.object(usage.terminal, "width", return_value=200), \
                 redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()):
             self.assertEqual(usage.main([]), 0)
         rendered = out.getvalue()
+        header = next(line for line in rendered.splitlines() if line.startswith("provider "))
         row = next(line for line in rendered.splitlines() if line.startswith("openai "))
-        self.assertIn("2.0 slack", row)
-        self.assertIn("openai: 1 reset in hand counted as one full week (budget 0.5 without it)",
-                      rendered)
-        self.assertEqual(sum("in hand" in line for line in rendered.splitlines()), 1)
-        self.assertIn("pick order: astra, opus, spark", rendered)
-        providers["openai"]["resets"] = 2
-        usage._gate_flags(providers, self.now, self.cfg)
-        for width in (40, 100):
-            with patch.object(usage.terminal, "width", return_value=width):
-                rendered = usage.render(self.cfg, providers, ["astra", "opus", "spark"])
-            self.assertLessEqual(max(map(len, rendered.splitlines())), width)
-            self.assertIn("2 resets in hand counted as 2 full weeks", rendered.replace("\n", " "))
-
-    def test_v5h_a_reset_in_hand_is_named_even_when_no_budget_can_be_read(self):
-        for raw, shown, spoil in (
-                ("unknown: probe timed out", "probe timed out",
-                 lambda prov: prov.update(error="unknown: probe timed out")),
-                ("gate meter has no valid reset time or window length",
-                 "gate meter has no valid reset time or window length",
-                 lambda prov: prov["meters"][0].pop("resets_at"))):
-            for resets, held in ((1, "1 reset in hand counted as one full week"),
-                                 (2, "2 resets in hand counted as 2 full weeks")):
-                with self.subTest(reason=shown, resets=resets):
-                    providers = self.owner_week(resets=resets)
-                    spoil(providers["openai"])
-                    usage._gate_flags(providers, self.now, self.cfg)
-                    # the credit is confirmed; what it is worth here is not
-                    self.assertEqual(providers["openai"]["budget"], 0)
-                    self.assertEqual(providers["openai"]["budget_from_resets"], 0)
-                    self.assertEqual(providers["openai"]["budget_reason"], raw)
-                    with redirect_stderr(io.StringIO()):
-                        order = usage.pick_order(self.cfg, providers)
-                    self.assertEqual(order[-1], "astra")
-                    with patch.object(usage.terminal, "width", return_value=200):
-                        rendered = usage.render(self.cfg, providers, order)
-                    self.assertIn(f"openai: {held} (budget unknown: {shown})", rendered)
-                    self.assertIn("unknown", next(line for line in rendered.splitlines()
-                                                  if line.startswith("openai ")))
-
-    def test_v5h_usage_json_carries_the_budget_the_resets_added(self):
-        providers = self.owner_week()
+        held = header.index("resets held")
+        self.assertEqual(row[held:].split()[0], "2")    # the count the owner spends from
+        self.assertIn("0.5 ahead", row)
+        self.assertNotIn("in hand", rendered)
+        self.assertIn("pick order: opus, spark, astra", rendered)
         with patch.object(usage, "collect", return_value=providers), \
                 redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()):
             self.assertEqual(usage.main(["--json"]), 0)
         data = json.loads(out.getvalue())
-        openai = data["providers"]["openai"]
-        self.assertEqual(openai["budget"], 2.031)
-        self.assertEqual(openai["budget_from_resets"], 1.538)
-        self.assertAlmostEqual(openai["budget"] - openai["budget_from_resets"], 0.49, delta=0.005)
-        self.assertEqual(data["providers"]["anthropic"]["budget_from_resets"], 0)
-        self.assertEqual(data["pick_order"], ["astra", "opus", "spark"])
+        self.assertEqual(data["providers"]["openai"]["budget"], 0.492)
+        self.assertEqual(data["providers"]["openai"]["resets"], 2)
+        self.assertEqual(data["pick_order"], ["opus", "spark", "astra"])
 
     def test_v5h_usage_json_names_every_meter_reset_time(self):
         """`--json` promises `reset_at` on every meter, whatever wrote the cache it read."""
