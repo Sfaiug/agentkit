@@ -1,6 +1,7 @@
 """A proof that could not start establishes no defect on either commit."""
 
 import shlex
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -30,6 +31,33 @@ class ProofMustRun(unittest.TestCase):
             "api.py:1", "missing script", "python3 absent.py")), "PASS")
         self.assertEqual(self.lp.state["followups"], [])
         self.assertIn("can't open file", self.lp.state["notes"][0])
+
+    def test_sh_and_perl_missing_scripts_are_notes_on_commit_base_and_followups(self):
+        diagnostics = (
+            ("sh", "sh: 0: cannot open probe.sh: No such file"),
+            ("perl", 'Can\'t open perl script "probe.pl": No such file or directory'))
+        for name, diagnostic in diagnostics:
+            with self.subTest(interpreter=name):
+                # Exact launcher diagnostics need no host-specific sh or Perl installation.
+                interpreter = self.root / name
+                interpreter.write_text(f"#!{sys.executable}\nimport sys\n"
+                                       f"print({diagnostic!r}, file=sys.stderr)\nsys.exit(2)\n")
+                interpreter.chmod(0o755)
+                command = shlex.quote(str(interpreter)) + " probe"
+                base_only = "if grep -q branch api.py; then exit 7; fi; " + command
+                self.assertEqual(self.review(
+                    proof.finding("api.py:1", "missing changed-line proof", command),
+                    proof.finding("legacy.py:1", "missing base proof", base_only),
+                    proof.finding("api.py:2", "missing follow-up proof", command,
+                                  kind="follow-up", before=self.base)), "PASS")
+                self.assertEqual(self.lp.state["followups"], [])
+                rows = self.lp.state["review_records"]
+                self.assertEqual([row["kind"] for row in rows], ["note", "note", "note", "done"])
+                self.assertEqual(rows[0]["evidence"]["returncode"], 2)
+                self.assertEqual(rows[1]["evidence"]["base"]["returncode"], 2)
+                self.assertIn("Dropped follow-up", self.lp.state["notes"][2])
+                for note in self.lp.state["notes"]:
+                    self.assertIn(diagnostic, note)
 
     def test_a_missing_sourced_script_is_a_note_even_when_bash_exits_one(self):
         self.assertEqual(self.review(proof.finding("api.py:1", "missing source", "source absent.sh")), "PASS")
