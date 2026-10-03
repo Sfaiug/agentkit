@@ -5369,8 +5369,6 @@ def final_check(lp, upstream):
     A command red on the target's tip and green on the old base parks without a
     fixer round.  When those commits are the same, only the tip is probed.
     """
-    if not lp.once:
-        return True
     try:
         now = git(lp.wt, "rev-parse", "HEAD")
     except (Stopped, config.Error):
@@ -5388,14 +5386,24 @@ def final_check(lp, upstream):
     fixed = 0       # the fixer rounds this run has spent on these commands here
     while True:
         sha = git(lp.wt, "rev-parse", "HEAD")
+        suite, shared = declared_suite(lp.wt, lp.target), None
+        # A rebase or fixer can change the declaration loaded into lp.once. Rebuild
+        # it from the task so only the inherited suite is replaced, including for probes.
+        task = lp.run_dir / "task.md"
+        if task.is_file():
+            _, body, _ = taskfile.parse_task(task)
+            _, lp.once = taskfile.done_when_groups(body, task)
+        if suite and suite not in lp.once:
+            lp.once.append(suite)
+        if not lp.once:
+            return True
         if getattr(lp, "lap_every_sha", None) == sha:
             # the lap already ran the task checks on this commit and they passed;
             # running them again would check nothing new
             cmds_every, cmds_once = [], list(lp.once)
         else:
             cmds_every, cmds_once = list(lp.every), list(lp.once)
-        suite, shared = declared_suite(lp.wt, lp.target), None
-        if suite and suite in cmds_once:
+        if suite:
             shared = suite_shared(lp, upstream, sha, suite, together=not fixed)
             if shared:
                 cmds_once.remove(suite)
