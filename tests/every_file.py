@@ -21,14 +21,17 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import tokenize
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True   # another piece may be compiling the checkout
 sys.path.insert(0, str(REPO))
 from agentkit import host, orch
+from suite_shares import shard, shares
 
 FILE_MEM_MB = 230   # reservation floor: the measured peak was 229 MB with children;
                     # bigger hosts fit more files, busier or smaller hosts fit fewer
@@ -39,15 +42,26 @@ POLL = 0.1          # ceiling on polling waits: contention pauses starts at the 
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
 
 
+def source_files(root):
+    # Never descend into another piece's partially written fixtures or Git metadata.
+    for directory, folders, names in os.walk(root):
+        folders[:] = [name for name in folders
+                      if name != ".git" and not name.startswith(".ak-test-")]
+        for name in names:
+            yield Path(directory) / name
+
+
 def import_errors(root):
     local = set()
-    for path in root.rglob("*.py"):
+    for path in source_files(root):
+        if path.suffix != ".py":
+            continue
         local.add(path.stem)
         local.update(path.relative_to(root).parts[:-1])
     allowed = sys.stdlib_module_names | local
     errors = []
     for folder in ("agentkit", "tools", "bin", "tests"):
-        for path in sorted((root / folder).rglob("*")):
+        for path in sorted(source_files(root / folder)):
             if not path.is_file():
                 continue
             if path.suffix != ".py":
@@ -127,9 +141,15 @@ def smoke_runs(smoke, offline, live=False):
 
 def run_file(root, path, env):
     began = time.monotonic()
-    proc = subprocess.run([sys.executable, str(path.relative_to(root))], cwd=root, env=env,
-                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT)
+    # Files can run beside smoke.sh in the same checkout. Their HOME, temp files and
+    # explicit py_compile output must not reach another piece's sandbox or bytecode.
+    # tmux canonicalizes TMUX_TMPDIR; a long worktree path cannot hold its socket.
+    with tempfile.TemporaryDirectory(prefix="ak-test-file-", dir="/tmp") as sandbox:
+        child_env = dict(env, HOME=sandbox, TMPDIR=sandbox,
+                         PYTHONPYCACHEPREFIX=str(Path(sandbox) / "pycache"))
+        proc = subprocess.run([sys.executable, str(path.relative_to(root))], cwd=root,
+                              env=child_env, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     return proc.returncode, proc.stdout.decode(errors="replace"), time.monotonic() - began
 
 
@@ -167,6 +187,11 @@ def pool_limit(readings):
 
 
 def main(root):
+    try:
+        number, total = shard()
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
     errors = import_errors(root)
     if errors:
         for error in errors:
@@ -178,6 +203,9 @@ def main(root):
                       os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1",
                       os.environ.get("AGENTKIT_SMOKE_LIVE", "0") == "1")
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip)
+    # Exclude everything smoke runs before dividing the rest, regardless of its piece.
+    owners = shares({path: path.stat().st_size for path in todo}, total)
+    todo = [path for path in todo if owners[path] == number]
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
     pending = iter(todo)
     path = next(pending, None)

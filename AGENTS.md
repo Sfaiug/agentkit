@@ -1,6 +1,6 @@
 ---
 users: none
-tests: export AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --user --map-current-user --net --keep-caps sh -c 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"; }; offline true 2>/dev/null || offline() { "$@"; }; offline bash -c 'bash tests/smoke.sh; smoke=$?; python3 tests/every_file.py && exit $smoke'
+tests: export AK_SHARD AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --user --map-current-user --net --keep-caps sh -c 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"; }; offline true 2>/dev/null || offline() { "$@"; }; offline bash -c 'bash tests/smoke.sh; smoke=$?; python3 tests/every_file.py && exit $smoke'
 ---
 # agentkit, for an agent working on it
 
@@ -19,7 +19,7 @@ Every change to ak is judged by what it does for what you build with it, and by 
 
 - Python 3.11 standard library and bash. No dependency is added, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
-- The acceptance gate is the `tests:` line: `bash tests/smoke.sh`, then `tests/every_file.py`, which runs every `tests/test_*.py` smoke.sh does not, each once, without the caller's `AGENTKIT_*`/`AK_*` variables; either failing fails the gate. Its pool grows with live host and cgroup memory, past the core count for waiting files; each start waits while CPU stalls exceed the 20% ceiling or its slice exhausts its CPU quota. It runs with `AGENTKIT_ACCEPTANCE_REQUIRED=1`, so a skipped check fails it too, and, where the host allows a network namespace, with nothing but loopback. A round runs the task's done-when commands and review; the loop runs the full suite once at landing on the commit to be merged.
+- The acceptance gate is the `tests:` line: `bash tests/smoke.sh`, then `tests/every_file.py`, which runs every `tests/test_*.py` smoke.sh does not, each once, without the caller's `AGENTKIT_*`/`AK_*` variables; either failing fails the gate. `AK_SHARD=k/N` runs the k-th share of both parts (1-based); unset or `1/1` runs everything. Dependent checks stay together; every piece runs the tmux safety guard and uses a separate sandbox. Its pool grows with live host and cgroup memory, past the core count for waiting files; each start waits while CPU stalls exceed the 20% ceiling or its slice exhausts its CPU quota. It runs with `AGENTKIT_ACCEPTANCE_REQUIRED=1`, so a skipped check fails it too, and, where the host allows a network namespace, with nothing but loopback. A round runs the task's done-when commands and review; the loop runs the full suite once at landing on the commit to be merged.
 - Checks that need the outside world (smoke.sh's 1-5, 6, 6b, 6d, 31a, 31d, 31e: real models, GitHub, Discord, live meters, the shared browser) run only in smoke.sh's live mode, which `tests/live.sh` starts: before a host takes new agentkit code and when a harness upgrades. A check that needs more than loopback goes there.
 - Match the style of the file you are in. Read `ARCHITECTURE.md` first; a change that adds, removes, renames or moves a module updates the map. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
 - Docs ride the change: `README.md` and `docs/guide.md` say what the code now does.
