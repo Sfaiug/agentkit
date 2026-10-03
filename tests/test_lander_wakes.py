@@ -47,6 +47,8 @@ class LanderWakes(Sandbox):
         self.verdicts = iter(["PASS"])
         self.fix = True
         self.check_result = (True, "")
+        self.real_checks = run.checks
+        self.fixer_inputs = []
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
         self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=999))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
@@ -105,6 +107,7 @@ class LanderWakes(Sandbox):
 
     def fixer(self, lp, role, text, name, **_kw):
         self.assert_free()
+        self.fixer_inputs.append(text)
         self.events.append((name, lp.rnd))
         self.assertEqual(role, "fixer")
         if name == "rebase-fixer":
@@ -257,6 +260,44 @@ class LanderWakes(Sandbox):
         self.assertIn("required checks failed: unit", (self.directory / "pr-checks.log").read_text())
         self.assertEqual(self.events, [("final-fixer", 3), ("reviewer", "round-3")])
         self.assertEqual(self.merges, [])
+        self.assert_rounds(state)
+
+    def test_required_check_output_reaches_the_fixer(self):
+        self.park()
+        classic = {"data": {"repository": {"ref": {"branchProtectionRule": None}}}}
+        output = "FAIL work.txt: expected both intents"
+        replies = iter([
+            [[{"type": "required_status_checks", "parameters": {"required_status_checks": [
+                {"context": "unit", "integration_id": 7}]}}]],
+            classic,
+            [{"check_runs": [{"id": 1, "name": "unit", "app": {"id": 7},
+                "status": "completed", "conclusion": "failure", "output": {"text": output}}]}]])
+        with patch.object(run, "checks", side_effect=self.real_checks), \
+                patch.object(run, "gh_json", side_effect=lambda *a, **kw: (next(replies), "")):
+            self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+        self.assertIn(output, self.fixer_inputs[0])
+        self.assertIn(output, (self.directory / "pr-checks.log").read_text())
+        self.assert_rounds(record.read_state(self.directory))
+
+    def test_target_moving_during_pr_checks_keeps_the_place_and_needs_another_verdict(self):
+        wait = self.park()
+        commands = copy.deepcopy(self.commands)
+
+        def checks(lp, url):
+            self.assert_free(False)
+            (self.owner / "other.txt").write_text("external move\n")
+            self.commit(self.owner, "move during checks")
+            run.git(self.owner, "push", "origin", "main")
+            return True, ""
+
+        with patch.object(run, "checks", side_effect=checks):
+            self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+        state = record.read_state(self.directory)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["waiting_on"], {"line": self.turn.name, "joined": wait["joined"]})
+        self.assertEqual(self.events, [])
+        self.assertEqual(self.merges, [])
+        self.assertEqual(self.commands, commands)
         self.assert_rounds(state)
 
     def test_fourth_red_hands_back_its_last_failure_without_a_fourth_fixer(self):
