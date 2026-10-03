@@ -56,6 +56,10 @@ class Docs(unittest.TestCase):
     def test_design_doc_names_no_removed_state_word(self):
         self.assert_current(DESIGN)
 
+    def test_design_doc_drops_removed_model_setting(self):
+        self.assertFalse("Reviews its own company" in " ".join(DESIGN.read_text().split()),
+                         "model screen still documents a removed self-review row")
+
     def test_help_fits_one_screen(self):
         proc = subprocess.run([sys.executable, str(REPO / "bin/ak"), "--help"],
                               capture_output=True, text=True, timeout=30,
