@@ -5507,7 +5507,17 @@ def merge_lock(lp, upstream):
     _PICKUP_HELD.count = held + 1
     try:
         with turn_path(lp, upstream).open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                # Another delivery can spend an hour on PR checks; its waiter is not stalled.
+                lp.state["delivery_wait"] = os.getpid()
+                try:
+                    lp.write()
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                finally:
+                    lp.state.pop("delivery_wait", None)
+                    lp.write()
             yield
     finally:
         _PICKUP_HELD.count = held

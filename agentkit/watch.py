@@ -3531,12 +3531,15 @@ def stall_clock(run_dir, state):
     A transient wait is the loop's own -- up to an hour at a time, on a provider that is down,
     writing nothing -- so the clock starts where that wait ends (`run.transient_wait`).  Only
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
-    its silence is its own. A live loop waiting for its dependency to merge
-    (`run.wait_for_dependency`) or for its seat to push PR fixes is silent for as long as that takes,
+    its silence is its own. A live loop waiting for its dependency to merge, its seat to
+    push PR fixes or another delivery's repository lock is silent for as long as that takes,
     so its clock starts now, every tick, until the wait is over.
     """
     from . import run as run_mod
-    if ((run_mod.dep_wait_note(state) or run_mod.own_pr_wait_note(state))
+    delivery_wait = state.get("delivery_wait")
+    if ((run_mod.dep_wait_note(state) or run_mod.own_pr_wait_note(state)
+         or (delivery_wait and delivery_wait == state.get("pid")
+             and state.get("state") == "running"))
             and run_record.process_active(state)):
         return time.time()
     wait = state.get("transient_wait")

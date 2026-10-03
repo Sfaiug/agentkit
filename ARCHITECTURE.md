@@ -29,9 +29,8 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - `gate.py`: check commands and host-wide heavy-suite turns; `run_done_when`, turn/env
   helpers and wait notes. For run and tests. Leaks: run's `run_child_env`, `memory_cap_note`,
   `dirty_paths`, `OUT_CAP`.
-- `land.py`: landing line and tested trees. Lander checks scratch worktrees and wakes
-  parked line members to land or fix; run consumes their verdicts and rejoins after fixes
-  or a changed target.
+- `land.py`: landing-line checks and tested-tree cache; run consumes recorded verdicts.
+  Initial line admission and checker scheduling are not wired into the run or watch paths.
 - `record.py`: run.json, stop-safe writes, recovery locks, defaults, folders, writer id.
   API: `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
   `writing`. For run, gate, job, menu, orch, watch, gc, retention, history and worker.

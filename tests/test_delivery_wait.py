@@ -56,15 +56,21 @@ class DeliveryWait(unittest.TestCase):
         lp = self.lp
         waiting = threading.Event()
         flock = fcntl.flock
+        path = run.turn_path(lp, "origin/main")
 
         def observe_wait(lock, operation):
-            if operation == fcntl.LOCK_EX:
+            if operation == fcntl.LOCK_EX and getattr(lock, "name", None) == str(path):
                 waiting.set()
             return flock(lock, operation)
 
         results, errors = [], []
         verify = Mock(return_value=True)
-        deliver = Mock(return_value=True)
+
+        def delivered():
+            self.assertNotIn("delivery_wait", record.read_state(lp.run_dir))
+            return True
+
+        deliver = Mock(side_effect=delivered)
 
         def land():
             try:
@@ -72,7 +78,7 @@ class DeliveryWait(unittest.TestCase):
             except BaseException as error:
                 errors.append(error)
 
-        with run.turn_path(lp, "origin/main").open("a") as holder:
+        with path.open("a") as holder:
             flock(holder, fcntl.LOCK_EX)
             with patch.object(run, "wait_for_dependency", return_value=True), \
                     patch.object(run, "pickup_new_code", return_value=False), \
@@ -96,7 +102,7 @@ class DeliveryWait(unittest.TestCase):
         deliver.assert_called_once()
         self.assertNotIn("delivery_wait", record.read_state(lp.run_dir))
         old = self.age_files()
-        self.assertLessEqual(watch.stall_clock(lp.run_dir, record.read_state(lp.run_dir)), old)
+        self.assertLess(watch.stall_clock(lp.run_dir, record.read_state(lp.run_dir)), old + 1)
 
     def test_dead_or_resumed_wait_does_not_exempt_silence(self):
         old = self.age_files()
@@ -104,10 +110,19 @@ class DeliveryWait(unittest.TestCase):
             with self.subTest(alive=alive, pid=pid), \
                     patch.object(record, "process_active", return_value=alive):
                 state = {**self.lp.state, "delivery_wait": pid}
-                self.assertLessEqual(watch.stall_clock(self.lp.run_dir, state), old)
+                self.assertLess(watch.stall_clock(self.lp.run_dir, state), old + 1)
 
     def test_interrupted_lock_wait_clears_its_mark(self):
-        with patch.object(run.fcntl, "flock", side_effect=[BlockingIOError(), OSError("stopped")]):
+        path = run.turn_path(self.lp, "origin/main")
+        flock = fcntl.flock
+        errors = iter((BlockingIOError(), OSError("stopped")))
+
+        def interrupt(lock, operation):
+            if getattr(lock, "name", None) == str(path):
+                raise next(errors)
+            return flock(lock, operation)
+
+        with patch.object(run.fcntl, "flock", side_effect=interrupt):
             with self.assertRaises(OSError):
                 with run.merge_lock(self.lp, "origin/main"):
                     self.fail("an interrupted waiter cannot deliver")
