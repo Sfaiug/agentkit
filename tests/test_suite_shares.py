@@ -197,6 +197,24 @@ sys.exit(every_file.main(every_file.Path(sys.argv[2])))
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertIn("AK_SHARD", proc.stderr)
 
+    def test_a_failing_check_or_file_fails_exactly_its_piece(self):
+        script = self.root / "tests/smoke.sh"
+        script.write_text(SMOKE[:SMOKE.index(suite.SETUP)] + suite.SETUP +
+                          'FAILED=0\n# --- broken: fixture\nFAILED=1\n'
+                          '# --- passing: fixture\n:\n'
+                          '# --- shared result\nexit "$FAILED"\n')
+        (self.root / "tests/suite_shares.py").write_text(
+            (REPO / "tests/suite_shares.py").read_text())
+        codes = [subprocess.run(["bash", str(script)], env=dict(self.env, AK_SHARD=f"{k}/3"),
+                                capture_output=True, timeout=30).returncode for k in (1, 2, 3)]
+        self.assertEqual(sorted(codes), [0, 0, 1])
+        (self.root / "tests/test_broken.py").write_text('raise SystemExit("acme failure")\n')
+        (self.root / "tests/test_passing.py").write_text('print("TESTS_RUN=1")\n')
+        procs = [self.run_files(f"{k}/3") for k in (1, 2, 3)]
+        self.assertEqual(sorted(proc.returncode for proc in procs), [0, 0, 1])
+        failed = next(proc for proc in procs if proc.returncode)
+        self.assertIn("FAIL  tests/test_broken.py", failed.stdout)
+
     def test_import_check_does_not_reach_other_pieces_fixtures(self):
         other = self.root / ".ak-test-other-piece"
         other.mkdir()

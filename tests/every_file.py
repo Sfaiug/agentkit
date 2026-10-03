@@ -42,20 +42,26 @@ POLL = 0.1          # ceiling on polling waits: contention pauses starts at the 
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
 
 
+def source_files(root):
+    # Never descend into another piece's partially written fixtures or Git metadata.
+    for directory, folders, names in os.walk(root):
+        folders[:] = [name for name in folders
+                      if name != ".git" and not name.startswith(".ak-test-")]
+        for name in names:
+            yield Path(directory) / name
+
+
 def import_errors(root):
     local = set()
-    # Other pieces keep their sandboxes beside these source folders. Inspecting those
-    # would read partially written fixtures and let their invented modules count as local.
-    sources = list(root.glob("*.py"))
-    for folder in ("agentkit", "tools", "bin", "tests"):
-        sources.extend((root / folder).rglob("*.py"))
-    for path in sources:
+    for path in source_files(root):
+        if path.suffix != ".py":
+            continue
         local.add(path.stem)
         local.update(path.relative_to(root).parts[:-1])
     allowed = sys.stdlib_module_names | local
     errors = []
     for folder in ("agentkit", "tools", "bin", "tests"):
-        for path in sorted((root / folder).rglob("*")):
+        for path in sorted(source_files(root / folder)):
             if not path.is_file():
                 continue
             if path.suffix != ".py":
