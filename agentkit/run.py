@@ -128,7 +128,8 @@ BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
 # What the loop itself adds to a done-when log, in its own words, after the commands have had
 # their say: none is a command's output, and reading one as such would make a failure that
 # never moved look new every round.  See `run_done_when`, `verify_work` and `final_check`.
-LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |outside files: )")
+LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |outside files: "
+                       r"|AGENTS\.md body )")
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
@@ -395,7 +396,7 @@ def gh(cwd, *args, timeout=None):
     return code, (out + err).strip()
 
 
-def project_lessons(repo, state, log):
+def project_lessons(repo):
     """Read the orchestrator's repository facts once for this loop's worker prompts."""
     if repo is None:
         return ""
@@ -403,23 +404,20 @@ def project_lessons(repo, state, log):
     path = directory / f"{Path(repo).name}.md"
     try:
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with path.open("rb") as fh:
-            data = fh.read(LESSONS_CAP + 1)
+        data = path.read_bytes()
     except FileNotFoundError:
         return ""
     except OSError as exc:
         raise config.Error(f"cannot read {path}: {exc}") from exc
-    if len(data) > LESSONS_CAP and not state.get("lessons_truncated"):
-        log("lessons file over 4 KB; truncated")
-        state["lessons_truncated"] = True
-    # Omit an incomplete UTF-8 character at the byte limit.
-    text = data[:LESSONS_CAP].decode("utf-8", errors="ignore")
+    if len(data) > LESSONS_CAP:
+        raise config.Error(f"{path} is {len(data)} bytes, past its {LESSONS_CAP}-byte cap: tighten it.")
+    text = data.decode("utf-8", errors="ignore")
     return ("\n\n## Project lessons\n"
             "Facts earlier runs in this repository learned. Follow them; they are not part "
             f"of this task's scope.\n\n{text}")
 
 
-def repo_rules(wt, ref, state, log):
+def repo_rules(wt, ref):
     """The body of the repository's AGENTS.md at `ref`, for every worker prompt.
 
     ak reads only its front matter itself, and a harness loads the body on its own terms
@@ -434,14 +432,9 @@ def repo_rules(wt, ref, state, log):
     except Exception:
         return ""
     match = FRONT.match(text)
-    data = (text[match.end():] if match else text).strip().encode("utf-8")
-    if not data:
+    text = (text[match.end():] if match else text).strip()
+    if not text:
         return ""
-    if len(data) > RULES_CAP and not state.get("rules_truncated"):
-        log(f"AGENTS.md over {RULES_CAP // 1024} KB; truncated")
-        state["rules_truncated"] = True
-    # Omit an incomplete UTF-8 character at the byte limit.
-    text = data[:RULES_CAP].decode("utf-8", errors="ignore")
     return ("\n\n## Repository AGENTS.md\n"
             "The repository's own instructions, as on the base commit. Where they differ "
             f"from the rest of this prompt, the rest of this prompt wins.\n\n{text}\n")
@@ -2499,7 +2492,7 @@ def settled_gate(lp):
     elif not lp.scratch:
         return None
     ok = (passed == len(lp.every)) if lp.every else passed == total
-    return ok and not files_scope(lp), text
+    return ok and not files_scope(lp) and not rules_cap(lp), text
 
 
 def continuation(lp):
@@ -2728,6 +2721,18 @@ def files_scope(lp):
     return "outside files: " + ", ".join(outside) if outside else ""
 
 
+def rules_cap(lp):
+    """Refuse an oversized rules body only when this branch changes the file."""
+    if lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
+                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
+        return ""
+    text = git(lp.wt, "show", "HEAD:AGENTS.md", check=False)
+    front = FRONT.match(text)
+    size = len((text[front.end():] if front else text).strip().encode("utf-8"))
+    return (f"AGENTS.md body is {size} bytes, past its {RULES_CAP}-byte cap: tighten it."
+            if size > RULES_CAP else "")
+
+
 def regression_fails_before(lp):
     """Require the run's regression to fail on base with only its changed checks overlaid.
 
@@ -2766,10 +2771,9 @@ def verify_work(lp, cmds=None):
     if cmds is None:
         cmds = lp.every
     lp.step("done-when")
-    scope = ""
     if not lp.scratch and not lp.state.get("review_pr"):
         commit_leftovers(lp.wt, lp.log, lp.artifacts)
-        scope = files_scope(lp)
+    checks = (files_scope(lp), rules_cap(lp))
     lp.validation = {} if lp.scratch else commit_identity(lp.wt)
     clean = lp.scratch or lp.state.get("review_pr") or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
     ok, text = gate.run_done_when(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
@@ -2780,9 +2784,10 @@ def verify_work(lp, cmds=None):
             git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
         ok = False
         text += "\n\nCheckout changed during done-when; these commands do not verify the pinned commit."
-    if scope:
-        ok = False
-        text += "\n\n" + scope
+    for failure in checks:
+        if failure:
+            ok = False
+            text += "\n\n" + failure
     if ok:
         failure = regression_fails_before(lp)
         if failure:
@@ -5947,7 +5952,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     else:
         cmds = with_suite(cmds, wt, target, landing=not state.get("no_merge"))
     every, once = taskfile.group_commands(cmds)
-    body += project_lessons(repo, state, log) + repo_rules(wt, state.get("base_sha"), state, log)
+    body += project_lessons(repo) + repo_rules(wt, state.get("base_sha"))
     run_record.save_state(run_dir, state)
     context = (f"{where}\n\n{body}\n\n"
                f"{shell_foreground_note()}\n\n"
@@ -6946,29 +6951,12 @@ def handback_line(state, run_dir, cfg=None):
     reviews spent the whole round budget says so and says to split: the task was too big, not
     the worker.  A FAIL a check left behind says no such thing: more rounds of the same task
     would not have passed it either.  A scratch run names its workspace too: the files
-    there are what it delivered.  Cut rules are reported from the base commit even if the
-    file changed since; cut lessons are reported while their file is still past its cap.
+    there are what it delivered.
     """
     workspace = (f" Workspace: {state['worktree']}."
                  if state.get("scratch") and state.get("worktree") else "")
-    repo = state.get("repo")
-    notices = ""
-    if repo:
-        for field, path, cap in (
-                ("lessons_truncated", config.HOME / "lessons" / f"{Path(repo).name}.md", LESSONS_CAP),
-                ("rules_truncated", Path(repo) / "AGENTS.md", RULES_CAP)):
-            if not state.get(field):
-                continue
-            if field == "lessons_truncated":
-                try:
-                    if path.stat().st_size <= cap:
-                        continue
-                except OSError:
-                    continue
-            notices += (f" {path} reached the workers cut short at its "
-                        f"{cap // 1024} KB cap: tighten it.")
     line = (f"run {run_dir.name} finished {handback_verdict(state, cfg)}: "
-            f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace}{notices} "
+            f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace} "
             + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
                if state.get("followup_runs") else "") + "Decide the next step.")
     spent = len(state.get("round_summaries") or [])
@@ -10816,8 +10804,8 @@ def cmd_merge(argv):
     _, body, _ = taskfile.parse_task(run_dir / "task.md")
     cmds = with_suite(taskfile.done_when(body, run_dir / "task.md"), state["worktree"],
                       state.get("target") or state.get("base"))
-    body += (project_lessons(state.get("repo") or None, state, log)
-             + repo_rules(state["worktree"], state.get("base_sha"), state, log))
+    body += (project_lessons(state.get("repo") or None)
+             + repo_rules(state["worktree"], state.get("base_sha")))
     run_record.save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
@@ -11856,7 +11844,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         print(launch_line(run_dir.name, title, None, reviewer,
                           self_review=bool(is_own and same_model(cfg, orchestrator,
                                                                  reviewer))))
-    body += project_lessons(repo, state, log) + repo_rules(wt, base_sha, state, log)
+    body += project_lessons(repo) + repo_rules(wt, base_sha)
     run_record.save_state(run_dir, state)
     context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)

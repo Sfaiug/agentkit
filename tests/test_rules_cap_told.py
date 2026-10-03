@@ -1,4 +1,4 @@
-"""Clipped repository rules reach the launching seat in the run's ending."""
+"""Workers get whole base rules; changing an oversized rules body fails the round."""
 
 from contextlib import ExitStack
 import os
@@ -15,8 +15,6 @@ from fixtures.hand_in import submitting
 from agentkit import config, gc, record, run, worker
 
 TASK = "# Acme rules\n\n## Goal\nUse the repository rules.\n\n## Done when\n```bash\ntrue\n```\n"
-WARNING = "AGENTS.md over 8 KB; truncated"
-NOTICE = "reached the workers cut short at its 8 KB cap: tighten it."
 
 
 class RulesCapTold(unittest.TestCase):
@@ -39,8 +37,10 @@ class RulesCapTold(unittest.TestCase):
         self.git("init", "-q", "-b", "main")
         self.git("config", "user.name", "acme")
         self.git("config", "user.email", "acme@localhost")
+        self.git("commit", "-q", "--allow-empty", "-m", "acme base")
         self.path = self.repo / "AGENTS.md"
         self.logs, self.prompts = [], []
+        self.review_failures = 0
         for module, name, value in (
                 (gc, "disk_pressure", False), (run, "launch_session", None),
                 (run, "collect_usage", {}), (run, "pick_models", ("opus", "astra")),
@@ -61,9 +61,14 @@ class RulesCapTold(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def worker(self, cfg, name, body, workspace, out_dir, role, session, **_kw):
-        self.prompts.append(body)
-        text = ("VERDICT: PASS\n## Findings\n- none\n" if role.startswith("reviewer")
-                else "## Summary\nAcme work.\n")
+        self.prompts.append((role, body))
+        if role.startswith("reviewer"):
+            verdict = "FAIL" if self.review_failures else "PASS"
+            self.review_failures = max(0, self.review_failures - 1)
+            finding = "deliverable:1 - acme defect - breaks callers" if verdict == "FAIL" else "none"
+            text = f"VERDICT: {verdict}\n## Findings\n- {finding}\n"
+        else:
+            text = "## Summary\nAcme work.\n"
         (workspace / "deliverable").write_text("acme\n")
         return 0, text, "acme-session", False
 
@@ -78,69 +83,141 @@ class RulesCapTold(unittest.TestCase):
         self.assertEqual(state["state"], "pass", self.logs)
         return record.read_state(directory), directory
 
-    def test_run_records_the_cut_and_tells_the_seat_after_resume(self):
-        self.commit_rules("---\nusers: none\n---\n" + "x" * run.RULES_CAP + "OMITTED")
+    def loop(self, cmds=("true",)):
+        directory = config.RUNS / "rules-check"
+        directory.mkdir()
+        (directory / "task.md").write_text(TASK)
+        state = {"base": "main", "base_sha": self.git("rev-parse", "HEAD"), "rounds": 1,
+                 "executor": "opus", "reviewer": "astra", "round_summaries": []}
+        lp = run.Loop(self.cfg, directory, state, {}, self.logs.append,
+                      self.repo, TASK, list(cmds), TASK, [])
+        lp.rnd = 1
+        lp.round_dir.mkdir()
+        return lp
+
+    def test_workers_get_whole_base_rules_across_rounds_and_resume(self):
+        body = "x" * run.RULES_CAP + "éLAST RULE"
+        self.commit_rules("---\nusers: none\n---\n" + body)
+        self.review_failures = 1
         state, directory = self.launch()
-        self.assertTrue(state["rules_truncated"])
-        self.assertEqual(len(self.prompts), 2)
-        for prompt in self.prompts:
-            self.assertIn("x" * run.RULES_CAP, prompt)
-            self.assertNotIn("OMITTED", prompt)
-        # Worker edits and a shorter live file cannot undo what the base commit supplied.
+        self.assertEqual([role for role, _ in self.prompts],
+                         ["executor", "reviewer", "fixer", "reviewer"])
+        for role, prompt in self.prompts:
+            self.assertIn(body, prompt, role)
+            self.assertNotIn("users: none", prompt)
+        self.assertNotIn("rules_truncated", state)
+        # A shorter live file cannot undo what the base commit supplied.
         (Path(state["worktree"]) / "AGENTS.md").write_text("Short rules.\n")
         self.path.write_text("Short rules.\n")
         state, directory = self.launch(prior=state)
-        self.assertEqual(self.logs.count(WARNING), 1)
-        line = run.handback_line(state, directory, self.cfg)
-        self.assertEqual(line.count(NOTICE), 1)
-        self.assertIn(f" {self.path} {NOTICE} Decide the next step.", line)
+        self.assertIn(body, run.repo_rules(Path(state["worktree"]), state["base_sha"]))
+        self.assertFalse(any("truncated" in line for line in self.logs))
+        self.assertNotIn("cut short", run.handback_line(state, directory, self.cfg))
 
-    def test_rules_and_lessons_share_the_notice(self):
-        ref = self.commit_rules("x" * (run.RULES_CAP + 1))
-        state = {"repo": str(self.repo), "state": "blocked", "error": "acme ending"}
+    def test_handback_ignores_legacy_cut_state_for_both_files(self):
+        self.commit_rules("x" * (run.RULES_CAP + 1))
+        state = {"repo": str(self.repo), "state": "blocked", "error": "acme ending",
+                 "rules_truncated": True, "lessons_truncated": True}
         lessons = config.HOME / "lessons" / "acme.md"
         lessons.parent.mkdir(parents=True)
         lessons.write_text("x" * (run.LESSONS_CAP + 1))
-        run.project_lessons(self.repo, state, self.logs.append)
-        run.repo_rules(self.repo, ref, state, self.logs.append)
         line = run.handback_line(state, config.RUNS / "acme-run", self.cfg)
-        self.assertIn(f" {self.path} {NOTICE}", line)
-        self.assertIn(f" {lessons} {NOTICE.replace('8 KB', '4 KB')}", line)
-        lessons.write_text("Short lessons.\n")
-        line = run.handback_line(state, config.RUNS / "acme-run", self.cfg)
-        self.assertIn(f" {self.path} {NOTICE}", line)
+        self.assertNotIn("cut short", line)
+        self.assertNotIn(str(self.path), line)
         self.assertNotIn(str(lessons), line)
 
-    def test_cap_counts_only_body_bytes_and_accepts_the_exact_limit(self):
-        ref = self.commit_rules("---\nnotes: " + "x" * run.RULES_CAP + "\n---\n"
-                                + "é" * (run.RULES_CAP // 2) + "\n")
-        state = {"repo": str(self.repo), "state": "blocked", "error": "acme ending"}
-        section = run.repo_rules(self.repo, ref, state, self.logs.append)
-        self.assertIn("é" * (run.RULES_CAP // 2), section)
+    def test_added_oversized_body_fails_checks_and_resume_in_any_repo(self):
+        lp = self.loop()
+        self.path.write_text("é" * (run.RULES_CAP // 2) + "x")
+        ok, text = run.verify_work(lp)
+        failure = (f"AGENTS.md body is {run.RULES_CAP + 1} bytes, past its "
+                   f"{run.RULES_CAP}-byte cap: tighten it.")
+        self.assertFalse(ok, text)
+        self.assertIn("[exit 0]", text)
+        self.assertEqual(text.splitlines()[-1], failure)
+        self.assertEqual(run.first_failure(text), failure)
+        self.assertEqual((lp.round_dir / "donewhen.log").read_text(), text)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        lp.state["step"] = "reviewer"
+        self.assertEqual(run.settled_gate(lp), (False, text))
+
+    def test_front_matter_change_must_leave_existing_body_within_cap(self):
+        body = "x" * (run.RULES_CAP + 1)
+        self.commit_rules("---\nusers: none\n---\n" + body)
+        lp = self.loop()
+        self.path.write_text("---\nusers: all\n---\n" + body)
+        ok, text = run.verify_work(lp)
+        self.assertFalse(ok, text)
+        self.assertIn(f"AGENTS.md body is {len(body)} bytes", text)
+
+    def test_cap_counts_only_body_bytes_and_accepts_exact_limit(self):
+        lp = self.loop()
+        body = "é" * (run.RULES_CAP // 2)
+        self.path.write_text("---\nnotes: " + "x" * run.RULES_CAP + "\n---\n\n" + body + "\n")
+        ok, text = run.verify_work(lp)
+        self.assertTrue(ok, text)
+        section = run.repo_rules(self.repo, self.git("rev-parse", "HEAD"))
+        self.assertIn(body, section)
         self.assertNotIn("notes:", section)
-        self.assertNotIn("rules_truncated", state)
-        self.assertEqual(self.logs, [])
-        self.assertNotIn(NOTICE, run.handback_line(state, config.RUNS / "acme-run", self.cfg))
 
-    def test_cut_omits_partial_utf8_character(self):
+    def test_untouched_oversized_base_body_passes_checks(self):
+        self.commit_rules("x" * (run.RULES_CAP + 1))
+        lp = self.loop()
+        (self.repo / "deliverable").write_text("acme\n")
+        ok, text = run.verify_work(lp)
+        self.assertTrue(ok, text)
+        self.assertNotIn("AGENTS.md body", text)
+
+    def test_removed_oversized_rules_pass_checks(self):
+        self.commit_rules("x" * (run.RULES_CAP + 1))
+        lp = self.loop()
+        self.path.unlink()
+        ok, text = run.verify_work(lp)
+        self.assertTrue(ok, text)
+
+    def test_cap_note_preserves_a_failing_commands_output(self):
+        cmd = "echo 'acme check failed'; false"
+        lp = self.loop(cmds=(cmd,))
+        self.path.write_text("x" * (run.RULES_CAP + 1))
+        ok, text = run.verify_work(lp)
+        self.assertFalse(ok, text)
+        self.assertIn("AGENTS.md body", text)
+        self.assertEqual(run.failing_checks(text), [[cmd, "acme check failed"]])
+        self.assertEqual(run.first_failure(text), f"`{cmd}` — acme check failed")
+
+    def test_fixer_gets_cap_failure_and_reviewer_pass_is_overridden(self):
+        lp = self.loop()
+        lp.rnd = 0
+        fixes = []
+
+        def execute(lp, role, text, name, **_kw):
+            lp.round_dir.mkdir(exist_ok=True)
+            if role == "executor":
+                self.path.write_text("x" * (run.RULES_CAP + 1))
+            else:
+                fixes.append(text)
+            return "## Summary\nAcme work."
+
+        with patch.object(run, "execute", side_effect=execute), \
+                patch.object(run, "pickup_new_code", return_value=False):
+            run.rounds(lp)
+        self.assertEqual(len(fixes), 1)
+        self.assertIn(f"AGENTS.md body is {run.RULES_CAP + 1} bytes", fixes[0])
+        self.assertEqual(lp.state["verdict"], "FAIL")
+        self.assertFalse(lp.state["review"]["done_when"])
+        self.assertIn("overridden", lp.state["review"])
+
+    def test_whole_rules_preserve_utf8_across_the_old_cut(self):
         ref = self.commit_rules("a" * (run.RULES_CAP - 1) + "éOMITTED")
-        state = {}
-        section = run.repo_rules(self.repo, ref, state, self.logs.append)
-        self.assertTrue(section.endswith("a" * (run.RULES_CAP - 1) + "\n"))
-        self.assertNotIn("é", section)
-        self.assertNotIn("OMITTED", section)
-        self.assertTrue(state["rules_truncated"])
+        section = run.repo_rules(self.repo, ref)
+        self.assertTrue(section.endswith("a" * (run.RULES_CAP - 1) + "éOMITTED\n"))
 
-    def test_missing_or_empty_rules_add_no_notice(self):
+    def test_missing_or_empty_rules_add_nothing(self):
         for text in ("", "---\nusers: none\n---\n"):
             ref = self.commit_rules(text)
-            state = {}
-            self.assertEqual(run.repo_rules(self.repo, ref, state, self.logs.append), "")
-            self.assertNotIn("rules_truncated", state)
-        state = {}
-        self.assertEqual(run.repo_rules(self.repo, None, state, self.logs.append), "")
-        self.assertEqual(run.repo_rules(self.repo, "missing-ref", state, self.logs.append), "")
-        self.assertNotIn("rules_truncated", state)
+            self.assertEqual(run.repo_rules(self.repo, ref), "")
+        self.assertEqual(run.repo_rules(self.repo, None), "")
+        self.assertEqual(run.repo_rules(self.repo, "missing-ref"), "")
         self.assertEqual(self.logs, [])
 
 

@@ -130,7 +130,7 @@ class Rulebook(unittest.TestCase):
         front = run.FRONT.match(text)
         body = (text[front.end():] if front else text).strip().encode("utf-8")
         self.assertLessEqual(len(body), run.RULES_CAP,
-                             "AGENTS.md body exceeds RULES_CAP; workers would receive it cut short")
+                             "AGENTS.md body exceeds RULES_CAP; tighten it before committing")
 
     def test_this_host_s_own_rules_ride_along_after_the_repo_s(self):
         words = self.adapter("claude", "claude-opus-5", "high", seat="atoll")
