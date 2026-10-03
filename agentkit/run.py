@@ -3436,9 +3436,11 @@ def before_at_base(lp, row):
     if not before:
         return False
     named = re.match(r"(?:base\s+)?([^\s:]+)(?::|\s|$)", before)
-    if named and git(lp.wt, "rev-parse", "--verify", "--end-of-options",
-                     f"{named[1]}^{{commit}}", check=False) == lp.base_sha:
-        return True
+    if named:
+        commit = git(lp.wt, "rev-parse", "--verify", "--end-of-options",
+                     f"{named[1]}^{{commit}}", check=False)
+        if commit and git_out(lp.wt, "merge-base", "--is-ancestor", commit, lp.base_sha)[0] == 0:
+            return True
     code, content = git_out(lp.wt, "show", f"{lp.base_sha}:{row['path']}")
     return code == 0 and before in content
 
@@ -3492,7 +3494,7 @@ def weigh_review(lp, submitted, head=None):
                       "needs a --run proof that fails on base" if "run" not in evidence else
                       "the command did not fail on base" if not hand_in.proof_failed(
                           evidence.get("base", evidence)) else
-                      "--before names no base commit or quote present at base" if not before_at_base(lp, row)
+                      "--before names no commit in base's history or quote present at base" if not before_at_base(lp, row)
                       else "")
             if reason:
                 row.update(kind="note", dropped=reason)

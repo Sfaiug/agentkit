@@ -523,6 +523,25 @@ class FollowupEvidence(unittest.TestCase):
             self.assertIn("proof on base", text)
             self.assertNotIn("proof on branch", text)
 
+    def test_before_accepts_ancestor_commits_but_replays_on_the_recorded_base(self):
+        ancestor = self.base
+        run.git(self.wt, "tag", "old-base", ancestor)
+        run.git(self.wt, "checkout", "-q", "main")
+        (self.wt / "keep.txt").write_text("keep\na later base\n")
+        self.commit("Advance the base")
+        self.base = run.git(self.wt, "rev-parse", "HEAD")
+        self.lp.state["base_sha"] = self.base
+        run.git(self.wt, "checkout", "-q", "ak/fix-api")
+        before = (ancestor, f"base {ancestor[:7]}: old defect", "old-base")
+        self.assertEqual(self.review(*(self.followup(before=text) for text in before),
+                                     self.followup(before=self.head)), "PASS")
+        self.assertEqual(len(self.lp.state["followups"]), len(before))
+        for text in self.lp.state["followups"]:
+            self.assertIn(f"Commit {self.base}", text)
+            self.assertIn("proof on base", text)
+        self.assertEqual(len(self.lp.state["notes"]), 1)
+        self.assertIn("--before names no commit in base's history", self.lp.state["notes"][0])
+
     def test_a_followup_that_passes_on_base_is_dropped_and_published_as_a_note(self):
         self.assertEqual(self.review(self.followup(command=self.regression)), "PASS")
         self.assertEqual(self.lp.state["followups"], [])
@@ -536,7 +555,7 @@ class FollowupEvidence(unittest.TestCase):
             self.assertIn("Dropped follow-up", text)
             self.assertNotIn("## Follow-ups", text)
 
-    def test_before_must_name_the_recorded_base_or_a_quote_in_its_file(self):
+    def test_before_must_name_a_commit_in_base_history_or_a_quote_in_its_file(self):
         before = ("base deadbeef", f"base {self.head}", 'mode = "branch"',
                   "invented quote", "reviewer_only = True")
         self.assertEqual(self.review(*(self.followup(before=text, site="api.py:1") for text in before),
@@ -544,13 +563,13 @@ class FollowupEvidence(unittest.TestCase):
         self.assertEqual(self.lp.state["followups"], [])
         self.assertEqual(len(self.lp.state["notes"]), len(before))
         for note in self.lp.state["notes"]:
-            self.assertIn("--before names no base commit or quote present at base", note)
+            self.assertIn("--before names no commit in base's history or quote present at base", note)
 
     def test_a_quote_in_an_overlaid_test_is_not_a_quote_at_base(self):
         self.assertEqual(self.review(self.followup(
             site="tests/proof [1].py:5", before='assert api.mode == "base"')), "PASS")
         self.assertEqual(self.lp.state["followups"], [])
-        self.assertIn("--before names no base commit or quote present at base", self.lp.state["notes"][0])
+        self.assertIn("--before names no commit in base's history or quote present at base", self.lp.state["notes"][0])
 
     def test_a_followup_whose_command_cannot_run_on_base_is_dropped(self):
         commands = ("./absent", "./keep.txt")

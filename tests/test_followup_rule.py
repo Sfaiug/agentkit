@@ -95,7 +95,7 @@ class FollowupRule(unittest.TestCase):
                 self.assertIn(worker.GATE, preamble)
                 for words in ("of a kind that would fail a round, with that same evidence",
                               "existed before this task",
-                              "prove that by naming the base commit or quoting main as it was before the task",
+                              "prove that by naming the base or an ancestor commit, or quoting main as it was before the task",
                               "Hand in only these with `ak hand-in follow-up`",
                               "Omit everything else everywhere",
                               "however long the follow-ups list is"):

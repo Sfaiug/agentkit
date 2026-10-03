@@ -204,7 +204,7 @@ def checked(argv, workspace, role="reviewer", findings=()):
     if ("--run" in flags) == ("--quote" in flags) or not (flags.get("--run") or flags.get("--quote") or "").strip():
         raise config.Error("supply evidence with exactly one of --run COMMAND or --quote LINES")
     if kind == "follow-up" and not flags.get("--before", "").strip():
-        raise config.Error("add --before with the recorded base commit or verbatim lines from the named file at base")
+        raise config.Error("add --before with the base or an ancestor commit, or verbatim lines from the named file at base")
     if kind != "follow-up" and "--before" in flags:
         raise config.Error("use follow-up for a defect that existed before the task")
     root, path, line = checked_site(site, workspace, flags.get("--quote"))

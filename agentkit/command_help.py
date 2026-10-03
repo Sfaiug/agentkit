@@ -26,7 +26,7 @@ COMMANDS = {
                 "Paths and lines must exist in the checkout; a quote must occur in that file.\n"
                 "--run executes in the checkout and records bounded output excerpts and the exit status.\n"
                 "A finding's command must fail while the defect exists; ak re-runs it on commit and base.\n"
-                "A follow-up's command must run and fail on base; --before names that commit or verbatim lines in its file.\n"
+                "A follow-up's command must run and fail on base; --before names the base or an ancestor commit, or verbatim lines in its file at base.\n"
                 "Unproven follow-ups are dropped into Notes.\n"
                 "Only a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\n"
                 "ak gives the next reviewer the dispute and its own proof output beside the finding.\n"
