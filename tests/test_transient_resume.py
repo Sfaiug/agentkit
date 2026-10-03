@@ -20,7 +20,9 @@ class TransientResume(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix=".ak-test-transient-resume-", dir=REPO)
         self.addCleanup(self.tmp.cleanup)
-        root = Path(self.tmp.name)
+        # Retry output paths need two sandboxed parents for the run's recovery lock.
+        root = Path(self.tmp.name) / "round-1"
+        root.mkdir()
         self.root = root
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
