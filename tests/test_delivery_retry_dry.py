@@ -72,14 +72,15 @@ class DeliveryRetryDry(unittest.TestCase):
                 patch.object(run.shutil, "which", return_value="/fixture/gh"), \
                 patch.object(run.landing, "start_line"), \
                 patch.object(run, "fix_final_check", side_effect=landing_review), \
+                patch.object(run, "gh", side_effect=AssertionError("GitHub delivery")), \
                 patch.object(run, "call_retrying", side_effect=reviewer_turn) as turn, \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_merge([run_dir.name]), 0)
             state = record.read_state(run_dir)
             lp = run.Loop(config.load(), run_dir, state, {}, lambda _: None,
-                          self.wt, "", ["false"], "", [])
+                          self.wt, "", ["false  # once"], "", [])
             self.assertEqual(landing(lp, consume=lambda _: run.cmd_resume([run_dir.name])), 1)
-        self.assertEqual(turn.call_count, 1, record.read_state(run_dir))
+        self.assertEqual(turn.call_count, 1)
         saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
         self.assertEqual(saved["error"], str(exc))

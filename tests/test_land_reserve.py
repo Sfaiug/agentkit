@@ -1,4 +1,4 @@
-"""A run that lost a landing lap holds the merge turn through its next lap.
+"""A fork delivery that lost a landing lap holds the merge turn through its next lap.
 
 Offline: real throwaway git repos under a temp dir with a bare `origin`, fake
 done-when commands that record what they saw, and a temporary HOME. No network,
@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
+from fixtures.landing import fork_landing
 from agentkit import gate, host, config, run, watch
 from agentkit import record
 
@@ -216,7 +217,7 @@ class LandingCase(unittest.TestCase):
     def land(self, lp, results):
         def body():
             try:
-                results[lp.state["run_id"]] = run.merge(lp)
+                results[lp.state["run_id"]] = fork_landing(lp)
             except BaseException as exc:      # the assertion below names it
                 results[lp.state["run_id"]] = exc
         thread = threading.Thread(target=body, daemon=True)
@@ -320,7 +321,7 @@ class LandReserve(LandingCase):
             lp.round_dir.mkdir(parents=True, exist_ok=True)
             return "## Summary\nFixed."
         self.fixer = fixed
-        self.assertTrue(run.merge(lp))
+        self.assertTrue(fork_landing(lp))
         laps = [extra for run_id, extra in self.pickups if run_id == lp.state["run_id"]]
         self.assertEqual(laps, [{"land_lap": 1}, {"land_lap": 2}])
         acme_checks = [held for name, held in self.checks if name == "acme"]
@@ -344,7 +345,7 @@ class LandReserve(LandingCase):
         run.git(owner, "add", ".")
         run.git(owner, "commit", "-m", "outside")
         run.git(owner, "push", "origin", "main")
-        self.assertTrue(run.merge(direct))
+        self.assertTrue(fork_landing(direct))
         self.assertEqual([extra for _, extra in self.pickups], [{"land_lap": 1}])
         self.assertEqual([held for name, held in self.checks if name == "acme"], [False])
         self.assertEqual([held for name, held in self.rebases if name == "acme"], [False])
@@ -363,7 +364,7 @@ class LandReserve(LandingCase):
                 run.git(owner, "push", "origin", "main")
                 self.queuing = None
         self.queuing = outside
-        self.assertTrue(run.merge(disjoint))
+        self.assertTrue(fork_landing(disjoint))
         self.assertIn("none touching this branch's files",
                       (disjoint.run_dir / "log.txt").read_text())
         self.assertEqual([held for name, held in self.checks if name == "bravo"], [False])

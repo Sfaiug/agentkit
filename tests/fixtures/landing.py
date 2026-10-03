@@ -35,3 +35,17 @@ def landing(lp, deliver=None, *, checked=lambda: None, consume=None):
         lp.state["state"] = "running"
         lp.write()
         return act()
+
+
+def fork_landing(lp):
+    """Exercise the verification and lock path retained for forks, with fixture PR delivery."""
+    upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+
+    def deliver():
+        if not run.push(lp):
+            return False
+        url = run.open_pr(lp, upstream.removeprefix("origin/"))
+        return bool(url and run.wait_checks(lp, url) and run.do_merge(lp, url, upstream))
+
+    return run.land(lp, upstream,
+                    lambda: run.integrate(lp, upstream) and run.final_check(lp, upstream), deliver)

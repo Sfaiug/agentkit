@@ -1,4 +1,4 @@
-"""Passed runs of one repository verify on their own and take turns only to land.  Offline.
+"""Fork deliveries retain verification outside their repository’s merge turn. Offline.
 
 Real throwaway git repos under a temp dir with bare `origin`s; no network, no real harness.
 The done-when is a stub that counts its re-checks, the fixer and reviewer are stubs, and the
@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
+from fixtures.landing import fork_landing
 from agentkit import gate, host, config, run, watch
 from agentkit import record
 
@@ -225,10 +226,10 @@ class MergeTurn(unittest.TestCase):
         return True
 
     def land(self, lp, results):
-        """`merge` in a thread of its own, as a run's loop would call it."""
+        """The fork landing path in its own thread."""
         def body():
             try:
-                results[lp.state["run_id"]] = run.merge(lp)
+                results[lp.state["run_id"]] = fork_landing(lp)
             except BaseException as exc:      # the assertion below names it
                 results[lp.state["run_id"]] = exc
         thread = threading.Thread(target=body, daemon=True)
@@ -284,7 +285,7 @@ class MergeTurn(unittest.TestCase):
         lp = make_run(self.root, remote, "one")
         commit(owner, "outside.txt", "outside")   # verified on, and still there to land on
         run.git(owner, "push", "origin", "main")
-        self.assertTrue(run.merge(lp))
+        self.assertTrue(fork_landing(lp))
         self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt), ("checks", lp.wt)])
         self.assertNotIn(" moved ", (lp.run_dir / "log.txt").read_text())
         state = record.read_state(lp.run_dir)
@@ -366,7 +367,7 @@ class MergeTurn(unittest.TestCase):
         commit(owner, "outside.txt", "outside")   # so every lap has a rebase to re-check
         run.git(owner, "push", "origin", "main")
         self.queuing = self.overlapping(owner, "five")   # main edits the branch's file meanwhile
-        self.assertTrue(run.merge(lp))
+        self.assertTrue(fork_landing(lp))
         self.assertEqual(self.inside, [("recheck", lp.wt)])
         self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt),
                                        ("turn", lp.wt), ("recheck", lp.wt),
@@ -388,7 +389,7 @@ class MergeTurn(unittest.TestCase):
         commit(owner, "outside.txt", "outside")   # so every lap has a rebase to re-check
         run.git(owner, "push", "origin", "main")
         self.queuing = self.overlapping(owner, "5a", "5b", "5c")
-        self.assertFalse(run.merge(lp))
+        self.assertFalse(fork_landing(lp))
         self.assertEqual(self.inside, [("recheck", lp.wt), ("recheck", lp.wt)])
         self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt),
                                        ("turn", lp.wt), ("recheck", lp.wt), ("turn", lp.wt),
@@ -437,7 +438,7 @@ class MergeTurn(unittest.TestCase):
         again = make_run(self.root, remote, "two")
         commit(owner, "later.txt", "later")
         run.git(owner, "push", "origin", "main")
-        self.assertTrue(run.merge(again))
+        self.assertTrue(fork_landing(again))
         self.assertNotIn("waiting for the merge turn", (again.run_dir / "log.txt").read_text())
 
     def test_a_freed_turn_goes_to_first_then_to_the_longest_wait(self):
