@@ -80,9 +80,11 @@ class LandingLine(Sandbox):
         self.ended("other-repo", state="waiting", waiting_on={
             "line": run.merge_turn_lock("https://github.com/acme/other.git", "origin/main").name,
             "joined": 0})
-        self.ended("other-target", state="waiting", waiting_on={
+        release = self.ended("other-target", state="waiting", target="origin/release", waiting_on={
             "line": run.merge_turn_lock("https://github.com/acme/widget.git", "origin/release").name,
             "joined": 0})
+        self.assertEqual(run.parked_line(record.read_state(release)),
+                         "waiting · 1st in line to land on release")
         self.ended("already-landed", merged=True, waiting_on={"line": self.line, "joined": 0})
         self.ended("conflict", state="waiting", waiting_on={"ref": "origin/main", "sha": "0" * 40})
         for position in ("1st", "2nd", "3rd", "11th", "12th", "13th", "21st", "22nd", "23rd"):
@@ -99,9 +101,10 @@ class LandingLine(Sandbox):
         config.save_session(self.cfg, "seat", "fable", ["astra"])
         state = record.read_state(directory)
         sentence = "waiting · 3rd in line to land on main"
-        with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status([directory.name]), 0)
-        self.assertIn(sentence, out.getvalue())
+        for flags in ([], ["--plain"], ["--why"]):
+            with self.subTest(flags=flags), redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(run.cmd_status([directory.name, *flags]), 0)
+            self.assertIn(sentence, out.getvalue())
         session = {"name": "seat", "created": 1}
         answer = watch.session_state("seat", 200000, session=session, cfg=self.cfg,
                                      records=[(directory, state)], live={}, harness=None,

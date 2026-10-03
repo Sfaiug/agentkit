@@ -1024,11 +1024,11 @@ def last_column(word, reason, done, total, estimate=None, narrow=False):
     """The one last column of a seat's row, and of its status bar.
 
     For `needs you` and `done` the reason from the state function; for `working`
-    its place in the landing line, else `tasks ` plus the bar plus ` <done>/<total>` when `seat_progress` finds a plan or
-    an unfinished job, else empty -- never `N running`. The bar shortens to 4 cells on a
+    its place in the landing line, else `tasks ` plus the bar plus ` <done>/<total>`
+    when `seat_progress` finds a plan or an unfinished job, else empty -- never `N running`.
+    The bar shortens to 4 cells on a
     narrow screen, and carries the remaining-plan estimate where history knows one.
     The row and the bar read this one function, so the two can never disagree.
-    A landing wait names what is still going.
     """
     if word != "working" or (reason or "").startswith("waiting · "):
         return terminal.plain(reason or "")
@@ -1042,10 +1042,9 @@ def _last_text(info, narrow=False):
     """The row's one last column: reason, tasks bar, or empty.
 
     For `needs you` and `done` the reason from the state function; for `working`
-    its place in the landing line, else `tasks ` plus the bar plus ` <done>/<total>` when `seat_progress` finds a plan or
-    an unfinished job, else empty. The bar shortens to 4 cells on a
+    its place in the landing line, else `tasks ` plus the bar plus ` <done>/<total>`
+    when `seat_progress` finds a plan or an unfinished job, else empty. The bar shortens to 4 cells on a
     narrow screen, and carries the remaining-plan estimate where history knows one.
-    A landing wait names what is still going.
     """
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)

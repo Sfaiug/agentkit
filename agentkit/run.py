@@ -8187,7 +8187,8 @@ def needs_recovery(state):
 
     A resume leaves `recovery_pending` on the record it starts from, so an attempt that ends
     `blocked` would otherwise be offered for recovery it is refused -- see `cmd_resume`.
-    A `stopped` run is a deliberate end, never an accident to offer back.
+    A `stopped` run is a deliberate end, never an accident to offer back. Line
+    members belong to the lander even if an earlier attempt left a recovery mark.
     """
     return (not landing_line(state) and
             state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
@@ -9241,8 +9242,8 @@ def parked_line(state, run_id=None, now=None):
     An error with a scheduled retry names its hour (`error · retry 14:32`, or
     `retry due` once the hour has passed and the tick just has not fired yet); a
     `waiting` run names its place in the landing line or the merge it waits for;
-    an `exhausted` run off a dead
-    reviewer names the reviewer it waits for.  A quota run already says its
+    an `exhausted` run off a dead reviewer names the reviewer it waits for.
+    A quota run already says its
     window on the waiting line, and a stalled one its stall lines, so neither
     says anything here. An admitted ending also names the conditions that let
     the tick take it up. Anything parked with no scheduled resume says who it
@@ -10089,7 +10090,9 @@ def cmd_status(argv):
                 from . import terminal as _terminal
                 line += f"  {_terminal.styled(waiting, 'dim')}"
             print(line)
-            if state.get("state") == "queued":
+            if landing_line(state):
+                print(f"  {parked_line(state, d.name)}")
+            elif state.get("state") == "queued":
                 print(f"  {slot_note(state)}")
             elif merge_turn_note(state):
                 print(f"  {merge_turn_note(state)}")
