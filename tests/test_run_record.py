@@ -313,6 +313,20 @@ class Tick(Fixture):
                 self.assertNotEqual((self.run_dir / "run.json").read_bytes(), self.between)
                 self.assertTrue(record.read_state(self.run_dir)["handback_pending"])
 
+    def test_waiting_pass_leaves_a_member_that_joined_after_its_first_read(self):
+        path = self.run_dir / "run.json"
+
+        def joined():
+            state = json.loads(path.read_text())
+            state["waiting_on"] = {"line": run.merge_turn_lock(
+                "https://github.com/acme/widget.git", "origin/main").name, "joined": self.NOW}
+            path.write_text(json.dumps(state))
+
+        logs = self.tick({"state": "waiting", "worktree": str(self.root / "gone")},
+                         lambda log: watch.resume_waiting(log=log, now=self.NOW), joined)
+        self.assertEqual(path.read_bytes(), self.between)
+        self.assertEqual(logs, [])
+
     def test_a_launch_leaves_a_record_it_cannot_read_as_it_is_and_says_so(self):
         # unreadable after the start: the child owns the run now, so the launch stands
         launch = lambda log: self.assertEqual(watch.launch_resume(self.run_dir.name, log), 4242)

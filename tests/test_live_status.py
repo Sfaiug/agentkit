@@ -55,7 +55,14 @@ class LiveStatus(unittest.TestCase):
         self.addCleanup(self.stack.close)
         # a menu leaves its reads and looks going: they end before this HOME goes
         threads = set(threading.enumerate())
-        self.addCleanup(lambda: [thread.join(15) for thread in set(threading.enumerate()) - threads])
+
+        def settle():
+            for thread in set(threading.enumerate()) - threads:
+                # enumerate includes threads whose start() is still waiting for bootstrap.
+                self.assertTrue(thread._started.wait(15), f"{thread.name} did not start")
+                thread.join(15)
+
+        self.addCleanup(settle)
         # laid out the way a process whose HOME this is lays it out, so the hook's own
         # process and this one read and write the same files
         self.stack.enter_context(patch.dict(os.environ, {

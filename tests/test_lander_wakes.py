@@ -350,6 +350,7 @@ class LanderWakes(Sandbox):
         self.verdicts = iter(["PASS"] * 3)
         self.park(broken=True)
         for red in range(1, 5):
+            last_log = record.read_state(self.directory)["waiting_on"]["fix"]["log"]
             with patch.object(run.time, "time", return_value=10000 + red):
                 self.assertEqual(run.cmd_resume([self.directory.name]), 0 if red < 4 else 1)
             state = record.read_state(self.directory)
@@ -362,7 +363,7 @@ class LanderWakes(Sandbox):
         self.assertTrue(state["merge_failed"])
         self.assertIn("landing failed four times", state["merge_note"])
         self.assertIn(SUITE, state["merge_note"])
-        self.assertIn("lander.log", state["merge_note"])
+        self.assertIn(last_log, state["merge_note"])
         self.assertEqual(len(self.events), 6)
 
     def assert_conflict(self, method):

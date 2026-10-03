@@ -187,11 +187,14 @@ def _reclaimable_mb(path):
     return None
 
 
-def _unit_memory_limits(cgroup_file=None, cgroup_root=None):
+def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False, hard=False):
     """The nearest ancestor with a finite memory.high, as one (used, high, raw, name).
 
     The used figure excludes reclaimable file cache. An empty list means
-    no finite limit or no reading of its use.
+    no finite limit or no reading of its use. With `all_limits`, include each
+    enclosing limit, memory.max too: a child cannot spend its parent's headroom.
+    With `hard`, read only enclosing memory.max caps and count file cache too,
+    since those bytes count toward OOM.
     """
     try:
         relative = next(line.split("::", 1)[1] for line in
@@ -201,21 +204,26 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None):
         return []
     root = cgroup_path(cgroup_root=cgroup_root)
     current = root / relative.lstrip("/")
+    limits = []
     while current == root or root in current.parents:
-        high = _read_number(current / "memory.high", bytes_to_mb=True)
+        high = _read_number(current / ("memory.max" if hard else "memory.high"),
+                            bytes_to_mb=True)
+        if all_limits and not hard:
+            cap = _read_number(current / "memory.max", bytes_to_mb=True)
+            if cap is not None:
+                high = min(high, cap) if high is not None else cap
         if high is not None:
             raw = _read_number(current / "memory.current", bytes_to_mb=True)
-            if raw is None:
-                return []
-            cache = _reclaimable_mb(current / "memory.stat")
-            if cache is None:
-                return []
-            return [(max(0.0, raw - cache), high, raw,
-                     current.name if current != root else "/")]
+            cache = 0 if hard else _reclaimable_mb(current / "memory.stat")
+            if raw is not None and cache is not None:
+                limits.append((max(0.0, raw - cache), high, raw,
+                               current.name if current != root else "/"))
+            if not (all_limits or hard):
+                return limits
         if current == root:
             break
         current = current.parent
-    return []
+    return limits
 
 
 def _pressure_avg10(text):
@@ -242,6 +250,39 @@ def _slice_cpu_pressure(slice_dir):
         return _pressure_avg10((slice_dir / "cpu.pressure").read_text())
     except OSError:
         return None
+
+
+def _cpu_pressure(paths, delay):
+    """Current CPU stall percentage over a measured window, across the named groups.
+
+    PSI's cumulative `some total` catches contention now, including short bursts
+    the ten-second average dilutes. Missing or reset counters are no reading.
+    """
+    def totals():
+        readings = {}
+        for path in paths:
+            try:
+                for line in path.read_text().splitlines():
+                    if line.startswith("some "):
+                        for field in line.split():
+                            if field.startswith("total="):
+                                readings[path] = int(field.split("=", 1)[1])
+            except (OSError, ValueError):
+                continue
+        return readings
+
+    first = totals()
+    if not first:
+        return None
+    began = time.monotonic()
+    time.sleep(delay)
+    second = totals()
+    elapsed = time.monotonic() - began
+    if elapsed <= 0:
+        return None
+    rates = [(value - first[path]) / (elapsed * 10000) for path, value in second.items()
+             if path in first and value >= first[path]]
+    return max(rates) if rates else None
 
 
 def _slice_cpu_stat(slice_dir):
@@ -342,10 +383,13 @@ def _slice_memory(cgroup):
         return None
 
 
-def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=None):
+def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=None,
+                  pressure_window=None, all_limits=False):
     """Host and caller-named cgroup readings; an injected snapshot avoids all reads.
 
     `slice_dir` may be a directory or a callable locating it after injection is checked.
+    `pressure_window` samples live CPU stalls on the host, slice and caller's cgroup;
+    `all_limits` includes hard memory caps and enclosing groups.
     """
     if source is not None:
         readings = source() if callable(source) else source
@@ -360,7 +404,7 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
             pass
     meminfo = {}
     try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
+        for line in (PROC / "meminfo").read_text().splitlines():
             key, _, value = line.partition(":")
             fields = value.split()
             if fields:
@@ -368,14 +412,17 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     except (OSError, ValueError, IndexError):
         pass
     try:
-        load = float(Path("/proc/loadavg").read_text().split()[0])
+        load = float((PROC / "loadavg").read_text().split()[0])
     except (OSError, ValueError, IndexError):
         load = None
     if callable(slice_dir):
         slice_dir = slice_dir()
-    limits = _unit_memory_limits(cgroup_file, cgroup_root)
+    limits = _unit_memory_limits(cgroup_file, cgroup_root, all_limits=all_limits)
+    caps = _unit_memory_limits(cgroup_file, cgroup_root, hard=True)
     readings = {"free_mb": meminfo.get("MemAvailable"), "mem_total_mb": meminfo.get("MemTotal"),
                 "load": load, "cpus": cpu_count(), "unit_limits": limits,
+                "unit_memory_max_headroom_mb": min((cap - used for used, cap, _, _ in caps),
+                                                   default=None),
                 "slice_cpu_pressure": _slice_cpu_pressure(slice_dir),
                 "slice_cpu_stat": _slice_cpu_stat(slice_dir)}
     if limits and isinstance(limits[0], (tuple, list)) and len(limits[0]) >= 4:
@@ -402,6 +449,14 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
         readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = mem
     else:
         readings["slice_memory_used_mb"] = readings["slice_memory_high_mb"] = None
+    if pressure_window is not None:
+        paths = {PROC / "pressure/cpu"}
+        if slice_dir is not None:
+            paths.add(slice_dir / "cpu.pressure")
+        own = process_cgroup(cgroup_file=cgroup_file)
+        if own is not None:
+            paths.add(cgroup_path(own, cgroup_root) / "cpu.pressure")
+        readings["cpu_pressure"] = _cpu_pressure(paths, pressure_window)
     return readings
 
 

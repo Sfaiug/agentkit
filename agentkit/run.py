@@ -1280,8 +1280,8 @@ def harness_said(out_dir, text, harness, failures_only=False):
 def ran_dry(code, said, harness, refusal=False):
     """The harness's own word for a spent provider window in this exit, or None.
 
-    Its words and not ours: they come from `[stall] quotas` in adapters/<harness>.toml, the
-    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`);
+    They come from the harness package's shared `[stall] quotas` beside the adapter's own,
+    read off a seat's screen the same way, each a whole word (`Harness.failure`);
     a LIMITED one parks a worker's account as a SPENT one does.
     A non-zero exit is as required here as it is for `transient`, because a worker that exited
     0 said what it meant to say.  The scoped terminal refusal path may pass ``refusal`` for an
@@ -3154,15 +3154,20 @@ def repair_open(state, tip):
         and not state.get("merged") and state.get("repair_tip") == tip)
 
 
-def open_followup(state, text, repair=None, tip=None):
+def open_followup(state, text, repair=None, tip=None, split=None):
     """The open run already fixing `text`, or None.
 
     A follow-up is the same site in the same repository from the same seat.  A `repair` is
     the same repository, target and command from any seat, open at the target's `tip`: the
-    target is everybody's.
+    target is everybody's. A suite split holds its line forever, and its repository while open.
     """
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
+        if split:
+            if (other.get("repo") == state.get("repo") and other.get("split_suite")
+                    and (other["split_suite"] == split or followup_open(other))):
+                return directory.name
+            continue
         if (other.get("run_id") != state.get("run_id") and other.get("followup")
                 and other.get("repo") == state.get("repo")
                 and other.get("repair") == repair
@@ -3174,7 +3179,7 @@ def open_followup(state, text, repair=None, tip=None):
     return None
 
 
-def start_followups(state, run_dir, log, cfg=None, repair=None):
+def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     """A merge starts ordinary runs, once, under the same lock that closes the seat.
 
     The receipt is the duplicate guard even while admission waits. There is no collector
@@ -3187,14 +3192,16 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
     is an open repair of the same repository, target and command instead of a receipt.
     Returns the repair's run, started, already open, or left queued by a launch that
     raised, or None when none is.
+    A slow suite's `split` starts the same way, with ak's task and check. Its cost record
+    keeps the receipt even after run retention, whatever the run's ending.
     """
     session = launched_session(state)
-    if (not (repair or state.get("merged") and state.get("followups")) or not session
+    if (not (repair or split or state.get("merged") and state.get("followups")) or not session
             or not state.get("repo") or state.get("scratch")
             or (state.get("review_pr") and not state.get("own_pr"))):
         return None
     with watch.state_lock():
-        if not repair:
+        if not (repair or split):
             current = run_record.read_state(run_dir) or state
             if "followup_runs" in current:
                 state["followup_runs"] = current["followup_runs"]
@@ -3208,15 +3215,22 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
             return None
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
+        if split:
+            previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
+            if previous:
+                return previous
         key = repair and {"target": target, "command": repair["command"]}
-        for item in [repair["text"]] if repair else state["followups"]:
+        request = repair or split
+        for item in [request["text"]] if request else state["followups"]:
             source = {**state, "repo": str(repo)}
-            opened = open_followup(source, item, key, repair and repair["sha"])
-            if opened and repair:
+            opened = open_followup(source, item, key, repair and repair["sha"],
+                                   split and split["command"])
+            if opened and request:
                 return opened
             if opened:
                 continue
-            title = (f"Make {target} pass `{repair['command']}` again" if repair
+            title = ("Split the slow test suite" if split else
+                     f"Make {target} pass `{repair['command']}` again" if repair
                      else "Fix " + item.splitlines()[0])
             if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
                 title = title[:255] + "…"
@@ -3231,7 +3245,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                 check = shlex.quote(str(directory / "regression.sh"))
                 task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
                         f"# {title}\n\n{item}\n\n")
-                if repair:
+                if split:
+                    task += f"## Done when\n```bash\n{split['check']}\n```\n"
+                elif repair:
                     task += (
                         "First fetch the target branch and run the command on its tip. If it "
                         'passes there now, run `ak hand-in not-needed "<why>"`, '
@@ -3267,6 +3283,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                                                    "place": followup_place(item)},
                                        **({"repair": key, "repair_tip": repair["sha"]}
                                           if repair else {}),
+                                       **({"split_suite": split["command"]} if split else {}),
                                        "launched_session": session, "repo": str(repo),
                                        **{role: list(lists[role]) for role in ("workers", "reviewers")
                                           if isinstance(lists.get(role), list) and lists[role]},
@@ -3274,7 +3291,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                                           if state.get("notify_sink") else {})})
                 opts = {"--rounds": None, "--exec": None, "--review": None,
                         "--review-pr": None, "--no-worktree": False, "--no-merge": False,
-                        "--bg": True, **({"--first": True} if repair else {})}
+                        "--bg": True, **({"--first": True} if request else {})}
+                if split:
+                    gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
                 prepare(directory, opts, logger(directory, True), cfg)
                 spawn_bg(directory, [str(directory / "task.md")])
             except run_record.StopRequested as exc:
@@ -3282,13 +3301,15 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                 return None
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
+                if split:
+                    return directory.name
                 if repair:
                     # a launch that raised can leave its receipt queued for a slot, and the
                     # tick starts that: it is the repair all the same
                     return directory.name if repair_open(run_record.read_state(directory) or {},
                                                          repair["sha"]) else None
                 continue
-            if repair:
+            if request:
                 return directory.name
             try:
                 state["followup_runs"].append(directory.name)
@@ -3358,6 +3379,8 @@ def failing_checks(dw_log):
     """
     found, failing = [], None
     for record in (dw_log or "").split("\n\n"):
+        if record.startswith("flaky: "):
+            continue
         match = re.match(r"\$ ([^\n]*)\n\[([^\]\n]*)\]", record)
         if match:
             # a marker counts only at the start of a record, as `done_when_counts` reads it;
@@ -3388,6 +3411,8 @@ def first_failure(dw_log):
     """
     failing, named, last, note = None, None, None, None
     for record in (dw_log or "").split("\n\n"):
+        if record.startswith("flaky: "):
+            continue
         match = re.match(r"\$ ([^\n]*)\n\[([^\]\n]*)\]", record)
         if match:
             if failing is not None:
@@ -5310,17 +5335,18 @@ def target_fails(lp, upstream, dw_log):
             if rc != 0:
                 return None
             lp.log(f"--- merge: `{cmd}` failed; probing it once on {where} ({sha[:12]})")
-            with gate.gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
+            with gate.gate_turn(lp.run_dir, probe_log, lp.log, cmd, lp.wt) if heavy_probe else nullcontext():
                 began = time.monotonic()    # from the turn, not the wait
                 while True:
                     with probe_log.open("ab") as progress:
                         progress.write(f"$ {cmd} (on {where} {sha})\n".encode())
                         progress.flush()
                         start = progress.tell()
-                        code, _, killed = worker.limited(
-                            ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
+                        code, _, killed = gate.run_suite(
+                            cmd, lp.done_when_limit, silence=lp.turn_limit,
                             activity=probe_log, output=progress, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=gate.suite_env())
+                            stdin=subprocess.DEVNULL, cwd=str(lp.wt), run_dir=lp.run_dir,
+                            log=lp.log)
                     # busy is no answer: the turn goes back until the suite runs
                     if (not heavy_probe or code != gate.SUITE_BUSY or killed
                             or time.monotonic() - began > lp.done_when_limit):
@@ -5418,8 +5444,6 @@ def final_check(lp, upstream):
     A command red on the target's tip and green on the old base parks without a
     fixer round.  When those commits are the same, only the tip is probed.
     """
-    if not lp.once:
-        return True
     try:
         now = git(lp.wt, "rev-parse", "HEAD")
     except (Stopped, config.Error):
@@ -5437,14 +5461,24 @@ def final_check(lp, upstream):
     fixed = 0       # the fixer rounds this run has spent on these commands here
     while True:
         sha = git(lp.wt, "rev-parse", "HEAD")
+        suite, shared = declared_suite(lp.wt, lp.target), None
+        # A rebase or fixer can change the declaration loaded into lp.once. Rebuild
+        # it from the task so only the inherited suite is replaced, including for probes.
+        task = lp.run_dir / "task.md"
+        if task.is_file():
+            _, body, _ = taskfile.parse_task(task)
+            _, lp.once = taskfile.done_when_groups(body, task)
+        if suite and suite not in lp.once:
+            lp.once.append(suite)
+        if not lp.once:
+            return True
         if getattr(lp, "lap_every_sha", None) == sha:
             # the lap already ran the task checks on this commit and they passed;
             # running them again would check nothing new
             cmds_every, cmds_once = [], list(lp.once)
         else:
             cmds_every, cmds_once = list(lp.every), list(lp.once)
-        suite, shared = declared_suite(lp.wt, lp.target), None
-        if suite and suite in cmds_once:
+        if suite:
             shared = suite_shared(lp, upstream, sha, suite, together=not fixed)
             if shared:
                 cmds_once.remove(suite)
@@ -5464,6 +5498,7 @@ def final_check(lp, upstream):
         ok_once, text_once = gate.run_done_when(
             cmds_once, lp.wt, log_path, lp.artifacts, max(0, left), lp.log,
             silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True) if cmds_once else (True, "")
+        gate.split_suite_run(lp, suite)
         ok = ok_every and ok_once
         text = "\n\n".join(part.strip() for part in (text_every, text_once) if part.strip())
         if (not clean or commit_identity(lp.wt) != identity
@@ -6675,13 +6710,6 @@ def diff_lines(repo, base, head="HEAD"):
             total += sum(lines for (_, lines), attr in zip(changes, attrs)
                          if attr.lower() not in ("set", "true"))
     return total
-
-
-def refuse_pr_size(repo, base, head):
-    size = diff_lines(repo, base, head)
-    ceiling, _ = history.pr_ceiling()
-    if ceiling is not None and size > ceiling:
-        raise config.Error(f"PR has {size} changed lines, over the {ceiling}-line ceiling; split it.")
 
 
 def history_finish(state, log=None):
@@ -8360,9 +8388,11 @@ def needs_recovery(state):
 
     A resume leaves `recovery_pending` on the record it starts from, so an attempt that ends
     `blocked` would otherwise be offered for recovery it is refused -- see `cmd_resume`.
-    A `stopped` run is a deliberate end, never an accident to offer back.
+    A `stopped` run is a deliberate end, never an accident to offer back. Line
+    members belong to the lander even if an earlier attempt left a recovery mark.
     """
-    return (state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
+    return (not landing_line(state) and
+            state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
             (state.get("state") in ("interrupted", "exhausted", "stalled", "waiting_login") or
              bool(state.get("recovery_pending"))))
 
@@ -9294,10 +9324,11 @@ def going(state, now=None):
 
     The GOING states -- queued, running, waiting, exhausted, stalled,
     waiting_login -- which resume themselves or are already running, plus an
-    error the tick will retry. Errors and target waits also need current admission:
+    error the tick will retry. Errors and waits on a target ref need current admission:
     an old stamp cannot keep a seat working after its retry stopped being allowed,
     and an exhausted run keeps one working only while the tick can resume it
-    (`exhausted_wait`): one that waits on nobody is his, not going.
+    (`exhausted_wait`): one that waits on nobody is his, not going. Line members
+    stay going until the lander ends them.
     """
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
         return True  # the line is unfinished work, not an ending with timed recovery
@@ -9334,10 +9365,13 @@ CONFLICT_NOTE = re.compile(r"conflict|did not finish the (?:rebase|merge)", re.I
 def tick_admission(state, now=None):
     """Why the tick may take up this ending, or nothing if it belongs to a person.
 
-    A telling or acknowledgement settles the ending for good. Only an untold
+    Line members belong to the lander until they end, however long they wait.
+    A telling or acknowledgement settles an ending for good. Only an untold
     ending under a day old, from a session that still exists, is the tick's.
     Following the launch name also keeps a renamed seat's runs with that seat.
     """
+    if landing_line(state):
+        return "in line to land"
     if any(state.get(key) for key in (
             "handed_back", "recovery_notified", "recovery_acknowledged_at")):
         return ""
@@ -9401,13 +9435,19 @@ def upstream_sha(wt, ref):
     return sha
 
 
+def landing_line(state):
+    """The merge-turn lock named by a waiting member."""
+    return (state.get("waiting_on") or {}).get("line") if state.get("state") == "waiting" else None
+
+
 def parked_line(state, run_id=None, now=None):
     """The dim line under a parked run's status row: its state as such, and when.
 
     An error with a scheduled retry names its hour (`error · retry 14:32`, or
     `retry due` once the hour has passed and the tick just has not fired yet); a
-    `waiting` run names the merge it waits for; an `exhausted` run off a dead
-    reviewer names the reviewer it waits for.  A quota run already says its
+    `waiting` run names its place in the landing line or the merge it waits for;
+    an `exhausted` run off a dead reviewer names the reviewer it waits for.
+    A quota run already says its
     window on the waiting line, and a stalled one its stall lines, so neither
     says anything here. An admitted ending also names the conditions that let
     the tick take it up. Anything parked with no scheduled resume says who it
@@ -9415,6 +9455,19 @@ def parked_line(state, run_id=None, now=None):
     """
     now = time.time() if now is None else now
     name = run_id or state.get("run_id") or "?"
+    line = landing_line(state)
+    if line:
+        joined = state["waiting_on"]["joined"]
+        place = 1
+        for directory in run_record.run_dirs():
+            member = run_record.read_state(directory) or {}
+            if (landing_line(member) == line
+                    and (member["waiting_on"]["joined"], directory.name) < (joined, name)):
+                place += 1
+        suffix = ("th" if 10 <= place % 100 <= 20 else
+                  {1: "st", 2: "nd", 3: "rd"}.get(place % 10, "th"))
+        target = (state.get("target") or state.get("base") or "main").removeprefix("origin/")
+        return f"waiting · {place}{suffix} in line to land on {target}"
     word = state.get("state")
     admission = tick_admission(state, now=now) if word in ("error", "waiting") else ""
     admitted = f" · {admission}" if admission else ""
@@ -10241,7 +10294,9 @@ def cmd_status(argv):
                 from . import terminal as _terminal
                 line += f"  {_terminal.styled(waiting, 'dim')}"
             print(line)
-            if state.get("state") == "queued":
+            if landing_line(state):
+                print(f"  {parked_line(state, d.name)}")
+            elif state.get("state") == "queued":
                 print(f"  {slot_note(state)}")
             elif merge_turn_note(state):
                 print(f"  {merge_turn_note(state)}")
@@ -10341,11 +10396,7 @@ def cmd_status(argv):
     if not wanted:
         print(f"{hidden} older run(s) hidden; ak run status --history [--json] shows full history")
     if show_history and not wanted and not machine:
-        from . import terminal
         print("\n".join(scoreboard_lines()))
-        ceiling, source = history.pr_ceiling()
-        value = f"{ceiling} changed lines" if ceiling is not None else "none"
-        print("\n".join(terminal.wrap(f"PR size ceiling: {value} ({source})", terminal.content_width())))
         for repo in history.finished_repos():
             line = size_summary_line(repo)
             if line:
@@ -11593,6 +11644,9 @@ def resume_run(argv):
     # invocations must never adopt another process's launch, even with an inherited variable.
     with run_record.recovery_lock(run_dir):
         state = run_record.read_state(run_dir)
+    # The lander's verdict authorizes the member to take back its own record.
+    if landing_line(state) and not any(key in state["waiting_on"] for key in ("land", "fix")):
+        raise config.Error(f"{argv[0]} is in line to land; only the lander moves it")
     child = (os.environ.get(config.RUN_DIR_ENV) == str(run_dir) and
              state.get("state") == "queued" and state.get("resume_from") and
              state.get("pid") == os.getpid() and run_record.process_active(state))
@@ -12375,8 +12429,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     fetch(repo, "origin", f"pull/{number}/head", base, check=True)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     base_sha = git(repo, "merge-base", f"origin/{base}", head)
-    if is_own:
-        refuse_pr_size(repo, base_sha, head)
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
         if advancing:
@@ -12725,7 +12777,7 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
 
 def review_pr_main(cfg, opts, flags, argv, resumed):
     url = opts["--review-pr"]
-    owner, name, number = PR_PARTS.match(url).groups()
+    _, name, number = PR_PARTS.match(url).groups()
     if resumed:
         run_dir = Path(resumed)
     else:
@@ -12747,13 +12799,6 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         if flags["--bg"]:
             try:
                 receipt = run_record.read_state(run_dir) or {}
-                # Usage probes can spend model calls: check own PR size before the pick.
-                if receipt.get("own_pr"):
-                    info = pr_view(url)
-                    repo = checkout_for(f"{owner}/{name}", logger(run_dir, True))
-                    base, head = info["baseRefName"], info["headRefOid"]
-                    fetch(repo, "origin", f"pull/{number}/head", base, check=True)
-                    refuse_pr_size(repo, git(repo, "merge-base", f"origin/{base}", head), head)
                 reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
                                                reviewers=receipt.get("reviewers"))
             except config.Error as exc:
@@ -12906,15 +12951,11 @@ def main(argv):
             raise config.Error(f"no such task file: {task_path}")
         meta, body, title = taskfile.parse_task(task_path)
         # reject malformed commands before allocating a run directory, as well as a task
-        # bigger than one behaviour or over the round budget, or whose `repo:` names no home
-        # here, which nothing waives, and a job that looks already under way in the same
-        # repository -- unless --anyway says to start regardless.  A run's own child launch
-        # never runs the already-under-way check.
+        # over the round budget or whose `repo:` names no home here, which nothing waives,
+        # and a job that looks already under way in the same repository -- unless --anyway
+        # says to start regardless.  A run's own child launch never runs the
+        # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.task_size_refusal(body, cmds)
-        if refusal:
-            print(f"ak run: {refusal}; split it into one behaviour per task", file=sys.stderr)
-            return 2
         refusal = taskfile.rounds_refusal(meta.get("rounds"), "task rounds")
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)

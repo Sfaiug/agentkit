@@ -207,14 +207,14 @@ class LanderLifecycle(unittest.TestCase):
     def test_stopping_during_a_check_prevents_the_verdict_and_wake(self):
         directory = self.member()
 
-        def stop(*_args):
+        def stop(*_args, **_kw):
             with record.record(directory) as state:
                 state.update(state="stopped", verdict="STOPPED")
                 state.pop("waiting_on")
-            return {"land": "tree"}
+            return {directory: {"land": "tree"}}
 
         with (patch.object(run, "fetch"), patch.object(run, "git", return_value="target"),
-              patch.object(land, "_check_member", side_effect=stop),
+              patch.object(land, "_check_members", side_effect=stop),
               patch.object(watch, "launch_resume") as wake):
             land.check_line(self.turn)
         self.assertEqual(record.read_state(directory)["state"], "stopped")

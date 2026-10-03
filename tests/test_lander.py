@@ -6,6 +6,7 @@ No model, delivery, live state or process cleanup is allowed.
 
 from contextlib import ExitStack
 import fcntl
+import json
 import os
 from pathlib import Path
 import sys
@@ -21,7 +22,7 @@ SUITE = "test -f base.txt && test ! -f broken.txt"
 ONCE = "test -f tip.txt && test -f work.txt"
 
 
-class Lander(unittest.TestCase):
+class LanderFixture:
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-lander-", dir=REPO)
         self.addCleanup(tmp.cleanup)
@@ -33,7 +34,7 @@ class Lander(unittest.TestCase):
             "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
-        for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+        for name in ("HOME", "RUNS", "JOBS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         config.ensure_dirs()
         self.stack.enter_context(patch.object(land, "start_line"))
@@ -85,7 +86,7 @@ class Lander(unittest.TestCase):
         (directory / "task.md").write_text(
             f"# {name}\n\n## Done when\n```bash\nfalse\n{once}  # once\n{SUITE}\n```\n")
         record.save_state(directory, {
-            "run_id": name, "state": "waiting", "pid": 1234,
+            "run_id": name, "state": "waiting", "pid": 1234, "rounds": 3,
             "process_identity": {"boot": "fixture", "ticks": 1}, "scope": "none",
             "repo": str(self.repo), "worktree": str(self.repo), "branch": branch,
             "base": "origin/main", "target": "main", "base_sha": self.base,
@@ -112,6 +113,8 @@ class Lander(unittest.TestCase):
         tree = run.git(self.repo, "rev-parse", "origin/main^{tree}")
         self.assertEqual(set(land._trees(self.turn)[1]), {tree})
 
+
+class Lander(LanderFixture, unittest.TestCase):
     def test_join_order_one_check_and_only_the_parked_verdict_changes(self):
         later = self.member("a-later", 20)
         first = self.member("z-first", 10.5)
@@ -170,6 +173,33 @@ class Lander(unittest.TestCase):
         self.assertIn(SUITE, self.wait(directory)["fix"]["line"])
         self.assert_only_target_green()
         self.wake.assert_called_once()
+
+    def test_recorded_verdicts_resume_the_member_with_its_own_process(self):
+        green = self.member("acme-land")
+        red = self.member("acme-fix", joined=2, **{"broken.txt": "broken\n"})
+        self.advance()
+        owner = {"pid": 5678, "process_identity": {"boot": "fixture", "ticks": 2}}
+        land.check_line(self.turn)
+        self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
+                              [green.name, red.name])
+        for directory, verdict in ((green, "land"), (red, "fix")):
+            with self.subTest(verdict=verdict):
+                parked = record.read_state(directory)
+                self.assertIn(verdict, parked["waiting_on"])
+                with (patch.object(config, "load", return_value={}),
+                      patch.object(record, "process_owner", return_value=owner),
+                      patch.object(run, "place_here", return_value=None),
+                      patch.object(run, "drive", return_value=0) as drive):
+                    self.assertEqual(run.resume_run([directory.name]), 0)
+                current = record.read_state(directory)
+                self.assertEqual(current["waiting_on"], parked["waiting_on"])
+                self.assertEqual(current["state"], "queued")
+                self.assertEqual(current["resume_from"], "waiting")
+                self.assertEqual(current["pid"], owner["pid"])
+                self.assertEqual(current["process_identity"], owner["process_identity"])
+                self.assertEqual(current["review"], parked["review"])
+                drive.assert_called_once()
+                self.assertEqual(drive.call_args.kwargs["prior"], current)
 
     def test_conflict_wakes_a_fix_without_a_gate_or_a_fixer(self):
         directory = self.member(**{"base.txt": "branch\n"})
@@ -342,12 +372,40 @@ class Lander(unittest.TestCase):
         self.assertFalse(gate.turn_held())
         self.wake.assert_called_once()
 
+    def test_a_sharded_suite_holds_derived_turns_without_claiming_its_member(self):
+        pieces = self.root / "pieces"
+        suite = f'printf "%s\\n" "$AK_SHARD" >> "{pieces}" && {SUITE}'
+        directory = self.member(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        original = record.read_state(directory)
+        self.advance()
+        (config.HOME / config.CONFIG_NAME).write_text("max_gates = 9\n")
+
+        def check(cmds, cwd, log_path, *args, **kw):
+            self.assertEqual(gate._heavy_running(), 2)
+            return self.check(cmds, cwd, log_path, *args, **kw)
+
+        with (patch.dict(os.environ, {"AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(
+                {"cpus": 4, "load": 0, "free_mb": 820})}),
+              patch.object(gate, "run_done_when", side_effect=check),
+              patch.object(gate, "mark_gate_wait", side_effect=AssertionError("member write")),
+              patch.object(gate.history, "close_step", side_effect=AssertionError("member step"))):
+            land.check_line(self.turn)
+        self.assertEqual(sorted(pieces.read_text().splitlines()), ["1/2", "2/2"])
+        current = record.read_state(directory)
+        tree = current["waiting_on"].pop("land")
+        self.assertEqual(current, original)
+        self.assertEqual(land.passed(self.turn, tree)["tested"], tree)
+        self.assertEqual(gate._heavy_running(), 0)
+        self.assertFalse(gate.turn_held())
+        self.wake.assert_called_once()
+        self.assert_cleaned()
+
     def test_a_checked_member_claimed_before_the_verdict_ends_the_pass(self):
         first = self.member("first", joined=1)
         later = self.member("later", joined=2)
         self.advance()
         before = (first / "run.json").read_bytes()
-        with patch.object(record, "process_active", side_effect=[False, True]):
+        with patch.object(record, "process_active", side_effect=[False, False, True]):
             land.check_line(self.turn)
         self.assertEqual(len(self.checks), 1)
         self.assertEqual((first / "run.json").read_bytes(), before)

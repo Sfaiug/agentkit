@@ -3,7 +3,7 @@
 The run holding the turn stacks the waiting runs' reviewed commits onto its own, runs the
 declared suite once on the top, and records the stacked trees; a waiting run whose rebased
 commit has one of them lands without running the suite again, and only the tested tree
-carries the suite's evidence.  A conflict ends the stack; a failed suite is split to record
+carries the suite's evidence.  A conflict leaves that member out; a failed suite is split to record
 the passing prefix, and the failing run and those after it check themselves alone.
 
 Offline: real git commits and queue flocks in an acme sandbox, and the
@@ -23,10 +23,10 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, land, run
+from agentkit import config, gate, gc, host, land, run, worker
 from agentkit import record
 
-SUITE = "test -f work.txt && test ! -f broken.txt"
+SUITE = 'test -f work.txt && { test "${AK_SHARD:-all}" = 1/2 || test ! -f broken.txt; }'
 
 
 class LandTogether(unittest.TestCase):
@@ -55,6 +55,15 @@ class LandTogether(unittest.TestCase):
         self.base = self.git("rev-parse", "HEAD")
         self.git("update-ref", "refs/remotes/origin/main", self.base)
         self.checks, self.lines, self.places = [], [], []
+        self.pieces = []
+        self.real_gate, limited = gate.run_done_when, worker.limited
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
+            "cpus": 4, "load": 0, "free_mb": 820}))
+        def command(cmd, limit, **kw):
+            if cmd == ["bash", "-c", SUITE]:
+                self.pieces.append((kw["env"].get("AK_SHARD"), Path(kw["cwd"])))
+            return limited(cmd, limit, **kw)
+        self.stack.enter_context(patch.object(worker, "limited", side_effect=command))
         self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
         self.stack.enter_context(patch("os.kill", return_value=None))
         self.addCleanup(lambda: hasattr(run._MERGE_HELD, "hold") and delattr(run._MERGE_HELD,
@@ -70,13 +79,8 @@ class LandTogether(unittest.TestCase):
 
     def check(self, cmds, cwd, log_path, *args, **_kw):
         self.checks.append((list(cmds), Path(cwd)))
-        results = [subprocess.run(["bash", "-c", cmd], cwd=cwd, capture_output=True)
-                   for cmd in cmds]
-        ok = all(result.returncode == 0 for result in results)
-        text = "$ " + "\n$ ".join(cmds) + f"\n[exit {0 if ok else 1}]\n"
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(log_path).write_text(text)
-        return ok, text
+        return self.real_gate(cmds, cwd, log_path, *args, **_kw)
 
     def branch(self, name, files):
         """A branch from the base with these files, checked out back on the leader after."""
@@ -162,13 +166,15 @@ class LandTogether(unittest.TestCase):
         suites = [cwd for cmds, cwd in self.checks if SUITE in cmds]
         self.assertEqual(len(suites), 1)                       # one suite run, not on its own
         self.assertNotEqual(suites[0], self.repo)
-        self.assertIn("--- merge: landing together: 2 runs on origin/main: leader, member",
+        self.assertCountEqual(self.pieces, [("1/2", suites[0]), ("2/2", suites[0])])
+        self.assertIn("--- merge: landing together: 3 runs on origin/main: leader, member, later",
                       self.lines)
         self.assertIn("--- merge: clash does not stack on the batch; it lands on its own turn",
                       self.lines)
         self.assertIn("final check: the suite on the runs landing together: all passed",
                       self.lines)
-        self.assertIsNone(land.passed(turn, self.tree(later)))   # nothing past the conflict
+        self.assertTrue(any("later.txt" in self.git("ls-tree", "--name-only", tree).splitlines()
+                            for tree in land._trees(turn)[1]))
         mine = land.passed(turn, self.tree("HEAD"))
         self.assertEqual(mine["leader"], "leader")
         self.assertEqual(tested, [mine["tested"]])
@@ -179,13 +185,24 @@ class LandTogether(unittest.TestCase):
         self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
         self.git("checkout", "-q", "ak/member")
         self.git("rebase", "-q", "origin/main")
-        self.assertEqual(self.tree("HEAD"), mine["tested"])
+        member_tree = self.tree("HEAD")
+        self.assertEqual(land.passed(turn, member_tree)["tested"], mine["tested"])
         self.checks.clear()
         follower = self.loop("member", "ak/member")
         self.assertTrue(run.final_check(follower, "origin/main"))
         self.assertEqual([cmds for cmds, _ in self.checks], [["true"]])   # no suite again
         self.assertIn("final check: the suite already passed on this tree with leader; "
                       "not running it again", self.lines)
+        self.assertNotIn("suite", follower.state["final_check"])
+        # The member after the conflict lands the tree checked by the shared suite.
+        self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
+        self.git("checkout", "-q", "ak/later")
+        self.git("rebase", "-q", "origin/main")
+        self.assertEqual(self.tree("HEAD"), mine["tested"])
+        self.checks.clear()
+        follower = self.loop("later", "ak/later")
+        self.assertTrue(run.final_check(follower, "origin/main"))
+        self.assertEqual([cmds for cmds, _ in self.checks], [["true"]])
         self.assertEqual(follower.state["final_check"]["suite"], SUITE)
         self.assertEqual(follower.state["final_check"]["tree_sha"], mine["tested"])
 
@@ -198,6 +215,32 @@ class LandTogether(unittest.TestCase):
         self.assertEqual(len([cmds for cmds, _ in self.checks if SUITE in cmds]), 1)
         self.assertEqual(len(land._trees(turn)[1]), 2)
         self.assertFalse(any("breaks the suite" in line for line in self.lines))
+
+    def test_private_commits_from_another_clone_stack_past_an_unavailable_member(self):
+        lp = self.leader()
+        other = self.root / "acme-two"
+        self.git("clone", str(self.repo), str(other))
+        self.git("config", "user.name", "fixture", cwd=other)
+        self.git("config", "user.email", "fixture@localhost", cwd=other)
+        self.git("checkout", "-q", "-b", "ak/member", self.base, cwd=other)
+        (other / "member.txt").write_text("member\n")
+        self.git("add", ".", cwd=other)
+        self.git("commit", "-q", "-m", "member", cwd=other)
+        head = self.git("rev-parse", "HEAD", cwd=other)
+        self.assertNotEqual(run.git_out(self.repo, "cat-file", "-e", head)[0], 0)
+        self.wait(lp, "member", head, 1)
+        with record.record(config.RUNS / "member") as current:
+            current["worktree"] = str(other)
+        self.wait(lp, "missing", "f" * 40, 2)
+        with record.record(config.RUNS / "missing") as current:
+            current["worktree"] = str(self.root / "gone-clone")
+        turn = self.wait(lp, "later", self.branch("ak/later", {"later.txt": "later\n"}), 3)
+        self.assertTrue(self.held(lp))
+        tested = land.passed(turn, self.tree("HEAD"))["tested"]
+        self.assertTrue({"member.txt", "later.txt"} <=
+                        set(self.git("ls-tree", "--name-only", tested).splitlines()))
+        self.assertEqual(self.git("rev-parse", "ak/member", cwd=other), head)
+        self.assertEqual(len([cmds for cmds, _ in self.checks if SUITE in cmds]), 1)
 
     def test_a_batch_lands_through_a_symlinked_worktree_home(self):
         disk = self.root / "disk"

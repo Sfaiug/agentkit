@@ -4,6 +4,7 @@ Offline: isolated suites and smoke lifecycle tests.
 """
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -66,7 +67,7 @@ class SuiteRunsEveryFile(unittest.TestCase):
         env = {**os.environ, "HOME": str(root), "ACME_LOG": str(self.log), "ACME_KEPT": "1",
                "AGENTKIT_RUN": "acme-run", "AK_RUN_DEPTH": "2", "AK_PARENT_RUN": "acme-parent",
                "AK_RUN_LOG": "/nonexistent",
-               "AK_HOST_READINGS": '{"cpus": 2, "load": 0, "free_mb": 4096}',
+               "AK_HOST_READINGS": '{"cpu_pressure": 12, "free_mb": 4096}',
                "AK_CGROUP_FILE": str(root / "no-cgroup"),
                "AGENTKIT_SMOKE_OFFLINE": offline, "AGENTKIT_SMOKE_LIVE": live, **env}
         return subprocess.run([sys.executable, str(RUNNER), str(root)], env=env,
@@ -91,33 +92,17 @@ class SuiteRunsEveryFile(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(self.ran(), ["test_acme", "test_fix_api"])
 
-    def test_the_merge_turns_raised_weight_sizes_the_pool_from_its_share(self):
-        # other runs keep the load at the 8 cores; the holder's raise, their 140 times 9,
-        # entitles it to 8 * 1260 / 1400 = 7.2 of them, and 1000 MB fits 4 files of 230
-        root = self.checkout({"test_acme": PASSES})
-        one = {"agentkit-run-acme": 1260, "agentkit-run-fix-api": 40,
-               "agentkit-job-widget": 60, "agentkit-run-plain": 40}
-        # two repositories' holders at the kernel's top weight split the cores between them
-        two = {"agentkit-run-acme": 10000, "agentkit-run-atlas": 10000,
-               "agentkit-run-fix-api": 40, "agentkit-run-plain": 40}
-        busy = '{"cpus": 16, "slice_cpu_quota": 8, "load": 8, "free_mb": %d}'
-        for n, (weights, scope, free_mb, jobs) in enumerate((
-                (one, "agentkit-run-acme", 8192, 7),
-                (one, "agentkit-run-acme", 1000, 4),
-                (two, "agentkit-run-acme", 8192, 3),
-                (one, "agentkit-run-plain", 8192, 1),     # no raise: idle cores
-                (one, None, 8192, 1))):                    # by hand, no scope
-            with self.subTest(case=n, scope=scope, free_mb=free_mb):
-                runs = root / f"cgroup-{n}" / "agentkit-runs.slice"
-                for name, weight in weights.items():
-                    (runs / f"{name}.scope").mkdir(parents=True)
-                    (runs / f"{name}.scope" / "cpu.weight").write_text(f"{weight}\n")
-                cgroup = root / f"cgroup-{n}.txt"
-                cgroup.write_text(f"0::/agentkit-runs.slice/{scope}.scope\n" if scope else "")
-                proc = self.suite(root, AK_HOST_READINGS=busy % free_mb,
-                                  AK_CGROUP_ROOT=str(runs.parent), AK_CGROUP_FILE=str(cgroup))
-                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-                self.assertIn(f", {jobs} at once,", proc.stdout)
+    def test_waiting_files_outnumber_cores_despite_high_load(self):
+        body = 'import time\ntime.sleep(1)\n' + PASSES
+        root = self.checkout({f"test_acme_{n}": body for n in range(6)})
+        proc = self.suite(root, AK_HOST_READINGS=(
+            '{"cpus": 2, "slice_cpu_quota": 2, "load": 12, '
+            '"cpu_pressure": 12, "free_mb": 1000}'))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        jobs = int(re.search(r", (\d+) at once,", proc.stdout)[1])
+        self.assertGreater(jobs, 2, proc.stdout)
+        self.assertLessEqual(jobs, 4, proc.stdout)  # 1000 MB fits four measured file peaks
+        self.assertEqual(self.ran(), [f"test_acme_{n}" for n in range(6)])
 
     def test_no_run_variable_reaches_a_file(self):
         root = self.checkout({"test_clean": CLEAN})

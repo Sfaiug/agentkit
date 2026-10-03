@@ -23,26 +23,23 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 
 ## agentkit/
 
-- `run.py`: staffing, review, landing, hand-back, provider failures, slots, admission,
-  worktrees and merge turns. Passed writable runs now park in the repository line; foreground
-  callers and jobs follow their records while workers exit. Forks keep the old landing path;
-  review-PR delivery holds the plain repository flock. API: `main`, `going`, `pick_models`; for watch, job, gc,
-  orch, menu, notify, usage, worker and a hook.
+- `run.py`: staffing, review, landing, hand-back, failures, slots, worktrees and merge turns.
+  Passed writable workers park in the line and exit; foreground callers and jobs follow
+  records. Forks keep `land`; review-PR merges use the plain flock. API: `main`, `going`,
+  `pick_models`; for watch, job, gc, orch, menu, notify, usage, worker and a hook.
 - `gate.py`: check commands and host-wide heavy-suite turns; `run_done_when`, turn/env
   helpers and wait notes. For run and tests. Leaks: run's `run_child_env`, `memory_cap_note`,
   `dirty_paths`, `OUT_CAP`.
-- `land.py`: landing together: one suite run for the passed runs queued on a merge turn, and
-  trees that passed. For run's final check. Also builds the lander: checks a parked repository
-  line member in a scratch worktree and wakes it to land or fix itself; record changes and the
-  tick start fresh passes in the runs slice. Run consumes the verdict and rejoins after fixes
-  or a changed target.
+- `land.py`: shared suite and passed trees. Lander checks scratch worktrees and wakes
+  parked line members to land or fix; record changes and the tick start fresh passes
+  in the runs slice. Run consumes verdicts and rejoins after fixes or a changed target.
 - `record.py`: run.json, stop-safe writes, recovery locks, defaults, folders, writer id.
   API: `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
   `writing`. For run, gate, job, menu, orch, watch, gc, retention, history and worker.
 - `gc.py`: plans/schedules cleanup of seats, stamps, temps, worktrees, runs and jobs.
   Harness `tmp_rule` owns temps and live sessions; retention deletes.
   `cmd_gc` for bin/ak, run, menu, watch and retention.
-- `task.py`: the task file's front matter, done-when groups, size and round refusals; for
+- `task.py`: front matter, done-when groups, size counts and round refusals; for
   run and job.
 - `job.py`: task files as one job: receipt, scheduler, task ladders (waits, merge, rerun),
   hand-back and relaunch. Calls `run.*`; for run (main, status, stop, resume), gc, watch, menu.
@@ -90,7 +87,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   watch. Leak: registers its MCP per harness by name.
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. For
   bin/ak, menu, install.sh.
-- `host.py`: memory, load, CPUs, process/cgroup counters, `alive`, `process_identity`;
+- `host.py`: memory, load, CPUs, pressure, process/cgroup counters, `alive`, `process_identity`;
   reads only, no agentkit imports. For config, orch, run, gate, job, watch, gc and record.
 - `proc_snapshot.py`: read-only /proc inventory; no agentkit imports, so it runs under sudo.
   Used by gc.
@@ -116,10 +113,9 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   rebuild config.py's seat file names and rename chain.
 - `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
   `trust.py`, `catalog.py`, `desktop-mcp.py`.
-- `tests/`: `smoke.sh` runs offline; its live mode, `live.sh`, makes real calls;
-  `every_file.py` checks imports and case counts.
-  `fixtures/`: screens, an `echo` adapter and `landing.py`, which lands a crafted run through
-  its line and lander verdict.
+- `tests/`: offline `smoke.sh`, live `live.sh`; `every_file.py`: imports/cases,
+  live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`,
+  `landing.py` lands a crafted run through its line and lander verdict.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat
   rulebook), `templates/`, `browser/`, `docs/`.
 

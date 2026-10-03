@@ -167,14 +167,13 @@ def job_create(cfg, task_paths, opts, parallel):
         if not path.is_file():
             raise config.Error(f"no such task file: {path}")
         meta, body, title = taskfile.parse_task(path)
-        # reject malformed commands before allocating anything, as well as a task bigger
-        # than one behaviour or over the round budget, or whose `repo:` names no home here,
-        # which nothing waives, and one that looks already under way in the same repository
-        # -- unless --anyway says to start beside it regardless, the way a single run does
+        # reject malformed commands before allocating anything, as well as a task over the
+        # round budget or whose `repo:` names no home here, which nothing waives, and one
+        # that looks already under way in the same repository -- unless --anyway says to
+        # start beside it regardless, the way a single run does
         cmds = taskfile.done_when(body, path)
         infos.append({"path": path, "meta": meta, "title": title, "stem": path.stem,
-                      "name": path.name, "cmds": cmds, "after_raw": taskfile.task_afters(path),
-                      "size_note": taskfile.task_size_refusal(body, cmds)})
+                      "name": path.name, "cmds": cmds, "after_raw": taskfile.task_afters(path)})
     seen = {}
     for info in infos:
         if info["name"] in seen:
@@ -183,9 +182,6 @@ def job_create(cfg, task_paths, opts, parallel):
                                "threads and `after:` on that basename, so rename one")
         seen[info["name"]] = info["path"]
     for info in infos:
-        if info["size_note"]:
-            raise config.Error(f"{info['path']}: {info['size_note']}; split it into one "
-                               "behaviour per task")
         refusal = taskfile.rounds_refusal(info["meta"].get("rounds"), "task rounds")
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
@@ -764,6 +760,20 @@ def job_settle(cfg, job_dir, job, task, run_dir, run_state, log, lock):
     log(task["verdict_line"])
 
 
+def job_follow_waiting(run_dir, run_state, log):
+    """Waiting is no ending, including when a delivery retry leaves it in the line."""
+    asked = 0
+    while run_state.get("state") == "waiting" and run.tick_admission(run_state):
+        if not run.landing_line(run_state) and time.time() - asked >= JOB_PICKER_INTERVAL:
+            asked = time.time()   # each ask fetches: at the picker's rate, not every tick
+            watch.resume_waiting(log=log, run=run_dir)
+        time.sleep(JOB_TICK)
+        run_state = record.read_state(run_dir) or run_state
+        if run_state.get("state") != "waiting":
+            run_state = job_await(run_dir)
+    return run_state
+
+
 def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     """The retries, in the worker thread, so the scheduler keeps scheduling while they run.
 
@@ -780,19 +790,10 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
     log(job_exit_line(task, run_dir, run_state, rc))
     if run_state.get("state") == "waiting":
-        # a PASS parked on the next merge to its target is no ending: the job resumes it
-        # then, as the tick would a lone run, and the task follows it there, so its
-        # dependants wait instead of skipping
+        # A wait is no ending: the task follows the lander or the target moving,
+        # so its dependants wait instead of skipping.
         log(f"{task['name']}: parked waiting ({run_state.get('error')}); following it")
-    asked = 0
-    while run_state.get("state") == "waiting" and run.tick_admission(run_state):
-        if time.time() - asked >= JOB_PICKER_INTERVAL:
-            asked = time.time()   # each ask fetches: at the picker's rate, not every tick
-            watch.resume_waiting(log=log, run=run_dir)
-        time.sleep(JOB_TICK)
-        run_state = record.read_state(run_dir) or run_state
-        if run_state.get("state") != "waiting":
-            run_state = job_await(run_dir)
+    run_state = job_follow_waiting(run_dir, run_state, log)
     if job_wait_login(job_dir, job, task, log, lock, run_state, "mid-run"):
         return
     if run_state.get("state") == "stopped":
@@ -846,7 +847,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         except config.Error as exc:
             mrc = 2
             log(f"{task['name']}: merge refused: {exc}")
-        run_state = record.read_state(run_dir) or run_state
+        run_state = job_follow_waiting(run_dir, record.read_state(run_dir) or run_state, log)
         task["executor"] = run_state.get("executor") or task.get("executor")
         task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
         log(job_exit_line(task, run_dir, run_state, mrc))
@@ -920,7 +921,8 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
                 save_job(job_dir, job)
             box = {}
             job_drive(cfg, run_dir2, run_opts2, box, job_scoped(job))
-            run_state2 = box.get("state") or record.read_state(run_dir2) or {}
+            run_state2 = job_follow_waiting(
+                run_dir2, box.get("state") or record.read_state(run_dir2) or {}, log)
             task["executor"] = run_state2.get("executor") or nxt
             task["reviewer"] = run_state2.get("reviewer") or task.get("reviewer")
             log(job_exit_line(task, run_dir2, run_state2, box.get("rc", 1)))
