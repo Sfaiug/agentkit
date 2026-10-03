@@ -19,8 +19,8 @@ ignores both numbers and takes the default orchestrator while it still has somet
 
 Credits an adapter reports (`"credits": <number left>`) are usage left past a spent window:
 such a provider is not spent, only ranked after every one with a window left (`on_credits`),
-because credits cost money and the subscription is already paid.  A `"currency"` beside them
-says they are money, in that currency's ISO code (Claude's extra usage), not credits.
+because credits cost money and the subscription is already paid.  A `"currency"` beside them,
+an ISO code, says they are money in that currency.
 """
 
 import fcntl
