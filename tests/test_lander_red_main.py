@@ -165,11 +165,11 @@ class RedMain(unittest.TestCase):
         self.assert_parked(before)
         self.wake.assert_not_called()
 
-    def test_a_failed_or_blocked_repair_holds_its_tree_without_blame_or_relaunch(self):
+    def test_an_unmerged_repair_holds_its_tree_without_blame_or_relaunch(self):
         _, _, before = self.red_line()
         self.assertEqual(len(self.prepared), 1)
         repair = self.prepared[0][0]
-        for ending in ("fail", "blocked", "pass"):
+        for ending in ("fail", "blocked", "pass", "stopped", "error"):
             with self.subTest(ending=ending):
                 with record.record(repair) as state:
                     state.update(state=ending, slot_waiting=False)
@@ -178,6 +178,24 @@ class RedMain(unittest.TestCase):
                 self.assertEqual(len(self.checks), 2)
                 self.assert_parked(before)
                 self.wake.assert_not_called()
+
+    def test_a_crash_after_launch_reuses_the_receipt_without_another_probe(self):
+        first = self.member()
+        self.advance(**{"broken.txt": "target breakage\n"})
+        before = {first: (first / "run.json").read_bytes()}
+        start = run.start_followups
+
+        def crash(*args, **kw):
+            start(*args, **kw)
+            raise RuntimeError("crash after receipt")
+
+        with patch.object(run, "start_followups", side_effect=crash):
+            land.check_line(self.turn)
+        land.check_line(self.turn)
+        self.assertEqual(len(self.prepared), 1)
+        self.assertEqual(len(self.checks), 2)
+        self.assert_parked(before)
+        self.wake.assert_not_called()
 
     def test_a_changed_target_releases_the_line_while_the_repair_is_still_open(self):
         first, later, before = self.red_line()
