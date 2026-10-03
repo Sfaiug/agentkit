@@ -321,7 +321,7 @@ harness runs as besides its `[update] version` program, such as Muse's `muse-bin
 The manifest is everything else, as data: `[check]` (contract model and effort), `[update]` (version, upgrade, revert, latest commands), `[usage]` flags,
 `[conversation]` (what a seat owns), `[hooks] installed`, `[stop] enforce`, `[authority]` and `[[hooks.event]]` (which
 of hooks and screen decides each live fact), `[screen]` and `[[rule]]` (the composer and dialog patterns read off the
-bottom of the pane), `[stall]` (its own words for a spent quota, a refusal, an outage and a harness that never ran, beside the ones no harness owns), `[resume]`, `[quota]`, `[auth]`
+bottom of the pane), `[stall]` (its own words for a spent quota, a refusal, an outage and a harness that never ran, beside the ones no harness owns), `[resume]`, `[auth]`
 (title, remedy, signatures), `[compact]` (the keys, the signal, where context is read, the idle minutes, the stash key), `[effort]` (its vocabulary),
 `[catalog]` (models, efforts) and `[worker_token]` where it mints one. Then add `[providers.<name>]`.
 An event with no state in `[[hooks.event]]` leaves the seat's last hook fact alone; a passive notice cannot end or reopen a turn.
