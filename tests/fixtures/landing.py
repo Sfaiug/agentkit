@@ -47,5 +47,13 @@ def fork_landing(lp):
         url = run.open_pr(lp, upstream.removeprefix("origin/"))
         return bool(url and run.wait_checks(lp, url) and run.do_merge(lp, url, upstream))
 
+    return fork_turn(lp, upstream, deliver)
+
+
+def fork_turn(lp, upstream, deliver):
+    """The line handoff's stand-in for tests of the integration path retained for forks."""
     return run.land(lp, upstream,
-                    lambda: run.integrate(lp, upstream) and run.final_check(lp, upstream), deliver)
+                    lambda: (run.integrate(lp, upstream)
+                             and ((lp.state.get("pr") and run.git(lp.wt, "rev-parse", "HEAD")
+                                   == lp.state.get("delivery_sha"))
+                                  or run.final_check(lp, upstream))), deliver)

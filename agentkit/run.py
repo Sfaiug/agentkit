@@ -11448,7 +11448,23 @@ def cmd_merge(argv):
                 os.environ.update(config.repo_env(Path(state["repo"])))
             if info is None:
                 log(f"no delivery PR: {stopped_on}; delivering again from integration")
-            merge(lp)
+                merge(lp)
+            elif wait_for_dependency(lp):
+                upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+                upstream_repo, permission = rights(lp)
+
+                def deliver():
+                    return ((git(lp.wt, "rev-parse", "HEAD") == head or push(lp))
+                            and wait_checks(lp, state["pr"])
+                            and do_merge(lp, state["pr"], upstream))
+
+                if upstream_repo and permission not in PUSH_RIGHTS:
+                    verify = lambda: (integrate(lp, upstream)
+                                      and (git(lp.wt, "rev-parse", "HEAD") == head
+                                           or final_check(lp, upstream)))
+                    land(lp, upstream, verify, deliver)
+                else:
+                    join_line(lp, upstream, deliver)
     except worker.LoginExpired as expired:
         # a conflict fixer's turn during delivery can hit an expired login like any other:
         # a retry would park it anyway, and letting it escape here would leave the receipt
