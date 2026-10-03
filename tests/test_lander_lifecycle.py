@@ -15,6 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, host, land, orch, record, run, watch
+import test_lander_wakes as wakes
 
 
 class LanderLifecycle(unittest.TestCase):
@@ -38,6 +39,7 @@ class LanderLifecycle(unittest.TestCase):
             "mem_total_mb": 16000, "free_mb": 8000}))
         self.ceiling = self.stack.enter_context(patch.object(
             orch, "slice_memory_max_mb", return_value=10000))
+        self.oom = self.stack.enter_context(patch.object(orch, "scope_oom_policy", return_value=True))
         self.stack.enter_context(patch.object(config, "run_memory_max_mb", return_value=None))
         self.starts = []
         self.spawn = self.stack.enter_context(patch.object(
@@ -82,6 +84,17 @@ class LanderLifecycle(unittest.TestCase):
         self.assertIn("MemoryMax=7201M", properties)
         self.assertIn("MemorySwapMax=7201M", properties)
 
+    def test_a_suite_oom_keeps_the_lander_scope_running(self):
+        self.member(memory_cap_mb=6000)
+        _, properties = run.run_scope_limits(cap_mb=6000)
+        self.assertEqual(self.starts[0][4]["properties"], properties)
+        self.assertIn("OOMPolicy=continue", properties)
+
+    def test_an_older_manager_gets_no_unsupported_oom_property(self):
+        self.oom.return_value = False
+        self.member()
+        self.assertNotIn("OOMPolicy=continue", self.starts[0][4]["properties"])
+
     def test_a_host_without_a_slice_derives_memory_from_its_own_reading(self):
         self.ceiling.return_value = None
         self.member()
@@ -103,10 +116,22 @@ class LanderLifecycle(unittest.TestCase):
         with record.record(directory) as state:
             state.update(state="pass", merged=True)
             state.pop("waiting_on")
-        self.assertEqual(len(self.starts), 4)
+        self.assertEqual(len(self.starts), 3)
         self.assertEqual([member.name for member, _ in land.line(self.turn)], ["fix-docs"])
         record.save_state(directory, record.read_state(directory))
-        self.assertEqual(len(self.starts), 4, "an unchanged save starts no extra pass")
+        self.assertEqual(len(self.starts), 3, "an unchanged save starts no extra pass")
+
+    def test_a_woken_members_bookkeeping_does_not_start_another_suite(self):
+        directory = self.member()
+        self.member("fix-docs")
+        self.starts.clear()
+        for changes in ({"state": "queued"}, {"state": "running"},
+                        {"scope": "agentkit-run-fix-api", "memory_cap_mb": 6000},
+                        {"review": {"verdict": "PASS", "head_sha": "rebased"}},
+                        {"final_check": {"outcome": "passed", "tree_sha": "tree"}}):
+            with record.record(directory) as state:
+                state.update(changes)
+        self.assertEqual(self.starts, [])
 
     def test_moving_between_lines_starts_both(self):
         directory = self.member()
@@ -188,6 +213,71 @@ class LanderLifecycle(unittest.TestCase):
         self.assertEqual(record.read_state(directory)["state"], "stopped")
         self.assertEqual(land.line(self.turn), [])
         wake.assert_not_called()
+
+
+class LanderDelivery(unittest.TestCase):
+    def setUp(self):
+        start_line = land.start_line
+        self.case = wakes.LanderWakes()
+        self.addCleanup(self.case.doCleanups)
+        self.case.setUp()
+        self.case.stack.enter_context(patch.object(host, "host_readings", return_value={
+            "mem_total_mb": 16000}))
+        self.case.stack.enter_context(patch.object(orch, "slice_memory_max_mb", return_value=10000))
+        self.case.stack.enter_context(patch.object(orch, "scope_oom_policy", return_value=True))
+        self.starts = []
+
+        def start(*_args, **_kw):
+            self.case.assert_free()
+            self.starts.append((len(self.case.merges),
+                                record.read_state(self.case.directory).get("waiting_on")))
+            return 999
+
+        self.case.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=start))
+        land.start_line.side_effect = start_line
+
+    def prepare(self, method="squash"):
+        self.case.park(method)
+        other = config.RUNS / "fix-docs"
+        other.mkdir()
+        record.save_state(other, {
+            "run_id": other.name, "state": "waiting", "repo": str(self.case.wt),
+            "base": "origin/main", "review": {"verdict": "PASS", "head_sha": "other"},
+            "waiting_on": {"line": self.case.turn.name, "joined": 20}})
+        self.starts.clear()
+
+    def landed(self, method):
+        self.prepare(method)
+        self.assertEqual(run.cmd_resume([self.case.directory.name]), 0)
+        self.assertTrue(record.read_state(self.case.directory)["merged"])
+        self.assertEqual([member.name for member, _ in land.line(self.case.turn)], ["fix-docs"])
+        self.assertEqual(self.starts, [(1, None)], "the next pass starts only after delivery")
+
+    def test_squash_starts_the_next_pass_after_releasing_the_lock(self):
+        self.landed("squash")
+
+    def test_rebase_starts_the_next_pass_after_releasing_the_lock(self):
+        self.landed("rebase")
+
+    def test_merge_starts_the_next_pass_after_releasing_the_lock(self):
+        self.landed("merge")
+
+    def test_work_already_on_target_starts_the_next_pass_after_unlock(self):
+        self.prepare()
+        run.git(self.case.wt, "push", "origin", "HEAD:main")
+        self.assertEqual(run.cmd_resume([self.case.directory.name]), 0)
+        self.assertTrue(record.read_state(self.case.directory)["on_target"])
+        self.assertEqual(self.starts, [(0, None)])
+
+    def test_a_changed_target_rejoins_and_starts_the_next_pass_after_unlock(self):
+        self.prepare()
+        (self.case.owner / "other.txt").write_text("external move\n")
+        self.case.commit(self.case.owner, "move target")
+        run.git(self.case.owner, "push", "origin", "main")
+        self.assertEqual(run.cmd_resume([self.case.directory.name]), 1)
+        wait = record.read_state(self.case.directory)["waiting_on"]
+        self.assertEqual(wait, {"line": self.case.turn.name, "joined": 10})
+        self.assertEqual(self.starts, [(0, wait)])
 
 
 if __name__ == "__main__":

@@ -5536,48 +5536,53 @@ def land_from_line(lp, upstream, deliver):
     """Consume the lander's verdict in this run; only delivery holds the plain merge flock."""
     wait = lp.state["waiting_on"]
     if "land" in wait and "fix" not in wait:
-        with turn_path(lp, upstream).open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            fetch(lp.wt, "origin", "--prune", check=True)
-            tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
-            how = "rebase" if on_pass(lp) else how_to_integrate(lp)
-            args = (("merge", "--no-edit", tip) if how == "merge" else
-                    ("rebase", "--onto", tip, lp.base_sha) if on_pass(lp) else
-                    ("rebase", tip))
-            saved = dict(lp.state["review"])
-            try:
-                code, _ = git_out(lp.wt, *args)
-            except Stopped:
-                abort_stopped_integration(lp, how)
-                raise
-            if code:
-                abort_integration(lp, how)
-                return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
-            set_base(lp, tip)
-            identity = commit_identity(lp.wt)
-            lp.state["review"] = {**saved, **identity,
-                                  "passed_head_sha": passed_review_head(lp.state),
-                                  "rebased_from": saved["head_sha"]}
-            lp.write()
-            if identity["tree_sha"] != wait["land"]:
-                return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
-            if git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
-                lp.state.update(on_target=True)
-                lp.state.pop("waiting_on", None)
-                lp.state.pop("landing_reds", None)
-                return note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
-            lp.state["final_check"] = {"outcome": "passed", "where": "landing",
-                                       "sha": identity["head_sha"],
-                                       "tree_sha": identity["tree_sha"],
-                                       "suite": declared_suite(lp.wt, lp.target)}
-            lp.write()
-            result = deliver()
-            if "fix" not in lp.state.get("waiting_on", {}):
-                if result:
+        turn = turn_path(lp, upstream)
+        try:
+            with turn.open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                fetch(lp.wt, "origin", "--prune", check=True)
+                tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
+                how = "rebase" if on_pass(lp) else how_to_integrate(lp)
+                args = (("merge", "--no-edit", tip) if how == "merge" else
+                        ("rebase", "--onto", tip, lp.base_sha) if on_pass(lp) else
+                        ("rebase", tip))
+                saved = dict(lp.state["review"])
+                try:
+                    code, _ = git_out(lp.wt, *args)
+                except Stopped:
+                    abort_stopped_integration(lp, how)
+                    raise
+                if code:
+                    abort_integration(lp, how)
+                    return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
+                set_base(lp, tip)
+                identity = commit_identity(lp.wt)
+                lp.state["review"] = {**saved, **identity,
+                                      "passed_head_sha": passed_review_head(lp.state),
+                                      "rebased_from": saved["head_sha"]}
+                lp.write()
+                if identity["tree_sha"] != wait["land"]:
+                    return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
+                if git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
+                    lp.state.update(on_target=True)
                     lp.state.pop("waiting_on", None)
                     lp.state.pop("landing_reds", None)
-                    lp.write()
-                return result
+                    return note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
+                lp.state["final_check"] = {"outcome": "passed", "where": "landing",
+                                           "sha": identity["head_sha"],
+                                           "tree_sha": identity["tree_sha"],
+                                           "suite": declared_suite(lp.wt, lp.target)}
+                lp.write()
+                result = deliver()
+                if "fix" not in lp.state.get("waiting_on", {}):
+                    if result:
+                        lp.state.pop("waiting_on", None)
+                        lp.state.pop("landing_reds", None)
+                        lp.write()
+                    return result
+        finally:
+            # Departures and changed-target rejoins were written under this flock.
+            landing.start_line(turn, lp.log)
         wait = lp.state["waiting_on"]
     if "fix" not in wait:
         return rejoin_line(lp, upstream, "waiting for the lander")
@@ -8474,7 +8479,7 @@ def memory_cap_line(mb):
     return f"killed: memory cap {shown} GB"
 
 
-def run_scope_limits(ceiling_mb=None):
+def run_scope_limits(ceiling_mb=None, *, cap_mb=None):
     """(cap in MiB, systemd properties) for one run scope.
 
     CPU and I/O weight stay below the seats' 100, and the memory cap is applied
@@ -8484,9 +8489,10 @@ def run_scope_limits(ceiling_mb=None):
     loop, its harness session and its worktree go on, and `memory_cap_note` says
     so.  The properties are what `systemd-run -p` takes; the cap is what the
     receipt records, so the reason can still name the number after the process
-    that knew it is gone.
+    that knew it is gone. A lander supplies its recorded suite need as `cap_mb`
+    while keeping the same scope properties.
     """
-    cap = memory_cap_mb(ceiling_mb)
+    cap = memory_cap_mb(ceiling_mb) if cap_mb is None else cap_mb
     return cap, ("-p", "CPUWeight=40", "-p", "IOWeight=40",
                  "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M",
                  *(("-p", "OOMPolicy=continue") if orch.scope_oom_policy() else ()))
