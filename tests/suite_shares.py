@@ -19,7 +19,7 @@ def shard(value=None):
 
 def shares(costs, total):
     """Longest first keeps an expensive check or file from lining up with the others."""
-    loads, owners = [0.0] * min(total, len(costs)), {}
+    loads, owners = [0] * min(total, len(costs)), {}
     for name in sorted(costs, key=lambda name: (-costs[name], name)):
         piece = min(range(len(loads)), key=lambda piece: (loads[piece], piece))
         owners[name] = piece + 1
@@ -56,15 +56,16 @@ def smoke_owners(blocks, root, total, live=False, offline=False):
             continue
         # Source size estimates the work for new checks too; named test files contribute
         # their size, rather than counting a ten-case file like a hundred-case file.
-        cost = len(body.splitlines()) / 15
+        # Integer units keep independent processes identical even at equal loads.
+        cost = len(body.splitlines()) * 20
         for test in set(re.findall(r"\btest_\w+", body)):
             path = root / "tests" / (test + ".py")
             if path.is_file():
-                cost += len(path.read_text().splitlines()) / 100
+                cost += len(path.read_text().splitlines()) * 3
         if name.startswith("offline_") != offline or name in LIVE_CHECKS and not live:
             cost = 0
         if name == "9" and not offline:
-            cost = 360       # its background executor waits out 60s + 300s
+            cost = 360 * 300       # its background executor waits out 60s + 300s
         group = groups.get(name, name)
         costs[group] = costs.get(group, 0) + cost
     owners = shares(costs, total)
