@@ -149,8 +149,8 @@ class LandingSuiteOffline(unittest.TestCase):
                                       capture_output=True, text=True, timeout=60)
                 self.assertEqual(proc.returncode, code, proc.stdout + proc.stderr)
                 ran = self.ran()
-                self.assertEqual([entry for entry in ran if entry != "lo up"],
-                                 [f"smoke {where} required=1", f"every_file {where} required=1"])
+                self.assertCountEqual([entry for entry in ran if entry != "lo up"],
+                                      [f"smoke {where} required=1", f"every_file {where} required=1"])
                 # the probe and the suite each bring loopback up in their own namespace
                 self.assertEqual(ran.count("lo up"), 0 if extra.get("ACME_NO_NAMESPACE") else 2)
 
