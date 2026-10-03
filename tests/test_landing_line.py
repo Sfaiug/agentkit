@@ -123,7 +123,7 @@ class LandingLine(Sandbox):
                     ("stopped", {"review": {}}, "stopped"),
                     ("not_needed", {"not_needed": "already fixed"}, "passed")):
                 with self.subTest(after_merge=after_merge, ending=word):
-                    directory = self.member(f"fix-{after_merge}-{expected}")
+                    directory = self.member(f"fix-{after_merge}-{word}-{expected}")
                     state = record.read_state(directory)
                     initial = {**state, "state": "pass", "merge_failed": True} if after_merge else state
                     record.save_state(directory, initial)
