@@ -37,6 +37,7 @@ def _trees(turn, kind="trees"):
         return path, {}
     kept = data.get(kind) if isinstance(data, dict) else None
     now = time.time()
+    # A failed repair holds its red tree even after the passing evidence has expired.
     return path, {tree: entry for tree, entry in (kept or {}).items()
                   if isinstance(entry, dict)
                   and (kind == "red" or now - entry.get("at", 0) < KEEP)}
@@ -126,8 +127,6 @@ def check_line(turn, log=lambda _: None):
                     name = _repair(turn, directory, state, target_tree, red, log)
                     if not name:
                         return
-                elif not run.repair_open(repair, red["probe"]["sha"]):
-                    name = None
                 if name and directory.name != name:
                     continue
             verdict = {key: state["waiting_on"][key] for key in ("land", "fix")
