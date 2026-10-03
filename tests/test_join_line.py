@@ -90,7 +90,7 @@ class JoinLine(Sandbox):
         run.release_line(self.directory, self.lp.log)
         state = self.saved()
         self.assertFalse(record.process_active(state))
-        self.assertFalse(run.tick_admission(state))
+        self.assertEqual(run.tick_admission(state), "in line to land")
         self.assertEqual(menu.run_state_word(state), "working")
         self.assertEqual(run.seat_tallies([state]), {"acme": (1, 0, 0)})
         self.assertTrue(run.followup_open(state))
@@ -296,6 +296,8 @@ class JoinLine(Sandbox):
     def test_foreground_resume_starts_a_worker_and_follows_the_saved_place(self):
         run.merge(self.lp)
         run.release_line(self.directory, self.lp.log)
+        with record.record(self.directory) as state:
+            state["waiting_on"]["land"] = state["review"]["tree_sha"]
         before = self.saved()
         offset = (self.directory / "log.txt").stat().st_size
         with patch.object(sys, "argv", [str(REPO / "bin" / "ak")]), \
@@ -311,6 +313,8 @@ class JoinLine(Sandbox):
     def test_foreground_resume_follows_only_new_lines_even_when_delivery_finishes_at_launch(self):
         run.merge(self.lp)
         run.release_line(self.directory, self.lp.log)
+        with record.record(self.directory) as state:
+            state["waiting_on"]["land"] = state["review"]["tree_sha"]
         log = self.directory / "log.txt"
         log.write_text("Earlier attempt already shown\n")
 
