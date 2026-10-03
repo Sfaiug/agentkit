@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gate, gc, land, record, run, usage, watch
 from fixtures.hand_in import submitting
-from test_merge_step import conflict, make_loop, make_repos, resolve
+from test_merge_step import conflict, make_loop, make_repos, resolve, squashed_dependency
 from test_v4n import Sandbox
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -199,6 +199,25 @@ class LanderWakes(Sandbox):
     def test_green_merge_integrates_without_flattening_or_skipping(self):
         self.assert_green("merge")
 
+    def test_green_merge_replays_only_its_own_work_after_a_dependency_squash(self):
+        dep_tip = squashed_dependency(self.owner, self.wt)
+        self.lp.state.update(base_sha=dep_tip, from_pass={"task": "dep.md", "tip": dep_tip})
+        wait = self.park("merge")
+        self.assertIn("land", wait)
+        with patch.object(run, "wait_for_dependency", return_value=True):
+            self.assertEqual(run.cmd_resume([self.directory.name]), 0)
+        state = record.read_state(self.directory)
+        self.assertTrue(state["merged"])
+        self.assertEqual(state["final_check"]["tree_sha"], wait["land"])
+        self.assertFalse(run.integrated(self.wt, dep_tip))
+        self.assertTrue(run.integrated(self.wt, "origin/main"))
+        self.assertEqual(run.git(self.wt, "rev-list", "--count", "origin/main..HEAD"), "1")
+        self.assertEqual((self.wt / "base.txt").read_text(), "later\n")
+        self.assertEqual((self.wt / "work.txt").read_text(), "work\n")
+        self.assertEqual(self.events, [])
+        self.assertIn("--merge", self.merges[0])
+        self.assert_rounds(state)
+
     def test_changed_tree_rejoins_at_the_same_place(self):
         wait = self.park()
         (self.owner / "other.txt").write_text("external move\n")
@@ -339,15 +358,82 @@ class LanderWakes(Sandbox):
     def test_merge_conflict_uses_the_existing_merge_fixer(self):
         self.assert_conflict("merge")
 
+    def assert_suite_red_with_unrelated_conflict(self, method):
+        (self.wt / "shared").write_text("branch intent\n")
+        self.commit(self.wt, "branch shared")
+        wait = self.park(method, broken=True)
+        failure = Path(wait["fix"]["log"]).read_text()
+        self.assertIn(SUITE, failure)
+        (self.owner / "shared").write_text("target intent\n")
+        self.commit(self.owner, "target shared")
+        run.git(self.owner, "push", "origin", "main")
+
+        def fixer(lp, role, text, name, **kw):
+            summary = self.fixer(lp, role, text, name, **kw)
+            if failure in text and (self.wt / "broken.txt").exists():
+                (self.wt / "broken.txt").unlink()
+                self.commit(self.wt, "fix the recorded suite failure")
+            return summary
+
+        with patch.object(run, "execute", side_effect=fixer):
+            self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+        state = record.read_state(self.directory)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["landing_reds"], 1)
+        self.assertGreater(state["waiting_on"]["joined"], wait["joined"])
+        self.assertIn(failure, self.fixer_inputs[0])
+        self.assertFalse((self.wt / "broken.txt").exists())
+        how = "merge" if method == "merge" else "rebase"
+        self.assertEqual(self.events, [(f"{how}-fixer", 3), ("reviewer", "round-3")])
+        self.assert_rounds(state)
+
+    def test_suite_red_reaches_an_unrelated_rebase_conflict_fixer(self):
+        self.assert_suite_red_with_unrelated_conflict("squash")
+
+    def test_suite_red_reaches_an_unrelated_merge_conflict_fixer(self):
+        self.assert_suite_red_with_unrelated_conflict("merge")
+
+    def test_interrupted_clean_integration_still_repairs_the_recorded_red(self):
+        self.verdicts = iter(["PASS", "PASS"])
+        (self.owner / "other.txt").write_text("target moved\n")
+        self.commit(self.owner, "move target")
+        run.git(self.owner, "push", "origin", "main")
+        self.assertIn("fix", self.park(broken=True))
+        checks = gate.run_done_when
+        calls = []
+
+        def stopped_once(cmds, cwd, *args, **kw):
+            if Path(cwd) == self.wt and not calls:
+                calls.append(cwd)
+                raise run.Exhausted("stopped during the done-when after the rebase")
+            return checks(cmds, cwd, *args, **kw)
+
+        with patch.object(gate, "run_done_when", side_effect=stopped_once):
+            self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+        self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+        state = record.read_state(self.directory)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["landing_reds"], 1)
+        self.assertEqual(self.events, [("reviewer", "round-3"), ("final-fixer", 3),
+                                       ("reviewer", "round-3")])
+        self.assertFalse((self.wt / "broken.txt").exists())
+        self.assert_rounds(state)
+
     def test_interrupted_re_review_keeps_its_red_count_and_task_round(self):
         self.verdicts = iter([run.Exhausted("review interrupted"), "PASS"])
         self.park(broken=True)
-        self.assertEqual(run.cmd_resume([self.directory.name]), 1)
-        saved = record.read_state(self.directory)
-        self.assertEqual(saved["state"], "exhausted")
-        self.assertEqual(saved["landing_reds"], 1)
-        self.assertIs(saved["review_pending"]["record"], False)
-        self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+
+        def fixer(lp, role, text, name, **kw):
+            self.fixer(lp, role, text, name, **kw)
+            return ""
+
+        with patch.object(run, "execute", side_effect=fixer):
+            self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+            saved = record.read_state(self.directory)
+            self.assertEqual(saved["state"], "exhausted")
+            self.assertEqual(saved["landing_reds"], 1)
+            self.assertIs(saved["review_pending"]["record"], False)
+            self.assertEqual(run.cmd_resume([self.directory.name]), 1)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["landing_reds"], 1)

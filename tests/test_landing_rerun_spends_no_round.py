@@ -113,15 +113,29 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertTrue(run.current_review(self.lp))
         self.assertEqual(self.lp.lap_every_sha, run.git(self.wt, "rev-parse", "HEAD"))
 
-    def test_line_red_uses_the_rerun_fixer_then_rejoins_without_a_suite_or_task_round(self):
+    def test_line_red_reaches_an_unrelated_rerun_fixer_without_a_suite_or_task_round(self):
+        self.commit(self.wt, "broken.txt", "suite failure\n")
+        self.lp.state["review"].update(run.commit_identity(self.wt))
         failure = self.run_dir / "lander.log"
-        failure.write_text("$ check\n[exit 1]\nshared file needs fixed.txt\n")
+        output = "$ suite\n[exit 1]\nFAIL landing needs broken.txt removed\n"
+        failure.write_text(output)
         turn = run.turn_path(self.lp, "origin/main")
         self.lp.state["waiting_on"] = {"line": turn.name, "joined": 1,
-            "fix": {"line": "shared file needs fixed.txt", "log": str(failure)}}
+            "fix": {"line": "FAIL landing needs broken.txt removed", "log": str(failure)}}
         self.lp.save()
-        self.assertFalse(run.land(self.lp, "origin/main", lambda: self.fail("local suite"),
-                                  lambda: self.fail("red delivery")))
+        prompts = []
+
+        def fixer(lp, role, text, name, **kw):
+            prompts.append(text)
+            if output in text:
+                run.git(self.wt, "rm", "broken.txt")
+            return self.fixer(lp, role, text, name, **kw)
+
+        with patch.object(run, "execute", side_effect=fixer):
+            self.assertFalse(run.land(self.lp, "origin/main", lambda: self.fail("local suite"),
+                                      lambda: self.fail("red delivery")))
+        self.assertIn(output, prompts[0])
+        self.assertFalse((self.wt / "broken.txt").exists())
         self.assertEqual(self.events, [("gate", False), ("fixer", 3), ("gate", True),
                                        ("reviewer", "round-3")])
         self.assert_no_task_round()

@@ -4248,6 +4248,24 @@ def fix_after_failed_review(lp, upstream, how):
     return False
 
 
+def landing_fixer(lp, text, name):
+    """Give any landing fixer the line's red output and remember its completed turn."""
+    wait = lp.state.get("waiting_on") or {}
+    failure = wait.get("fix") if wait.get("line") else None
+    if failure and name != "final-fixer":
+        # An unrelated conflict or light check must not hide the lander's failure.
+        output = Path(failure["log"]).read_text(errors="replace")
+        text += (f"\n\n## The final check failed. Fix the root cause as well.\n```\n"
+                 f"{output[-OUT_CAP:]}\n```")
+    summary = execute(lp, "fixer", text, name)
+    if failure:
+        # Save the actual fixer with its summary before a check or review can stop.
+        lp.state["waiting_on"]["fixed"] = True
+        lp.state["review_pending"]["summary"] = summary
+        lp.save()
+    return summary
+
+
 def resolve_conflicts(lp, upstream, out, how, tip=None):
     """Hand a conflicted rebase or merge back to the executor, then re-test and re-review it.
 
@@ -4283,8 +4301,7 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
         lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
                f"fixer {lp.executor} ({how} conflict)")
         try:
-            summary = execute(lp, "fixer", text, f"{how}-fixer")
-            lp.line_fixed = True
+            summary = landing_fixer(lp, text, f"{how}-fixer")
         except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired) as exc:
             pending = lp.state.get("review_pending")
             if isinstance(exc, (Exhausted, Killed, worker.LoginExpired)) and pending:
@@ -4413,7 +4430,7 @@ def integrate(lp, upstream):
         # a branch cut from a dependency's passed branch replays only its own commits: the
         # dependency most often lands squashed, its commits on the target under other names
         onto = ("--onto", tip, lp.base_sha) if on_pass(lp) else (tip,)
-        how = how_to_integrate(lp)
+        how = "rebase" if on_pass(lp) else how_to_integrate(lp)
         try:
             pre_identity = commit_identity(lp.wt)
         except Stopped:
@@ -4567,8 +4584,7 @@ def integrate(lp, upstream):
                                 fix = (f"{lp.context}\n\n## The done-when commands failed. "
                                        f"Fix the root cause.\n```\n{dw_log[-OUT_CAP:]}\n```")
                                 with released_gate_turn():
-                                    summary = execute(lp, "fixer", fix, "rerun-fixer")
-                                    lp.line_fixed = True
+                                    summary = landing_fixer(lp, fix, "rerun-fixer")
                                     lp.state["review_pending"]["summary"] = summary
                                     lp.save()
                                     lp.round_dir.mkdir(parents=True, exist_ok=True)
@@ -5392,7 +5408,7 @@ def fix_final_check(lp, upstream, text):
                                   "record": False}
     lp.save()
     with released_gate_turn():
-        summary = execute(lp, "fixer", fix, "final-fixer")
+        summary = landing_fixer(lp, fix, "final-fixer")
         lp.state["review_pending"]["summary"] = summary
         lp.save()
         ok, dw_log = verify_work(lp)
@@ -5559,7 +5575,7 @@ def land_from_line(lp, upstream, deliver):
             fcntl.flock(lock, fcntl.LOCK_EX)
             fetch(lp.wt, "origin", "--prune", check=True)
             tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
-            how = how_to_integrate(lp)
+            how = "rebase" if on_pass(lp) else how_to_integrate(lp)
             args = (("merge", "--no-edit", tip) if how == "merge" else
                     ("rebase", "--onto", tip, lp.base_sha) if on_pass(lp) else
                     ("rebase", tip))
@@ -5609,8 +5625,6 @@ def land_from_line(lp, upstream, deliver):
         lp.state.pop("waiting_on", None)
         return note(lp, f"landing failed four times: {failure['line']}; see {failure['log']}",
                     failed=True)
-    pending = lp.state.get("review_pending") or {}
-    lp.line_fixed = bool(pending.get("summary"))
     if not integrate(lp, upstream):
         if lp.state.get("merge_failed"):
             raise config.Error(lp.state["merge_note"])
@@ -5619,8 +5633,7 @@ def land_from_line(lp, upstream, deliver):
             lp.state.pop("waiting_on", None)
             lp.write()
             return False
-        lp.line_fixed = True
-    if not lp.line_fixed:
+    if not lp.state["waiting_on"].get("fixed"):
         text = Path(failure["log"]).read_text(errors="replace")
         if not fix_final_check(lp, upstream, text):
             lp.state.pop("waiting_on", None)
