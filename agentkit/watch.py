@@ -4689,6 +4689,8 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
             state = run_record.read_state(run_dir)
             if not state or state.get("state") not in ("fail", "waiting"):
                 continue
+            if (state.get("waiting_on") or {}).get("line"):
+                continue    # only the lander's verdict wakes a line member
             if state.get("job_id") and not run:
                 continue
             if state.get("state") == "fail" and not run_mod.parkable_conflict(

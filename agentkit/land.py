@@ -10,8 +10,8 @@ run that breaks it: the passing prefix is recorded as above, and that run and th
 it check themselves alone on their own turns.  Only a tested tree carries the suite's
 evidence.  Offers `passed`, `waiting` and `together` for `run.final_check`.
 
-`check_line` checks one parked line member and wakes it to land or fix itself.  Nothing
-joins a line yet; this checker never takes ownership of a member's process or delivery.
+`check_line` checks one parked line member and wakes it to land or fix itself.  The run
+consumes that verdict; this checker never takes ownership of its process or delivery.
 """
 
 from contextlib import ExitStack
@@ -127,7 +127,7 @@ def _check_member(turn, directory, state, log):
             lp = SimpleNamespace(state=state, wt=scratch,
                                  base_sha=state.get("base_sha") or
                                  run.git(scratch, "merge-base", head, tip))
-            how = "rebase" if run.on_pass(lp) else run.how_to_integrate(lp)
+            how = run.how_to_integrate(lp)
             args = (("merge", "--no-edit", tip) if how == "merge" else
                     ("rebase", "--onto", tip, lp.base_sha) if run.on_pass(lp) else
                     ("rebase", tip))
