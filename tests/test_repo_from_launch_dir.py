@@ -37,7 +37,6 @@ class RepoFromLaunchDir(Sandbox):
         self.stack.enter_context(patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run"]))
         self.stack.enter_context(patch.object(run.box, "check"))
         self.stack.enter_context(patch.object(run, "history_start"))
-        self.stack.enter_context(patch.object(run, "refresh_seat_tally"))
         self.stack.enter_context(patch.object(run, "join_session_project"))
         self.stack.enter_context(patch.object(run.gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "run_placement", return_value=("fixture", None, ())))
