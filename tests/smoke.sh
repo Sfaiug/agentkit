@@ -5270,8 +5270,6 @@ assert typed_into("stall-muse") == "", "typed into a seat whose provider window 
 assert typed_into("fine-seat") == "", "typed into a seat that is working"
 assert typed_into("by-hand") == "", "typed into a seat nothing here started"
 assert "out of usage until" in watch.seat_read("stall-muse")["usage_wait"]["reason"]
-# the OpenAI seat was typed at with its resets left in hand: only the owner spends one
-assert not pathlib.Path(os.environ["ADAPTERS"], "codex.calls").exists()
 
 # a second pass straight after types nothing: one resume per seat per three minutes
 watch.health(cfg, state, False, said.append)
@@ -5332,7 +5330,8 @@ assert migrated[renamed]["told"] == told, "pruning an alias cleared the live lat
 assert typed_into("stall-codex-goal") == before["stall-codex-goal"], "typed into the renamed seat"
 print("ok")
 PY
-[ "$(wc -l <"$STALLAD/codex.calls" 2>/dev/null || echo 0)" -eq 1 ] || STALL=1
+# the OpenAI seat was typed at with its resets left in hand: only the owner spends one
+[ ! -e "$STALLAD/codex.calls" ] || STALL=1
 # and the pass runs from the command itself: a dry run says what it would type and types nothing
 cat >"$STALLBIN/gh" <<'SH'
 #!/usr/bin/env bash
