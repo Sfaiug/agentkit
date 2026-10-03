@@ -11,12 +11,14 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, land, record, run, watch, worker
+from agentkit import config, gate, gc, land, record, run, watch, worker
 
 SUITE = "test -f base.txt && test ! -f broken.txt"
 ONCE = "test -f tip.txt && test -f work.txt"
@@ -247,11 +249,15 @@ class Lander(LanderFixture, unittest.TestCase):
                     run.git(self.repo, "merge", "--no-edit", "origin/main")
                 else:
                     run.git(self.repo, "rebase", "origin/main")
-                sha = run.git(self.repo, "rev-parse", "HEAD")
                 self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), tree)
-                lp = type("Member", (), {"state": state, "wt": self.repo, "log": lambda _, text: None})()
+                lp = SimpleNamespace(state=state, wt=self.repo, run_dir=directory,
+                                     base_sha=state["base_sha"], target=state["target"],
+                                     log=lambda _: None,
+                                     write=lambda: record.save_state(directory, state))
                 checks = len(self.checks)
-                self.assertEqual(run.suite_shared(lp, "origin/main", sha)["tested"], tree)
+                self.assertTrue(run.land_from_line(lp, "origin/main", lambda: True))
+                self.assertEqual(state["final_check"]["tree_sha"], tree)
+                self.assertEqual(state["final_check"]["suite"], SUITE)
                 self.assertEqual(len(self.checks), checks)
                 with record.record(directory) as current:
                     current["state"] = "running"
@@ -430,6 +436,61 @@ class Lander(LanderFixture, unittest.TestCase):
         self.assertIn("Checkout changed during", self.wait(directory)["fix"]["line"])
         self.assert_only_target_green()
         self.wake.assert_called_once()
+        self.assert_cleaned()
+
+    def test_a_check_uses_a_symlinked_worktree_home_without_noatime_support(self):
+        disk = self.root / "disk"
+        (disk / "wt").mkdir(parents=True)
+        linked = self.root / "linked"
+        linked.symlink_to(disk, target_is_directory=True)
+        directory = self.member()
+        self.advance()
+        with patch.object(config, "WT", linked / "wt"), \
+                patch.object(os, "O_NOATIME", create=True):
+            del os.O_NOATIME
+            land.check_line(self.turn)
+            self.assertIn("land", self.wait(directory))
+            self.assert_cleaned()
+
+    def test_an_abandoned_check_is_collected_with_its_git_registration(self):
+        self.member()
+        self.advance()
+        temporary, git_out = tempfile.TemporaryDirectory, run.git_out
+        abandoned = []
+
+        def uncleaned(*args, **kw):
+            tmp = temporary(*args, **kw)
+            tmp._finalizer.detach()
+            tmp.cleanup = lambda: None
+            return tmp
+
+        def leave_checkout(cwd, *args, **kw):
+            if args[:2] == ("worktree", "remove"):
+                return 1, "interrupted before cleanup"
+            return git_out(cwd, *args, **kw)
+
+        def interrupted(cmds, cwd, *args, **kw):
+            scratch = Path(cwd)
+            (scratch / "build").mkdir()
+            (scratch / "build/output").write_text("unfinished output\n")
+            abandoned.append(scratch)
+            raise RuntimeError("simulated hard kill")
+
+        # Skip both cleanup paths, as a hard kill does, without killing a real process.
+        with patch.object(land.tempfile, "TemporaryDirectory", side_effect=uncleaned), \
+                patch.object(run, "git_out", side_effect=leave_checkout), \
+                patch.object(gate, "run_done_when", side_effect=interrupted):
+            with self.assertRaisesRegex(RuntimeError, "simulated hard kill"):
+                land.check_line(self.turn)
+        scratch, = abandoned
+        self.assertTrue(scratch.is_dir())
+        self.assertIn(str(scratch), run.git(self.repo, "worktree", "list", "--porcelain"))
+        later = time.time() + 30 * 86400
+        self.assertEqual(gc.stale_worktrees(later, {str(scratch)}), [])
+        planned = gc.stale_worktrees(later, set())
+        self.assertEqual([item["path"] for item in planned], [str(scratch)])
+        self.assertEqual(planned[0]["kind"], "orphan-worktree")
+        gc.clear_tree(scratch, lambda _: None)
         self.assert_cleaned()
 
 

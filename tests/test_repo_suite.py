@@ -119,7 +119,7 @@ class RepoSuite(unittest.TestCase):
 
     def test_rebased_landing_replaces_the_loaded_suite(self):
         task_once = "test -d ."
-        for mode in ("alone", "probe"):
+        for mode in ("landing", "probe"):
             with self.subTest(mode=mode):
                 old_suite = f"echo old suite {mode}"
                 self.gates.clear()

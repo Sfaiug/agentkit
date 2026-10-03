@@ -5288,7 +5288,7 @@ def final_check(lp, upstream):
     fixed = 0       # the fixer rounds this run has spent on these commands here
     while True:
         sha = git(lp.wt, "rev-parse", "HEAD")
-        suite, shared = declared_suite(lp.wt, lp.target), None
+        suite = declared_suite(lp.wt, lp.target)
         # A rebase or fixer can change the declaration loaded into lp.once. Rebuild
         # it from the task so only the inherited suite is replaced, including for probes.
         task = lp.run_dir / "task.md"
@@ -5305,10 +5305,6 @@ def final_check(lp, upstream):
             cmds_every, cmds_once = [], list(lp.once)
         else:
             cmds_every, cmds_once = list(lp.every), list(lp.once)
-        if suite:
-            shared = suite_shared(lp, upstream, sha)
-            if shared:
-                cmds_once.remove(suite)
         lp.log(f"--- merge: final check: {len(cmds_every) + len(cmds_once)} commands "
                f"({len(lp.once)} once) on {sha[:12]}")
         identity = commit_identity(lp.wt)
@@ -5349,9 +5345,6 @@ def final_check(lp, upstream):
         if ok:
             lp.log("final check: all passed")
             evidence = suite_evidence(lp, cmds_once, identity)
-            if shared:      # only the tree actually tested carries suite evidence
-                evidence = ({"suite": suite, "tree_sha": shared["tested"]}
-                            if shared["tested"] == identity.get("tree_sha") else {})
             lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing",
                                        **evidence}
             if current_review(lp):
@@ -6387,16 +6380,6 @@ def retry_command(state):
             or state.get("review_pr") or not state.get("repo")):
         return None
     return f"ak run merge {state['run_id']}"
-
-
-def suite_shared(lp, upstream, sha):
-    """Reuse a lander's suite evidence only for the same tree."""
-    tree = git(lp.wt, "rev-parse", f"{sha}^{{tree}}")
-    shared = landing.passed(turn_path(lp, upstream), tree)
-    if shared and shared["leader"] != lp.state.get("run_id"):
-        lp.log(f"final check: the suite already passed on this tree with "
-               f"{shared['leader']}; not running it again")
-    return shared
 
 
 def final_check_line(state, cmds):
