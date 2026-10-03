@@ -90,10 +90,15 @@ class SplitSuiteRun(unittest.TestCase):
                        "every test exactly once"):
             self.assertIn(phrase, body)
 
-    def test_wait_time_is_not_suite_time(self):
+    def test_wait_and_cost_lookup_are_not_suite_time(self):
         def waiting(*_args, **_kw):
             self.clock += 500
-        with patch.object(gate, "_acquire_gate_turn", side_effect=waiting):
+        suite_cost = gate.suite_cost
+        def lookup(*args):
+            self.clock += 500
+            return suite_cost(*args)
+        with patch.object(gate, "_acquire_gate_turn", side_effect=waiting), \
+                patch.object(gate, "suite_cost", side_effect=lookup):
             path = self.measure(attempts=((119, 0, False),))
         self.assertEqual(gate.read_suite_cost(path)["wall_seconds"], 119)
         self.start()

@@ -575,7 +575,7 @@ def split_suite_run(lp, command):
 
 
 class _SuiteMeasure:
-    """Only this run's isolated cgroup can attribute work to its suite."""
+    """Wall time works everywhere; only this run's cgroup can attribute CPU and memory."""
 
     def __init__(self, run_dir):
         state = run_record.read_state(run_dir) or {} if run_dir else {}
@@ -645,6 +645,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     """
     env = suite_env()
     if not names_shard(command):
+        path = suite_cost(command, cwd, run_dir)[0] if measure else None
         measured = _SuiteMeasure(run_dir) if measure else None
         aborting = kwargs.pop("abort", None)
         def abort():
@@ -654,7 +655,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         result = worker.limited(["bash", "-c", command], limit, cwd=str(cwd),
                                 activity=activity, output=output, env=env, abort=abort, **kwargs)
         if measured and not result[2] and result[0] != SUITE_BUSY:
-            measured.save(suite_cost(command, cwd, run_dir)[0], 1)
+            measured.save(path, 1)
         return result
     with gate_turn(run_dir, activity, log, command, cwd):
         hold = getattr(_GATE_HELD, "hold", None)
