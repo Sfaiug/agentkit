@@ -359,9 +359,18 @@ class EscBack(unittest.TestCase):
                              "界" * 30)
         drawn = [terminal.cells(line) for line in out.getvalue().split("\r") if line]
         self.assertLess(max(drawn), 40, drawn)
-        # A pasted field still reads through to Esc.
-        with patch.object(terminal, "width", return_value=40):
+        measured, cells = 0, terminal.cells
+
+        def counted(text):
+            nonlocal measured
+            measured += len(text)
+            return cells(text)
+
+        # Measurement work per key stays bounded by the screen, so a paste cannot hold Esc up.
+        with patch.object(terminal, "width", return_value=40), \
+                patch.object(terminal, "cells", counted):
             self.assertEqual(typed(*[Key("char", "a")] * 800, Key("esc")), terminal.ESC)
+        self.assertLessEqual(measured, 800 * 40 * 2)
 
 
 
