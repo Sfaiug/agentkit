@@ -5,18 +5,15 @@ from unittest.mock import patch
 from agentkit import land, record, run, watch
 
 
-def landing(lp, deliver=None, *, checked=lambda: None, consume=None):
+def landing(lp, deliver=None, *, checked=lambda: None, consume=None, join=run.join_line):
     """Join, run one lander pass and consume its verdict; a changed target stays queued."""
     if not (lp.state.get("waiting_on") or {}).get("line"):
         run.require_review_pass(lp)
     upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
     (lp.run_dir / "task.md").write_text(
         f"# {lp.state['title']}\n\n## Done when\n```bash\n" + "\n".join(lp.cmds) + "\n```\n")
-    # Existing tests craft their records wherever their sandbox helper kept them.
-    with patch.object(record, "run_dirs", return_value=[lp.run_dir]), \
-            patch.object(record, "process_active", return_value=False), \
-            patch.object(land, "start_line"), patch.object(watch, "launch_resume"):
-        act = (lambda: run.join_line(lp, upstream, deliver)) if deliver else lambda: run.merge(lp)
+    with patch.object(land, "start_line"), patch.object(watch, "launch_resume"):
+        act = (lambda: join(lp, upstream, deliver)) if deliver else lambda: run.merge(lp)
         if not (lp.state.get("waiting_on") or {}).get("line"):
             act()
         else:
@@ -25,8 +22,15 @@ def landing(lp, deliver=None, *, checked=lambda: None, consume=None):
         if lp.state.get("state") != "waiting":
             return False
         turn = run.turn_path(lp, upstream)
-        land.check_line(turn, lp.log)
-        lp.state = record.read_state(lp.run_dir)
+        # Limit checker fakes to the pass: delivery may wait while a job builds its dependant.
+        active = record.process_active
+        with patch.object(record, "run_dirs", return_value=[lp.run_dir]), \
+                patch.object(record, "process_active", side_effect=lambda state:
+                             False if state.get("run_id") == lp.state.get("run_id") else active(state)):
+            land.check_line(turn, lp.log)
+        saved = record.read_state(lp.run_dir)
+        lp.state.clear()
+        lp.state.update(saved)
         checked()
         if not any(key in lp.state["waiting_on"] for key in ("land", "fix")):
             return False
