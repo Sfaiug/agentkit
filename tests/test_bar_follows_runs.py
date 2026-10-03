@@ -100,6 +100,8 @@ class BarFollowsRuns(unittest.TestCase):
         while ((HOME / "jobs").read_text() != (HOME / "jobs-done").read_text()
                and time.monotonic() < deadline):
             time.sleep(0.05)
+        self.assertEqual((HOME / "jobs").read_text(), (HOME / "jobs-done").read_text(),
+                         "redraw jobs did not finish")
 
     def bars(self, name="acme"):
         """The status-left writes that seat's bar got on agentkit's own server."""
@@ -145,10 +147,9 @@ class BarFollowsRuns(unittest.TestCase):
                            check=True, timeout=20, capture_output=True)
             self.assertEqual(record.read_state(self.run_dir)["state"], "error")
             self.assertEqual(self.bars(), [])
-        # the run has exited; the step's and the ending's redraws still land
-        deadline = time.monotonic() + 30
-        while len(self.bars()) < 2 and time.monotonic() < deadline:
-            time.sleep(0.1)
+        # A bar lands before its job finishes; both jobs must finish before the next test
+        # resets HOME, even though the run has already exited.
+        self.settle()
         self.assertEqual(len(self.bars()), 2)
 
     def test_a_tmux_that_fails_never_reaches_the_run(self):
