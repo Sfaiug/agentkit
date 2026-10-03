@@ -148,7 +148,6 @@ def _repair(turn, directory, state, tree, red, log):
     return name
 
 
-
 def check_line(turn, log=lambda _: None):
     """Check stacks from the first member without a verdict, under the singleton flock.
 
@@ -203,7 +202,7 @@ def check_line(turn, log=lambda _: None):
                                 and (saved.get("review") or {}).get("verdict") == "PASS"
                                 and not any(k in saved["waiting_on"] for k in ("land", "fix"))):
                             candidates.append((later, saved))
-                verdicts = _check_members(turn, candidates, tip, target_tree, log)
+                verdicts = _check_members(turn, candidates, repo, tip, target_tree, log)
                 if not verdicts:
                     return
             else:
@@ -301,10 +300,9 @@ def _check_tree(directory, state, scratch, upstream, log):
     return {"land": tree} if ok else {"fix": {"line": run.first_failure(text), "log": str(log_path)}}
 
 
-def _check_members(turn, members, tip, target_tree, log):
+def _check_members(turn, members, repo, tip, target_tree, log):
     from . import run
     directory, state = members[0]
-    repo = Path(state.get("worktree") or state["repo"])
     upstream = state.get("target") or state["base"]
     upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
     config.WT.mkdir(parents=True, exist_ok=True)

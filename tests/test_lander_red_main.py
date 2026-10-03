@@ -125,16 +125,16 @@ class RedMain(unittest.TestCase):
         self.assertEqual((later / "run.json").read_bytes(), before[later])
         self.assertEqual(len(self.checks), checks)
 
-    def test_a_green_bare_target_wakes_only_the_failing_member(self):
+    def test_a_green_bare_target_wakes_only_the_members_that_fail(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})
         later = self.member("later", joined=2, **{"broken.txt": "other breakage\n"})
         self.advance()
-        before = (later / "run.json").read_bytes()
         land.check_line(self.turn)
         self.assertIn(SUITE, self.wait(first)["fix"]["line"])
-        self.assertEqual((later / "run.json").read_bytes(), before)
-        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
-        self.assertEqual(len(self.checks), 2)
+        self.assertIn(SUITE, self.wait(later)["fix"]["line"])
+        self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
+                              [first.name, later.name])
+        self.assertEqual(len(self.checks), 3)
         self.assertIsNotNone(land.passed(self.turn, run.git(self.repo, "rev-parse",
                                                           "origin/main^{tree}")))
         self.assertEqual(self.prepared, [])

@@ -28,6 +28,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
     def test_a_head_parked_again_rechecks_its_failed_tree(self):
         member = self.member()
         self.advance()
+        land.note(self.turn, [run.git(self.repo, "rev-parse", "main^{tree}")], "earlier")
         calls = []
 
         def killed_once(cmds, cwd, log_path, *args, **kw):
@@ -50,6 +51,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
     def test_an_undecided_red_head_still_gets_its_own_check(self):
         member = self.member()
         self.advance()
+        land.note(self.turn, [run.git(self.repo, "rev-parse", "main^{tree}")], "earlier")
         with (patch.object(gate, "run_done_when", return_value=(
                 False, "$ suite\n[exit 137]\nkilled: silent for 60 minutes\n")),
               patch.object(record, "record", side_effect=RuntimeError("before verdict"))):
@@ -90,6 +92,27 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                             for tree in land._trees(self.turn)[1]))
         self.assertEqual(record.read_state(later), original)
         self.assertEqual(run.git(other, "rev-parse", original["branch"]), head)
+        self.assertEqual(run.git(other, "worktree", "list", "--porcelain").count("worktree "), 1)
+        self.assert_cleaned()
+
+    def test_a_later_clone_uses_the_target_fetched_for_this_pass(self):
+        first = self.member("first", **{"first.txt": "first\n"})
+        other = self.root / "acme-two"
+        run.git(self.root, "clone", str(self.remote), str(other))
+        run.git(other, "config", "user.name", "fixture")
+        run.git(other, "config", "user.email", "fixture@localhost")
+        with patch.object(self, "repo", other):
+            later = self.member("later", joined=2, **{"later.txt": "later\n"})
+        original = record.read_state(later)
+        self.advance()
+        tip = run.git(self.repo, "rev-parse", "main")
+        self.assertNotEqual(run.git_out(other, "cat-file", "-e", tip)[0], 0)
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(first))
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(later))
+        self.assertEqual(run.git(other, "rev-parse", original["branch"]),
+                         original["review"]["head_sha"])
         self.assertEqual(run.git(other, "worktree", "list", "--porcelain").count("worktree "), 1)
         self.assert_cleaned()
 
