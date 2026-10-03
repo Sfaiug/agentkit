@@ -22,7 +22,7 @@ SUITE = "test -f base.txt && test ! -f broken.txt"
 ONCE = "test -f tip.txt && test -f work.txt"
 
 
-class Lander(unittest.TestCase):
+class LanderFixture:
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-lander-", dir=REPO)
         self.addCleanup(tmp.cleanup)
@@ -113,6 +113,8 @@ class Lander(unittest.TestCase):
         tree = run.git(self.repo, "rev-parse", "origin/main^{tree}")
         self.assertEqual(set(land._trees(self.turn)[1]), {tree})
 
+
+class Lander(LanderFixture, unittest.TestCase):
     def test_join_order_one_check_and_only_the_parked_verdict_changes(self):
         later = self.member("a-later", 20)
         first = self.member("z-first", 10.5)
