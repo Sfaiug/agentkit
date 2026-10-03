@@ -32,6 +32,19 @@ LOGGED_IN = {h: "0 fixture: logged in" for h in MANIFESTS}
 WORD = "DONE"
 
 
+def unboxed_worker(root):
+    # These adapters are fixtures; test_worker_box exercises the real namespaces.
+    (root / "sitecustomize.py").write_text(f'''from contextlib import nullcontext
+import sys
+sys.path.insert(0, {str(REPO)!r})
+from agentkit import box
+def command(argv, env, *_args, **_kw):
+    return nullcontext((argv, env, {{}}))
+box.command = command
+''')
+    return str(root)
+
+
 def text(part):
     """One text part of an OpenCode message, as its event log streams it."""
     return '{"type":"text","part":{"type":"text","messageID":"msg_1","text":"%s"}}\n' % part
@@ -99,6 +112,7 @@ class EveryHarness(unittest.TestCase):
             runs.unlink()
         work = tempfile.mkdtemp(prefix="work-", dir=self.root)
         env = {"HOME": str(self.home), "PATH": str(self.bin), "WORK": work,
+               "PYTHONPATH": unboxed_worker(self.root),
                "REPO": str(REPO), "SMOKE_CALLER_HOME": str(self.root / "caller"),
                "AGENTKIT_ADAPTER_DIR": str(self.adapters), "FIXTURE": str(self.fixture),
                "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_DISCORD_WEBHOOK": "off",

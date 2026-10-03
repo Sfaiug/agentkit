@@ -901,6 +901,8 @@ esac
                     self.assertEqual((host / "usage.json").read_text(), cache)
 
     def test_smoke_handles_a_live_refusal_below_the_cached_cap(self):
+        from test_update_gate_every_harness import unboxed_worker
+
         source = (REPO / "tests/smoke.sh").read_text()
         calls = source[source.index("# --- 3:"):source.index("# --- 4:")]
         mcp = source[source.index("# 31d/31e:"):source.index("\nfi\n\n# --- 32:")]
@@ -974,6 +976,7 @@ esac
 ''')
             adapter.chmod(0o755)
             base = {**os.environ, "HOME": directory, "REPO": str(REPO),
+                    "PYTHONPATH": unboxed_worker(root),
                     "PATH": f"{binaries}:{os.environ['PATH']}",
                     "AGENTKIT_ADAPTER_DIR": str(adapters),
                     "SMOKE_CALLER_HOME": str(root / "caller"), "PYTHON_BIN": sys.executable,

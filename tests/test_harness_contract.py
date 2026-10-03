@@ -9,6 +9,8 @@ import sys
 import tempfile
 import unittest
 
+from test_update_gate_every_harness import unboxed_worker
+
 REPO = Path(__file__).resolve().parents[1]
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 
@@ -36,6 +38,7 @@ class Contract(unittest.TestCase):
             (self.bin / tool).symlink_to(shutil.which(tool))
         (self.bin / "echo").touch(mode=0o755)
         self.env = {"HOME": str(self.home), "PATH": str(self.bin), "WORK": str(self.root),
+                    "PYTHONPATH": unboxed_worker(self.root),
                     "REPO": str(REPO), "SMOKE_CALLER_HOME": str(self.home),
                     "AGENTKIT_ADAPTER_DIR": str(self.adapters), "AK_RUN_DEPTH": "0",
                     "AK_MAX_RUNS": "0", "PYTHONDONTWRITEBYTECODE": "1",

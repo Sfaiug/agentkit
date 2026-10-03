@@ -14,7 +14,7 @@ import tempfile
 import time
 import unittest
 
-from test_update_gate_every_harness import ADAPTER, BINARIES, MANIFESTS
+from test_update_gate_every_harness import ADAPTER, BINARIES, MANIFESTS, unboxed_worker
 
 REPO = Path(__file__).resolve().parents[1]
 SMOKE = (REPO / "tests/smoke.sh").read_text()
@@ -75,6 +75,7 @@ class BorrowedLogin(unittest.TestCase):
                                    ("said", ""), ("events", "")):
                 (work / f"{harness}.{suffix}").write_text(answer + "\n")
         env = {"HOME": str(self.home), "WORK": str(work), "REPO": str(REPO),
+               "PYTHONPATH": unboxed_worker(self.root),
                "SMOKE_CALLER_HOME": str(self.root / "caller"), "PYTHON_BIN": sys.executable,
                "PATH": str(self.bin), "FIXTURE": str(work), "PYTHONDONTWRITEBYTECODE": "1", "TMPDIR": str(self.root),
                "AGENTKIT_ADAPTER_DIR": str(self.adapters), "AGENTKIT_ACCEPTANCE_REQUIRED": "0",
