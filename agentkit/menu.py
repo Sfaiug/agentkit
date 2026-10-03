@@ -49,8 +49,8 @@ account's *shared* weekly meter -- the one every model of it draws on: a provide
 single row.  A bar and `NN% left`, then `resets <weekday> <HH:MM>` in local time, then
 `Fable 41%` for a scoped cap that reads differently, then `5h 40% left` for the 5-hour
 window (`5h spent until 14:00` once it reads 100% used), then `1 reset in hand` while the
-subscription holds usage-limit resets for the owner to spend on `c`, then `? <reason>` when the last
-probe errored though the meter it read still stands, and `as of HH:MM` beside it when
+subscription holds usage-limit resets for the owner to spend on `c`, then `? <reason>` when
+the last probe errored though the meter it read still stands, and `as of HH:MM` beside it when
 that reading is older than half an hour, with the weekday when it is not from today.
 A probe the endpoint would not answer says nothing at all: its reading stands as it was,
 and past half an hour its age says the rest.
@@ -1942,28 +1942,29 @@ def usage_tip(cfg, number, now=None):
 def usage_lines(cfg, width):
     """The cached weekly allowances, without probing adapters or spending a reset.
 
-    A row is one account's shared weekly meter -- the one every model of it draws on -- that
-    a bar can be drawn from: a numeric used% in a window that has not rolled over, as a bar
-    and `NN% left`.  A provider that lists `accounts` has one row per account in config
-    order, the provider's name numbered in roman numerals (`Claude I`, `Claude II`), each
-    from its own reading; a provider without them keeps its single row.  After the percentage, joined with ` · ` and each only when it applies:
-    `62,469 credits left` for the credits it can spend past a spent window;
-    `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>` more than six days
-    out in a window longer than a week; `1 reset in hand` (`in_hand`); one note per scoped
-    meter whose figure differs (`Fable 41%`); `5h 40% left` for the 5-hour window, or `5h spent until 14:00` once it
-    reads 100% used; `? <reason>` when the last probe errored although the meter it read
-    still stands, and `as of HH:MM` beside it when the reading is older than half an hour,
-    with the weekday when it is not from today.  A probe the endpoint refused to answer
-    says nothing at all: the reading it could not replace stands as it was, and its age
-    says the rest.  The filled cells are `fill`'s colour for what is left, the empty ones dim,
-    and the rows run by the `hue` of the provider's `colour`.  `ak usage` keeps the rest --
-    week elapsed, headroom, budget, outlook -- and the picker keeps ranking on the tightest meter: only
-    this display changed.  The bars are one column, sized once per draw from the row with the
-    least room, down to four cells; the bar gives way to the notes first, and only then does
-    each note that still will not fit give way on its own (`fitting`), so one long note never
-    takes a short one with it.  An account whose every readable week is one model's own cap
-    has no shared week to show and says so rather than wearing that cap's number.  A row with
-    nothing to draw is `—` and the words that say why, never `—` alone.
+    A row is one account's shared weekly meter -- the one every model of it draws on -- that a
+    bar can be drawn from: a numeric used% in a window that has not rolled over, as a bar and
+    `NN% left`.  A provider that lists `accounts` has one row per account in config order, the
+    provider's name numbered in roman numerals (`Claude I`, `Claude II`), each from its own
+    reading; a provider without them keeps its single row.  After the percentage, joined with
+    ` · ` and each only when it applies: `62,469 credits left` for the credits it can spend
+    past a spent window; `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>`
+    more than six days out in a window longer than a week; `1 reset in hand` (`in_hand`); one
+    note per scoped meter whose figure differs (`Fable 41%`); `5h 40% left` for the 5-hour
+    window, or `5h spent until 14:00` once it reads 100% used; `? <reason>` when the last probe
+    errored although the meter it read still stands, and `as of HH:MM` beside it when the
+    reading is older than half an hour, with the weekday when it is not from today.  A probe
+    the endpoint refused to answer says nothing at all: the reading it could not replace stands
+    as it was, and its age says the rest.  The filled cells are `fill`'s colour for what is
+    left, the empty ones dim, and the rows run by the `hue` of the provider's `colour`.  `ak
+    usage` keeps the rest -- week elapsed, headroom, budget, outlook -- and the picker keeps
+    ranking on the tightest meter: only this display changed.  The bars are one column, sized
+    once per draw from the row with the least room, down to four cells; the bar gives way to
+    the notes first, and only then does each note that still will not fit give way on its own
+    (`fitting`), so one long note never takes a short one with it.  An account whose every
+    readable week is one model's own cap has no shared week to show and says so rather than
+    wearing that cap's number.  A row with nothing to draw is `—` and the words that say why,
+    never `—` alone.
     """
     rows = usage_rows(cfg)
     label_room = min(16, max((terminal.cells(terminal.plain(label)) for _, label, _, _ in rows),
@@ -2645,8 +2646,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     Enter or a click on a model's label, left of its marks, opens that model's own screen
     (config_model), and Esc there comes back to its row.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
-    highlighted after it.  On `Providers` ←/→ move between `+ add`, `− remove` and `↻ spend a
-    reset`, which ↓ never lands on, and Enter or a click on one runs it (config_add_provider,
+    highlighted after it.  On `Providers` ←/→ move between `+ add`, `− remove` and `↻ spend
+    a reset`, which ↓ never lands on, and Enter or a click on one runs it (config_add_provider,
     config_remove_provider, config_spend_reset); the row a model, a
     provider or a subscription was just added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
