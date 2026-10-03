@@ -112,6 +112,7 @@ class Lander(unittest.TestCase):
         first = self.member("z-first", 10.5)
         original = record.read_state(first)
         self.advance()
+        run.git(self.repo, "config", "rebase.updateRefs", "true")
         land.check_line(self.turn)
         self.assertEqual([cmds for cmds, _, _ in self.checks], [[ONCE, SUITE]])
         self.wake.assert_called_once_with(first.name, unittest.mock.ANY)

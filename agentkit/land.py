@@ -131,6 +131,9 @@ def _check_member(turn, directory, state, log):
             args = (("merge", "--no-edit", tip) if how == "merge" else
                     ("rebase", "--onto", tip, lp.base_sha) if run.on_pass(lp) else
                     ("rebase", tip))
+            if how == "rebase":
+                # A detached rebase must not rewrite the member's branch through Git config.
+                args = ("-c", "rebase.updateRefs=false", *args)
             code, out = run.git_out(scratch, *args)
             if code:
                 text = (f"$ git {' '.join(args)}\n[exit {code}]\n"
