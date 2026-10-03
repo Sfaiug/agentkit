@@ -66,8 +66,6 @@ def smoke_owners(blocks, root, total, live=False, offline=False):
                 cost += len(path.read_text().splitlines()) * 3
         if name.startswith("offline_") != offline or name in LIVE_CHECKS and not live:
             cost = 0
-        if name == "9" and not offline:
-            cost = 360 * 300       # its background executor waits out 60s + 300s
         group = groups.get(name, name)
         costs[group] = costs.get(group, 0) + cost
     owners = shares(costs, total)

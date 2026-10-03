@@ -31,7 +31,7 @@ class SuiteShares(unittest.TestCase):
         self.env = {k: v for k, v in os.environ.items()
                     if not k.startswith(("AK_", "AGENTKIT_"))}
         self.env.update(HOME=str(self.root),
-                        AK_HOST_READINGS='{"cpus": 2, "load": 0, "free_mb": 4096}',
+                        AK_HOST_READINGS='{"cpus": 2, "load": 0, "cpu_pressure": 12, "free_mb": 4096}',
                         AK_CGROUP_FILE=str(self.root / "no-cgroup"))
 
     def test_piece_is_one_based_and_unset_or_one_of_one_means_all(self):
@@ -121,6 +121,14 @@ tmux() { echo reached-tmux; }
         self.assertEqual(owners, suite.shares(dict(reversed(list(costs.items()))), 3))
         self.assertEqual(suite.shares({}, 3), {})
         self.assertEqual(suite.shares({"acme": 1}, 1000000000), {"acme": 1})
+
+    def test_retry_clock_does_not_reserve_a_piece_for_backoff(self):
+        # The retry fakes advance a clock, so their old 360s wait is no longer work.
+        retry = [(name, body) for name, body in BLOCKS if name in ("retry_start", "9")]
+        others = [(name, ":\n" * 100) for name in ("acme", "fix_api", "widget")]
+        owners = suite.smoke_owners(retry + others, self.root, 3)
+        self.assertEqual(owners["retry_start"], owners["9"])
+        self.assertIn(owners["9"], {owners[name] for name, _ in others})
 
     def test_smoke_entry_runs_only_its_piece_with_private_setup(self):
         # Exercise the real entry and sandbox setup, replacing all expensive checks.
