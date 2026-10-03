@@ -99,6 +99,8 @@ def check_line(turn, log=lambda _: None):
             with record.recovery_lock(directory):
                 with record.record(directory) as current:
                     if current != state or record.process_active(current):
+                        if checked:
+                            return
                         continue
                     current["waiting_on"] = {**current["waiting_on"], **verdict}
                 watch.launch_resume(directory.name, log)
@@ -138,6 +140,7 @@ def _check_member(turn, directory, state, log):
                 tree = identity["tree_sha"]
                 if passed(turn, tree):
                     return {"land": tree}
+                clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
                 _, body, _ = task.parse_task(directory / "task.md")
                 cmds = task.group_commands(run.with_suite(
                     task.done_when(body, directory / "task.md"), scratch, upstream))[1]
@@ -147,12 +150,13 @@ def _check_member(turn, directory, state, log):
                     3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
                     silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES),
                     heavy=True)
-                if (run.commit_identity(scratch) != identity
+                if (not clean or run.commit_identity(scratch) != identity
                         or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
                     ok = False
                     text += ("\n\nCheckout changed during the final check; "
                              "these commands do not verify the pinned commit.")
-                log_path.write_text(f"Commit: {identity['head_sha']}\nTree: {tree}\n\n{text}")
+                text = f"Commit: {identity['head_sha']}\nTree: {tree}\n\n{text}"
+                log_path.write_text(text)
                 if ok:
                     note(turn, [tree], directory.name)
                     return {"land": tree}
