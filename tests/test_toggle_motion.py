@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 import test_features_screen as features
 import test_new_session_screen as new_session
-from test_config_matrix import DOWN, ENTER, RIGHT, Screen, highlighted, row
+from test_config_matrix import CHILD, DOWN, ENTER, RIGHT, Screen, highlighted, row
 from agentkit import motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
@@ -162,6 +162,24 @@ class ConfigScreen(unittest.TestCase):
         lit_through(self, cells, number)
         self.assertEqual(screen.record(), before)
         screen.leave()
+
+    def test_the_last_executor_refusal_can_skip_frames(self):
+        # A scheduler pause can outlast the shake without changing the refusal or its landing.
+        child = CHILD.replace("with closing(", """
+import time
+from agentkit import motion
+wait_key = menu.wait_key
+def delayed_wait_key(prompt, timeout=None, wake=None):
+    key = wait_key(prompt, timeout, wake)
+    if key is None and timeout is not None and timeout <= motion.FRAME:
+        time.sleep(motion.SHAKE)
+    return key
+menu.wait_key = delayed_wait_key
+with closing(""", 1)
+        create = Screen
+        with patch(__name__ + ".Screen", side_effect=lambda *args, **kwargs:
+                   create(*args, child=child, **kwargs)):
+            self.test_the_last_executor_refused_shakes_and_nothing_is_saved()
 
     def test_a_model_just_added_glows_and_a_key_ends_it_at_once(self):
         screen = Screen(self, env={"COLORTERM": "truecolor"})     # a glow fades in fine steps
