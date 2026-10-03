@@ -1,7 +1,7 @@
-"""Suite pieces cover each check/file once, keep dependencies and never share writes.
+"""Suite pieces share the safety guard, cover other checks/files once and isolate writes.
 
-The real smoke blocks are only read and parsed. Executed suites are tiny stand-ins in
-temporary checkouts; no landing suite, live process, login or state is touched.
+Executed suites are tiny stand-ins in temporary checkouts, using the real entry, setup
+and tmux guard. No landing suite, live process, login or state is touched.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -71,6 +71,46 @@ class SuiteShares(unittest.TestCase):
                     proc = subprocess.run(["bash", "-n"], input=chosen,
                                           capture_output=True, text=True, timeout=30)
                     self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_tmux_guard_stops_every_piece_before_an_unsafe_check(self):
+        guard = next(body for _, body in BLOCKS if body.startswith("# --- 0:"))
+        stub = suite.SETUP + '''
+WORK="$HOME/work"
+export TMUX_TMPDIR="$WORK/tmux"
+export AGENTKIT_TMUX_SOCKET=agentkit-test
+ok() { :; }
+no() { :; }
+finish() { :; }
+tmux() { echo reached-tmux; }
+''' + guard
+        for name in ("acme", "fix_api", "widget"):
+            stub += f"# --- {name}: fixture\ntmux -L agentkit-test kill-session -t acme\n"
+        for number in (1, 2, 3):
+            self.assertIn(guard, suite.smoke_source(SMOKE, REPO, (number, 3)))
+        for damage in ("", "smoke.sh", "live.sh", "e2e-fresh.sh",
+                       "TMUX_TMPDIR", "AGENTKIT_TMUX_SOCKET"):
+            source = stub
+            if damage == "smoke.sh":
+                source = source.replace("tmux -L agentkit-test kill-session", "tmux kill-session")
+            elif damage in ("TMUX_TMPDIR", "AGENTKIT_TMUX_SOCKET"):
+                source = source.replace(f"\nexport {damage}=", f"\n{damage}=")
+            (self.root / "tests/smoke.sh").write_text(source)
+            for filename in ("live.sh", "e2e-fresh.sh"):
+                (self.root / "tests" / filename).write_text(
+                    "tmux kill-server\n" if damage == filename else "")
+            for number in (1, 2, 3):
+                with self.subTest(damage=damage, number=number):
+                    chosen = suite.smoke_source(source, self.root, (number, 3))
+                    proc = subprocess.run(["bash"], input=chosen,
+                                          env=dict(self.env, REPO=str(self.root)),
+                                          capture_output=True, text=True, timeout=30)
+                    self.assertEqual(proc.returncode, 1 if damage else 0,
+                                     proc.stdout + proc.stderr)
+                    if damage:
+                        self.assertIn("nothing else in this file may run", proc.stdout)
+                        self.assertNotIn("reached-tmux", proc.stdout)
+                    else:
+                        self.assertIn("reached-tmux", proc.stdout)
 
     def test_heavy_work_is_spread_and_selection_is_stable(self):
         costs = {str(n): n for n in range(1, 50)}

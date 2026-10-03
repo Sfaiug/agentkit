@@ -43,8 +43,10 @@ LIVE_CHECKS = {"1", "2", "3", "4", "4b", "4c", "4d", "5", "6", "6b", "6d"}
 def smoke_blocks(source):
     source = source[source.index(SETUP):]
     headers = list(HEADERS.finditer(source))
-    return [(header[1], source[header.start():headers[i + 1].start()
-                              if i + 1 < len(headers) else len(source)])
+    # Check 0 must stop every piece before any unsafe tmux command can run.
+    return [(None if header[1] == "0" else header[1],
+             source[header.start():headers[i + 1].start()
+                    if i + 1 < len(headers) else len(source)])
             for i, header in enumerate(headers)]
 
 
