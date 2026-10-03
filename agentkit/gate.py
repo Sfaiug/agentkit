@@ -665,6 +665,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         env = suite_env()    # the piece threads do not inherit this thread's held turn
         deadline = time.monotonic() + limit
         cancel, writing = threading.Event(), threading.Lock()
+        last_shard = None
         measure = _SuiteMeasure(run_dir)
         timeout = kwargs.pop("on_timeout", None)
 
@@ -677,15 +678,33 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 header = f"--- AK_SHARD={shard} ---\n".encode()
 
                 class Output:
+                    def __init__(self):
+                        self.pending = b""
+
+                    def emit(self, data):
+                        nonlocal last_shard
+                        output.write((header if last_shard != shard else b"") + data)
+                        output.flush()
+                        last_shard = shard
+
                     def write(self, data):
                         with writing:
                             piece.write(data)
                             piece.flush()
-                            output.write(header + data)
-                            output.flush()
+                            # A sibling can take the live log only between whole lines.
+                            self.pending += data
+                            lines, newline, self.pending = self.pending.rpartition(b"\n")
+                            if newline:
+                                self.emit(lines + newline)
 
                     def flush(self):
                         piece.flush()
+
+                    def finish(self):
+                        with writing:
+                            if self.pending:
+                                self.emit(self.pending + b"\n")
+                                self.pending = b""
 
                 def stopped(why, pid):
                     if why != "abort":
@@ -702,11 +721,15 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 if left <= 0:
                     cancel.set()
                     return worker.TIMEOUT, piece, True
-                code, _, killed = worker.limited(
-                    ["bash", "-c", command], left,
-                    cwd=str(cwd), activity=Path(piece.name),
-                    output=Output(), env={**env, "AK_SHARD": shard}, abort=abort,
-                    on_timeout=stopped, **kwargs)
+                stream = Output()
+                try:
+                    code, _, killed = worker.limited(
+                        ["bash", "-c", command], left,
+                        cwd=str(cwd), activity=Path(piece.name),
+                        output=stream, env={**env, "AK_SHARD": shard}, abort=abort,
+                        on_timeout=stopped, **kwargs)
+                finally:
+                    stream.finish()
                 return code, piece, killed
 
             with ThreadPoolExecutor(max_workers=count) as pool:
