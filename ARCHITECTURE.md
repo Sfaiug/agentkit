@@ -24,7 +24,9 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 ## agentkit/
 
 - `run.py`: staffing, review, landing, hand-back, provider failures, slots, admission,
-  worktrees and merge turns. API: `main`, `going`, `pick_models`; for watch, job, gc,
+  worktrees and merge turns. Passed writable runs now park in the repository line; foreground
+  callers and jobs follow their records while workers exit. Forks keep the old landing path;
+  review-PR delivery holds the plain repository flock. API: `main`, `going`, `pick_models`; for watch, job, gc,
   orch, menu, notify, usage, worker and a hook.
 - `gate.py`: check commands and host-wide heavy-suite turns; `run_done_when`, turn/env
   helpers and wait notes. For run and tests. Leaks: run's `run_child_env`, `memory_cap_note`,
@@ -116,7 +118,8 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   `trust.py`, `catalog.py`, `desktop-mcp.py`.
 - `tests/`: `smoke.sh` runs offline; its live mode, `live.sh`, makes real calls;
   `every_file.py` checks imports and case counts.
-  `fixtures/`: screens and an `echo` adapter.
+  `fixtures/`: screens, an `echo` adapter and `landing.py`, which lands a crafted run through
+  its line and lander verdict.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat
   rulebook), `templates/`, `browser/`, `docs/`.
 
