@@ -87,7 +87,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
            "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--remount-ro", "/dev",
-           "--proc", "/proc", "--remount-ro", "/proc"]
+           "--proc", "/proc"]
     writable = set()
     for path in _paths(state, clean, cwd):
         path = path.resolve()
