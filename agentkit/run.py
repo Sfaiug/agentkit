@@ -4804,6 +4804,7 @@ def checks(lp, url):
                     states[name] = []  # a same-named check from another app cannot satisfy it
         except (KeyError, TypeError, ValueError) as exc:
             return False, f"cannot read required check runs: {exc}"
+        latest_status = {}
         if any(None in apps for apps in required.values()):
             data, why = gh_json(lp.run_dir, *api, "--paginate",
                                 f"repos/{owner}/{repo}/commits/{head}/statuses?per_page=100",
@@ -4826,7 +4827,14 @@ def checks(lp, url):
         failed = sorted(name for name, buckets in states.items()
                         if any(bucket in ("fail", "cancel") for bucket in buckets))
         if failed:
-            return False, f"required checks failed: {', '.join(failed)}"
+            why = f"required checks failed: {', '.join(failed)}"
+            if (lp.state.get("waiting_on") or {}).get("line"):
+                # Keep the check's output and details URL for the landing fixer.
+                why += "\n\n" + json.dumps({
+                    "check_runs": [check for check in latest.values() if check["name"] in failed],
+                    "statuses": [status for name, status in latest_status.items() if name in failed]},
+                    indent=2)
+            return False, why
         missing = sorted(name for name, buckets in states.items() if not buckets)
         pending = sorted(name for name, buckets in states.items()
                          if any(bucket not in ("pass", "skipping") for bucket in buckets))
@@ -4852,7 +4860,7 @@ def wait_checks(lp, url):
     if wait.get("line") and why.startswith("required checks failed:"):
         path = lp.run_dir / "pr-checks.log"
         path.write_text(f"{why}\nPR: {url}\n")
-        lp.state["waiting_on"] = {**wait, "fix": {"line": why, "log": str(path)}}
+        lp.state["waiting_on"] = {**wait, "fix": {"line": why.splitlines()[0], "log": str(path)}}
         lp.write()
         return False
     return note(lp, f"{why}; the PR is open at {url}", failed=True)
