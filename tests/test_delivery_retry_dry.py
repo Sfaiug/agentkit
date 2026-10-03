@@ -56,7 +56,7 @@ class DeliveryRetryDry(unittest.TestCase):
                        "returncode": 0, "verdict": "PASS", "done_when": True,
                        "head_sha": head, "tree_sha": tree},
             "repo": str(self.wt), "worktree": str(self.wt), "branch": "ak/test",
-            "base": "main", "base_sha": run.git(self.wt, "rev-parse", "origin/main"), "scratch": False,
+            "base": "main", "merge_method": "squash", "base_sha": run.git(self.wt, "rev-parse", "origin/main"), "scratch": False,
             "merge_failed": True, "merge_note": "pushing failed", "findings": ""})
 
         def landing_review(lp, *args, **_kw):

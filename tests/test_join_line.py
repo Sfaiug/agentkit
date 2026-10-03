@@ -175,6 +175,18 @@ class JoinLine(Sandbox):
         self.assertEqual(polls, ["waiting", "waiting"])
         self.assertIn("PASS, merged -> result.md", output.getvalue())
 
+    def test_foreground_cli_starts_the_worker_then_follows_its_record(self):
+        task = self.directory / "task.md"
+        task.write_text(f"---\nrepo: {self.wt}\n---\n# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
+        with patch.object(sys, "argv", [str(REPO / "bin" / "ak")]), \
+                patch.object(run, "already_under_way", return_value=[]), \
+                patch.object(run, "prepare"), patch.object(run, "spawn_bg") as spawn, \
+                patch.object(run, "follow_run", return_value=0) as follow, \
+                patch.object(run, "place_here", side_effect=AssertionError("parent scope")):
+            self.assertEqual(run.main([str(task)]), 0)
+        spawn.assert_called_once()
+        follow.assert_called_once_with(spawn.call_args.args[0], self.cfg)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
