@@ -21,8 +21,8 @@ _GATE_HELD = threading.local()     # the gate turn this thread holds now, if any
 
 
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
-HEAVY_CPUS = 0.7      # one heavy suite's measured cost: ~0.7 core and ~0.4 GB, its own
-HEAVY_MEM_MB = 410    # Postgres, port and temp dir, so twice the headroom fits twice the suites
+HEAVY_CPUS = 0.7      # initial measured estimates; a repository's pieces may cost more
+HEAVY_MEM_MB = 410
 SUITE_BUSY = 75       # sysexits' EX_TEMPFAIL: a heavy suite's own host-wide lock is another copy's
 
 
@@ -401,8 +401,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None):
     so the stall ladder reads the wait as life, and says so on its record for `ak
     run status`; the ceiling starts once the turn is its own, and a stop lands
     while it waits as it does mid-list.  A run without a repository, a direct
-    caller with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0`
-    all take no turn.  The limit is re-read on every poll, so a changed pin or a
+    caller with no record and the test suites' `AK_MAX_RUNS=0` take no turn;
+    `max_gates = 0` also leaves ordinary suites uncapped. The limit is re-read on every poll, so a changed pin or a
     changed headroom reaches runs already queued.  A freed turn goes to the waiter
     that has waited longest among the highest rank, a landing run before any round
     check, whether `--first` or not: a suite takes a free turn only when no waiter
@@ -447,7 +447,7 @@ def suite_env():
     return env
 
 
-def busy_turn(run_dir, log_path, log):
+def busy_turn(run_dir, log_path, log, command=None, cwd=None):
     """A heavy suite said busy: give its turn back for a poll, then queue for one again.
 
     Its own lock is another copy's, and every other suite on the host can use the turn
@@ -465,7 +465,7 @@ def busy_turn(run_dir, log_path, log):
         return 0.0
     kept = log_path.read_bytes()
     began = time.monotonic()
-    _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log)
+    _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log, command, cwd)
     log_path.write_bytes(kept)
     return time.monotonic() - began
 
@@ -557,7 +557,7 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log):
 
 
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
-              heavy=False, **kwargs):
+              on_wait=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -632,43 +632,39 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             hold = getattr(_GATE_HELD, "hold", None)
             if hold is not None:
                 hold.alone()
-            chunks, flakes = [], []
+            chunks, red, flakes = [], [], []
             for index, (code, piece, killed) in enumerate(results, 1):
                 shard = f"{index}/{count}"
                 failed = None
-                if code and not killed and not cancel.is_set():
-                    if code != SUITE_BUSY or not heavy:
+                while code and not killed and not cancel.is_set():
+                    if code == SUITE_BUSY:
+                        queued = busy_turn(run_dir, activity, log, command, cwd)
+                        deadline += queued
+                        if on_wait is not None:
+                            on_wait(queued)
+                        hold = getattr(_GATE_HELD, "hold", None)
+                        if hold is not None:
+                            hold.alone()
+                        env = suite_env()
+                    elif failed is None:
                         piece.seek(0)
                         failed = piece.read()
-                    while True:
-                        if code == SUITE_BUSY and heavy:
-                            deadline += busy_turn(run_dir, activity, log)
-                            hold = getattr(_GATE_HELD, "hold", None)
-                            if hold is not None:
-                                hold.alone()
-                            env = suite_env()
-                        code, piece, killed = attempt(shard)
-                        if code != SUITE_BUSY or not heavy or killed:
-                            break
-                        if deadline <= time.monotonic():
-                            code, killed = worker.TIMEOUT, True
-                            break
-                    if code and not killed and failed is None:
-                        piece.seek(0)
-                        failed = piece.read()
-                        code, piece, killed = attempt(shard)
-                    if failed is not None and code == 0:
-                        piece.seek(0)
-                        flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
-                                                   piece.read(), activity, run_dir, log))
+                    else:
+                        break
+                    code, piece, killed = attempt(shard)
+                if failed is not None and code == 0:
+                    piece.seek(0)
+                    flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
+                                               piece.read(), activity, run_dir, log))
                 results[index - 1] = code, piece, killed
                 piece.seek(0, os.SEEK_END)
                 size = piece.tell()
                 piece.seek(max(0, size - run.OUT_CAP))
                 text = piece.read().decode("utf-8", errors="replace").rstrip()
-                chunks.append(f"--- AK_SHARD={shard} ---\n"
-                              f"[{'killed at the limit' if killed else f'exit {code}'}]\n{text}".rstrip())
-            text = "\n\n".join(chunks + flakes)
+                # Existing failure diagnostics read the last output; leave a red piece last.
+                (red if code else chunks).append(f"--- AK_SHARD={shard} ---\n"
+                    f"[{'killed at the limit' if killed else f'exit {code}'}]\n{text}".rstrip())
+            text = "\n\n".join(chunks + red + flakes)
             output.write(("\n" + text + "\n").encode())
             output.flush()
             return next((code for code, _, _ in results if code), 0), text, any(
@@ -761,6 +757,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     suite = next((cmd for cmd in cmds if names_shard(cmd)), None)
     with gate_turn(run_dir, log_path, log, suite, cwd) if heavy or suite else nullcontext():
         deadline = time.monotonic() + limit
+        def waited(seconds):
+            nonlocal deadline
+            deadline += seconds
         log_path.write_text("")
         for cmd in cmds:
             first = None        # the output of a first run that failed, while its re-run decides
@@ -779,7 +778,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         cmd, left, silence=silence, activity=log_path,
                         on_timeout=stopped, cwd=str(cwd), output=progress,
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                        run_dir=run_dir, log=log, heavy=heavy or bool(suite))
+                        run_dir=run_dir, log=log, on_wait=waited)
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     run.memory_cap_note(run_dir, log)

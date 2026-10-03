@@ -131,6 +131,40 @@ class SuitePieces(unittest.TestCase):
         self.assertEqual(run.failing_checks(text), [[SUITE, "FAIL: broken"]])
         self.assertNotIn("flaky:", text)
 
+    def test_a_red_first_piece_is_named_even_when_the_other_piece_passes_on_retry(self):
+        calls = Counter()
+        def limited(cmd, limit, env, output, **_kw):
+            shard = env["AK_SHARD"]
+            calls[shard] += 1
+            code = int(shard == "1/2" or calls[shard] == 1)
+            output.write(("FAIL: broken\n" if shard == "1/2" else
+                          "FAIL: timing\n" if code else "passed\n").encode())
+            return code, "", False
+        with patch.object(worker, "limited", side_effect=limited):
+            ok, text = self.check()
+        self.assertFalse(ok)
+        self.assertEqual(calls, {"1/2": 2, "2/2": 2})
+        self.assertEqual(run.failing_checks(text), [[SUITE, "FAIL: broken"]])
+        self.assertIn("FAIL: broken", run.first_failure(text))
+        self.assertNotIn("FAIL: timing", run.first_failure(text))
+        self.assertIn("flaky:", text)
+
+    def test_a_busy_retry_repeats_only_its_piece_without_spending_another_retry(self):
+        calls = Counter()
+        def limited(cmd, limit, env, output, **_kw):
+            shard = env["AK_SHARD"]
+            calls[shard] += 1
+            code = (1, 75, 0)[min(calls[shard] - 1, 2)] if shard == "2/2" else 0
+            output.write(f"{'FAIL: timing' if code == 1 else 'busy' if code == 75 else 'passed'}\n".encode())
+            return code, "", False
+        with patch.object(worker, "limited", side_effect=limited), \
+                patch.object(gate, "busy_turn", return_value=0) as busy:
+            ok, text = self.check()
+        self.assertTrue(ok, text)
+        self.assertEqual(calls, {"1/2": 1, "2/2": 3})
+        busy.assert_called_once()
+        self.assertIn("flaky:", text)
+
     def test_a_silent_piece_cannot_borrow_its_siblings_output_or_be_retried(self):
         command = ('if test "$AK_SHARD" = 1/2; then sleep 3; '
                    'else while true; do echo active; sleep 0.02; done; fi')

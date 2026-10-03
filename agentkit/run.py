@@ -3358,6 +3358,8 @@ def failing_checks(dw_log):
     """
     found, failing = [], None
     for record in (dw_log or "").split("\n\n"):
+        if record.startswith("flaky: "):
+            continue
         match = re.match(r"\$ ([^\n]*)\n\[([^\]\n]*)\]", record)
         if match:
             # a marker counts only at the start of a record, as `done_when_counts` reads it;
@@ -3388,6 +3390,8 @@ def first_failure(dw_log):
     """
     failing, named, last, note = None, None, None, None
     for record in (dw_log or "").split("\n\n"):
+        if record.startswith("flaky: "):
+            continue
         match = re.match(r"\$ ([^\n]*)\n\[([^\]\n]*)\]", record)
         if match:
             if failing is not None:
@@ -5267,7 +5271,7 @@ def target_fails(lp, upstream, dw_log):
                             cmd, lp.done_when_limit, silence=lp.turn_limit,
                             activity=probe_log, output=progress, stderr=subprocess.STDOUT,
                             stdin=subprocess.DEVNULL, cwd=str(lp.wt), run_dir=lp.run_dir,
-                            log=lp.log, heavy=heavy_probe)
+                            log=lp.log)
                     # busy is no answer: the turn goes back until the suite runs
                     if (not heavy_probe or code != gate.SUITE_BUSY or killed
                             or time.monotonic() - began > lp.done_when_limit):
