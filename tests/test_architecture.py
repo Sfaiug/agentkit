@@ -19,8 +19,8 @@ MAP = REPO / "ARCHITECTURE.md"
 class Architecture(unittest.TestCase):
     def test_every_module_is_on_the_map(self):
         text = MAP.read_text()
-        modules = {path.name for path in (REPO / "agentkit").glob("*.py") if path.is_file()}
-        mapped = set(re.findall(r"(?m)^- `([^`/]+\.py)`:", text))
+        modules = sorted(path.name for path in (REPO / "agentkit").glob("*.py") if path.is_file())
+        mapped = sorted(re.findall(r"(?m)^- `([^`/]+\.py)`:", text))
         self.assertEqual(mapped, modules, "ARCHITECTURE.md must map exactly the agentkit/ modules")
 
     def test_every_harness_is_on_the_map(self):
@@ -30,9 +30,10 @@ class Architecture(unittest.TestCase):
         self.assertEqual(missing, [], "ARCHITECTURE.md does not map these adapters/ harnesses")
 
     def test_each_module_entry_is_short(self):
-        # Markdown's lazy continuations belong to the bullet even without indentation.
+        # Lazy lines and indented paragraphs after blanks still belong to the bullet.
         for entry in re.finditer(r"(?m)^- `([^`/]+\.py)`:[^\n]*"
-                                 r"(?:\n(?![ \t]*$|[-*+](?:[ \t]|$)|#{1,6}(?:[ \t]|$))[^\n]+)*",
+                                 r"(?:\n(?![ \t]*$|[-*+](?:[ \t]|$)|#{1,6}(?:[ \t]|$))[^\n]+"
+                                 r"|\n(?:[ \t]*\n)+[ \t]+\S[^\n]*)*",
                                  MAP.read_text()):
             with self.subTest(module=entry[1]):
                 self.assertLessEqual(len(" ".join(entry.group().split())), 400,
@@ -60,9 +61,15 @@ class ArchitectureChecks(unittest.TestCase):
         self.assertEqual(len(result.failures), 1, "a stale module entry passed")
         self.assertIn("deleted.py", result.failures[0][1])
 
+    def test_duplicate_module_entry_is_rejected(self):
+        result = self.check("- `present.py`: first.\n- `present.py`: second.\n")
+        self.assertEqual(result.errors, [])
+        self.assertEqual(len(result.failures), 1, "duplicate module entries passed")
+        self.assertIn("present.py", result.failures[0][1])
+
     def test_a_401_character_entry_is_rejected(self):
         prefix = "- `present.py`: "
-        for separator in (" ", "\n\t  ", "\n"):
+        for separator in (" ", "\n\t  ", "\n", "\n\n  ", "\n \t\n\t"):
             with self.subTest(separator=separator):
                 result = self.check(prefix + "x" * (401 - len(prefix) - 2) + separator + "y\n")
                 self.assertEqual(result.errors, [])
@@ -71,13 +78,14 @@ class ArchitectureChecks(unittest.TestCase):
 
     def test_400_characters_with_collapsed_whitespace_pass(self):
         prefix = "- `present.py`: "
-        for separator in ("\n\t  ", "\n"):
+        for separator in ("\n\t  ", "\n", "\n\n  ", "\n \t\n\t"):
             with self.subTest(separator=separator):
                 result = self.check(prefix + "é" * (400 - len(prefix) - 2) + separator + "y\n")
                 self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
 
     def test_other_blocks_do_not_extend_a_module_entry(self):
-        for boundary in ("\n\n", "\n## Other\n", "\n- Other: ", "\n* Other: ", "\n+ Other: "):
+        for boundary in ("\n\n", "\n \t\n", "\n## Other\n", "\n- Other: ",
+                         "\n* Other: ", "\n+ Other: "):
             with self.subTest(boundary=boundary):
                 result = self.check("- `present.py`: short." + boundary + "x" * 600 + "\n")
                 self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
