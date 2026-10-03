@@ -319,8 +319,10 @@ is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last worker stays, saying
 so under the rows, its mark shaking (Motion). Under the models `+ add a model`, `Providers` (the config's
-providers in their colours, then `+ add` and `− remove`, ←/→ choosing between
-the two, each a list opening in the frame), `Discord` (connected or not)
+providers in their colours, then `+ add` and `− remove`, and `↻ spend a reset`
+while a subscription holds one, ←/→ choosing between them, ↓ landing on none
+past `− remove`, each a list opening in the frame where it has a choice),
+`Discord` (connected or not)
 and `Version` (the commit and its date; read, with no action). Enter
 or a click on `+ add a model` opens `config · add a model`: `harness`, then
 `model`, then `effort`, each a list opening under the one chosen above it, a
@@ -422,8 +424,9 @@ every model of it draws on, never a cap one model has to itself -- then, joined
 with ` · ` and each only when it applies: `resets <weekday> <HH:MM>` in local
 time from that meter (`resets 23 Oct` more than six days out in a window longer
 than a week, such as MiMo's 30-day plan; `resets in 3d` when only a duration is
-known); one `<Model> NN%` note per scoped cap whose figure differs from the
-shared one; `? <reason>` in the
+known); `1 reset in hand` (`2 resets in hand`) while the subscription holds
+usage-limit resets, which the owner spends on `c`; one `<Model> NN%` note per
+scoped cap whose figure differs from the shared one; `? <reason>` in the
 adapter's own words when the last probe errored though the meter it read still
 stands, or `rate limited` / `unavailable` when the endpoint refused it and the
 last reading stood in. No row, heading or note -- here or in `ak usage` -- says
@@ -444,7 +447,7 @@ near-greys last and lightest first: Claude, MiMo, Muse, Gemini, Grok, ChatGPT. T
 notes first, down to four cells; only then does each note that still will not
 fit give way on its own, so a phone keeps every short note it has room for
 rather than losing them all with one long one. Everything else a provider knows -- `week
-elapsed`, `session`, the resets in hand, `headroom`, `budget`, `outlook` --
+elapsed`, `session`, `headroom`, `budget`, `outlook` --
 belongs to `ak usage`, whose table gains a `resets` column reading the same
 shared week off the same meter, so the two views can never disagree; the
 usage-limit credits that used to hold that heading are `resets held`.
