@@ -198,8 +198,8 @@ class _GateHold:
     the slot and closes the files, as leaving the frame would have.
     """
 
-    def __init__(self, files, slot):
-        self.files, self.slot = files, slot
+    def __init__(self, files, slot, context=None):
+        self.files, self.slot, self.context = files, slot, context
 
     def release(self):
         try:
@@ -264,13 +264,14 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     return max(1, running + max(0, min(candidates)))
 
 
-def _acquire_gate_turn(run_dir, log_path, log):
+def _acquire_gate_turn(run_dir, log_path, log, context=None):
     """Wait for and hold one host-wide heavy-suite turn; None when no turn is taken."""
-    record = run_record.read_state(run_dir) or {} if run_dir else {}
+    record = context if context is not None else (run_record.read_state(run_dir) or {}
+                                                if run_dir else {})
     repo = record.get("repo")
     is_landing = bool(record.get("landing"))
-    landing_since = _first_landing_wait(run_dir) if run_dir else None
-    self_id = run_dir.name if run_dir else None
+    landing_since = _first_landing_wait(run_dir) if run_dir else record.get("since")
+    self_id = run_dir.name if run_dir else record.get("run_id")
     if not repo or os.environ.get("AK_MAX_RUNS") == "0":
         return None
     said_bad = []
@@ -320,10 +321,10 @@ def _acquire_gate_turn(run_dir, log_path, log):
             said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
             if log is not None:
                 log(f"done-when: {said}")
-            waited_since = mark_gate_wait(run_dir, repo)
+            waited_since = mark_gate_wait(run_dir, repo) if run_dir else None
             if waited_since is None:
                 waited_since = me_since if is_landing else time.time()
-            step = history.close_step(run_dir.name)     # the wait is no step's work
+            step = history.close_step(run_dir.name) if run_dir else None
             uncapped = False
             try:
                 while True:
@@ -343,8 +344,10 @@ def _acquire_gate_turn(run_dir, log_path, log):
                         continue
                     break
             finally:
-                mark_gate_wait(run_dir, None)
-            history.open_step(run_dir.name, step)
+                if run_dir:
+                    mark_gate_wait(run_dir, None)
+            if run_dir:
+                history.open_step(run_dir.name, step)
             if uncapped:
                 files.close()
                 return None
@@ -356,11 +359,11 @@ def _acquire_gate_turn(run_dir, log_path, log):
         raise
     held = getattr(_GATE_HELD, "count", 0)
     _GATE_HELD.count = held + 1
-    return _GateHold(files, slot)
+    return _GateHold(files, slot, context)
 
 
 @contextmanager
-def gate_turn(run_dir, log_path, log):
+def gate_turn(run_dir, log_path, log, context=None):
     """One host-wide heavy-suite turn, held for as long as the list runs.
 
     Only the heavy suite -- the `# once` line, the repository's `tests:` suite --
@@ -371,11 +374,13 @@ def gate_turn(run_dir, log_path, log):
     counting running suites once; an explicit
     `max_gates` pins the count instead.  A turn is a flock on one of the host's
     slot files, which the kernel lets go of when its holder dies, so a killed
-    suite never blocks the next.  A waiting suite rewrites its own log every poll,
+    suite never blocks the next.  With no `run_dir`, a read-only `context` lets a checker
+    take a turn without marking or changing any member's record or history.
+    A waiting suite rewrites its own log every poll,
     so the stall ladder reads the wait as life, and says so on its record for `ak
     run status`; the ceiling starts once the turn is its own, and a stop lands
     while it waits as it does mid-list.  A run without a repository, a direct
-    caller with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0`
+    caller with no record or context, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0`
     all take no turn.  The limit is re-read on every poll, so a changed pin or a
     changed headroom reaches runs already queued.  A freed turn goes to the waiter
     that has waited longest among the highest rank, a landing run before any round
@@ -390,7 +395,7 @@ def gate_turn(run_dir, log_path, log):
     if getattr(_GATE_HELD, "hold", None) is not None:
         yield
         return
-    hold = _acquire_gate_turn(run_dir, log_path, log)
+    hold = _acquire_gate_turn(run_dir, log_path, log, context)
     if hold is None:
         yield
         return
@@ -436,7 +441,7 @@ def busy_turn(run_dir, log_path, log):
         return 0.0
     kept = log_path.read_bytes()
     began = time.monotonic()
-    _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log)
+    _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log, hold.context)
     log_path.write_bytes(kept)
     return time.monotonic() - began
 
