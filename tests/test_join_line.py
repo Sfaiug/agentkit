@@ -201,12 +201,40 @@ class JoinLine(Sandbox):
         follow.assert_called_once_with(self.directory, self.cfg)
         self.assertEqual(self.saved()["waiting_on"], before["waiting_on"])
 
-    def test_foreground_follow_keeps_a_forks_waiting_exit_code(self):
-        state = {**self.saved(), "state": "waiting", "merge_failed": False,
-                 "waiting_on": {"ref": "origin/main"}}
-        with patch.object(job, "job_await", return_value=state):
-            with redirect_stdout(io.StringIO()):
-                self.assertEqual(run.follow_run(self.directory, self.cfg), 1)
+    def test_detached_resumes_run_once_without_following_their_own_log(self):
+        run.merge(self.lp)
+        run.release_line(self.directory, self.lp.log)
+        parked = self.saved()
+        log = self.directory / "log.txt"
+        for word in ("waiting", "exhausted", "waiting_login", "interrupted", "stalled", "error"):
+            with self.subTest(state=word):
+                state = {**copy.deepcopy(parked), "state": word}
+                if word == "waiting":
+                    state["waiting_on"]["land"] = "tree"
+                else:
+                    state.pop("waiting_on")
+                record.save_state(self.directory, state)
+                log.write_text("MARKER\n")
+                with patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run", "resume",
+                                               self.directory.name]), \
+                        patch.object(run, "spawn_bg", side_effect=AssertionError("second worker")), \
+                        patch.object(run, "follow_run", side_effect=AssertionError("follower")), \
+                        patch.object(run, "place_here"), patch.object(run, "drive", return_value=0) as drive, \
+                        log.open("a") as output, redirect_stdout(output):
+                    self.assertEqual(run.resume_run([self.directory.name]), 0)
+                drive.assert_called_once()
+                contents = log.read_text()
+                self.assertEqual(contents.count("MARKER"), 1)
+                self.assertEqual(contents.count(f"resume {self.directory.name}:"), 1)
+
+    def test_foreground_follow_preserves_noncompletion_exits_with_a_saved_pass(self):
+        for word, expected in (("waiting", 1), ("exhausted", 1), ("waiting_login", 1),
+                               ("interrupted", 1), ("stalled", 1), ("blocked", 1),
+                               ("stopped", 1), ("error", 2), ("pass", 0), ("not_needed", 0)):
+            with self.subTest(state=word):
+                state = {**self.saved(), "state": word, "merge_failed": False}
+                with patch.object(job, "job_await", return_value=state), redirect_stdout(io.StringIO()):
+                    self.assertEqual(run.follow_run(self.directory, self.cfg), expected)
 
     def test_job_task_exits_and_the_ladder_follows_its_line(self):
         def work(*args, **_kw):

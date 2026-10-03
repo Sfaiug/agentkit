@@ -11018,7 +11018,16 @@ def note_in(path):
     return note
 
 
+def log_is_stdout(run_dir):
+    """Detached wakes already write the log; following it would feed it back into itself."""
+    try:
+        return os.path.samefile(run_dir / "log.txt", sys.stdout.fileno())
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
 def logger(run_dir, to_file):
+    to_file = to_file and not log_is_stdout(run_dir)
     def log(message):
         line = f"[{datetime.now():%H:%M:%S}] {message}"
         print(line, flush=True)
@@ -11773,7 +11782,8 @@ def resume_run(argv):
     if (not child and not state.get("no_merge") and not state.get("scratch")
             and not state.get("review_pr") and not getattr(jobs._JOB_MUTE, "depth", 0)
             and threading.current_thread() is threading.main_thread()
-            and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()):
+            and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()
+            and not log_is_stdout(run_dir)):
         spawn_bg(run_dir, ["resume", *requested], expected=expected)
         return follow_run(run_dir, cfg)
     with slot_lock(), run_record.recovery_lock(run_dir):
@@ -11966,7 +11976,7 @@ def follow_run(run_dir, cfg):
         return 2
     if state.get("state") == "not_needed":
         return 0
-    return 0 if (state.get("state") != "waiting" and review_pass(state, cfg)
+    return 0 if (state.get("state") == "pass" and review_pass(state, cfg)
                  and not state.get("merge_failed")) else 1
 
 
@@ -12948,7 +12958,8 @@ def main(argv):
 
     if (not resumed and not opts["--no-merge"]
             and threading.current_thread() is threading.main_thread()
-            and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()):
+            and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()
+            and not log_is_stdout(run_dir)):
         spawn_bg(run_dir, argv)
         return follow_run(run_dir, cfg)
     log = logger(run_dir, not resumed)
