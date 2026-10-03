@@ -15,6 +15,8 @@ menu for `n`, tests/test_features_screen.py's menu over a fake ACME project -- e
 temporary HOME, the catalog, meters and project command faked as there.  The cells a frame
 writes are read back from where it places the cursor.  Nothing here reads or writes the
 owner's ~/.agentkit, and the only process signalled is each test's own child.
+The unit clock tests sample every phase; a descheduled pty child may skip intermediate frames
+but must reach the last one.
 """
 
 import json
@@ -58,6 +60,14 @@ def shifts(cells, number, column):
     """How far each frame on screen row `number` put its mark from `column`, where it is drawn."""
     return [first + next(at for at, char in enumerate(text) if char in MARKS) - column
             for at, first, text, _ in cells if at == number]
+
+
+def landed(case, actual, expected):
+    """The frames a pty saw stay in order and land, even if its child was descheduled."""
+    case.assertEqual(actual[-1:], expected[-1:])
+    remaining = iter(expected)
+    for frame in actual:
+        case.assertIn(frame, remaining, f"{actual} is not a subsequence of {expected}")
 
 
 def click(column, number):
@@ -141,12 +151,12 @@ class ConfigScreen(unittest.TestCase):
         number, line = row(screen.press(RIGHT), "fable")  # fable's exec, not the seat's
         column = mark_column(line, 1)
         cells = moved(screen, ENTER)
-        self.assertEqual(glyphs(cells, number), ["▣", "■"])
+        landed(self, glyphs(cells, number), ["▣", "■"])
         self.assertEqual({at for at, _, _, _ in cells}, {number})
         self.assertEqual(screen.record()["workers"], ["opus", "astra", "fable"])
         cells = moved(screen, click(column, number))
-        self.assertEqual(glyphs(cells, number), ["▣", "□"])
-        self.assertEqual(shifts(cells, number, column), [0, 0])     # in place, no nudge
+        landed(self, glyphs(cells, number), ["▣", "□"])
+        landed(self, shifts(cells, number, column), [0, 0])     # in place, no nudge
         lit_through(self, cells, number)
         self.assertEqual(screen.record()["workers"], ["opus", "astra"])
         screen.leave()
@@ -157,8 +167,8 @@ class ConfigScreen(unittest.TestCase):
         before = screen.record()
         cells = moved(screen, click(mark_column(line, 1), number))
         self.assertIn("  exec needs one model", screen.frame())
-        self.assertEqual(glyphs(cells, number), ["■"] * 4)
-        self.assertEqual(shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
+        landed(self, glyphs(cells, number), ["■"] * 4)
+        landed(self, shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
         self.assertEqual(screen.record(), before)
         screen.leave()
@@ -231,9 +241,9 @@ class NewSessionScreen(unittest.TestCase):
         screen, lines = self.picker()
         number, line = numbered(lines, "opus")
         cells = moved(screen, new_session.SPACE)
-        self.assertEqual(glyphs(cells, number), ["▣", "□"])
+        landed(self, glyphs(cells, number), ["▣", "□"])
         cells = moved(screen, click(mark_column(line, 1), number))
-        self.assertEqual(glyphs(cells, number), ["▣", "■"])
+        landed(self, glyphs(cells, number), ["▣", "■"])
         lit_through(self, cells, number)
         screen.send(ENTER)
         screen.saw("<created new opus astra,opus opus,astra>")
@@ -246,7 +256,7 @@ class NewSessionScreen(unittest.TestCase):
         number, line = numbered(lines, "astra")
         cells = moved(screen, click(mark_column(line, 1), number))
         self.assertIn("exec needs one model", "\n".join(screen.picker()))
-        self.assertEqual(shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
+        landed(self, shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
         self.assertEqual(new_session.marks(highlighted(screen.picker())), "○■■")
         screen.send(ENTER)
@@ -259,9 +269,9 @@ class FeaturesScreen(unittest.TestCase):
         menu = features.Menu(self)
         number, _ = numbered(menu.opened(), "Dark mode")
         cells = moved(menu, ENTER, wait=1.5)            # the project's `set` answers first
-        self.assertEqual(glyphs(cells, number), ["◉", "●"])
+        landed(self, glyphs(cells, number), ["◉", "●"])
         cells = moved(menu, ENTER, wait=1.5)
-        self.assertEqual(glyphs(cells, number), ["◉", "○"])
+        landed(self, glyphs(cells, number), ["◉", "○"])
         self.assertEqual(menu.calls().count("set dark you on"), 1)
         self.assertIn("set dark you off", menu.calls())
         menu.leave(screen=True)
@@ -274,7 +284,7 @@ class FeaturesScreen(unittest.TestCase):
         cells = moved(menu, click(mark_column(line, 0), number), wait=1.5)
         self.assertIn("  only the owner may switch dark",
                       menu.frame(features.SCREEN, features.has("only the owner")))
-        self.assertEqual(shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
+        landed(self, shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
         self.assertEqual((menu.fake / "features.json").read_text(), before)
         self.assertEqual(json.loads(before)[0]["you"], False)
@@ -294,11 +304,11 @@ class FeaturesScreen(unittest.TestCase):
             menu.until(lambda: menu.calls().count("list") > started, "a list asked")
         asked()
         cells = moved(menu, ENTER)
-        self.assertEqual(glyphs(cells, number), ["◉", "●"])
+        landed(self, glyphs(cells, number), ["◉", "●"])
         (menu.fake / "refuse").write_text("only the owner may switch dark\n")
         asked()
         cells = moved(menu, ENTER)
-        self.assertEqual(shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
+        landed(self, shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
         menu.leave(screen=True)
 
 
