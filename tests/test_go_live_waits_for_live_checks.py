@@ -280,12 +280,16 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         (self.root / "release").touch()
         cap = self.cap(check)
         os.utime(self.finish(new) / "exit", (cap, cap))           # it said so only at its cap
+        (self.root / "release").unlink()                        # the retry must wait too
         said = self.tick(now=cap + 1)                             # red from when it is seen
         self.assertEqual(said[-2:], ["  [stopped before it finished]", f"handed agentkit's "
                                      f"failed tests/live.sh at {new[:12]} back to fix"])
         self.assertEqual((self.head(), update.live_target()), (self.first, ""))
         self.assertEqual(self.tick(now=cap + 1 + watch.RETRY_BACKOFF[0] - 1), [])
-        self.assertEqual(len(self.tick(now=cap + 1 + watch.RETRY_BACKOFF[0])), 1)
+        self.assertEqual(self.tick(now=cap + 1 + watch.RETRY_BACKOFF[0]), [
+            f"checking agentkit at {new[:12]} with tests/live.sh before it goes live"])
+        (self.root / "release").touch()
+        self.finish(new)
 
     def test_a_check_whose_runner_died_is_red_and_tried_again_on_the_backoff(self):
         new = self.merge("second", live=HOLD)

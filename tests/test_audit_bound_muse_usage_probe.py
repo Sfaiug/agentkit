@@ -102,6 +102,9 @@ else:
         while True:
             print(": keepalive", flush=True)
             time.sleep(.06)
+    if mode == "near_deadline":
+        time.sleep(max(0, float(os.environ["AGENTKIT_MUSE_USAGE_DEADLINE"])
+                       - time.monotonic() - 4))
     time.sleep(float(os.environ.get("RESPONSE_DELAY", "0")))
     status = {"capacity": 429, "quota": 429, "server": 503}.get(mode, 200)
     print(status, flush=True)
@@ -292,10 +295,14 @@ raise AssertionError("this regression needs no tmux server")
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_near_deadline_success_is_kept_by_caller(self):
-        os.environ.update(AGENTKIT_MUSE_USAGE_TIMEOUT="3", RESPONSE_DELAY="1.95")
+        # Startup spends from the wait until the inherited deadline, rather than adding to
+        # a fixed sleep. Four seconds leave room for cleanup and scheduling under load.
+        os.environ.update(AGENTKIT_MUSE_USAGE_TIMEOUT="12", RESPONSE="near_deadline")
         started = time.monotonic()
-        self.assertIsNone(self.collect()["error"])
-        self.assertGreater(time.monotonic() - started, 1.9)
+        data = self.collect()
+        self.assertIsNone(data["error"])
+        self.assertEqual([m["used"] for m in data["meters"]], [0, 22])
+        self.assertGreater(time.monotonic() - started, 7)
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_credential_extraction_timeout_and_success_clean_descendants(self):
