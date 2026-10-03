@@ -1974,7 +1974,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         starts = [s.get("started_at") for _, s in going
                   if isinstance(s.get("started_at"), (int, float))
                   and not isinstance(s.get("started_at"), bool)]
-        return {"word": "working", "reason": " · ".join(parts),
+        reason = (run_mod.parked_line(newest[1]) if run_mod.landing_line(newest[1])
+                  else " · ".join(parts))
+        return {"word": "working", "reason": reason,
                 "since": min(starts) if starts else None}
     # 2a. ... or it ended its turn on `ak wait`, and the session it named is working
     wait = waiting_on(name, records, at, cfg) if waits else None
@@ -4678,6 +4680,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
     regardless of its task budget: conflict rounds spend no task round.
     Every wait must still pass admission before a fetch or resume: waits left by
     an older tick do not keep permission after a telling, a lost seat or a day.
+    A landing-line member belongs to the lander, so this pass leaves it alone.
     A dry run names what it would park and resume, and fetches nothing: a fetch
     moves the very refs it reports on.  A job's run is its job's: the tick's pass
     leaves it, and the job's own ladder passes it as `run` to resume its wait.
@@ -4688,6 +4691,8 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
         try:
             state = run_record.read_state(run_dir)
             if not state or state.get("state") not in ("fail", "waiting"):
+                continue
+            if run_mod.landing_line(state):
                 continue
             if state.get("job_id") and not run:
                 continue
@@ -4705,6 +4710,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                         continue
                     with run_record.record(run_dir) as state:
                         if (state.get("state") != "waiting"
+                                or run_mod.landing_line(state)
                                 or not run_mod.tick_admission(state, now=now)):
                             continue
                         wt = state.get("worktree")
@@ -4730,6 +4736,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                     continue  # origin did not answer; the waiter keeps waiting, silently
                 with run_record.record(run_dir) as state:
                     if (state.get("state") != "waiting"
+                            or run_mod.landing_line(state)
                             or not run_mod.tick_admission(state, now=now)):
                         continue
                     waiting_on = state.get("waiting_on") or {}

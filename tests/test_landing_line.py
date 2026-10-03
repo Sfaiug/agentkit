@@ -21,6 +21,8 @@ class LandingLine(Sandbox):
             "AK_RUN_ROLE": "orchestrator", "AGENTKIT_SESSION": ""}))
         self.line = run.merge_turn_lock("https://github.com/acme/widget.git", "origin/main").name
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
+        self.stack.enter_context(patch.object(run, "alive_line", return_value=""))
+        self.stack.enter_context(patch.object(run.time, "time", return_value=200000))
 
     def member(self, name="fix-api", joined=100, **extra):
         return self.ended(name, state="waiting", base="main", target="main",
@@ -30,15 +32,15 @@ class LandingLine(Sandbox):
     def test_members_keep_going_without_an_ending_or_a_live_seat(self):
         directory = self.member()
         state = record.read_state(directory)
-        for extra in ({}, {"finished_at": None}, {"finished_at": 20000},
+        for extra in ({}, {"finished_at": None}, {"finished_at": 300000},
                       {"handed_back": 9000}, {"recovery_notified": "discord"},
                       {"recovery_acknowledged_at": 9000}):
             with self.subTest(extra=extra):
                 member = {**state, **extra}
-                self.assertTrue(run.tick_admission(member, now=10000))
-                self.assertTrue(run.going(member, now=10000))
+                self.assertTrue(run.tick_admission(member, now=200000))
+                self.assertTrue(run.going(member, now=200000))
                 self.assertEqual(menu.run_state_word(member), "working")
-                self.assertFalse(menu.v5o_needs_look(member, now=10000))
+                self.assertFalse(menu.v5o_needs_look(member, now=200000))
 
     def test_ticks_and_manual_resumes_leave_the_member_record_alone(self):
         directory = self.member()
@@ -101,13 +103,13 @@ class LandingLine(Sandbox):
             self.assertEqual(run.cmd_status([directory.name]), 0)
         self.assertIn(sentence, out.getvalue())
         session = {"name": "seat", "created": 1}
-        answer = watch.session_state("seat", 10000, session=session, cfg=self.cfg,
+        answer = watch.session_state("seat", 200000, session=session, cfg=self.cfg,
                                      records=[(directory, state)], live={}, harness=None,
                                      auth_out={}, gh_out={}, token_out={}, previous={})
         self.assertEqual(answer["word"], "working")
         self.assertEqual(answer["reason"], sentence)
         with patch.object(menu, "seat_row_state", return_value=answer):
-            info = menu.v5o_seat_info(self.cfg, 1, session, [(directory, state)], {}, {}, 10000)
+            info = menu.v5o_seat_info(self.cfg, 1, session, [(directory, state)], {}, {}, 200000)
         self.assertEqual(menu._last_text(info), sentence)
         self.assertEqual(menu.last_column("working", sentence, 1, 3), sentence)
 
@@ -121,7 +123,7 @@ class LandingLine(Sandbox):
                     ("stopped", {"review": {}}, "stopped"),
                     ("not_needed", {"not_needed": "already fixed"}, "passed")):
                 with self.subTest(after_merge=after_merge, ending=word):
-                    directory = self.member(f"fix-{after_merge}-{word}")
+                    directory = self.member(f"fix-{after_merge}-{expected}")
                     state = record.read_state(directory)
                     initial = {**state, "state": "pass", "merge_failed": True} if after_merge else state
                     record.save_state(directory, initial)

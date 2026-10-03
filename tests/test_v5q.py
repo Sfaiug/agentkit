@@ -852,16 +852,37 @@ sys.exit(1)
             (config.RUNS / run_id / "run.json").write_text(json.dumps(current))
             return 0
 
-        task = job["tasks"][0]
-        task.update(state="running", run_id=run_dir.name)
+        def join(argv):
+            current = record.read_state(config.RUNS / argv[0])
+            current.update(state="waiting", waiting_on={"line": run.merge_turn_lock(
+                "https://github.com/acme/widget.git", "origin/main").name, "joined": 100})
+            record.save_state(run_dir, current)
+            return 0
+
         log = jobs.job_logger(job_dir, False)
-        lock = threading.Lock()
-        with patch.object(run, "cmd_merge", side_effect=delivered), \
-                redirect_stdout(io.StringIO()):
-            jobs.job_ladder(self.cfg, job_dir, job, task, run_dir, dict(state), 1, log, lock)
-        self.assertEqual(task["state"], "merged")
-        self.assertNotIn("rerun_attempted", task)
-        self.assertNotIn("resume_attempted", task)
+        for waits_in_line in (False, True):
+            with self.subTest(waits_in_line=waits_in_line):
+                record.save_state(run_dir, dict(state))
+                task = {**job["tasks"][0], "state": "running", "run_id": run_dir.name,
+                        "finished_at": None}
+                job["tasks"][0] = task
+
+                def land(_seconds):
+                    self.assertEqual(task["state"], "running")
+                    self.assertIsNone(task["finished_at"])
+                    delivered([run_dir.name])
+                    record.save_state(run_dir, {**record.read_state(run_dir), "state": "pass"})
+
+                with patch.object(run, "cmd_merge", side_effect=join if waits_in_line else delivered), \
+                        patch.object(jobs.time, "sleep", side_effect=land) as sleep, \
+                        patch.object(jobs.watch, "resume_waiting", side_effect=AssertionError("only the lander")), \
+                        redirect_stdout(io.StringIO()):
+                    jobs.job_ladder(self.cfg, job_dir, job, task, run_dir, dict(state), 1,
+                                    log, threading.Lock())
+                self.assertEqual(sleep.call_count, int(waits_in_line))
+                self.assertEqual(task["state"], "merged")
+                self.assertNotIn("rerun_attempted", task)
+                self.assertNotIn("resume_attempted", task)
 
     def test_v5q_status_job_json_contract(self):
         a = self.task("a.md", "Alpha task")
