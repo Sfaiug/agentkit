@@ -127,7 +127,7 @@ def _check_member(turn, directory, state, log):
             lp = SimpleNamespace(state=state, wt=scratch,
                                  base_sha=state.get("base_sha") or
                                  run.git(scratch, "merge-base", head, tip))
-            how = run.how_to_integrate(lp)
+            how = "rebase" if run.on_pass(lp) else run.how_to_integrate(lp)
             args = (("merge", "--no-edit", tip) if how == "merge" else
                     ("rebase", "--onto", tip, lp.base_sha) if run.on_pass(lp) else
                     ("rebase", tip))

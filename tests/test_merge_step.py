@@ -76,6 +76,25 @@ def resolve(wt):
     return "## Summary\nResolved both sides."
 
 
+def squashed_dependency(owner, wt):
+    """Cut the task from a dependency that lands squashed before the target changes again."""
+    own = run.git(wt, "rev-parse", "HEAD")
+    run.git(wt, "checkout", "-b", "ak/dep", "origin/main")
+    for text in ("dep one\n", "dep two\n"):
+        (wt / "base.txt").write_text(text)
+        run.git(wt, "commit", "-am", "dependency work")
+    tip = run.git(wt, "rev-parse", "HEAD")
+    run.git(wt, "checkout", "-B", "ak/test", tip)
+    run.git(wt, "cherry-pick", own)
+    run.git(owner, "fetch", str(wt), "ak/dep")
+    run.git(owner, "merge", "--squash", "FETCH_HEAD")
+    run.git(owner, "commit", "-m", "dependency squash")
+    (owner / "base.txt").write_text("later\n")
+    run.git(owner, "commit", "-am", "later target work")
+    run.git(owner, "push", "origin", "main")
+    return tip
+
+
 def make_loop(root, wt, rounds=3, spent=1, cfg=None):
     """A run that passed review on its last recorded round, `spent` of `rounds`."""
     run_dir = root / "run"
@@ -154,6 +173,21 @@ class MergeStep(unittest.TestCase):
 
     def log_text(self, run_dir):
         return (run_dir / "log.txt").read_text()
+
+    def test_merge_method_replays_only_its_own_work_after_a_dependency_squash(self):
+        _, owner, wt = make_repos(self.root)
+        dep_tip = squashed_dependency(owner, wt)
+        lp, _, _ = make_loop(self.root, wt)
+        lp.state.update(merge_method="merge", base_sha=dep_tip,
+                        from_pass={"task": "dep.md", "tip": dep_tip})
+        lp.save()
+        with patch.object(run, "execute", side_effect=AssertionError("spurious conflict")):
+            self.assertTrue(run.integrate(lp, "origin/main"))
+        self.assertFalse(run.integrated(wt, dep_tip))
+        self.assertTrue(run.integrated(wt, "origin/main"))
+        self.assertEqual(run.git(wt, "rev-list", "--count", "origin/main..HEAD"), "1")
+        self.assertEqual((wt / "base.txt").read_text(), "later\n")
+        self.assertEqual((wt / "work.txt").read_text(), "work\n")
 
     def test_a_conflict_round_does_not_consume_the_budget(self):
         # a run that passed at 2 of 2 -- the round budget is spent by the task's own
