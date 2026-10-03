@@ -123,7 +123,7 @@ class LanderWakes(Sandbox):
             self.assertIn("Fix the root cause", text)
         return "## Summary\nFixed landing."
 
-    def reviewer(self, cfg, name, body, workspace, out, role, session, log, **_kw):
+    def reviewer(self, cfg, name, body, workspace, out, role, session, log, limit=None, **_kw):
         self.assert_free()
         self.events.append(("reviewer", out.parent.name))
         verdict = next(self.verdicts)
