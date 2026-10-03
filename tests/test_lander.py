@@ -284,7 +284,7 @@ class Lander(unittest.TestCase):
         with gate.gate_lock(None, 0).open("a") as holder:
             fcntl.flock(holder, fcntl.LOCK_EX)
 
-            def poll(_seconds):
+            def poll(_seconds, **_kw):
                 with record.record(directory) as current:
                     current.update(state="running", pid=5678)
                 changed.append((directory / "run.json").read_bytes())
@@ -295,10 +295,11 @@ class Lander(unittest.TestCase):
                 return self.check(cmds, cwd, log_path, *args, **kw)
 
             with (patch.dict(os.environ, {"AK_MAX_RUNS": ""}),
-                  patch.object(gate.time, "sleep", side_effect=poll),
+                  patch.object(gate, "time", wraps=gate.time) as clock,
                   patch.object(gate, "run_done_when", side_effect=check),
                   patch.object(gate, "mark_gate_wait", side_effect=AssertionError("member write")),
                   patch.object(gate.history, "close_step", side_effect=AssertionError("member step"))):
+                clock.sleep.side_effect = poll
                 land.check_line(self.turn)
         self.assertEqual((directory / "run.json").read_bytes(), changed[0])
         self.assertEqual(gate._heavy_running(), 0)
@@ -314,13 +315,14 @@ class Lander(unittest.TestCase):
         (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")
         released = []
 
-        def poll(_seconds):
+        def poll(_seconds, **_kw):
             released.append(gate._heavy_running())
 
         with (patch.dict(os.environ, {"AK_MAX_RUNS": ""}),
-              patch.object(gate.time, "sleep", side_effect=poll),
+              patch.object(gate, "time", wraps=gate.time) as clock,
               patch.object(gate, "mark_gate_wait", side_effect=AssertionError("member write")),
               patch.object(gate.history, "close_step", side_effect=AssertionError("member step"))):
+            clock.sleep.side_effect = poll
             land.check_line(self.turn)
         self.assertEqual(released, [0])
         self.assertIn("land", self.wait(directory))
