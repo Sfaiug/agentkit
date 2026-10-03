@@ -18,6 +18,24 @@
 # Where the match may come before the end, the output is captured first and grep reads a string.
 set -uo pipefail
 REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+if [ $# = 0 ] && [ -n "${AK_SHARD:-}" ]; then
+  SMOKE_BODY=$(python3 "$REPO/tests/suite_shares.py" "$REPO/tests/smoke.sh") || exit $?
+  eval "$SMOKE_BODY"
+  exit $?
+fi
+# --- shared setup ----------------------------------------------------------
+if [ "${AK_SHARD:-1/1}" != 1/1 ]; then
+  # No credentials, probe files, retention siblings or Python caches shared by pieces.
+  SMOKE_SHARD_HOME=$(mktemp -d "$REPO/.ak-test-share.XXXXXX") || exit 1
+  export HOME="$SMOKE_SHARD_HOME" TMPDIR="$SMOKE_SHARD_HOME/tmp" \
+    PYTHONPYCACHEPREFIX="$SMOKE_SHARD_HOME/pycache"
+  mkdir -p -- "$TMPDIR"
+  unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME CODEX_HOME \
+    CLAUDE_CONFIG_DIR GROK_HOME OPENCODE_CONFIG_DIR OPENCODE_CONFIG GH_CONFIG_DIR \
+    AK_PARENT_RUN AK_RUN_LOG
+  export AK_RUN_DEPTH=0
+  trap 'rm -rf -- "$SMOKE_SHARD_HOME"' EXIT
+fi
 export PATH="$REPO/bin:$PATH"
 # The suite is nobody's worker and nobody's seat.  A session that executes tasks exports
 # AK_RUN_ROLE=worker, which makes every `ak notify` below suppress itself (checks 17, 21, 22,
@@ -1401,7 +1419,7 @@ if [ "${AGENTKIT_SMOKE_OFFLINE:-0}" = 1 ]; then
   # the loop never commits and sweeps if this suite is killed. tmux canonicalizes
   # TMUX_TMPDIR, so use an explicit short socket path for its isolated pane fixtures.
   SMOKE_TMP=$(mktemp -d "$REPO/.ak-test-smoke.XXXXXX") || exit 1
-  trap 'rm -rf -- "$SMOKE_TMP"' EXIT
+  trap 'rm -rf -- "$SMOKE_TMP"; [ -z "${SMOKE_SHARD_HOME:-}" ] || rm -rf -- "$SMOKE_SHARD_HOME"' EXIT
   export TMPDIR="$SMOKE_TMP"
   if [ -d "/proc/$$/cwd" ]; then
     export TMPDIR="/proc/$$/cwd/${SMOKE_TMP##*/}"
@@ -1423,15 +1441,25 @@ SH
     export PATH="$SMOKE_TOOLS:$PATH"
   fi
   OFFLINE_RC=0
+# --- offline_slots: run queue ---------------------------------------------
   slot_queue_check || OFFLINE_RC=1
+# --- offline_usage: provider meters ---------------------------------------
   usage_fresh_check || OFFLINE_RC=1
+# --- offline_session: notices ---------------------------------------------
   session_state_check || OFFLINE_RC=1
+# --- offline_seat: seat states --------------------------------------------
   seat_state_check || OFFLINE_RC=1
+# --- offline_projects: project menu ---------------------------------------
   python3 "$REPO/tests/test_v4z.py" || OFFLINE_RC=1
+# --- offline_desktop: desktop notices -------------------------------------
   python3 "$REPO/tests/test_v5a.py" || OFFLINE_RC=1
+# --- offline_notify: notification rules -----------------------------------
   python3 "$REPO/tests/test_notify_rule.py" || OFFLINE_RC=1
+# --- offline_sink: notification sink --------------------------------------
   python3 "$REPO/tests/test_notify_smoke.py" || OFFLINE_RC=1
+# --- offline_codex: adapter model argument --------------------------------
   codex_model_flag_check || OFFLINE_RC=1
+# --- offline_files: offline regressions -----------------------------------
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_dead_code.py test_boundaries.py test_architecture.py test_docs.py \
               test_audit_phone_menu_recovery_layout.py test_choose_click.py test_note_screen.py \
               test_audit_retry_required_notifications.py test_solo_switch.py \
@@ -1442,6 +1470,7 @@ SH
       *) python3 "$REPO/tests/$test" || OFFLINE_RC=1 ;;
     esac
   done
+# --- shared offline result ---------------------------------------------
   exit "$OFFLINE_RC"
 fi
 WORK="$HOME/.agentkit/tmp/smoke-$(date +%Y%m%d-%H%M%S)"
@@ -1461,6 +1490,7 @@ trap 'SMOKE_RC=$?
       [ ! -d "$WORK/home" ] || smoke_sync_logins || SMOKE_RC=1
       HOME="$SMOKE_CALLER_HOME" PYTHONPATH="$REPO" python3 -m agentkit.retention settle "$WORK" "$SMOKE_RC" || :
       [ -z "${SMOKE_LOCK_PID:-}" ] || kill "$SMOKE_LOCK_PID" 2>/dev/null
+      [ -z "${SMOKE_SHARD_HOME:-}" ] || rm -rf -- "$SMOKE_SHARD_HOME"
       exit "$SMOKE_RC"' EXIT
 # --- the suite's own tmux server, and nobody else's -------------------------
 # Every tmux command here runs against a throwaway server: a socket of its own, in a socket
@@ -1499,26 +1529,31 @@ newrepo() {
   printf '%s' "$d"
 }
 echo "workdir: $WORK"
+# --- 44: desktop notices --------------------------------------------------
 if python3 "$REPO/tests/test_v5a.py"; then
   ok "44 desktop notices and boot recovery: named offline checks a-f"
 else
   no "44 desktop notices and boot recovery"
 fi
+# --- 43: project menus ----------------------------------------------------
 if python3 "$REPO/tests/test_v4z.py"; then
   ok "43 project menus: named checks a-h, fixed rendering state and isolated tmux"
 else
   no "43 project menus"
 fi
+# --- pointer: menu navigation ---------------------------------------------
 if python3 "$REPO/tests/test_hover.py"; then
   ok "pointer highlights and keyboard navigation (offline)"
 else
   no "pointer highlights and keyboard navigation"
 fi
+# --- notes: menu confirmations --------------------------------------------
 if python3 "$REPO/tests/test_note_screen.py"; then
   ok "menu notes wait for back, including popup rename confirmations (offline)"
 else
   no "menu notes"
 fi
+# --- 41: provider meters --------------------------------------------------
 # 41 reads no live meter -- its probes are mocked inside usage_fresh_check -- so a
 # throttled provider cannot fail it and it takes no meter-unavailable skip.
 if usage_fresh_check; then
@@ -1697,6 +1732,7 @@ PY_RETRY_CLOCK
     echo "rc=$?" ) >"$WORK/$1.log" 2>&1 &
 }
 # the executor's round has no spare pair to hand to, so it retries its own session twice
+# --- retry_start: start check 9 in the background -------------------------
 retrylaunch retry-exec flaky pass '["opus", "astra"]'
 retrylaunch retry-review work dead    # reviewer never comes back -> fall back to another provider
 
@@ -1705,6 +1741,7 @@ retrylaunch retry-review work dead    # reviewer never comes back -> fall back t
 # tests/live.sh starts before a host takes new code and when a harness upgrades; the landing
 # suite reaches nothing beyond loopback.  Offline twins run in both modes: 19 the delivery
 # path, 41 and 8a-8g the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
+# --- shared live guard -----------------------------------------------------
 if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 1: usage --------------------------------------------------------------
 model_unavailable() {   # missing binary/login, or nothing; a broken saved login exits 1
@@ -2248,6 +2285,7 @@ else
   no "5 ak notify --check exited $NRC with no webhook configured; expected 2"
   sed 's/^/      /' "$WORK/notify.log" | head -3
 fi
+# --- shared live guard -----------------------------------------------------
 fi
 
 # --- 5b: --check exit codes, offline -----------------------------------------
@@ -2312,6 +2350,7 @@ else
   sed 's/^/      /' "$NGH/guard.log" "$WORK/guard-nosink.log" | head -8
 fi
 
+# --- shared live guard -----------------------------------------------------
 if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6: orch selection -----------------------------------------------------
 # The pick stands on check 1's meters; when the provider throttled those probes the pick
@@ -2405,6 +2444,7 @@ grep -q 'muse --yolo --provider meta --model muse-spark' "$WORK/orch-spark.log" 
 grep -q 'idle-compact.py -- claude ' "$WORK/orch-fable.log" || ORCH2=1
 [ "$ORCH2" = 0 ] && ok "6b ak orch: astra prints a codex command with its model, spark a muse one, fable a claude one" \
                  || no "6b ak orch per-harness command: $(tail -1 "$WORK/orch-astra.log")"
+# --- shared live guard -----------------------------------------------------
 fi
 
 # --- 6c: each seat applies its own models, a dry run records none (offline) --
@@ -2477,6 +2517,7 @@ else
   no "6c session picker"; sed 's/^/      /' "$WORK/session-pick.log" | head -8
 fi
 
+# --- shared live guard -----------------------------------------------------
 if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6d: a named seat, really started --------------------------------------
 # Not a dry run: `ak orch <name>` creates the tmux session, the harness's own TUI paints in it,
@@ -2547,6 +2588,7 @@ else
   tm kill-session -t =smoke-astra 2>/dev/null
 fi
 fi
+# --- shared live guard -----------------------------------------------------
 fi
 
 # --- 6e: a subscription Codex is given no model of ours (offline) ----------
@@ -5666,39 +5708,47 @@ else
 fi
 
 # --- result ----------------------------------------------------------------
+# --- 51: task parsing -----------------------------------------------------
 if { python3 "$REPO/tests/test_task_file.py" && python3 "$REPO/tests/test_task_size.py" &&
      python3 "$REPO/tests/test_unknown_front_matter_key.py"; } >"$WORK/task-file.log" 2>&1; then
   ok "51 task files: parsing, size and unknown keys refused before receipts"
 else
   no "51 task files"; tail -30 "$WORK/task-file.log"
 fi
+# --- 50: task file scope --------------------------------------------------
 if python3 "$REPO/tests/test_files_scope.py" >"$WORK/files-scope.log" 2>&1; then
   ok "50 task files scope: branch paths, leftovers, rebase, fixer and PASS override"
 else
   no "50 task files scope"; tail -30 "$WORK/files-scope.log"
 fi
+# --- turn_cleanup: worker process cleanup ---------------------------------
 if python3 "$REPO/tests/test_turn_leftover_processes.py" >"$WORK/turn-processes.log" 2>&1; then
   ok "worker turns stop their leftover processes on every harness and ask once to finish in the foreground"
 else
   no "worker turn process cleanup"; tail -30 "$WORK/turn-processes.log"
 fi
+# --- 40: login watchdog ---------------------------------------------------
 if python3 "$REPO/tests/test_auth_watch.py" >"$WORK/auth-watch.log" 2>&1; then
   ok "40 auth watchdog: immediate needs-login, one alert per episode, no auth nudge, recovery and unknown stuck escalation"
 else
   no "40 auth watchdog"; cat "$WORK/auth-watch.log"
 fi
+# --- 48: end of turn ------------------------------------------------------
 if python3 "$REPO/tests/test_stop_hook.py" >"$WORK/stop-hook.log" 2>&1; then
   ok "48 the end of a turn: a question, a done or a run to wait on allows the stop, anything else is blocked with the rule it broke, twice per turn and never for a worker; a harness with no blocking hook has the same test typed at its prompt once"
 else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
+# --- 49: repository boundaries and docs -----------------------------------
 { python3 "$REPO/tests/test_dead_code.py" && python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 definitions have callers, knowledge stays home, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 dead code, boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
+# --- 49a: landed suite evidence -------------------------------------------
 if { python3 "$REPO/tests/test_repo_suite.py" &&
      python3 "$REPO/tests/test_merge_trailer.py"; } >"$WORK/merge-trailer.log" 2>&1; then
   ok "49a repository suites run once and landed commits name the checked tree"
 else
   no "49a repository suites and merge trailer"; tail -30 "$WORK/merge-trailer.log"
 fi
+# --- fix_runs: regression proofs ------------------------------------------
 if { python3 "$REPO/tests/test_hand_in.py" && python3 "$REPO/tests/test_regression_fails_before.py" &&
      python3 "$REPO/tests/test_probe_resume.py" &&
      python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
@@ -5709,44 +5759,52 @@ if { python3 "$REPO/tests/test_hand_in.py" && python3 "$REPO/tests/test_regressi
 else
   no "50 fix runs and regression on base"; tail -30 "$WORK/regression-base.log"
 fi
+# --- 42: seat states ------------------------------------------------------
 if seat_state_check >"$WORK/seat-state.log" 2>&1; then
   ok "42 seat states: a session is working, needs you or done -- (a) a turn-ended hook fact reads 'needs you', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
 else
   no "42 seat states"; tail -30 "$WORK/seat-state.log"
 fi
+# --- 36: babysitter regressions -------------------------------------------
 if { lifecycle_check v4l &&
      python3 "$REPO/tests/test_quota_words_bounded.py"; } >"$WORK/v4l.log" 2>&1; then
   ok "36 exact stall timing, attach races, quota windows, real Claude stream and narrow runs"
 else
   no "36 v4l regressions"; tail -30 "$WORK/v4l.log"
 fi
+# --- 3d: borrowed logins --------------------------------------------------
 if python3 "$REPO/tests/test_smoke_judges_the_borrowed_login.py" >"$WORK/borrowed-login.log" 2>&1; then
   ok "3d real calls judge the borrowed login: sandbox and host cache skip its spent subscription, and its room permits a call"
 else
   no "3d borrowed login"; tail -30 "$WORK/borrowed-login.log"
 fi
+# --- 4e: target locks -----------------------------------------------------
 if { python3 "$REPO/tests/test_smoke_target_pool.py" &&
      python3 "$REPO/tests/test_smoke_lock_scope.py"; } >"$WORK/smoke-targets.log" 2>&1; then
   ok "4e smoke targets: two suites take two, the next is made below the bound read at each try, the bound waits, a failed listing makes none, a killed holder frees its own"
 else
   no "4e smoke targets"; tail -30 "$WORK/smoke-targets.log"
 fi
+# --- 37: terminal regressions ---------------------------------------------
 if { python3 "$REPO/tests/test_v4n.py" &&
      python3 "$REPO/tests/test_choose_click.py"; } >"$WORK/v4n.log" 2>&1; then
   ok "37 readable menus at 40/80/100 columns, chooser Enter clicks, run reporting, Codex resume and launch/cache edges"
 else
   no "37 v4n regressions"; tail -30 "$WORK/v4n.log"
 fi
+# --- 38: Mac file bridge --------------------------------------------------
 if python3 "$REPO/tests/test_macbridge.py" >"$WORK/macbridge.log" 2>&1; then
   ok "38 Mac files: local paths, queue/serve/inbox, timeout/missing, singleton SSH and LaunchAgent"
 else
   no "38 Mac file bridge"; tail -30 "$WORK/macbridge.log"
 fi
+# --- 45: notification rules -----------------------------------------------
 if python3 "$REPO/tests/test_notify_rule.py" >"$WORK/notify-rule.log" 2>&1; then
   ok "45 what Discord hears: a PR of ours goes to its seat or its run and never to Discord, the hourly alerts only while the seat is working, auth and the inbox question still ask, workers stay silent, a done per job, the test sink outranks the webhook, and the card names its seat"
 else
   no "45 the Discord rule"; tail -30 "$WORK/notify-rule.log"
 fi
+# --- 39: usage screen -----------------------------------------------------
 if python3 "$REPO/tests/test_v4r.py" >"$WORK/v4r.log" 2>&1; then
   ok "39 usage left at 40/100 columns: Claude 21% · resets Sun 00:00 · Fable 47%, ChatGPT 69%, Muse spent; the notes give way on a phone; project counts fold run details, all lines fit"
 else
@@ -6040,12 +6098,14 @@ else
   done
 fi
 
+# --- 47: run queue --------------------------------------------------------
 if slot_queue_check >"$WORK/v5am.log" 2>&1; then
   ok "47 max_runs=1: ak run status says waiting for a slot · limit full (1 running) · 0 ahead for the queued fake run, which starts when the first ends; depth-1 tests share the parent slot"
 else
   no "47 host run queue"; cat "$WORK/v5am.log"
 fi
 
+# --- shared result ---------------------------------------------
 echo "coverage: offline fixtures, plus the live mode's harness/GitHub/browser checks labeled above"
 echo "NOT EXERCISED: clean-host installation or interactive logins (separate certification)"
 finish
