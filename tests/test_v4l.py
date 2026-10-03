@@ -505,41 +505,41 @@ class Babysitter(unittest.TestCase):
 
 
 class RunsAndSmoke(unittest.TestCase):
-    def test_smoke_codex_startup_continues_without_trusting_hooks(self):
+    def test_smoke_codex_startup_rejects_hook_review(self):
         source = (REPO / "tests/smoke.sh").read_text()
         block = source[source.index("# --- 6d:"):source.index("# --- 7:")]
         poll = block[block.index('PANE=""'):block.index('\ncp "$HOME/')]
-        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
-            script = '''set -uo pipefail
+        ready = next(line.strip().removesuffix(" &&") for line in block.splitlines()
+                     if "&& ! grep -q 'Hooks need review'" in line)
+        script = '''set -uo pipefail
 tm() {
   case "$1" in
     capture-pane)
-      if [ -f "$WORK/continued" ]; then
-        echo 'OpenAI Codex'
-      elif [ -f "$WORK/first-frame" ]; then
-        touch "$WORK/options-visible"
-        cat "$REPO/tests/fixtures/codex-hooks-review-pane.txt"
-      else
-        touch "$WORK/first-frame"
-        echo 'Hooks need review'  # a partial frame must not get any answer yet
-      fi ;;
+      case "$FRAME" in
+        prompt) echo 'OpenAI Codex' ;;
+        partial) printf 'OpenAI Codex\\nHooks need review\\n' ;;
+        full) cat "$REPO/tests/fixtures/codex-hooks-review-pane.txt" ;;
+      esac ;;
     send-keys)
       printf '%s\\n' "$*" >>"$WORK/keys"
-      [ "$*" = 'send-keys -t smoke-astra 3 Enter' ] || return 1
-      [ -f "$WORK/options-visible" ] || return 1
-      touch "$WORK/continued" ;;
+      return 1 ;;
     *) return 1 ;;
   esac
 }
 sleep() { :; }
 '''
-            env = {**os.environ, "WORK": directory, "REPO": str(REPO)}
-            result = subprocess.run(["bash", "-c", script + poll + '\nprintf "%s" "$PANE"'],
-                                    env=env, text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, "OpenAI Codex")
-            self.assertEqual((Path(directory) / "keys").read_text(),
-                             "send-keys -t smoke-astra 3 Enter\n")
+        for frame, expected in (("prompt", 0), ("partial", 1), ("full", 1)):
+            with self.subTest(frame=frame), \
+                    tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
+                env = {**os.environ, "WORK": directory, "REPO": str(REPO),
+                       "FRAME": frame, "SEATLIST": "1"}
+                result = subprocess.run(
+                    ["bash", "-c", script + poll + '\nprintf "%s" "$PANE"\n' + ready],
+                    env=env, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertIn("OpenAI Codex" if frame == "prompt" else "Hooks need review",
+                              result.stdout)
+                self.assertFalse((Path(directory) / "keys").exists())
 
     def test_smoke_notification_number_ignores_the_callers_resumable_seats(self):
         source = (REPO / "tests/smoke.sh").read_text()

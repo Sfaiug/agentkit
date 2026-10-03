@@ -544,13 +544,8 @@ def main():
                 end, found = time.time() + float(secs), False
                 while time.time() < end:
                     pending = clean[cursor:]
-                    if seen("Hooks need review", pending):
-                        if seen(r"3\. Continue without trusting", pending):
-                            # Codex's trust decision is real. Decline the new hooks, never
-                            # approve them on behalf of the borrowed account.
-                            os.write(fd, b"3\r")
-                            cursor = len(clean)
-                    elif seen(pattern, pending):
+                    # A seat trusts its own hooks; a hook review on screen is a failure.
+                    if seen(pattern, pending) and not seen("Hooks need review", pending):
                         found = True
                         break
                     if not pump(0.4):

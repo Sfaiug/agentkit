@@ -2458,9 +2458,9 @@ fi
 if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6d: a named seat, really started --------------------------------------
 # Not a dry run: `ak orch <name>` creates the tmux session, the harness's own TUI paints in it,
-# `ak orch list` shows it and `ak orch stop` takes it down. The poll accepts directory trust,
-# declines updates (ak update owns those), and continues without trusting new hooks. This seat
-# makes no model request and must not approve any of the caller's hooks just to reach the TUI.
+# `ak orch list` shows it and `ak orch stop` takes it down. The poll accepts directory trust
+# and declines updates (ak update owns those). The seat trusts its own hooks on its command
+# line, so a "Hooks need review" screen fails it. This seat makes no model request.
 # A direct invocation outside ~/code keeps its checkout when Project defaults to none.
 if ! SEATWHY=$(model_unavailable astra seat); then
   no "6d: required model astra login check failed: $SEATWHY"
@@ -2474,21 +2474,15 @@ SEATRC=$?
 PANE=""
 for _ in $(seq 1 30); do
   PANE=$(tm capture-pane -p -t smoke-astra 2>/dev/null)
-  if grep -q 'Hooks need review' <<<"$PANE" &&
-     grep -q '3\. Continue without trusting' <<<"$PANE"; then
-    tm send-keys -t smoke-astra 3 Enter
-    sleep 2
-    continue
-  fi
-  grep -q 'Hooks need review' <<<"$PANE" && { sleep 2; continue; }
+  grep -q 'Hooks need review' <<<"$PANE" && break
   grep -q 'OpenAI Codex' <<<"$PANE" && break
   grep -q 'Do you trust' <<<"$PANE" && tm send-keys -t smoke-astra Enter
   grep -q 'Update available' <<<"$PANE" && tm send-keys -t smoke-astra Down Enter
   sleep 2
 done
 cp "$HOME/.agentkit/state/session-smoke-astra.json" "$WORK/seat-before-dry-run.json"
-# A trusted SessionStart hook can verify ownership; declining new hooks leaves an explicit
-# fresh-start record. Neither path may invent an id or claim ownership from directory history.
+# Codex runs SessionStart with the first turn, which verifies ownership; before one, the record
+# is an explicit fresh start. Neither may invent an id or claim ownership from directory history.
 PYTHONPATH="$REPO" python3 - "$WORK/seat-before-dry-run.json" <<'PYSEAT'
 import json, sys
 from agentkit.harness import codex
