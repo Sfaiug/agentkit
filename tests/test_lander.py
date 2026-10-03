@@ -6,6 +6,7 @@ No model, delivery, live state or process cleanup is allowed.
 
 from contextlib import ExitStack
 import fcntl
+import json
 import os
 from pathlib import Path
 import sys
@@ -336,6 +337,34 @@ class Lander(unittest.TestCase):
         self.assertEqual(gate._heavy_running(), 0)
         self.assertFalse(gate.turn_held())
         self.wake.assert_called_once()
+
+    def test_a_sharded_suite_holds_derived_turns_without_claiming_its_member(self):
+        pieces = self.root / "pieces"
+        suite = f'printf "%s\\n" "$AK_SHARD" >> "{pieces}" && {SUITE}'
+        directory = self.member(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        original = record.read_state(directory)
+        self.advance()
+        (config.HOME / config.CONFIG_NAME).write_text("max_gates = 9\n")
+
+        def check(cmds, cwd, log_path, *args, **kw):
+            self.assertEqual(gate._heavy_running(), 2)
+            return self.check(cmds, cwd, log_path, *args, **kw)
+
+        with (patch.dict(os.environ, {"AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(
+                {"cpus": 4, "load": 0, "free_mb": 820})}),
+              patch.object(gate, "run_done_when", side_effect=check),
+              patch.object(gate, "mark_gate_wait", side_effect=AssertionError("member write")),
+              patch.object(gate.history, "close_step", side_effect=AssertionError("member step"))):
+            land.check_line(self.turn)
+        self.assertEqual(sorted(pieces.read_text().splitlines()), ["1/2", "2/2"])
+        current = record.read_state(directory)
+        tree = current["waiting_on"].pop("land")
+        self.assertEqual(current, original)
+        self.assertEqual(land.passed(self.turn, tree)["tested"], tree)
+        self.assertEqual(gate._heavy_running(), 0)
+        self.assertFalse(gate.turn_held())
+        self.wake.assert_called_once()
+        self.assert_cleaned()
 
     def test_a_checked_member_claimed_before_the_verdict_ends_the_pass(self):
         first = self.member("first", joined=1)
