@@ -5461,7 +5461,7 @@ def final_check(lp, upstream):
     fixed = 0       # the fixer rounds this run has spent on these commands here
     while True:
         sha = git(lp.wt, "rev-parse", "HEAD")
-        suite, shared = declared_suite(lp.wt, lp.target), None
+        suite = declared_suite(lp.wt, lp.target)
         # A rebase or fixer can change the declaration loaded into lp.once. Rebuild
         # it from the task so only the inherited suite is replaced, including for probes.
         task = lp.run_dir / "task.md"
@@ -5478,10 +5478,6 @@ def final_check(lp, upstream):
             cmds_every, cmds_once = [], list(lp.once)
         else:
             cmds_every, cmds_once = list(lp.every), list(lp.once)
-        if suite:
-            shared = suite_shared(lp, upstream, sha, suite, together=not fixed)
-            if shared:
-                cmds_once.remove(suite)
         lp.log(f"--- merge: final check: {len(cmds_every) + len(cmds_once)} commands "
                f"({len(lp.once)} once) on {sha[:12]}")
         identity = commit_identity(lp.wt)
@@ -5522,10 +5518,6 @@ def final_check(lp, upstream):
         if ok:
             lp.log("final check: all passed")
             evidence = suite_evidence(lp, cmds_once, identity)
-            if shared:      # the suite ran on the batch's top tree: evidence for that tree only
-                evidence = ({"suite": suite, "tree_sha": shared["tested"]}
-                            if shared["tested"] == identity.get("tree_sha") else {})
-                evidence["together"] = shared["leader"]
             lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing",
                                        **evidence}
             if current_review(lp):
@@ -6955,49 +6947,6 @@ def retry_command(state):
             or state.get("review_pr") or not state.get("repo")):
         return None
     return f"ak run merge {state['run_id']}"
-
-
-def suite_shared(lp, upstream, sha, suite, together=True):
-    """The batch whose suite already passed on `sha`'s tree (landing.passed), else None.
-
-    Holding the merge turn, a run with no such batch first checks the passed runs waiting
-    behind it together with itself, in one run of `suite` (landing.together): a pass records
-    every stacked tree, its own first; a failure is split until the passing prefix is
-    recorded, and a run outside it checks itself alone.
-    """
-    turn, tree = turn_path(lp, upstream), git(lp.wt, "rev-parse", f"{sha}^{{tree}}")
-    shared = landing.passed(turn, tree)
-    if shared:
-        if shared["leader"] != lp.state.get("run_id"):
-            lp.log(f"final check: the suite already passed on this tree with "
-                   f"{shared['leader']}; not running it again")
-        return shared
-    if not together or getattr(_MERGE_HELD, "hold", None) is None:
-        return None
-
-    def suite_run(cwd):
-        identity = commit_identity(cwd)
-        clean = git_out(cwd, "diff", "--quiet", "HEAD")[0] == 0
-        log_path = lp.run_dir / "final-check-together.log"
-        ok, text = gate.run_done_when([suite], cwd, log_path, lp.artifacts,
-                                     lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                                     run_dir=lp.run_dir, heavy=True)
-        if (not clean or commit_identity(cwd) != identity
-                or git_out(cwd, "diff", "--quiet", "HEAD")[0] != 0):
-            ok = False
-            text += "\n\nCheckout changed during the shared suite; it does not verify the pinned commit."
-        log_path.write_text(f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}")
-        return ok, text
-
-    ok, members, _ = landing.together(lp.wt, sha, upstream, turn, lp.state.get("run_id"),
-                                   suite_run, lp.log)
-    if not members:
-        return None
-    shared = landing.passed(turn, tree)
-    lp.log("final check: the suite on the runs landing together: "
-           + ("all passed" if ok else "FAILED; this run passed in the split" if shared
-              else "FAILED; checking this run alone"))
-    return shared
 
 
 def final_check_line(state, cmds):
