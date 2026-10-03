@@ -3503,11 +3503,37 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
                 restore_probe_checkout(lp, head, branch, before, f"proof on {revision}")
 
 
+def quoted_sites(lp, submitted, head):
+    quotes = {index: row for index, row in enumerate(submitted.records, 1)
+              if row["kind"] == "finding" and "quote" in row["evidence"]}
+    if not quotes:
+        return {}
+    with ExitStack() as stack:
+        checkout = lp.wt
+        if not lp.scratch:
+            # Reuse hand-in's filesystem rules without trusting the reviewer's files or refs.
+            checkout = Path(stack.enter_context(tempfile.TemporaryDirectory(dir=lp.run_dir)))
+            git(lp.wt, "clone", "--quiet", "--shared", "--no-checkout", str(lp.wt), str(checkout))
+            git(checkout, "checkout", "--quiet", "--detach", head)
+            # Clone metadata is not part of the reviewed commit.
+            shutil.rmtree(checkout / ".git")
+        sites = {}
+        for index, row in quotes.items():
+            try:
+                root, path, line = hand_in.checked_site(
+                    f"{row['path']}:{row['line']}", checkout, row["evidence"]["quote"])
+                sites[index] = {"path": str(path.relative_to(root)), "line": line}
+            except (config.Error, OSError, ValueError, RuntimeError):
+                sites[index] = None
+        return sites
+
+
 def weigh_review(lp, submitted, head=None):
     """The reviewer's editable copy cannot decide what blocks the reviewed commit."""
     if not submitted.findings:
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
+    sites = quoted_sites(lp, submitted, head)
     records = []
     for index, row in enumerate(submitted.records, 1):
         if row["kind"] != "finding":
@@ -3515,7 +3541,9 @@ def weigh_review(lp, submitted, head=None):
             continue
         evidence = row["evidence"]
         kind = "finding"
-        if "run" in evidence:
+        if index in sites and sites[index] is None:
+            kind = "note"
+        elif "run" in evidence:
             command = evidence["run"]
             evidence = {"run": command, "commit": head or "workspace",
                         **proof_on(lp, command, lp.round_dir / f"proof-{index}-commit.log", head)}
@@ -3528,8 +3556,10 @@ def weigh_review(lp, submitted, head=None):
                 base = evidence["base"]
                 if base["returncode"] != 0 or base["killed"]:
                     kind = "follow-up"
-        elif not lp.scratch and not changed_line(lp, row, head):
-            kind = "follow-up"
+        else:
+            row = {**row, **sites[index]}
+            if not lp.scratch and not changed_line(lp, row, head):
+                kind = "follow-up"
         row = {**row, "kind": kind, "evidence": evidence}
         if kind == "follow-up":
             row["before"] = f"base {lp.base_sha}: " + (

@@ -141,6 +141,23 @@ def start(out_dir, workspace, previous=None, role="reviewer", findings=None):
     return str(path)
 
 
+def checked_site(site, workspace, quote=None):
+    name, colon, line = site.rpartition(":")
+    if not colon or not name or not line.isdecimal():
+        raise config.Error("name the location as path:line with a numeric line")
+    root = Path(workspace).resolve()
+    path = (root / name).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise config.Error("name a file that exists inside this checkout")
+    content = path.read_text(errors="replace")
+    line = int(line)
+    if not 1 <= line <= len(content.splitlines()):
+        raise config.Error(f"choose a line from 1 to {len(content.splitlines())} in {path.relative_to(root)}")
+    if quote is not None and (not quote.strip() or quote not in content):
+        raise config.Error("use a quote found verbatim in the named file")
+    return root, path, line
+
+
 def checked(argv, workspace, role="reviewer", findings=()):
     reviewing = role.startswith("reviewer")
     if argv and argv[0] in ("blocked", "not-needed"):
@@ -182,20 +199,8 @@ def checked(argv, workspace, role="reviewer", findings=()):
         raise config.Error("add --before with the base commit or a quote proving the defect existed before the task")
     if kind != "follow-up" and "--before" in flags:
         raise config.Error("use follow-up for a defect that existed before the task")
-    name, colon, line = site.rpartition(":")
-    if not colon or not name or not line.isdecimal():
-        raise config.Error("name the location as path:line with a numeric line")
-    root = Path(workspace).resolve()
-    path = (root / name).resolve()
-    if not path.is_relative_to(root) or not path.is_file():
-        raise config.Error("name a file that exists inside this checkout")
-    content = path.read_text(errors="replace")
-    line = int(line)
-    if not 1 <= line <= len(content.splitlines()):
-        raise config.Error(f"choose a line from 1 to {len(content.splitlines())} in {path.relative_to(root)}")
+    root, path, line = checked_site(site, workspace, flags.get("--quote"))
     if "--quote" in flags:
-        if flags["--quote"] not in content:
-            raise config.Error("use a quote found verbatim in the named file")
         evidence = {"quote": flags["--quote"]}
     else:
         env = dict(os.environ)
