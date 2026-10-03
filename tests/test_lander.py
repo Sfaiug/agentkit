@@ -22,7 +22,7 @@ SUITE = "test -f base.txt && test ! -f broken.txt"
 ONCE = "test -f tip.txt && test -f work.txt"
 
 
-class Lander(unittest.TestCase):
+class LanderFixture:
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-lander-", dir=REPO)
         self.addCleanup(tmp.cleanup)
@@ -113,6 +113,8 @@ class Lander(unittest.TestCase):
         tree = run.git(self.repo, "rev-parse", "origin/main^{tree}")
         self.assertEqual(set(land._trees(self.turn)[1]), {tree})
 
+
+class Lander(LanderFixture, unittest.TestCase):
     def test_join_order_one_check_and_only_the_parked_verdict_changes(self):
         later = self.member("a-later", 20)
         first = self.member("z-first", 10.5)
@@ -177,11 +179,11 @@ class Lander(unittest.TestCase):
         red = self.member("acme-fix", joined=2, **{"broken.txt": "broken\n"})
         self.advance()
         owner = {"pid": 5678, "process_identity": {"boot": "fixture", "ticks": 2}}
+        land.check_line(self.turn)
+        self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
+                              [green.name, red.name])
         for directory, verdict in ((green, "land"), (red, "fix")):
             with self.subTest(verdict=verdict):
-                land.check_line(self.turn)
-                self.wake.assert_called_once_with(directory.name, unittest.mock.ANY)
-                self.wake.reset_mock()
                 parked = record.read_state(directory)
                 self.assertIn(verdict, parked["waiting_on"])
                 with (patch.object(config, "load", return_value={}),
@@ -403,7 +405,7 @@ class Lander(unittest.TestCase):
         later = self.member("later", joined=2)
         self.advance()
         before = (first / "run.json").read_bytes()
-        with patch.object(record, "process_active", side_effect=[False, True]):
+        with patch.object(record, "process_active", side_effect=[False, False, True]):
             land.check_line(self.turn)
         self.assertEqual(len(self.checks), 1)
         self.assertEqual((first / "run.json").read_bytes(), before)
