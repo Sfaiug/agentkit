@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
@@ -36,6 +37,15 @@ def proof_text(proof):
     return f"[{status}]\n{proof['output']}"
 
 
+def proof_failed(proof):
+    # Launch errors are not failures of the behaviour the reviewer meant to exercise.
+    missing_script = re.search(
+        r"(?m)^[^\n:]+: (?:can't open file|(?:\d+: )?cannot open)[^\n]*"
+        r"(?:No such file or directory|Permission denied)", proof.get("output", ""))
+    return (proof["returncode"] > 0 and proof["returncode"] not in (126, 127)
+            and not proof.get("killed") and not missing_script)
+
+
 def item_text(row):
     text = (item_text(row["finding"]) + "\nDispute: " + row["why"] if row["kind"] == "dispute"
             else f"{row['path']}:{row['line']} - {row['what']} - {row['why']}")
@@ -49,8 +59,10 @@ def item_text(row):
         text += proof_text(evidence)
         if "base" in evidence:
             text += f"\nBase {evidence['base']['sha']}:\n" + proof_text(evidence["base"])
-    if row["kind"] == "follow-up":
+    if row["kind"] == "follow-up" or row.get("dropped"):
         text += "\nBefore the task: " + row["before"]
+    if row.get("dropped"):
+        text += "\nDropped follow-up: " + row["dropped"]
     return text.strip()
 
 
@@ -196,7 +208,7 @@ def checked(argv, workspace, role="reviewer", findings=()):
     if ("--run" in flags) == ("--quote" in flags) or not (flags.get("--run") or flags.get("--quote") or "").strip():
         raise config.Error("supply evidence with exactly one of --run COMMAND or --quote LINES")
     if kind == "follow-up" and not flags.get("--before", "").strip():
-        raise config.Error("add --before with the base commit or a quote proving the defect existed before the task")
+        raise config.Error("add --before with the recorded base commit or verbatim lines from the named file at base")
     if kind != "follow-up" and "--before" in flags:
         raise config.Error("use follow-up for a defect that existed before the task")
     root, path, line = checked_site(site, workspace, flags.get("--quote"))

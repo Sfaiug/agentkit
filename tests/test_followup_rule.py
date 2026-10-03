@@ -37,6 +37,9 @@ class FollowupRule(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "history_role_tokens"))
         self.stack.enter_context(patch.object(run.history, "update_run"))
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
+        # These checks cover carrying weighed records; replay is covered by followup_runs.
+        self.stack.enter_context(patch.object(run, "weigh_review", side_effect=
+                                             lambda _lp, submitted, *_args, **_kw: submitted))
         self.workspace = self.root / "workspace"
         self.workspace.mkdir()
         directory = config.RUNS / "followup-fixture"

@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import test_review_gate as gate
+import test_proof_weighed as proof
 from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, task, watch, worker
 from agentkit import record
 from fixtures.landing import landing
@@ -38,6 +39,13 @@ with (root / "calls.jsonl").open("a") as fh:
     fh.write(json.dumps({"role": role, "prompt": prompt}) + "\n")
 if role == "reviewer":
     answer = (root / "review.md").read_text()
+    if "## Follow-ups" in answer:
+        ak = root.parent / "bin/ak"
+        subprocess.run([sys.executable, str(ak), "hand-in", "follow-up", "other.py:2",
+                        "zero divisor crashes", "base abc123: `ratio(0)` raises ZeroDivisionError",
+                        "--run", "python3 -c 'from other import ratio; ratio(0)'",
+                        "--before", "return 1 / value"], check=True)
+        answer = answer.split("## Follow-ups", 1)[0]
 else:
     mode = (root / "mode").read_text()
     if mode == "gone":
@@ -92,6 +100,7 @@ class FollowupRuns(unittest.TestCase):
         self.git(self.root, "init", "--bare", "-q", str(self.remote))
         self.git(self.repo, "remote", "add", "origin", str(self.remote))
         (self.repo / "broken.py").write_text("def first(items):\n    return items[0]\n")
+        (self.repo / "other.py").write_text("def ratio(value):\n    return 1 / value\n")
         self.git(self.repo, "add", ".")
         self.git(self.repo, "commit", "-qm", "Existing defect")
         self.git(self.repo, "push", "-qu", "origin", "main")
@@ -309,8 +318,9 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(grandchild["launched_session"], "seat")
         self.assertEqual(grandchild["workers"], state["workers"])
         self.assertEqual(grandchild["followup"]["text"].splitlines()[0], OTHER)
-        self.assertIn("Quote:\nfixture evidence", grandchild["followup"]["text"])
-        self.assertIn("Before the task: base abc123", grandchild["followup"]["text"])
+        self.assertIn("ZeroDivisionError", grandchild["followup"]["text"])
+        self.assertIn(f"Commit {merged}", grandchild["followup"]["text"])
+        self.assertIn("Before the task: return 1 / value", grandchild["followup"]["text"])
 
     def test_not_needed_is_done_without_checks_review_or_pr(self):
         for index, mode in enumerate(("gone", "duplicate")):
@@ -490,6 +500,81 @@ class FollowupRuns(unittest.TestCase):
             children = self.start(directory, state)
         self.assertEqual(children, [])
         self.assertTrue(any("could not start" in line for line in self.logs))
+
+
+class FollowupEvidence(unittest.TestCase):
+    setUp = proof.ProofWeighed.setUp
+    commit = proof.ProofWeighed.commit
+    review = proof.ProofWeighed.review
+    assert_restored = proof.ProofWeighed.assert_restored
+
+    def followup(self, command=None, before=None, site="api.py:2"):
+        return proof.finding(site, "old defect", command or self.fails, kind="follow-up",
+                             before=before if before is not None else f"base {self.base}")
+
+    def test_followup_only_reviews_replay_the_proof_and_accept_real_base_commits_or_quotes(self):
+        self.assertEqual(self.review(*(self.followup(before=before) for before in
+                                     (self.base, f"base {self.base[:7]}: old defect", "old_bug = True"))),
+                         "PASS")
+        self.assertEqual(len(self.lp.state["followups"]), 3)
+        self.assertEqual(self.lp.state["notes"], [])
+        for text in self.lp.state["followups"]:
+            self.assertIn(f"Commit {self.base}", text)
+            self.assertIn("proof on base", text)
+            self.assertNotIn("proof on branch", text)
+
+    def test_a_followup_that_passes_on_base_is_dropped_and_published_as_a_note(self):
+        self.assertEqual(self.review(self.followup(command=self.regression)), "PASS")
+        self.assertEqual(self.lp.state["followups"], [])
+        note = self.lp.state["notes"][0]
+        self.assertIn("[exit 0]", note)
+        self.assertIn("Dropped follow-up: the command did not fail on base", note)
+        self.assertTrue(any("Dropped follow-up api.py:2" in text for text in self.logs))
+        run.write_result(self.directory, self.lp.state, ["true"], cfg=self.cfg)
+        for text in ((self.directory / "result.md").read_text(), run.pr_body(self.lp.state)):
+            self.assertIn("## Notes", text)
+            self.assertIn("Dropped follow-up", text)
+            self.assertNotIn("## Follow-ups", text)
+
+    def test_before_must_name_the_recorded_base_or_a_quote_in_its_file(self):
+        before = ("base deadbeef", f"base {self.head}", 'mode = "branch"',
+                  "invented quote", "reviewer_only = True")
+        self.assertEqual(self.review(*(self.followup(before=text, site="api.py:1") for text in before),
+                                     edits={"api.py": "reviewer_only = True\n"}), "PASS")
+        self.assertEqual(self.lp.state["followups"], [])
+        self.assertEqual(len(self.lp.state["notes"]), len(before))
+        for note in self.lp.state["notes"]:
+            self.assertIn("--before names no base commit or quote present at base", note)
+
+    def test_a_quote_in_an_overlaid_test_is_not_a_quote_at_base(self):
+        self.assertEqual(self.review(self.followup(
+            site="tests/proof [1].py:5", before='assert api.mode == "base"')), "PASS")
+        self.assertEqual(self.lp.state["followups"], [])
+        self.assertIn("--before names no base commit or quote present at base", self.lp.state["notes"][0])
+
+    def test_a_followup_whose_command_cannot_run_on_base_is_dropped(self):
+        commands = ("./absent", "./keep.txt", "python3 absent.py")
+        self.assertEqual(self.review(*(self.followup(command=command) for command in commands)), "PASS")
+        self.assertEqual(self.lp.state["followups"], [])
+        self.assertEqual(len(self.lp.state["notes"]), 3)
+        for note in self.lp.state["notes"]:
+            self.assertIn("Dropped follow-up", note)
+
+    def test_a_followup_must_finish_on_base(self):
+        self.lp.done_when_limit = 0.05
+        prefix = "if grep -q branch api.py; then exit 7; fi; "
+        self.assertEqual(self.review(self.followup(command=prefix + "sleep 10"),
+                                     self.followup(command=prefix + "kill -TERM $$")), "PASS")
+        self.assertEqual(self.lp.state["followups"], [])
+        self.assertTrue(all("Dropped follow-up" in note and "did not finish" in note
+                            for note in self.lp.state["notes"]))
+
+    def test_a_quote_without_a_failing_run_is_dropped_even_with_valid_before(self):
+        row = proof.finding("api.py:2", "old quote", quote="old_bug = True",
+                            kind="follow-up", before=self.base)
+        self.assertEqual(self.review(row), "PASS")
+        self.assertEqual(self.lp.state["followups"], [])
+        self.assertIn("needs a --run proof", self.lp.state["notes"][0])
 
 
 if __name__ == "__main__":
