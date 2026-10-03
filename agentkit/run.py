@@ -5383,11 +5383,10 @@ def final_check(lp, upstream):
 
 def rejoin_line(lp, upstream, reason, *, back=False):
     """A changed target keeps the place; repaired work queues behind the other members."""
-    wait = lp.state.get("waiting_on") or {}
+    wait = lp.state["waiting_on"]
     lp.state.update(state="waiting", error=reason, merge_failed=False, merge_note=reason,
                     waiting_on={"line": turn_path(lp, upstream).name,
-                                "joined": wait["joined"] if not back and "joined" in wait
-                                          else time.time()})
+                                "joined": time.time() if back else wait["joined"]})
     lp.state.pop("recovery_pending", None)
     lp.write()
     return False
@@ -5488,7 +5487,8 @@ def land(lp, upstream, verify, deliver, execv=None):
             fetch(lp.wt, "origin", "--prune", check=True)
             tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
             if tip != lp.base_sha:
-                return rejoin_line(lp, upstream, f"{upstream} changed since verification")
+                return park_waiting(lp, f"{upstream} changed since verification",
+                                    upstream, lp.base_sha)
             return deliver()
     finally:
         lp.state.pop("landing", None)

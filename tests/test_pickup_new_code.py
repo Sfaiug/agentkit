@@ -205,6 +205,7 @@ class PickupNewCode(unittest.TestCase):
         lp.state = state
         self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))
         state.pop("gate_turn", None)
+        record.save_state(lp.run_dir, state)
         # a turn this thread really holds, gate or merge, blocks the move too
         (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")
         gated = config.RUNS / "pickup-gated"
@@ -290,7 +291,7 @@ class PickupNewCode(unittest.TestCase):
                       (lp.run_dir / "log.txt").read_text())
 
 
-    def test_landing_target_change_joins_line_after_one_verification(self):
+    def test_landing_target_change_waits_after_one_verification(self):
         lp = self.make_repo_run("pickup-four")
         run._PICKUP_START = OLD
         verifies = []
@@ -305,12 +306,11 @@ class PickupNewCode(unittest.TestCase):
                 patch.object(run.time, "time", return_value=1000):
             self.assertFalse(run.land(
                 lp, "origin/main", verify,
-                lambda: self.fail("a changed target needs the lander's verdict")))
+                lambda: self.fail("a changed target needs fresh verification")))
         self.assertEqual(verifies, [True])
         state = record.read_state(lp.run_dir)
         self.assertEqual(state["state"], "waiting")
-        self.assertEqual(state["waiting_on"], {
-            "line": run.turn_path(lp, "origin/main").name, "joined": 1000})
+        self.assertEqual(state["waiting_on"], {"ref": "origin/main", "sha": "base0001"})
         self.assertNotIn("landing", state)
 
     def test_stale_pickup_with_a_reused_pid_queues_normally(self):
