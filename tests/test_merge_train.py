@@ -24,6 +24,91 @@ class MergeTrain(LanderFixture, unittest.TestCase):
     def stacked_files(self, tree):
         return set(run.git(self.repo, "ls-tree", "--name-only", tree).splitlines())
 
+    def test_a_head_parked_again_rechecks_its_failed_tree(self):
+        member = self.member()
+        self.advance()
+        calls = []
+
+        def killed_once(cmds, cwd, log_path, *args, **kw):
+            calls.append(cwd)
+            if len(calls) == 1:
+                return False, "$ suite\n[exit 137]\nkilled: silent for 60 minutes\n"
+            return self.check(cmds, cwd, log_path, *args, **kw)
+
+        with patch.object(gate, "run_done_when", side_effect=killed_once):
+            land.check_line(self.turn)
+            self.assertIn("fix", self.wait(member))
+            with record.record(member) as current:
+                current["waiting_on"].pop("fix")
+            land.check_line(self.turn)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("land", self.wait(member))
+        self.assertEqual(land._trees(self.turn, "red")[1], {})
+        self.assert_cleaned()
+
+    def test_an_undecided_red_head_still_gets_its_own_check(self):
+        member = self.member()
+        self.advance()
+        with (patch.object(gate, "run_done_when", return_value=(
+                False, "$ suite\n[exit 137]\nkilled: silent for 60 minutes\n")),
+              patch.object(record, "record", side_effect=RuntimeError("before verdict"))):
+            with self.assertRaisesRegex(RuntimeError, "before verdict"):
+                land.check_line(self.turn)
+        self.assertNotIn("fix", self.wait(member))
+        land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.assertIn("land", self.wait(member))
+        self.assert_cleaned()
+
+    def test_deciding_a_red_member_drops_the_red_stacks_behind_it(self):
+        self.member("head")
+        self.member("red", joined=2, **{"broken.txt": "x\n"})
+        self.member("later", joined=3, **{"later.txt": "later\n"})
+        self.advance()
+        land.check_line(self.turn)
+        self.assertEqual(land._trees(self.turn, "red")[1], {})
+        self.assert_cleaned()
+
+    def test_members_from_another_clone_stack_without_changing_its_branches(self):
+        first = self.member("first", **{"first.txt": "first\n"})
+        other = self.root / "acme-two"
+        run.git(self.root, "clone", str(self.remote), str(other))
+        run.git(other, "config", "user.name", "fixture")
+        run.git(other, "config", "user.email", "fixture@localhost")
+        with patch.object(self, "repo", other):
+            later = self.member("later", joined=2, **{"later.txt": "later\n"})
+        original = record.read_state(later)
+        head = original["review"]["head_sha"]
+        self.assertNotEqual(run.git_out(self.repo, "cat-file", "-e", head)[0], 0)
+        self.member("last", joined=3, **{"last.txt": "last\n"})
+        self.advance()
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(first))
+        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+        self.assertTrue(any({"first.txt", "later.txt", "last.txt"} <= self.stacked_files(tree)
+                            for tree in land._trees(self.turn)[1]))
+        self.assertEqual(record.read_state(later), original)
+        self.assertEqual(run.git(other, "rev-parse", original["branch"]), head)
+        self.assertEqual(run.git(other, "worktree", "list", "--porcelain").count("worktree "), 1)
+        self.assert_cleaned()
+
+    def test_an_unavailable_follower_commit_does_not_stop_later_stacks(self):
+        first = self.member("first", **{"first.txt": "first\n"})
+        missing = self.member("missing", joined=2)
+        with record.record(missing) as current:
+            current["worktree"] = str(self.root / "gone-clone")
+            current["review"]["head_sha"] = "f" * 40
+        original = record.read_state(missing)
+        self.member("later", joined=3, **{"later.txt": "later\n"})
+        self.advance()
+        land.check_line(self.turn)
+        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+        self.assertIn("land", self.wait(first))
+        self.assertEqual(record.read_state(missing), original)
+        self.assertTrue(any({"first.txt", "later.txt"} <= self.stacked_files(tree)
+                            for tree in land._trees(self.turn)[1]))
+        self.assert_cleaned()
+
     def test_only_the_newest_member_of_a_red_stack_gets_its_failure(self):
         suite = "test ! -f api.txt || test ! -f client.txt"
         first = self.member("api", **{"api.txt": "api\n",
