@@ -216,7 +216,9 @@ def check_line(turn, log=lambda _: None):
                     if record.read_state(member) != saved or record.process_active(saved):
                         break
                 else:
-                    for member, answer in verdicts.items():
+                    # Save red verdicts before the head can advance: a crash must not
+                    # lose a failure that only appears together with that head.
+                    for member, answer in sorted(verdicts.items(), key=lambda item: "land" in item[1]):
                         with record.record(member) as current:
                             current["waiting_on"] = {**current["waiting_on"], **answer}
                     # A reparked member needs a fresh check, including any red suffix
