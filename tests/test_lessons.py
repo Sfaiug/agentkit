@@ -20,7 +20,7 @@ TASK = "# Learn once\n\n## Goal\nUse the repository facts.\n\n## Done when\n```b
 EXPLANATION = ("Facts earlier runs in this repository learned. Follow them; they are not part "
                "of this task's scope.")
 WARNING = "lessons file over 4 KB; truncated"
-PAST_CAP = "is past its 4 KB cap and reached the workers cut short: tighten it."
+PAST_CAP = "reached the workers cut short at its 4 KB cap: tighten it."
 
 
 class Lessons(unittest.TestCase):
