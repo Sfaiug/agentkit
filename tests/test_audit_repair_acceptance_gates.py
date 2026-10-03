@@ -215,9 +215,30 @@ finish
                 self.assertIn('MISSING', result.stderr)
                 self.assertFalse((self.root / 'answer').exists())
 
+    def test_live_claude_stream_assertion_fails_the_gate(self):
+        self.assertTrue("# --- 3a: Claude streaming" in SMOKE,
+                        "the independent live Claude stream check is missing")
+        stream = between(SMOKE, "# --- 3a:", "# --- 4:")
+        helpers = between(SMOKE, "spent_until()", "# The shared contract check")
+        self.script("python3", f'''if [ "$1" = "$REPO/tests/check_claude_stream.py" ]; then
+  echo "$CHECKER_RC" >>"$WORK/stream-calls"
+  exit "$CHECKER_RC"
+fi
+exec {shlex.quote(sys.executable)} "$@"
+''')
+        for code in (0, 1):
+            with self.subTest(checker_exit=code):
+                result = self.shell(helpers + '''
+spent_until() { :; }
+skip_unavailable() { return 1; }
+''' + stream + "\nfinish", env={"CHECKER_RC": str(code)})
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                self.assertIn(f"{'FAIL' if code else 'PASS'}  3a Claude streaming", result.stdout)
+        self.assertEqual((self.root / "stream-calls").read_text().splitlines(), ["0", "1"])
+
     def test_skipped_harness_browser_and_failed_run_prerequisite(self):
         skipped = between(SMOKE, "skip_spent()", "# The shared contract check")
-        loop = between(SMOKE, '# --- 3:', '# --- 4:')
+        loop = between(SMOKE, '# --- 3:', '# --- 3a:')
         manifests = list((REPO / "adapters").glob("*.toml"))
         for path in manifests:
             shutil.copy2(path, self.adapters)

@@ -25,7 +25,7 @@ def between(start, end):
 # check 3 with the helpers it calls, and `ak usage` answering nothing
 CHECK = ('. "$REPO/tests/acceptance.sh"\nak() { return 1; }\n'
          + between("model_unavailable()", "reprobe()")
-         + between("newrepo()", 'echo "workdir:') + between("# --- 3:", "# --- 4:") + "finish\n")
+         + between("newrepo()", 'echo "workdir:') + between("# --- 3:", "# --- 3a:") + "finish\n")
 MANIFESTS = {p.stem: tomllib.loads(p.read_text()) for p in (REPO / "adapters").glob("*.toml")}
 BINARIES = {h: m["update"]["version"][0] for h, m in MANIFESTS.items()}
 LOGGED_IN = {h: "0 fixture: logged in" for h in MANIFESTS}
@@ -118,6 +118,8 @@ class EveryHarness(unittest.TestCase):
         for harness, manifest in MANIFESTS.items():
             with self.subTest(harness=harness):
                 model, effort = (manifest["check"][k] for k in ("model", "effort"))
+                self.assertIn(model, manifest["catalog"])
+                self.assertEqual(effort, manifest["catalog"][model]["efforts"][0])
                 self.assertIn(f"PASS  3 {harness}: wrote the file, handed in done", result.stdout)
                 self.assertEqual(self.turns(harness), [f"{model} {effort}"] * 2)
                 prompt = (self.fixture / f"{harness}.prompts").read_text()

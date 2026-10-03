@@ -1951,6 +1951,35 @@ else
   no "3: harness contract check returned no counts"
 fi
 
+# --- 3a: Claude streaming stays visible before the result -----------------
+# A buffered stream would make long worker turns look silent to the watchdog.
+if skip_spent 3a opus; then
+  :
+else
+  R="$WORK/claude-stream-workspace"; mkdir -p -- "$R"
+  PYTHONPATH="$REPO" python3 "$REPO/tests/check_claude_stream.py" "$WORK/o-claude-stream" \
+    python3 -c 'import sys
+from unittest.mock import patch
+from agentkit import config, worker
+cfg = config.load()
+entry = config.model(cfg, "opus")
+entry.update(config.manifest(entry["harness"])["check"])
+with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}):
+    code, *_ = worker.turn(cfg, "opus",
+        "Say STREAM_READY, then run pwd, then reply DONE. Do not edit files.\n",
+        sys.argv[1], sys.argv[2], role="executor-scratch")
+sys.exit(code)' "$R" "$WORK/o-claude-stream" >"$WORK/claude-stream.log" 2>&1
+  STREAMRC=$?
+  if skip_refused 3a opus "$STREAMRC" "$WORK/o-claude-stream"; then
+    :
+  elif [ "$STREAMRC" = 0 ]; then
+    ok_call "3a Claude streaming: events were visible before the successful result; final.md and session_id match it"
+  else
+    no "3a Claude streaming"
+    diagnose "$STREAMRC" "$WORK/claude-stream.log" python3 "$REPO/tests/check_claude_stream.py"
+  fi
+fi
+
 # --- 4: ak run end to end, into a real GitHub repo -------------------------
 # The whole pipeline, not just the loop: a task file that names neither `repo:` nor `base:`,
 # run from inside a clone, has to find both, pass review, rebase, push, open a PR and merge it.

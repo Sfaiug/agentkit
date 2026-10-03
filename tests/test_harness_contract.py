@@ -20,7 +20,7 @@ def between(start, end):
 CHECK = ('. "$REPO/tests/acceptance.sh"\nak() { return 1; }\n'
          + between("model_unavailable()", "reprobe()")
          + between("newrepo()", 'echo "workdir:')
-         + between("# --- 3:", "# --- 4:") + "finish\n")
+         + between("# --- 3:", "# --- 3a:") + "finish\n")
 
 
 class Contract(unittest.TestCase):

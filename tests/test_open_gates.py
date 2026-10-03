@@ -517,7 +517,7 @@ ak() { printf '%s\\n' "$ROW"; }
         # counted as passed, and the suite fails, because it made no real call at all.
         start = SMOKE.index('model_unavailable()')
         helpers = SMOKE[start:SMOKE.index('U="$WORK/usage.json"', start)]
-        check = SMOKE[SMOKE.index('# --- 3:'):SMOKE.index('# --- 4:')]
+        check = SMOKE[SMOKE.index('# --- 3:'):SMOKE.index('# --- 3a:')]
         with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             binaries = Path(tmp) / 'bin'
             binaries.mkdir()

@@ -19,7 +19,7 @@ from test_update_gate_every_harness import ADAPTER, BINARIES, MANIFESTS
 REPO = Path(__file__).resolve().parents[1]
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 CHECK_3 = (SMOKE[SMOKE.index("model_unavailable()"):SMOKE.index("reprobe()")]
-           + SMOKE[SMOKE.index("# --- 3:"):SMOKE.index("# --- 4:")])
+           + SMOKE[SMOKE.index("# --- 3:"):SMOKE.index("# --- 3a:")])
 DEPENDENTS = ('\nif skip_spent 4/4b/4c/4d/31d opus; then :; else echo ATTEMPT_OPUS; fi\n'
               'if skip_spent 31e astra; then :; else echo ATTEMPT_ASTRA; fi\nfinish\n')
 HARNESSES = (("anthropic", "opus", "claude"), ("openai", "astra", "codex"),

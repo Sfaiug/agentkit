@@ -908,6 +908,14 @@ esac
         fakes = r'''
 python3() {
   case "$*" in
+    *check_claude_stream.py*)
+      echo stream >>"$WORK/calls"
+      mkdir -p "$2"
+      echo DONE >"$2/final.md"
+      printf '%s\n' "${WARNING:-}" >"$2/stderr.log"
+      printf '{"type":"result","is_error":false,"result":"DONE","session_id":"fixture"}\n' >"$2/events.jsonl"
+      echo fixture >"$2/session_id"
+      return "${CHECKER_RC:-0}" ;;
     *urllib.request*|*socket.create_connection*) return 0 ;;
     *) "$PYTHON_BIN" "$@" ;;
   esac
@@ -975,17 +983,19 @@ esac
                     "MCP_TEXT": "BROWSER_TABS=1 DESKTOP=ok"}
             for name, env, expected, skipped, fail in (
                     ("create", {"FIRST_RC": "1", "FIRST_TEXT": notice},
-                     ["worker-0"], ["3", "31d"], False),
+                     ["worker-0"], ["3", "3a", "31d"], False),
                     ("resume", {"RESUME_RC": "1", "RESUME_TEXT": notice},
-                     ["worker-0", "worker-1"], ["3", "31d"], False),
+                     ["worker-0", "worker-1"], ["3", "3a", "31d"], False),
                     ("mcp", {"MCP_RC": "1", "MCP_TEXT": notice},
-                     ["worker-0", "worker-1", "mcp"], ["31d"], False),
+                     ["worker-0", "worker-1", "stream", "mcp"], ["31d"], False),
                     ("fault", {"FIRST_RC": "1", "FIRST_TEXT": "API Error: HTTP 503"},
-                     ["worker-0", "mcp"], [], True),
+                     ["worker-0", "stream", "mcp"], [], True),
                     ("warning", {"WARNING": notice},
-                     ["worker-0", "worker-1", "mcp"], [], False),
+                     ["worker-0", "worker-1", "stream", "mcp"], [], False),
                     ("missing hand-in", {"WARNING": notice, "HAND_IN": "0"},
-                     ["worker-0", "mcp"], [], True)):
+                     ["worker-0", "stream", "mcp"], [], True),
+                    ("stream assertion", {"WARNING": notice, "CHECKER_RC": "1"},
+                     ["worker-0", "worker-1", "stream", "mcp"], [], True)):
                 with self.subTest(name=name):
                     work = root / name
                     work.mkdir()
@@ -996,7 +1006,7 @@ esac
                                             text=True, capture_output=True, timeout=30)
                     self.assertEqual(result.returncode, 1 if fail else 0,
                                      result.stdout + result.stderr)
-                    for label in ("3", "31d"):
+                    for label in ("3", "3a", "31d"):
                         prefix = "SKIP  3 claude:" if label == "3" else f"SKIP  {label}:"
                         self.assertEqual(prefix in result.stdout, label in skipped,
                                          result.stdout)
