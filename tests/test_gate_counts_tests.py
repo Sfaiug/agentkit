@@ -34,7 +34,7 @@ class GateCountsTests(unittest.TestCase):
     def gate(self):
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
         env.update(HOME=str(self.root),
-                   AK_HOST_READINGS='{"cpu_pressure": 0, "free_mb": 4096}')
+                   AK_HOST_READINGS='{"cpu_pressure": 12, "free_mb": 4096}')
         return subprocess.run([sys.executable, str(RUNNER), str(self.root)], env=env,
                               stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=30)

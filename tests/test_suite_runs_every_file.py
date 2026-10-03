@@ -67,7 +67,7 @@ class SuiteRunsEveryFile(unittest.TestCase):
         env = {**os.environ, "HOME": str(root), "ACME_LOG": str(self.log), "ACME_KEPT": "1",
                "AGENTKIT_RUN": "acme-run", "AK_RUN_DEPTH": "2", "AK_PARENT_RUN": "acme-parent",
                "AK_RUN_LOG": "/nonexistent",
-               "AK_HOST_READINGS": '{"cpu_pressure": 0, "free_mb": 4096}',
+               "AK_HOST_READINGS": '{"cpu_pressure": 12, "free_mb": 4096}',
                "AK_CGROUP_FILE": str(root / "no-cgroup"),
                "AGENTKIT_SMOKE_OFFLINE": offline, "AGENTKIT_SMOKE_LIVE": live, **env}
         return subprocess.run([sys.executable, str(RUNNER), str(root)], env=env,
@@ -97,7 +97,7 @@ class SuiteRunsEveryFile(unittest.TestCase):
         root = self.checkout({f"test_acme_{n}": body for n in range(6)})
         proc = self.suite(root, AK_HOST_READINGS=(
             '{"cpus": 2, "slice_cpu_quota": 2, "load": 12, '
-            '"cpu_pressure": 0, "free_mb": 1000}'))
+            '"cpu_pressure": 12, "free_mb": 1000}'))
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         jobs = int(re.search(r", (\d+) at once,", proc.stdout)[1])
         self.assertGreater(jobs, 2, proc.stdout)

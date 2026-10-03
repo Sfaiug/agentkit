@@ -19,7 +19,7 @@ sys.path.insert(0, str(REPO / "tests"))
 import every_file
 from agentkit import host
 
-CALM = {"cpus": 8, "load": 50, "cpu_pressure": 0, "free_mb": 4600}
+CALM = {"cpus": 8, "load": 50, "cpu_pressure": 12, "free_mb": 4600}
 
 
 class EveryFilePool(unittest.TestCase):
@@ -37,9 +37,16 @@ class EveryFilePool(unittest.TestCase):
         self.assertEqual(every_file.pool_limit({**CALM, "slice_cpu_quota": 2,
                                                "slice_cpu_used": 0.1}), small)
 
-    def test_any_current_contention_overrides_even_the_serial_floor(self):
+    def test_background_stalls_allow_growth_up_to_the_pressure_ceiling(self):
+        # Nonzero readings are normal on an idle-ish host; none can require a zero sample.
+        for pressure in (0.01, 2, 3, 12, 20):
+            with self.subTest(pressure=pressure):
+                self.assertGreater(every_file.pool_limit(
+                    {**CALM, "cpu_pressure": pressure}), CALM["cpus"])
+
+    def test_high_pressure_overrides_even_the_serial_floor(self):
         for free in (0, 4600):
-            for pressure in (0.01, 50, 100):
+            for pressure in (20.01, 50, 100):
                 with self.subTest(free=free, pressure=pressure):
                     self.assertEqual(every_file.pool_limit(
                         {**CALM, "free_mb": free, "cpu_pressure": pressure}), 0)
@@ -55,7 +62,7 @@ class EveryFilePool(unittest.TestCase):
                 self.assertEqual(every_file.pool_limit({**CALM, **extra}), 2)
 
     def test_unreadable_or_small_hosts_stay_serial(self):
-        for readings in ({}, {"free_mb": 4600}, {"cpu_pressure": 0},
+        for readings in ({}, {"free_mb": 4600}, {"cpu_pressure": 12},
                          {**CALM, "free_mb": 10}):
             with self.subTest(readings=readings):
                 self.assertEqual(every_file.pool_limit(readings), 1)
@@ -102,14 +109,19 @@ class EveryFilePool(unittest.TestCase):
         starts, out = self.sweep([
             {**CALM, "cpu_pressure": 40},  # even the first file must wait
             CALM,                        # first file starts
-            {**CALM, "cpu_pressure": 1},  # no queued file bypasses contention
-            {**CALM, "cpu_pressure": 20},
+            {**CALM, "cpu_pressure": 21},  # no queued file bypasses high pressure
+            {**CALM, "cpu_pressure": 50},
             CALM,                        # second file starts
             {**CALM, "free_mb": 230},     # existing files keep their reservations
             {**CALM, "free_mb": 230},
             CALM])                       # memory recovered; the pool grows again
         self.assertEqual(starts, [2, 5, 8, 9, 10, 11])
         self.assertIn(", 6 at once,", out)
+
+    def test_persistent_background_stalls_let_a_sweep_start_and_grow(self):
+        starts, out = self.sweep([CALM], count=9)
+        self.assertEqual(starts, list(range(1, 10)))
+        self.assertIn(", 9 at once,", out)
 
     def test_losing_cpu_readings_stops_growth_without_stranding_files(self):
         starts, out = self.sweep([CALM, {"free_mb": 4600}], finish_each=True)
@@ -190,13 +202,13 @@ class EveryFilePool(unittest.TestCase):
                                           all_limits=True)
         self.assertAlmostEqual(readings["cpu_pressure"], 5)
         self.assertEqual(len(readings["unit_limits"]), 2)
-        self.assertEqual(every_file.pool_limit({**readings, "cpu_pressure": 0}), 2)
+        self.assertEqual(every_file.pool_limit(readings), 2)
         # Existing callers keep the nearest soft limit, rather than changing run admission.
         self.assertEqual(host._unit_memory_limits(membership, cgroups),
                          [(4140, 4600, 4140, "acme.slice")])
 
     def test_injected_readings_bypass_every_real_host_read(self):
-        with patch.dict(os.environ, {"AK_HOST_READINGS": '{"cpu_pressure": 0, "free_mb": 4600}'}), \
+        with patch.dict(os.environ, {"AK_HOST_READINGS": '{"cpu_pressure": 12, "free_mb": 4600}'}), \
                 patch.object(Path, "read_text", side_effect=AssertionError("real host read")), \
                 patch.object(host.time, "sleep", side_effect=AssertionError("real sample")):
             readings = host.host_readings(slice_dir=lambda: self.fail("real cgroup"),

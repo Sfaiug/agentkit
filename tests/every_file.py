@@ -7,7 +7,7 @@ waits for none.  Each file runs once, in a process of its own from the checkout'
 no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file started from inside a run
 must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at
 once as live memory fits; waiting files can outnumber cores. Before each start it samples
-CPU pressure, admitting nothing during contention, and rereads host and cgroup headroom.
+CPU pressure, waiting while it is high, and rereads host and cgroup headroom.
 A failing file, or one reporting no executed cases, fails the whole and is named with its
 last lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after
 their checks. Python imports under agentkit/, tools/, bin/ and tests/ must be from the
@@ -32,6 +32,8 @@ from agentkit import host, orch
 
 FILE_MEM_MB = 230   # reservation floor: the measured peak was 229 MB with children;
                     # bigger hosts fit more files, busier or smaller hosts fit fewer
+CPU_PRESSURE_MAX = 20  # stall ceiling: background scheduling makes PSI positive even with
+                       # idle cores; bigger hosts can still fill memory, busier ones wait
 POLL = 0.1          # ceiling on polling waits: contention pauses starts at the next sample,
                     # while an idle host keeps admitting files even beyond its core count
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
@@ -135,13 +137,13 @@ def pool_limit(readings):
     """A live memory bound, with no new starts while CPU is contended.
 
     Reserve each active file's whole peak, even before its children allocate.
-    One is the progress floor on a small or unreadable host; pressure overrides
+    One is the progress floor on a small or unreadable host; high pressure overrides
     it, and absent pressure readings keep an otherwise larger pool serial.
     """
     pressure = host._reading(readings, "cpu_pressure", "slice_cpu_pressure")
     quota = host._reading(readings, "slice_cpu_quota")
     used = host._reading(readings, "slice_cpu_used")
-    if ((pressure is not None and pressure > 0)
+    if ((pressure is not None and pressure > CPU_PRESSURE_MAX)
             or (quota is not None and used is not None and used >= quota)):
         return 0
     room = []
