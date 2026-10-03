@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, run, scoreboard, terminal
+from agentkit import gate, config, history, run, scoreboard, terminal
 
 NOW = 1_800_000_000
 WEEK = 7 * 86400
@@ -38,7 +38,7 @@ class Scoreboard(unittest.TestCase):
         self.stack.enter_context(patch.object(config, "HOME", self.root / ".agentkit"))
         self.stack.enter_context(patch.object(config, "RUNS", config.HOME / "runs"))
         self.stack.enter_context(patch.object(config, "REPO", self.repo))
-        self.stack.enter_context(patch.object(run, "host_status_line", return_value="host fixture"))
+        self.stack.enter_context(patch.object(gate, "host_status_line", return_value="host fixture"))
         self.stack.enter_context(patch.object(config, "load", return_value={"models": {}, "providers": {}}))
         self.stack.enter_context(patch.object(scoreboard.time, "time", return_value=NOW))
         self.git("init", "-q", "-b", "main")
