@@ -23,10 +23,10 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, land, run
+from agentkit import config, gate, gc, host, land, run, worker
 from agentkit import record
 
-SUITE = "test -f work.txt && test ! -f broken.txt"
+SUITE = 'test -f work.txt && { test "${AK_SHARD:-all}" = 1/2 || test ! -f broken.txt; }'
 
 
 class LandTogether(unittest.TestCase):
@@ -55,6 +55,15 @@ class LandTogether(unittest.TestCase):
         self.base = self.git("rev-parse", "HEAD")
         self.git("update-ref", "refs/remotes/origin/main", self.base)
         self.checks, self.lines, self.places = [], [], []
+        self.pieces = []
+        self.real_gate, limited = gate.run_done_when, worker.limited
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
+            "cpus": 4, "load": 0, "free_mb": 820}))
+        def command(cmd, limit, **kw):
+            if cmd == ["bash", "-c", SUITE]:
+                self.pieces.append((kw["env"].get("AK_SHARD"), Path(kw["cwd"])))
+            return limited(cmd, limit, **kw)
+        self.stack.enter_context(patch.object(worker, "limited", side_effect=command))
         self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
         self.stack.enter_context(patch("os.kill", return_value=None))
         self.addCleanup(lambda: hasattr(run._MERGE_HELD, "hold") and delattr(run._MERGE_HELD,
@@ -70,13 +79,8 @@ class LandTogether(unittest.TestCase):
 
     def check(self, cmds, cwd, log_path, *args, **_kw):
         self.checks.append((list(cmds), Path(cwd)))
-        results = [subprocess.run(["bash", "-c", cmd], cwd=cwd, capture_output=True)
-                   for cmd in cmds]
-        ok = all(result.returncode == 0 for result in results)
-        text = "$ " + "\n$ ".join(cmds) + f"\n[exit {0 if ok else 1}]\n"
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(log_path).write_text(text)
-        return ok, text
+        return self.real_gate(cmds, cwd, log_path, *args, **_kw)
 
     def branch(self, name, files):
         """A branch from the base with these files, checked out back on the leader after."""
@@ -162,6 +166,7 @@ class LandTogether(unittest.TestCase):
         suites = [cwd for cmds, cwd in self.checks if SUITE in cmds]
         self.assertEqual(len(suites), 1)                       # one suite run, not on its own
         self.assertNotEqual(suites[0], self.repo)
+        self.assertCountEqual(self.pieces, [("1/2", suites[0]), ("2/2", suites[0])])
         self.assertIn("--- merge: landing together: 2 runs on origin/main: leader, member",
                       self.lines)
         self.assertIn("--- merge: clash does not stack on the batch; it lands on its own turn",

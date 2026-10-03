@@ -12,9 +12,9 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import gate as check_gate, config, gc, run, worker
+from agentkit import gate as check_gate, config, gc, host, run, worker
 
-SUITE = "test -f AGENTS.md"
+SUITE = 'test -f AGENTS.md && printf "piece %s\\n" "${AK_SHARD:-all}"'
 
 
 class RepoSuite(unittest.TestCase):
@@ -41,6 +41,15 @@ class RepoSuite(unittest.TestCase):
         self.opts = {"--rounds": None, "--exec": None, "--review": None,
                      "--no-worktree": False, "--no-merge": False}
         self.logs, self.gates = [], []
+        self.pieces = []
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
+            "cpus": 4, "load": 0, "free_mb": 820}))
+        limited = worker.limited
+        def command(cmd, limit, **kw):
+            if cmd == ["bash", "-c", SUITE]:
+                self.pieces.append(kw["env"].get("AK_SHARD"))
+            return limited(cmd, limit, **kw)
+        self.stack.enter_context(patch.object(worker, "limited", side_effect=command))
         for module, name, value in ((gc, "disk_pressure", False), (run, "launch_session", None),
                                     (run, "collect_usage", {}), (run, "pick_models", ("opus", "astra"))):
             self.stack.enter_context(patch.object(module, name, return_value=value))
@@ -104,6 +113,7 @@ class RepoSuite(unittest.TestCase):
         self.assertTrue(all(SUITE not in cmds for cmds in self.rounds()), self.gates)
         self.assertNotIn("once.log", [name for name, _ in self.gates])
         self.assertEqual(self.finals(), [["true"], [SUITE]], self.gates)
+        self.assertCountEqual(self.pieces, ["1/2", "2/2"])
         self.assertEqual(state["final_check"]["outcome"], "passed")
         self.assertEqual(state["final_check"]["where"], "landing")
 

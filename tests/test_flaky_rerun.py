@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, run
+from agentkit import gate, config, host, run
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # the main checkout as the record names it; never opened
@@ -186,6 +186,22 @@ class FlakyRerun(unittest.TestCase):
         self.assertEqual(text, f"$ {cmd}\n[exit 0]\nfine")
         self.assertEqual(logs, [])
         self.assertFalse(self.followups.exists())
+
+    def test_only_the_red_piece_runs_again_and_keeps_its_own_evidence(self):
+        q = shlex.quote
+        cmd = (f'echo "$AK_SHARD" >> {q(str(self.runs))}; '
+               f'if test "$AK_SHARD" = 2/2 && test ! -f {q(str(self.root / "seen"))}; '
+               f'then touch {q(str(self.root / "seen"))}; echo "FAIL: under load"; exit 1; '
+               'else echo passed; fi')
+        with patch.object(host, "host_readings", return_value={
+                "cpus": 4, "load": 0, "free_mb": 820}):
+            ok, text, logs = self.gate([cmd])
+        self.assertTrue(ok, text)
+        self.assertCountEqual(self.runs.read_text().splitlines(), ["1/2", "2/2", "2/2"])
+        saved, excerpt = self.evidence(text, f"{cmd} (AK_SHARD=2/2)")
+        self.assertEqual(saved.read_text(), "FAIL: under load\n")
+        self.assertEqual(excerpt, "FAIL: under load")
+        self.assertEqual(run.done_when_counts(text, [cmd]), (1, 1))
 
     def test_a_stop_during_the_rerun_ends_the_gate_as_a_stop_mid_list_does(self):
         # the re-run marks the record stopped, as `ak run stop` does, and is killed by it

@@ -5256,17 +5256,18 @@ def target_fails(lp, upstream, dw_log):
             if rc != 0:
                 return None
             lp.log(f"--- merge: `{cmd}` failed; probing it once on {where} ({sha[:12]})")
-            with gate.gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
+            with gate.gate_turn(lp.run_dir, probe_log, lp.log, cmd, lp.wt) if heavy_probe else nullcontext():
                 began = time.monotonic()    # from the turn, not the wait
                 while True:
                     with probe_log.open("ab") as progress:
                         progress.write(f"$ {cmd} (on {where} {sha})\n".encode())
                         progress.flush()
                         start = progress.tell()
-                        code, _, killed = worker.limited(
-                            ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
+                        code, _, killed = gate.run_suite(
+                            cmd, lp.done_when_limit, silence=lp.turn_limit,
                             activity=probe_log, output=progress, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=gate.suite_env())
+                            stdin=subprocess.DEVNULL, cwd=str(lp.wt), run_dir=lp.run_dir,
+                            log=lp.log, heavy=heavy_probe)
                     # busy is no answer: the turn goes back until the suite runs
                     if (not heavy_probe or code != gate.SUITE_BUSY or killed
                             or time.monotonic() - began > lp.done_when_limit):
