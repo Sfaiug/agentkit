@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import struct
 import subprocess
 import sys
@@ -222,6 +223,40 @@ class Menu:
 
 
 class EscBack(unittest.TestCase):
+    def test_esc_still_goes_back_after_the_menu_is_descheduled(self):
+        menu_ = Menu(self)
+        menu_.screen()
+        menu_.press(b"c", title("config · alpha"))
+        model = lambda lines: any("model id" in line for line in lines)
+        menu_.press(LEFT + ENTER, model)
+        send = menu_.send
+
+        def queued(keys):
+            if keys != ESC:
+                return send(keys)
+            # Only this test's child stops: a busy host may leave Esc queued just as long.
+            menu_.proc.send_signal(signal.SIGSTOP)
+            _, status = os.waitpid(menu_.proc.pid, os.WUNTRACED)
+            self.assertTrue(os.WIFSTOPPED(status))
+            try:
+                send(keys)
+                time.sleep(ESC_WAIT * 2)
+            finally:
+                menu_.proc.send_signal(signal.SIGCONT)
+
+        with patch.object(menu_, "send", side_effect=queued):
+            menu_.back("config_model", model)
+        menu_.leave()
+
+    def test_esc_decoder_waits_less_than_100_ms_for_another_byte(self):
+        with patch.object(terminal, "_KEYED", ESC), \
+                patch.object(terminal.select, "select", return_value=([], [], [])) as wait:
+            self.assertEqual(terminal._key(42), terminal.Key("esc"))
+        self.assertEqual(wait.call_count, 1)
+        self.assertEqual(wait.call_args.args[:3], ([42], [], []))
+        self.assertGreater(wait.call_args.args[3], 0)
+        self.assertLess(wait.call_args.args[3], ESC_WAIT)
+
     def test_every_screen_under_the_menu_goes_back_on_esc_and_never_on_q(self):
         menu_ = Menu(self)
         menu_.highlight("alpha")
