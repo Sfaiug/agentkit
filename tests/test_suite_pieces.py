@@ -5,6 +5,7 @@ Offline: temporary HOME, injected host/cgroup readings and short fixture command
 
 from collections import Counter
 from contextlib import ExitStack
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -64,6 +65,56 @@ class SuitePieces(unittest.TestCase):
         self.assertEqual(run.done_when_counts(text, [SUITE]), (1, 1))
         self.assertEqual((self.run_dir / "gate.log").read_text(), text)
         self.assertEqual(list(self.run_dir.glob("*-piece-*.log")), [])
+
+    def test_live_output_keeps_whole_lines_under_their_piece(self):
+        live, calls = BytesIO(), Counter()
+        barrier = threading.Barrier(2, timeout=3)
+        raw = {shard: ("." * (3 * int(shard[0])) +
+                      f"\nFAIL: broken {shard}\ndetail {shard}\ntail {shard}").encode()
+               for shard in ("1/2", "2/2")}
+
+        def limited(cmd, limit, env, output, activity, **_kw):
+            shard = env["AK_SHARD"]
+            calls[shard] += 1
+            for _ in range(3 * int(shard[0])):
+                output.write(b".")
+                output.flush()
+            self.assertEqual(Path(activity).read_bytes(), raw[shard].split(b"\n")[0])
+            if calls[shard] == 1:
+                barrier.wait()
+                self.assertEqual(live.getvalue(), b"")
+                barrier.wait()
+            output.write(f"\nFAIL: broken {shard}\n".encode())
+            output.write(f"detail {shard}\n".encode())
+            output.write(f"tail {shard}".encode())
+            output.flush()
+            self.assertEqual(Path(activity).read_bytes(), raw[shard])
+            return 1, "", False
+
+        with patch.object(worker, "limited", side_effect=limited):
+            code, text, killed = gate.run_suite(
+                SUITE, 10, cwd=self.root, activity=self.run_dir / "live.log",
+                output=live, run_dir=self.run_dir)
+        self.assertEqual((code, killed), (1, False))
+        self.assertEqual(calls, {"1/2": 2, "2/2": 2})
+        self.assertEqual(text, "\n\n".join(
+            f"--- AK_SHARD={shard} ---\n[exit 1]\n{data.decode()}"
+            for shard, data in raw.items()))
+        closing = ("\n" + text + "\n").encode()
+        self.assertTrue(live.getvalue().endswith(closing))
+        progress = live.getvalue()[:-len(closing)]
+        self.assertTrue(progress.endswith(b"\n"))
+        headers = {f"--- AK_SHARD={shard} ---": shard for shard in raw}
+        current, seen = None, Counter()
+        for line in progress.decode().splitlines():
+            if line in headers:
+                self.assertNotEqual(current, headers[line])
+                current = headers[line]
+            else:
+                self.assertNotIn("--- AK_SHARD=", line)
+                seen[current, line] += 1
+        self.assertEqual(seen, Counter({(shard, line): 2 for shard, data in raw.items()
+                                        for line in data.decode().splitlines()}))
 
     def test_a_line_without_the_name_runs_once_without_an_inherited_shard(self):
         calls = []
