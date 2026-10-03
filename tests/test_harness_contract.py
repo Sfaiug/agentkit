@@ -84,6 +84,41 @@ esac
         self.assertIn("PASS  3 acme:", second.stdout)
         self.assertIn("PASS  3 echo:", second.stdout)
 
+    def standalone(self, *args):
+        return subprocess.run([sys.executable, str(REPO / "tests/check_harness_contract.py"),
+                               *args], cwd=self.root, env=self.env, text=True,
+                              capture_output=True, timeout=30)
+
+    def test_standalone_checks_all_or_one(self):
+        self.adapter("echo")
+        self.adapter("acme")
+        all_harnesses = self.standalone()
+        self.assertEqual(all_harnesses.returncode, 0, all_harnesses.stdout + all_harnesses.stderr)
+        self.assertIn("2 passed, 0 failed, 0 skipped", all_harnesses.stdout)
+        one = self.standalone("echo")
+        self.assertEqual(one.returncode, 0, one.stdout + one.stderr)
+        self.assertIn("PASS  3 echo:", one.stdout)
+        self.assertNotIn("acme", one.stdout)
+
+    def test_no_harness_installed_fails(self):
+        result = self.standalone()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("no harness here is installed with its login", result.stdout)
+
+    def test_a_turn_without_a_session_id_fails(self):
+        fixture = (REPO / "tests/fixtures/adapters/echo.sh").read_text()
+        self.adapter("echo", fixture.replace("printf 'echo:%s\\n' \"$filename\"", ":"))
+        result = self.standalone()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("no session_id", result.stdout)
+
+    def test_a_session_that_forgets_the_file_fails(self):
+        fixture = (REPO / "tests/fixtures/adapters/echo.sh").read_text()
+        self.adapter("echo", fixture.replace('"${7#echo:}"', '"forgot"'))
+        result = self.standalone()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FAIL  3 echo: resume", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

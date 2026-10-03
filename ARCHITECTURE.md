@@ -100,7 +100,7 @@
   answers `run`, `interactive`, `usage`, `install`, `login`, `auth`, `hooks`, `models`
   (codex adds `reset`); `$AGENTKIT_ACCOUNT` picks the login.
 - `adapters/<h>.toml` is the manifest: update, usage, conversation, titles, launch, hooks,
-  screen rules, stall/quota/auth/resume words, compact, effort, catalog.
+  screen rules, stall/quota/auth/resume words, compact, effort, catalog, contract-check model/effort.
 - `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
   resume, launch, titles, usage, tokens, `tmp_rule`. `user_messages`: timed owner input
   without notices or ak typing; `failure`: turn/seat failures in whole `[stall]` words.
@@ -118,6 +118,8 @@
   live output; live `live.sh`; `every_file.py`: imports/cases,
   live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`,
   `landing.py` lands a crafted run through its line and lander verdict.
+  `check_harness_contract.py`: standalone live contract check, also smoke's check 3;
+  discovers adapter manifests and shares login/quota checks with smoke's later live calls.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat
   rulebook), `templates/`, `browser/`, `docs/`.
 

@@ -7,7 +7,6 @@ never run, and `ak usage` answers nothing.  No model is called.
 
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
@@ -27,15 +26,10 @@ def between(start, end):
 CHECK = ('. "$REPO/tests/acceptance.sh"\nak() { return 1; }\n'
          + between("model_unavailable()", "reprobe()")
          + between("newrepo()", 'echo "workdir:') + between("# --- 3:", "# --- 4:") + "finish\n")
-BINARIES = {"claude": "claude", "codex": "codex", "muse": "muse", "grokbuild": "grok",
-            "antigravity": "agy", "opencode": "opencode"}
-# the harnesses beside Claude, Codex and Muse, and the smallest turns check 3 makes on them:
-# (model, harness, model id, effort)
-REST = ("grokbuild", "antigravity", "opencode")
-LOGGED_IN = {harness: "0 fixture: logged in" for harness in REST}
-SMALLEST = re.findall(r'"(\w+) (\w+) (\S+) (\w+)"', between("HARNESSES=(", "ABSENT=0"))
-# the word check 3 asks those turns to reply with
-WORD = "PONG"
+MANIFESTS = {p.stem: tomllib.loads(p.read_text()) for p in (REPO / "adapters").glob("*.toml")}
+BINARIES = {h: m["update"]["version"][0] for h, m in MANIFESTS.items()}
+LOGGED_IN = {h: "0 fixture: logged in" for h in MANIFESTS}
+WORD = "DONE"
 
 
 def text(part):
@@ -50,10 +44,22 @@ case $1 in
   auth) read -r rc line <"$S.auth"; echo "$line"; exit "$rc" ;;
   run) [ -z "${AGENTKIT_ACCOUNT:-}" ] || { echo "fixture: account $AGENTKIT_ACCOUNT refused" >&2; exit 2; }
        printf '%s\\n' "${*:2:2}" >>"$S.runs"; cat "$5" >>"$S.prompts"; mkdir -p "$6"
-       read -r rc answer <"$S.turn"; printf '%b' "$answer" >"$6/final.md"
+       read -r rc answer <"$S.turn"
        cat "$S.said" >"$6/stderr.log" 2>/dev/null
        cat "$S.events" >"$6/events.jsonl" 2>/dev/null
-       echo fixture-session >"$6/session_id"; exit "$rc" ;;
+       if [ -n "${7:-}" ]; then
+         printf '%s\\n' "${7#fixture:}" >"$6/final.md"
+         printf '%s\\n' "$7" >"$6/session_id"
+       else
+         printf '%b' "$answer" >"$6/final.md"
+         sed -n 's/^Run: //p' "$5" >"$6/commands.sh"
+         if [ "$rc" = 0 ] && ! grep -q '"type":"error"' "$6/events.jsonl"; then
+           (cd "$4" && bash "$6/commands.sh") || exit $?
+         fi
+         filename=$(sed -n 's/.* > //p' "$6/commands.sh")
+         printf 'fixture:%s\\n' "$filename" >"$6/session_id"
+       fi
+       exit "$rc" ;;
 esac
 exit 97
 '''
@@ -73,6 +79,7 @@ class EveryHarness(unittest.TestCase):
         for tool in ("bash", "git", "mkdir", "cat", "grep", "head", "tail", "sed"):
             (self.bin / tool).symlink_to(shutil.which(tool))
         for harness in BINARIES:
+            shutil.copy2(REPO / "adapters" / f"{harness}.toml", self.adapters)
             (self.adapters / f"{harness}.sh").write_text(ADAPTER)
             (self.adapters / f"{harness}.sh").chmod(0o755)
 
@@ -105,38 +112,27 @@ class EveryHarness(unittest.TestCase):
         runs = self.fixture / f"{harness}.runs"
         return runs.read_text().splitlines() if runs.exists() else []
 
-    def test_every_harness_with_a_login_makes_its_smallest_turn(self):
+    def test_every_harness_with_a_login_makes_the_same_two_turns(self):
         result = self.gate(LOGGED_IN)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual({h: len(self.turns(h)) for h in REST}, dict.fromkeys(REST, 1),
-                         result.stdout)
-        self.assertEqual([h for _, h, _, _ in SMALLEST], list(REST))
-        for model, harness, model_id, effort in SMALLEST:
+        for harness, manifest in MANIFESTS.items():
             with self.subTest(harness=harness):
-                self.assertIn(f"PASS  3c {model} ({harness}): {model_id} at {effort} "
-                              f"replied {WORD}", result.stdout)
-                self.assertEqual(self.turns(harness), [f"{model_id} {effort}"])
+                model, effort = (manifest["check"][k] for k in ("model", "effort"))
+                self.assertIn(f"PASS  3 {harness}: wrote the file, handed in done", result.stdout)
+                self.assertEqual(self.turns(harness), [f"{model} {effort}"] * 2)
                 prompt = (self.fixture / f"{harness}.prompts").read_text()
-                self.assertRegex(prompt, rf"\b{WORD}\b")
-                # a model the harness runs, at the lowest effort it offers that model
-                catalog = tomllib.loads((REPO / f"adapters/{harness}.toml").read_text())["catalog"]
-                self.assertEqual(catalog[model_id]["efforts"][0], effort)
-        for model, harness in (("opus", "claude"), ("astra", "codex"), ("spark", "muse")):
-            self.assertIn(f"NOT CHECKED  3a/3b {model} ({harness}): {harness} is not installed",
-                          result.stdout)
-        self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
+                self.assertIn("hand-in done", prompt)
+                self.assertIn("What file did you just create?", prompt)
+                self.assertNotIn("You are the executor", prompt)
+        self.assertIn(f"{len(MANIFESTS)} passed, 0 failed, 0 skipped", result.stdout)
 
-    def test_a_turn_that_fails_fails_the_gate(self):
-        # an error with the word, a success with nothing, a blank line or text without the
-        # word, and an error with nothing
-        for harness in REST:
-            for turn in (f"1 {WORD}", "0 ", "0 \\n", "0 Hello", "1 "):
+    def test_a_failed_or_empty_turn_fails_the_gate(self):
+        for harness in MANIFESTS:
+            for turn in (f"1 {WORD}", "0 ", "0 \\n", "1 "):
                 with self.subTest(harness=harness, turn=turn):
                     result = self.gate(LOGGED_IN, {harness: turn})
                     self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                    self.assertRegex(result.stdout,
-                                     rf"FAIL  3c \w+ \({harness}\): .* did not reply {WORD}")
-                    self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
+                    self.assertIn(f"FAIL  3 {harness}:", result.stdout)
 
     def test_an_opencode_turn_cut_short_fails_the_gate(self):
         # OpenCode exits 0 on a turn its provider ended: no text or partial text, an error
@@ -148,9 +144,8 @@ class EveryHarness(unittest.TestCase):
                                    said={"opencode": "503 Service Unavailable\n"},
                                    events={"opencode": (text(partial) if partial else "") + error})
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertIn("FAIL  3c mimo (opencode): mimo/mimo-v2.6-flash at none did not "
-                              f"reply {WORD}: final.md = {partial}\n", result.stdout)
-                self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
+                self.assertIn("FAIL  3 opencode:", result.stdout)
+                self.assertIn(f"{len(MANIFESTS) - 1} passed, 1 failed, 0 skipped", result.stdout)
 
     def test_an_opencode_answer_in_parts_after_a_warning_passes_the_gate(self):
         # A stream error the turn recovered from, then one message in two text parts, which
@@ -162,15 +157,15 @@ class EveryHarness(unittest.TestCase):
         result = self.gate(LOGGED_IN, {"opencode": f"0 {WORD}\\nHow can I help?\\n"},
                            events={"opencode": events})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(f"PASS  3c mimo (opencode): mimo/mimo-v2.6-flash at none replied {WORD}",
+        self.assertIn("PASS  3 opencode:",
                       result.stdout)
-        self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
+        self.assertIn(f"{len(MANIFESTS)} passed, 0 failed, 0 skipped", result.stdout)
 
     def test_a_named_account_in_the_callers_environment_never_reaches_a_turn(self):
         # The turn runs on the login worker.auth_ok asked about, which no named account turns.
         result = self.gate(LOGGED_IN, env={"AGENTKIT_ACCOUNT": "acme"})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
+        self.assertIn(f"{len(MANIFESTS)} passed, 0 failed, 0 skipped", result.stdout)
 
     def test_a_harness_with_no_login_is_not_checked_never_passed(self):
         token = self.home / ".gemini/antigravity-cli/antigravity-oauth-token"
@@ -187,12 +182,12 @@ class EveryHarness(unittest.TestCase):
             "claude": f"1 claude: no OAuth credentials in {creds} and no "
                       "CLAUDE_CODE_OAUTH_TOKEN; run `claude login`"})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("PASS  3c grok (grokbuild)", result.stdout)
-        for line in (f"3c gemini (antigravity): agy: no {token}",
-                     f"3c mimo (opencode): opencode: no provider key in {settings}",
-                     f"3a/3b opus (claude): claude: no OAuth credentials in {creds}",
-                     "3a/3b astra (codex): codex is not installed",
-                     "3a/3b spark (muse): muse is not installed"):
+        self.assertIn("PASS  3 grokbuild:", result.stdout)
+        for line in (f"3 antigravity: agy: no {token}",
+                     f"3 opencode: opencode: no provider key in {settings}",
+                     f"3 claude: claude: no OAuth credentials in {creds}",
+                     "3 codex: codex is not installed",
+                     "3 muse: muse is not installed"):
             self.assertIn("NOT CHECKED  " + line, result.stdout)
         self.assertEqual(self.turns("antigravity") + self.turns("opencode"), [])
         # neither a pass nor a skip counted as one
@@ -214,8 +209,8 @@ class EveryHarness(unittest.TestCase):
                 result = self.gate({**LOGGED_IN, "opencode": f"1 opencode: no provider key in "
                                     f"{settings} and none saved; run `opencode auth login`"})
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertIn("FAIL  3c: required model mimo login check failed", result.stdout)
-                self.assertNotIn("NOT CHECKED  3c mimo", result.stdout)
+                self.assertIn("FAIL  3 opencode:", result.stdout)
+                self.assertNotIn("NOT CHECKED  3 opencode:", result.stdout)
                 self.assertEqual(self.turns("opencode"), [])
 
 

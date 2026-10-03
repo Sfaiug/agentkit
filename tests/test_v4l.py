@@ -638,7 +638,7 @@ esac
 
     def test_smoke_skips_spent_dependencies_before_github_and_mcp_calls(self):
         source = (REPO / "tests/smoke.sh").read_text()
-        helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\nprintf 'Create", 1)[0]
+        helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\n# The shared contract check", 1)[0]
         helpers = f'. "{REPO}/tests/acceptance.sh"\n' + helpers
         run_block = source[source.index("# --- 4:"):source.index("# --- 5:")]
         mcp_block = source[source.index("# 31d/31e:"):source.index("\nfi\n\n# --- 32:")]
@@ -817,7 +817,7 @@ esac
 
     def test_smoke_exhaustion_is_scoped_to_the_tested_model(self):
         source = (REPO / "tests/smoke.sh").read_text()
-        function = source.split("spent_until()", 1)[1].split("\nprintf 'Create", 1)[0]
+        function = source.split("spent_until()", 1)[1].split("\n# The shared contract check", 1)[0]
         script = "spent_until()" + function + '\nspent_until "$1"\n'
         with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             work = Path(directory)
@@ -849,7 +849,7 @@ esac
 
     def test_smoke_host_cache_checks_the_login_the_sandbox_borrowed(self):
         source = (REPO / "tests/smoke.sh").read_text()
-        helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\nprintf 'Create", 1)[0]
+        helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\n# The shared contract check", 1)[0]
         script = ('set -uo pipefail\n. "$REPO/tests/acceptance.sh"\n' + helpers +
                   '\nskip_unavailable() { return 1; }\n'
                   'if skip_spent 3a/3b/31d opus; then :; else echo ATTEMPT; fi\nfinish\n')

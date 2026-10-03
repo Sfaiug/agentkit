@@ -12,10 +12,23 @@ case "${1:-}" in
   run)   # run <model> <effort> <workspace> <prompt-file> <out-dir> [<session-id>]
     out=$6
     mkdir -p -- "$out"
-    # the last line the prompt asked for, echoed back: this harness does exactly that
-    grep -v '^[[:space:]]*$' -- "$5" | tail -1 >"$out/final.md" || : >"$out/final.md"
+    # Scripted prompts exercise real shell access and hand-in, with the filename held in
+    # the fixture's conversation id so a resumed turn needs no file left in the workspace.
+    if [ -n "${7:-}" ]; then
+      printf '%s\n' "${7#echo:}" >"$out/final.md"
+      printf '%s\n' "$7" >"$out/session_id"
+    else
+      sed -n 's/^Run: //p' -- "$5" >"$out/commands.sh"
+      if [ -s "$out/commands.sh" ]; then
+        (cd -- "$4" && bash "$out/commands.sh") || exit $?
+        filename=$(sed -n 's/.* > //p' -- "$out/commands.sh")
+        printf 'echo:%s\n' "$filename" >"$out/session_id"
+      else
+        : >"$out/session_id"
+      fi
+      grep -v '^[[:space:]]*$' -- "$5" | tail -1 >"$out/final.md" || : >"$out/final.md"
+    fi
     printf 'echo fixture: %s on %s\n' "$2" "$3" >"$out/stderr.log"
-    : >"$out/session_id"           # nothing to resume: it keeps no conversation
     exit 0
     ;;
   interactive)   # interactive <model> <effort> [<session-id> [new]]

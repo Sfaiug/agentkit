@@ -5,6 +5,10 @@
 # A worker turn still loads GEMINI.md, AGENTS.md and rules/ of the workspace and of agy's global root: agy 1.2.13 has no switch for them.
 version = 1
 
+[check]
+model = "gemini-3.8-flash"
+effort = "low"
+
 # How `ak update` moves this harness: `agy update` takes the latest release and no version,
 # so nothing puts an older build back.  `latest` is the manifest `agy update` and Google's
 # installer read, for this platform named the way that installer names it.
