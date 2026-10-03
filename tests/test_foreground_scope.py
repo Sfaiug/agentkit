@@ -278,7 +278,7 @@ class ForegroundScope(Sandbox):
         self.assertEqual(self.niced, [])
         self.assertEqual(self.scope_lines(seen["log"]), [])
 
-    def test_stopping_its_own_scope_on_the_way_out_keeps_the_exit_status(self):
+    def test_stopping_its_own_scope_keeps_its_exit_status_and_new_children_terminable(self):
         # The run's ending stops its scope with this process inside it.  The fake `systemctl`
         # sends the SIGTERM the manager would, and the process still exits with its own code.
         self.own.write_text(f"0::{USER}/agentkit-test-runs.slice/agentkit-run-acme.scope\n")
@@ -291,7 +291,7 @@ class ForegroundScope(Sandbox):
             f"open({str(sent)!r}, 'w').write(' '.join(sys.argv[1:]))\n")
         (stopper / "systemctl").chmod(0o755)
         ending = (
-            "import sys, time\nfrom pathlib import Path\n"
+            "import subprocess, sys, time\nfrom pathlib import Path\n"
             f"sys.path.insert(0, {str(REPO)!r})\n"
             "from agentkit import host, orch\n"
             f"host.OWN_CGROUP = Path({str(self.own)!r})\n"
@@ -301,6 +301,10 @@ class ForegroundScope(Sandbox):
             f"while not Path({str(sent)!r}).exists() and time.monotonic() < deadline:\n"
             "    time.sleep(0.01)\n"
             "time.sleep(0.2)\n"
+            "child = subprocess.run([sys.executable, '-c', "
+            "'import signal, sys; sys.exit(signal.getsignal(signal.SIGTERM) != signal.SIG_DFL)'], "
+            "timeout=30)\n"
+            "if child.returncode: sys.exit(1)\n"
             "sys.exit(3)\n")
         child = subprocess.run(
             [sys.executable, "-c", ending], capture_output=True, text=True, timeout=60,

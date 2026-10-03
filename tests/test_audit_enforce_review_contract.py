@@ -328,6 +328,8 @@ sys.exit(row["code"])
         with self.assertRaisesRegex(run.Exhausted, "successful reviewer"):
             landing(lp)
         with self.assertRaisesRegex(run.Exhausted, "successful reviewer"):
+            run.join_line(lp, "origin/main", lambda: None)
+        with self.assertRaisesRegex(run.Exhausted, "successful reviewer"):
             run.do_merge(lp, state["pr"], "origin/main")
 
     def test_repository_run_cannot_reach_merge_without_successful_review(self):

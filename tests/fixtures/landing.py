@@ -2,18 +2,20 @@
 
 from unittest.mock import patch
 
-from agentkit import land, record, run, watch
+from agentkit import config, land, record, run, watch
 
 
-def landing(lp, deliver=None, *, checked=lambda: None, consume=None, join=run.join_line):
+def landing(lp, deliver=None, *, checked=lambda: None, consume=None):
     """Join, run one lander pass and consume its verdict; a changed target stays queued."""
-    if not (lp.state.get("waiting_on") or {}).get("line"):
-        run.require_review_pass(lp)
-    upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
     (lp.run_dir / "task.md").write_text(
         f"# {lp.state['title']}\n\n## Done when\n```bash\n" + "\n".join(lp.cmds) + "\n```\n")
     with patch.object(land, "start_line"), patch.object(watch, "launch_resume"):
-        act = (lambda: join(lp, upstream, deliver)) if deliver else lambda: run.merge(lp)
+        def act():
+            if deliver is None:
+                return run.merge(lp)
+            upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+            return run.join_line(lp, upstream, deliver)
+
         if not (lp.state.get("waiting_on") or {}).get("line"):
             act()
         else:
@@ -21,7 +23,7 @@ def landing(lp, deliver=None, *, checked=lambda: None, consume=None, join=run.jo
             lp.write()
         if lp.state.get("state") != "waiting":
             return False
-        turn = run.turn_path(lp, upstream)
+        turn = config.RUNS / lp.state["waiting_on"]["line"]
         # Limit checker fakes to the pass: delivery may wait while a job builds its dependant.
         active = record.process_active
         with patch.object(record, "run_dirs", return_value=[lp.run_dir]), \

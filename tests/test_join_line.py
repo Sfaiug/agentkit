@@ -126,6 +126,76 @@ class JoinLine(Sandbox):
     def test_merge_retry_without_pr_joins(self):
         self.retry()
 
+    def test_fork_target_waits_keep_their_recovery_timestamp_in_loop_and_merge_retry(self):
+        self.rights.return_value = ("acme/widget", "READ")
+        self.lp.state.update(state="pass", merge_failed=True, pr="https://github.com/acme/widget/pull/7",
+                             launched_session="acme")
+        self.lp.write()
+        config.session_path("acme").write_text("{}")
+        before = copy.deepcopy(self.saved())
+        info = {"headRefOid": before["delivery_sha"], "baseRefName": "main", "state": "OPEN"}
+
+        def park(lp, upstream, verify, deliver):
+            return run.park_waiting(lp, "the target moved three times", upstream, "f" * 40)
+
+        for attempt in ("loop", "merge"):
+            with self.subTest(attempt=attempt):
+                record.save_state(self.directory, copy.deepcopy(before))
+                with patch.object(run, "land", side_effect=park), \
+                        patch.object(run, "pr_view", return_value=info), \
+                        patch.object(run, "collect_usage", return_value={}), \
+                        patch.object(run, "rounds"), patch.object(run, "join_session_project"), \
+                        patch.object(run, "finish", return_value=1):
+                    if attempt == "loop":
+                        run.loop(self.cfg, self.directory, self.directory / "task.md",
+                                 {"--exec": None, "--review": None}, self.lp.log,
+                                 prior=record.read_state(self.directory))
+                    else:
+                        self.assertEqual(run.cmd_merge([self.directory.name]), 1)
+                state = self.saved()
+                self.assertEqual(state["waiting_on"]["ref"], "origin/main")
+                self.assertTrue(run.tick_admission(state))
+                self.assertEqual(menu.run_state_word(state), "working")
+                with patch.object(run, "upstream_sha", return_value="a" * 40), \
+                        patch.object(run, "spawn_bg") as spawn:
+                    watch.resume_waiting(log=self.lp.log, run=self.directory)
+                spawn.assert_called_once()
+
+    def test_foreground_merge_retry_follows_a_fast_success_or_failure(self):
+        self.lp.state.update(state="pass", merge_failed=True, pr="https://github.com/acme/widget/pull/7")
+        self.lp.write()
+        before = copy.deepcopy(self.saved())
+        info = {"headRefOid": before["delivery_sha"], "baseRefName": "main", "state": "OPEN"}
+        for word, expected in (("pass", 0), ("error", 2)):
+            with self.subTest(state=word):
+                record.save_state(self.directory, copy.deepcopy(before))
+                log = self.directory / "log.txt"
+                log.write_text("Earlier attempt already shown\n")
+
+                def land_now(*_args):
+                    current = self.saved()
+                    if current.get("state") == "waiting" and current.get("pid") is None:
+                        with record.record(self.directory) as state:
+                            state.update(state=word, merged=word == "pass")
+                            state.pop("waiting_on")
+                        with log.open("a") as output:
+                            output.write(f"Delivery ending: {word}\n")
+
+                def view(_url):
+                    run.logger(self.directory, True)("Merge retry already shown")
+                    return info
+
+                with patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run", "merge",
+                                               self.directory.name]), \
+                        patch.object(run, "pr_view", side_effect=view), \
+                        patch.object(land, "start_line", side_effect=land_now), \
+                        redirect_stdout(io.StringIO()) as shown:
+                    self.assertEqual(run.cmd_merge([self.directory.name]), expected)
+                self.assertEqual(self.saved()["state"], word)
+                self.assertIn(f"Delivery ending: {word}\n", shown.getvalue())
+                self.assertNotIn("Earlier attempt already shown", shown.getvalue())
+                self.assertEqual(shown.getvalue().count("Merge retry already shown"), 1)
+
     def test_resume_without_a_verdict_keeps_its_place_and_pass(self):
         run.merge(self.lp)
         wait = copy.deepcopy(self.saved()["waiting_on"])
@@ -201,19 +271,33 @@ class JoinLine(Sandbox):
     def test_foreground_cli_starts_the_worker_then_follows_its_record(self):
         task = self.directory / "task.md"
         task.write_text(f"---\nrepo: {self.wt}\n---\n# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
+
+        def prepare(directory, _opts, log, _cfg, **_kw):
+            log("Preflight already shown")
+            record.save_state(directory, {**self.saved(), "run_id": directory.name, "pid": None})
+
+        def finish_now(directory, _args):
+            with record.record(directory) as state:
+                state.update(state="pass", merged=True)
+            with (directory / "log.txt").open("a") as log:
+                log.write("PASS, merged -> result.md\n")
+
         with patch.object(sys, "argv", [str(REPO / "bin" / "ak")]), \
                 patch.object(run, "already_under_way", return_value=[]), \
-                patch.object(run, "prepare"), patch.object(run, "spawn_bg") as spawn, \
-                patch.object(run, "follow_run", return_value=0) as follow, \
-                patch.object(run, "place_here", side_effect=AssertionError("parent scope")):
+                patch.object(run, "prepare", side_effect=prepare), \
+                patch.object(run, "spawn_bg", side_effect=finish_now) as spawn, \
+                patch.object(run, "place_here", side_effect=AssertionError("parent scope")), \
+                redirect_stdout(io.StringIO()) as shown:
             self.assertEqual(run.main([str(task)]), 0)
         spawn.assert_called_once()
-        follow.assert_called_once_with(spawn.call_args.args[0], self.cfg)
+        self.assertEqual(shown.getvalue().count("Preflight already shown"), 1)
+        self.assertEqual(shown.getvalue().count("PASS, merged -> result.md"), 1)
 
     def test_foreground_resume_starts_a_worker_and_follows_the_saved_place(self):
         run.merge(self.lp)
         run.release_line(self.directory, self.lp.log)
         before = self.saved()
+        offset = (self.directory / "log.txt").stat().st_size
         with patch.object(sys, "argv", [str(REPO / "bin" / "ak")]), \
                 patch.object(run, "spawn_bg") as spawn, \
                 patch.object(run, "follow_run", return_value=0) as follow, \
@@ -221,8 +305,28 @@ class JoinLine(Sandbox):
             self.assertEqual(run.resume_run([self.directory.name]), 0)
         spawn.assert_called_once_with(self.directory, ["resume", self.directory.name],
                                       expected=before)
-        follow.assert_called_once_with(self.directory, self.cfg)
+        follow.assert_called_once_with(self.directory, self.cfg, offset)
         self.assertEqual(self.saved()["waiting_on"], before["waiting_on"])
+
+    def test_foreground_resume_follows_only_new_lines_even_when_delivery_finishes_at_launch(self):
+        run.merge(self.lp)
+        run.release_line(self.directory, self.lp.log)
+        log = self.directory / "log.txt"
+        log.write_text("Earlier attempt already shown\n")
+
+        def finish_now(directory, _args, **_kw):
+            with record.record(directory) as state:
+                state.update(state="pass", merged=True)
+                state.pop("waiting_on")
+            with log.open("a") as output:
+                output.write("PASS, merged -> result.md\n")
+
+        with patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run", "resume",
+                                       self.directory.name]), \
+                patch.object(run, "spawn_bg", side_effect=finish_now), \
+                redirect_stdout(io.StringIO()) as shown:
+            self.assertEqual(run.resume_run([self.directory.name]), 0)
+        self.assertEqual(shown.getvalue(), "PASS, merged -> result.md\n")
 
     def test_detached_resumes_run_once_without_following_their_own_log(self):
         run.merge(self.lp)

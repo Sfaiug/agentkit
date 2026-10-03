@@ -6585,7 +6585,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     state.pop("error_retries", None)
     for key in ("waiting_for", "login_resume_at", "login_back_at"):
         state.pop(key, None)
-    state["finished_at"] = None if state.get("state") == "waiting" else time.time()
+    state["finished_at"] = (None if state.get("state") == "waiting"
+                            and (state.get("waiting_on") or {}).get("line") else time.time())
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
     settle_run(state, run_dir, log)
@@ -11028,6 +11029,13 @@ def log_is_stdout(run_dir):
         return False
 
 
+def foreground_cli(run_dir):
+    return (not getattr(jobs._JOB_MUTE, "depth", 0)
+            and threading.current_thread() is threading.main_thread()
+            and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()
+            and not log_is_stdout(run_dir))
+
+
 def logger(run_dir, to_file):
     to_file = to_file and not log_is_stdout(run_dir)
     def log(message):
@@ -11517,12 +11525,15 @@ def cmd_merge(argv):
         sampler.stop()
         sampler.join(timeout=2)
         history.close_step(run_dir.name, log=log)
-    state["finished_at"] = None if state.get("state") == "waiting" else time.time()
+    state["finished_at"] = (None if state.get("state") == "waiting"
+                            and (state.get("waiting_on") or {}).get("line") else time.time())
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
-        release_line(run_dir, log)
-        return 0
+        follow = foreground_cli(run_dir)
+        offset = (run_dir / "log.txt").stat().st_size if follow else 0
+        release_line(run_dir, note_in(run_dir / "log.txt") if follow else log)
+        return follow_run(run_dir, cfg, offset) if follow else 0
     result = finish(state, run_dir, log, cfg)
     stop_run_tree(state, log)
     return result
@@ -11782,12 +11793,10 @@ def resume_run(argv):
     if background:
         return spawn_bg(run_dir, ["resume", *requested], expected=expected)
     if (not child and not state.get("no_merge") and not state.get("scratch")
-            and not state.get("review_pr") and not getattr(jobs._JOB_MUTE, "depth", 0)
-            and threading.current_thread() is threading.main_thread()
-            and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()
-            and not log_is_stdout(run_dir)):
+            and not state.get("review_pr") and foreground_cli(run_dir)):
+        offset = (run_dir / "log.txt").stat().st_size
         spawn_bg(run_dir, ["resume", *requested], expected=expected)
-        return follow_run(run_dir, cfg)
+        return follow_run(run_dir, cfg, offset)
     with slot_lock(), run_record.recovery_lock(run_dir):
         if run_record.read_state(run_dir) != expected:
             raise config.Error("the run changed while choosing recovery; select it again")
@@ -11966,9 +11975,10 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
     return result
 
 
-def follow_run(run_dir, cfg):
+def follow_run(run_dir, cfg, offset=0):
     """A foreground terminal follows the record and log, outside the worker's scope."""
     with (run_dir / "log.txt").open() as output:
+        output.seek(offset)
         def show():
             print(output.read(), end="", flush=True)
 
@@ -12958,12 +12968,10 @@ def main(argv):
                                   self_review=same_model(cfg, executor, reviewer)))
             return rc
 
-    if (not resumed and not opts["--no-merge"]
-            and threading.current_thread() is threading.main_thread()
-            and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()
-            and not log_is_stdout(run_dir)):
+    if not resumed and not opts["--no-merge"] and foreground_cli(run_dir):
+        offset = (run_dir / "log.txt").stat().st_size
         spawn_bg(run_dir, argv)
-        return follow_run(run_dir, cfg)
+        return follow_run(run_dir, cfg, offset)
     log = logger(run_dir, not resumed)
     log(f"run {run_dir.name}: {task_path}")
     if not resumed:
