@@ -236,6 +236,35 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assertIn("rebase of origin/main failed", self.wait(clash)["fix"]["line"])
         self.assert_cleaned()
 
+    def test_a_third_member_conflicting_with_the_tip_wakes_on_the_first_pass(self):
+        base = self.base
+        self.advance(**{"base.txt": "target\n"})
+        self.base = run.git(self.repo, "rev-parse", "main")
+        # The first member hides the third's target conflict if only the stack is tried.
+        first = self.member("first", **{"base.txt": "branch\n", "first.txt": "first\n"})
+        second = self.member("second", joined=2, **{"second.txt": "second\n"})
+        self.base = base
+        third = self.member("third", joined=3, **{"base.txt": "branch\n", "third.txt": "third\n"})
+        original = record.read_state(third)
+        run.git(self.repo, "config", "rebase.updateRefs", "true")
+        land.check_line(self.turn)
+        self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
+                              [first.name, third.name])
+        self.assertIn("land", self.wait(first))
+        self.assertEqual(self.wait(second), {"line": self.turn.name, "joined": 2})
+        fix = self.wait(third)["fix"]
+        self.assertIn("rebase of origin/main failed", fix["line"])
+        self.assertIn("CONFLICT", Path(fix["log"]).read_text())
+        self.assertEqual(len(self.trees), 2)
+        self.assertTrue(any({"first.txt", "second.txt"} <= files for _, files in self.trees))
+        self.assertTrue(all("third.txt" not in files for _, files in self.trees))
+        current = record.read_state(third)
+        current["waiting_on"].pop("fix")
+        self.assertEqual(current, original)
+        self.assertEqual(run.git(self.repo, "rev-parse", original["branch"]),
+                         original["review"]["head_sha"])
+        self.assert_cleaned()
+
     def test_a_red_head_is_removed_before_checking_the_members_behind_it(self):
         head = self.member("head", **{"broken.txt": "x\n"})
         self.member("later", joined=2, **{"later.txt": "later\n"})
