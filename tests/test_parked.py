@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, gc, menu, orch, run, watch
+from agentkit import host, config, gc, land, menu, orch, run, watch
 from agentkit import record
 
 WEEK = 604800
@@ -51,6 +51,7 @@ class Parked(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.lander = self.stack.enter_context(patch.object(land, "start_line", return_value=True))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
@@ -685,6 +686,7 @@ class Parked(unittest.TestCase):
                 {"launched_session": None}, {"launched_session": "gone"},
                 {"finished_at": self.now - 86400}, {"finished_at": self.now - 86401})):
             with self.subTest(extra=extra):
+                self.logs.clear()
                 directory = self.receipt(f"20260923-1212-wait-{n}", state="waiting",
                                          error=CONFLICT_NOTE, merge_note=CONFLICT_NOTE,
                                          waiting_on={"ref": "origin/main", "sha": "0" * 40},
@@ -694,8 +696,8 @@ class Parked(unittest.TestCase):
                                   side_effect=AssertionError("history: never fetched")), \
                         patch.object(run, "spawn_bg",
                                      side_effect=AssertionError("history: never resumed")):
-                    watch.resume_waiting(dry_run=True, log=self.log, now=self.now)
-                    watch.resume_waiting(log=self.log, now=self.now)
+                    watch.resume_waiting(dry_run=True, log=self.log, now=self.now, run=directory)
+                    watch.resume_waiting(log=self.log, now=self.now, run=directory)
                 self.assertEqual((directory / "run.json").read_bytes(), before)
                 self.assertEqual(self.logs, [])
                 state = record.read_state(directory)
@@ -714,9 +716,16 @@ class Parked(unittest.TestCase):
                 self.assertTrue(run.going(state, now=self.now))
                 self.assertEqual(menu.run_state_word(state), "working")
                 self.assertIn("in line to land on main", run.parked_line(state, now=self.now))
+                before = (directory / "run.json").read_bytes()
+                self.lander.reset_mock()
                 with patch.object(run, "spawn_bg", side_effect=AssertionError("only the lander")):
-                    watch.resume_waiting(log=self.log, now=self.now)
-                self.assertEqual(self.logs, [])
+                    watch.resume_waiting(dry_run=True, log=self.log, now=self.now, run=directory)
+                    self.lander.assert_not_called()
+                    watch.resume_waiting(log=self.log, now=self.now, run=directory)
+                name = state["waiting_on"]["line"]
+                self.assertEqual(self.logs, [f"would start lander for {name}"])
+                self.lander.assert_called_once_with(config.RUNS / name, self.log)
+                self.assertEqual((directory / "run.json").read_bytes(), before)
 
     def test_parked_ineligible_merge_wait_does_not_override_the_seat_or_page(self):
         directory = self.receipt("20260923-1215-history", state="waiting",
