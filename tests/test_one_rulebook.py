@@ -340,7 +340,7 @@ class OneRulebook(unittest.TestCase):
         with patch.object(worker, "auth_ok", return_value=(None, "")):
             for harness in HARNESSES:
                 binary = self.binary(harness)
-                for role in ("executor", "reviewer"):
+                for role in worker.PREAMBLES:
                     out = self.home / f"out-{harness}-{role}"
                     code, _, _, _ = worker.call(cfg, f"probe-{harness}",
                                                 "Do the thing.", self.ws, out, role)

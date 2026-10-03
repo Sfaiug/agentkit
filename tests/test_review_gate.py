@@ -153,7 +153,8 @@ sys.exit(1)
                               "never a reason to fail",
                               "however long the follow-ups list is",
                               "for blocking findings only",
-                              "A `--run` proof must fail while the defect exists",
+                              "ak refuses malformed or evidence-free findings",
+                              "finding commands that exit 0",
                               "checkout of the commit and on the base",
                               "use only files on the branch"):
                     self.assertIn(words, text)
@@ -176,11 +177,11 @@ sys.exit(1)
         for role in ("reviewer", "reviewer-pr", "reviewer-scratch"):
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
-                self.assertIn("A blocking finding must include evidence: a command that fails, "
-                  "a reproduction, or quoted lines that show the defect.", text)
+                self.assertIn("[checked by ak: tests/test_hand_in.py] ak refuses malformed "
+                              "or evidence-free findings", text)
                 self.assertIn("ak supplies each dispute beside its finding with ak's proof output", text)
                 self.assertIn("Uphold a disputed finding by handing it in again with "
-                              "`ak hand-in finding`; it is weighed as any finding.", text)
+                              "`ak hand-in finding`.", text)
                 self.assertIn("Drop it by not handing it in again.", text)
 
     def test_every_fixer_may_dispute_with_evidence_and_must_fix_the_rest(self):
@@ -188,12 +189,13 @@ sys.exit(1)
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
                 self.assertIn('ak hand-in dispute path:line "why it is wrong" --run COMMAND', text)
-                self.assertIn("A dispute's command must exit 0; a quote must exist in the named file.", text)
-                self.assertIn("Name only a blocking finding handed to this turn.", text)
+                self.assertIn("[checked by ak: tests/test_dispute_hand_in.py] ak refuses disputes "
+                              "outside the handed blocking findings, commands that do not exit 0 "
+                              "and absent quotes.", text)
                 self.assertIn("For every undisputed finding, fix every instance of that pattern "
                               f"in {work}", text)
                 self.assertNotIn("Fix every finding below", text)
-                self.assertIn("re-run the per-round done-when commands", text)
+                self.assertIn(worker.CHECKS, text)
 
     def test_pass_follow_ups_land_in_pr_body_without_a_followups_file(self):
         repo = self.root / "repo"
