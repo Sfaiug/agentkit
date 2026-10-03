@@ -152,6 +152,7 @@ class Lander(unittest.TestCase):
         self.assertIn(failing, fix["line"])
         self.assertIn("FAIL once check", fix["line"])
         self.assertIn(SUITE, Path(fix["log"]).read_text())
+        self.assertIn("Tree: ", Path(fix["log"]).read_text())
         self.assertEqual(land._trees(self.turn)[1], {})
         self.wake.assert_called_once()
         self.assert_cleaned()
@@ -273,6 +274,18 @@ class Lander(unittest.TestCase):
         land.check_line(self.turn)
         self.assertEqual(len(self.checks), 1)
         self.wake.assert_called_once()
+
+    def test_a_checked_member_claimed_before_the_verdict_ends_the_pass(self):
+        first = self.member("first", joined=1)
+        later = self.member("later", joined=2)
+        self.advance()
+        before = (first / "run.json").read_bytes()
+        with patch.object(record, "process_active", side_effect=[False, True]):
+            land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual((first / "run.json").read_bytes(), before)
+        self.assertNotIn("land", self.wait(later))
+        self.wake.assert_not_called()
 
     def test_a_gate_changing_the_pinned_tree_never_marks_it_green(self):
         directory = self.member(once="printf changed >> work.txt")
