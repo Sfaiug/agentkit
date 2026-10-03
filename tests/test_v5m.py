@@ -91,6 +91,8 @@ class Sandbox(unittest.TestCase):
             "IDLE_COMPACT_STATE": "", "AGENTKIT_DISCORD_WEBHOOK": "off",
             "AGENTKIT_DISCORD_USER_ID": "", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "PYTHONDONTWRITEBYTECODE": "1",
+            # no user manager here: a foreground `ak run` it starts is never moved into a unit
+            "XDG_RUNTIME_DIR": str(sockets),
             config.ADAPTER_DIR_ENV: str(self.adapters), "V5M_FIXTURE": str(self.root)}))
         config.ensure_dirs()
         self.cfg = config.load()

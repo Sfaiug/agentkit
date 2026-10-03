@@ -669,6 +669,59 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     return spawn(argv, env, lower_nice=nice).pid
 
 
+def scope_self(unit, target_slice, properties=(), placement=None):
+    """Move this very process into a new scope `unit` in `target_slice`; True once it is there.
+
+    The scope `in_slice` makes around a child, made around a process that already runs: the
+    user manager is handed this pid, so nothing is started or exec'd and the process keeps its
+    terminal, its signals and its pid.  `properties` are the `systemd-run -p` ones, which the
+    manager takes typed here: a size in mebibytes as bytes, a number as one, the rest as words.
+    Only this process's own cgroup is believed, once it names the scope.  Where no scope can be
+    made the process stays where it is, and `placement` says why.
+    """
+    def unplaced(reason):
+        if placement is not None:
+            placement.update(scope="none", scope_reason=reason)
+        return False
+
+    if not user_manager():
+        return unplaced("no user systemd manager")
+    if not can_scope():
+        # the kernel lets the manager move only what it was delegated (see `can_scope`)
+        return unplaced("started outside the user manager, which cannot move it")
+    typed = []
+    for assignment in properties:
+        if assignment == "-p":
+            continue
+        name, _, value = assignment.partition("=")
+        if value.endswith("M") and value[:-1].isdigit():
+            typed += [name, "t", str(int(value[:-1]) * 1024 * 1024)]
+        else:
+            typed += [name, "t" if value.isdigit() else "s", value]
+    try:
+        asked = subprocess.run(
+            ["busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+             "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))",
+             f"{unit}.scope", "fail", str(2 + len(typed) // 3), "PIDs", "au", "1",
+             str(os.getpid()), "Slice", "s", target_slice, *typed, "0"],
+            capture_output=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+            env=bus_env(), timeout=SLICE_WAIT)
+        failed = (f"busctl failed ({asked.stderr.strip() or f'exit {asked.returncode}'})"
+                  if asked.returncode != 0 else None)
+    except (OSError, subprocess.SubprocessError) as exc:
+        failed = f"busctl failed ({exc})"
+    # The cgroup is the answer whatever the client says: the manager queues the move as a job,
+    # so one it took before the reply was lost or late may still land, and is waited for.
+    deadline = time.monotonic() + SLICE_WAIT
+    while not host.cgroup_contains(f"/{unit}.scope"):
+        if time.monotonic() >= deadline:
+            return unplaced(failed or f"{unit}.scope never took this process")
+        time.sleep(0.02)
+    if placement is not None:
+        placement["scope"] = unit
+    return True
+
+
 def stop_scope(scope, log=lambda _: None, wait=True):
     """Ask systemd to stop a detached run's unit, including escaped grandchildren.
 
@@ -686,7 +739,14 @@ def stop_scope(scope, log=lambda _: None, wait=True):
     command = ["systemctl", "--user", "stop"]
     try:
         if not wait:
-            subprocess.Popen([*command, *units], stdin=subprocess.DEVNULL,
+            if (threading.current_thread() is threading.main_thread()
+                    and any(host.cgroup_contains(f"/{unit}") for unit in units)):
+                # This process is in what it stops and on its way out: the stop is for what it
+                # leaves behind, and the exit status a foreground caller reads stays its own.
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            # queued, not waited for: a systemctl inside the scope, ignoring SIGTERM as this
+            # process now does, would otherwise wait on a stop that waits on it
+            subprocess.Popen([*command, *units, "--no-block"], stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True, env=bus_env())
             return True

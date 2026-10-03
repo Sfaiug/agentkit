@@ -8324,6 +8324,55 @@ def run_scope_limits(ceiling_mb=None):
                  *(("-p", "OOMPolicy=continue") if orch.scope_oom_policy() else ()))
 
 
+def run_placement(run_dir, previous):
+    """(unit, cap in MiB, properties): where a run goes, in `--bg` and in the foreground alike.
+
+    Its own `agentkit-run-<id>` in the runs slice, under `run_scope_limits`.  A name an earlier
+    attempt's scope may still hold is not reused, unless that attempt left its claim: then
+    `start_in_slice` reads the claim and asks the manager about it before anything starts.
+    """
+    unit = f"agentkit-run-{run_dir.name}"
+    if scope_is_real(previous.get("scope")) and not (config.TMP / f"{unit}.placed").exists():
+        unit = orch.next_scope_unit(unit)
+    cap, properties = run_scope_limits()
+    return unit, cap, properties
+
+
+def place_here(run_dir, log):
+    """Put a foreground run's own process where `--bg` puts its child; the record, or None.
+
+    Nothing new is started: the user manager moves this very process into the run's scope,
+    so the terminal keeps its output and its Ctrl-C, and the pid on the receipt stays the
+    run's.  Where no scope can be made the run goes on here as it always did, and the log
+    says why.  Only a process that is this one run is moved: `ak` itself, never a caller
+    that imported this module (a test), and from its main thread, never a job's, whose
+    process all its tasks share.  One already in the scope its receipt names -- a recovery
+    the tick placed -- is where it belongs.
+    """
+    if (Path(sys.argv[0]).resolve() != (config.REPO / "bin" / "ak").resolve()
+            or threading.current_thread() is not threading.main_thread()):
+        return None
+    with run_record.record(run_dir) as state:
+        if state.stopped or any(host.cgroup_contains(f"/{unit}")
+                                for unit in _scope_units(state.get("scope"))):
+            return None
+        placement, cap, placed = {}, None, False
+        try:
+            unit, cap, properties = run_placement(run_dir, state)
+            placed = orch.scope_self(unit, orch.run_slice_name(), properties, placement)
+        except OSError as exc:
+            placement = {"scope": "none", "scope_reason": str(exc)}
+        state.update(scope=placement["scope"], scope_reason=placement.get("scope_reason"))
+        remember_memory_cap(state, placement, cap)
+    if placed:
+        try:
+            os.nice(10)   # the work `--bg` puts in a scope runs under `nice -n 10`
+        except OSError:
+            pass          # a priority it may not lower is no reason to leave the scope unsaid
+    log(f"scope: {scope_line(state)}")
+    return dict(state)
+
+
 def remember_memory_cap(state, placement, cap):
     """Record the cap only on a scope that was actually given one."""
     scope = placement.get("scope") if isinstance(placement, dict) else None
@@ -10711,18 +10760,12 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
                 "interrupted" if previous.get("state") == "queued" else previous["state"])
         run_record.save_state(run_dir, state)
         try:
-            unit = f"agentkit-run-{run_dir.name}"
-            if (previous.get("scope") and
-                    str(previous.get("scope")) not in ("none",) and
-                    not str(previous.get("scope")).startswith("none (") and
-                    not (config.TMP / f"{unit}.placed").exists()):
-                unit = orch.next_scope_unit(unit)
+            unit, cap, properties = run_placement(run_dir, previous)
             # Into agentkit's slice, like every other agent process: a run started from a seat
             # is already inside it, and one started from the owner's own shell -- or by a tick
             # from cron -- would otherwise be the one heavy thing on the machine with no
             # ceiling over it.  The pid that comes back is the one really doing the work.
             placement = {}
-            cap, properties = run_scope_limits()
             pid = orch.start_in_slice(
                 child, unit, env, log_path,
                 log=note_in(log_path), target_slice=orch.run_slice_name(),
@@ -11050,10 +11093,8 @@ def preflight(run_dir, opts, log):
             log(f"{role}: {', '.join(state[role])}")
     log(f"limits: silence {state['silence_minutes']:g}m | "
         f"done-when ceiling {state['ceiling_hours']:g}h | git/gh {TOOL_CAP}s")
-    scope = state.get("scope")
-    if scope == "none":
-        scope = f"none ({state.get('scope_reason') or 'plain process session'})"
-    log(f"scope: {'pending' if opts.get('--bg') and not scope else scope or 'none (foreground launch)'}")
+    # a job's task runs where its job puts it; every other launch is placed after this line
+    log(f"scope: {scope_line(state) or ('none (foreground launch)' if state.get('job_id') else 'pending')}")
     log(f"result: {run_dir / 'result.md'} | log: {run_dir / 'log.txt'}")
     session = launch_session(run_dir)
     if url:
@@ -11070,11 +11111,17 @@ def preflight(run_dir, opts, log):
             "the result is here and in `ak run status`")
 
 
-def update_scope_line(run_dir, state):
-    """Append the detached placement after it starts, without racing its live log writer."""
+def scope_line(state):
+    """Where the receipt says the run is: its unit, or `none (why)`; None before it is placed."""
     scope = state.get("scope")
     if scope == "none":
         scope = f"none ({state.get('scope_reason') or 'plain process session'})"
+    return scope
+
+
+def update_scope_line(run_dir, state):
+    """Append the detached placement after it starts, without racing its live log writer."""
+    scope = scope_line(state)
     if not scope:
         return
     path = Path(run_dir) / "log.txt"
@@ -11540,6 +11587,9 @@ def resume_run(argv):
         run_record.save_state(run_dir, state)
     log = logger(run_dir, not child)
     log(f"resume {run_dir.name}: {run_dir / 'task.md'}")
+    if not child:
+        # the loop goes on from this copy and saves it: it carries the new scope, not the last
+        state = place_here(run_dir, log) or state
     if unstarted and not state.get("launch_opts"):
         log("old launch receipt has no saved options; recovery keeps work local (--no-merge)")
     if state.get("review_pr"):
@@ -12467,6 +12517,8 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
     opts = dict(opts, **flags)
     log = logger(run_dir, not resumed)
     log(f"run {run_dir.name}: review of {url}")
+    if not resumed:
+        place_here(run_dir, log)
     return drive(cfg, run_dir, opts, log, job=lambda: review_pr(cfg, run_dir, url, opts, log))
 
 
@@ -12652,4 +12704,6 @@ def main(argv):
 
     log = logger(run_dir, not resumed)
     log(f"run {run_dir.name}: {task_path}")
+    if not resumed:
+        place_here(run_dir, log)
     return drive(cfg, run_dir, opts, log)
