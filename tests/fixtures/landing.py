@@ -17,6 +17,9 @@ def landing(lp, deliver=None, *, checked=lambda: None, consume=None):
         act = (lambda: run.join_line(lp, upstream, deliver)) if deliver else lambda: run.merge(lp)
         if not (lp.state.get("waiting_on") or {}).get("line"):
             act()
+        else:
+            lp.state["state"] = "waiting"
+            lp.write()
         if lp.state.get("state") != "waiting":
             return False
         turn = run.turn_path(lp, upstream)
