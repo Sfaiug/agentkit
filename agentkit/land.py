@@ -144,12 +144,16 @@ def _check_member(turn, directory, state, log):
                 _, body, _ = task.parse_task(directory / "task.md")
                 cmds = task.group_commands(run.with_suite(
                     task.done_when(body, directory / "task.md"), scratch, upstream))[1]
-                # A direct gate has no member record to mark while it waits or runs.
-                ok, text = gate.run_done_when(
-                    cmds, scratch, log_path, set(),
-                    3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
-                    silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES),
-                    heavy=True)
+                # The checker takes a heavy turn without marking any member's record.
+                context = {"repo": str(repo), "run_id": directory.name, "landing": True,
+                           "since": state["waiting_on"]["joined"]}
+                suite = next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
+                with gate.gate_turn(None, log_path, log, suite, scratch, context=context):
+                    ok, text = gate.run_done_when(
+                        cmds, scratch, log_path, set(),
+                        3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
+                        silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES),
+                        heavy=True)
                 if (not clean or run.commit_identity(scratch) != identity
                         or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
                     ok = False

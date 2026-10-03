@@ -275,6 +275,58 @@ class Lander(unittest.TestCase):
         self.assertEqual(len(self.checks), 1)
         self.wake.assert_called_once()
 
+    def test_a_heavy_turn_wait_never_marks_a_member_even_if_it_resumes(self):
+        directory = self.member()
+        self.advance()
+        (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")
+        changed = []
+        with gate.gate_lock(None, 0).open("a") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+
+            def poll(_seconds):
+                with record.record(directory) as current:
+                    current.update(state="running", pid=5678)
+                changed.append((directory / "run.json").read_bytes())
+                fcntl.flock(holder, fcntl.LOCK_UN)
+
+            def check(cmds, cwd, log_path, *args, **kw):
+                self.assertEqual(gate._heavy_running(), 1)
+                return self.check(cmds, cwd, log_path, *args, **kw)
+
+            with (patch.dict(os.environ, {"AK_MAX_RUNS": ""}),
+                  patch.object(gate.time, "sleep", side_effect=poll),
+                  patch.object(gate, "run_done_when", side_effect=check),
+                  patch.object(gate, "mark_gate_wait", side_effect=AssertionError("member write")),
+                  patch.object(gate.history, "close_step", side_effect=AssertionError("member step"))):
+                land.check_line(self.turn)
+        self.assertEqual((directory / "run.json").read_bytes(), changed[0])
+        self.assertEqual(gate._heavy_running(), 0)
+        self.assertFalse(gate.turn_held())
+        self.wake.assert_not_called()
+
+    def test_a_busy_suite_gives_back_and_retakes_the_checkers_heavy_turn(self):
+        flag = self.root / "busy"
+        cmd = (f"test -f '{flag}' || {{ touch '{flag}'; exit 75; }}; "
+               'test "$AK_HEAVY_TURN" = 1')
+        directory = self.member(once=cmd)
+        self.advance()
+        (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")
+        released = []
+
+        def poll(_seconds):
+            released.append(gate._heavy_running())
+
+        with (patch.dict(os.environ, {"AK_MAX_RUNS": ""}),
+              patch.object(gate.time, "sleep", side_effect=poll),
+              patch.object(gate, "mark_gate_wait", side_effect=AssertionError("member write")),
+              patch.object(gate.history, "close_step", side_effect=AssertionError("member step"))):
+            land.check_line(self.turn)
+        self.assertEqual(released, [0])
+        self.assertIn("land", self.wait(directory))
+        self.assertEqual(gate._heavy_running(), 0)
+        self.assertFalse(gate.turn_held())
+        self.wake.assert_called_once()
+
     def test_a_checked_member_claimed_before_the_verdict_ends_the_pass(self):
         first = self.member("first", joined=1)
         later = self.member("later", joined=2)
