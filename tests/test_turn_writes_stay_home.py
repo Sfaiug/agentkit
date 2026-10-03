@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, worker
 
 
-ADAPTER = r'''import json, os, subprocess, sys, tempfile
+ADAPTER = r'''import fcntl, json, os, subprocess, sys, tempfile
 from pathlib import Path
 if sys.argv[1] == "auth":
     print("fixture login")
@@ -41,6 +41,8 @@ elif mode == "state":
     sessions = state / "sessions"
     sessions.mkdir(exist_ok=True)
     login = state / "auth.json"
+    with (state / "auth.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
     if len(sys.argv) > 7:
         seen["login"] = login.read_text()
         seen["session"] = (sessions / sys.argv[7]).read_text()
@@ -93,7 +95,7 @@ class TurnWritesStayHome(unittest.TestCase):
         adapter.chmod(0o755)
         (adapters / "acme.toml").write_text(
             'version = 1\n[worker]\nstate = ["~/.acme", "$ACME_STATE"]\n'
-            'logins = ["~/.acme/auth.json", "$ACME_STATE/auth.json"]\n')
+            'logins = ["~/.acme/auth.json", "$ACME_STATE/auth.json", "~/.acme/auth.lock"]\n')
         self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
         self.cfg = {"models": {"w": {"harness": "acme", "model": "fixture", "effort": "low",
                                     "provider": "acme"}}, "providers": {"acme": {}}}
@@ -164,6 +166,9 @@ class TurnWritesStayHome(unittest.TestCase):
         login = self.root / "borrowed-login"
         login.write_text("old login")
         (state / "auth.json").symlink_to(login)
+        lock = self.root / "borrowed-lock"
+        lock.touch()
+        (state / "auth.lock").symlink_to(lock)
         _, session, _ = self.turn(self.wt, "state")
         self.assertEqual(login.read_text(), "in-place refresh")
         self.assertEqual((state / "auth.json").read_text(), "refreshed login")
