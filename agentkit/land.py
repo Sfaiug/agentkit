@@ -111,7 +111,7 @@ def check_line(turn, log=lambda _: None):
 def _check_member(turn, directory, state, log):
     from . import gate, run, task
     repo = Path(state.get("worktree") or state["repo"])
-    head = run.passed_review_head(state)
+    head = state["review"]["head_sha"]
     upstream = state.get("target") or state["base"]
     upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
     run.fetch(repo, "origin", "--prune", check=True)

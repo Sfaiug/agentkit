@@ -184,7 +184,14 @@ class Lander(unittest.TestCase):
     def test_the_same_integration_tree_skips_the_suite_on_the_members_landing(self):
         for method in ("squash", "rebase", "merge"):
             with self.subTest(method=method):
-                directory = self.member(method, method=method)
+                directory = self.member(method, method=method, **{"broken.txt": "broken\n"})
+                state = record.read_state(directory)
+                run.git(self.repo, "checkout", state["branch"])
+                run.git(self.repo, "rm", "broken.txt")
+                self.commit("landing fix")
+                # A landing re-review keeps the earlier probe head after reviewing the fix.
+                with record.record(directory) as current:
+                    current["review"].update(run.commit_identity(self.repo))
                 self.advance(**{f"{method}.txt": method})
                 land.check_line(self.turn)
                 state = record.read_state(directory)
