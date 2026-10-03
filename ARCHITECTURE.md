@@ -40,13 +40,13 @@
   `cmd_gc` for bin/ak, run, menu, watch and retention.
 - `task.py`: front matter, done-when groups, size counts and round refusals; for
   run and job.
-- `job.py`: task files as one job: receipt, scheduler, task ladders (waits, merge, rerun),
-  hand-back and relaunch. Calls `run.*`; for run (main, status, stop, resume), gc, watch, menu.
-- `watch.py`: tick, watch.json, seat errors (harness record or manifest screen words;
-  `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`), typing, reviving,
-  run resumes, PR scans, `doctor`. For run, job, orch, menu, notify, update, usage,
-  worker and hooks. Leaks: run.json writes (stall ladder, freeze marks, resume passes)
-  and run states (`GOING`).
+- `job.py`: task files as jobs: `job.json` (capped `owner_words` since the seat's last
+  launch), scheduling, task ladders (waits, merge, rerun), hand-back, relaunch.
+  Calls `run.*`; for run, gc, watch, menu.
+- `watch.py`: tick, watch.json, errors (harness/manifest; `stalls`, `auth_expiry`),
+  state (`session_state`, `waiting_on`), typing receipts by source, revive, resume, PR scans,
+  `doctor`. For run, job, orch, menu, notify, update, usage, worker, hooks.
+  Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename`. Used by menu, watch, run, job, notify, usage,
@@ -101,10 +101,10 @@
   (codex adds `reset`); `$AGENTKIT_ACCOUNT` picks the login.
 - `adapters/<h>.toml` is the manifest: update, usage, conversation, titles, launch, hooks,
   screen rules, stall/quota/auth/resume words, compact, effort, catalog.
-- `agentkit/harness/`: `load(name)` combines manifest and optional plugin `<h>.py`, with
-  defaults for conversation, resume, launch, titles, usage, tokens and `tmp_rule`;
-  `failure` reads a failed turn or seat in whole `[stall]` words. Used by orch, usage,
-  update, run, gc, menu, watch. Leak: orch imports `harness.claude`.
+- `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
+  resume, launch, titles, usage, tokens, `tmp_rule`. `user_messages`: timed owner input
+  without notices or ak typing; `failure`: turn/seat failures in whole `[stall]` words.
+  For orch, usage, update, run, gc, menu, watch. Leak: orch imports `harness.claude`.
 
 ## hooks/, tools/, tests/
 

@@ -594,7 +594,7 @@ class ThreeStates(Sandbox):
         watch.seat_write("asked", state="working", hooked="asking", hooked_at=NOW - 600)
         typed = []
 
-        def send_line(session, text, log, landing=lambda: None):
+        def send_line(session, text, log, landing=lambda: None, **_kw):
             typed.append((session["name"], text))
             config.hook_facts_path(session["name"]).write_text(json.dumps(   # as it lands
                 {"session": session["name"], "event": "UserPromptSubmit", "at": NOW}))
@@ -628,7 +628,7 @@ class ThreeStates(Sandbox):
         live, reopened = self.reboot_fixture({"atoll": ("UserPromptSubmit", "")})
         landed, typed, logs = [False, True], [], []
 
-        def send_line(session, text, log, landing=lambda: None):
+        def send_line(session, text, log, landing=lambda: None, **_kw):
             typed.append(session["name"])
             return landed.pop(0) if landed else False
 
@@ -690,7 +690,7 @@ class ThreeStates(Sandbox):
         with patch.object(watch, "boot_id", return_value="after"), \
                 patch.object(orch, "sessions", side_effect=lambda: list(live)), \
                 patch.object(orch, "resume", side_effect=reopened), \
-                patch.object(watch, "_send_line", side_effect=lambda s, *_a: typed.append(s)), \
+                patch.object(watch, "_send_line", side_effect=lambda s, *_a, **_kw: typed.append(s)), \
                 patch.object(notify, "session_lock", side_effect=session_lock), \
                 patch.object(watch.time, "sleep", side_effect=lambda _s: then(meanwhile)):
             watch.resume_after_boot(self.cfg, log=lambda _line: None)

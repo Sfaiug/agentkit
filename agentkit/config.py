@@ -738,6 +738,7 @@ SEAT_FILES = {
     "plan": "md",        # its plan, which the menu row reads its bar from
     "stop": "json",      # this turn's start, for the stop hook's rule
     "title": "json",     # the title last read from its conversation
+    "input": "jsonl",    # each line ak typed, with its source and conversation
     "rulebook": "md",    # the rulebook its orchestrator was started on
 }
 
