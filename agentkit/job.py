@@ -688,7 +688,7 @@ def job_scoped(job):
             cgroup.rstrip("/").rsplit("/", 1)[-1] in (f"{scope}.scope", f"{scope}.service"))
 
 
-def job_await(run_dir):
+def job_await(run_dir, poll=lambda: None):
     """Follow a task's run in its own scope until the job's ladder can take it up.
 
     It is a lone run in everything but its voice, so it goes on as one does: while its
@@ -697,11 +697,14 @@ def job_await(run_dir):
     its ending, a wait for budget or a login, or what the tick left for a person.
     """
     while True:
+        poll()
         state = record.read_state(run_dir) or {}
         if not record.process_active(state):
             with job_adopting(run_dir.name):
                 state = run.reap(run_dir, state)
             if not (state.get("state") in ("queued", "running")
+                    or (state.get("state") == "waiting"
+                        and (state.get("waiting_on") or {}).get("line"))
                     or (state.get("state") == "interrupted" and state.get("deaths")
                         and run.tick_resumes(state))):
                 return state
@@ -780,6 +783,9 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     more rounds, and one its reviews failed is not rerun either: it goes back to the seat
     with its findings, as a single run does, to be split or re-scoped.
     """
+    if (run_state.get("state") == "waiting"
+            and (run_state.get("waiting_on") or {}).get("line")):
+        run_state = job_await(run_dir)
     task["executor"] = run_state.get("executor") or task.get("executor")
     task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
     log(job_exit_line(task, run_dir, run_state, rc))
@@ -833,6 +839,11 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             else:
                 with job_muted():
                     mrc = run.cmd_merge([run_dir.name])
+                waiting = record.read_state(run_dir) or {}
+                if (waiting.get("state") == "waiting"
+                        and (waiting.get("waiting_on") or {}).get("line")):
+                    settled = job_await(run_dir)
+                    mrc = 0 if job_classify(settled, cfg) in ("merged", "passed") else 1
         except config.Error as exc:
             mrc = 2
             log(f"{task['name']}: merge refused: {exc}")

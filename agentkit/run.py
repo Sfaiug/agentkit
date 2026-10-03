@@ -5556,6 +5556,32 @@ def final_check(lp, upstream):
             return False
 
 
+def join_line(lp, upstream, deliver):
+    """Leave a passed run's place on disk; a fresh process consumes the lander's verdict."""
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return land_from_line(lp, upstream, deliver)
+    require_review_pass(lp)
+    lp.state.update(state="waiting", waiting_on={"line": turn_path(lp, upstream).name,
+                                               "joined": time.time()},
+                    error="waiting for the lander", finished_at=None)
+    lp.state.pop("recovery_pending", None)
+    lp.write()
+    return False
+
+
+def release_line(run_dir, log):
+    """Finish this attempt's cleanup before the lander can wake a new record owner."""
+    with run_record.recovery_lock(run_dir):
+        state = run_record.read_state(run_dir) or {}
+        if (state.get("state") != "waiting" or state.get("pid") != os.getpid()
+                or not (state.get("waiting_on") or {}).get("line")):
+            return
+        stop_run_tree(state, log)
+        state.update(pid=None, process_identity=None)
+        run_record.save_state(run_dir, state)
+    landing.start_line(config.RUNS / state["waiting_on"]["line"], log)
+
+
 def rejoin_line(lp, upstream, reason, *, back=False):
     """A changed target keeps the place; repaired work queues behind the other members."""
     wait = lp.state["waiting_on"]
@@ -5648,7 +5674,7 @@ def land_from_line(lp, upstream, deliver):
 
 
 def land(lp, upstream, verify, deliver, execv=None):
-    """Verify and deliver on the target tip, holding the merge turn through any suite.
+    """Verify a fork delivery on the target tip, holding the merge turn through any suite.
 
     Each lap fetches and brings the branch onto the target's tip, then checks
     exactly that commit; only the heavy suite takes a heavy turn, light checks run free.
@@ -6153,7 +6179,7 @@ def merge_retaking(state):
 
 
 def merge(lp):
-    """A passed run finishes the job: integrate, final check, push, PR, checks, merge.
+    """A passed writable run joins the line; a wake delivers its checked tree, a fork its PR.
 
     Never a model's call.
 
@@ -6178,20 +6204,23 @@ def merge(lp):
         return note(lp, f"this run works directly on {branch}, which is the branch it would merge "
                         "into, so there is no PR to open", failed=True)
 
+    if not wait_for_dependency(lp):
+        return False
+    upstream_repo, permission = rights(lp)
+    if upstream_repo and permission not in PUSH_RIGHTS:
+        return land(lp, upstream, lambda: integrate(lp, upstream) and final_check(lp, upstream),
+                    lambda: fork_and_pr(lp, target_branch, upstream_repo, permission))
+
     def deliver():
         require_review_pass(lp)
         lp.step("merge")        # integration may have spent rounds of its own on the way here
-        upstream_repo, permission = rights(lp)
-        if upstream_repo and permission not in PUSH_RIGHTS:
-            return fork_and_pr(lp, target_branch, upstream_repo, permission)
         if not push(lp):
             return False
         url = open_pr(lp, target_branch)
         if not url or not wait_checks(lp, url):
             return False
         return do_merge(lp, url, upstream)
-    return land(lp, upstream, lambda: integrate(lp, upstream) and final_check(lp, upstream),
-                deliver)
+    return join_line(lp, upstream, deliver)
 
 
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
@@ -6591,7 +6620,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     state.pop("error_retries", None)
     for key in ("waiting_for", "login_resume_at", "login_back_at"):
         state.pop(key, None)
-    state["finished_at"] = time.time()
+    state["finished_at"] = (None if state.get("state") == "waiting"
+                            and (state.get("waiting_on") or {}).get("line") else time.time())
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
     settle_run(state, run_dir, log)
@@ -9300,6 +9330,8 @@ def going(state, now=None):
     (`exhausted_wait`): one that waits on nobody is his, not going. Line members
     stay going until the lander ends them.
     """
+    if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
+        return True  # the line is unfinished work, not an ending with timed recovery
     if state.get("state") in ("error", "waiting") and not tick_admission(state, now=now):
         return False
     if state.get("state") == "exhausted":
@@ -11040,7 +11072,23 @@ def note_in(path):
     return note
 
 
+def log_is_stdout(run_dir):
+    """Detached wakes already write the log; following it would feed it back into itself."""
+    try:
+        return os.path.samefile(run_dir / "log.txt", sys.stdout.fileno())
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def foreground_cli(run_dir):
+    return (not getattr(jobs._JOB_MUTE, "depth", 0)
+            and threading.current_thread() is threading.main_thread()
+            and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()
+            and not log_is_stdout(run_dir))
+
+
 def logger(run_dir, to_file):
+    to_file = to_file and not log_is_stdout(run_dir)
     def log(message):
         line = f"[{datetime.now():%H:%M:%S}] {message}"
         print(line, flush=True)
@@ -11469,19 +11517,25 @@ def cmd_merge(argv):
                                 "resume the run to obtain review")
             if state.get("repo"):
                 os.environ.update(config.repo_env(Path(state["repo"])))
-            upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
             if info is None:
                 log(f"no delivery PR: {stopped_on}; delivering again from integration")
                 merge(lp)
-            else:
-                # the delivered head was final-checked and pushed already; only a new one owes it
-                land(lp, upstream,
-                     lambda: (integrate(lp, upstream)
-                              and (git(lp.wt, "rev-parse", "HEAD") == head
-                                   or final_check(lp, upstream))),
-                     lambda: ((git(lp.wt, "rev-parse", "HEAD") == head or push(lp))
-                              and wait_checks(lp, state["pr"])
-                              and do_merge(lp, state["pr"], upstream)))
+            elif wait_for_dependency(lp):
+                upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+                upstream_repo, permission = rights(lp)
+
+                def deliver():
+                    return ((git(lp.wt, "rev-parse", "HEAD") == head or push(lp))
+                            and wait_checks(lp, state["pr"])
+                            and do_merge(lp, state["pr"], upstream))
+
+                if upstream_repo and permission not in PUSH_RIGHTS:
+                    verify = lambda: (integrate(lp, upstream)
+                                      and (git(lp.wt, "rev-parse", "HEAD") == head
+                                           or final_check(lp, upstream)))
+                    land(lp, upstream, verify, deliver)
+                else:
+                    join_line(lp, upstream, deliver)
     except worker.LoginExpired as expired:
         # a conflict fixer's turn during delivery can hit an expired login like any other:
         # a retry would park it anyway, and letting it escape here would leave the receipt
@@ -11523,9 +11577,15 @@ def cmd_merge(argv):
         sampler.stop()
         sampler.join(timeout=2)
         history.close_step(run_dir.name, log=log)
-    state["finished_at"] = time.time()
+    state["finished_at"] = (None if state.get("state") == "waiting"
+                            and (state.get("waiting_on") or {}).get("line") else time.time())
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
+    if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
+        follow = foreground_cli(run_dir)
+        offset = (run_dir / "log.txt").stat().st_size if follow else 0
+        release_line(run_dir, note_in(run_dir / "log.txt") if follow else log)
+        return follow_run(run_dir, cfg, offset) if follow else 0
     result = finish(state, run_dir, log, cfg)
     stop_run_tree(state, log)
     return result
@@ -11788,6 +11848,11 @@ def resume_run(argv):
             opts["--rounds"] = str(n_rounds)
     if background:
         return spawn_bg(run_dir, ["resume", *requested], expected=expected)
+    if (not child and not state.get("no_merge") and not state.get("scratch")
+            and not state.get("review_pr") and foreground_cli(run_dir)):
+        offset = (run_dir / "log.txt").stat().st_size
+        spawn_bg(run_dir, ["resume", *requested], expected=expected)
+        return follow_run(run_dir, cfg, offset)
     with slot_lock(), run_record.recovery_lock(run_dir):
         if run_record.read_state(run_dir) != expected:
             raise config.Error("the run changed while choosing recovery; select it again")
@@ -11958,9 +12023,29 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
             settled = None  # the stop landed before the loop saved anything
         if isinstance(settled, dict):
             settle_run(settled, run_dir, log)
+    if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
+        release_line(run_dir, log)
+        return 0
     result = finish(state, run_dir, log, cfg)
     stop_run_tree(run_record.read_state(run_dir) or state, log)
     return result
+
+
+def follow_run(run_dir, cfg, offset=0):
+    """A foreground terminal follows the record and log, outside the worker's scope."""
+    with (run_dir / "log.txt").open() as output:
+        output.seek(offset)
+        def show():
+            print(output.read(), end="", flush=True)
+
+        state = jobs.job_await(run_dir, poll=show)
+        show()
+    if state.get("state") == "error":
+        return 2
+    if state.get("state") == "not_needed":
+        return 0
+    return 0 if (state.get("state") == "pass" and review_pass(state, cfg)
+                 and not state.get("merge_failed")) else 1
 
 
 # --- a PR reviewed alone: the reviewer only ------------------------------------
@@ -12171,7 +12256,8 @@ def merge_own_pr(lp, url, head):
     method = lp.state.get("merge_method") or "squash"
     lp.state["delivery_sha"] = head
     lp.write()
-    with merge_turn(lp, upstream):
+    with turn_path(lp, upstream).open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
         for attempt in range(1, MERGE_RETRIES + 2):
             body = merge_body(lp, head, url)
             rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method],
@@ -12926,6 +13012,10 @@ def main(argv):
                                   self_review=same_model(cfg, executor, reviewer)))
             return rc
 
+    if not resumed and not opts["--no-merge"] and foreground_cli(run_dir):
+        offset = (run_dir / "log.txt").stat().st_size
+        spawn_bg(run_dir, argv)
+        return follow_run(run_dir, cfg, offset)
     log = logger(run_dir, not resumed)
     log(f"run {run_dir.name}: {task_path}")
     if not resumed:

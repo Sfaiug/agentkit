@@ -20,6 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import gate, config, run
 from agentkit import record
+from fixtures.landing import landing
 from test_merge_step import make_loop, make_repos
 
 
@@ -51,14 +52,12 @@ class PushLease(unittest.TestCase):
         run.git(self.wt, "add", ".")
         run.git(self.wt, "commit", "-m", "later work")
         lp, _, _ = make_loop(self.root, self.wt)
-        self.assertTrue(run.integrate(lp, "origin/main"))
-        self.assertTrue(run.push(lp), lp.state.get("merge_note"))
+        self.assertTrue(landing(lp, lambda: run.push(lp)), lp.state.get("merge_note"))
         self.assertEqual(self.on_origin(), run.git(self.wt, "rev-parse", "HEAD"))
 
     def test_a_push_origin_took_before_it_stopped_stays_ours(self):
         lp, run_dir, _ = make_loop(self.root, self.wt)
         del lp.state["delivery_sha"]            # the fixture's; this run has pushed nothing yet
-        self.assertTrue(run.integrate(lp, "origin/main"))
         real = run.git_out
 
         def stopped_after(cwd, *args, **kw):
@@ -69,7 +68,7 @@ class PushLease(unittest.TestCase):
 
         with patch.object(run, "git_out", side_effect=stopped_after), \
                 self.assertRaises(run.Stopped):
-            run.push(lp)
+            landing(lp, lambda: run.push(lp))
         pushed = self.on_origin()
         # the retry reads the run back and rebases onto a target that moved meanwhile
         (self.owner / "moved.txt").write_text("moved\n")
@@ -83,9 +82,9 @@ class PushLease(unittest.TestCase):
             return True, "$ true\n[exit 0]\n"
 
         with patch.object(gate, "run_done_when", side_effect=checks):
-            self.assertTrue(run.integrate(lp, "origin/main"))
+            self.assertFalse(landing(lp, lambda: run.push(lp)))
+            self.assertTrue(landing(lp, lambda: run.push(lp)))
         self.assertNotEqual(run.git(self.wt, "rev-parse", "HEAD"), pushed)
-        self.assertTrue(run.push(lp), lp.state.get("merge_note"))
         self.assertEqual(self.on_origin(), run.git(self.wt, "rev-parse", "HEAD"))
 
     def on_origin(self):
@@ -100,7 +99,7 @@ class PushLease(unittest.TestCase):
         run.git(self.owner, "push", "origin", "ak/test")
 
     def refused(self, lp):
-        self.assertFalse(run.push(lp))
+        self.assertFalse(landing(lp, lambda: run.push(lp)))
         self.assertIn("taken by another run", lp.state["merge_note"])
         self.assertEqual(self.on_origin(), run.git(self.owner, "rev-parse", "HEAD"))
 
@@ -109,12 +108,10 @@ class PushLease(unittest.TestCase):
         # ref alone would let this push replace it
         lp, _, _ = make_loop(self.root, self.wt)
         self.take()
-        self.assertTrue(run.integrate(lp, "origin/main"))
         self.refused(lp)
 
     def test_a_name_taken_during_the_push_is_refused(self):
         lp, _, _ = make_loop(self.root, self.wt)
-        self.assertTrue(run.integrate(lp, "origin/main"))
         real = run.git_out
 
         def racing(cwd, *args, **kw):

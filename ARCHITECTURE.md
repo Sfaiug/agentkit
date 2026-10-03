@@ -21,9 +21,10 @@
 
 ## agentkit/
 
-- `run.py`: staffing, review, landing, hand-back, provider failures, slots, admission,
-  worktrees and merge turns. API: `main`, `going`, `pick_models`; for watch, job, gc,
-  orch, menu, notify, usage, worker and a hook.
+- `run.py`: staffing, review, landing, hand-back, failures, slots, worktrees and merge turns.
+  Passed writable workers park in the line and exit; foreground callers and jobs follow
+  records. Forks keep `land`; review-PR merges use the plain flock. API: `main`, `going`,
+  `pick_models`; for watch, job, gc, orch, menu, notify, usage, worker and a hook.
 - `gate.py`: check commands and host-wide heavy-suite turns; `run_done_when`, turn/env
   helpers and wait notes. For run and tests. Leaks: run's `run_child_env`, `memory_cap_note`,
   `dirty_paths`, `OUT_CAP`.
@@ -114,7 +115,8 @@
   `trust.py`, `catalog.py`, `desktop-mcp.py`.
 - `tests/`: `landing.py` runs offline `smoke.sh` beside `every_file.py`, with grouped
   live output; live `live.sh`; `every_file.py`: imports/cases,
-  live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`.
+  live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`,
+  `landing.py` lands a crafted run through its line and lander verdict.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat
   rulebook), `templates/`, `browser/`, `docs/`.
 

@@ -16,7 +16,8 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import host, config, job as jobs, notify, orch, run
+from fixtures.landing import landing
+from agentkit import host, config, job as jobs, land, notify, orch, run
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull"
@@ -90,6 +91,11 @@ class AfterFromPass(unittest.TestCase):
         for executable in ("gh", "claude", "codex", "muse"):
             self.script(self.bin / executable, 'raise AssertionError("external call forbidden")\n')
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(land, "start_line", return_value=False))
+        self.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=AssertionError("external launch")))
+        self.stack.enter_context(patch.object(run, "stop_run_tree"))
+        self.stack.enter_context(patch.object(run, "join_line", side_effect=lambda lp, upstream, deliver:
+                                            landing(lp, deliver)))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.stack.enter_context(patch.object(orch, "watching", return_value=True))
@@ -283,7 +289,12 @@ class AfterFromPass(unittest.TestCase):
                 patch.object(run, "tick_admission", return_value="the tick takes it up"):
             thread.start()
             try:
-                self.wait_for(lambda: self.run_of("Alpha widget")[1].get("state") == "waiting")
+                def parked():
+                    state = self.run_of("Alpha widget")[1]
+                    return (state.get("state") == "waiting" and state.get("pr")
+                            and state.get("pid") is None and self.beta_waits())
+
+                self.wait_for(parked)
                 time.sleep(0.5)     # a few scheduler passes over the parked PASS
                 tasks, job_dir = self.tasks()
                 self.assertEqual(tasks["alpha.md"]["state"], "running")
@@ -294,7 +305,9 @@ class AfterFromPass(unittest.TestCase):
                 # the tick's retry after the next merge to main lands it
                 directory, alpha = self.run_of("Alpha widget")
                 self.squash(alpha["branch"])
-                record.save_state(directory, {**alpha, "state": "pass", "merged": True, "pid": None})
+                with record.record(directory) as state:
+                    state.update(state="pass", merged=True, pid=None)
+                    state.pop("waiting_on")
             finally:
                 thread.join(timeout=120)
         self.assertFalse(thread.is_alive())

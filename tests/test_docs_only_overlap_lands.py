@@ -1,9 +1,9 @@
-"""A target that moved under a landing sharing only docs with the branch lands after the done-when.
+"""A changed target rejoins for a new check, including when only docs overlap.
 
 Offline: real throwaway git repos under a temp dir with a bare `origin`, fake done-when
 commands that record what they saw, and a temporary HOME. No network, no real harness: a
-clean integration keeps its review, so no fixer or reviewer runs. The target moves while
-the first lap verifies, as another run's merge moves it.
+clean integration keeps its review, so no fixer or reviewer runs. The target moves after
+the lander checks, as another run's merge moves it.
 """
 
 from contextlib import ExitStack
@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.landing import landing
 from agentkit import host, config, run
 from agentkit import record
 
@@ -118,25 +119,24 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.delivered = []
 
     def cmds(self, check="true", once=True):
-        return [f"echo every $(git rev-parse HEAD) >> {self.counter}; {check}"] + (
+        return [f"echo every $(git rev-parse HEAD) >> {self.counter}; {check}  # once"] + (
             [f"echo once $(git rev-parse HEAD) >> {self.counter}  # once"] if once else [])
 
-    def land(self, lp, owner, moves, later=None):
-        """Land `lp`; while its first lap verifies, the owner pushes `moves` to main."""
-        laps = []
+    def land(self, lp, owner, moves, consume=None):
+        """Move the target after the lander checks, then let the same member rejoin."""
+        def moved():
+            commit(owner, moves, "main moves")
+            run.git(owner, "push", "origin", "main")
 
-        def verify():
-            laps.append(True)
-            if len(laps) > 1 and later:
-                return later()
-            ok = run.integrate(lp, "origin/main") and run.final_check(lp, "origin/main")
-            if len(laps) == 1:
-                commit(owner, moves, "main moves")
-                run.git(owner, "push", "origin", "main")
-            return ok
-
-        return run.land(lp, "origin/main", verify, lambda: self.delivered.append(True) or True,
-                        execv=lambda *a: self.fail("no pickup here"))
+        deliver = lambda: self.delivered.append(True) or True
+        self.assertFalse(landing(lp, deliver, checked=moved))
+        if lp.state.get("on_target"):
+            return False
+        place = lp.state["waiting_on"]["joined"]
+        result = landing(lp, deliver, consume=consume)
+        if not result and lp.state.get("state") == "waiting":
+            self.assertEqual(lp.state["waiting_on"]["joined"], place)
+        return result
 
     def rows(self):
         return [line.split() for line in self.counter.read_text().splitlines()]
@@ -145,7 +145,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.assertTrue((lp.wt / name).exists(), f"{name} is gone")
         self.assertEqual(run.git(lp.wt, "ls-files", name), "", f"{name} was committed")
 
-    def test_docs_only_overlap_lands_after_the_done_when_without_a_reserved_lap(self):
+    def test_docs_only_overlap_is_checked_again_before_landing(self):
         remote, owner = make_origin(self.root)
         lp = make_run(self.root, remote, "acme", self.cmds(once=False),
                       {GUIDE: "acme\n2\n3\n4\n5\n", NOTES: "acme\n2\n3\n4\n5\n",
@@ -155,23 +155,20 @@ class DocsOnlyOverlapLands(unittest.TestCase):
                                               NOTES: "1\n2\n3\n4\nfive\n"}))
         self.assert_untracked(lp, "extra.py")
         self.assertEqual(self.delivered, [True])
-        self.assertEqual(self.pickups, [{"land_lap": 1}])
+        self.assertEqual(self.pickups, [])
         head = run.git(lp.wt, "rev-parse", "HEAD")
         tip = run.git(owner, "rev-parse", "main^{commit}")
         self.assertEqual(run.git_out(lp.wt, "merge-base", "--is-ancestor", tip, "HEAD")[0], 0)
         self.assertEqual((lp.wt / GUIDE).read_text(), "acme\n2\n3\n4\nfive\n")
-        self.assertEqual([row[0] for row in self.rows()], ["every"])
-        self.assertEqual(self.rows()[-1][1], head)
+        self.assertEqual([row[0] for row in self.rows()], ["every", "every"])
+        self.assertEqual(lp.state["final_check"]["tree_sha"],
+                         run.git(lp.wt, "rev-parse", "HEAD^{tree}"))
         state = record.read_state(lp.run_dir)
         self.assertEqual(state["base_sha"], tip)
         self.assertEqual(state["review"]["head_sha"], head)
-        self.assertNotIn("final_check", state)
+        self.assertEqual(state["final_check"]["tree_sha"], state["review"]["tree_sha"])
         self.assertEqual(state["verdict"], "PASS")
         self.assertNotIn("review_pending", state)
-        log = (lp.run_dir / "log.txt").read_text()
-        self.assertIn("origin/main moved, overlapping this branch only in docs "
-                      "(docs/guide.md, docs/über.md); landing after the done-when", log)
-        self.assertNotIn("verifying again holding the merge turn", log)
 
     def test_docs_only_overlap_with_a_suite_checks_the_new_commit(self):
         remote, owner = make_origin(self.root)
@@ -179,9 +176,10 @@ class DocsOnlyOverlapLands(unittest.TestCase):
                       {GUIDE: "charlie\n2\n3\n4\n5\n"})
         self.assertTrue(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nfive\n"}))
         head = run.git(lp.wt, "rev-parse", "HEAD")
-        self.assertEqual(self.pickups, [{"land_lap": 1}, {"land_lap": 2}])
+        self.assertEqual(self.pickups, [])
         self.assertEqual([row[0] for row in self.rows()], ["every", "once", "every", "once"])
-        self.assertEqual(self.rows()[-1][1], head)
+        self.assertEqual(lp.state["final_check"]["tree_sha"],
+                         run.git(lp.wt, "rev-parse", "HEAD^{tree}"))
         self.assertEqual(lp.state["final_check"]["sha"], head)
 
     def test_docs_only_overlap_whose_done_when_fails_does_not_land(self):
@@ -190,25 +188,13 @@ class DocsOnlyOverlapLands(unittest.TestCase):
                       self.cmds(f"! grep -q broken {GUIDE}", once=False),
                       {GUIDE: "bravo\n2\n3\n4\n5\n", "bravo.py": "bravo\n"})
         (lp.wt / "extra.py").write_text("unreviewed\n")
-        head = run.git(lp.wt, "rev-parse", "HEAD")
-        verified = lp.base_sha
-        seen = {}
-
-        def reserved_lap():
-            seen.update(head=run.git(lp.wt, "rev-parse", "HEAD"), base=lp.base_sha,
-                        review=lp.state["review"]["head_sha"])
-            return False
-
-        self.assertFalse(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nbroken\n"}, reserved_lap))
+        self.assertFalse(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nbroken\n"},
+                                   consume=lambda _: False))
         self.assertEqual(self.delivered, [])
-        self.assertEqual(self.pickups, [{"land_lap": 1}, {"land_lap": 2}])
-        # the reserved lap starts from the verified commit, its review intact
-        self.assertEqual(seen, {"head": head, "base": verified, "review": head})
+        self.assertEqual(self.pickups, [])
         self.assert_untracked(lp, "extra.py")
+        self.assertIn("fix", record.read_state(lp.run_dir)["waiting_on"])
         self.assertEqual([row[0] for row in self.rows()].count("once"), 0)
-        log = (lp.run_dir / "log.txt").read_text()
-        self.assertIn("done-when after the rebase: FAILED", log)
-        self.assertIn("verifying again holding the merge turn", log)
 
     def test_docs_edit_already_on_the_target_is_not_delivered(self):
         remote, owner = make_origin(self.root)
@@ -218,7 +204,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.assertTrue(record.read_state(lp.run_dir).get("on_target"))
         self.assertIn("its work is already on main", (lp.run_dir / "log.txt").read_text())
 
-    def test_code_overlap_takes_the_reserved_lap(self):
+    def test_code_overlap_rejoins_for_a_new_check(self):
         remote, owner = make_origin(self.root)
         # the branch's own first path sorts before the shared code file, main's does not
         lp = make_run(self.root, remote, "gizmo", self.cmds(),
@@ -227,12 +213,9 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.assertTrue(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nfive\n",
                                               CODE: "1\n2\n3\n4\nfive\n"}))
         self.assertEqual(self.delivered, [True])
-        self.assertEqual(self.pickups, [{"land_lap": 1}, {"land_lap": 2}])
-        # the reserved lap runs the heavy suite again
+        self.assertEqual(self.pickups, [])
+        # the changed tree needs its own check
         self.assertEqual([row[0] for row in self.rows()], ["every", "once", "every", "once"])
-        log = (lp.run_dir / "log.txt").read_text()
-        self.assertIn("verifying again holding the merge turn", log)
-        self.assertNotIn("only in docs", log)
 
 
 if __name__ == "__main__":

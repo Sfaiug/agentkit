@@ -101,6 +101,8 @@ def start_line(turn, log=lambda _: None):
             members = line(turn)
             if not members:
                 return False
+            if record.process_active(members[0][1]):
+                return False  # the joining attempt must finish cleanup before a wake
         # The suite gets the run's derived allowance or the largest recorded need,
         # never the small scope of the run or tick that happened to start this pass.
         readings = host.host_readings(slice_dir=orch.slice_cgroup)

@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
+from fixtures.landing import fork_turn
 from agentkit import gate, host, config, gc, notify, orch, run, usage, watch, worker
 from agentkit import record as run_record
 from agentkit import task as taskfile
@@ -118,6 +119,7 @@ class Limits(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.object(run, "join_line", side_effect=fork_turn))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         sockets = self.root / "sockets"

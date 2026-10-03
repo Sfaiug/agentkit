@@ -53,7 +53,6 @@ class MergeTrailer(unittest.TestCase):
         self.directory.mkdir()
         self.calls = []
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
-        self.stack.enter_context(patch.object(run, "merge_turn", side_effect=lambda *a, **_kw: nullcontext()))
         self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
 
     def git(self, *args):

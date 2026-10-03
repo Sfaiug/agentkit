@@ -21,6 +21,7 @@ what it is doing, and the one key to the menu, and `Ctrl-b m` bound to that menu
 over whatever is running.
 """
 
+import atexit
 import fnmatch
 import json
 import math
@@ -780,9 +781,12 @@ def stop_scope(scope, log=lambda _: None, wait=True):
                     and any(host.cgroup_contains(f"/{unit}") for unit in units)):
                 # This process is in what it stops and on its way out: the stop is for what it
                 # leaves behind, and the exit status a foreground caller reads stays its own.
-                signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            # queued, not waited for: a systemctl inside the scope, ignoring SIGTERM as this
-            # process now does, would otherwise wait on a stop that waits on it
+                # A Python handler resets on exec, so new work still receives SIGTERM.
+                signal.signal(signal.SIGTERM, lambda *_: None)
+                # Python clears callable handlers during shutdown; a delayed stop must
+                # still leave this process's exit status intact through that teardown.
+                atexit.register(signal.signal, signal.SIGTERM, signal.SIG_IGN)
+            # Do not wait on a stop that waits on this process to exit.
             subprocess.Popen([*command, *units, "--no-block"], stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True, env=bus_env())
