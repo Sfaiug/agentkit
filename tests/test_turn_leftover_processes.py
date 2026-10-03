@@ -33,7 +33,6 @@ with calls.open("a") as fh:
 if n == 0 or os.environ.get("TURN_LEAK_EVERY") == "1":
     pid = int(subprocess.check_output(
         ["bash", "-c", "nohup sleep 300 </dev/null >/dev/null 2>&1 & echo $!"], text=True))
-    (out / "leftover.pid").write_text(str(pid))
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         if Path(f"/proc/{pid}/cmdline").read_bytes() == b"sleep\x00300\x00":
@@ -77,8 +76,8 @@ class TurnLeftoverProcesses(unittest.TestCase):
                                     "provider": "fixture"}}, "providers": {"fixture": {}}}
         self.logs = []
         self.children = []
-        # Restrict every /proc scan to PIDs this fixture started, including the adapter's
-        # detached child. The caller's real ancestry and the host's processes are not read.
+        # Box PIDs are local to its namespace. Host scans and signals see only
+        # the fixture's unboxed helpers, never a same-numbered host process.
         listdir = os.listdir
 
         def fixture_entries(path):
@@ -99,8 +98,7 @@ class TurnLeftoverProcesses(unittest.TestCase):
         self.addCleanup(self.reap)
 
     def pids(self):
-        return [proc.pid for proc in self.children] + [
-            int(path.read_text()) for path in self.root.rglob("leftover.pid")]
+        return [proc.pid for proc in self.children]
 
     def reap(self):
         for pid in self.pids():

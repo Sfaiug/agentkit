@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import command_help, config, hand_in, record
+from . import box, command_help, config, hand_in, record
 
 # A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
 # the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
@@ -408,7 +408,7 @@ def kill_group(proc, run_id=None):
 
 
 def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=None,
-            abort=None, **kwargs):
+            abort=None, stop=None, **kwargs):
     """Run a process group until it exits, goes silent, reaches an optional ceiling, or
     says something that means it will never finish.
 
@@ -429,6 +429,8 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
     said it cannot authenticate is not going to finish, and waiting out the silence window
     for one that keeps emitting events -- or never emits another -- is the whole of what
     this is here to stop.  It must be cheap and must not raise.
+
+    `stop(process, grace)` can own TERM/KILL cleanup when a wrapper encloses the command.
 
     Where the child was given an environment that carries AGENTKIT_RUN, a kill ends every
     process carrying exactly it, however detached -- never only the child's own process
@@ -461,6 +463,12 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
     proc = subprocess.Popen(cmd, start_new_session=True, **kwargs)
     expired, finished = threading.Event(), threading.Event()
 
+    def end():
+        if stop is None:
+            kill_group(proc, run_id)
+        else:
+            stop(proc, KILL_GRACE)
+
     def watch_output():
         last, seen = started, previous
         while not finished.is_set():
@@ -477,7 +485,7 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
                     if on_timeout is not None:
                         on_timeout(reason, proc.pid)
                 finally:
-                    kill_group(proc, run_id)
+                    end()
                 return
             remaining = [ACTIVITY_POLL]
             if limit is not None:
@@ -504,7 +512,7 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
             out = ""
     except BaseException:
         # The group has its own session, so an interrupted caller must stop it too.
-        kill_group(proc, run_id)
+        end()
         try:
             proc.communicate(timeout=KILL_GRACE)
         except (subprocess.TimeoutExpired, OSError, ValueError):
@@ -623,10 +631,13 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     # the loop's stderr and never reached the turn's diagnostics.  It is kept apart while the
     # harness writes that file, and added to the end of it once the turn is over.
     own = out_dir / "adapter-stderr.log"
-    with own.open("wb") as err:
+    with box.command(cmd, turn_env, out_dir, cwd=workspace) as (cmd, turn_env, spawn), \
+            own.open("wb") as err:
         code, _, killed = limited(cmd, None, silence=limit, activity=out_dir / "events.jsonl",
                                   abort=lambda: watching(out_dir),
-                                  env=turn_env, stderr=err)
+                                  env=turn_env, stderr=err, **spawn)
+    if not killed:
+        code = box.returncode(out_dir, code)
     try:
         said = own.read_bytes()
         own.unlink()
@@ -667,17 +678,21 @@ def turn(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         result = call(cfg, model_name, body, workspace, out_dir, role, session, env=env,
                       limit=limit)
     finally:
-        left = marked_pids(marker, exact=True)
-        for pid in left:
+        left = box.leftovers(out_dir)
+        for pid, command in left:
+            log(f"{role} {model_name} left process {pid}: {command}; stopping it")
+        # Auth probes are helpers outside the turn's box; the marker still guards them.
+        probes = marked_pids(marker, exact=True)
+        for pid in probes:
             try:
                 command = (Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace")
                            .replace("\0", " ").strip())
             except OSError:
                 command = "command unavailable"
             log(f"{role} {model_name} left process {pid}: {command}; stopping it")
-        if left:
+        if probes:
             kill_marked(marker, log=log, exact=True)
-    return (*result, bool(left))
+    return (*result, bool(left or probes))
 
 
 def main(argv):

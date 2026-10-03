@@ -174,8 +174,10 @@ class LaunchAndCache(Sandbox):
                 def preflight(directory, *_):
                     self.assertEqual(run_record.read_state(directory)["launched_session"], "seat")
                     return None
+                # The fake launcher assumes a ready box; it cannot answer the host's probes.
                 with patch.object(run, "preflight", side_effect=preflight), \
                         patch.object(orch, "scope_oom_policy", return_value=False), \
+                        patch.object(run.box, "check", return_value=None), \
                         patch.object(run.subprocess, "Popen", **{"return_value.pid": 99999999}), \
                         redirect_stdout(io.StringIO()):
                     run.main(args)
