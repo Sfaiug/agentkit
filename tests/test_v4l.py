@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -656,22 +657,28 @@ esac
             # an all-skipped suite is INCOMPLETE and exits 0 here; `ak update`'s gate runs this
             # file with AGENTKIT_ACCEPTANCE_REQUIRED=1, which would make it exit 2
             env = {**os.environ, "HOME": directory, "WORK": directory, "REPO": str(REPO),
+                   "SMOKE_CALLER_HOME": directory,
                    "PATH": f"{root}:{os.environ['PATH']}", "AGENTKIT_ACCEPTANCE_REQUIRED": "0"}
-            for spent in ("anthropic", "openai", None):
-                providers = {provider: {"meters": [{"name": "weekly", "used": 100 if provider == spent else 10,
-                    "exhausted": provider == spent, "resets_at": 9999999999}]}
-                    for provider in ("anthropic", "openai")}
+
+            def spend(*spent):
+                providers = {provider: {"meters": [{"name": "weekly_all", "used": 100 if provider in spent else 10,
+                    "exhausted": provider in spent, "resets_at": 9999999999}]}
+                    for provider in dict.fromkeys(("anthropic", "openai", *spent)) if provider}
                 (root / "usage-real.json").write_text(json.dumps({"providers": providers}))
+
+            # check 4 runs on whichever configured model has budget, so only every one spent skips it
+            spend(*tomllib.loads((REPO / "config.default.toml").read_text())["providers"])
+            result = subprocess.run(["bash", "-c", helpers + "\n" + run_block + '\nfinish'], env=env,
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for label in ("4", "4b", "4c", "4d"):
+                self.assertIn(f"SKIP  {label}: every model this host can run has a spent window", result.stdout)
+            self.assertIn("0 passed, 0 failed, 4 skipped", result.stdout)
+            self.assertFalse((root / "calls").exists())
+            self.assertFalse((root / "task.md").exists())
+            for spent in ("anthropic", "openai", None):
+                spend(spent)
                 with self.subTest(spent=spent):
-                    if spent:
-                        result = subprocess.run(["bash", "-c", helpers + "\n" + run_block + '\nfinish'], env=env,
-                                                text=True, capture_output=True)
-                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                        for label in ("4", "4b", "4c", "4d"):
-                            self.assertIn(f"SKIP  {label}:", result.stdout)
-                        self.assertIn("0 passed, 0 failed, 4 skipped", result.stdout)
-                        self.assertFalse((root / "calls").exists())
-                        self.assertFalse((root / "task.md").exists())
                     script = helpers + "\n" + mcp_block + '\nfinish'
                     result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

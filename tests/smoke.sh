@@ -2065,8 +2065,20 @@ done
 # The target is the first free one of the pool above, so this is the one check that may wait:
 # taken before the seed, given back once the delivery on it is read.  A suite that finds none
 # free before its wait runs out fails this check alone and runs the rest.
-if skip_spent 4/4b/4c/4d opus astra; then
-  :   # skip before cloning or resetting the remote baseline, not after a worker's 429
+# Its executor and reviewer are the pair ak would pick now from the suite's snapshot, so it runs
+# on whichever configured models have budget, and skips only when every one it can run is spent,
+# or when it can run none.
+PAIR=$(python3 "$REPO/tests/check4_pair.py" "$WORK/usage-real.json" \
+  "$SMOKE_CALLER_HOME/.agentkit/state/usage.json")
+PAIRRC=$? EXEC=${PAIR% *} REVIEW=${PAIR#* }
+if [ "$PAIRRC" = 3 ]; then
+  skip_checks 4/4b/4c/4d "the configured models are not on this host: $PAIR"
+elif [ "$PAIRRC" != 0 ]; then
+  no "4 ak run: picking its executor and reviewer exited $PAIRRC"
+  skip_checks 4b/4c/4d "prerequisite run did not happen: no executor and reviewer were picked"
+elif [ -z "$PAIR" ]; then
+  # skip before cloning or resetting the remote baseline, not after a worker's 429
+  skip_spent_checks 4/4b/4c/4d "every model this host can run has a spent window"
 elif ! smoke_lock_hold "$SMOKE_LOCK_WAIT"; then
   no "4 ak run: every smoke target is still another suite's after ${SMOKE_LOCK_WAIT}s; none was this suite's to reset"
   skip_checks 4b/4c/4d "prerequisite run did not happen: every smoke target is another suite's"
@@ -2128,7 +2140,7 @@ MD
 # how check 4d reads what the run would have said.
 ( [ "$SRC" = 0 ] || { cat "$WORK/seed.log"; exit "$SRC"; }
   cd "$CLONE" && AGENTKIT_DISCORD_WEBHOOK=off ak run "$WORK/task.md" --rounds 2 \
-    --exec opus --review astra ) >"$WORK/run.log" 2>&1
+    --exec "$EXEC" --review "$REVIEW" ) >"$WORK/run.log" 2>&1
 RC=$?
 # take the run id from this run's own log, not from a glob that can match an older smoke run
 RUNID=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/run.log" | head -1)
@@ -2144,10 +2156,11 @@ smoke_lock_drop
 if [ "$RC" = 0 ] && [ -n "$RUNDIR" ] && grep -q '^VERDICT: PASS' "$RUNDIR/result.md" 2>/dev/null &&
    grep -q '^merged: yes$' "$RUNDIR/result.md" && grep -q '^pr: https://' "$RUNDIR/result.md" &&
    [ "$DELIVERYRC" = 0 ]; then
-  ok "4 ak run: $(grep '^pr: ' "$RUNDIR/result.md") merged; done-when passed on fetched origin/main"
+  ok "4 ak run: $(grep '^pr: ' "$RUNDIR/result.md") merged, $EXEC executing and $REVIEW reviewing;"\
+     "done-when passed on fetched origin/main"
 else
   no "4 ak run: exit=$RC rundir=${RUNDIR:-none} delivery-exit=$DELIVERYRC"
-  diagnose "$RC" "$WORK/run.log" ak run "$WORK/task.md" --rounds 2 --exec opus --review astra
+  diagnose "$RC" "$WORK/run.log" ak run "$WORK/task.md" --rounds 2 --exec "$EXEC" --review "$REVIEW"
 fi
 
 # --- 4b: ak run clean takes the worktree back down -------------------------
