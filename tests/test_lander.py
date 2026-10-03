@@ -1,0 +1,288 @@
+"""A lander checks parked line members, then each member resumes to land or fix itself.
+
+Offline: real git and gate commands in an acme sandbox, fake process ownership and wakes.
+No model, delivery, live state or process cleanup is allowed.
+"""
+
+from contextlib import ExitStack
+import fcntl
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from agentkit import config, gate, land, record, run, watch, worker
+
+SUITE = "test -f work.txt && test ! -f broken.txt"
+ONCE = "test -f tip.txt && test -f work.txt"
+
+
+class Lander(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-lander-", dir=REPO)
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "",
+            "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
+        for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+            self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
+        config.ensure_dirs()
+        self.stack.enter_context(patch.object(record, "process_active", return_value=False))
+        self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=999))
+        self.stack.enter_context(patch.object(worker, "kill_marked"))
+        for module, name in ((worker, "turn"), (worker, "call"), (run, "resolve_conflicts"),
+                             (run, "do_merge"), (run, "stop_run_tree")):
+            self.stack.enter_context(patch.object(module, name, side_effect=AssertionError(name)))
+        self.remote = self.root / "origin.git"
+        run.git(self.root, "init", "--bare", "--initial-branch=main", str(self.remote))
+        self.repo = self.root / "acme"
+        run.git(self.root, "clone", str(self.remote), str(self.repo))
+        run.git(self.repo, "config", "user.name", "fixture")
+        run.git(self.repo, "config", "user.email", "fixture@localhost")
+        (self.repo / "base.txt").write_text("base\n")
+        (self.repo / "AGENTS.md").write_text(f"---\ntests: {SUITE}\n---\n")
+        self.commit("base")
+        run.git(self.repo, "push", "origin", "main")
+        self.base = run.git(self.repo, "rev-parse", "HEAD")
+        self.turn = run.merge_turn_lock(str(self.remote), "origin/main")
+        self.checks = []
+        self.gate_run = gate.run_done_when
+        self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
+
+    def commit(self, message):
+        run.git(self.repo, "add", ".")
+        run.git(self.repo, "commit", "-m", message)
+
+    def advance(self, **files):
+        run.git(self.repo, "checkout", "main")
+        for name, text in {"tip.txt": "tip\n", **files}.items():
+            (self.repo / name).write_text(text)
+        self.commit("target moved")
+        run.git(self.repo, "push", "origin", "main")
+        # The checker must fetch rather than trust the previously recorded target tip.
+        run.git(self.repo, "update-ref", "refs/remotes/origin/main", self.base)
+
+    def member(self, name="fix-api", joined=1, method="squash", once=ONCE, **files):
+        branch = f"ak/{name}"
+        run.git(self.repo, "checkout", "-b", branch, self.base)
+        for path, text in {"work.txt": "work\n", **files}.items():
+            (self.repo / path).write_text(text)
+        self.commit(name)
+        identity = run.commit_identity(self.repo)
+        run.git(self.repo, "checkout", "main")
+        directory = config.RUNS / name
+        directory.mkdir()
+        (directory / "task.md").write_text(
+            f"# {name}\n\n## Done when\n```bash\nfalse\n{once}  # once\n{SUITE}\n```\n")
+        record.save_state(directory, {
+            "run_id": name, "state": "waiting", "pid": 1234,
+            "process_identity": {"boot": "fixture", "ticks": 1}, "scope": "none",
+            "repo": str(self.repo), "worktree": str(self.repo), "branch": branch,
+            "base": "origin/main", "target": "main", "base_sha": self.base,
+            "merge_method": method, "review": {"verdict": "PASS", "done_when": True,
+                "passed_head_sha": identity["head_sha"], **identity},
+            "waiting_on": {"line": self.turn.name, "joined": joined}})
+        return directory
+
+    def check(self, cmds, cwd, log_path, *args, **kw):
+        self.checks.append((list(cmds), Path(cwd), kw))
+        self.assertNotEqual(Path(cwd), self.repo)
+        self.assertTrue(kw["heavy"])
+        self.assertIsNone(kw.get("run_dir"))
+        return self.gate_run(cmds, cwd, log_path, *args, **kw)
+
+    def wait(self, directory):
+        return record.read_state(directory)["waiting_on"]
+
+    def assert_cleaned(self):
+        self.assertEqual(list(config.WT.glob("land-*")), [])
+        self.assertEqual(run.git(self.repo, "worktree", "list", "--porcelain").count("worktree "), 1)
+
+    def test_join_order_one_check_and_only_the_parked_verdict_changes(self):
+        later = self.member("a-later", 20)
+        first = self.member("z-first", 10.5)
+        original = record.read_state(first)
+        self.advance()
+        land.check_line(self.turn)
+        self.assertEqual([cmds for cmds, _, _ in self.checks], [[ONCE, SUITE]])
+        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+        self.assertNotIn("land", self.wait(later))
+        current = record.read_state(first)
+        tree = current["waiting_on"].pop("land")
+        self.assertEqual(current, original)
+        self.assertEqual(land.passed(self.turn, tree)["tested"], tree)
+        self.assertEqual(land.passed(self.turn, tree)["leader"], first.name)
+        self.assertEqual(run.git(self.repo, "rev-parse", original["branch"]),
+                         original["review"]["head_sha"])
+        self.assert_cleaned()
+
+    def test_running_live_and_other_line_records_are_never_written(self):
+        directory = self.member()
+        self.advance()
+        for state, wait, active in (("running", {"line": self.turn.name, "joined": 1}, False),
+                                     ("waiting", {"line": ".merge-other.lock", "joined": 1}, False),
+                                     ("waiting", {"line": self.turn.name}, False),
+                                     ("waiting", "not a line", False),
+                                     ("waiting", {"line": self.turn.name, "joined": 1}, True)):
+            with self.subTest(state=state, wait=wait, active=active):
+                with record.record(directory) as current:
+                    current.update(state=state, waiting_on=wait)
+                before = (directory / "run.json").read_bytes()
+                with patch.object(record, "process_active", return_value=active):
+                    land.check_line(self.turn)
+                self.assertEqual((directory / "run.json").read_bytes(), before)
+        self.assertEqual(self.checks, [])
+        self.wake.assert_not_called()
+
+    def test_the_first_failing_once_command_and_log_wake_a_fix(self):
+        failing = "printf 'FAIL once check\\n'; exit 1"
+        directory = self.member(once=failing, **{"broken.txt": "broken\n"})
+        self.advance()
+        land.check_line(self.turn)
+        fix = self.wait(directory)["fix"]
+        self.assertIn(failing, fix["line"])
+        self.assertIn("FAIL once check", fix["line"])
+        self.assertIn(SUITE, Path(fix["log"]).read_text())
+        self.assertEqual(land._trees(self.turn)[1], {})
+        self.wake.assert_called_once()
+        self.assert_cleaned()
+
+    def test_a_failing_declared_suite_wakes_a_fix(self):
+        directory = self.member(**{"broken.txt": "broken\n"})
+        self.advance()
+        land.check_line(self.turn)
+        self.assertIn(SUITE, self.wait(directory)["fix"]["line"])
+        self.assertEqual(land._trees(self.turn)[1], {})
+        self.wake.assert_called_once()
+
+    def test_conflict_wakes_a_fix_without_a_gate_or_a_fixer(self):
+        directory = self.member(**{"base.txt": "branch\n"})
+        original = record.read_state(directory)
+        self.advance(**{"base.txt": "target\n"})
+        land.check_line(self.turn)
+        fix = self.wait(directory)["fix"]
+        self.assertIn("rebase of origin/main failed", fix["line"])
+        self.assertIn("CONFLICT", Path(fix["log"]).read_text())
+        self.assertEqual(self.checks, [])
+        self.assertEqual(run.git(self.repo, "rev-parse", original["branch"]),
+                         original["review"]["head_sha"])
+        self.assertEqual(land._trees(self.turn)[1], {})
+        self.wake.assert_called_once()
+        self.assert_cleaned()
+
+    def test_the_same_integration_tree_skips_the_suite_on_the_members_landing(self):
+        for method in ("squash", "rebase", "merge"):
+            with self.subTest(method=method):
+                directory = self.member(method, method=method)
+                self.advance(**{f"{method}.txt": method})
+                land.check_line(self.turn)
+                state = record.read_state(directory)
+                tree = state["waiting_on"]["land"]
+                run.git(self.repo, "checkout", state["branch"])
+                if method == "merge":
+                    run.git(self.repo, "merge", "--no-edit", "origin/main")
+                else:
+                    run.git(self.repo, "rebase", "origin/main")
+                sha = run.git(self.repo, "rev-parse", "HEAD")
+                self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), tree)
+                lp = type("Member", (), {"state": state, "wt": self.repo, "log": lambda _, text: None})()
+                checks = len(self.checks)
+                self.assertEqual(run.suite_shared(lp, "origin/main", sha, SUITE)["tested"], tree)
+                self.assertEqual(len(self.checks), checks)
+                with record.record(directory) as current:
+                    current["state"] = "running"
+
+    def test_a_crash_after_green_reuses_the_tree_before_writing_the_verdict(self):
+        directory = self.member()
+        self.advance()
+        with patch.object(record, "record", side_effect=RuntimeError("crash after green")):
+            with self.assertRaisesRegex(RuntimeError, "crash after green"):
+                land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(len(land._trees(self.turn)[1]), 1)
+        self.assertNotIn("land", self.wait(directory))
+        self.wake.assert_not_called()
+        self.assert_cleaned()
+        land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.assertIn("land", self.wait(directory))
+        self.wake.assert_called_once()
+
+    def test_a_crash_after_the_verdict_retries_the_wake_without_checking(self):
+        directory = self.member()
+        self.advance()
+        self.wake.side_effect = [RuntimeError("crash before wake"), 999]
+        with self.assertRaisesRegex(RuntimeError, "crash before wake"):
+            land.check_line(self.turn)
+        verdict = self.wait(directory)
+        land.check_line(self.turn)
+        self.assertEqual(self.wait(directory), verdict)
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(self.wake.call_count, 2)
+
+    def test_a_refused_wake_preserves_red_and_retries_without_a_check(self):
+        directory = self.member(once="false")
+        self.advance()
+        self.wake.side_effect = [False, 999]
+        land.check_line(self.turn)
+        verdict = self.wait(directory)
+        self.assertIn("fix", verdict)
+        land.check_line(self.turn)
+        self.assertEqual(self.wait(directory), verdict)
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(self.wake.call_count, 2)
+
+    def test_a_member_changed_during_the_check_is_never_written_or_woken(self):
+        for ending in ("running", "stopped", "waiting"):
+            with self.subTest(ending=ending):
+                directory = self.member(ending)
+                self.advance(**{f"{ending}.txt": ending})
+                changed = []
+
+                def race(cmds, cwd, log_path, *args, **kw):
+                    answer = self.check(cmds, cwd, log_path, *args, **kw)
+                    with record.record(directory) as current:
+                        current.update(state=ending, waiting_on={"ref": "origin/main"},
+                                       pid=5678, error="a concurrent change")
+                    changed.append((directory / "run.json").read_bytes())
+                    return answer
+
+                with patch.object(gate, "run_done_when", side_effect=race):
+                    land.check_line(self.turn)
+                self.assertEqual((directory / "run.json").read_bytes(), changed[0])
+                self.wake.assert_not_called()
+                self.assert_cleaned()
+
+    def test_one_pass_per_line(self):
+        self.member()
+        self.advance()
+        with self.turn.open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            land.check_line(self.turn)
+        self.assertEqual(self.checks, [])
+        self.wake.assert_not_called()
+        land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.wake.assert_called_once()
+
+    def test_a_gate_changing_the_pinned_tree_never_marks_it_green(self):
+        directory = self.member(once="printf changed >> work.txt")
+        self.advance()
+        land.check_line(self.turn)
+        self.assertIn("Checkout changed during", self.wait(directory)["fix"]["line"])
+        self.assertEqual(land._trees(self.turn)[1], {})
+        self.wake.assert_called_once()
+        self.assert_cleaned()
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
