@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import socket
 import sys
 import tempfile
 import time
@@ -82,6 +83,37 @@ class ChecksBoxed(unittest.TestCase):
             except BlockingIOError:
                 return True
         return False
+
+    def test_manager_outside_the_box_is_unavailable(self):
+        runtime = self.root / "runtime"
+        (runtime / "systemd").mkdir(parents=True)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(listener.close)
+        # A relative name fits AF_UNIX even when the checkout path is long.
+        listener.bind(str((runtime / "systemd/private").relative_to(REPO)))
+        listener.listen(16)
+        bindir = self.root / "bin"
+        bindir.mkdir()
+        binary = bindir / "systemd-run"
+        binary.write_text("#!/bin/sh\nexit 97\n")
+        binary.chmod(0o755)
+        command = self.command(
+            f"import sys; sys.path.insert(0, {str(REPO)!r}); "
+            "from agentkit import orch; print(orch.user_manager())")
+        with patch.dict(os.environ, {"XDG_RUNTIME_DIR": "runtime",
+                                     "PATH": f"{bindir}:{os.environ['PATH']}"}):
+            for name in ("proof", "whole", "sharded"):
+                with self.subTest(command=name):
+                    if name == "proof":
+                        result = self.proof(command)
+                        self.assertEqual(result["returncode"], 0, result)
+                        text = result["output"]
+                    else:
+                        ok, text = self.check(command + (" # AK_SHARD" if name == "sharded" else ""))
+                        self.assertTrue(ok, text)
+                    seen = [line for line in text.splitlines() if line in ("True", "False")]
+                    self.assertTrue(seen, text)
+                    self.assertEqual(seen, ["False"] * len(seen))
 
     def stop_sleeper(self):
         # The pre-fix failure also cleans up its own fixture, without inspecting host PIDs.
