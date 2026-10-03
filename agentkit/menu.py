@@ -48,7 +48,8 @@ account's *shared* weekly meter -- the one every model of it draws on: a provide
 `Claude II`), each from its own reading, and a provider without them keeps its
 single row.  A bar and `NN% left`, then `resets <weekday> <HH:MM>` in local time, then
 `Fable 41%` for a scoped cap that reads differently, then `5h 40% left` for the 5-hour
-window (`5h spent until 14:00` once it reads 100% used), then `? <reason>` when the last
+window (`5h spent until 14:00` once it reads 100% used), then `1 reset in hand` while the
+subscription holds usage-limit resets for the owner to spend on `c`, then `? <reason>` when the last
 probe errored though the meter it read still stands, and `as of HH:MM` beside it when
 that reading is older than half an hour, with the weekday when it is not from today.
 A probe the endpoint would not answer says nothing at all: its reading stands as it was,
@@ -58,7 +59,7 @@ key) until little is left: amber from 20% left, red from 5% (`fill`); the rows r
 through violet by the hue of that colour, the near-greys last.  `—` is drawn
 only when there is no shared week to draw -- no reading at all, or nothing but one model's
 private cap -- and the words after it say why.  Everything else `ak usage` knows -- week
-elapsed, the resets in hand, headroom, budget, outlook -- stays in `ak usage`.
+elapsed, headroom, budget, outlook -- stays in `ak usage`.
 
 The main screen is live.  It draws at once from the cached meters, then probes every provider
 in the background and draws again when the answer lands, and again every ten seconds after
@@ -1758,6 +1759,20 @@ def percent_left(meter):
     return round(max(0, min(100, 100 - meter["used"])))
 
 
+def in_hand(prov):
+    """`1 reset in hand`, `2 resets in hand`: the usage-limit resets this subscription holds,
+    for the owner to spend on `c` (config_spend_reset); "" with none, or none known."""
+    held = int(usage._number(prov.get("resets")) or 0)
+    return f"{held} reset{'' if held == 1 else 's'} in hand" if held > 0 else ""
+
+
+def resets_held(cfg):
+    """{label: (provider, account)}: each subscription the cached meters say holds a reset,
+    named as its usage row is, in that row's order."""
+    return {label: (name, account) for name, label, prov, account in usage_rows(cfg)
+            if in_hand(prov)}
+
+
 def resets_note(meter, now):
     """`resets Fri 14:00`, `resets 23 Oct` or `resets in 3d`: `ak usage`'s `resets`, as words."""
     when = usage.reset_when(meter, now)
@@ -1866,8 +1881,9 @@ def hue(kind):
 
 
 def usage_rows(cfg):
-    """Each usage row `usage_lines` draws, in its order: the provider, the row's label and the
-    reading it is drawn from, out of the cached meters."""
+    """Each usage row `usage_lines` draws, in its order: the provider, the row's label, the
+    reading it is drawn from, out of the cached meters, and its account, None for the
+    provider's single row."""
     try:
         providers = json.loads((config.STATE / "usage.json").read_text())["providers"]
         if not isinstance(providers, dict):
@@ -1884,7 +1900,7 @@ def usage_rows(cfg):
             rec = top if account is None else found.get(account)
             rows.append((name, shown if account is None else
                          config.account_label(cfg, name, account, shown),
-                         rec if isinstance(rec, dict) else {}))
+                         rec if isinstance(rec, dict) else {}, account))
     return rows
 
 
@@ -1899,7 +1915,7 @@ def usage_tip(cfg, number, now=None):
     rows = usage_rows(cfg)
     if not 0 < number <= len(rows):
         return None, None
-    name, label, prov = rows[number - 1]
+    name, label, prov, _ = rows[number - 1]
     try:
         week = usage.shared_week(cfg, name, prov, now)
         why = week is None and unread(prov, [m for m in prov.get("meters") or []
@@ -1933,16 +1949,15 @@ def usage_lines(cfg, width):
     from its own reading; a provider without them keeps its single row.  After the percentage, joined with ` · ` and each only when it applies:
     `62,469 credits left` for the credits it can spend past a spent window;
     `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>` more than six days
-    out in a window longer than a week; one note per scoped meter whose figure differs
-    (`Fable 41%`); `5h 40% left` for the 5-hour window, or `5h spent until 14:00` once it
+    out in a window longer than a week; `1 reset in hand` (`in_hand`); one note per scoped
+    meter whose figure differs (`Fable 41%`); `5h 40% left` for the 5-hour window, or `5h spent until 14:00` once it
     reads 100% used; `? <reason>` when the last probe errored although the meter it read
     still stands, and `as of HH:MM` beside it when the reading is older than half an hour,
     with the weekday when it is not from today.  A probe the endpoint refused to answer
     says nothing at all: the reading it could not replace stands as it was, and its age
     says the rest.  The filled cells are `fill`'s colour for what is left, the empty ones dim,
     and the rows run by the `hue` of the provider's `colour`.  `ak usage` keeps the rest --
-    week elapsed, the resets in hand,
-    headroom, budget, outlook -- and the picker keeps ranking on the tightest meter: only
+    week elapsed, headroom, budget, outlook -- and the picker keeps ranking on the tightest meter: only
     this display changed.  The bars are one column, sized once per draw from the row with the
     least room, down to four cells; the bar gives way to the notes first, and only then does
     each note that still will not fit give way on its own (`fitting`), so one long note never
@@ -1951,7 +1966,7 @@ def usage_lines(cfg, width):
     nothing to draw is `—` and the words that say why, never `—` alone.
     """
     rows = usage_rows(cfg)
-    label_room = min(16, max((terminal.cells(terminal.plain(label)) for _, label, _ in rows),
+    label_room = min(16, max((terminal.cells(terminal.plain(label)) for _, label, _, _ in rows),
                              default=0), max(1, width - 16))
     bar_width = min(12, max(1, width - label_room - 15))
     now = time.time()
@@ -1959,7 +1974,7 @@ def usage_lines(cfg, width):
     pending = []
     # The bar never drops below this to keep a note; narrower notes give way first.
     floor = min(4, bar_width)
-    for name, label, prov in rows:
+    for name, label, prov, _ in rows:
         prefix = "  " + terminal.pad(label, label_room) + "  "
         why = None
         try:
@@ -1981,6 +1996,7 @@ def usage_lines(cfg, width):
         # In the order the row reads them, each with how much it is worth keeping (`fitting`).
         notes = [(rank, part) for rank, part in
                  [(-1, usage.credits_note(prov)), (0, resets_note(week, now)),
+                  (1, in_hand(prov)),
                   *((3, note) for note in scoped_notes(cfg, name, readable, week)),
                   *((five,) if five else ()),
                   (1, fault(prov)), (1, usage.as_of(prov, now))] if part]
@@ -2077,11 +2093,13 @@ def show_notices(messages):
             message.replace(os.path.expanduser("~") + "/", "~/"), terminal.width() - 1)))
 
 
-# The rows under the models, each running its own step; Providers two, `+ add` and `− remove`.
+# The rows under the models, each running its own step; Providers `+ add` and `− remove`, and
+# `↻ spend a reset` while a subscription holds one (resets_held).
 CONFIG_ROWS = ("+ add a model", "Providers", "Discord", "Version")
 PROVIDERS = ("row", "Providers")
 VERSION = ("row", "Version")    # agentkit's build, read and nothing more
-PROVIDER_ACTS = (("+ add", "+ add"), ("− remove", "- remove"))   # and each without UTF-8
+PROVIDER_ACTS = (("+ add", "+ add"), ("− remove", "- remove"),
+                 ("↻ spend a reset", "spend a reset"))   # and each without UTF-8
 # What `+ add` offers each provider the shipped default has as: its company, and the harness it
 # runs on; any other is its name on the Providers row.
 COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
@@ -2173,7 +2191,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
-    act on, -1 its label, and on Providers 0 or less `+ add` and 1 or more `− remove`.  `cells`
+    act on, -1 its label, and on Providers 0 or less `+ add`, 1 `− remove` and 2 or more the
+    last act it offers.  `cells`
     are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
     the terminal counts. On a phone the harness gives way, then the bars, then the label.
     """
@@ -2255,7 +2274,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     values = ("", "", discord_value(), version or "?")
     for row, value in zip(CONFIG_ROWS, values):
         if ("row", row) == PROVIDERS:
-            chosen = min(max(column, 0), 1) if at == PROVIDERS else None
+            chosen = max(column, 0) if at == PROVIDERS else None
             drawn = providers_lines(cfg, wide, room - 2 - wide - 2, chosen)
             for number, (line, cells) in enumerate(drawn):
                 places[len(lines)] = (PROVIDERS, cells)
@@ -2305,17 +2324,24 @@ def _effort_moves(levels, effort, kind, bright, word, bars):
     return start
 
 
+def provider_acts(cfg):
+    """The acts the Providers row offers: `↻ spend a reset` only while there is one to spend."""
+    return PROVIDER_ACTS if resets_held(cfg) else PROVIDER_ACTS[:2]
+
+
 def providers_lines(cfg, wide, room, chosen=None):
     """The Providers row's lines, each with the (first, last, act) of the acts on it for a
     click, counted from 1: every provider the config has, by its name and in its colour -- a
-    cell that only explains it, `("account", name)` -- then `+ add` (act 0) and `− remove`
-    (act 1), wrapped at an item under themselves in `room`.
-    `chosen` is the act the highlight is on, reversed, or bracketed with no colour to reverse."""
+    cell that only explains it, `("account", name)` -- then `+ add` (act 0), `− remove`
+    (act 1) and, while a subscription holds a reset, `↻ spend a reset` (act 2), wrapped at an
+    item under themselves in `room`.  `chosen` is the act the highlight is on, the last past
+    them, reversed, or bracketed with no colour to reverse."""
     items = [(terminal.cut(NAMES.get(name, name.title()), room), colour(cfg, name),
               ("account", name)) for name in cfg["providers"]]
-    for number, texts in enumerate(PROVIDER_ACTS):
+    acts = provider_acts(cfg)
+    for number, texts in enumerate(acts):
         text = texts[0 if terminal.utf8() else 1]
-        if number == chosen:
+        if chosen is not None and number == min(chosen, len(acts) - 1):
             items.append((text if terminal.colour_depth() else f"[{text}]", "reverse", number))
         else:
             items.append((text, None, number))
@@ -2619,8 +2645,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     Enter or a click on a model's label, left of its marks, opens that model's own screen
     (config_model), and Esc there comes back to its row.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
-    highlighted after it.  On `Providers` ←/→ move between `+ add` and `− remove`, and Enter or
-    a click on one runs it (config_add_provider, config_remove_provider); the row a model, a
+    highlighted after it.  On `Providers` ←/→ move between `+ add`, `− remove` and `↻ spend a
+    reset`, which ↓ never lands on, and Enter or a click on one runs it (config_add_provider,
+    config_remove_provider, config_spend_reset); the row a model, a
     provider or a subscription was just added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
     On a screen too short for every row the part the highlight is on is shown, and what the
@@ -2644,8 +2671,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         here = here if here in rows else rows[0]      # the highlight is the row itself
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # up from Providers' acts onto a row without marks
-        if here == PROVIDERS and column == 3 and not selected:
-            column = 0                # the one cell leads to `+ add`, as the first mark does
         where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"
                  if here[0] == "row" else "effort" if column == 3 else "label" if column < 0
                  else "mark")
@@ -2655,10 +2680,15 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                    selected, providers, moves)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
+        was = here
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             note or standing, keys, marks=3,
                                             clock=clock, moves=moves, tips=config_tips(cfg, token))
         column = column if clicked is None else clicked
+        if here == PROVIDERS != was and clicked is None:
+            # the one cell leads to `+ add`, as the first mark does, and no move onto the row
+            # lands on spending a reset: only ← → or a click reach it
+            column = 0 if column == 3 and not selected else min(column, 1)
         if act is None:
             continue                  # a resize or the pointer: drawn again
         note = ""
@@ -2673,9 +2703,13 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 if added:
                     clock.touch(here)
         elif here == PROVIDERS:
+            last = len(provider_acts(cfg)) - 1
+            column = min(max(column, 0), last)
             if act in ("left", "right"):
-                column = 1 if act == "right" else 0
-            elif act in ("enter", "space") and column >= 1:
+                column = min(max(column + (1 if act == "right" else -1), 0), last)
+            elif act in ("enter", "space") and column == 2:
+                note = config_spend_reset(cfg)
+            elif act in ("enter", "space") and column == 1:
                 note = config_remove_provider(cfg)
             elif act in ("enter", "space"):
                 before = copy.deepcopy(cfg["providers"])
@@ -3079,6 +3113,34 @@ def config_remove_provider(cfg):
     except (config.Error, OSError) as exc:
         return str(exc)
     return _saved(cfg, cfg, before)
+
+
+@terminal.clicks_its_own
+def config_spend_reset(cfg):
+    """`↻ spend a reset` on the Providers row: one usage-limit reset spent, by hand, on a
+    subscription the cached meters say holds one (resets_held), picked from a list, named as
+    its usage row is, only when more than one does.  usage.replenish spends it and reads the
+    meters back into the cache, so its usage row shows the week that came back; Esc while it
+    is spent lets it finish.  What to say under the matrix: that row's sentence (usage_tip)."""
+    held, title = resets_held(cfg), "config · spend a reset"
+    picked = next(iter(held), None)
+    if len(held) > 1:
+        keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1]
+
+        def listed():     # the screen the list is drawn on, drawn again on a resize
+            terminal.frame(title, [""] * len(held), keys + "   esc back")
+            return 3
+        picked = terminal.choose(list(held), around=listed)
+    if picked is None:
+        return ""
+    name, account = held[picked]
+    try:
+        spent, _ = waited(lambda: usage.replenish(cfg, name, account=account), title)
+    except Back:
+        return ""
+    if not spent:
+        return f"{picked}: no reset was spent"
+    return usage_tip(cfg, [label for _, label, _, _ in usage_rows(cfg)].index(picked) + 1)[0]
 
 
 def config_discord():
