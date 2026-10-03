@@ -62,7 +62,7 @@ Every model has all three marks; the headings stay visible while the rows scroll
 
 After `/clear` in a Claude seat's launched pane, reopening and title changes follow its new conversation on its login. The watch tick binds older running seats to their own client pane without restarting them. If that pane is removed, restarting the seat uses its current pane. In-session `/resume` does not transfer seat ownership. Say what you want. The orchestrator asks until the goal is clear and checkable, then goes. Close the terminal.
 
-`ak plan` lists the session's numbered outcomes and drives its progress bar. `ak plan add "OUTCOME" --check 'COMMAND'` accepts a line only when the command fails on a clean checkout of the project's default branch, without seat variables. Use `--eye` for what only you can judge; `ak plan tick N` marks only those lines done on your word.
+`ak plan` lists numbered outcomes. `add --check` requires failure on a clean checkout of the default branch without seat variables. Only `--eye` lines accept `tick N`, on your word.
 
 ## While you are away
 
