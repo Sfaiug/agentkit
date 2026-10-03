@@ -480,8 +480,6 @@ class QuotaDry(unittest.TestCase):
             {entry["model"]: name for name, entry in self.cfg["models"].items()}))
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
             self.script(adapters / f"{harness}.sh", ADAPTER)
-            # the manifests are the repository's own: signatures are read, never invented here
-            (adapters / f"{harness}.toml").symlink_to(REPO / f"adapters/{harness}.toml")
         self.plan({})
         self.task = self.root / "task.md"
         self.task.write_text("---\nrepo: none\nrounds: 1\n---\n# Ran dry\n\n"

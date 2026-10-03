@@ -166,6 +166,7 @@ def stateful(adapter, directory, harnesses=()):
         source = target if target.exists() else REPO / "adapters" / target.name
         text = source.read_text() if source.exists() else "version = 1\n"
         text = re.sub(r"(?ms)^\[worker\]\n.*?(?=^\[|\Z)", "", text)
+        target.unlink(missing_ok=True)
         target.write_text(text.rstrip() + "\n\n[worker]\nstate = " +
                           json.dumps([str(directory)]) + "\n")
 
