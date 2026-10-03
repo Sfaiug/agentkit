@@ -90,10 +90,6 @@ class SlowStart(unittest.TestCase):
         client = Mock()
         client.call.return_value = {'status': 'disabled'}
         self.stack.enter_context(patch.dict(self.api, Client=lambda _path: client))
-        # Keep the Unix socket short even in a long worktree path.
-        make_runtime = tempfile.TemporaryDirectory
-        self.stack.enter_context(patch.object(tempfile, 'TemporaryDirectory',
-            side_effect=lambda **_kw: make_runtime(prefix='.ak-test-', dir=REPO)))
 
     def start(self, wanted=lambda: True):
         handlers = {sig: signal.getsignal(sig) for sig in
@@ -126,6 +122,10 @@ class SlowStart(unittest.TestCase):
     def test_closed_during_backfill_starts_next_try_and_keeps_private_state(self):
         with patch.dict(os.environ, FAKE_DELAY='16'):
             self.assertEqual(self.start(lambda: not (self.home / 'backfill-started').exists()), 0)
+        with closing(sqlite3.connect(self.home / 'state_5.sqlite')) as db, db:
+            db.execute("INSERT INTO threads VALUES ('acme-older-thread')")
+            db.execute("UPDATE backfill_state SET last_watermark = 'acme-checkpoint'")
+        (self.home / 'installation_id').write_text('acme-existing-seat')
         before = self.backfill()
         self.assertEqual(before[1], 'running')
         self.assertFalse((self.home / 'tui-started').exists())
@@ -139,7 +139,8 @@ class SlowStart(unittest.TestCase):
         self.assertFalse((self.home / 'state_5.sqlite').is_symlink())
         self.assertFalse((self.home / 'installation_id').is_symlink())
         with closing(sqlite3.connect(self.home / 'state_5.sqlite')) as db:
-            self.assertEqual(db.execute('SELECT id FROM threads').fetchall(), [('acme-thread',)])
+            self.assertEqual(db.execute('SELECT id FROM threads ORDER BY id').fetchall(),
+                             [('acme-older-thread',), ('acme-thread',)])
         self.assertEqual((self.source / 'state_5.sqlite').read_bytes(), b'acme-owner-database')
         self.assertEqual((self.source / 'installation_id').read_text(), 'acme-owner-installation')
 
