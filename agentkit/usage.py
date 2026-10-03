@@ -17,6 +17,10 @@ Exhaustion is the one hard exclusion, and it is not a knob: a meter is spent at 
 not one point earlier, because a subscription is bought to be used to the end.  The worker
 pick (`pick_order`) ranks whatever is left by budget; the orchestrator choice (`ak orch`)
 ignores both numbers and takes the default orchestrator while it still has something to spend.
+
+Credits an adapter reports (`"credits": <number left>`) are usage left past a spent window:
+such a provider is not spent, only ranked after every one with a window left (`on_credits`),
+because credits cost money and the subscription is already paid.
 """
 
 import fcntl
@@ -172,6 +176,8 @@ def _probe(cfg, provider, now, account=None):
     out = {"provider": provider, "harness": harness, "via": via, "meters": [],
            "error": data.get("error"), "pace": None, "resets": _resets(harness, account),
            "exhausted": False, "probed_at": now}
+    if _number(data.get("credits")) is not None:
+        out["credits"] = _number(data["credits"])
     retry = _number(data.get("retry_after"))
     if retry is not None and retry > 0:
         # The endpoint's own not-before, in seconds: `_probe_gently` writes it down beside
@@ -324,12 +330,12 @@ def _kept(cached, fresh, now):
         return fresh
     cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
-    keys = ("meters", "fetched_at", "resets", "error", "notes", "none", "none_reason")
+    keys = ("meters", "fetched_at", "resets", "credits", "error", "notes", "none", "none_reason")
     if cached.get("none") or not cached.get("meters"):
         # No reading to keep, so nothing overwrites the ask's own error: dropping none here
         # is how a meterless row came to say `window reset`, and keeping an old error here
         # is how a 429 came to still say 401.
-        keys = ("meters", "fetched_at", "resets", "notes", "none", "none_reason")
+        keys = ("meters", "fetched_at", "resets", "credits", "notes", "none", "none_reason")
     kept = {key: cached[key] for key in keys if key in cached}
     if "fetched_at" not in kept:
         # The ask that follows is this moment's; the measurement is not, so it is written down
@@ -597,12 +603,14 @@ def _gate_flags(providers, now, cfg):
             accounts = _gate_flags({account: accounts[account] for account in listed
                                     if isinstance(accounts.get(account), dict)}, now, cfg)
             if accounts:
+                # One on credits goes after every one with a window left, the usual login too.
                 def rank(account):
                     spent = accounts[account]["exhausted"]
                     unknown = accounts[account]["budget_reason"] is not None
                     usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
                     group = 1 if usual else (0 if not spent else 2)
-                    return (group, spent, unknown, -accounts[account]["budget"])
+                    return (spent, accounts[account]["on_credits"], group, unknown,
+                            -accounts[account]["budget"])
                 best = min(accounts, key=rank)
                 prov.clear()
                 prov.update(accounts[best], accounts=accounts, account=best)
@@ -620,7 +628,7 @@ def _gate_flags(providers, now, cfg):
             for key in MARK:
                 prov.pop(key, None)
             until = None
-        prov["exhausted"] = until is not None
+        spent = False
         for meter in prov.get("meters") or []:
             resets_at = meter.get("resets_at")
             pending = (isinstance(resets_at, (int, float)) and not isinstance(resets_at, bool)
@@ -631,7 +639,10 @@ def _gate_flags(providers, now, cfg):
             meter["reset_at"] = _number(resets_at)
             meter["tier_a_exhausted"] = meter["used"] >= 100 and pending
             meter["exhausted"] = meter["used"] >= 100
-            prov["exhausted"] = prov["exhausted"] or meter["exhausted"]
+            spent = spent or meter["exhausted"]
+        # a spent window with credits left is usage left, ranked after every window still open
+        prov["on_credits"] = spent and credits_left(prov) > 0
+        prov["exhausted"] = until is not None or (spent and not prov["on_credits"])
         split = _split_week(cfg, name, prov)
         # Derived on every read, including old caches and changes to config.toml.
         prov.pop("effective_used", None)
@@ -1301,6 +1312,29 @@ def _budget(prov, weekly, now=None):
     return (left + (_number(prov.get("resets")) or 0.0)) / remaining, None
 
 
+def credits_left(prov):
+    """The credits this provider -- or account -- still holds, 0.0 for none or none known."""
+    value = _number(prov.get("credits")) if isinstance(prov, dict) else None
+    return value if value is not None and value > 0 else 0.0
+
+
+def credits_note(prov):
+    """`62,469 credits left`, the row's words for them, or "" for none."""
+    left = int(credits_left(prov))
+    return f"{left:,} credit{'' if left == 1 else 's'} left" if credits_left(prov) else ""
+
+
+def on_credits(cfg, name, providers):
+    """Whether this model runs on its provider's credits: a meter it watches is spent.
+
+    Credits cost money and the subscription is already paid, so every pick puts such a model
+    after every model with a window left; it is spent only once the credits are gone too.
+    """
+    prov = providers.get(config.model(cfg, name)["provider"])
+    return bool(credits_left(prov)) and any(m.get("used", 0) >= 100
+                                            for m in _watched(cfg, name, providers)[0])
+
+
 def provider_budget(prov, now=None):
     """The smallest non-session budget; every gate must support the spending rate."""
     now = time.time() if now is None else now
@@ -1351,7 +1385,7 @@ def model_exhausted(cfg, name, providers):
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
             return True, f"{provider} ran dry; nothing is picked on it until {when}"
     spent = [m for m in meters if m["used"] >= 100]
-    if not spent:
+    if not spent or credits_left(prov):
         return False, None
     worst = max(spent, key=lambda m: m["used"])
     return True, f"{worst['name']} {worst['used']}% used >= 100"
@@ -1370,6 +1404,8 @@ def spent_meter(cfg, name, providers):
     """The worst meter this model watches that reads 100% used, or None: what the new-session
     screen calls spent.  Unlike `model_spent`, a meter whose reset nobody knows counts too --
     the screen only declines to choose the model for him, and says when it resets if it can."""
+    if on_credits(cfg, name, providers):
+        return None
     spent = [m for m in _watched(cfg, name, providers)[0] if m.get("used", 0) >= 100]
     return max(spent, key=lambda m: m["used"]) if spent else None
 
@@ -1393,8 +1429,11 @@ def model_spent(cfg, name, providers):
     """
     watched, label = _watched(cfg, name, providers)
     spent = [m for m in watched if m.get("tier_a_exhausted", m.get("exhausted"))]
+    left = credits_note(providers.get(config.model(cfg, name)["provider"]))
     if spent:
         worst = max(spent, key=lambda m: m["used"])
+        if left:
+            return False, f"{worst['name']} {worst['used']}% used, {left}"
         return True, f"{worst['name']} {worst['used']}% used >= 100"
     if not watched:
         return False, f"{label} (not reported)"
@@ -1408,8 +1447,9 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
 
     Budget divides the fraction unspent, plus one whole allowance for each usage-limit reset in
     hand, by the fraction of its window still to go. Unknown readings have budget zero and sort
-    after every known model; equal budgets keep list order. The one exclusion is a gate meter
-    at 100% used; `skip` names models a caller leaves out before any of this reads the list.
+    after every known model, and a model on credits (`on_credits`) after both; equal budgets
+    keep list order. The one exclusion is a gate meter at 100% used with no credits left;
+    `skip` names models a caller leaves out before any of this reads the list.
     payg providers are the exception: they cost money,
     so they stay out while any subscription model is still below pace, and a subscription model
     whose meters report nothing counts as below it.  Where the harness's own config says what
@@ -1452,7 +1492,8 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
             reason = reason.removeprefix("unknown: ")
             print(f"pick {role}: {name} ({provider}) budget {budget:g} unknown: {reason}; "
                   "ranked last", file=sys.stderr)
-    return sorted(candidates, key=lambda n: (budgets[n][1] is not None, -budgets[n][0]))
+    return sorted(candidates, key=lambda n: (on_credits(cfg, n, providers),
+                                             budgets[n][1] is not None, -budgets[n][0]))
 
 
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
@@ -1578,6 +1619,8 @@ def outlook(prov):
     """
     if prov.get("exhausted"):
         return "exhausted"
+    if prov.get("on_credits"):
+        return "on credits"
     week = _weekly(prov)
     room = _headroom(week, _number(prov.get("resets")) or 0.0)
     if prov.get("error") or room is None:
@@ -1721,6 +1764,8 @@ def render(cfg, providers, order, *, repo=None):
     # a reset the policy spent, for as long as the meters it went and re-read stay cached
     lines += [f"{name}: {note}" for name, prov in providers.items()
               for note in prov.get("notes") or []]
+    lines += [f"{name}: {credits_note(prov)}" for name, _, prov in _accounts(cfg, providers)
+              if credits_note(prov)]
     lines.append("pick order: " + (", ".join(order) if order else "(none: every worker's provider is exhausted)"))
     pair = review_pair(cfg, providers)
     if pair:
