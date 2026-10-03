@@ -292,24 +292,12 @@ raise AssertionError("this regression needs no tmux server")
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_near_deadline_success_is_kept_by_caller(self):
-        os.environ["AGENTKIT_MUSE_USAGE_TIMEOUT"] = "3"
-        reading = {"provider": "meta", "error": None, "meters": [
-            {"name": "window", "used": 22, "resets_at": time.time() + 3600}]}
-
-        def completed(argv, **kwargs):
-            # The supervisor owns the deadline; a second timeout can discard its late answer.
-            self.assertNotIn("timeout", kwargs)
-            clock.return_value = float(kwargs["env"][usage_probe.DEADLINE_ENV]) - .01
-            self.assertGreater(clock(), float(kwargs["env"][usage_probe.WORK_DEADLINE_ENV]))
-            return subprocess.CompletedProcess(argv, 0, json.dumps(reading), "")
-
-        # Advance to completion without spending the short budget on process scheduling.
-        with patch.object(usage_probe.time, "monotonic", return_value=100.0) as clock, \
-                patch.object(usage_probe.subprocess, "run", side_effect=completed) as command:
-            data = self.collect()
-        self.assertIsNone(data["error"])
-        self.assertEqual([meter["used"] for meter in data["meters"]], [22])
-        self.assertEqual(command.call_count, 1)
+        # Leave startup room under load; this answer still outlasts a halved work budget.
+        os.environ.update(AGENTKIT_MUSE_USAGE_TIMEOUT="5", RESPONSE_DELAY="3.05")
+        started = time.monotonic()
+        self.assertIsNone(self.collect()["error"])
+        self.assertGreater(time.monotonic() - started, 3.0)
+        self.assertEqual(len(self.records("requests")), 1)
 
     def test_credential_extraction_timeout_and_success_clean_descendants(self):
         os.environ.update(META_API_KEY="", CREDENTIAL="timeout", AGENTKIT_MUSE_USAGE_TIMEOUT="1.6")

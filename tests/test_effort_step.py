@@ -2,9 +2,10 @@
 
 The step: `menu.show_config` runs in a child process on a pty of its own, through
 tests/test_config_matrix.py's Screen, in a temporary HOME whose config.toml is the shipped
-default.  The catalog waits until the test releases it, then lists Opus at `low high` alone:
-every step taken while it waits must draw from the manifest, and the one after it answers
-steps along its listing.  Completion markers keep process scheduling out of the check.
+default.  Claude's adapter is a fake in a directory of its own ($AGENTKIT_ADAPTER_DIR) whose
+`models` sleeps five seconds before it lists Opus at `low high` alone: every step taken while it
+sleeps must still be on the screen within 100 ms, off the catalog in hand, and the one after it
+answers steps along its listing.
 
 The run: adapters/opencode.sh with a stub `opencode` first on PATH that records its argv and the
 config document it was launched with, so a MiMo model at `none` and at `high` is seen asking
@@ -13,34 +14,39 @@ OpenCode config, and the only process signalled is the test's own child.
 """
 
 import json
+import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 
 from test_config_matrix import DOWN, ENTER, LEFT, REPO, RIGHT, Screen, highlighted
-from agentkit import config
+from agentkit import config, terminal
 
 CHILD = r"""
 import os, sys, time
 sys.path.insert(0, os.environ["MATRIX_REPO"])
 from contextlib import closing
-from agentkit import config, menu, terminal, update
+from agentkit import menu, terminal, update
 
-def catalog(harness):
-    assert harness == "claude"
-    print("<catalog asked>", flush=True)
-    while not (config.HOME / "catalog-release").exists():
-        time.sleep(.01)
-    return [{"id": "claude-opus-5-5", "label": "Opus 5.5", "efforts": ["low", "high"]}]
-
-config.catalog = catalog
-ask_catalog = config._ask_catalog
-def answered(harness):
-    ask_catalog(harness)
-    print("<catalog answered>", flush=True)
-config._ask_catalog = answered
+# Measure in the child: the parent's reader can be scheduled after the frame is drawn.
+read_key, frame, pressed = terminal.read_key, terminal.frame, None
+def measured_key(*args, **kwargs):
+    global pressed
+    key = read_key(*args, **kwargs)
+    if key is not None:
+        pressed = time.monotonic()
+    return key
+def measured_frame(*args, **kwargs):
+    spots = frame(*args, **kwargs)
+    if pressed is not None:
+        print(f"<frame {time.monotonic() - pressed:.6f}>", flush=True)
+    return spots
+terminal.read_key, terminal.frame = measured_key, measured_frame
 
 update.version = lambda harness: ""
 update.agentkit_version = lambda: "abc1234"
@@ -48,6 +54,15 @@ update.agentkit_newer = lambda: ""
 with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard)
 print("<left>", flush=True)
+"""
+SLOW = """#!/usr/bin/env bash
+# a Claude adapter whose listing takes five seconds, for tests/test_effort_step.py
+[ "$1" = models ] || exit 2
+here=$(dirname -- "$0")
+: >"$here/asked"
+sleep 5
+printf 'claude-opus-5-5\\tOpus 5.5\\tlow high\\n'
+: >"$here/answered"
 """
 STUB = """#!/usr/bin/env bash
 # opencode for tests/test_effort_step.py: `run` records its argv and its config document
@@ -58,30 +73,47 @@ printf '%s' "${OPENCODE_CONFIG_CONTENT:-}" >"$STUB_DIR/config"
 EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   esc back"
 
 
-def step(screen, keys, shown):
-    return screen.press(keys, lambda lines: shown in "\n".join(lines))
+def timed(screen, keys, shown):
+    """The child's seconds from reading `keys` to drawing the frame showing `shown`."""
+    mark = len(screen.text())
+    os.write(screen.master, keys)
+
+    def ready(text):
+        text = terminal.ANSI.sub("", text[mark:])
+        at = text.find(shown)
+        return re.search(r"<frame ([\d.]+)>", text[at:]) if at >= 0 else None
+    found = screen.until(ready, f"{shown} drawn")
+    return float(found.group(1))
 
 
 class EffortStep(unittest.TestCase):
-    def test_a_step_is_drawn_while_the_listing_is_pending_and_the_next_reads_it(self):
-        screen = Screen(self, child=CHILD)
+    def test_a_step_is_drawn_while_the_listing_sleeps_and_the_next_reads_it(self):
+        adapters = Path(tempfile.mkdtemp(prefix="effort-step-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(adapters)])
+        (adapters / "claude.sh").write_text(SLOW)
+        (adapters / "claude.sh").chmod(0o755)
+        with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}):
+            screen = Screen(self, child=CHILD)
         screen.frame()
         screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)   # opus's effort
-        # The manifest's table while the listing waits: xhigh, max, then round to low.
-        step(screen, ENTER, "‹ max ›")
-        step(screen, ENTER, "‹ low ›")
-        # And on the model's own screen, the listing still waits.
+        # the manifest's table while the listing sleeps: xhigh, max, then round to low
+        self.assertLess(timed(screen, ENTER, "‹ max ›"), 0.1)
+        self.assertLess(timed(screen, ENTER, "‹ low ›"), 0.1)
+        # and on the model's own screen, the listing still asleep
         screen.press(LEFT * 4 + ENTER, lambda lines: "agentkit · config · opus" in lines[0])
         screen.press(DOWN, lambda lines: "effort" in highlighted(lines))
-        step(screen, RIGHT, "‹ medium ›")
-        screen.saw("<catalog asked>")
-        self.assertNotIn("<catalog answered>", screen.text())
+        self.assertLess(timed(screen, RIGHT, "‹ medium ›"), 0.1)
+        self.assertTrue((adapters / "asked").exists(), "the listing was asked for")
+        self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "medium")
         # once it answers, a step reads it: medium is not among `low high`, so it lands on low
-        (screen.path.parent / "catalog-release").touch()
-        screen.saw("<catalog answered>")
-        step(screen, RIGHT, "‹ low ›")
-        step(screen, RIGHT, "‹ high ›")
+        deadline = time.monotonic() + 15
+        while not (adapters / "answered").exists():
+            self.assertLess(time.monotonic(), deadline, "the listing never answered")
+            time.sleep(0.05)
+        time.sleep(0.2)
+        self.assertLess(timed(screen, RIGHT, "‹ low ›"), 0.1)
+        self.assertLess(timed(screen, RIGHT, "‹ high ›"), 0.1)
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
         screen.press(b"\x1b", lambda lines: "opus" in highlighted(lines))  # back to the matrix
         screen.leave()
