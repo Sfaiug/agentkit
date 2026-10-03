@@ -11966,7 +11966,8 @@ def follow_run(run_dir, cfg):
         return 2
     if state.get("state") == "not_needed":
         return 0
-    return 0 if review_pass(state, cfg) and not state.get("merge_failed") else 1
+    return 0 if (state.get("state") != "waiting" and review_pass(state, cfg)
+                 and not state.get("merge_failed")) else 1
 
 
 # --- a PR reviewed alone: the reviewer only ------------------------------------

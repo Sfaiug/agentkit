@@ -187,6 +187,27 @@ class JoinLine(Sandbox):
         spawn.assert_called_once()
         follow.assert_called_once_with(spawn.call_args.args[0], self.cfg)
 
+    def test_foreground_resume_starts_a_worker_and_follows_the_saved_place(self):
+        run.merge(self.lp)
+        run.release_line(self.directory, self.lp.log)
+        before = self.saved()
+        with patch.object(sys, "argv", [str(REPO / "bin" / "ak")]), \
+                patch.object(run, "spawn_bg") as spawn, \
+                patch.object(run, "follow_run", return_value=0) as follow, \
+                patch.object(run, "place_here", side_effect=AssertionError("parent scope")):
+            self.assertEqual(run.resume_run([self.directory.name]), 0)
+        spawn.assert_called_once_with(self.directory, ["resume", self.directory.name],
+                                      expected=before)
+        follow.assert_called_once_with(self.directory, self.cfg)
+        self.assertEqual(self.saved()["waiting_on"], before["waiting_on"])
+
+    def test_foreground_follow_keeps_a_forks_waiting_exit_code(self):
+        state = {**self.saved(), "state": "waiting", "merge_failed": False,
+                 "waiting_on": {"ref": "origin/main"}}
+        with patch.object(job, "job_await", return_value=state):
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(run.follow_run(self.directory, self.cfg), 1)
+
     def test_job_task_exits_and_the_ladder_follows_its_line(self):
         def work(*args, **_kw):
             run.merge(self.lp)
