@@ -16,6 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tests"))
 import every_file
+from agentkit import worker
 
 
 class EveryFileOrder(unittest.TestCase):
@@ -27,6 +28,7 @@ class EveryFileOrder(unittest.TestCase):
         self.home.mkdir()
         (self.root / "tests").mkdir(parents=True)
         (self.root / "tests/smoke.sh").write_text("#!/bin/bash\n")
+        (self.root / "tests/landing.py").write_text((REPO / "tests/landing.py").read_text())
         self.enterContext(patch.dict(os.environ, {
             "HOME": str(self.home), "PATH": os.environ.get("PATH", os.defpath),
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "PYTHONDONTWRITEBYTECODE": "1",
@@ -80,9 +82,7 @@ class EveryFileOrder(unittest.TestCase):
         (self.home / ".cache").write_text("a file cannot hold the cache directory")
         self.assertCountEqual(self.sweep(), self.times)
 
-    def test_both_parts_overlap_print_whole_outputs_and_keep_failures(self):
-        line = next(line.removeprefix("tests: ") for line in (REPO / "AGENTS.md").read_text()
-                    .splitlines() if line.startswith("tests: "))
+    def landing_env(self):
         tools, temp = self.sandbox / "bin", self.sandbox / "tmp"
         tools.mkdir()
         temp.mkdir()
@@ -90,6 +90,14 @@ class EveryFileOrder(unittest.TestCase):
         unshare = tools / "unshare"
         unshare.write_text("#!/bin/sh\nexit 1\n")
         unshare.chmod(0o755)
+        return dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}", TMPDIR=str(temp))
+
+    def landing_line(self):
+        return next(line.removeprefix("tests: ") for line in (REPO / "AGENTS.md").read_text()
+                    .splitlines() if line.startswith("tests: "))
+
+    def test_both_parts_overlap_print_whole_outputs_and_keep_failures(self):
+        env = self.landing_env()
         (self.root / "tests/smoke.sh").write_text('''echo "smoke stdout"
 echo "smoke stderr" >&2
 touch smoke-started
@@ -117,14 +125,31 @@ sys.exit(int(os.environ["ACME_FILES"]))
             with self.subTest(smoke=smoke, files=files):
                 for name in ("smoke-started", "files-started"):
                     (self.root / name).unlink(missing_ok=True)
-                env = dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}", TMPDIR=str(temp),
-                           ACME_SMOKE=str(smoke), ACME_FILES=str(files))
-                proc = subprocess.run(["bash", "-c", line], cwd=self.root, env=env,
+                env.update(ACME_SMOKE=str(smoke), ACME_FILES=str(files))
+                proc = subprocess.run(["bash", "-c", self.landing_line()], cwd=self.root, env=env,
                                       capture_output=True, text=True, timeout=30)
                 self.assertEqual(proc.returncode, files or smoke, proc.stdout + proc.stderr)
                 self.assertEqual(proc.stdout, expected)
                 self.assertEqual(proc.stderr, "")
-                self.assertEqual(list(temp.iterdir()), [], "suite output buffers leaked")
+                self.assertEqual(list(Path(env["TMPDIR"]).iterdir()), [], "suite output buffers leaked")
+
+    def test_progress_reaches_the_watchdog_before_either_part_finishes(self):
+        (self.root / "tests/smoke.sh").write_text(
+            'for n in {0..9}; do echo "smoke $n"; sleep 0.5; done\n')
+        (self.root / "tests/every_file.py").write_text(
+            'import time\nfor n in range(20):\n'
+            '    print(f"files {n}", flush=True); time.sleep(0.5)\n')
+        log = self.sandbox / "gate.log"
+        # Both phases exceed the real watchdog's window; progress must stream in each.
+        with log.open("wb") as output:
+            code, _, killed = worker.limited(
+                ["bash", "-c", self.landing_line()], 30, silence=3,
+                activity=log, output=output, cwd=self.root, env=self.landing_env(),
+                stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        self.assertFalse(killed, log.read_text())
+        self.assertEqual(code, 0, log.read_text())
+        self.assertEqual(log.read_text().splitlines(),
+                         [f"smoke {n}" for n in range(10)] + [f"files {n}" for n in range(20)])
 
 
 if __name__ == "__main__":
