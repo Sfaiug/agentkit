@@ -10,8 +10,9 @@ run that breaks it: the passing prefix is recorded as above, and that run and th
 it check themselves alone on their own turns.  Only a tested tree carries the suite's
 evidence.  Offers `passed`, `waiting` and `together` for `run.final_check`.
 
-`check_line` checks one parked line member and wakes it to land or fix itself.  The run
-consumes that verdict; this checker never takes ownership of its process or delivery.
+`check_line` checks one parked line member and wakes it to land or fix itself. A red target
+gets one repair first, keeping the other members unblamed until its tree changes. The run
+consumes its verdict; this checker never takes ownership of its process or delivery.
 """
 
 from contextlib import ExitStack
@@ -37,7 +38,8 @@ def _trees(turn, kind="trees"):
     kept = data.get(kind) if isinstance(data, dict) else None
     now = time.time()
     return path, {tree: entry for tree, entry in (kept or {}).items()
-                  if isinstance(entry, dict) and now - entry.get("at", 0) < KEEP}
+                  if isinstance(entry, dict)
+                  and (kind == "red" or now - entry.get("at", 0) < KEEP)}
 
 
 def passed(turn, tree):
@@ -45,20 +47,22 @@ def passed(turn, tree):
     return _trees(turn)[1].get(tree)
 
 
-def note(turn, trees, leader, alone=()):
-    """Record the passing trees and the runs that must check themselves alone."""
+def note(turn, trees, leader, alone=(), *, red=None):
+    """Record passing trees, solo checks and red target probes awaiting their repair."""
     path, kept = _trees(turn)
     solo = _trees(turn, "alone")[1]
     kept.update({tree: {"at": time.time(), "tested": trees[-1], "leader": leader}
                  for tree in trees})
     solo.update({run_id: {"at": time.time()} for run_id in alone})
+    repairs = _trees(turn, "red")[1]
+    repairs.update(red or {})
     fresh = path.with_name(path.name + ".new")
-    fresh.write_text(json.dumps({"trees": kept, "alone": solo}))
+    fresh.write_text(json.dumps({"trees": kept, "alone": solo, "red": repairs}))
     fresh.replace(path)
 
 
 def line(turn):
-    """Parked members of `turn`, oldest joined first; verdicts stay until their runs resume."""
+    """Parked members of `turn`, first runs then join order; verdicts stay until resume."""
     members = []
     for directory in record.run_dirs():
         state = record.read_state(directory) or {}
@@ -67,8 +71,24 @@ def line(turn):
                 and wait.get("line") == turn.name
                 and type(wait.get("joined")) in (int, float)):
             members.append((directory, state))
-    return sorted(members, key=lambda member: (member[1]["waiting_on"]["joined"],
+    return sorted(members, key=lambda member: (not member[1].get("first"),
+                                               member[1]["waiting_on"]["joined"],
                                                member[0].name))
+
+
+def _repair(turn, directory, state, tree, red, log):
+    """Keep the probe before launch: a crash can reuse its repair receipt without a suite."""
+    from . import run
+    try:
+        name = run.start_followups(state, directory, log, repair=red["probe"])
+    except record.StopRequested:
+        raise
+    except Exception as exc:  # a refused repair leaves the line waiting, unblamed
+        log(f"WARN no target repair could start: {exc}")
+        return None
+    if name:
+        note(turn, [], directory.name, red={tree: {**red, "run": name}})
+    return name
 
 
 def check_line(turn, log=lambda _: None):
@@ -78,16 +98,37 @@ def check_line(turn, log=lambda _: None):
     can resume or stop during its check: only an unchanged, processless parked record gets
     the verdict.  The recovery lock covers that write and the wake, never the suite.
     """
-    from . import watch
+    from . import run, watch
     turn = Path(turn)
     with turn.open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
+        target = None
         for directory, state in line(turn):
             with record.recovery_lock(directory):
                 if record.read_state(directory) != state or record.process_active(state):
+                    continue
+            if target is None:
+                repo = Path(state.get("worktree") or state["repo"])
+                upstream = state.get("target") or state["base"]
+                upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
+                run.fetch(repo, "origin", "--prune", check=True)
+                tip = run.git(repo, "rev-parse", f"{upstream}^{{commit}}")
+                target = tip, run.git(repo, "rev-parse", f"{tip}^{{tree}}")
+            tip, target_tree = target
+            red = _trees(turn, "red")[1].get(target_tree)
+            if red and not passed(turn, target_tree):
+                name = red.get("run")
+                repair = record.read_state(config.RUNS / name) if name else None
+                if repair is None:
+                    name = _repair(turn, directory, state, target_tree, red, log)
+                    if not name:
+                        return
+                elif not run.repair_open(repair, red["probe"]["sha"]):
+                    name = None
+                if name and directory.name != name:
                     continue
             verdict = {key: state["waiting_on"][key] for key in ("land", "fix")
                        if key in state["waiting_on"]}
@@ -95,7 +136,9 @@ def check_line(turn, log=lambda _: None):
             if checked:
                 if (state.get("review") or {}).get("verdict") != "PASS":
                     continue
-                verdict = _check_member(turn, directory, state, log)
+                verdict = _check_member(turn, directory, state, tip, target_tree, log)
+                if not verdict:
+                    return
             with record.recovery_lock(directory):
                 with record.record(directory) as current:
                     if current != state or record.process_active(current):
@@ -108,14 +151,34 @@ def check_line(turn, log=lambda _: None):
                 return
 
 
-def _check_member(turn, directory, state, log):
-    from . import gate, run, task
+def _check(directory, state, scratch, cmds, log_path, log):
+    from . import gate, run
+    identity = run.commit_identity(scratch)
+    clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
+    # The checker takes a heavy turn without marking any member's record.
+    context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
+               "since": state["waiting_on"]["joined"]}
+    with gate.gate_turn(None, log_path, log, context):
+        ok, text = gate.run_done_when(
+            cmds, scratch, log_path, set(),
+            3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
+            silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True)
+    if (not clean or run.commit_identity(scratch) != identity
+            or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
+        ok = False
+        text += ("\n\nCheckout changed during the final check; "
+                 "these commands do not verify the pinned commit.")
+    text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
+    log_path.write_text(text)
+    return ok, text
+
+
+def _check_member(turn, directory, state, tip, target_tree, log):
+    from . import run, task
     repo = Path(state.get("worktree") or state["repo"])
     head = state["review"]["head_sha"]
     upstream = state.get("target") or state["base"]
     upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
-    run.fetch(repo, "origin", "--prune", check=True)
-    tip = run.git(repo, "rev-parse", f"{upstream}^{{commit}}")
     log_path = directory / "lander.log"
     config.WT.mkdir(parents=True, exist_ok=True)
     with (tempfile.TemporaryDirectory(dir=config.WT, prefix="land-") as tmp,
@@ -143,29 +206,33 @@ def _check_member(turn, directory, state, log):
                 tree = identity["tree_sha"]
                 if passed(turn, tree):
                     return {"land": tree}
-                clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
                 _, body, _ = task.parse_task(directory / "task.md")
                 cmds = task.group_commands(run.with_suite(
                     task.done_when(body, directory / "task.md"), scratch, upstream))[1]
-                # The checker takes a heavy turn without marking any member's record.
-                context = {"repo": str(repo), "run_id": directory.name, "landing": True,
-                           "since": state["waiting_on"]["joined"]}
-                with gate.gate_turn(None, log_path, log, context):
-                    ok, text = gate.run_done_when(
-                        cmds, scratch, log_path, set(),
-                        3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
-                        silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES),
-                        heavy=True)
-                if (not clean or run.commit_identity(scratch) != identity
-                        or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
-                    ok = False
-                    text += ("\n\nCheckout changed during the final check; "
-                             "these commands do not verify the pinned commit.")
-                text = f"Commit: {identity['head_sha']}\nTree: {tree}\n\n{text}"
-                log_path.write_text(text)
+                ok, text = _check(directory, state, scratch, cmds, log_path, log)
                 if ok:
                     note(turn, [tree], directory.name)
                     return {"land": tree}
+                if not state.get("repair") and not passed(turn, target_tree):
+                    run.git(scratch, "reset", "--hard", tip)
+                    run.git(scratch, "clean", "-fdx")
+                    suite = run.declared_suite(scratch)
+                    if suite:
+                        ok, probe = _check(directory, state, scratch, [suite],
+                                           directory / "target-probe.log", log)
+                        if ok:
+                            note(turn, [target_tree], directory.name)
+                        else:
+                            printed = "\n".join("    " + line
+                                                for line in probe[-run.OUT_CAP:].splitlines())
+                            red = {"probe": {"command": suite, "check": f"{suite}  # once",
+                                   "sha": tip,
+                                   "text": f"`{suite}` fails on {upstream} at {tip}, the target's "
+                                           f"own tip, whichever branch runs it. What it printed "
+                                           f"there:\n\n{printed}"}}
+                            note(turn, [], directory.name, red={target_tree: red})
+                            _repair(turn, directory, state, target_tree, red, log)
+                            return {}
             log_path.write_text(text)
             return {"fix": {"line": run.first_failure(text), "log": str(log_path)}}
         finally:
