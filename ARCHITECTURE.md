@@ -11,7 +11,7 @@
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words still leak into some twenty files.
-- `run.py` (12.5k lines) holds most of the run side.
+- `run.py` (12.3k lines) holds most of the run side.
 
 ## Entry points
 
@@ -21,7 +21,7 @@
 
 ## agentkit/
 
-- `run.py`: staffing, review, landing, hand-back, failures, slots, worktrees and merge turns.
+- `run.py`: staffing, review, landing, hand-back, failures, slots, worktrees and delivery locks.
   Passed writable workers park in the line and exit; foreground callers and jobs follow
   records. Forks keep `land`; review-PR merges use the plain flock. API: `main`, `going`,
   `pick_models`; for watch, job, gc, orch, menu, notify, usage, worker and a hook.

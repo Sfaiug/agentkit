@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, run, worker  # noqa: E402
+from agentkit import gate, config, land, run, worker  # noqa: E402
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"
@@ -174,6 +174,18 @@ class First(unittest.TestCase):
         self.assertIsNone(first.error, first.error)
         self.assertTrue(waiter.result[0] and first.result[0])
         self.assertEqual(self.marks.read_text(), "waiter\nfirst\n")
+
+    def test_first_keeps_landing_join_order(self):
+        earlier = self.record("earlier", ACME)
+        first = self.record("first", ACME, first=True)
+        lock = run.merge_lock_path("https://github.com/acme/widget.git", "origin/main")
+        for directory, joined in ((earlier, 10), (first, 20)):
+            state = run_record.read_state(directory)
+            state.update(state="waiting", waiting_on={"line": lock.name, "joined": joined})
+            run_record.save_state(directory, state)
+        self.assertEqual([directory for directory, _ in land.line(lock)], [earlier, first])
+        self.assertEqual(run.parked_line(run_record.read_state(first)),
+                         "waiting · 2nd in line to land on main")
 
     def test_status_marks_first(self):
         for name, first in (("20250925-1200-first", True), ("20250925-1201-plain", False)):

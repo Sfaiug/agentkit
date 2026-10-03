@@ -119,7 +119,7 @@ class RepoSuite(unittest.TestCase):
 
     def test_rebased_landing_replaces_the_loaded_suite(self):
         task_once = "test -d ."
-        for mode in ("alone", "together", "probe"):
+        for mode in ("alone", "probe"):
             with self.subTest(mode=mode):
                 old_suite = f"echo old suite {mode}"
                 self.gates.clear()
@@ -145,20 +145,7 @@ class RepoSuite(unittest.TestCase):
                     run.git(lp.wt, "rebase", "origin/main")
                     self.assertNotEqual(run.git(lp.wt, "rev-parse", "HEAD"), before)
                     self.assertEqual(run.declared_suite(lp.wt, lp.target), suite)
-                    with ExitStack() as stack:
-                        if mode == "together":
-                            self.git("checkout", "-q", "-b", "ak/member", base)
-                            (self.repo / "member.txt").write_text("member\n")
-                            self.git("add", "member.txt")
-                            self.git("commit", "-q", "-m", "member")
-                            member = self.git("rev-parse", "HEAD")
-                            self.git("checkout", "-q", "main")
-                            stack.enter_context(patch.object(run._MERGE_HELD, "hold",
-                                                             object(), create=True))
-                            stack.enter_context(patch.object(run.landing, "waiting", return_value=[
-                                (config.RUNS / "member", {"run_id": "member", "review": {
-                                    "verdict": "PASS", "passed_head_sha": member}})]))
-                        self.assertEqual(run.final_check(lp, "origin/main"), mode != "probe")
+                    self.assertEqual(run.final_check(lp, "origin/main"), mode != "probe")
                     self.assertEqual(lp.every, ["true"])
                     self.assertEqual(lp.once, [task_once, suite])
 
@@ -166,8 +153,7 @@ class RepoSuite(unittest.TestCase):
                         patch.object(run, "start_followups", return_value=None):
                     state = self.launch(f"rebased-{mode}", ["true", f"{task_once}  # once"],
                                         expected="waiting" if mode == "probe" else "pass")
-                self.assertEqual(self.finals(), [["true"], [task_once] + (
-                    [] if mode == "together" else [suite])], self.gates)
+                self.assertEqual(self.finals(), [["true"], [task_once, suite]], self.gates)
                 ran = [cmd for _, cmds in self.gates for cmd in cmds]
                 self.assertNotIn(old_suite, ran)
                 self.assertEqual(ran.count(suite), 1)

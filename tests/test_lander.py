@@ -55,7 +55,7 @@ class LanderFixture:
         self.commit("base")
         run.git(self.repo, "push", "origin", "main")
         self.base = run.git(self.repo, "rev-parse", "HEAD")
-        self.turn = run.merge_turn_lock(str(self.remote), "origin/main")
+        self.turn = run.merge_lock_path(str(self.remote), "origin/main")
         self.checks = []
         self.gate_run = gate.run_done_when
         self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
@@ -115,6 +115,17 @@ class LanderFixture:
 
 
 class Lander(LanderFixture, unittest.TestCase):
+    def test_a_recorded_tree_is_forgotten_after_a_day(self):
+        now = 1_000_000
+        with patch.object(land.time, "time", return_value=now):
+            land.note(self.turn, ["a", "b"], "leader")
+        with patch.object(land.time, "time", return_value=now + land.KEEP - 1):
+            for tree in ("a", "b"):
+                self.assertEqual(land.passed(self.turn, tree)["tested"], tree)
+        with patch.object(land.time, "time", return_value=now + land.KEEP + 1):
+            for tree in ("a", "b"):
+                self.assertIsNone(land.passed(self.turn, tree))
+
     def test_join_order_one_check_and_only_the_parked_verdict_changes(self):
         later = self.member("a-later", 20)
         first = self.member("z-first", 10.5)
@@ -240,7 +251,7 @@ class Lander(LanderFixture, unittest.TestCase):
                 self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), tree)
                 lp = type("Member", (), {"state": state, "wt": self.repo, "log": lambda _, text: None})()
                 checks = len(self.checks)
-                self.assertEqual(run.suite_shared(lp, "origin/main", sha, SUITE)["tested"], tree)
+                self.assertEqual(run.suite_shared(lp, "origin/main", sha)["tested"], tree)
                 self.assertEqual(len(self.checks), checks)
                 with record.record(directory) as current:
                     current["state"] = "running"

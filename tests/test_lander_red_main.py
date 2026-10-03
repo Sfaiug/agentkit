@@ -105,7 +105,7 @@ class RedMain(unittest.TestCase):
         repair = self.prepared[0][0]
         branch = self.ready_repair(repair)
         self.assertEqual([directory.name for directory, _ in land.line(self.turn)],
-                         [repair.name, first.name, later.name])
+                         [first.name, later.name, repair.name])
         land.check_line(self.turn)
         tree = self.wait(repair)["land"]
         self.wake.assert_called_once_with(repair.name, unittest.mock.ANY)

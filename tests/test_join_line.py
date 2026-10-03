@@ -47,7 +47,7 @@ class JoinLine(Sandbox):
         with patch.object(run, "integrate", side_effect=AssertionError("integration")), \
                 patch.object(run, "final_check", side_effect=AssertionError("suite")), \
                 patch.object(run, "push", side_effect=AssertionError("push")), \
-                patch.object(run, "merge_turn", side_effect=AssertionError("queue")):
+                patch.object(run, "merge_lock", side_effect=AssertionError("delivery lock")):
             self.assertFalse(run.merge(self.lp))
         state = self.saved()
         self.assertEqual(state["state"], "waiting")
@@ -136,7 +136,7 @@ class JoinLine(Sandbox):
         info = {"headRefOid": before["delivery_sha"], "baseRefName": "main", "state": "OPEN"}
 
         def park(lp, upstream, verify, deliver):
-            return run.park_waiting(lp, "the target moved three times", upstream, "f" * 40)
+            return run.park_waiting(lp, "the target changed since verification", upstream, "f" * 40)
 
         for attempt in ("loop", "merge"):
             with self.subTest(attempt=attempt):
@@ -241,8 +241,7 @@ class JoinLine(Sandbox):
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return 0, ""
 
-        with patch.object(run, "gh", side_effect=gh), \
-                patch.object(run, "merge_turn", side_effect=AssertionError("queue")):
+        with patch.object(run, "gh", side_effect=gh):
             self.assertTrue(run.merge_own_pr(self.lp, "https://github.com/acme/widget/pull/7",
                                               self.lp.state["review"]["head_sha"]))
         self.assertNotIn("waiting_on", self.saved())

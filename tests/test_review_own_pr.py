@@ -165,7 +165,7 @@ class OwnPr(unittest.TestCase):
 
         def turn(lp, upstream):
             turns.append(upstream)
-            return run.merge_turn_lock("https://github.com/acme/widget.git", upstream)
+            return nullcontext()
 
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="PASS"):
@@ -175,7 +175,7 @@ class OwnPr(unittest.TestCase):
                 run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
             mocks.enter_context(patch.object(
                 run, "gh", side_effect=self.posting_gh(events, merges)))
-            mocks.enter_context(patch.object(run, "turn_path", side_effect=turn))
+            mocks.enter_context(patch.object(run, "merge_lock", side_effect=turn))
             mocks.enter_context(patch.object(
                 watch, "ask_inbox",
                 side_effect=lambda *a, **k: inbox.append(a) or 0))

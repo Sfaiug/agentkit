@@ -116,7 +116,7 @@ def mark_gate_wait(run_dir, of):
 
     `of` is the repository the waiter checks, kept on the mark from the
     per-repository turns; the note and the rank are host-wide and ignore it.  With
-    this process's pid, as the merge turn's mark is, and the wait's start, so a
+    this process's pid and the wait's start, so a
     freed turn goes to the waiter that has waited longest.  A landing run's mark
     says so; the start of its first landing wait lives beside the record, where
     whole-record saves cannot wipe it (see `_first_landing_wait`): that start is

@@ -112,7 +112,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                                        ("reviewer", "round-3")])
         self.assert_no_task_round()
         self.assertTrue(run.current_review(self.lp))
-        self.assertEqual(self.lp.lap_every_sha, run.git(self.wt, "rev-parse", "HEAD"))
+        self.assertEqual(self.lp.checked_every_sha, run.git(self.wt, "rev-parse", "HEAD"))
 
     def test_line_red_reaches_an_unrelated_rerun_fixer_without_a_suite_or_task_round(self):
         self.commit(self.wt, "broken.txt", "suite failure\n")

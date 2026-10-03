@@ -497,33 +497,6 @@ def _scope_readings(scope_dir):
         return None
 
 
-CPU_WEIGHT_MAX = 10000   # the kernel's top cpu.weight
-
-
-def _cpu_weight(cgroup):
-    try:
-        return int((Path(cgroup) / "cpu.weight").read_text())
-    except (OSError, ValueError):
-        return None
-
-
-def cpu_weights(cgroup):
-    """(the cgroup's CPU weight, its siblings' weights), or None where it has none to read.
-
-    The kernel shares a parent's CPU among its busy children in proportion to these.  A
-    sibling gone between the listing and its read, or a file beside them, has no weight.
-    """
-    own = _cpu_weight(cgroup) if cgroup is not None else None
-    if own is None:
-        return None
-    cgroup = Path(cgroup)
-    try:
-        siblings = [path for path in cgroup.parent.iterdir() if path.name != cgroup.name]
-    except OSError:
-        return None
-    return own, [weight for weight in map(_cpu_weight, siblings) if weight is not None]
-
-
 def frozen_cgroup(pid):
     """The cgroup freezing that process, or None: its own, or any one above it.
 

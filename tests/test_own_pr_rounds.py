@@ -78,6 +78,7 @@ class OwnPrRounds(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=lambda *_: dict(self.pr)))
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=lambda *a, **k: (dict(self.pr), "")))
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(run, "merge_lock", side_effect=lambda *a, **k: nullcontext()))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         clock = self.stack.enter_context(patch.object(run, "time", wraps=time))
         clock.sleep.side_effect = self.push

@@ -855,7 +855,7 @@ sys.exit(1)
 
         def join(argv):
             current = record.read_state(config.RUNS / argv[0])
-            current.update(state="waiting", waiting_on={"line": run.merge_turn_lock(
+            current.update(state="waiting", waiting_on={"line": run.merge_lock_path(
                 "https://github.com/acme/widget.git", "origin/main").name, "joined": 100})
             record.save_state(run_dir, current)
             return 0
