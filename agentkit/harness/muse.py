@@ -40,10 +40,14 @@ def _stem(account):
 def record_turn(out, state_dir, account):
     """Keep a refused turn's quota without letting the box write ak's other records."""
     report = out / "quota.json"
-    if report.exists():
+    try:
         data = json.loads(report.read_text())
-        state_dir.mkdir(parents=True, exist_ok=True)
-        (state_dir / f"{_stem(account)}.json").write_text(json.dumps(data) + "\n")
+    except (OSError, ValueError):
+        return
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / f"{_stem(account)}.json").write_text(json.dumps(data) + "\n")
+    # A retry whose box cannot start must not date an earlier refusal as new.
+    report.unlink()
 
 
 def usage_extra(out, data, state_dir):

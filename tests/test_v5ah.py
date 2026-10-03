@@ -195,6 +195,20 @@ class V5AH(unittest.TestCase):
         self.assertEqual(json.loads((self.state / "usage.json").read_text()), {"primed": True})
         logged = _QUOTA_LINE in (out / "stderr.log").read_text()
         self.assertTrue(logged, "refusal did not reach stderr.log")
+        measured = (self.state / "usage-meta.json").stat().st_mtime_ns
+        muse.record_turn(out, self.state, "")
+        self.assertEqual((self.state / "usage-meta.json").stat().st_mtime_ns, measured,
+                         "an earlier refusal was dated as a new reading")
+
+    def test_v5ah_interrupted_report_keeps_the_previous_window(self):
+        known = {"meters": [{"name": "quota", "used": 100, "resets_at": int(time.time()) + 3600,
+                             "window_secs": 18000}]}
+        (self.state / "usage-meta.json").write_text(json.dumps(known))
+        out = self.work / "interrupted"
+        out.mkdir()
+        (out / "quota.json").write_text('{"meters":')
+        muse.record_turn(out, self.state, "")
+        self.assertEqual(self._meta(), known)
 
     def test_v5ah_stale_window_record_falls_through_to_probe(self):
         now = int(time.time())

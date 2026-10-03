@@ -91,6 +91,9 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
     # A read-only bind disables devices too. Restore the nodes, leaving their
     # directories read-only so ordinary files cannot fill the host's /dev tmpfs.
     for device in Path("/dev").rglob("*"):
+        # The turn gets disk-backed shm below; do not bind the host's transient files.
+        if device.is_relative_to("/dev/shm"):
+            continue
         # ptmx needs its devpts mount; binding one inode breaks terminal allocation.
         # Bubblewrap supplies that pair, whose terminals end with their descriptors.
         if device == Path("/dev/ptmx") or device.is_relative_to("/dev/pts"):
