@@ -174,7 +174,7 @@ nobody in the seat any more is `needs you` with `session closed: press N to reop
 with the question it asked or `waiting for you`. Your prompt after a question answers it, in the pane or over Remote Control, even after a rename: it stops blocking hand-backs and title sync and leaves the reason. Recording the answer runs in the background, so your prompt never waits for a notification lock. Only a prompt handled in the seat's own pane counts. Earlier prompts, slash commands (including `/compact` and `/rename`), `<cross-session-message>` prompts and `<task-notification>` prompts answer nothing; watcher alerts keep their own recovery rules. Opening through ak followed by fresh output still answers a question. These exclusions do not change the turn-ending rules. `ak orch why <seat>` says what decided it, on what evidence, since when. Claude question dialogs stay `needs you` while a message from another session is queued below them. Queued messages are never unsent drafts; text you type in the composer still is, with or without a status line under it.
 
 A row is number, name, orchestrator, state, and one last column: the reason for `needs you` and `done`, and for
-`working` the tasks bar (`tasks ██░░░ 2/5`, from `~/.agentkit/state/plan-<session>.md` under the seat's name or any name it was renamed from, the newest such plan winning, else from its unfinished jobs' tasks, and what history says the rest takes: `· ~45m left`, `· ~5h left`, `· ~36d left`) else empty, never `N running`. An
+`working` its place in the landing line, else the tasks bar (`tasks ██░░░ 2/5`, from `~/.agentkit/state/plan-<session>.md` under the seat's name or any name it was renamed from, the newest such plan winning, else from its unfinished jobs' tasks, and what history says the rest takes: `· ~45m left`, `· ~5h left`, `· ~36d left`) else empty, never `N running`. An
 ended run is its orchestrator's business. `needs you` and `done` are messages, and opening the session is reading them.
 Runs keep those row words in `ak run status`, with the parked state and its retry on the dim line; a wait that lifts
 itself has an open circle (`○ waiting for claude login`), which is not a fourth session state.
@@ -248,13 +248,13 @@ mid-turn to continue it, as a run is, over at most three ticks, so it reads `wor
 On `ak run status`'s dim line (`error · retry 14:32`, `waiting · retry after the next merge to origin/main`) an admitted
 ending says why: its launch session still exists, it ended under 24 hours ago, and it was not handed back, carded or
 acknowledged. Only those endings may be parked from a conflict FAIL or resumed from `error` or `waiting`, an older
-tick's waits included; by-hand runs and older endings wait for a person, and a job's run for its job, which resumes its own merge wait. The tick retries an admitted error on the
+tick's waits on a target ref included; by-hand runs and older endings wait for a person, and a job's run for its job, which resumes its own merge wait. The tick retries an admitted error on the
 ladder above, an `exhausted` run after reviewer transport failures once a reviewer is eligible (at most hourly while it
 keeps dying), and an admitted conflict `waiting` after main moves, task rounds spent or not. `ak run status <id>` on a
 scheduled error keeps its retry and admission. When admission ends, an error loses its retry stamps, and it or a merge
 wait reads `run <id> parked: <reason>` at once, before the tick clears an old stamp. An error with no automatic resume
 reads `needs you` only while recent, unacknowledged, neither handed back nor awaiting it, and not superseded; an `exhausted` run the tick cannot resume reads the same, handed back or old, until `ak run resume <id>` or `ak run stop <id>`, unless a later merged run replaced it, and counts as `needs you` in the tally, never as `running`. A merge
-wait that no longer qualifies is inactive history: its row reads `done` with the parked reason, it adds no attention tally, neither the stop hook nor the tick counts it as work, and it can still be resumed by hand; only one its age alone turned away still reads `needs you` on its seat (above).
+wait on a target ref that no longer qualifies is inactive history: its row reads `done` with the parked reason, it adds no attention tally, neither the stop hook nor the tick counts it as work, and it can still be resumed by hand; only one its age alone turned away still reads `needs you` on its seat (above). A run recorded in the line to land holds no process and stays working without an age limit: status and the menu say `waiting · 3rd in line to land on main`, counting by when each member joined that repository's line. The tick and `ak run resume` leave it to the lander; its job follows it to its ending, including after `ak run merge`, and `after:` tasks still wait for its merge.
 
 ## Cleanup
 

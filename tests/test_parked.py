@@ -705,6 +705,19 @@ class Parked(unittest.TestCase):
                 self.assertEqual(run.parked_line(state, now=self.now),
                                  f"run {directory.name} parked: {CONFLICT_NOTE}")
 
+                # A line member is unfinished work even when this ending's retry
+                # would belong to a person: only the lander advances its record.
+                state["waiting_on"] = {"line": run.merge_turn_lock(
+                    "https://github.com/acme/widget.git", "origin/main").name,
+                    "joined": self.now - 30}
+                record.save_state(directory, state)
+                self.assertTrue(run.going(state, now=self.now))
+                self.assertEqual(menu.run_state_word(state), "working")
+                self.assertIn("in line to land on main", run.parked_line(state, now=self.now))
+                with patch.object(run, "spawn_bg", side_effect=AssertionError("only the lander")):
+                    watch.resume_waiting(log=self.log, now=self.now)
+                self.assertEqual(self.logs, [])
+
     def test_parked_ineligible_merge_wait_does_not_override_the_seat_or_page(self):
         directory = self.receipt("20260923-1215-history", state="waiting",
                                  error=CONFLICT_NOTE, merge_note=CONFLICT_NOTE,

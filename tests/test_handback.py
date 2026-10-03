@@ -582,6 +582,18 @@ class HandBack(Sandbox):
         self.assertEqual(len(self.typed), 1)
         self.assertIn("finished FAIL:", self.typed[0][1])
 
+    def test_a_line_member_counts_as_work_and_has_no_ending_to_hand_back(self):
+        directory = self.ended("run-line", owner=SEAT, state="waiting", finished_at=1,
+                               recovery_pending=True, waiting_on={"line": run.merge_turn_lock(
+                                   "https://github.com/acme/widget.git", "origin/main").name,
+                                   "joined": 100})
+        state = record.read_state(directory)
+        self.assertEqual(run.seat_tallies([state], now=200000)[SEAT], (1, 0, 0))
+        self.assertFalse(menu.v5o_needs_look(state, now=200000))
+        self.assertFalse(run.needs_recovery(state))
+        run.announce(state, directory, self.logs.append)
+        self.assertEqual((self.typed, self.cards), ([], []))
+
     def test_two_snapshots_of_one_ending_deliver_it_exactly_once(self):
         # the loop that finished the run and the tick that found it unheard both hold a copy:
         # whoever takes the delivery lock second reads the record, not its own snapshot

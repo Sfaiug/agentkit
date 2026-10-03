@@ -8187,9 +8187,11 @@ def needs_recovery(state):
 
     A resume leaves `recovery_pending` on the record it starts from, so an attempt that ends
     `blocked` would otherwise be offered for recovery it is refused -- see `cmd_resume`.
-    A `stopped` run is a deliberate end, never an accident to offer back.
+    A `stopped` run is a deliberate end, never an accident to offer back. Line
+    members belong to the lander even if an earlier attempt left a recovery mark.
     """
-    return (state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
+    return (not landing_line(state) and
+            state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
             (state.get("state") in ("interrupted", "exhausted", "stalled", "waiting_login") or
              bool(state.get("recovery_pending"))))
 
@@ -9120,10 +9122,11 @@ def going(state, now=None):
 
     The GOING states -- queued, running, waiting, exhausted, stalled,
     waiting_login -- which resume themselves or are already running, plus an
-    error the tick will retry. Errors and merge waits also need current admission:
+    error the tick will retry. Errors and waits on a target ref need current admission:
     an old stamp cannot keep a seat working after its retry stopped being allowed,
     and an exhausted run keeps one working only while the tick can resume it
-    (`exhausted_wait`): one that waits on nobody is his, not going.
+    (`exhausted_wait`): one that waits on nobody is his, not going. Line members
+    stay going until the lander ends them.
     """
     if state.get("state") in ("error", "waiting") and not tick_admission(state, now=now):
         return False
@@ -9158,10 +9161,13 @@ CONFLICT_NOTE = re.compile(r"conflict|did not finish the (?:rebase|merge)", re.I
 def tick_admission(state, now=None):
     """Why the tick may take up this ending, or nothing if it belongs to a person.
 
-    A telling or acknowledgement settles the ending for good. Only an untold
+    Line members belong to the lander until they end, however long they wait.
+    A telling or acknowledgement settles an ending for good. Only an untold
     ending under a day old, from a session that still exists, is the tick's.
     Following the launch name also keeps a renamed seat's runs with that seat.
     """
+    if landing_line(state):
+        return "in line to land"
     if any(state.get(key) for key in (
             "handed_back", "recovery_notified", "recovery_acknowledged_at")):
         return ""
@@ -9225,13 +9231,19 @@ def upstream_sha(wt, ref):
     return sha
 
 
+def landing_line(state):
+    """The merge-turn lock named by a waiting member; only the lander moves it."""
+    return (state.get("waiting_on") or {}).get("line") if state.get("state") == "waiting" else None
+
+
 def parked_line(state, run_id=None, now=None):
     """The dim line under a parked run's status row: its state as such, and when.
 
     An error with a scheduled retry names its hour (`error · retry 14:32`, or
     `retry due` once the hour has passed and the tick just has not fired yet); a
-    `waiting` run names the merge it waits for; an `exhausted` run off a dead
-    reviewer names the reviewer it waits for.  A quota run already says its
+    `waiting` run names its place in the landing line or the merge it waits for;
+    an `exhausted` run off a dead reviewer names the reviewer it waits for.
+    A quota run already says its
     window on the waiting line, and a stalled one its stall lines, so neither
     says anything here. An admitted ending also names the conditions that let
     the tick take it up. Anything parked with no scheduled resume says who it
@@ -9239,6 +9251,19 @@ def parked_line(state, run_id=None, now=None):
     """
     now = time.time() if now is None else now
     name = run_id or state.get("run_id") or "?"
+    line = landing_line(state)
+    if line:
+        joined = state["waiting_on"]["joined"]
+        place = 1
+        for directory in run_record.run_dirs():
+            member = run_record.read_state(directory) or {}
+            if (landing_line(member) == line
+                    and (member["waiting_on"]["joined"], directory.name) < (joined, name)):
+                place += 1
+        suffix = ("th" if 10 <= place % 100 <= 20 else
+                  {1: "st", 2: "nd", 3: "rd"}.get(place % 10, "th"))
+        target = (state.get("target") or state.get("base") or "main").removeprefix("origin/")
+        return f"waiting · {place}{suffix} in line to land on {target}"
     word = state.get("state")
     admission = tick_admission(state, now=now) if word in ("error", "waiting") else ""
     admitted = f" · {admission}" if admission else ""
@@ -10065,7 +10090,9 @@ def cmd_status(argv):
                 from . import terminal as _terminal
                 line += f"  {_terminal.styled(waiting, 'dim')}"
             print(line)
-            if state.get("state") == "queued":
+            if landing_line(state):
+                print(f"  {parked_line(state, d.name)}")
+            elif state.get("state") == "queued":
                 print(f"  {slot_note(state)}")
             elif merge_turn_note(state):
                 print(f"  {merge_turn_note(state)}")
@@ -11389,6 +11416,8 @@ def resume_run(argv):
     # invocations must never adopt another process's launch, even with an inherited variable.
     with run_record.recovery_lock(run_dir):
         state = run_record.read_state(run_dir)
+    if landing_line(state):
+        raise config.Error(f"{argv[0]} is in line to land; only the lander moves it")
     child = (os.environ.get(config.RUN_DIR_ENV) == str(run_dir) and
              state.get("state") == "queued" and state.get("resume_from") and
              state.get("pid") == os.getpid() and run_record.process_active(state))
