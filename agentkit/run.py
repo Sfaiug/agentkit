@@ -3154,15 +3154,20 @@ def repair_open(state, tip):
         and not state.get("merged") and state.get("repair_tip") == tip)
 
 
-def open_followup(state, text, repair=None, tip=None):
+def open_followup(state, text, repair=None, tip=None, split=None):
     """The open run already fixing `text`, or None.
 
     A follow-up is the same site in the same repository from the same seat.  A `repair` is
     the same repository, target and command from any seat, open at the target's `tip`: the
-    target is everybody's.
+    target is everybody's. A suite split holds its line forever, and its repository while open.
     """
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
+        if split:
+            if (other.get("repo") == state.get("repo") and other.get("split_suite")
+                    and (other["split_suite"] == split or followup_open(other))):
+                return directory.name
+            continue
         if (other.get("run_id") != state.get("run_id") and other.get("followup")
                 and other.get("repo") == state.get("repo")
                 and other.get("repair") == repair
@@ -3174,7 +3179,7 @@ def open_followup(state, text, repair=None, tip=None):
     return None
 
 
-def start_followups(state, run_dir, log, cfg=None, repair=None):
+def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     """A merge starts ordinary runs, once, under the same lock that closes the seat.
 
     The receipt is the duplicate guard even while admission waits. There is no collector
@@ -3187,14 +3192,16 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
     is an open repair of the same repository, target and command instead of a receipt.
     Returns the repair's run, started, already open, or left queued by a launch that
     raised, or None when none is.
+    A slow suite's `split` starts the same way, with ak's task and check. Its cost record
+    keeps the receipt even after run retention, whatever the run's ending.
     """
     session = launched_session(state)
-    if (not (repair or state.get("merged") and state.get("followups")) or not session
+    if (not (repair or split or state.get("merged") and state.get("followups")) or not session
             or not state.get("repo") or state.get("scratch")
             or (state.get("review_pr") and not state.get("own_pr"))):
         return None
     with watch.state_lock():
-        if not repair:
+        if not (repair or split):
             current = run_record.read_state(run_dir) or state
             if "followup_runs" in current:
                 state["followup_runs"] = current["followup_runs"]
@@ -3208,15 +3215,22 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
             return None
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
+        if split:
+            previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
+            if previous:
+                return previous
         key = repair and {"target": target, "command": repair["command"]}
-        for item in [repair["text"]] if repair else state["followups"]:
+        request = repair or split
+        for item in [request["text"]] if request else state["followups"]:
             source = {**state, "repo": str(repo)}
-            opened = open_followup(source, item, key, repair and repair["sha"])
-            if opened and repair:
+            opened = open_followup(source, item, key, repair and repair["sha"],
+                                   split and split["command"])
+            if opened and request:
                 return opened
             if opened:
                 continue
-            title = (f"Make {target} pass `{repair['command']}` again" if repair
+            title = ("Split the slow test suite" if split else
+                     f"Make {target} pass `{repair['command']}` again" if repair
                      else "Fix " + item.splitlines()[0])
             if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
                 title = title[:255] + "…"
@@ -3231,7 +3245,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                 check = shlex.quote(str(directory / "regression.sh"))
                 task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
                         f"# {title}\n\n{item}\n\n")
-                if repair:
+                if split:
+                    task += f"## Done when\n```bash\n{split['check']}\n```\n"
+                elif repair:
                     task += (
                         "First fetch the target branch and run the command on its tip. If it "
                         'passes there now, run `ak hand-in not-needed "<why>"`, '
@@ -3267,6 +3283,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                                                    "place": followup_place(item)},
                                        **({"repair": key, "repair_tip": repair["sha"]}
                                           if repair else {}),
+                                       **({"split_suite": split["command"]} if split else {}),
                                        "launched_session": session, "repo": str(repo),
                                        **{role: list(lists[role]) for role in ("workers", "reviewers")
                                           if isinstance(lists.get(role), list) and lists[role]},
@@ -3274,7 +3291,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                                           if state.get("notify_sink") else {})})
                 opts = {"--rounds": None, "--exec": None, "--review": None,
                         "--review-pr": None, "--no-worktree": False, "--no-merge": False,
-                        "--bg": True, **({"--first": True} if repair else {})}
+                        "--bg": True, **({"--first": True} if request else {})}
+                if split:
+                    gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
                 prepare(directory, opts, logger(directory, True), cfg)
                 spawn_bg(directory, [str(directory / "task.md")])
             except run_record.StopRequested as exc:
@@ -3282,13 +3301,15 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                 return None
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
+                if split:
+                    return directory.name
                 if repair:
                     # a launch that raised can leave its receipt queued for a slot, and the
                     # tick starts that: it is the repair all the same
                     return directory.name if repair_open(run_record.read_state(directory) or {},
                                                          repair["sha"]) else None
                 continue
-            if repair:
+            if request:
                 return directory.name
             try:
                 state["followup_runs"].append(directory.name)
@@ -5394,6 +5415,7 @@ def final_check(lp, upstream):
         ok_once, text_once = gate.run_done_when(
             cmds_once, lp.wt, log_path, lp.artifacts, max(0, left), lp.log,
             silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True) if cmds_once else (True, "")
+        gate.split_suite_run(lp, suite)
         ok = ok_every and ok_once
         text = "\n\n".join(part.strip() for part in (text_every, text_once) if part.strip())
         if (not clean or commit_identity(lp.wt) != identity

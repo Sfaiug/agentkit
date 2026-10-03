@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -502,7 +503,7 @@ def suite_cost(command, cwd, run_dir):
     key = hashlib.sha256(f"{repo}\n{command}".encode()).hexdigest()
     path = config.STATE / f"suite-{key}.json"
     try:
-        cost = json.loads(path.read_text())
+        cost = read_suite_cost(path)
         cpu, mem = cost["cpus"], cost["mem_mb"]
         if all(type(value) in (int, float) and math.isfinite(value) and value > 0
                for value in (cpu, mem)):
@@ -512,11 +513,73 @@ def suite_cost(command, cwd, run_dir):
     return path, HEAVY_CPUS, HEAVY_MEM_MB
 
 
+def read_suite_cost(path):
+    try:
+        cost = json.loads(path.read_text())
+        return cost if isinstance(cost, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_suite_cost(path, updates):
+    """Called under the lifecycle lock so measurements keep the split-run receipt."""
+    cost = read_suite_cost(path)
+    cost.update(updates)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, mode="w", delete=False) as saved:
+        json.dump(cost, saved)
+    Path(saved.name).replace(path)
+
+
+def check_suite_pieces():
+    """The split run checks its branch's declaration, never the target's fallback."""
+    command = run.declared(Path.cwd(), "tests")
+    if not command or not names_shard(command):
+        raise SystemExit("The branch's tests: line must name AK_SHARD")
+    env = suite_env()
+    pieces = [subprocess.Popen(["bash", "-c", command],
+                              env={**env, "AK_SHARD": f"{index}/3"})
+              for index in range(1, 4)]
+    codes = [piece.wait() for piece in pieces]
+    raise SystemExit(int(any(codes)))
+
+
+def split_suite_run(lp, command):
+    """Only a whole suite measured by this run can start its repository's split run."""
+    if not command or names_shard(command):
+        return
+    path, _, _ = suite_cost(command, lp.wt, lp.run_dir)
+    cost = read_suite_cost(path)
+    seconds = cost.get("wall_seconds", 0)
+    if (cost.get("run_id") != lp.state.get("run_id")
+            or type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds <= 120):
+        return
+    check = "python3 -c " + shlex.quote(
+        f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r}); "
+        "from agentkit.gate import check_suite_pieces; check_suite_pieces()")
+    text = (f"The repository's `tests:` suite ran whole for {seconds:g} seconds:\n"
+            f"```bash\n{command}\n```\n\n"
+            "Make the `tests:` line run only its `AK_SHARD=k/N` share (1-based), and "
+            "everything when unset. Use the test runner's own sharding where it has one: "
+            "jest, vitest and playwright take `--shard=k/N`; pytest can select by a "
+            "conftest option. Otherwise split the test file list by position. Pieces share "
+            "no temp dir, port, database or other file; together they run every test exactly "
+            "once. Keep the check below: it reads this branch's own `tests:` line and runs "
+            "pieces 1/3, 2/3 and 3/3 at the same time.\n")
+    try:
+        run.start_followups(lp.state, lp.run_dir, lp.log, lp.cfg,
+                            split={"command": command, "text": text, "check": check,
+                                   "cost": str(path)})
+    except (config.Error, OSError, run_record.StopRequested) as exc:
+        lp.log(f"WARN could not start the suite split: {exc}")
+
+
 class _SuiteMeasure:
     """Only this run's isolated cgroup can attribute work to its suite."""
 
     def __init__(self, run_dir):
         state = run_record.read_state(run_dir) or {} if run_dir else {}
+        self.run_id = state.get("run_id")
         relative = host.process_cgroup() if state.get("scope") else None
         self.group = (host.cgroup_path(relative) if relative and
                       Path(relative).name in run._scope_units(state["scope"]) else None)
@@ -538,15 +601,21 @@ class _SuiteMeasure:
         cpu = (host._slice_cpu_stat(self.group) or {}).get("usage_usec")
         first = self.cpu.get("usage_usec")
         elapsed = time.monotonic() - self.started
-        if cpu is None or first is None or self.baseline is None or elapsed <= 0:
+        if elapsed <= 0:
             return
-        cost = {"cpus": max(HEAVY_CPUS, (cpu - first) / (elapsed * 1e6 * pieces)),
-                "mem_mb": max(HEAVY_MEM_MB, (self.peak - self.baseline) / (1024**2 * pieces))}
+        cost = {"wall_seconds": elapsed, "run_id": self.run_id}
+        if cpu is not None and first is not None and self.baseline is not None:
+            cost.update(cpus=max(HEAVY_CPUS, (cpu - first) / (elapsed * 1e6 * pieces)),
+                        mem_mb=max(HEAVY_MEM_MB, (self.peak - self.baseline) / (1024**2 * pieces)))
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(dir=path.parent, mode="w", delete=False) as saved:
-                json.dump(cost, saved)
-            Path(saved.name).replace(path)
+            with watch.state_lock():
+                previous = read_suite_cost(path)
+                # A fast retry must not erase the slow whole attempt that earned a split.
+                seconds = previous.get("wall_seconds", 0)
+                if (previous.get("run_id") == self.run_id and type(seconds) in (int, float)
+                        and math.isfinite(seconds)):
+                    cost["wall_seconds"] = max(elapsed, seconds)
+                write_suite_cost(path, cost)
         except OSError:
             pass    # a missing measurement keeps the initial estimate
 
@@ -568,7 +637,7 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log):
 
 
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
-              on_wait=None, **kwargs):
+              on_wait=None, measure=False, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -576,8 +645,17 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     """
     env = suite_env()
     if not names_shard(command):
-        return worker.limited(["bash", "-c", command], limit, cwd=str(cwd),
-                              activity=activity, output=output, env=env, **kwargs)
+        measured = _SuiteMeasure(run_dir) if measure else None
+        aborting = kwargs.pop("abort", None)
+        def abort():
+            if measured:
+                measured.sample()
+            return aborting() if aborting else False
+        result = worker.limited(["bash", "-c", command], limit, cwd=str(cwd),
+                                activity=activity, output=output, env=env, abort=abort, **kwargs)
+        if measured and not result[2] and result[0] != SUITE_BUSY:
+            measured.save(suite_cost(command, cwd, run_dir)[0], 1)
+        return result
     with gate_turn(run_dir, activity, log, command, cwd):
         hold = getattr(_GATE_HELD, "hold", None)
         path, cpu, mem = suite_cost(command, cwd, run_dir)
@@ -789,7 +867,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         cmd, left, silence=silence, activity=log_path,
                         on_timeout=stopped, cwd=str(cwd), output=progress,
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                        run_dir=run_dir, log=log, on_wait=waited)
+                        run_dir=run_dir, log=log, on_wait=waited, measure=heavy)
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     run.memory_cap_note(run_dir, log)
