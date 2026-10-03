@@ -22,6 +22,8 @@ class RefusalTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         self.root = root
+        # a turn's out dir sits two levels under its run dir, as round-N/executor does
+        self.out = root / "round-1" / "executor"
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
@@ -92,7 +94,7 @@ class RefusalTests(unittest.TestCase):
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
             code, _, session, dead = run.call_retrying(
-                self.cfg, "astra", "body", self.root, self.root / "out", "executor",
+                self.cfg, "astra", "body", self.root, self.out, "executor",
                 None, lines.append)
         self.assertEqual((code, dead, session), (0, False, "s1"))
         self.assertEqual(len(calls), 2)
@@ -110,7 +112,7 @@ class RefusalTests(unittest.TestCase):
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
             code, _, _, dead = run.call_retrying(
-                self.cfg, "astra", "body", self.root, self.root / "out", "executor",
+                self.cfg, "astra", "body", self.root, self.out, "executor",
                 None, lines.append)
         self.assertEqual((code, dead, len(calls)), (0, False, 2))
         self.assertEqual(sleeps, [60])
@@ -125,7 +127,7 @@ class RefusalTests(unittest.TestCase):
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
             code, _, _, dead = run.call_retrying(
-                self.cfg, "astra", "body", self.root, self.root / "out", "executor", None,
+                self.cfg, "astra", "body", self.root, self.out, "executor", None,
                 lambda _: None)
         self.assertEqual((code, dead, len(calls), sleeps), (0, False, 3, [60, 300]))
 
@@ -137,7 +139,7 @@ class RefusalTests(unittest.TestCase):
             stderr="[warn] request failed: rate limit; retried and succeeded")
         with patch.object(run.worker, "call", side_effect=fake):
             code, text, _, dead = run.call_retrying(
-                self.cfg, "astra", "body", self.root, self.root / "out", "executor", None,
+                self.cfg, "astra", "body", self.root, self.out, "executor", None,
                 lambda _: None)
         self.assertEqual((code, dead, len(calls)), (0, False, 1))
         self.assertIn("finished the work", text)
@@ -151,7 +153,7 @@ class RefusalTests(unittest.TestCase):
                     'retrying in 2s"}}\n{"type":"turn.completed"}'))
         with patch.object(run.worker, "call", side_effect=fake):
             code, text, _, dead = run.call_retrying(
-                self.cfg, "astra", "body", self.root, self.root / "out", "executor", None,
+                self.cfg, "astra", "body", self.root, self.out, "executor", None,
                 lambda _: None)
         self.assertEqual((code, dead, len(calls)), (0, False, 1))
         self.assertEqual(text, "Ran the tests and pushed the branch.")
@@ -166,7 +168,7 @@ class RefusalTests(unittest.TestCase):
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
             code, _, _, dead = run.call_retrying(
-                self.cfg, "astra", "body", self.root, self.root / "out", "executor",
+                self.cfg, "astra", "body", self.root, self.out, "executor",
                 None, lines.append)
         self.assertEqual((code, dead, len(calls)), (0, False, 2))
         self.assertEqual(sleeps, [60])
@@ -180,7 +182,7 @@ class RefusalTests(unittest.TestCase):
         with patch.object(run.worker, "call", side_effect=fake):
             with self.assertRaises(run.RanDry):
                 run.call_retrying(self.cfg, "astra", "body", self.root,
-                                  self.root / "out", "executor", None, lambda _: None)
+                                  self.out, "executor", None, lambda _: None)
         self.assertEqual(len(calls), 1)
         self.assertEqual(self.marked[0][0], "openai")
 
@@ -192,7 +194,7 @@ class RefusalTests(unittest.TestCase):
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
             code, _, _, dead = run.call_retrying(
-                self.cfg, "opus", "body", self.root, self.root / "out", "executor",
+                self.cfg, "opus", "body", self.root, self.out, "executor",
                 None, lambda _: None)
         self.assertEqual((code, dead, len(calls)), (0, False, 2))
         self.assertEqual(sleeps, [60])
