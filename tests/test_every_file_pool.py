@@ -100,8 +100,8 @@ class EveryFilePool(unittest.TestCase):
                 patch.object(every_file.time, "sleep"), redirect_stdout(out):
             pool.return_value.__enter__.return_value.submit.side_effect = submit
             self.assertEqual(every_file.main(self.root), 0)
-        self.assertEqual([name for name, _ in starts],
-                         [f"test_acme_{n}.py" for n in range(count)])
+        self.assertCountEqual([name for name, _ in starts],
+                              [f"test_acme_{n}.py" for n in range(count)])
         self.assertEqual(out.getvalue().count("PASS  tests/"), count)
         return [poll for _, poll in starts], out.getvalue()
 

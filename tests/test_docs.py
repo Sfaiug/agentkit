@@ -28,6 +28,7 @@ WORD_LIMITS = {"README.md": 6_200, "docs/guide.md": 15_300}
 # States, remedies and screens that are gone: a doc that names one describes an older product.
 # The last is the personal account name, built without writing it, as test_open_gates builds it.
 REMOVED = ("resumable", "starts fresh", "draft unsent", "needs a look", "press r",
+           "merge turn", "merge-turn", "merge queue", "first to merge",
            "".join(chr(c) for c in (83, 102, 97, 105, 117, 103)))
 # The one place that name belongs: the README's install line, a clone a stranger can run as is.
 CLONE = f"git clone https://github.com/{REMOVED[-1]}/agentkit ~/agentkit && ~/agentkit/install.sh\n"

@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_red_target as red
 from agentkit import config, run, watch
 from agentkit import record
+from fixtures.landing import landing
 
 # Fail on the work branch and current target, but leave a moved target's old base green.
 FAILS = ("if (test -f work.txt || git merge-base --is-ancestor origin/main HEAD); then "
@@ -301,6 +302,9 @@ class RedTargetRepair(unittest.TestCase):
         def blocked(*_args, **_kw):
             raise run.Blocked(QUESTION, f"## Blocked\n{QUESTION}")
         with patch.object(run, "execute", side_effect=blocked), \
+                patch.object(run, "rights", return_value=("acme/app", "WRITE")), \
+                patch.object(run, "join_line", side_effect=lambda lp, upstream, deliver:
+                             landing(lp, deliver)), \
                 patch.object(run, "pr_view", return_value={
                     "headRefOid": passed["delivery_sha"], "baseRefName": "main",
                     "state": "OPEN"}), \

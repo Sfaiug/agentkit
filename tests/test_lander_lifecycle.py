@@ -84,6 +84,13 @@ class LanderLifecycle(unittest.TestCase):
         self.assertIn("MemoryMax=7201M", properties)
         self.assertIn("MemorySwapMax=7201M", properties)
 
+    def test_a_live_first_member_finishes_cleanup_before_a_pass_starts(self):
+        self.member()
+        self.starts.clear()
+        with patch.object(record, "process_active", return_value=True):
+            self.assertFalse(land.start_line(self.turn))
+        self.assertEqual(self.starts, [])
+
     def test_a_suite_oom_keeps_the_lander_scope_running(self):
         self.member(memory_cap_mb=6000)
         _, properties = run.run_scope_limits(cap_mb=6000)
@@ -200,14 +207,14 @@ class LanderLifecycle(unittest.TestCase):
     def test_stopping_during_a_check_prevents_the_verdict_and_wake(self):
         directory = self.member()
 
-        def stop(*_args):
+        def stop(*_args, **_kw):
             with record.record(directory) as state:
                 state.update(state="stopped", verdict="STOPPED")
                 state.pop("waiting_on")
-            return {"land": "tree"}
+            return {directory: {"land": "tree"}}
 
         with (patch.object(run, "fetch"), patch.object(run, "git", return_value="target"),
-              patch.object(land, "_check_member", side_effect=stop),
+              patch.object(land, "_check_members", side_effect=stop),
               patch.object(watch, "launch_resume") as wake):
             land.check_line(self.turn)
         self.assertEqual(record.read_state(directory)["state"], "stopped")
@@ -221,6 +228,8 @@ class LanderDelivery(unittest.TestCase):
         self.case = wakes.LanderWakes()
         self.addCleanup(self.case.doCleanups)
         self.case.setUp()
+        self.case.stack.enter_context(patch.object(
+            record, "process_active", side_effect=lambda state: bool(state.get("pid"))))
         self.case.stack.enter_context(patch.object(host, "host_readings", return_value={
             "mem_total_mb": 16000}))
         self.case.stack.enter_context(patch.object(orch, "slice_memory_max_mb", return_value=10000))
@@ -274,7 +283,7 @@ class LanderDelivery(unittest.TestCase):
         (self.case.owner / "other.txt").write_text("external move\n")
         self.case.commit(self.case.owner, "move target")
         run.git(self.case.owner, "push", "origin", "main")
-        self.assertEqual(run.cmd_resume([self.case.directory.name]), 1)
+        self.assertEqual(run.cmd_resume([self.case.directory.name]), 0)
         wait = record.read_state(self.case.directory)["waiting_on"]
         self.assertEqual(wait, {"line": self.case.turn.name, "joined": 10})
         self.assertEqual(self.starts, [(0, wait)])

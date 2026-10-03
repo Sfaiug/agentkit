@@ -20,7 +20,9 @@ class TransientResume(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix=".ak-test-transient-resume-", dir=REPO)
         self.addCleanup(self.tmp.cleanup)
-        root = Path(self.tmp.name)
+        # Retry output paths need two sandboxed parents for the run's recovery lock.
+        root = Path(self.tmp.name) / "round-1"
+        root.mkdir()
         self.root = root
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
@@ -28,7 +30,8 @@ class TransientResume(unittest.TestCase):
             self.stack.enter_context(patch.object(config, key, root / key.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
-            "AGENTKIT_RUN": "",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "transient-test",
             "TMUX_TMPDIR": str(root), "PYTHONDONTWRITEBYTECODE": "1"}))
         config.ensure_dirs()

@@ -105,7 +105,7 @@ class RedMain(unittest.TestCase):
         repair = self.prepared[0][0]
         branch = self.ready_repair(repair)
         self.assertEqual([directory.name for directory, _ in land.line(self.turn)],
-                         [repair.name, first.name, later.name])
+                         [first.name, later.name, repair.name])
         land.check_line(self.turn)
         tree = self.wait(repair)["land"]
         self.wake.assert_called_once_with(repair.name, unittest.mock.ANY)
@@ -125,16 +125,16 @@ class RedMain(unittest.TestCase):
         self.assertEqual((later / "run.json").read_bytes(), before[later])
         self.assertEqual(len(self.checks), checks)
 
-    def test_a_green_bare_target_wakes_only_the_failing_member(self):
+    def test_a_green_bare_target_wakes_only_the_members_that_fail(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})
         later = self.member("later", joined=2, **{"broken.txt": "other breakage\n"})
         self.advance()
-        before = (later / "run.json").read_bytes()
         land.check_line(self.turn)
         self.assertIn(SUITE, self.wait(first)["fix"]["line"])
-        self.assertEqual((later / "run.json").read_bytes(), before)
-        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
-        self.assertEqual(len(self.checks), 2)
+        self.assertIn(SUITE, self.wait(later)["fix"]["line"])
+        self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
+                              [first.name, later.name])
+        self.assertEqual(len(self.checks), 3)
         self.assertIsNotNone(land.passed(self.turn, run.git(self.repo, "rev-parse",
                                                           "origin/main^{tree}")))
         self.assertEqual(self.prepared, [])
@@ -155,6 +155,54 @@ class RedMain(unittest.TestCase):
         self.assertIn("fix", self.wait(first))
         self.assertEqual(len(self.checks), 1)
         self.assertEqual(self.prepared, [])
+
+    def assert_skipped_head(self, failure, target_red=True):
+        first = self.member(**{"base.txt": "branch\n"})
+        later = self.member("later", joined=2,
+                            **({} if target_red else {"broken.txt": "branch breakage\n"}))
+        last = self.member("last", joined=3, **{"last.txt": "last\n"})
+        if failure == "unavailable":
+            with record.record(first) as state:
+                state["review"]["head_sha"] = "f" * 40
+        head = record.read_state(first)["review"]["head_sha"]
+        self.advance(**{"base.txt": "target\n",
+                        **({"broken.txt": "target breakage\n"} if target_red else {})})
+        before = {directory: (directory / "run.json").read_bytes()
+                  for directory in (later, last)}
+        git_out = run.git_out
+
+        def checkout(repo, *args, **kw):
+            if failure == "checkout" and args[:2] == ("worktree", "add") and args[-1] == head:
+                return 1, "checkout failed"
+            return git_out(repo, *args, **kw)
+
+        with patch.object(run, "git_out", side_effect=checkout):
+            land.check_line(self.turn)
+        self.assertIn("fix", self.wait(first))
+        self.assertIn("Tree: ", (later / "target-probe.log").read_text())
+        if target_red:
+            self.assert_parked(before)
+            self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+            self.assertEqual(len(self.prepared), 1)
+        else:
+            self.assertIn(SUITE, self.wait(later)["fix"]["line"])
+            self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
+                                  [first.name, later.name])
+            self.assertEqual((last / "run.json").read_bytes(), before[last])
+            self.assertEqual(self.prepared, [])
+        self.assert_cleaned()
+
+    def test_a_conflicting_head_leaves_red_target_followers_unblamed(self):
+        self.assert_skipped_head("conflict")
+
+    def test_an_unavailable_head_leaves_red_target_followers_unblamed(self):
+        self.assert_skipped_head("unavailable")
+
+    def test_a_failed_head_checkout_leaves_red_target_followers_unblamed(self):
+        self.assert_skipped_head("checkout")
+
+    def test_a_green_target_blames_the_red_follower_after_a_skipped_head(self):
+        self.assert_skipped_head("conflict", target_red=False)
 
     def test_another_commit_with_the_same_red_tree_gets_no_probe_or_repair(self):
         _, _, before = self.red_line()

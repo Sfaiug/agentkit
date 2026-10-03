@@ -585,7 +585,7 @@ class HandBack(Sandbox):
 
     def test_a_line_member_counts_as_work_and_has_no_ending_to_hand_back(self):
         directory = self.ended("run-line", owner=SEAT, state="waiting", finished_at=1,
-                               recovery_pending=True, waiting_on={"line": run.merge_turn_lock(
+                               recovery_pending=True, waiting_on={"line": run.merge_lock_path(
                                    "https://github.com/acme/widget.git", "origin/main").name,
                                    "joined": 100})
         state = record.read_state(directory)

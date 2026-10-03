@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import test_live_status
+import test_menu_opens_at_once
 from test_v4n import Sandbox
 from agentkit import config
 
@@ -15,6 +16,9 @@ class SandboxThreads(unittest.TestCase):
 
     def test_live_status_cleanup_waits_for_a_starting_thread(self):
         self.check_cleanup(test_live_status.LiveStatus, ".agentkit")
+
+    def test_opens_at_once_waits_for_a_starting_thread_before_its_mocks_go(self):
+        self.check_cleanup(test_menu_opens_at_once.OpensAtOnce, "home")
 
     def check_cleanup(self, fixture, home):
         begin, booting, release = (threading.Event() for _ in range(3))

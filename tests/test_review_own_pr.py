@@ -157,16 +157,15 @@ class OwnPr(unittest.TestCase):
         self.assertEqual(state["own_orchestrator"], "opus")
         self.assertEqual(events, ["COMMENT"])
 
-    def test_own_pr_pass_merges_through_merge_turn_without_inbox(self):
+    def test_own_pr_pass_merges_under_repository_lock_without_inbox(self):
         run_dir = self.launch_dir("20260927-0002-own-merge")
         opts = {"--review": None, "--review-pr": URL}
         merges, turns, inbox, events = [], [], [], []
         real_merge = run.MERGE_METHODS["squash"]
 
-        @contextmanager
-        def turn(lp, upstream, reserve=False):
+        def turn(lp, upstream):
             turns.append(upstream)
-            yield
+            return nullcontext()
 
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="PASS"):
@@ -176,7 +175,7 @@ class OwnPr(unittest.TestCase):
                 run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
             mocks.enter_context(patch.object(
                 run, "gh", side_effect=self.posting_gh(events, merges)))
-            mocks.enter_context(patch.object(run, "merge_turn", side_effect=turn))
+            mocks.enter_context(patch.object(run, "merge_lock", side_effect=turn))
             mocks.enter_context(patch.object(
                 watch, "ask_inbox",
                 side_effect=lambda *a, **k: inbox.append(a) or 0))

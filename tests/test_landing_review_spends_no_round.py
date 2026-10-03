@@ -41,7 +41,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
-        self.stack.enter_context(patch.object(run, "merge_turn",
+        self.stack.enter_context(patch.object(run, "merge_lock",
                                               side_effect=lambda *a, **_kw: nullcontext()))
 
     def reviewer(self, cfg, name, body, workspace, out, role, session, log, limit=None, **_kw):

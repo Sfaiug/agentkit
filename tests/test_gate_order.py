@@ -162,7 +162,7 @@ class GateOrder(unittest.TestCase):
         stale = run_record.read_state(config.RUNS / "stale-first")
         self.assertEqual(gate.gate_turn_note(stale), "")
         self.assertFalse(gate._gate_waiter_before(repo, "ghost", 3000))
-        # --first starts a run first and merges it first, but a suite turn goes by wait
+        # --first starts a run first; a suite turn goes by wait
         self.waiter("plain", ACME, 1000)
         self.waiter("first-run", ACME, 2000, first=True)
         self.assertTrue(gate._gate_waiter_before(repo, "first-run", 2000))

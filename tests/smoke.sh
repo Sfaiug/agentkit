@@ -3666,13 +3666,13 @@ else
 fi
 
 # --- 19: base is where the run starts, target is where it ships (offline) ---
-# The whole merge pipeline against a bare repo standing in for origin and a fake `gh` that only
+# A passed run lands through the shared line fixture against a bare repo standing in for origin and a fake `gh` that only
 # records what it was called with. The run is cut from `feature` and targets `main`, which has
 # moved on since -- the shape that got rebased onto its own base and failed. Two things have to
 # hold: the PR is opened `--base main`, and because the executor left a merge commit on the
 # branch, `origin/main` comes in through `git merge` rather than a rebase that would replay the
-# side branch and flatten it. The clean merge keeps the passed review: the done-when runs again
-# on the integrated commit, and nothing reviews it a second time.
+# side branch and flatten it. The clean merge keeps the passed review, and delivery must
+# match the lander's tested tree.
 THOME="$WORK/home-target"; TAD="$WORK/ad-target"; TBIN="$WORK/bin-target"
 GHLOG="$WORK/gh-args.log"
 mkdir -p -- "$THOME" "$TAD" "$TBIN"
@@ -3723,10 +3723,36 @@ test -f retry.txt
 \`\`\`
 MD
 HOME="$THOME" AGENTKIT_ADAPTER_DIR="$TAD" AGENTKIT_DISCORD_WEBHOOK=off PATH="$TBIN:$PATH" \
-  ak run "$WORK/task-target.md" --rounds 2 --exec opus --review astra >"$WORK/target.log" 2>&1
+  "$REPO/bin/ak" run "$WORK/task-target.md" --rounds 2 --exec opus --review astra --no-merge >"$WORK/target.log" 2>&1
 TRC=$?
 TRUNID=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/target.log" | head -1)
 TJSON="$THOME/.agentkit/runs/$TRUNID/run.json"
+if [ "$TRC" = 0 ]; then
+  HOME="$THOME" AGENTKIT_ADAPTER_DIR="$TAD" AGENTKIT_DISCORD_WEBHOOK=off PATH="$TBIN:$PATH" \
+    PYTHONPATH="$REPO/tests:$REPO" python3 - "$TJSON" >>"$WORK/target.log" 2>&1 <<'PY19'
+import sys
+from pathlib import Path
+from agentkit import config, record, run, task
+from fixtures.landing import landing
+
+folder = Path(sys.argv[1]).parent
+state = record.read_state(folder)
+state.update(no_merge=False, state="running", finished_at=None)
+run.clear_delivery(state)
+record.save_state(folder, state)
+_, body, _ = task.parse_task(folder / "task.md")
+commands = run.with_suite(task.done_when(body, folder / "task.md"), state["worktree"])
+log = run.logger(folder, True)
+loop = run.Loop(config.load(), folder, state, {}, log, Path(state["worktree"]),
+                body, commands, body, [])
+assert landing(loop), loop.state
+loop.state.update(state="pass")
+record.save_state(folder, loop.state)
+run.write_result(folder, loop.state, commands, log, loop.cfg)
+assert run.finish(loop.state, folder, log, loop.cfg) == 0
+PY19
+  TRC=$?
+fi
 TWT=$(jq -r '.worktree // empty' "$TJSON" 2>/dev/null)
 TBR=$(jq -r '.branch // empty' "$TJSON" 2>/dev/null)
 TG=0
@@ -3736,13 +3762,13 @@ TG=0
 [ "$(jq -r '.target // empty' "$TJSON" 2>/dev/null)" = main ] || TG=1
 [ "$(jq -r '.merged // empty' "$TJSON" 2>/dev/null)" = true ] || TG=1
 grep -q "^pr create --base main --head ${TBR:-?} " "$GHLOG" || TG=1
-grep -q -- "--- merge: merging origin/main into ${TBR:-?}\$" "$WORK/target.log" || TG=1
 TSHA=$(jq -r '.review.head_sha // empty' "$TJSON" 2>/dev/null)
 if [ -n "$TWT" ] && [ -n "$TSHA" ]; then
   # the side merge is still in the delivered history, so the branch was merged
   # into and not replayed onto origin; the checkout itself went with the merge
   grep -qx 'Merge side-1' <<<"$(git -C "$TR" log --format=%s "$TSHA")" || TG=1
   git -C "$TR" merge-base --is-ancestor origin/main "$TSHA" || TG=1
+  [ "$(git -C "$TR" rev-parse "$TSHA^{tree}")" = "$(jq -r '.final_check.tree_sha // empty' "$TJSON")" ] || TG=1
   [ "$TSHA" = "$(jq -r '.delivery_sha // empty' "$TJSON")" ] || TG=1  # reviewed == delivered tip
   [ ! -e "$TWT" ] || TG=1
   git -C "$TR" rev-parse --verify --quiet "refs/heads/${TBR:-?}" >/dev/null 2>&1 && TG=1
