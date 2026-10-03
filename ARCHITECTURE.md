@@ -31,8 +31,9 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   `dirty_paths`, `OUT_CAP`.
 - `land.py`: landing together: one suite run for the passed runs queued on a merge turn, and
   trees that passed. For run's final check. Also builds the lander: checks a parked repository
-  line member in a scratch worktree and wakes it to land or fix itself; run consumes the verdict
-  and rejoins after fixes or a changed target.
+  line member in a scratch worktree and wakes it to land or fix itself; record changes and the
+  tick start fresh passes in the runs slice. Run consumes the verdict and rejoins after fixes
+  or a changed target.
 - `record.py`: run.json, stop-safe writes, recovery locks, defaults, folders, writer id.
   API: `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
   `writing`. For run, gate, job, menu, orch, watch, gc, retention, history and worker.

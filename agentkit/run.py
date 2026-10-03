@@ -12705,6 +12705,11 @@ def reviewer_transport_dead(error):
 def main(argv):
     if command_help.show("run", argv):
         return 0
+    if argv[:1] == ["--lander"]:
+        if len(argv) != 2 or Path(argv[1]).name != argv[1] or not argv[1].startswith(".merge-"):
+            raise config.Error("usage: ak run --lander LINE")
+        landing.check_line(config.RUNS / argv[1], print)
+        return 0
     if argv[:1] == ["status"]:
         return cmd_status(argv[1:])
     if argv[:1] == ["show"]:

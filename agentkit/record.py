@@ -108,10 +108,18 @@ def _write_state(run_dir, state, temp=_RUN_TEMP):
     One temporary file per lock a writer holds: `mark_delivery` writes under another lock
     than a save, and two writers filling one temporary file would put a torn record in place.
     """
+    previous = read_state(run_dir) or {}
     record_limits(state)
     tmp = run_dir / temp
     tmp.write_text(json.dumps(state, indent=2))
     tmp.replace(run_dir / "run.json")
+    if previous != state:
+        from . import land
+        # Joins, verdicts and departures all pass here, including a stop's removal.
+        for name in {wait["line"] for saved in (previous, state)
+                     if isinstance(wait := saved.get("waiting_on"), dict)
+                     and isinstance(wait.get("line"), str)}:
+            land.start_line(config.RUNS / name)
 
 
 def save_state(run_dir, state):

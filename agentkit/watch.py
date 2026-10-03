@@ -3782,6 +3782,8 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
         if receipt is None:
             log(f"WARN could not {verb} {run_id}: run.json cannot be read")
             return False
+        if receipt.get("state") == "stopped":
+            return False
         unit = f"agentkit-run-{run_id}"
         if (receipt.get("scope") and str(receipt["scope"]) != "none"
                 and not str(receipt["scope"]).startswith("none (")):
@@ -4682,15 +4684,22 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
     moves the very refs it reports on.  A job's run is its job's: the tick's pass
     leaves it, and the job's own ladder passes it as `run` to resume its wait.
     """
-    from . import run as run_mod
+    from . import land, run as run_mod
     now = time.time() if now is None else now
+    lines = set()
     for run_dir in [run] if run else run_record.run_dirs():
         try:
             state = run_record.read_state(run_dir)
             if not state or state.get("state") not in ("fail", "waiting"):
                 continue
-            if (state.get("waiting_on") or {}).get("line"):
-                continue    # only the lander's verdict wakes a line member
+            if name := (state.get("waiting_on") or {}).get("line"):
+                if name not in lines:
+                    lines.add(name)
+                    if dry_run:
+                        log(f"would start lander for {name}")
+                    else:
+                        land.start_line(config.RUNS / name, log)
+                continue    # saved verdicts also retry a wake that never started
             if state.get("job_id") and not run:
                 continue
             if state.get("state") == "fail" and not run_mod.parkable_conflict(

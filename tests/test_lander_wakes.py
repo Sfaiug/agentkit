@@ -27,6 +27,7 @@ SUITE = "test ! -f broken.txt"
 class LanderWakes(Sandbox):
     def setUp(self):
         super().setUp()
+        self.stack.enter_context(patch.object(land, "start_line"))
         self.stack.enter_context(patch.dict(os.environ, {
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AGENTKIT_SESSION": "",

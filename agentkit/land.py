@@ -18,7 +18,9 @@ consumes its verdict; this checker never takes ownership of its process or deliv
 from contextlib import ExitStack
 import fcntl
 import json
+import math
 import os
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -75,6 +77,54 @@ def line(turn):
     return sorted(members, key=lambda member: (not member[1].get("first"),
                                                member[1]["waiting_on"]["joined"],
                                                member[0].name))
+
+
+def start_line(turn, log=lambda _: None):
+    """Start a fresh checker when the line is free; the tick retries a missed start."""
+    from . import host, orch, run
+    turn = Path(turn)
+    if turn.parent != config.RUNS or not turn.name.startswith(".merge-"):
+        return False
+    try:
+        with turn.open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return False
+            members = line(turn)
+            if not members:
+                return False
+        # The suite gets the run's derived allowance or the largest recorded need,
+        # never the small scope of the run or tick that happened to start this pass.
+        readings = host.host_readings(slice_dir=orch.slice_cgroup)
+        total = host._reading(readings, "mem_total_mb", "total_mb", "mem_total")
+        ceiling = orch.slice_memory_max_mb(total) or total
+        caps = [value for _, state in members for key in ("memory_cap_mb", "peak_rss_mb")
+                if type(value := state.get(key)) in (int, float)
+                and math.isfinite(value) and value > 0]
+        if ceiling and ceiling > 0:
+            caps.append(run.memory_cap_mb(ceiling))
+        properties = ()
+        if caps:
+            cap = math.ceil(max(caps))
+            properties = ("-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M")
+        env = config.child_env()
+        # This work outlives its caller and must not belong to the caller's stop sweep.
+        for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
+                    config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
+            env.pop(key, None)
+        env["AK_RUN_DEPTH"] = "0"
+        installed = Path.home() / ".local" / "bin" / "ak"
+        if not installed.is_file():
+            installed = config.REPO / "bin" / "ak"
+        return orch.start_in_slice(
+            [sys.executable, str(installed), "run", "--lander", turn.name],
+            f"agentkit-lander-{turn.stem.removeprefix('.merge-')}-{time.time_ns()}",
+            env, turn.with_suffix(".log"), log, target_slice=orch.run_slice_name(),
+            properties=properties, nice=True)
+    except (OSError, config.Error) as exc:
+        log(f"WARN could not start lander for {turn.name}: {exc}")
+        return False
 
 
 def _repair(turn, directory, state, tree, red, log):
