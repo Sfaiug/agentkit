@@ -393,9 +393,12 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
     def test_with_no_proc_a_check_past_its_cap_is_ended_by_its_own_runner(self):
         # Expire the real runner's wait only after its held script and the tick are observed.
         # A three-second real cap can run out before a loaded host reaches either assertion.
+        # Pin its clock so the hook can reject a missing or incorrect remaining timeout.
         self.enterContext(patch.object(update, "LIVE_RUN", update.LIVE_RUN.replace(
-            "try:\n    signal.signal(signal.SIGTERM", '''wait = script.wait
+            "try:\n    signal.signal(signal.SIGTERM", '''time.time = lambda: float(cap) - 1
+wait = script.wait
 def expired(timeout=None):
+    assert timeout == 1, timeout
     script.wait = wait
     while not os.path.exists(os.path.join(os.environ["HOME"], "expire")):
         time.sleep(.01)
