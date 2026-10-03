@@ -125,7 +125,7 @@ refusals = ["at capacity", "rate limit", "usage limit", "insufficient_quota",
             "try a different model", "429 Too Many Requests",
             "500", "502", "503", "504", "Internal server error", "overloaded", "529"]
 quotas = ["rate limit", "usage limit", "429 Too Many Requests", "429", "insufficient_quota",
-          "insufficient quota", "payment required"]
+          "insufficient quota"]
 # `terminal` is the event log's terminal record kind: a refused turn ends with `turn.failed`,
 # which is the harness speaking about the run whether or not its kind names a failure.
 terminal = "turn.failed"

@@ -130,12 +130,11 @@ terminal = "result"
 signatures = ["You've hit the rate limit", "Rate limited", "quota exceeded",
   "Service unavailable", "The service is busy"]
 refusals = ["rate limit", "Rate limited", "quota exceeded", "too many requests", "429",
-  "402", "Payment Required", "usage balance exhausted", "Service unavailable",
+  "usage balance exhausted", "Service unavailable",
   "The service is busy",
   "500", "502", "503", "504", "Internal server error", "overloaded", "529", "at capacity"]
 quotas = ["rate limit", "Rate limited", "quota exceeded", "too many requests", "429",
-  "402", "Payment Required", "usage balance exhausted", "usage limit",
-  "insufficient_quota", "insufficient quota", "payment required"]
+  "usage balance exhausted", "usage limit", "insufficient_quota", "insufficient quota"]
 
 # Its login screen, in its own words: the session token in ~/.grok/auth.json went stale.
 [auth]
