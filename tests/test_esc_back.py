@@ -58,6 +58,16 @@ menu.usage.collect = lambda cfg, **kwargs: usage.Readings({})
 menu.stop_session_runs = lambda name, dry_run=False: None
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>", flush=True)
 
+read_key, was_q = terminal.read_key, False
+def heard(*args, **kwargs):
+    global was_q
+    if was_q:
+        print("<q handled>", flush=True)
+    key = read_key(*args, **kwargs)
+    was_q = key == terminal.Key("char", "q")
+    return key
+terminal.read_key = heard
+
 def mark_return(module, name):
     real = getattr(module, name)
 
@@ -208,7 +218,7 @@ class Menu:
                                  lines)
         mark = len(self.text())
         self.send(b"q")
-        time.sleep(0.3)
+        self.until(lambda text: "<q handled>" in text[mark:], "q handled")
         self.case.assertNotIn(f"<back {name}>", self.text()[mark:])
         mark = len(self.text())
         self.send(ESC)

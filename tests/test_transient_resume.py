@@ -30,7 +30,8 @@ class TransientResume(unittest.TestCase):
             self.stack.enter_context(patch.object(config, key, root / key.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
-            "AGENTKIT_RUN": "",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "transient-test",
             "TMUX_TMPDIR": str(root), "PYTHONDONTWRITEBYTECODE": "1"}))
         config.ensure_dirs()
