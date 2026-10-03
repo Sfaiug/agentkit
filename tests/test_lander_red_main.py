@@ -1,0 +1,195 @@
+"""A red target gets one repair; the other line members keep their places and no blame.
+
+Offline: local Git and real suites, with isolated state and fake repair launches and wakes.
+"""
+
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import test_lander as fixture
+from agentkit import config, land, record, run, watch
+
+SUITE = "test ! -f broken.txt"
+
+
+class RedMain(unittest.TestCase):
+    commit = fixture.Lander.commit
+    advance = fixture.Lander.advance
+    check = fixture.Lander.check
+    wait = fixture.Lander.wait
+    assert_cleaned = fixture.Lander.assert_cleaned
+
+    def setUp(self):
+        fixture.Lander.setUp(self)
+        (self.repo / "AGENTS.md").write_text(f"---\ntests: {SUITE}\n---\n")
+        self.commit("declare target suite")
+        run.git(self.repo, "push", "origin", "main")
+        self.base = run.git(self.repo, "rev-parse", "HEAD")
+        self.prepared = []
+        self.stack.enter_context(patch.object(run, "prepare", side_effect=self.prepare))
+        self.spawn = self.stack.enter_context(patch.object(run, "spawn_bg", return_value=0))
+        self.stack.enter_context(patch.object(watch, "seat_closed", return_value=False))
+        config.session_path("seat").write_text("{}")
+
+    def prepare(self, directory, opts, log, cfg, **_kw):
+        self.prepared.append((directory, opts))
+        record.save_state(directory, {**record.read_state(directory), "run_id": directory.name,
+                                      "state": "queued", "slot_waiting": True,
+                                      "first": bool(opts.get("--first"))})
+
+    def member(self, name="first", joined=1, **files):
+        directory = fixture.Lander.member(self, name, joined, once="true", **files)
+        with record.record(directory) as state:
+            state["launched_session"] = "seat"
+        return directory
+
+    def red_line(self):
+        first = self.member()
+        later = self.member("later", joined=2)
+        self.advance(**{"broken.txt": "target breakage\n"})
+        before = {directory: (directory / "run.json").read_bytes()
+                  for directory in (first, later)}
+        land.check_line(self.turn)
+        return first, later, before
+
+    def assert_parked(self, before):
+        for directory, original in before.items():
+            self.assertEqual((directory / "run.json").read_bytes(), original)
+
+    def ready_repair(self, directory):
+        tip = run.git(self.repo, "rev-parse", "origin/main")
+        branch = f"ak/{directory.name}"
+        run.git(self.repo, "checkout", "-b", branch, tip)
+        run.git(self.repo, "rm", "broken.txt")
+        (self.repo / "work.txt").write_text("work\n")
+        self.commit("repair target")
+        identity = run.commit_identity(self.repo)
+        run.git(self.repo, "checkout", "main")
+        with record.record(directory) as state:
+            state.update(state="waiting", worktree=str(self.repo), branch=branch,
+                         base="origin/main", target="main", base_sha=tip,
+                         merge_method="squash", review={"verdict": "PASS", **identity},
+                         waiting_on={"line": self.turn.name, "joined": 100})
+        return branch
+
+    def test_one_bare_probe_and_one_repair_leave_every_member_unblamed(self):
+        first, _, before = self.red_line()
+        self.assert_parked(before)
+        self.wake.assert_not_called()
+        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(self.checks[1][0], [SUITE])
+        self.assertEqual(len(self.prepared), 1)
+        directory, opts = self.prepared[0]
+        self.assertTrue(opts["--first"])
+        repair = record.read_state(directory)
+        self.assertEqual(repair["repair"], {"target": "main", "command": SUITE})
+        self.assertEqual(repair["repair_tip"], run.git(self.repo, "rev-parse", "origin/main"))
+        self.assertIn("target's own tip", (directory / "task.md").read_text())
+        for _ in range(3):
+            land.check_line(self.turn)
+        self.assertEqual(len(self.prepared), 1)
+        self.assertEqual(len(self.checks), 2)
+        self.assert_parked(before)
+        self.wake.assert_not_called()
+        self.assertIn("Tree: ", (first / "target-probe.log").read_text())
+        self.assert_cleaned()
+
+    def test_only_the_repair_lands_until_the_target_tree_changes(self):
+        first, later, before = self.red_line()
+        self.assertEqual(len(self.prepared), 1)
+        repair = self.prepared[0][0]
+        branch = self.ready_repair(repair)
+        self.assertEqual([directory.name for directory, _ in land.line(self.turn)],
+                         [repair.name, first.name, later.name])
+        land.check_line(self.turn)
+        tree = self.wait(repair)["land"]
+        self.wake.assert_called_once_with(repair.name, unittest.mock.ANY)
+        self.assert_parked(before)
+        checks = len(self.checks)
+        land.check_line(self.turn)
+        self.assertEqual(len(self.checks), checks)
+        self.assert_parked(before)
+        run.git(self.repo, "merge", "--ff-only", branch)
+        run.git(self.repo, "push", "origin", "main")
+        with record.record(repair) as state:
+            state.update(state="pass", merged=True)
+        self.wake.reset_mock()
+        land.check_line(self.turn)
+        self.assertEqual(self.wait(first)["land"], tree)
+        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+        self.assertEqual((later / "run.json").read_bytes(), before[later])
+        self.assertEqual(len(self.checks), checks)
+
+    def test_a_green_bare_target_wakes_only_the_failing_member(self):
+        first = self.member(**{"broken.txt": "branch breakage\n"})
+        later = self.member("later", joined=2, **{"broken.txt": "other breakage\n"})
+        self.advance()
+        before = (later / "run.json").read_bytes()
+        land.check_line(self.turn)
+        self.assertIn(SUITE, self.wait(first)["fix"]["line"])
+        self.assertEqual((later / "run.json").read_bytes(), before)
+        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+        self.assertEqual(len(self.checks), 2)
+        self.assertIsNotNone(land.passed(self.turn, run.git(self.repo, "rev-parse",
+                                                          "origin/main^{tree}")))
+        self.assertEqual(self.prepared, [])
+        with record.record(first) as state:
+            state["state"] = "running"
+        land.check_line(self.turn)
+        self.assertIn("fix", self.wait(later))
+        self.assertEqual(len(self.checks), 3)
+        self.assertEqual(self.prepared, [])
+
+    def test_a_recorded_green_target_needs_no_bare_probe(self):
+        first = self.member(**{"broken.txt": "branch breakage\n"})
+        self.advance()
+        run.fetch(self.repo, "origin")
+        tree = run.git(self.repo, "rev-parse", "origin/main^{tree}")
+        land.note(self.turn, [tree], "earlier")
+        land.check_line(self.turn)
+        self.assertIn("fix", self.wait(first))
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(self.prepared, [])
+
+    def test_another_commit_with_the_same_red_tree_gets_no_probe_or_repair(self):
+        _, _, before = self.red_line()
+        self.assertEqual(len(self.prepared), 1)
+        run.git(self.repo, "commit", "--allow-empty", "-m", "same target tree")
+        run.git(self.repo, "push", "origin", "main")
+        land.check_line(self.turn)
+        self.assertEqual(len(self.prepared), 1)
+        self.assertEqual(len(self.checks), 2)
+        self.assert_parked(before)
+        self.wake.assert_not_called()
+
+    def test_a_failed_or_blocked_repair_holds_its_tree_without_blame_or_relaunch(self):
+        _, _, before = self.red_line()
+        self.assertEqual(len(self.prepared), 1)
+        repair = self.prepared[0][0]
+        for ending in ("fail", "blocked", "pass"):
+            with self.subTest(ending=ending):
+                with record.record(repair) as state:
+                    state.update(state=ending, slot_waiting=False)
+                land.check_line(self.turn)
+                self.assertEqual(len(self.prepared), 1)
+                self.assertEqual(len(self.checks), 2)
+                self.assert_parked(before)
+                self.wake.assert_not_called()
+
+    def test_a_changed_target_releases_the_line_while_the_repair_is_still_open(self):
+        first, later, before = self.red_line()
+        run.git(self.repo, "rm", "broken.txt")
+        self.commit("target repaired externally")
+        run.git(self.repo, "push", "origin", "main")
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(first))
+        self.assertEqual((later / "run.json").read_bytes(), before[later])
+        self.assertEqual(len(self.prepared), 1)
+        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
