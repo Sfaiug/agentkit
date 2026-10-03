@@ -37,7 +37,7 @@ class StopOwnRunsOnly(Sandbox):
         self.kill = self.stack.enter_context(patch.object(watch, "kill_tree"))
         self.stack.enter_context(patch.object(run, "marker_pids", return_value=[4242]))
         self.stack.enter_context(patch.object(record, "process_active", return_value=True))
-        for name in ("history_finish", "record_result", "refresh_seat_tally", "drop_checkout"):
+        for name in ("history_finish", "record_result", "drop_checkout"):
             self.stack.enter_context(patch.object(run, name))
 
     def running(self, name, owner, *, in_job=False, legacy=False):

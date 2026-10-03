@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, harness, menu, notify, orch, run, terminal, update, usage, watch
-from agentkit import record as run_record
+from agentkit import record as run_record, statusbar
 from agentkit.harness import codex as codex_plugin
 
 FIXTURES = REPO / "tests/fixtures/adapters"
@@ -367,7 +367,7 @@ class Seats(Fixture):
         self.seat("echo-seat", "echo")
         seat = {"name": "echo-seat", "path": str(self.root), "created": 9000, "attached": False,
                 "exited": False, "legacy": False, "resumable": False, "repo": None}
-        self.stack.enter_context(patch.object(watch, "announce", lambda *a: None))
+        self.stack.enter_context(patch.object(statusbar, "redress", lambda *a, **_kw: None))
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(1, "")))
         for kind, word, rule in (("idle", "needs you", "prompt.composer"),
                                  ("working", "working", "working.interrupt"),
