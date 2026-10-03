@@ -42,7 +42,6 @@ class Babysitter(unittest.TestCase):
         self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.tail))
         self.typed = self.stack.enter_context(patch.object(watch, "type_into", return_value=True))
         self.notified = self.stack.enter_context(patch.object(watch.notify, "shaped", return_value=0))
-        self.reset = self.stack.enter_context(patch.object(watch, "spend_reset"))
         self.window = self.stack.enter_context(patch.object(watch, "window_ends", return_value=None))
         self.data = watch.load_state()
         self.logs = []
@@ -81,13 +80,12 @@ class Babysitter(unittest.TestCase):
         self.harness, self.provider = "codex", "openai"
         self.tail = "usage limit reached"
         self.tick()
-        self.reset.side_effect = lambda *_: setattr(self, "now", self.now + 120)
+        self.window.side_effect = lambda *_: setattr(self, "now", self.now + 120)
         self.tick(180)
         self.assertEqual(self.data["stalls"]["seat"]["nudged_at"], self.now)
-        self.reset.side_effect = None
+        self.window.side_effect = None
         self.tick(179)
         self.assertEqual(self.typed.call_count, 1)
-        self.assertEqual(self.reset.call_count, 1)
         self.assertEqual(self.window.call_count, 1)
         self.tick(1)
         self.assertEqual(self.typed.call_count, 2)
@@ -226,7 +224,6 @@ class Babysitter(unittest.TestCase):
                 self.tick(3600)
                 self.typed.assert_not_called()
                 self.notified.assert_not_called()
-                self.reset.assert_not_called()
                 self.window.assert_not_called()
                 self.assertNotIn("seat", self.data["stalls"])
         self.logs.clear()
@@ -256,7 +253,7 @@ class Babysitter(unittest.TestCase):
         self.tail = "■ usage limit reached\nGoal stalled"
         self.tick()
         watch.save_state(self.data)
-        self.reset.side_effect = lambda *_: orch.seen_by_user("seat")
+        self.window.side_effect = lambda *_: orch.seen_by_user("seat")
         self.tick(180)
         self.typed.assert_not_called()
         watch.save_state(self.data)
@@ -266,7 +263,7 @@ class Babysitter(unittest.TestCase):
         self.harness, self.provider = "codex", "openai"
         self.tail = "usage limit reached"
         self.tick()
-        self.reset.side_effect = lambda *_: setattr(self, "tail", "Reading tests now")
+        self.window.side_effect = lambda *_: setattr(self, "tail", "Reading tests now")
         self.tick(180)
         self.typed.assert_not_called()
 
@@ -412,7 +409,6 @@ class Babysitter(unittest.TestCase):
                 self.data = watch.load_state()
                 self.harness, self.provider, self.tail = harness, provider, tail
                 self.typed.reset_mock()
-                self.reset.reset_mock()
                 self.window.reset_mock()
                 ends = self.now + 7200
                 self.window.side_effect = lambda *_: ends if self.now < ends else None
@@ -420,7 +416,6 @@ class Babysitter(unittest.TestCase):
                 self.tick(180)
                 self.tick(3600)
                 self.assertEqual(self.window.call_count, 1)
-                self.assertEqual(self.reset.call_count, int(harness == "codex"))
                 self.typed.assert_not_called()
                 self.notified.assert_not_called()
                 entry = self.data["stalls"]["seat"]
@@ -429,12 +424,10 @@ class Babysitter(unittest.TestCase):
                 self.tick(ends - self.now)
                 self.typed.assert_called_once()
                 if harness == "codex":
-                    self.reset.assert_called()
                     self.assertEqual(self.typed.call_args.args[1], "/goal resume")
                 self.tick(300)
                 self.assertEqual(self.typed.call_count, 1)
                 self.assertEqual(self.window.call_count, 1)
-                self.assertEqual(self.reset.call_count, int(harness == "codex"))
                 self.assertNotIn("status", entry)
 
     def test_a_new_nonquota_error_clears_the_waiting_status(self):
@@ -458,7 +451,6 @@ class Babysitter(unittest.TestCase):
         watch.save_state(self.data)
         self.data = watch.load_state()
         self.window.side_effect = AssertionError("polled a known window")
-        self.reset.side_effect = AssertionError("invalidated usage during a known window")
         self.tick(3600)
         self.typed.assert_not_called()
         self.notified.assert_not_called()
@@ -469,17 +461,17 @@ class Babysitter(unittest.TestCase):
         self.tick(180)
         self.typed.assert_called_once()
 
-    def test_quota_policy_precedes_goal_resume_in_either_order(self):
+    def test_quota_window_is_read_before_goal_resume_in_either_order(self):
         self.harness, self.provider = "codex", "openai"
         for tail in ("■ usage limit reached\nGoal stalled", "Goal stalled\nrate limit reached"):
             self.data = watch.load_state()
             self.tail = tail
             order = []
-            self.reset.side_effect = lambda *_: order.append("reset")
+            self.window.side_effect = lambda *_: order.append("window")
             self.typed.side_effect = lambda _, keys, __: order.append(keys) or True
             self.tick()
             self.tick(180)
-            self.assertEqual(order, ["reset", "/goal resume"])
+            self.assertEqual(order, ["window", "/goal resume"])
 
     def test_unknown_legacy_and_exited_seats_never_receive_keys(self):
         for extra in ({"legacy": True}, {"exited": True}):
@@ -493,13 +485,13 @@ class Babysitter(unittest.TestCase):
         self.typed.assert_not_called()
         self.assertEqual(self.data["stalls"], {})
 
-    def test_dry_run_never_writes_or_calls_policy(self):
+    def test_dry_run_never_writes_or_reads_meters(self):
         self.harness, self.provider = "codex", "openai"
         self.tail = "■ usage limit reached\nGoal stalled"
         self.tick(dry=True)
         self.tick(180, dry=True)
         self.assertTrue(any("would resume seat" in line for line in self.logs))
-        self.reset.assert_not_called()
+        self.window.assert_not_called()
         self.typed.assert_not_called()
         self.assertEqual(list(self.root.iterdir()), [])
 
