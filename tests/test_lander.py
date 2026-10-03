@@ -185,7 +185,7 @@ class Lander(unittest.TestCase):
                       patch.object(run, "drive", return_value=0) as drive):
                     self.assertEqual(run.resume_run([directory.name]), 0)
                 current = record.read_state(directory)
-                self.assertNotIn("waiting_on", current)
+                self.assertEqual(current["waiting_on"], parked["waiting_on"])
                 self.assertEqual(current["state"], "queued")
                 self.assertEqual(current["resume_from"], "waiting")
                 self.assertEqual(current["pid"], owner["pid"])
