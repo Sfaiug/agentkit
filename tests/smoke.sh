@@ -1743,10 +1743,10 @@ PY_RETRY_CLOCK
 retrylaunch retry-exec flaky pass '["opus", "astra"]'
 retrylaunch retry-review work dead    # reviewer never comes back -> fall back to another provider
 
-# Checks 1 to 5, and 6, 6b, 6d, 31a, 31d and 31e below, need the outside world: real models,
-# GitHub, Discord, live meters, the shared browser.  They run only in the live mode, which
-# tests/live.sh starts before a host takes new code and when a harness upgrades; the landing
-# suite reaches nothing beyond loopback.  Offline twins run in both modes: 19 the delivery
+# Checks 1 to 5, and 6, 6b, 6d, 6f, 6g, 31a, 31d and 31e need the outside world: real models,
+# GitHub, Discord, live meters, the shared browser and user systemd. They run only in the
+# live mode, which tests/live.sh starts before a host takes new code and when a harness
+# upgrades; the landing suite reaches nothing beyond loopback. Offline twins run in both modes: 19 the delivery
 # path, 41 and 8a-8g the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
 # --- shared live guard -----------------------------------------------------
 if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
@@ -2468,6 +2468,8 @@ else
   no "6e codex adapter -m rule"; sed 's/^/      /' "$WORK/codex-mflag.log"
 fi
 
+# --- shared live guard -----------------------------------------------------
+if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6f: a seat's pane runs inside agentkit's own slice --------------------
 # tmux 3.4 and newer leave every pane in a scope under the slice its server was started in, so
 # a seat started here has to come up under this suite's own `agentkit-test.slice` -- a corner
@@ -2565,13 +2567,18 @@ if child_file.exists():
     assert not Path(f"/proc/{child}").exists(), child
 PYRUNSCOPE
     SCOPERC=$?
-    if [ "$SCOPERC" = 0 ]; then
-      ok "6g a detached run loop is under its agentkit-run scope"
+    if [ "$SCOPERC" = 0 ] && python3 "$REPO/tests/test_memory_cap.py" \
+        MemoryCap.check_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure \
+        >>"$WORK/run-scope.log" 2>&1; then
+      ok "6g a detached run loop is under its agentkit-run scope and its memory cap holds"
     else
       no "6g detached run scope"; sed 's/^/      /' "$WORK/run-scope.log"
     fi ;;
   *) skip "6g the run scope: a user systemd manager is not on this host, so detached runs start plainly" ;;
 esac
+
+# --- shared live guard -----------------------------------------------------
+fi
 
 # --- 7: syntax + install into a throwaway HOME ------------------------------
 SYN=0
