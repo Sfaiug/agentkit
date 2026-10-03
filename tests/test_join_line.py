@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job, land, record, run
+from agentkit import config, job, land, menu, record, run, watch
 from test_merge_step import make_loop, make_repos
 from test_v4n import Sandbox
 
@@ -82,6 +82,29 @@ class JoinLine(Sandbox):
         self.stop.assert_called_once()
         self.assertIsNone(state["pid"])
         self.assertEqual(state["verdict"], "PASS")
+
+    def test_released_member_keeps_its_seat_working_and_its_fix_open(self):
+        self.lp.state.update(launched_session="acme", started_at=1)
+        self.lp.write()
+        run.merge(self.lp)
+        run.release_line(self.directory, self.lp.log)
+        state = self.saved()
+        self.assertFalse(record.process_active(state))
+        self.assertFalse(run.tick_admission(state))
+        self.assertEqual(menu.run_state_word(state), "working")
+        self.assertEqual(run.seat_tallies([state]), {"acme": (1, 0, 0)})
+        self.assertTrue(run.followup_open(state))
+        found = watch.session_state(
+            "acme", now=3 * 86400, session={"name": "acme", "attached": False},
+            cfg=self.cfg, records=[(self.directory, state)], live={}, harness="claude",
+            auth_out={}, gh_out={}, token_out={}, previous={})
+        self.assertEqual(found["word"], "working")
+
+        with record.record(self.directory) as current:
+            current["state"] = "stopped"
+        stopped = self.saved()
+        self.assertEqual(menu.run_state_word(stopped), "done")
+        self.assertFalse(run.followup_open(stopped))
 
     def retry(self, pr=False):
         self.lp.state.update(state="pass", merge_failed=True, merge_note="push stopped")

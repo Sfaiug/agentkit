@@ -9293,11 +9293,13 @@ def going(state, now=None):
 
     The GOING states -- queued, running, waiting, exhausted, stalled,
     waiting_login -- which resume themselves or are already running, plus an
-    error the tick will retry. Errors and merge waits also need current admission:
+    error the tick will retry. Errors and target waits also need current admission:
     an old stamp cannot keep a seat working after its retry stopped being allowed,
     and an exhausted run keeps one working only while the tick can resume it
     (`exhausted_wait`): one that waits on nobody is his, not going.
     """
+    if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
+        return True  # the line is unfinished work, not an ending with timed recovery
     if state.get("state") in ("error", "waiting") and not tick_admission(state, now=now):
         return False
     if state.get("state") == "exhausted":
