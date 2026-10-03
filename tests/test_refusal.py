@@ -173,7 +173,7 @@ class RefusalTests(unittest.TestCase):
         self.assertTrue(any("transient" in line for line in lines), lines)
         self.assertEqual(self.marked, [])
 
-    def test_exit_zero_terminal_quota_event_uses_reset_policy(self):
+    def test_exit_zero_terminal_quota_event_parks_the_provider(self):
         calls, fake = self.worker(
             code=0,
             events='{"type":"turn.failed","error":{"message":"usage limit"}}')
