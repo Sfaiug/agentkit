@@ -2,8 +2,8 @@
 
 Offline: a fake `busctl` on PATH records what the manager is asked and, as the manager would,
 names the new scope in the file this process reads its own cgroup from; `systemd-run` and
-`systemctl` beside it only record that something reached them.  No unit is made, and the one
-signal sent goes to a child process of this test's own.
+`systemctl` beside it only record that something reached them.  No unit is made, and all
+signals sent go only to child processes of this test's own.
 """
 
 from contextlib import redirect_stdout
@@ -305,13 +305,22 @@ class ForegroundScope(Sandbox):
             "'import signal, sys; sys.exit(signal.getsignal(signal.SIGTERM) != signal.SIG_DFL)'], "
             "timeout=30)\n"
             "if child.returncode: sys.exit(1)\n"
-            "sys.exit(3)\n")
-        child = subprocess.run(
-            [sys.executable, "-c", ending], capture_output=True, text=True, timeout=60,
-            env={**os.environ, "PATH": f"{stopper}:{os.environ['PATH']}"})
-        self.assertEqual(child.returncode, 3, child.stderr)
-        self.assertEqual(sent.read_text(),
-                         "--user stop agentkit-run-acme.scope agentkit-run-acme.service --no-block")
+            # Deliver a delayed stop after Python has cleared its callable handlers.
+            "class Shutdown:\n"
+            "    def __del__(self):\n"
+            "        import os, signal\n"
+            "        os.kill(os.getpid(), signal.SIGTERM)\n"
+            "shutdown = Shutdown()\n"
+            "sys.exit(int(sys.argv[1]))\n")
+        for code in (0, 1, 3):
+            with self.subTest(exit=code):
+                sent.unlink(missing_ok=True)
+                child = subprocess.run(
+                    [sys.executable, "-c", ending, str(code)], capture_output=True, text=True,
+                    timeout=60, env={**os.environ, "PATH": f"{stopper}:{os.environ['PATH']}"})
+                self.assertEqual(child.returncode, code, child.stderr)
+                self.assertEqual(sent.read_text(),
+                                 "--user stop agentkit-run-acme.scope agentkit-run-acme.service --no-block")
 
 
 if __name__ == "__main__":
