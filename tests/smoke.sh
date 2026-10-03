@@ -5741,7 +5741,7 @@ else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
 # --- 49: repository boundaries and docs -----------------------------------
-{ python3 "$REPO/tests/test_dead_code.py" && python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 definitions have callers, knowledge stays home, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 dead code, boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
+{ python3 "$REPO/tests/test_dead_code.py" && python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 definitions have callers, knowledge stays home, ARCHITECTURE.md maps every module and harness with at most 400 characters per module, and the docs match the interface" || { no "49 dead code, boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
 # --- 49a: landed suite evidence -------------------------------------------
 if { python3 "$REPO/tests/test_repo_suite.py" &&
      python3 "$REPO/tests/test_merge_trailer.py"; } >"$WORK/merge-trailer.log" 2>&1; then
