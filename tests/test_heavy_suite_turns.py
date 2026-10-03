@@ -125,6 +125,18 @@ class HeavySuiteTurns(unittest.TestCase):
             self.assertIn(f"heavy suites: {small} at once (derived)",
                           run.host_status_line())
 
+    def test_an_opted_in_suite_holds_one_turn_per_piece(self):
+        directory = self.record("pieces", ACME)
+        command = 'echo "$AK_SHARD"'
+        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SMALL)}):
+            expected = gate.derived_heavy_limit(SMALL, running=0)
+            with gate.gate_turn(directory, directory / "gate.log", None, command, self.root):
+                self.assertEqual(gate._heavy_running(), expected)
+                self.assertEqual(len(gate._GATE_HELD.hold.slots), expected)
+                gate._GATE_HELD.hold.alone()
+                self.assertEqual(gate._heavy_running(), 1)
+            self.assertEqual(gate._heavy_running(), 0)
+
     def test_headroom_admits_a_fifth_suite_with_four_running(self):
         for resource, readings in (
                 ("cpu", {**SMALL, "slice_cpu_used": 2.8 + 3}),

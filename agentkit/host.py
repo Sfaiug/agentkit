@@ -187,12 +187,14 @@ def _reclaimable_mb(path):
     return None
 
 
-def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False):
+def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False, hard=False):
     """The nearest ancestor with a finite memory.high, as one (used, high, raw, name).
 
     The used figure excludes reclaimable file cache. An empty list means
     no finite limit or no reading of its use. With `all_limits`, include each
     enclosing limit, memory.max too: a child cannot spend its parent's headroom.
+    With `hard`, read only enclosing memory.max caps and count file cache too,
+    since those bytes count toward OOM.
     """
     try:
         relative = next(line.split("::", 1)[1] for line in
@@ -204,18 +206,19 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False)
     current = root / relative.lstrip("/")
     limits = []
     while current == root or root in current.parents:
-        high = _read_number(current / "memory.high", bytes_to_mb=True)
-        if all_limits:
-            hard = _read_number(current / "memory.max", bytes_to_mb=True)
-            if hard is not None:
-                high = min(high, hard) if high is not None else hard
+        high = _read_number(current / ("memory.max" if hard else "memory.high"),
+                            bytes_to_mb=True)
+        if all_limits and not hard:
+            cap = _read_number(current / "memory.max", bytes_to_mb=True)
+            if cap is not None:
+                high = min(high, cap) if high is not None else cap
         if high is not None:
             raw = _read_number(current / "memory.current", bytes_to_mb=True)
-            cache = _reclaimable_mb(current / "memory.stat")
+            cache = 0 if hard else _reclaimable_mb(current / "memory.stat")
             if raw is not None and cache is not None:
                 limits.append((max(0.0, raw - cache), high, raw,
                                current.name if current != root else "/"))
-            if not all_limits:
+            if not (all_limits or hard):
                 return limits
         if current == root:
             break
@@ -415,8 +418,11 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     if callable(slice_dir):
         slice_dir = slice_dir()
     limits = _unit_memory_limits(cgroup_file, cgroup_root, all_limits=all_limits)
+    caps = _unit_memory_limits(cgroup_file, cgroup_root, hard=True)
     readings = {"free_mb": meminfo.get("MemAvailable"), "mem_total_mb": meminfo.get("MemTotal"),
                 "load": load, "cpus": cpu_count(), "unit_limits": limits,
+                "unit_memory_max_headroom_mb": min((cap - used for used, cap, _, _ in caps),
+                                                   default=None),
                 "slice_cpu_pressure": _slice_cpu_pressure(slice_dir),
                 "slice_cpu_stat": _slice_cpu_stat(slice_dir)}
     if limits and isinstance(limits[0], (tuple, list)) and len(limits[0]) >= 4:
