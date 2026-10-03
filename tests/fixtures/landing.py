@@ -3,6 +3,8 @@
 from unittest.mock import patch
 
 from agentkit import config, land, record, run, watch
+# Job tests install this fixture in place of the handoff itself.
+from agentkit.run import join_line
 
 
 def landing(lp, deliver=None, *, checked=lambda: None, consume=None):
@@ -14,7 +16,7 @@ def landing(lp, deliver=None, *, checked=lambda: None, consume=None):
             if deliver is None:
                 return run.merge(lp)
             upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
-            return run.join_line(lp, upstream, deliver)
+            return join_line(lp, upstream, deliver)
 
         if not (lp.state.get("waiting_on") or {}).get("line"):
             act()
