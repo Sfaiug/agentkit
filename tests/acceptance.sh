@@ -10,8 +10,9 @@
 : "${AK_NOTIFY_SINK:=dry-run}"
 AK_NOTIFY_SINK_LOG=${WORK:-${TMPDIR:-/tmp}}/notify-diversions.log
 export AK_NOTIFY_SINK AK_NOTIFY_SINK_LOG
-NPASS=0 NFAIL=0 NSKIP=0 NMETER=0 NHOST=0
+NPASS=0 NFAIL=0 NSKIP=0 NMETER=0 NHOST=0 NSPENT=0 NCALL=0
 ok() { printf 'PASS  %s\n' "$*"; NPASS=$((NPASS + 1)); }
+ok_call() { ok "$@"; NCALL=$((NCALL + 1)); }   # a passed check that completed a real model call
 no() { printf 'FAIL  %s\n' "$*"; NFAIL=$((NFAIL + 1)); }
 # A live provider meter that answers 429, 5xx or nothing at all is the provider
 # throttling the host's probes, not the checkout under test: the check skips, and the
@@ -33,6 +34,14 @@ skip() {
 skip_checks() {
   local labels=$1 label; shift
   for label in ${labels//\// }; do skip "$label: $*"; done
+}
+# A model whose subscription window is spent, or whose provider refused a call for quota, is
+# the provider's state as well, and may stay so for weeks.  But check 3 skips before anything
+# shows a real call can pass, so `finish` counts these skips as passed only when the same suite
+# also completed a real model call (`ok_call`); with none, they are skips like any other.
+skip_spent_checks() {   # skip_spent_checks <check labels> <why>
+  local labels=$1 label; shift
+  for label in ${labels//\// }; do printf 'SKIP  %s: %s\n' "$label" "$*"; NSPENT=$((NSPENT + 1)); done
 }
 meter_unavailable() {   # meter_unavailable <usage.json> <provider...>: the first matching error, or 1
   # Only the named providers' errors count: a bystander's timed-out probe beside the
@@ -64,8 +73,9 @@ finish() {
     no "a notification was aimed at the configured webhook while the test sink was set"
     sed 's/^/      /' "$AK_NOTIFY_SINK_LOG"
   fi
-  echo "$NPASS passed, $NFAIL failed, $NSKIP skipped"
-  local meter=""
+  local nskip=$NSKIP spent=0 meter=""
+  if [ "$NCALL" != 0 ]; then spent=$NSPENT; else nskip=$((nskip + NSPENT)); fi
+  echo "$((NPASS + spent)) passed, $NFAIL failed, $nskip skipped"
   if [ "$NMETER" = 1 ]; then
     meter="; 1 provider-meter skip counted as passed"
   elif [ "$NMETER" != 0 ]; then
@@ -76,11 +86,16 @@ finish() {
   elif [ "$NHOST" != 0 ]; then
     meter="$meter; $NHOST skips for what this host lacks counted as passed"
   fi
+  if [ "$spent" = 1 ]; then
+    meter="$meter; 1 spent-window skip counted as passed"
+  elif [ "$spent" != 0 ]; then
+    meter="$meter; $spent spent-window skips counted as passed"
+  fi
   if [ "$NFAIL" != 0 ]; then
     echo "acceptance: FAILED$meter (see $WORK)"
     return 1
   fi
-  if [ "$NSKIP" != 0 ]; then
+  if [ "$nskip" != 0 ]; then
     echo "acceptance: INCOMPLETE; skipped coverage was not exercised$meter (see $WORK)"
     [ "${AGENTKIT_ACCEPTANCE_REQUIRED:-0}" != 1 ] || return 2
   else

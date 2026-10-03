@@ -6,7 +6,8 @@ unseen.  It is no part of smoke.sh and never touches its lock: it holds no smoke
 waits for none.  Each file runs once, in a process of its own from the checkout's root with
 no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file started from inside a run
 must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at
-once as the host's idle cores and free memory fit, read as the loop reads them for heavy suites.
+once as the host's idle cores and free memory fit, read as the loop reads them for heavy suites;
+in a run holding its merge turn, at least the cores its raised CPU weight entitles it to.
 A failing file, or one reporting no executed cases, fails the whole and is named with its
 last lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after
 their checks. Python imports under agentkit/, tools/, bin/ and tests/ must be from the
@@ -149,6 +150,16 @@ def main(root):
     readings = host.host_readings(slice_dir=orch.slice_cgroup)
     cores = readings.get("slice_cpu_quota") or readings.get("cpus")
     readings = dict(readings, slice_cpu_quota=None, cpus=cores)
+    # A run holding its merge turn weighs its scope above every other run's: the kernel owes
+    # this suite that share of the cores however busy the others keep them, so it counts no
+    # fewer idle.  Its share, not more: the others' weights, another repository's holder's
+    # among them, still claim the rest.
+    own = host.process_cgroup()
+    weights = host.cpu_weights(host.cgroup_path(own)) if own else None
+    load = host._reading(readings, "load", "load1", "load_1m")
+    if weights and weights[1] and weights[0] > min(weights[1]) and cores and load is not None:
+        entitled = cores * weights[0] / (weights[0] + sum(weights[1]))
+        readings["load"] = min(load, cores - entitled)
     jobs = gate.derived_heavy_limit(readings, running=0, job_cpus=FILE_CPUS,
                                    job_mem_mb=FILE_MEM_MB)
     began, failed = time.monotonic(), 0

@@ -1927,7 +1927,7 @@ skip_spent() {   # skip_spent <check labels> <required models...>
   for model in "$@"; do
     spent=$(spent_until "$model")
     if [ -n "$spent" ]; then
-      skip_checks "$checks" "required model $model has a spent ${spent%% *} window until ${spent#* }"
+      skip_spent_checks "$checks" "required model $model has a spent ${spent%% *} window until ${spent#* }"
       return 0
     fi
     skip_unavailable "$checks" "$model" && return 0
@@ -1973,7 +1973,7 @@ snapshot.write_text(json.dumps({"providers": providers}))
 print(text.strip() or word)
 PY
   ) || return 1
-  skip_checks "$checks" "required model $model was refused: $why"
+  skip_spent_checks "$checks" "required model $model was refused: $why"
 }
 printf 'Create a file hello.txt containing exactly: hello\nThen run %s hand-in done.\nThen reply with only the word DONE.\n' "$REPO/bin/ak" \
   >"$WORK/p-make.txt"
@@ -1988,7 +1988,7 @@ for pair in "${HARNESSES[@]}"; do
   CHECKS=3a/3b; [ $# = 0 ] || CHECKS=3c
   SPENT=$(spent_until "$M")
   if [ -n "$SPENT" ]; then
-    skip_checks "$CHECKS" "$M ($H): the ${SPENT%% *} subscription window is spent until"\
+    skip_spent_checks "$CHECKS" "$M ($H): the ${SPENT%% *} subscription window is spent until"\
          "${SPENT#* }, so every call would be a 429"
     continue
   fi
@@ -2012,7 +2012,7 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
     CALLRC=$?
     if skip_refused 3c "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
     if [ "$CALLRC" = 0 ] && grep -qiwF "$WORD" "$WORK/o-$M/final.md" 2>/dev/null; then
-      ok "3c $M ($H): $1 at $2 replied $WORD"
+      ok_call "3c $M ($H): $1 at $2 replied $WORD"
     else
       no "3c $M ($H): $1 at $2 did not reply $WORD: final.md = $(head -c 120 "$WORK/o-$M/final.md" 2>/dev/null)"
       diagnose "$CALLRC" "$WORK/$M.log" "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M"
@@ -2032,7 +2032,7 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
      PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import hand_in
 review = hand_in.read(sys.argv[1])
 assert review is not None and review.done' "$WORK/o-$M/hand-in.jsonl"; then
-    ok "3a $M ($H): wrote hello.txt, final.md non-empty, handed in a checked record"
+    ok_call "3a $M ($H): wrote hello.txt, final.md non-empty, handed in a checked record"
   else
     no "3a $M ($H): hello.txt=$([ -f "$R/hello.txt" ] && echo yes || echo no)"
     diagnose "$CALLRC" "$WORK/$M.log" ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M"
@@ -2045,7 +2045,7 @@ assert review is not None and review.done' "$WORK/o-$M/hand-in.jsonl"; then
     RESUMERC=$?
     if skip_refused 3b "$M" "$RESUMERC" "$WORK/o-$M-2"; then continue; fi
     if [ "$RESUMERC" = 0 ] && grep -qi 'hello\.txt' "$WORK/o-$M-2/final.md" 2>/dev/null; then
-      ok "3b $M ($H): resumed session $SID recalled hello.txt"
+      ok_call "3b $M ($H): resumed session $SID recalled hello.txt"
     else
       no "3b $M ($H) resume: final.md = $(head -c 120 "$WORK/o-$M-2/final.md" 2>/dev/null)"
       diagnose "$RESUMERC" "$WORK/$M-2.log" ak worker "$M" "$WORK/p-ask.txt" --workspace "$R" --out "$WORK/o-$M-2" --session "$SID"
@@ -2065,8 +2065,20 @@ done
 # The target is the first free one of the pool above, so this is the one check that may wait:
 # taken before the seed, given back once the delivery on it is read.  A suite that finds none
 # free before its wait runs out fails this check alone and runs the rest.
-if skip_spent 4/4b/4c/4d opus astra; then
-  :   # skip before cloning or resetting the remote baseline, not after a worker's 429
+# Its executor and reviewer are the pair ak would pick now from the suite's snapshot, so it runs
+# on whichever configured models have budget, and skips only when every one it can run is spent,
+# or when it can run none.
+PAIR=$(python3 "$REPO/tests/check4_pair.py" "$WORK/usage-real.json" \
+  "$SMOKE_CALLER_HOME/.agentkit/state/usage.json")
+PAIRRC=$? EXEC=${PAIR% *} REVIEW=${PAIR#* }
+if [ "$PAIRRC" = 3 ]; then
+  skip_checks 4/4b/4c/4d "the configured models are not on this host: $PAIR"
+elif [ "$PAIRRC" != 0 ]; then
+  no "4 ak run: picking its executor and reviewer exited $PAIRRC"
+  skip_checks 4b/4c/4d "prerequisite run did not happen: no executor and reviewer were picked"
+elif [ -z "$PAIR" ]; then
+  # skip before cloning or resetting the remote baseline, not after a worker's 429
+  skip_spent_checks 4/4b/4c/4d "every model this host can run has a spent window"
 elif ! smoke_lock_hold "$SMOKE_LOCK_WAIT"; then
   no "4 ak run: every smoke target is still another suite's after ${SMOKE_LOCK_WAIT}s; none was this suite's to reset"
   skip_checks 4b/4c/4d "prerequisite run did not happen: every smoke target is another suite's"
@@ -2128,7 +2140,7 @@ MD
 # how check 4d reads what the run would have said.
 ( [ "$SRC" = 0 ] || { cat "$WORK/seed.log"; exit "$SRC"; }
   cd "$CLONE" && AGENTKIT_DISCORD_WEBHOOK=off ak run "$WORK/task.md" --rounds 2 \
-    --exec opus --review astra ) >"$WORK/run.log" 2>&1
+    --exec "$EXEC" --review "$REVIEW" ) >"$WORK/run.log" 2>&1
 RC=$?
 # take the run id from this run's own log, not from a glob that can match an older smoke run
 RUNID=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/run.log" | head -1)
@@ -2144,10 +2156,11 @@ smoke_lock_drop
 if [ "$RC" = 0 ] && [ -n "$RUNDIR" ] && grep -q '^VERDICT: PASS' "$RUNDIR/result.md" 2>/dev/null &&
    grep -q '^merged: yes$' "$RUNDIR/result.md" && grep -q '^pr: https://' "$RUNDIR/result.md" &&
    [ "$DELIVERYRC" = 0 ]; then
-  ok "4 ak run: $(grep '^pr: ' "$RUNDIR/result.md") merged; done-when passed on fetched origin/main"
+  ok "4 ak run: $(grep '^pr: ' "$RUNDIR/result.md") merged, $EXEC executing and $REVIEW reviewing;"\
+     "done-when passed on fetched origin/main"
 else
   no "4 ak run: exit=$RC rundir=${RUNDIR:-none} delivery-exit=$DELIVERYRC"
-  diagnose "$RC" "$WORK/run.log" ak run "$WORK/task.md" --rounds 2 --exec opus --review astra
+  diagnose "$RC" "$WORK/run.log" ak run "$WORK/task.md" --rounds 2 --exec "$EXEC" --review "$REVIEW"
 fi
 
 # --- 4b: ak run clean takes the worktree back down -------------------------
@@ -5969,7 +5982,7 @@ doc = json.loads(content)
 assert doc["model"] == "mimo/mimo-v2.6-pro#high", doc["model"]   # the shipped `high`
 variant = doc["provider"]["mimo"]["models"]["mimo-v2.6-pro"]["variants"]["high"]
 assert variant == {"extraBody": {"thinking": {"type": "enabled"}}}, variant   # thinking on
-assert doc["agents"]["build"]["system"].startswith("# You are the orchestrator"), "rulebook"
+assert "# You are the orchestrator\n" in doc["agents"]["build"]["system"], "rulebook"
 assert doc["plugins"][0].endswith("hooks/opencode-seat"), doc["plugins"]
 PY
 # (b) a worker turn executes through the adapter: final, session and appended usage

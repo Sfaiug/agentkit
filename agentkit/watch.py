@@ -1678,15 +1678,12 @@ def look_at(session, cfg=None, pane=None, now=None):
         return harness, {}
 
 
-def plan_progress(name):
-    """(done, total) from the session's plan, or (0, 0) without one.
+def plan_text(name):
+    """The session's latest plan, or an empty string without one.
 
-    The orchestrator keeps `~/.agentkit/state/plan-<session>.md` as a markdown list;
-    lines starting with `- [x]` are done, `- [ ]` plus `- [x]` are the total. No plan
-    or zero total means no bar. An orchestrator renamed with `ak orch rename` still
+    An orchestrator renamed with `ak orch rename` still
     writes under the name it was launched with, so a plan under any name whose rename
     pointers lead here is this session's, and of several the one written last wins.
-    The menu row and the status bar read this through `menu.seat_progress`.
     """
     plans = []
     for each in [name] + [old for old, now in config.session_aliases().items() if now == name]:
@@ -1696,11 +1693,15 @@ def plan_progress(name):
         except (OSError, config.Error):
             continue
     try:
-        text = max(plans)[1].read_text(encoding="utf-8") if plans else ""
+        return max(plans)[1].read_text(encoding="utf-8", errors="replace") if plans else ""
     except OSError:
-        return (0, 0)
+        return ""
+
+
+def plan_progress(name):
+    """(done, total) from the session's latest plan, or (0, 0) without one."""
     done = total = 0
-    for line in text.splitlines():
+    for line in plan_text(name).splitlines():
         stripped = line.lstrip()
         if stripped.startswith("- [x]"):
             done += 1

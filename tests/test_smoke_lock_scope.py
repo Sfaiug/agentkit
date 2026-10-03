@@ -50,7 +50,6 @@ while True:
         time.sleep(.1)
 PY
 }
-skip_spent() { return 1; }
 gh() {
   printf '%s\n' "$*" >>"$WORK/gh.log"
   case "$*" in
@@ -98,6 +97,7 @@ class CheckFourAlone(unittest.TestCase):
         (self.root / "home/.agentkit/config.toml").write_text("max_gates = 1\n")
         (repo / "agentkit").symlink_to(REPO / "agentkit")   # the bound is the loop's own count
         (repo / "tests/verify_delivery.py").write_text(DELIVERY)
+        (repo / "tests/check4_pair.py").write_text('print("exec-model review-model")')
         self.lock.touch(0o644)
         origin = self.root / "origin.git"
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
@@ -116,6 +116,7 @@ class CheckFourAlone(unittest.TestCase):
         self.script.write_text(script)
         self.env = {**os.environ, "HOME": str(self.root / "home"), "WORK": str(self.work),
                     "REPO": str(repo), "ORIGIN": str(origin), "AK_SMOKE_LOCK": str(self.lock),
+                    "SMOKE_CALLER_HOME": str(self.root / "home"),
                     "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
         for name in ("AGENTKIT_RUN", "AK_RUN_ROLE", "AGENTKIT_SESSION", "AK_NOTIFY_SINK_LOG"):
             self.env.pop(name, None)

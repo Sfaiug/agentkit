@@ -28,7 +28,6 @@ WAITING = "check 4: waiting for another suite's turn"
 # holds it -- and so its lock -- until the test writes `release` into the suite's WORK.  The
 # listing or the create named in $PAUSE waits until the test writes `go` there.
 FAKES = r'''
-skip_spent() { return 1; }
 paused() { [ "${PAUSE:-}" != "$1" ] || until [ -e "$WORK/go" ]; do sleep .1; done; }
 gh() {
   printf '%s\n' "$*" >>"$WORK/gh.log"
@@ -74,6 +73,7 @@ class TargetPool(unittest.TestCase):
                      repo / "tests"):
             path.mkdir(parents=True)
         (repo / "tests/verify_delivery.py").write_text("")
+        (repo / "tests/check4_pair.py").write_text('print("exec-model review-model")')
         (repo / "agentkit").symlink_to(REPO / "agentkit")
         # a waiting suite lists the pool every second here, not every minute -- but in the
         # production script, which keeps the minute
@@ -150,7 +150,8 @@ class TargetPool(unittest.TestCase):
         proc.wait(timeout=120)
         out = self.out(work)
         self.assertEqual(proc.returncode, 0, out)
-        self.assertIn("PASS  4 ak run: pr: https://example.invalid/pull/1 merged", out)
+        self.assertIn("PASS  4 ak run: pr: https://example.invalid/pull/1 merged, exec-model "
+                      "executing and review-model reviewing", out)
         return out
 
     def changed(self, work):

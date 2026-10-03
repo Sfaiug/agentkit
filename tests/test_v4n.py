@@ -42,7 +42,14 @@ class Sandbox(unittest.TestCase):
         self.addCleanup(self.stack.close)
         # a menu leaves its reads, looks and maintenance going: they end before this HOME goes
         threads = set(threading.enumerate())
-        self.addCleanup(lambda: [thread.join(15) for thread in set(threading.enumerate()) - threads])
+
+        def settle():
+            for thread in set(threading.enumerate()) - threads:
+                # enumerate includes threads whose start() is still waiting for bootstrap.
+                self.assertTrue(thread._started.wait(15), f"{thread.name} did not start")
+                thread.join(15)
+
+        self.addCleanup(settle)
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root),
                                  "NO_COLOR": "1", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                                  # this HOME's OpenCode config, never the caller's: mimo is payg
