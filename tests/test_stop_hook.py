@@ -284,6 +284,29 @@ class StopHook(unittest.TestCase):
         self.assertEqual(self.blocked(self.stop(said=None, **payload))["reason"], REASON)
         self.assertEqual(self.read_as(), ("working", "Stop/held"))
 
+    def test_a_standing_watch_is_no_background_work(self):
+        """orchestration-design, 2026-10-03: its done never carded, the seat working for two days.
+
+        Claude Code keeps the comment watch on an artifact the seat published in
+        `background_tasks`, as a `monitor`, for the rest of the session.  A stop with only that
+        in flight is a turn that ended and is judged as ever; beside real work it is a wait.
+        """
+        watching = {"id": "w1", "type": "monitor", "status": "running",
+                    "description": "Comments on Prompt to Output"}
+        payload = {"transcript_path": str(self.transcript(RECOMMENDATION)),
+                   "background_tasks": [watching], "stop_hook_active": False}
+        self.assertEqual(self.blocked(self.stop(said=None, **payload))["reason"], REASON)
+        self.assertEqual(self.read_as(), ("working", "Stop/held"))
+        self.notified("done", time.time())
+        self.assertEqual(self.stop(said=None, **payload), "")
+        self.assertEqual(self.read_as(), ("at_prompt", "Stop"))
+        # ... while a background agent beside it is still work the seat waits on
+        agent = json.loads(BACKGROUND.read_text())["background_tasks"][1]
+        payload.update(background_tasks=[watching, agent], transcript_path=str(
+            self.transcript(RECOMMENDATION, before=launched(agent))))
+        self.assertEqual(self.stop(said=None, **payload), "")
+        self.assertEqual(self.read_as(), ("working", "Stop/background"))
+
     # --- what happens to a turn that ended on none of them ------------------
 
     def test_a_plain_recommendation_is_blocked_with_the_rule_it_broke(self):
