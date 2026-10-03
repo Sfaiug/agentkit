@@ -4,10 +4,11 @@ Offline: real Git and checks, sandbox records, fake processes and wakes.
 """
 
 from pathlib import Path
+import threading
 import unittest
 from unittest.mock import patch
 
-from test_lander import LanderFixture, ONCE, SUITE, land, record, run, gate
+from test_lander import LanderFixture, SUITE, land, record, run, gate
 
 
 class MergeTrain(LanderFixture, unittest.TestCase):
@@ -91,7 +92,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assert_cleaned()
 
         # After the first lands, the conflict belongs to the clash's own head check.
-        run.git(self.repo, "checkout", original["branch"].replace("clash", "first"))
+        run.git(self.repo, "checkout", "ak/first")
         run.git(self.repo, "rebase", "origin/main")
         run.git(self.repo, "checkout", "main")
         run.git(self.repo, "merge", "--ff-only", "ak/first")
@@ -102,6 +103,53 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         land.check_line(self.turn)
         self.wake.assert_called_once_with(clash.name, unittest.mock.ANY)
         self.assertIn("rebase of origin/main failed", self.wait(clash)["fix"]["line"])
+        self.assert_cleaned()
+
+    def test_a_red_head_is_removed_before_checking_the_members_behind_it(self):
+        head = self.member("head", **{"broken.txt": "x\n"})
+        self.member("later", joined=2, **{"later.txt": "later\n"})
+        self.member("last", joined=3, **{"last.txt": "last\n"})
+        self.advance()
+        land.check_line(self.turn)
+        self.wake.assert_called_once_with(head.name, unittest.mock.ANY)
+        self.assertIn("fix", self.wait(head))
+        self.assertTrue(any({"later.txt", "last.txt"} <= self.stacked_files(tree)
+                            and "broken.txt" not in self.stacked_files(tree)
+                            for tree in land._trees(self.turn)[1]))
+        self.assert_cleaned()
+
+    def test_a_crash_before_verdicts_reuses_each_tree_and_its_red_log(self):
+        head = self.member("head")
+        red = self.member("red", joined=2, **{"broken.txt": "x\n"})
+        self.member("later", joined=3, **{"later.txt": "later\n"})
+        self.advance()
+        with patch.object(record, "record", side_effect=RuntimeError("crash before verdicts")):
+            with self.assertRaisesRegex(RuntimeError, "crash before verdicts"):
+                land.check_line(self.turn)
+        count = len(self.checks)
+        failures = land._trees(self.turn, "red")[1]
+        self.assertTrue(failures)
+        self.wake.assert_not_called()
+        land.check_line(self.turn)
+        self.assertEqual(len(self.checks), count)
+        self.assertIn(self.wait(red)["fix"]["log"], [entry["log"] for entry in failures.values()])
+        self.assertIn("land", self.wait(head))
+        self.assert_cleaned()
+
+    def test_prefix_checks_can_run_side_by_side(self):
+        self.member("head")
+        self.member("later", joined=2, **{"later.txt": "later\n"})
+        self.advance()
+        started = threading.Barrier(2)
+
+        def together(cmds, cwd, log_path, *args, **kw):
+            started.wait(timeout=5)
+            return self.check(cmds, cwd, log_path, *args, **kw)
+
+        with patch.object(gate, "run_done_when", side_effect=together):
+            land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(len({cwd for _, cwd, _ in self.checks}), 2)
         self.assert_cleaned()
 
     def test_rebuilding_retries_a_conflict_with_the_removed_red_member(self):
