@@ -1,10 +1,7 @@
-"""A task has one behaviour and three rounds, and the loop refuses a bigger one at launch.
+"""A task of any size starts; its round budget is three, and the loop refuses more.
 
-`ak run` exits 2 before a run directory exists when the task's goal holds more than
-three numbered points, its body holds more than 500 words outside the checks block,
-or its checks block holds more than six commands -- naming the rule and the count in
-one sentence.  `--anyway` does not waive it; it only starts a run beside one already
-under way.  A job refuses per file the same way.  A round budget over three -- a task's
+Size never refuses work: a goal of many numbered points, a long body or many checks
+starts, alone or in a job.  A round budget over three -- a task's
 `rounds`, or `--rounds` at launch or on resume -- is refused before anything starts, in
 one sentence naming the rule.  When a run fails at its round budget the hand-back line
 says to split, no `continue:` line offers more rounds, and `ak run status --history`
@@ -70,13 +67,6 @@ class Sandbox(unittest.TestCase):
     def points(self, count):
         return "\n".join(f"{n}. Point {n}." for n in range(1, count + 1))
 
-    def words_outside_checks(self, path):
-        """The body's word count with the fenced checks block cut out, by hand."""
-        body = task.parse_task(path)[1]
-        start = body.index("```")
-        end = body.index("```", start + 3) + 3
-        return len((body[:start] + body[end:]).split())
-
     def launch(self, *argv):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
@@ -96,75 +86,21 @@ class Sandbox(unittest.TestCase):
         history.finish_run(run_id, repo=repo, rounds_used=rounds, started_at=at,
                            finished_at=at + 10, final_state="pass", verdict="PASS")
 
-    # --- the refusal -------------------------------------------------------
+    # --- size never refuses ------------------------------------------------
 
-    def test_four_point_goal_is_refused_with_the_count(self):
-        task = self.task("four.md", self.points(4))
-        code, _, err = self.launch(str(task))
-        self.assertEqual(code, 2, err)
-        self.assertIn("4 numbered goal points", err)
-        self.assertNotIn("--anyway", err)       # no way past it is offered
-        self.assertEqual(record.run_dirs(), [])
-        self.drive.assert_not_called()
-
-    def test_long_body_is_refused_with_the_count(self):
-        task = self.task("long.md", " ".join(["word"] * 600))
-        expected = self.words_outside_checks(task)
-        self.assertGreater(expected, 500)
-        code, _, err = self.launch(str(task))
-        self.assertEqual(code, 2, err)
-        self.assertIn(f"{expected} words outside the checks block", err)
-        self.assertNotIn("--anyway", err)
-        self.assertEqual(record.run_dirs(), [])
-        self.drive.assert_not_called()
-
-    def test_seven_checks_are_refused_with_the_count(self):
-        task = self.task("seven.md", "One thing.", cmds=[f"true # {n}" for n in range(7)])
-        code, _, err = self.launch(str(task))
-        self.assertEqual(code, 2, err)
-        self.assertIn("7 checks", err)
-        self.assertNotIn("--anyway", err)
-        self.assertEqual(record.run_dirs(), [])
-        self.drive.assert_not_called()
-
-    def test_a_task_at_the_limits_starts(self):
-        task = self.task("limits.md", self.points(3),
-                         cmds=[f"true # {n}" for n in range(6)])
+    def test_a_task_of_any_size_starts(self):
+        goal = self.points(4) + "\n\n" + " ".join(["word"] * 600)
+        task = self.task("big.md", goal, cmds=[f"true # {n}" for n in range(7)])
         code, _, err = self.launch(str(task))
         self.assertEqual(code, 0, err)
         self.assertEqual(self.drive.call_count, 1)
         self.assertEqual(len(record.run_dirs()), 1)
 
-    def test_words_inside_the_checks_block_are_not_counted(self):
-        task = self.task("echo.md", "One thing.",
-                         cmds=["echo " + " ".join(["word"] * 600)])
-        code, _, err = self.launch(str(task))
-        self.assertEqual(code, 0, err)
-        self.assertEqual(self.drive.call_count, 1)
-
-    # --- no bypass ---------------------------------------------------------
-
-    def test_anyway_does_not_waive_the_size_limit(self):
-        task = self.task("anyway.md", self.points(4))
-        code, _, err = self.launch(str(task), "--anyway")
-        self.assertEqual(code, 2, err)
-        self.assertIn("4 numbered goal points", err)
-        self.assertEqual(record.run_dirs(), [])
-        self.drive.assert_not_called()
-
-    def test_a_job_refuses_an_oversize_task_per_file(self):
+    def test_a_job_takes_a_task_of_any_size(self):
         small = self.task("small.md", "One thing.")
-        big = self.task("big.md", self.points(4))
-        with self.assertRaisesRegex(config.Error, r"big\.md.*4 numbered goal points"):
-            jobs.job_create({}, [str(small), str(big)], {"--anyway": False}, None)
-        self.assertEqual(list(config.JOBS.iterdir()), [])
-
-    def test_a_job_anyway_still_refuses_an_oversize_task(self):
-        small = self.task("small.md", "One thing.")
-        big = self.task("big.md", self.points(4))
-        with self.assertRaisesRegex(config.Error, r"big\.md.*4 numbered goal points"):
-            jobs.job_create({}, [str(small), str(big)], {"--anyway": True}, None)
-        self.assertEqual(list(config.JOBS.iterdir()), [])
+        big = self.task("big.md", self.points(4), cmds=[f"true # {n}" for n in range(7)])
+        jobs.job_create({}, [str(small), str(big)], {"--anyway": False}, None)
+        self.assertEqual(len(list(config.JOBS.iterdir())), 1)
 
     # --- the round budget --------------------------------------------------
 

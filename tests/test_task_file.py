@@ -61,19 +61,6 @@ class TaskFile(unittest.TestCase):
         self.assertEqual(task.done_when_groups(body, Path("task.md")),
                          (['echo "# once"', "echo '# once'"], ["cmd-a", "cmd-b"]))
 
-    def test_each_size_refusal_names_its_limit(self):
-        points = "\n".join(f"{n}. Point {n}." for n in range(1, task.TASK_MAX_POINTS + 2))
-        words = " ".join(["word"] * task.TASK_MAX_WORDS)
-        checks = ["true"] * (task.TASK_MAX_CHECKS + 1)
-        for body, cmds, said in (
-                (self.body(points), ["true"], "4 numbered goal points (at most 3)"),
-                (self.body(words), ["true"], "words outside the checks block (at most 500)"),
-                (self.body(cmds=checks), checks, "7 checks (at most 6)")):
-            with self.subTest(said):
-                self.assertIn(said, task.task_size_refusal(body, cmds))
-        at_limits = self.body("\n".join(f"{n}. Point." for n in range(1, 4)), ["true"] * 6)
-        self.assertIsNone(task.task_size_refusal(at_limits, ["true"] * 6))
-
     def test_a_round_budget_over_the_rule_is_refused(self):
         self.assertIn("over the budget: 3 rounds", task.rounds_refusal(4, "--rounds"))
         self.assertIsNone(task.rounds_refusal(task.TASK_MAX_ROUNDS, "--rounds"))
