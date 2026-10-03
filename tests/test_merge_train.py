@@ -3,6 +3,7 @@
 Offline: real Git and checks, sandbox records, fake processes and wakes.
 """
 
+from contextlib import contextmanager
 from pathlib import Path
 import threading
 import unittest
@@ -241,6 +242,41 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assertEqual(len(self.checks), count)
         self.assertIn(self.wait(red)["fix"]["log"], [entry["log"] for entry in failures.values()])
         self.assertIn("land", self.wait(head))
+        self.assert_cleaned()
+
+    def test_a_crash_between_verdicts_keeps_the_red_stack_failure(self):
+        suite = "test ! -f api.txt || test ! -f client.txt"
+        head = self.member("api", **{"api.txt": "api\n",
+            "AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        red = self.member("client", joined=2, **{"client.txt": "client\n"})
+        later = self.member("later", joined=3, **{"later.txt": "later\n"})
+        original = record.read_state(later)
+        self.advance()
+        save = record.record
+
+        @contextmanager
+        def crash_after_verdict(member):
+            with save(member) as current:
+                yield current
+            raise RuntimeError("crash after one verdict")
+
+        with patch.object(record, "record", side_effect=crash_after_verdict):
+            with self.assertRaisesRegex(RuntimeError, "crash after one verdict"):
+                land.check_line(self.turn)
+        self.wake.assert_not_called()
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(head))
+        fix = self.wait(red)["fix"]
+        self.assertIn(suite, fix["line"])
+        tree = Path(fix["log"]).read_text().split("Tree: ", 1)[1].splitlines()[0]
+        self.assertTrue({"api.txt", "client.txt"} <= self.stacked_files(tree))
+        self.assertEqual(record.read_state(later), original)
+        with record.record(head) as current:
+            current["state"] = "running"
+        self.wake.reset_mock()
+        land.check_line(self.turn)
+        self.assertIn(red.name, [call.args[0] for call in self.wake.call_args_list])
+        self.assertEqual(self.wait(red)["fix"], fix)
         self.assert_cleaned()
 
     def test_prefix_checks_can_run_side_by_side(self):
