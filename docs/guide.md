@@ -77,8 +77,7 @@ A command that fails runs once more at once, within the same ceiling, and passes
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
 that, the run's hand-back names the file and asks the orchestrator to tighten it only if it is still past the cap. Every prompt also carries the body of the repository's `AGENTS.md` as on the base commit, front matter removed, up to 8 KB. If that body was cut, the hand-back names the file and says it reached the workers cut short, even if the file has since changed. Agentkit's own gate refuses an `AGENTS.md` body past this cap. A worker's harness loads no instruction file of its own where it has a switch for that; its adapter's manifest says in one line what no switch reaches.
 
-One behaviour per task. A launch is refused when the goal has more than three numbered points, the body more than 500
-words outside the checks block, the checks more than six commands or `rounds` more than three, whatever `--anyway` says;
+One behaviour per task; size never refuses one. A launch is refused when `rounds` is more than three, whatever `--anyway` says;
 and when a run under way in the same repository names the same test file (glob patterns do not count; a general check -- one three other jobs there ran without naming it in their titles -- counts only when both titles name it) or shares four title words, which `--anyway` starts
 regardless. Runs have no count cap and wait FIFO while free memory is under the larger of 3 GB and 20% of RAM, ak's own
 slice CPU pressure is above 40%, or the nearest limited cgroup is past 75% of its `memory.high` outside reclaimable
@@ -137,9 +136,8 @@ passed review in its repository: cut from that reviewed tip, which it records, i
 its own commits (`git rebase --onto <target> <tip>`), so a squash merge cannot conflict. A dependency parked `waiting`
 keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`), its branch kept. `repo: none` delivers
 files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews a PR with
-no executor and posts the verdict as a GitHub review: a seat's own PR over the size ceiling is refused before any
-model runs, with its size and ceiling and an instruction to split it; one that fits merges on PASS with green checks.
-FAIL sends findings back to the seat and waits for its push, shown by `ak run status`; the next head is reviewed with the previous findings first. The third FAIL or a closed PR ends the run. Anyone else's PR gets one review, asks the inbox on PASS and is never refused for size. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
+no executor and posts the verdict as a GitHub review: a seat's own PR of any size merges on PASS with green checks.
+FAIL sends findings back to the seat and waits for its push, shown by `ak run status`; the next head is reviewed with the previous findings first. The third FAIL or a closed PR ends the run. Anyone else's PR gets one review and asks the inbox on PASS. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
 `workspace:` and `continue:` lines. An ending handed back, acknowledged or superseded (by a later merged run of its
 title, or a relaunch `from:` its branch) reads `done`, as does a parked run a later merged run replaced, and a job's tasks read their runs as they are now. `ak run` exits 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 
@@ -381,11 +379,9 @@ words, goal points, checks and files changed. Merged runs also keep additions pl
 `linguist-generated` in `.gitattributes`. Smoke and e2e runs are never recorded; an older agentkit's rows are read
 as written, never rewritten, and a median keeps a few that counted waits from pulling an estimate far. Statistics skip
 stopped runs and suite runs, by name or run record. History is best effort. The last twenty runs estimate a task's
-active time. The own-PR size ceiling is 300 with fewer than 50 sized merged runs; after that, it is the
-smallest size above which fewer than half passed in their first round, across this host's history. Without such a
-drop there is no ceiling. `ak run status --history` compares the last 7 days with the 7 before for products and ak:
+active time. `ak run status --history` compares the last 7 days with the 7 before for products and ak:
 runs ended, shares merged in round 1 and ended without merging, median wall hours to merge and reported tokens per merge, ak's share of all recorded tokens (failed work included), and its committed code lines and README words now and 7 days ago.
-It never picks a model or changes a limit; it also shows the PR ceiling's source and median rounds by task size per repo. Neither it nor `ak usage` prints per-model
+It never picks a model or changes a limit; it also shows median rounds by task size per repo. Neither it nor `ak usage` prints per-model
 success rates: a run's verdict describes the task, not the quality of its models. A run's own directory is
 `~/.agentkit/runs/<YYYYMMDD-HHMM>-<slug>/`: `task.md`, `run.json`, `log.txt` (the whole loop, with a `WARN` line per
 retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{prompt.md,final.md,stderr.log,events.jsonl}`.

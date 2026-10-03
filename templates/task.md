@@ -1,6 +1,6 @@
 # Title
 
-<!-- One behaviour per task: at most 3 numbered goal points, 500 words outside the checks block, 6 checks. -->
+<!-- One behaviour per task. -->
 ## Goal
 The outcome this task must achieve.
 1. First checkable point.

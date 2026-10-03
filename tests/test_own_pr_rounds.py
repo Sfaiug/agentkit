@@ -55,7 +55,7 @@ class OwnPrRounds(unittest.TestCase):
         self.git("checkout", "-qb", "fix-api")
         self.heads = []
         for n in range(1, 5):
-            (self.repo / "fence.txt").write_text(f"fix {n}\n")
+            (self.repo / "fence.txt").write_text(f"fix {n}\n" * (5000 if n > 1 else 1))
             self.git("commit", "-qam", f"Fix {n}")
             self.heads.append(self.git("rev-parse", "HEAD"))
         self.pr = {"state": "OPEN", "title": "Mend the fence", "author": "owner",

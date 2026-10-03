@@ -167,14 +167,13 @@ def job_create(cfg, task_paths, opts, parallel):
         if not path.is_file():
             raise config.Error(f"no such task file: {path}")
         meta, body, title = taskfile.parse_task(path)
-        # reject malformed commands before allocating anything, as well as a task bigger
-        # than one behaviour or over the round budget, or whose `repo:` names no home here,
-        # which nothing waives, and one that looks already under way in the same repository
-        # -- unless --anyway says to start beside it regardless, the way a single run does
+        # reject malformed commands before allocating anything, as well as a task over the
+        # round budget or whose `repo:` names no home here, which nothing waives, and one
+        # that looks already under way in the same repository -- unless --anyway says to
+        # start beside it regardless, the way a single run does
         cmds = taskfile.done_when(body, path)
         infos.append({"path": path, "meta": meta, "title": title, "stem": path.stem,
-                      "name": path.name, "cmds": cmds, "after_raw": taskfile.task_afters(path),
-                      "size_note": taskfile.task_size_refusal(body, cmds)})
+                      "name": path.name, "cmds": cmds, "after_raw": taskfile.task_afters(path)})
     seen = {}
     for info in infos:
         if info["name"] in seen:
@@ -183,9 +182,6 @@ def job_create(cfg, task_paths, opts, parallel):
                                "threads and `after:` on that basename, so rename one")
         seen[info["name"]] = info["path"]
     for info in infos:
-        if info["size_note"]:
-            raise config.Error(f"{info['path']}: {info['size_note']}; split it into one "
-                               "behaviour per task")
         refusal = taskfile.rounds_refusal(info["meta"].get("rounds"), "task rounds")
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")

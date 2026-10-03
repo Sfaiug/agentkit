@@ -63,7 +63,7 @@ COMMANDS = {
             """Execute, verify, review, push, open a PR and merge.
 --rounds sets the round limit, at most 3 (default: task rounds or 3).
 --anyway starts even when a run in the same repository looks already under way;
-a task bigger than one behaviour or over 3 rounds is refused regardless.
+a task over 3 rounds is refused regardless.
 --no-worktree uses the repo's current branch; --no-merge keeps work local.
 --bg detaches and prints a launch receipt, run ID and result path.
 --first admits the run ahead of every queued run without it, skipping the count cap and the CPU gate, and takes its repository's merge turn first; a heavy suite turn still goes by wait.
