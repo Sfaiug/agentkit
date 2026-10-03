@@ -132,9 +132,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
     "plan": ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
              "ak plan add \"OUTCOME\" --eye | ak plan tick N",
              "This session's plan: each line an outcome with the check that proves it.\n"
-             "add runs the check on the project's default branch and refuses one that passes;\n"
-             "--eye is the owner's to judge, and tick N marks it done on their word.\n"
-             "Listing ticks each check line that now passes there; ak notify done waits for all.",
+             "add runs the check on the project's default branch and refuses one that passes\n"
+             "or does not finish; --eye is the owner's to judge, tick N marks it on their word.\n"
+             "Listing ticks each check line that now passes on its project's default branch;\n"
+             "ak notify done runs every check again and waits for all.",
              "ak plan add \"each session sees its project\" --check 'python3 tests/test_x.py'"),
     "update": ("usage: ak update [--dry-run]",
                "Upgrade harnesses and verify with acceptance gates; --dry-run prints the plan.",
