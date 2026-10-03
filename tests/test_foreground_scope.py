@@ -1,4 +1,4 @@
-"""A foreground `ak run` runs in its own run scope, under the cap a `--bg` run gets.
+"""A foreground `ak run --no-merge` runs in its own scope, under the cap a `--bg` run gets.
 
 Offline: a fake `busctl` on PATH records what the manager is asked and, as the manager would,
 names the new scope in the file this process reads its own cgroup from; `systemd-run` and
@@ -105,7 +105,7 @@ class ForegroundScope(Sandbox):
         out = io.StringIO()
         with patch.object(orch, "user_manager", return_value=manager), \
                 patch.object(run, "drive", side_effect=loop), redirect_stdout(out):
-            self.assertEqual(run.main([str(self.task)]), 0)
+            self.assertEqual(run.main([str(self.task), "--no-merge"]), 0)
         seen["out"] = out.getvalue()
         seen["log"] = (seen["run_dir"] / "log.txt").read_text()
         return seen

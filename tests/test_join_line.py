@@ -187,6 +187,28 @@ class JoinLine(Sandbox):
         spawn.assert_called_once()
         follow.assert_called_once_with(spawn.call_args.args[0], self.cfg)
 
+    def test_job_task_exits_and_the_ladder_follows_its_line(self):
+        def work(*args, **_kw):
+            run.merge(self.lp)
+            run.release_line(self.directory, self.lp.log)
+            return 0
+
+        box = {}
+        with patch.object(run, "drive", side_effect=work), \
+                patch.object(job, "job_await", side_effect=AssertionError("task waits")):
+            job.job_drive(self.cfg, self.directory, {}, box)
+        self.assertEqual(box["state"]["state"], "waiting")
+        self.assertEqual(box["rc"], 0)
+        finished = {**box["state"], "state": "pass", "merged": True}
+        finished.pop("waiting_on")
+        with patch.object(job, "job_await", return_value=finished) as follow, \
+                patch.object(job, "job_settle") as settle, \
+                patch.object(run, "tick_admission", return_value=False):
+            job.job_ladder(self.cfg, config.JOBS / "job", {}, {"name": "fix-api"},
+                           self.directory, box["state"], box["rc"], lambda _: None, None)
+        follow.assert_called_once_with(self.directory)
+        self.assertEqual(settle.call_args.args[6], finished)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

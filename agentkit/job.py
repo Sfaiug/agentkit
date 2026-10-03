@@ -736,10 +736,6 @@ def job_drive(cfg, run_dir, run_opts, box, scoped=False):
         with job_muted():
             box["rc"] = run.drive(cfg, run_dir, run_opts, log)
         box["state"] = record.read_state(run_dir) or {}
-        if (box["state"].get("state") == "waiting"
-                and (box["state"].get("waiting_on") or {}).get("line")):
-            box["state"] = job_await(run_dir)
-            box["rc"] = 0 if job_classify(box["state"], cfg) in ("merged", "passed") else 1
     except config.Error as exc:
         box["rc"] = 2
         box["state"] = record.read_state(run_dir) or {"state": "error", "verdict": "ERROR",
@@ -777,6 +773,9 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     more rounds, and one its reviews failed is not rerun either: it goes back to the seat
     with its findings, as a single run does, to be split or re-scoped.
     """
+    if (run_state.get("state") == "waiting"
+            and (run_state.get("waiting_on") or {}).get("line")):
+        run_state = job_await(run_dir)
     task["executor"] = run_state.get("executor") or task.get("executor")
     task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
     log(job_exit_line(task, run_dir, run_state, rc))

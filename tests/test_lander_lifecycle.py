@@ -274,7 +274,7 @@ class LanderDelivery(unittest.TestCase):
         (self.case.owner / "other.txt").write_text("external move\n")
         self.case.commit(self.case.owner, "move target")
         run.git(self.case.owner, "push", "origin", "main")
-        self.assertEqual(run.cmd_resume([self.case.directory.name]), 1)
+        self.assertEqual(run.cmd_resume([self.case.directory.name]), 0)
         wait = record.read_state(self.case.directory)["waiting_on"]
         self.assertEqual(wait, {"line": self.case.turn.name, "joined": 10})
         self.assertEqual(self.starts, [(0, wait)])
