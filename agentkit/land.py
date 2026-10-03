@@ -81,7 +81,7 @@ def line(turn):
 
 def start_line(turn, log=lambda _: None):
     """Start a fresh checker when the line is free; the tick retries a missed start."""
-    from . import host, orch, run
+    from . import host, orch, run, worker
     turn = Path(turn)
     if turn.parent != config.RUNS or not turn.name.startswith(".merge-"):
         return False
@@ -110,7 +110,7 @@ def start_line(turn, log=lambda _: None):
             properties = ("-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M")
         env = config.child_env()
         # This work outlives its caller and must not belong to the caller's stop sweep.
-        for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
+        for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
                     config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
             env.pop(key, None)
         env["AK_RUN_DEPTH"] = "0"
