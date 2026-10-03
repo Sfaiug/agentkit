@@ -59,14 +59,14 @@ class ProofMustRun(unittest.TestCase):
                     proof.finding("legacy.py:1", "missing base proof", base_only),
                     proof.finding("api.py:2", "missing follow-up proof", command,
                                   kind="follow-up", before=self.base)), "FAIL")
-                self.assertEqual(len(self.lp.state["followups"]), 2)
+                self.assertEqual(self.lp.state["followups"], [])
                 self.assertEqual(self.lp.state["notes"], [])
                 rows = self.lp.state["review_records"]
                 self.assertEqual([row["kind"] for row in rows], ["finding", "follow-up", "follow-up", "done"])
                 self.assertEqual(rows[0]["evidence"]["returncode"], code)
                 self.assertEqual(rows[1]["evidence"]["base"]["returncode"], code)
-                for text in (self.lp.findings, *self.lp.state["followups"]):
-                    self.assertIn(diagnostic, text)
+                for row in rows[:-1]:
+                    self.assertIn(diagnostic, hand_in.item_text(row))
 
     def test_a_missing_sourced_script_blocks_when_bash_exits_one(self):
         self.assertEqual(self.review(proof.finding("api.py:1", "missing source", "source absent.sh")), "FAIL")
