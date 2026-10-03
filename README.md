@@ -43,7 +43,7 @@ A session is one of three things, and nothing else:
 ✓ done        it said so, and the row carries its summary
 ```
 
-The word moves when the session's harness starts or ends a turn or asks something: at once on the session's own tmux bar, which names its orchestrator and workers (`ak-verification · opus → opus astra · ● working · tasks ████░░░░ 4/8`), and within two seconds on an open menu.
+The word moves when the session's harness starts or ends a turn or asks something: at once on the session's own tmux bar, which names its orchestrator and workers (`ak-verification · opus → opus astra · ● working · tasks ████░░░░ 4/8`), and within two seconds on an open menu. Runs request the same update at each step, round and ending; if tmux does not answer within a second, they carry on and the next tick or step redraws the bar.
 
 Press `n`, then Enter. `n` uses the same model names and provider headings as `c`, with what your last session was created with already chosen (the shipped models the first time):
 

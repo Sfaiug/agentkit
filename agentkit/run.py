@@ -7204,7 +7204,8 @@ def redress_seat(session):
     it happens, through the one writer the tick uses and from the facts already on record: no
     look at the seat's screen.  The writer waits on the seat's lock and on tmux, so the run
     hands it to a `run-shell -b` job on the seats' own server (`publish_seat`) and waits on
-    neither.  The job is the server's, not the run's: the run's exit, the stop of its scope and
+    neither.  The handoff times out after a second; the next tick or step repairs a missed
+    update.  The job is the server's, not the run's: the run's exit, the stop of its scope and
     its marker sweep leave it be.  A seat tmux has lost, and a legacy one on the user's own
     server, is no target there, so nothing runs for it; nothing here ever raises into the run.
     """
@@ -7216,7 +7217,8 @@ def redress_seat(session):
     try:
         # silent and always 0: tmux shows a job's output, or its failure, in the seat's pane
         orch.tmux_out("run-shell", "-b", "-t", f"={session}:",
-                      orch.tmux_text(f"{publish} >/dev/null 2>&1; true"), socket=orch.socket_name())
+                      orch.tmux_text(f"{publish} >/dev/null 2>&1; true"),
+                      socket=orch.socket_name(), timeout=1)
     except Exception:  # noqa: BLE001 - the bar is dressing; the run beneath it is what matters
         pass
 

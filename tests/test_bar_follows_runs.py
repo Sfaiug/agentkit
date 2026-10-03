@@ -11,6 +11,7 @@ a seat tmux has lost get nothing written.  Offline: a temporary HOME and a fake 
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -43,7 +44,8 @@ seats="$HOME/legacy"; [[ $socket = agentkit-test ]] && seats="$HOME/own"
 case $1 in
   list-sessions) while read -r name; do printf '%s\\t%s\\t1\\t0\\t1\\n' "$name" "$HOME"; done <"$seats" ;;
   list-panes) while read -r name; do printf '%s\\t0\\n' "$name"; done <"$seats" ;;
-  run-shell) target=${4#=}; target=${target%:}
+  run-shell) [[ -e "$HOME/tmux-stall" ]] && exec python3 -c 'import signal; signal.pause()'
+             target=${4#=}; target=${target%:}
              grep -qxF -- "$target" "$seats" || { echo "can't find session: $target"; exit 1; }
              echo >>"$HOME/jobs"
              ( sh -c "${5//##/#}"; echo >>"$HOME/jobs-done" ) </dev/null >/dev/null 2>&1 & ;;
@@ -51,8 +53,8 @@ esac
 exit 0
 """
 
-# A run's own process: it enters a step and ends, then exits.
-CALLER = """
+# A run's own process: it enters a step, then exits.
+STEP = """
 import sys, types
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
@@ -61,8 +63,8 @@ run_dir = Path(sys.argv[2])
 state = record.read_state(run_dir)
 run.Loop.step(types.SimpleNamespace(state=state, log=print,
                                     save=lambda: record.save_state(run_dir, state)), "merge")
-run.mark_state(run_dir, "error", error="the api is down")
 """
+CALLER = STEP + '\nrun.mark_state(run_dir, "error", error="the api is down")\n'
 
 
 class BarFollowsRuns(unittest.TestCase):
@@ -153,6 +155,29 @@ class BarFollowsRuns(unittest.TestCase):
         with patch.object(orch, "tmux_out", side_effect=OSError("no tmux")):
             self.step("done-when")
         self.assertEqual(record.read_state(self.run_dir)["step"], "done-when")
+
+    def test_an_unresponsive_tmux_never_stops_the_run_and_the_next_step_redraws(self):
+        stall = HOME / "tmux-stall"
+        stall.touch()
+        try:
+            with subprocess.Popen([sys.executable, "-c", STEP, str(REPO), str(self.run_dir)],
+                                  start_new_session=True, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True) as caller:
+                try:
+                    _, err = caller.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # A broken handoff leaves the fake tmux stuck too: kill only this probe's
+                    # group before reaping its leader, so a failed test leaves no process behind.
+                    os.killpg(caller.pid, signal.SIGKILL)
+                    self.fail("Loop.step never returned while tmux did not answer")
+                self.assertEqual(caller.returncode, 0, err)
+        finally:
+            stall.unlink()
+        self.assertEqual(record.read_state(self.run_dir)["step"], "merge")
+        self.assertIn("run-shell\t-b\t-t\t=acme:", self.calls.read_text())
+        self.assertEqual(self.bars(), [])
+        self.step("reviewer")
+        self.assertEqual(len(self.bars()), 1)
 
 
 if __name__ == "__main__":

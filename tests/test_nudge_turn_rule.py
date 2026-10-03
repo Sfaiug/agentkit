@@ -63,7 +63,7 @@ class NudgeTurnRule(Sandbox):
         self.stack.enter_context(patch.object(watch.time, "sleep", lambda _s: None))
         self.harness, self.pane, self.sent = HARNESSES[0], "", []
 
-    def tmux(self, *args, socket=None, client=False):
+    def tmux(self, *args, socket=None, client=False, **_kw):
         """tmux for one seat, answering only the target real tmux answers: `={name}:`."""
         target = args[args.index("-t") + 1] if "-t" in args else None
         if args[0] in ("capture-pane", "send-keys") and target != f"={SEAT}:":

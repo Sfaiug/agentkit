@@ -965,7 +965,7 @@ def tmux_env(client=False):
     return dict(os.environ) if client else {k: v for k, v in os.environ.items() if k != "TMUX"}
 
 
-def tmux_out(*args, socket=None, client=False, unit=None):
+def tmux_out(*args, socket=None, client=False, unit=None, timeout=None):
     """(exit code, output) of one tmux command; 127 when there is no tmux to ask.
 
     `unit` names the transient scope a command that starts a server runs in, so that the
@@ -980,11 +980,11 @@ def tmux_out(*args, socket=None, client=False, unit=None):
         argv, env = in_slice(argv, unit, socket, env)
     try:
         proc = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
-                              env=env)
+                              env=env, timeout=timeout)
     except OSError as exc:
         return 127, str(exc)
     if proc.returncode != 0 and unit and argv[0] != "tmux":
-        return tmux_out(*args, socket=socket, client=client)
+        return tmux_out(*args, socket=socket, client=client, timeout=timeout)
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
