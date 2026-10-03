@@ -1,4 +1,4 @@
-"""`ak run --first` jumps the admission queue and the heavy suite turns."""
+"""`ak run --first` jumps the admission queue, never a waiting heavy suite."""
 
 import fcntl
 import json
@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker  # noqa: E402
+from agentkit import gate, config, run, worker  # noqa: E402
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"
@@ -38,7 +38,7 @@ class Gate(threading.Thread):
 
     def run(self):
         try:
-            self.result = run.run_done_when(*self.args, **self.kw)
+            self.result = gate.run_done_when(*self.args, **self.kw)
         except BaseException as exc:  # noqa: BLE001 -- the test reads it
             self.error = exc
 
@@ -149,23 +149,23 @@ class First(unittest.TestCase):
             self.assertTrue(run.claim_slot(later, 1))
             self.assertEqual(later["state"], "running")
 
-    def test_first_takes_next_gate_turn_ahead_of_waiters(self):
+    def test_first_waits_its_gate_turn_behind_an_earlier_waiter(self):
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
-        self.stack.enter_context(patch.object(run, "GATE_POLL", 0.05))
+        self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")
         self.marks = self.root / "marks"
         self.marks.touch()
         waiter = Gate(self, "waiter", ACME, [self.mark("waiter", 0.5)])
         first = Gate(self, "first-run", ACME, [self.mark("first", 0.2)], first=True)
-        holder = run.gate_lock(ACME, 0).open("a")
+        holder = gate.gate_lock(ACME, 0).open("a")
         self.addCleanup(holder.close)
         fcntl.flock(holder, fcntl.LOCK_EX)
         waiter.start()
-        self.until(lambda: run.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
+        self.until(lambda: gate.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
                    "the waiter to mark its wait")
         first.start()
-        self.until(lambda: run.gate_turn_note(run_record.read_state(first.run_dir) or {}),
+        self.until(lambda: gate.gate_turn_note(run_record.read_state(first.run_dir) or {}),
                    "the first run to mark its wait")
         fcntl.flock(holder, fcntl.LOCK_UN)
         waiter.join(20)
@@ -173,7 +173,7 @@ class First(unittest.TestCase):
         self.assertIsNone(waiter.error, waiter.error)
         self.assertIsNone(first.error, first.error)
         self.assertTrue(waiter.result[0] and first.result[0])
-        self.assertEqual(self.marks.read_text(), "first\nwaiter\n")
+        self.assertEqual(self.marks.read_text(), "waiter\nfirst\n")
 
     def test_status_marks_first(self):
         for name, first in (("20250925-1200-first", True), ("20250925-1201-plain", False)):

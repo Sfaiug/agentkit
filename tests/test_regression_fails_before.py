@@ -155,6 +155,19 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertTrue(list((self.wt / "__pycache__").glob("same.*.pyc")))
         self.assert_restored(head)
 
+    def test_a_branch_changing_only_tests_is_proven_on_base_as_it_is(self):
+        (self.wt / "tests/check.py").write_text("assert False, 'flaky'\n")
+        self.commit("Flaky check")
+        self.base = run.git(self.wt, "rev-parse", "HEAD")
+        (self.wt / "tests/check.py").write_text("assert True\n")
+        self.commit("Fix the flaky check")
+        head = run.git(self.wt, "rev-parse", "HEAD")
+        self.script.write_text("python3 tests/check.py\n")
+        lp = self.loop()
+        self.assertEqual(run.regression_fails_before(lp), "")
+        self.assertIn("flaky", (self.directory / "regression-base.log").read_text())
+        self.assert_restored(head)
+
     def test_other_runs_and_failing_done_when_do_not_probe(self):
         lp = self.loop(["true"])
         self.assertTrue(run.verify_work(lp)[0])

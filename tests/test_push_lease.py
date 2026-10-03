@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import gate, config, run
 from agentkit import record
 from test_merge_step import make_loop, make_repos
 
@@ -82,7 +82,7 @@ class PushLease(unittest.TestCase):
             out.parent.mkdir(parents=True, exist_ok=True)
             return True, "$ true\n[exit 0]\n"
 
-        with patch.object(run, "run_done_when", side_effect=checks):
+        with patch.object(gate, "run_done_when", side_effect=checks):
             self.assertTrue(run.integrate(lp, "origin/main"))
         self.assertNotEqual(run.git(self.wt, "rev-parse", "HEAD"), pushed)
         self.assertTrue(run.push(lp), lp.state.get("merge_note"))

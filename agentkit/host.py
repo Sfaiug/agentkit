@@ -103,6 +103,51 @@ def _number(value):
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
+def _reading(readings, *names):
+    for name in names:
+        value = _number(readings.get(name))
+        if value is not None:
+            return value
+    return None
+
+
+def _unit_memory(readings):
+    """(used, high, raw, name) for the cgroup the gate reads, or None.
+
+    ``used`` excludes reclaimable file cache; ``raw`` includes it or is None
+    where the readings predate it. A list carries the nearest
+    limit first, so the first valid entry wins.
+    """
+    limits = readings.get("unit_limits")
+    if isinstance(limits, (tuple, list)):
+        for entry in limits:
+            if not isinstance(entry, (tuple, list)):
+                continue
+            if len(entry) == 2:
+                used, high = entry
+                if (_number(used) is not None and _number(high) is not None
+                        and high >= 0):
+                    return (used, high, None, None)
+            elif len(entry) >= 3:
+                used, high, raw = entry[0], entry[1], entry[2]
+                name = entry[3] if len(entry) > 3 else None
+                if (_number(used) is None or _number(high) is None
+                        or high < 0):
+                    continue
+                raw = _number(raw)
+                name = name if isinstance(name, str) and name else None
+                return (used, high, raw, name)
+    current = _reading(readings, "unit_memory_current_mb", "memory_current_mb")
+    high = _reading(readings, "unit_memory_high_mb", "memory_high_mb")
+    if current is not None and high is not None and high >= 0:
+        raw = _reading(readings, "unit_memory_raw_mb", "unit_memory_with_cache_mb",
+                       "memory_raw_mb")
+        name = readings.get("unit_memory_name", readings.get("unit_name"))
+        name = name if isinstance(name, str) and name else None
+        return (current, high, raw, name)
+    return None
+
+
 def _read_number(path, *, bytes_to_mb=False):
     try:
         value = path.read_text().strip()
@@ -395,6 +440,33 @@ def _scope_readings(scope_dir):
         return len([line for line in procs if line.strip().isdigit()]), int(mem)
     except (ValueError, TypeError):
         return None
+
+
+CPU_WEIGHT_MAX = 10000   # the kernel's top cpu.weight
+
+
+def _cpu_weight(cgroup):
+    try:
+        return int((Path(cgroup) / "cpu.weight").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def cpu_weights(cgroup):
+    """(the cgroup's CPU weight, its siblings' weights), or None where it has none to read.
+
+    The kernel shares a parent's CPU among its busy children in proportion to these.  A
+    sibling gone between the listing and its read, or a file beside them, has no weight.
+    """
+    own = _cpu_weight(cgroup) if cgroup is not None else None
+    if own is None:
+        return None
+    cgroup = Path(cgroup)
+    try:
+        siblings = [path for path in cgroup.parent.iterdir() if path.name != cgroup.name]
+    except OSError:
+        return None
+    return own, [weight for weight in map(_cpu_weight, siblings) if weight is not None]
 
 
 def frozen_cgroup(pid):

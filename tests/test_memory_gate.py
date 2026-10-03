@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, run  # noqa: E402
+from agentkit import gate, host, run  # noqa: E402
 from agentkit import record
 
 
@@ -169,7 +169,7 @@ class MemoryGate(unittest.TestCase):
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": [(4096, 10240, 5120, "agentkit.slice")]}
         with patch.dict(os.environ, {"AK_MIN_FREE_MB": "3072", "AK_MAX_LOAD": "8"}), \
-                patch.object(run, "_heavy_running", return_value=0), \
+                patch.object(gate, "_heavy_running", return_value=0), \
                 patch.object(host, "host_readings", return_value=readings):
             line = run.host_status_line()
         self.assertIn("agentkit.slice", line)

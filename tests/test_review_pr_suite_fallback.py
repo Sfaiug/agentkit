@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, run, worker
+from agentkit import gate as check_gate, config, gc, run, worker
 from agentkit import record as run_record
 
 SUITE = "test -f AGENTS.md"
@@ -51,12 +51,12 @@ class ReviewPrSuiteFallback(unittest.TestCase):
         self.stack.enter_context(patch.object(run.usage, "pick_order",
                                              return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.worker)))
-        gate = run.run_done_when
+        gate = check_gate.run_done_when
 
         def record(cmds, cwd, log_path, *args, **kwargs):
             self.gates.append(list(cmds))
             return gate(cmds, cwd, log_path, *args, **kwargs)
-        self.stack.enter_context(patch.object(run, "run_done_when", side_effect=record))
+        self.stack.enter_context(patch.object(check_gate, "run_done_when", side_effect=record))
 
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.repo), *args], check=True,

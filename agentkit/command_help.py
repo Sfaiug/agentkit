@@ -66,7 +66,7 @@ COMMANDS = {
 a task bigger than one behaviour or over 3 rounds is refused regardless.
 --no-worktree uses the repo's current branch; --no-merge keeps work local.
 --bg detaches and prints a launch receipt, run ID and result path.
---first admits the run ahead of every queued run without it, skipping the count cap and the CPU gate, and takes the next heavy suite turn first.
+--first admits the run ahead of every queued run without it, skipping the count cap and the CPU gate, and takes its repository's merge turn first; a heavy suite turn still goes by wait.
 Several task files run as one job; after: names a dependency, --parallel caps it.
 max_runs caps the count when positive; 0 leaves host memory and ak's CPU pressure as the gates
 (config.toml or AK_MAX_RUNS).
@@ -112,7 +112,9 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                     "ak orch rename parser-fix parser-review"),
     "orch project": ("usage: ak orch project [SEAT] CHECKOUT",
                      "File a seat under a checkout by name or path; omit SEAT for this session.\n"
-                     "Only known checkouts are accepted; it stays there until it is filed again.",
+                     "Only known checkouts are accepted; it stays there until it is filed again.\n"
+                     "Then lists what the project's other sessions have in flight: their open\n"
+                     "plan lines and the files their going runs change.",
                      "ak orch project acme"),
     "orch solo": ("usage: ak orch solo SESSION on|off",
                   "Save solo on a session: refuse task launches while allowing PR reviews.",

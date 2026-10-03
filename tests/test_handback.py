@@ -22,7 +22,7 @@ from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
 from fixtures.hand_in import records, scripted
-from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
+from agentkit import gate, host, browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
 from agentkit import record
 
 SEAT = "seat"
@@ -926,6 +926,7 @@ class HandBack(Sandbox):
             state={"round_summaries": [], "rounds": 3, "final_check": None,
                    "done_when_failure": dict(rounds_said)},
             rounds=3, rnd=1, once=["bash tests/smoke.sh"], every=["pytest"],
+            target="main",
             wt=str(self.root), run_dir=directory, artifacts=set(), done_when_limit=1,
             turn_limit=1, context="ctx", executor="opus", log=self.logs.append,
             save=lambda: None, write=lambda: None)
@@ -933,7 +934,7 @@ class HandBack(Sandbox):
                 patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
-                patch.object(run, "run_done_when",
+                patch.object(gate, "run_done_when",
                              return_value=(False, "$ bash tests/smoke.sh\n[exit 1]\nE no")), \
                 patch.object(run, "target_fails", return_value=False), \
                 patch.object(record, "save_state"), patch.object(run, "note", return_value=False), \
@@ -964,6 +965,7 @@ class HandBack(Sandbox):
                    "done_when_failure": {"once": [["bash tests/smoke.sh",
                                                   "E the suite says no"]]}},
             rounds=3, rnd=1, once=["bash tests/smoke.sh"], every=["true"],
+            target="main",
             wt=str(self.root), run_dir=directory, artifacts=set(), done_when_limit=1,
             turn_limit=1, context="ctx", executor="opus", log=self.logs.append,
             save=lambda: None, write=lambda: None)
@@ -971,7 +973,7 @@ class HandBack(Sandbox):
                 patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
-                patch.object(run, "run_done_when", return_value=(False, failure)), \
+                patch.object(gate, "run_done_when", return_value=(False, failure)), \
                 patch.object(run, "target_fails", return_value=False), \
                 patch.object(record, "save_state"), patch.object(run, "note", return_value=False), \
                 patch.object(run, "execute",

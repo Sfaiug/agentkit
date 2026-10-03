@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import host, config, orch, run, watch, worker
+from agentkit import gate, host, config, orch, run, watch, worker
 from agentkit import record
 
 
@@ -131,7 +131,7 @@ class MergePipeline(Fixture):
                 patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity", return_value={"head_sha": "a" * 40,
                                                                    "tree_sha": "b" * 40}), \
-                patch.object(run, "run_done_when", return_value=(True, "$ true\n[exit 0]")):
+                patch.object(gate, "run_done_when", return_value=(True, "$ true\n[exit 0]")):
             state = self.survives(lambda: self.assertTrue(run.final_check(self.lp, "origin/main")))
         self.assertEqual(state["final_check"]["outcome"], "passed")
 

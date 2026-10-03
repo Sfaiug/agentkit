@@ -10,7 +10,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import run, worker
+from agentkit import config, run, worker
 
 
 class ChangedChecks(unittest.TestCase):
@@ -18,10 +18,17 @@ class ChangedChecks(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-changed-checks-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
-        env = patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull,
-                                     "GIT_CONFIG_NOSYSTEM": "1"})
-        env.start()
-        self.addCleanup(env.stop)
+        self.enterContext(patch.dict(os.environ, {
+            "HOME": str(self.root), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": ""}))
+        for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+            self.enterContext(patch.object(config, name, self.root / name.lower()))
+        self.cfg = {"models": {name: {"harness": "test", "model": name, "effort": "high",
+                                     "provider": provider}
+                               for name, provider in (("executor", "acme"), ("reviewer", "beta"))},
+                    "providers": {"acme": {}, "beta": {}}}
         self.repo = self.root / "repo"
         self.repo.mkdir()
         run.git(self.repo, "init", "-b", "main")
@@ -48,13 +55,12 @@ class ChangedChecks(unittest.TestCase):
                  "executor": "executor", "reviewer": "reviewer", "round_summaries": [],
                  "scratch": scratch}
         body = "# Fixture task\n\n## Done when\n```bash\n" + "\n".join(cmds) + "\n```"
-        lp = run.Loop({}, directory, state, {}, lambda text: None, self.repo, body,
+        lp = run.Loop(self.cfg, directory, state, {}, lambda text: None, self.repo, body,
                       list(cmds), body, [])
         lp.rnd = 1
         lp.validation = {} if scratch else run.commit_identity(self.repo)
-        with patch.object(run, "review_providers", return_value=("provider-a", "provider-b")), \
-                patch.object(run, "call_retrying",
-                             side_effect=submitting((0, "VERDICT: PASS\n## Findings\n- none", None, False))) as call:
+        with patch.object(run, "call_retrying",
+                          side_effect=submitting((0, "VERDICT: PASS\n## Findings\n- none", None, False))) as call:
             self.assertEqual(run.review(lp, "Fixture summary", True,
                                         "$ true\n[exit 0]", preface), "PASS")
         call.assert_called_once()

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, run  # noqa: E402
+from agentkit import gate, host, config, run  # noqa: E402
 from agentkit import record
 
 
@@ -124,7 +124,7 @@ class Slots(unittest.TestCase):
     def test_disabled_gates_render_as_off(self):
         with patch.dict(os.environ, {"AK_MIN_FREE_MB": "0", "AK_MAX_LOAD": "0"}), \
                 patch.object(host, "host_readings", return_value=HEALTHY), \
-                patch.object(run, "_heavy_running", return_value=0), \
+                patch.object(gate, "_heavy_running", return_value=0), \
                 patch.object(config, "max_gates", return_value=None):
             self.assertEqual(run.host_status_line(),
                              "host: 8 cpus · load 1 · 4 G free · "
@@ -132,7 +132,7 @@ class Slots(unittest.TestCase):
                              " · at most 1 run at once\nheavy suites: 2 at once (derived)")
         with patch.dict(os.environ, {"AK_MIN_FREE_MB": "3072", "AK_MAX_LOAD": "0"}), \
                 patch.object(host, "host_readings", return_value=HEALTHY), \
-                patch.object(run, "_heavy_running", return_value=0), \
+                patch.object(gate, "_heavy_running", return_value=0), \
                 patch.object(config, "max_gates", return_value=None):
             self.assertEqual(run.host_status_line(),
                              "host: 8 cpus · load 1 · 4 G free · "

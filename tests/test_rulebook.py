@@ -18,6 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, orch, run, worker
+from tools import rulebook
 
 RULEBOOK = (REPO / "orchestrator.md").read_text()
 MINIMUM = "Minimum change that solves the task completely; the best part is no part."
@@ -69,6 +70,7 @@ class Rulebook(unittest.TestCase):
         # and the usual login, named the way `ak orch` names it: a worker's own account is not it
         stack.enter_context(patch.dict(os.environ, {"HOME": str(self.home), config.ACCOUNT_ENV: ""}))
         os.environ.pop(config.ADAPTER_DIR_ENV, None)   # the checkout's adapters, never a copy
+        self.rulebook = rulebook.text()
 
     def adapter(self, harness, *args, seat=""):
         """One `interactive` line, as `ak orch` asks for it: the seat's name in the env."""
@@ -93,7 +95,7 @@ class Rulebook(unittest.TestCase):
                              "00000000-0000-0000-0000-000000000000", "new", seat="atoll")
         path = self.named(words, "--append-system-prompt-file")
         self.assertEqual(path.name, "rulebook-atoll.md")
-        self.assertEqual(path.read_text(), RULEBOOK)
+        self.assertEqual(path.read_text(), self.rulebook)
 
     def test_codex_is_launched_with_the_rulebook_as_its_own_developer_instructions(self):
         words = self.adapter("codex", "default", "xhigh", seat="atoll")
@@ -108,29 +110,36 @@ class Rulebook(unittest.TestCase):
                               env={**os.environ, "HOME": str(self.home),
                                    "PATH": f"{fake}:{os.environ['PATH']}"})
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn(f"developer_instructions={RULEBOOK}", proc.stdout)
-        self.assertEqual(path.read_text(), RULEBOOK)
+        self.assertIn(f"developer_instructions={self.rulebook}", proc.stdout)
+        self.assertEqual(path.read_text(), self.rulebook)
 
     def test_muse_is_launched_with_the_rulebook_named_in_its_environment(self):
         words = self.adapter("muse", "muse-spark-1.3-contributor", "xhigh", seat="atoll")
         pin = next(w for w in words if w.startswith("TBH_EVAL_APPEND_SYSTEM_PROMPT_FILE="))
         path = Path(pin.split("=", 1)[1])
         self.assertEqual(path.parent, self.state, path)
-        self.assertEqual(path.read_text(), RULEBOOK)
+        self.assertEqual(path.read_text(), self.rulebook)
         # in the environment `muse` is launched with, never in the command muse itself parses
         self.assertEqual(words[words.index(pin) + 1], "muse")
         self.assertIn("env", words[:words.index(pin)])
 
     # --- what the file says, and whose session it is for -------------------------
 
+    def test_agents_body_fits_worker_rules_cap(self):
+        text = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+        front = run.FRONT.match(text)
+        body = (text[front.end():] if front else text).strip().encode("utf-8")
+        self.assertLessEqual(len(body), run.RULES_CAP,
+                             "AGENTS.md body exceeds RULES_CAP; workers would receive it cut short")
+
     def test_this_host_s_own_rules_ride_along_after_the_repo_s(self):
         words = self.adapter("claude", "claude-opus-5", "high", seat="atoll")
         path = self.named(words, "--append-system-prompt-file")
-        self.assertEqual(path.read_text(), RULEBOOK)
+        self.assertEqual(path.read_text(), self.rulebook)
         (self.home / ".agentkit/rules.md").write_text("# This host\n\nThe printer is upstairs.\n")
         self.adapter("claude", "claude-opus-5", "high", seat="atoll")
         self.assertEqual(path.read_text(),
-                         RULEBOOK.rstrip() + "\n\n# This host\n\nThe printer is upstairs.\n")
+                         self.rulebook.rstrip() + "\n\n# This host\n\nThe printer is upstairs.\n")
 
     def test_the_rulebook_is_written_for_the_seat_being_launched(self):
         # the launch is often made from another seat, whose name this process carries

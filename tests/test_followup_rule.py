@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import records, submitting
-from agentkit import config, hand_in, run, worker
+from agentkit import gate, config, hand_in, run, worker
 from agentkit import record as run_record
 
 DEFECT = "a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError"
@@ -30,10 +30,10 @@ class FollowupRule(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": ""}))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
-        self.stack.enter_context(patch.object(run, "review_providers", return_value=("a", "b")))
         self.stack.enter_context(patch.object(run, "history_role_tokens"))
         self.stack.enter_context(patch.object(run.history, "update_run"))
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
@@ -46,7 +46,11 @@ class FollowupRule(unittest.TestCase):
                  "rounds": 3, "round_summaries": [], "executor": "executor",
                  "reviewer": "reviewer", "scratch": True, "repo": str(self.workspace),
                  "worktree": str(self.workspace)}
-        self.lp = run.Loop({}, directory, state, {}, lambda _: None, self.workspace,
+        cfg = {"models": {name: {"harness": "test", "model": name, "effort": "high",
+                                "provider": provider}
+                          for name, provider in (("executor", "acme"), ("reviewer", "beta"))},
+               "providers": {"acme": {}, "beta": {}}}
+        self.lp = run.Loop(cfg, directory, state, {}, lambda _: None, self.workspace,
                            "# Fixture", ["true"], "", [])
         self.lp.rnd = 1
         self.lp.save()
@@ -62,7 +66,7 @@ class FollowupRule(unittest.TestCase):
 
     def gate(self):
         command = "if test -f seen; then echo passed; else touch seen; echo broken; exit 1; fi"
-        ok, output = run.run_done_when([command], self.workspace,
+        ok, output = gate.run_done_when([command], self.workspace,
                                       self.lp.run_dir / "donewhen.log", set(),
                                       limit=30, run_dir=self.lp.run_dir)
         self.assertTrue(ok, output)
@@ -172,7 +176,7 @@ class FollowupRule(unittest.TestCase):
         self.lp.once = ["fixture check"]
         with patch.object(run, "git", return_value="abc123"), \
                 patch.object(run, "git_out", return_value=(0, "")), \
-                patch.object(run, "run_done_when", return_value=(True, output)):
+                patch.object(gate, "run_done_when", return_value=(True, output)):
             self.assertTrue(run.final_check(self.lp, "origin/main"))
         self.assert_followups([DEFECT, flake])
         self.assertIn(flake.replace("\n", "\n  "), run.pr_body(self.lp.state))

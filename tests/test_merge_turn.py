@@ -22,7 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import host, config, run, watch
+from agentkit import gate, host, config, run, watch
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -170,7 +170,7 @@ class MergeTurn(unittest.TestCase):
                 finally:
                     self.holding.discard(lp.wt)
         self.stack.enter_context(patch.object(run, "merge_turn", turn))
-        self.stack.enter_context(patch.object(run, "run_done_when", side_effect=self.recheck))
+        self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.recheck))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fix))
         self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "rights", return_value=(None, None)))

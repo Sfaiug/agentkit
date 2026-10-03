@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, run, watch
+from agentkit import gate, config, notify, orch, run, watch
 
 # What a suite running inside a seat hands to the `ak run` it starts: the seat lookup
 # then sees the suite's own servers, where the live launcher seat is nowhere to be found.
@@ -54,7 +54,7 @@ class RunIsolation(unittest.TestCase):
         self.artifacts = set()
 
     def done_when(self, *cmds):
-        return run.run_done_when(list(cmds), self.root, self.log_path, self.artifacts)
+        return gate.run_done_when(list(cmds), self.root, self.log_path, self.artifacts)
 
     def test_done_when_stdin_is_dev_null(self):
         with stdin_from(self.sentinel):

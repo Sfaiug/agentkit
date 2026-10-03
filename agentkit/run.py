@@ -30,8 +30,9 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (command_help, config, gc, hand_in, history, host, job as jobs, notify, orch,
-               record as run_record, retention, task as taskfile, update, usage, watch, worker)
+from . import (command_help, config, gate, gc, hand_in, history, host, job as jobs,
+               land as landing, notify, orch, record as run_record, retention,
+               task as taskfile, update, usage, watch, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
@@ -140,8 +141,7 @@ except ValueError:
 _RUN_CONTEXT = threading.local()  # job threads export their own depth and slot owner
 _DELIVERY_HELD = threading.local()   # the delivery locks this thread is already inside
 _PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
-_PICKUP_HELD = threading.local()   # gate and merge turns this thread holds now
-_GATE_HELD = threading.local()     # the gate turn this thread holds now, if any
+_PICKUP_HELD = threading.local()   # merge turns this thread holds now
 _MERGE_HELD = threading.local()    # the merge turn this thread holds now, if any
 STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is on the way; reap
                                 # leaves the record alone until then, and the resume adopts it
@@ -258,11 +258,12 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     Returns the new executor, or None where none is eligible.  Both roles are re-picked
     as one pair (`best_pair`), so tier beats budget and the pair is always a legal one --
     a reviewer kept from before can be the very model now executing.  A refused provider
-    never gets the work back (that is how a handover becomes a circle); its review is a
-    different matter and takes the spares road if it refuses that too.  Records the move
+    never gets the work back (that is how a handover becomes a circle); its reviewers
+    are considered only when no pair forms without them.  Records the move
     in `executor_history` with the reason (`stalled`, `dry`); an attempt that finds nobody
     records nothing, since the same worker carries on. `dry` is every provider that
     already refused this piece of work.
+    Later re-picks follow the normal order; this preference applies only at handover.
     """
     current = state.get("executor")
     try:
@@ -280,7 +281,10 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
         order = [n for n in ready_order(cfg, providers, workers, log, reviewers=reviewers)
                  if n != current and config.model(cfg, n)["provider"] not in refused]
         review_order = ready_order(cfg, providers, reviewers, role="reviewer")
-        pair = best_pair(cfg, order, review_order)
+        pair = best_pair(cfg, order, [n for n in review_order
+                                     if config.model(cfg, n)["provider"] not in refused])
+        if pair is None:
+            pair = best_pair(cfg, order, review_order)
         if pair is not None:
             new, reviewer = pair
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -416,7 +420,7 @@ def project_lessons(repo, state, log):
             f"of this task's scope.\n\n{text}")
 
 
-def repo_rules(wt, ref, log):
+def repo_rules(wt, ref, state, log):
     """The body of the repository's AGENTS.md at `ref`, for every worker prompt.
 
     ak reads only its front matter itself, and a harness loads the body on its own terms
@@ -434,8 +438,9 @@ def repo_rules(wt, ref, log):
     data = (text[match.end():] if match else text).strip().encode("utf-8")
     if not data:
         return ""
-    if len(data) > RULES_CAP:
+    if len(data) > RULES_CAP and not state.get("rules_truncated"):
         log(f"AGENTS.md over {RULES_CAP // 1024} KB; truncated")
+        state["rules_truncated"] = True
     # Omit an incomplete UTF-8 character at the byte limit.
     text = data[:RULES_CAP].decode("utf-8", errors="ignore")
     return ("\n\n## Repository AGENTS.md\n"
@@ -1802,12 +1807,6 @@ def reviewer_changes(wt, out_dir, log):
                 log(f"WARN undid reviewer changes: {undone}; saved {path}")
 
 
-GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
-HEAVY_CPUS = 0.7      # one heavy suite's measured cost: ~0.7 core and ~0.4 GB, its own
-HEAVY_MEM_MB = 410    # Postgres, port and temp dir, so twice the headroom fits twice the suites
-SUITE_BUSY = 75       # sysexits' EX_TEMPFAIL: a heavy suite's own host-wide lock is another copy's
-
-
 def main_checkout(repo):
     """The main checkout of the repository at `repo`: itself, or what a linked worktree was added from.
 
@@ -1819,191 +1818,6 @@ def main_checkout(repo):
     code, out, _ = tool_run(["git", "-C", str(repo), "rev-parse", "--git-common-dir"])
     common = out.strip() if code == 0 else ""
     return (Path(repo) / common).resolve().parent if common else Path(repo)
-
-
-def gate_lock(repo, slot):
-    """The lock file of one host-wide heavy-suite turn; `repo` is ignored.
-
-    Turns were per repository, one set of slot files per main checkout.  Only the
-    heavy suite takes one now, counted host-wide, so every suite meets on the same
-    files whichever repository it checks.  The argument stays so old callers still
-    pass it.
-    """
-    return config.RUNS / f".heavy-{slot}.lock"
-
-
-def take_slot(slots):
-    """The first of the open slot files this call locks, or None while a gate holds each."""
-    for slot in slots:
-        try:
-            fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            continue
-        return slot
-    return None
-
-
-def _heavy_max_existing():
-    """Highest heavy-slot index with a lock file on disk, or -1 when none do.
-
-    Slot files persist once opened, so a limit that shrinks leaves its higher
-    files behind -- and the suites still holding them.  A waiter that only opens
-    its new prefix would never see those holders and would admit over them.
-    """
-    try:
-        best = -1
-        for path in config.RUNS.glob(".heavy-*.lock"):
-            try:
-                idx = int(path.name[len(".heavy-"):-len(".lock")])
-            except ValueError:
-                continue
-            if idx > best:
-                best = idx
-        return best
-    except OSError:
-        return -1
-
-
-def _heavy_running():
-    """Count held turns, including high slots left by a larger limit.
-
-    Slot files persist after their suites finish; only a lock still held counts.
-    Probe existing files without creating any, so status never grows the pool.
-    """
-    held = 0
-    for index in range(_heavy_max_existing() + 1):
-        try:
-            with gate_lock(None, index).open("r") as slot:
-                try:
-                    fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    held += 1
-        except OSError:
-            pass
-    return held
-
-
-def _first_landing_wait(run_dir):
-    """This run's first landing wait, or None when it never waited to land.
-
-    The start lives beside the record, not in it: a whole-record save of the loop's
-    own state would wipe it from run.json between two laps, and the next lap would
-    count from itself instead.  `land` clears it for a fresh landing and when the
-    landing ends.
-    """
-    try:
-        return float((Path(run_dir) / "landing_since").read_text().strip())
-    except (OSError, ValueError):
-        return None
-
-
-def mark_gate_wait(run_dir, of):
-    """Put `waiting for a heavy suite turn` on the record, or take it off (`of` None).
-
-    `of` is the repository the waiter checks, kept on the mark from the
-    per-repository turns; the note and the rank are host-wide and ignore it.  With
-    this process's pid, as the merge turn's mark is, and the wait's start, so a
-    freed turn goes to the waiter that has waited longest.  A landing run's mark
-    says so; the start of its first landing wait lives beside the record, where
-    whole-record saves cannot wipe it (see `_first_landing_wait`): that start is
-    what this returns for a lander, the wait's own start otherwise, and None when
-    it recorded none.
-    """
-    since = time.time()
-    try:
-        with run_record.recovery_lock(run_dir):
-            state = run_record.read_state(run_dir)
-            if state and state.get("state") == "running":
-                if of:
-                    if state.get("landing"):
-                        first = _first_landing_wait(run_dir)
-                        if first is None:
-                            first = since
-                            try:
-                                (Path(run_dir) / "landing_since").write_text(repr(since))
-                            except OSError:
-                                pass    # without the marker this wait still ranks as landing
-                        state["gate_turn"] = {"pid": os.getpid(), "of": str(of),
-                                              "since": since, "landing": True}
-                        run_record.save_state(run_dir, state)
-                        return first
-                    state["gate_turn"] = {"pid": os.getpid(), "of": str(of), "since": since}
-                else:
-                    state.pop("gate_turn", None)
-                    since = None
-                run_record.save_state(run_dir, state)
-                return since
-    except OSError:
-        pass            # an unmarked record costs a status line, never the turn
-    return None
-
-
-def gate_turn_note(state):
-    """`waiting for a heavy suite turn` while a run waits in `gate_turn`, else ""."""
-    turn = state.get("gate_turn")
-    if (state.get("state") != "running" or not isinstance(turn, dict)
-            or turn.get("pid") != state.get("pid")):
-        return ""
-    return "waiting for a heavy suite turn"
-
-
-def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
-    """Whether a live heavy-suite waiter ranks before this gate; `repo` is ignored.
-
-    Turns were per repository and only a waiter of the same main checkout counted.
-    They are host-wide now, so every live waiter counts whichever repository it
-    checks.  Rank is a landing run before any round check, then `--first` before
-    the rest, then the longest wait, then the run id, so a freed turn finishes a
-    run ready to land before starting another round's check.  A lander's wait
-    counts from the start of its first landing wait, not from the lap; a mark from
-    before landers ranked carries no landing and reads as a round check.  A mark
-    whose process is gone, or whose pid no longer matches its record -- a kill or
-    a resume left it behind -- holds nobody back.
-    """
-    me = (not is_landing, not is_first, since, exclude or "")
-    for directory in run_record.run_dirs():
-        if directory.name == exclude:
-            continue
-        other = run_record.read_state(directory) or {}
-        if other.get("state") != "running":
-            continue
-        turn = other.get("gate_turn")
-        if not isinstance(turn, dict) or turn.get("pid") != other.get("pid"):
-            continue
-        if not run_record.process_active(other):
-            continue
-        landing = bool(turn.get("landing"))
-        waited = _first_landing_wait(directory) if landing else turn.get("since")
-        if not isinstance(waited, (int, float)) or isinstance(waited, bool):
-            waited = turn.get("since") if landing else 0
-            if not isinstance(waited, (int, float)) or isinstance(waited, bool):
-                waited = 0
-        if (not landing, not other.get("first"), waited, directory.name) < me:
-            return True
-    return False
-
-
-class _GateHold:
-    """One held gate turn: the open slot files and the one this thread locked.
-
-    The hold owns its files rather than the frame that waited for them, so a fixer
-    or a reviewer lets it go from inside the frame that took it.  Releasing unlocks
-    the slot and closes the files, as leaving the frame would have.
-    """
-
-    def __init__(self, files, slot):
-        self.files, self.slot = files, slot
-
-    def release(self):
-        try:
-            if self.slot is not None:
-                fcntl.flock(self.slot, fcntl.LOCK_UN)
-        finally:
-            self.slot = None
-            held = getattr(_PICKUP_HELD, "count", 0)
-            if held:
-                _PICKUP_HELD.count = held - 1
-            self.files.close()
 
 
 class _MergeHold:
@@ -2023,6 +1837,7 @@ class _MergeHold:
         self._released = False
         self.reservation = None
         self.lent = False
+        self.weighed = None        # (unit, weight before) while `raise_cpu_weight` holds it
 
     def lend(self):
         """Keep the rebased branch's files reserved while other files can land."""
@@ -2055,22 +1870,7 @@ class _MergeHold:
             return
         self._released = True
         try:
-            try:
-                if self.reservation is not None:
-                    path = Path(self.reservation.name)
-                    self.reservation.close()
-                    path.unlink(missing_ok=True)
-            finally:
-                if self.lock is not None:
-                    try:
-                        self.lock.close()
-                    except (OSError, ValueError):
-                        pass
-        finally:
-            self.lock = None
-            held = getattr(_PICKUP_HELD, "count", 0)
-            if held:
-                _PICKUP_HELD.count = held - 1
+            # Publish the saved place before another waiter can take the freed flock.
             if self.reserved:
                 try:
                     self.lp.state.pop("merge_hold", None)
@@ -2080,238 +1880,57 @@ class _MergeHold:
                         self.lp.state.pop("merge_hold", None)
                     except Exception:
                         pass
-            if getattr(_MERGE_HELD, "hold", None) is self:
-                _MERGE_HELD.hold = None
-
-
-def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
-                        job_mem_mb=HEAVY_MEM_MB):
-    """Running suites plus how many more the live headroom fits; at least one.
-
-    The slice's idle cores over one suite's 0.7, and its free memory over 0.4 GB,
-    whichever fits fewer.  Headroom already excludes running suites, so add
-    them once; a saturated slice starts one only when none run.  Both come
-    off the slice's own cgroup -- its CPU room and the slice's memory headroom --
-    which a shell beside the slice reads like a worker inside it; where
-    no slice answers, the host's idle cores and free memory stand in.  An
-    unreadable gate fails open to the other resource, and to one suite where
-    neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, for jobs
-    other than a heavy suite.
-    """
-    if running is None:
-        running = _heavy_running()
-    if readings is None:
-        readings = host.host_readings(slice_dir=orch.slice_cgroup)
-    cpu_quota = _reading(readings, "slice_cpu_quota")
-    if cpu_quota is not None:
-        used = _reading(readings, "slice_cpu_used")
-        cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
-    else:
-        cpus = _reading(readings, "cpus", "nproc")
-        load = _reading(readings, "load", "load1", "load_1m")
-        if cpus is not None and load is not None:
-            cpu_free = cpus - load
-        elif cpus is not None:
-            cpu_free = float(cpus)
-        else:
-            cpu_free = None
-    slice_used = _reading(readings, "slice_memory_used_mb")
-    slice_high = _reading(readings, "slice_memory_high_mb")
-    if slice_used is not None and slice_high is not None:
-        mem_free = slice_high - slice_used
-    else:
-        unit = _unit_memory(readings)
-        if unit is not None:
-            mem_free = unit[1] - unit[0]
-        else:
-            mem_free = _reading(readings, "free_mb", "mem_available_mb", "mem_available")
-    candidates = []
-    if cpu_free is not None:
-        candidates.append(int(cpu_free / job_cpus))
-    if mem_free is not None:
-        candidates.append(int(mem_free / job_mem_mb))
-    if not candidates:
-        return 1
-    return max(1, running + max(0, min(candidates)))
-
-
-def _acquire_gate_turn(run_dir, log_path, log):
-    """Wait for and hold one host-wide heavy-suite turn; None when no turn is taken."""
-    record = run_record.read_state(run_dir) or {} if run_dir else {}
-    repo = record.get("repo")
-    is_first = bool(record.get("first"))
-    is_landing = bool(record.get("landing"))
-    landing_since = _first_landing_wait(run_dir) if run_dir else None
-    self_id = run_dir.name if run_dir else None
-    if not repo or os.environ.get("AK_MAX_RUNS") == "0":
-        return None
-    said_bad = []
-    config.RUNS.mkdir(parents=True, exist_ok=True)
-    files = ExitStack()
-    try:
-        slots = []
-        def admit():
+        finally:
             try:
-                pinned = config.max_gates()
-            except config.Error as exc:
-                if log is not None and not said_bad:
-                    said_bad.append(True)
-                    log(f"done-when: {exc} · the heavy suite takes a derived turn")
-                pinned = None
-            # CPU sampling sleeps; locking free slots across it would count them as running.
-            readings = host.host_readings(slice_dir=orch.slice_cgroup) if pinned is None else None
-            total = max(1, _heavy_max_existing() + 1, len(slots))
-            while len(slots) < total:
-                slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
-            temp, held = [], 0
-            for fh in slots:
                 try:
-                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    held += 1
-                    continue
-                temp.append(fh)
-            new_limit = pinned if pinned is not None else derived_heavy_limit(readings, held)
-            while len(slots) < new_limit:
-                slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
-            candidate = take_slot(slots[:new_limit]) if held < new_limit else None
-            for fh in temp:
-                if fh is not candidate:
-                    fcntl.flock(fh, fcntl.LOCK_UN)
-            return candidate, new_limit, held
-        slot, limit, held = admit()
-        if not limit:
-            files.close()
-            return None
-        me_since = landing_since if is_landing and landing_since is not None else time.time()
-        if slot is None or _gate_waiter_before(repo, self_id, is_first, me_since, is_landing):
-            if slot is not None:
-                fcntl.flock(slot, fcntl.LOCK_UN)
-                slot = None
-            began = time.monotonic()
-            said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
-            if log is not None:
-                log(f"done-when: {said}")
-            waited_since = mark_gate_wait(run_dir, repo)
-            if waited_since is None:
-                waited_since = me_since if is_landing else time.time()
-            step = history.close_step(run_dir.name)     # the wait is no step's work
-            uncapped = False
-            try:
-                while True:
-                    log_path.write_text(said + "\n")
-                    run_record.stop_check(run_dir)
-                    time.sleep(GATE_POLL)
-                    slot, limit, held = admit()
-                    if not limit:
-                        uncapped = True
-                        break
-                    said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
-                    if slot is None:
-                        continue
-                    if _gate_waiter_before(repo, self_id, is_first, waited_since,
-                                             is_landing):
-                        fcntl.flock(slot, fcntl.LOCK_UN)
-                        slot = None
-                        continue
-                    break
+                    if self.reservation is not None:
+                        path = Path(self.reservation.name)
+                        self.reservation.close()
+                        path.unlink(missing_ok=True)
+                finally:
+                    if self.lock is not None:
+                        try:
+                            self.lock.close()
+                        except (OSError, ValueError):
+                            pass
             finally:
-                mark_gate_wait(run_dir, None)
-            history.open_step(run_dir.name, step)
-            if uncapped:
-                files.close()
-                return None
-            if log is not None:
-                log(f"done-when: took a heavy suite turn after "
-                    f"{orch.span(time.monotonic() - began)}")
-    except BaseException:
-        files.close()
-        raise
-    held = getattr(_PICKUP_HELD, "count", 0)
-    _PICKUP_HELD.count = held + 1
-    return _GateHold(files, slot)
+                self.lock = None
+                if self.weighed is not None:
+                    orch.set_cpu_weight(*self.weighed)
+                held = getattr(_PICKUP_HELD, "count", 0)
+                if held:
+                    _PICKUP_HELD.count = held - 1
+                if getattr(_MERGE_HELD, "hold", None) is self:
+                    _MERGE_HELD.hold = None
 
 
-@contextmanager
-def gate_turn(run_dir, log_path, log):
-    """One host-wide heavy-suite turn, held for as long as the list runs.
+def raise_cpu_weight(lp):
+    """Weigh this run's scope above every other run's while it holds its merge turn.
 
-    Only the heavy suite -- the `# once` line, the repository's `tests:` suite --
-    takes one at landing; every other done-when command
-    runs without.  A
-    suite builds its own Postgres, port and temp dir at ~0.7 core and ~0.4 GB, so
-    a suite starts when the slice's live headroom fits one more, or none run,
-    counting running suites once; an explicit
-    `max_gates` pins the count instead.  A turn is a flock on one of the host's
-    slot files, which the kernel lets go of when its holder dies, so a killed
-    suite never blocks the next.  A waiting suite rewrites its own log every poll,
-    so the stall ladder reads the wait as life, and says so on its record for `ak
-    run status`; the ceiling starts once the turn is its own, and a stop lands
-    while it waits as it does mid-list.  A run without a repository, a direct
-    caller with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0`
-    all take no turn.  The limit is re-read on every poll, so a changed pin or a
-    changed headroom reaches runs already queued.  A freed turn goes to the waiter
-    that has waited longest among the highest rank, a landing run before any round
-    check and `--first` before the rest: a suite takes a free turn only when no
-    waiter ranks before it, and a lander's wait counts from the start of its first
-    landing wait.
-    A home config this cannot read -- it is read here, mid-run, so one hand-edit
-    typo would fail the next suite of every running run -- means a derived count,
-    and a log line naming the problem.
-    A check running while this thread already holds a turn takes no second one.
+    Every passed run of the repository waits behind the holder, so its final check is the
+    repository's serial path; at the scope's own weight it would share the CPU evenly with
+    work that will wait hours to merge.  The raise outweighs the other scopes in the runs
+    slice together by the slice's cores and one, so that all of them share less than one
+    core while the check is busy, and stops at the kernel's top weight.  Another
+    repository's holder counts at a run's own weight, so two landings at once share alike
+    rather than the later one outweighing the earlier.  It is among the runs slice's own
+    children, so the seats beside that slice keep their weight over every run.  (unit,
+    weight before) to put back, or None where nothing was raised: no scope, no cgroup, no
+    other run, or a manager that refused.
     """
-    if getattr(_GATE_HELD, "hold", None) is not None:
-        yield
-        return
-    hold = _acquire_gate_turn(run_dir, log_path, log)
-    if hold is None:
-        yield
-        return
-    _GATE_HELD.hold = hold
-    try:
-        yield
-    finally:
-        current, _GATE_HELD.hold = _GATE_HELD.hold, None
-        if current is not None:
-            current.release()
-
-
-def suite_env():
-    """A done-when command's environment, `AK_HEAVY_TURN=1` only while this thread holds a turn.
-
-    A suite that queues behind a host-wide lock of its own would hold the turn for as long as
-    another copy holds that lock; told it holds one, it says busy at once instead, exit
-    `SUITE_BUSY`, and `busy_turn` gives the turn back.  Never inherited: a loop started below
-    a suite holds none of that suite's turn.
-    """
-    env = run_child_env()
-    env.pop("AK_HEAVY_TURN", None)
-    if getattr(_GATE_HELD, "hold", None) is not None:
-        env["AK_HEAVY_TURN"] = "1"
-    return env
-
-
-def busy_turn(run_dir, log_path, log):
-    """A heavy suite said busy: give its turn back for a poll, then queue for one again.
-
-    Its own lock is another copy's, and every other suite on the host can use the turn
-    meanwhile.  The poll holds no turn and no waiting mark, so no waiter ranks behind it;
-    after it the suite queues as a new waiter, and its log reads as it did once it has a
-    turn.  Returns the seconds that queueing took, which no ceiling is charged with; the
-    poll is, so a suite that only ever says busy still ends.
-    """
-    hold, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
-    if hold is not None:
-        hold.release()
-    run_record.stop_check(run_dir)
-    time.sleep(GATE_POLL)
-    if hold is None:
-        return 0.0
-    kept = log_path.read_bytes()
-    began = time.monotonic()
-    _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log)
-    log_path.write_bytes(kept)
-    return time.monotonic() - began
+    scope_dir = run_scope_dir(lp.state.get("scope"))
+    weights = host.cpu_weights(scope_dir) if scope_dir is not None else None
+    if not weights or not weights[1]:
+        return None
+    own = weights[0]
+    others = sum(min(weight, own) for weight in weights[1])
+    cores = host._slice_cpu_quota(orch.slice_cgroup()) or host.cpu_count()
+    raised = min(host.CPU_WEIGHT_MAX, int(others * (cores + 1)))
+    if raised <= own or not orch.set_cpu_weight(scope_dir.name, raised):
+        return None
+    lp.log(f"--- merge: CPU weight {raised} while holding the merge turn, "
+           f"{others} for every other run together")
+    return scope_dir.name, own
 
 
 def drop_reserved_turn():
@@ -2340,206 +1959,9 @@ def released_gate_turn():
     lets its merge turn go with it, for the same reason, and the next lap takes it again;
     a delivery keeps its turn through any retry.
     """
-    hold, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
-    if hold is not None:
-        hold.release()
+    gate.release_turn()
     drop_reserved_turn()
     yield
-
-
-def flaky_key(line):
-    """Ignore varying values without depending on a suite's failure words.
-
-    Absolute paths can have a different temporary root on each run; relative test names stay.
-    """
-    return re.sub(r"(?<![\w.])/[^\s'\"`<>]+|"
-                  r"\b(?:0x[0-9a-f]+|[0-9a-f]{8,}(?:-[0-9a-f]+)*)\b|"
-                  r"\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", "<varying>", line, flags=re.I)
-
-
-def _running_commands(pid):
-    """The live leaves of a command, before its group is ended."""
-    table = watch._proc_table()
-    found = {pid}
-    # A shell can exit while its background child still holds the output pipe.
-    # Its group keeps that child with the command after reparenting.
-    for child in table:
-        try:
-            if os.getpgid(child) == pid:
-                found.add(child)
-        except OSError:
-            pass
-    while True:
-        children = {child for child, (parent, _, _) in table.items()
-                    if parent in found} - found
-        if not children:
-            break
-        found.update(children)
-    live = {child: row for child, row in table.items()
-            if child in found and row[1] not in ("Z", "X")}
-    parents = {row[0] for row in live.values()}
-    running = []
-    for child, (_, _, args) in live.items():
-        if child in parents or not args:
-            continue
-        birth = host.process_identity(child)
-        if birth is None:
-            continue
-        command = " ".join(" ".join(args).split())
-        if len(command) > 160:
-            command = command[:159] + "…"
-        elapsed = max(0, int(time.time() - birth["started_at"]))
-        running.append(f"{command} ({elapsed}s)")
-    return running
-
-
-def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
-                  run_dir=None, heavy=False):
-    """Run commands while they produce output, with a ceiling on the whole list.
-
-    Each command gets its own silence window. The list's ceiling never resets,
-    so a command that prints forever still fails the round. Output goes straight
-    to the gate log so the external stall ladder sees the same activity.
-
-    A stopped gate is a failed gate, never a stopped run: the fixer round runs as it does
-    for any other failure.  Whatever the commands newly dirty -- __pycache__, build output
-    -- goes into `artifacts`: that is the loop's own droppings, not the executor's work,
-    and commit_leftovers must never hand it to the reviewer.
-
-    The commands run seatless, as the workers do: an `ak run` or a smoke suite a done-when
-    starts is launched from no seat, so it is nobody's to report and in no seat's tally.
-
-    No command starts on a stopped run: each one asks first, so a stop that lands
-    mid-list aborts the gate instead of running commands no record wants anymore.
-
-    A command that exits non-zero runs once more at once, within the same ceiling, and the
-    re-run decides it: under load a timing test fails by chance far more often than a change
-    breaks it.  A pass that took the re-run is said, not hidden -- a `flaky:` record after
-    the command's keeps the lines the failed run printed that its passing re-run did not,
-    comparing without numbers, hex ids or absolute paths, in their order, at most 20.
-    It names a file in the run directory holding the whole failed output for the run's
-    follow-ups. A killed
-    command is not re-run: it spent the silence window or ceiling, which a second go would
-    only spend again.
-
-    When `heavy` the list runs on one host-wide heavy-suite turn (`gate_turn`),
-    taken before its first command and let go however the list ends; the ceiling
-    counts from the turn, not the wait.  Otherwise it runs without one.  A heavy
-    command that exits `SUITE_BUSY` never ran: it is no failure and no re-run, it gives
-    its turn back for a poll (`busy_turn`) and runs again.
-    """
-    limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
-    silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
-    before = set(dirty_paths(cwd))
-    chunks, ok = [], True
-    spent, killed, kept = None, False, ""   # the command the limit ran out on, whether it had
-                                            # begun, and the output it had produced by then
-    reason, running = [], []
-
-    def stopped(why, pid):
-        reason.append(why)
-        running.extend(_running_commands(pid))
-
-    with gate_turn(run_dir, log_path, log) if heavy else nullcontext():
-        deadline = time.monotonic() + limit
-        log_path.write_text("")
-        for cmd in cmds:
-            first = None        # the output of a first run that failed, while its re-run decides
-            first_span = None   # its byte span in the gate log: the flaky diff reads whole runs
-            busy = False
-            while True:
-                run_record.stop_check(run_dir)
-                left = deadline - time.monotonic()
-                if left <= 0:
-                    break
-                with log_path.open("ab") as progress:
-                    progress.write(f"$ {cmd}\n".encode())
-                    progress.flush()
-                    offset = progress.tell()
-                    code, _, killed = worker.limited(
-                        ["bash", "-c", cmd], left, silence=silence, activity=log_path,
-                        on_timeout=stopped, cwd=str(cwd), output=progress,
-                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=suite_env())
-                    end = progress.tell()
-                if log is not None and run_dir is not None:
-                    memory_cap_note(run_dir, log)
-                with log_path.open("rb") as progress:
-                    progress.seek(max(offset, log_path.stat().st_size - OUT_CAP))
-                    out = progress.read().decode("utf-8", errors="replace")
-                if heavy and code == SUITE_BUSY and not killed:
-                    if log is not None and not busy:
-                        log(f"done-when: busy: {cmd} exited {SUITE_BUSY}; it runs again "
-                            "each poll, its heavy suite turn given back meanwhile")
-                    busy = True
-                    deadline += busy_turn(run_dir, log_path, log)
-                    continue
-                if code == 0 or killed or first is not None:
-                    break
-                first = out
-                first_span = (offset, end)
-            if left <= 0 and first is None:
-                # the list is out of time: starting this command would give it a limit of its own
-                spent, killed, kept = cmd, False, ""
-                chunks.append(f"$ {cmd}\n[not run: the done-when limit was already spent]")
-                break
-            ok &= code == 0
-            chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
-                          f"{out[-OUT_CAP:]}".rstrip())
-            if first is not None and code == 0:
-                # blank lines dropped: a record is what lies between two, and these are one
-                # both runs read whole from the gate log: the capped `out` starts mid-output
-                # on a chatty suite, which hides a failure above the cap and frames shared
-                # lines the re-run's own window dropped as lines it never printed
-                with log_path.open("rb") as progress:
-                    progress.seek(first_span[0])
-                    failed = progress.read(first_span[1] - first_span[0])
-                    progress.seek(offset)
-                    rerun = progress.read(end - offset)
-                # The gate log is replaced below and can be reused by later checks;
-                # each flake needs a file of its own that a follow-up can still read.
-                with tempfile.NamedTemporaryFile(dir=run_dir or log_path.parent,
-                                                 prefix=f"{log_path.stem}-failed-",
-                                                 suffix=".log", delete=False) as saved:
-                    saved.write(failed)
-                failed_path = Path(saved.name).resolve()
-                lines = [line for line in failed.decode("utf-8", errors="replace").splitlines()
-                         if line.strip()]
-                # the failure is what the failed run said that its passing re-run did not:
-                # a tally and a passing tail both repeat, so the last lines alone name neither
-                reran = {flaky_key(line) for line in
-                         rerun.decode("utf-8", errors="replace").splitlines()}
-                diff = [line for line in lines if flaky_key(line) not in reran][:20]
-                chunks.append("\n".join([f"flaky: {cmd} failed, then passed on its re-run",
-                                         f"failed output: {failed_path}", *diff]))
-                if log is not None:
-                    log(f"done-when: flaky: {cmd} failed, then passed on its re-run")
-            if killed:
-                spent, kept = cmd, out
-                break
-    if spent is not None:
-        ok = False
-        if killed:
-            tail = kept.strip().splitlines()
-            last = tail[-1] if tail else "(no output)"
-            if len(last) > 160:
-                last = last[:159] + "…"
-            cause = (f"{silence / 60:g} min of silence" if reason == ["silence"] else
-                     f"{limit / 3600:g}h ceiling")
-            stopped_line = f"done-when: stopped after {cause}: {spent} (last output: {last})"
-            stopped_line += "".join(f"; still running: {command}" for command in running)
-        else:
-            stopped_line = (f"done-when: stopped after {limit / 3600:g}h ceiling: {spent} "
-                            f"(the limit was spent before it could start)")
-        chunks.append(stopped_line + ", and the commands after it, if any, were not run.")
-        if log is not None:
-            log(stopped_line)
-    text = "\n\n".join(chunks)
-    log_path.write_text(text)
-    # The gate is over and its children are not the round's: a command that exited 0 may
-    # still have left processes behind, and they die with the gate, however detached.
-    worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=log)
-    artifacts.update(set(dirty_paths(cwd)) - before)
-    return ok, text
 
 
 def leftover_junk(path):
@@ -3442,6 +2864,8 @@ def files_scope(lp):
 def regression_fails_before(lp):
     """Require the run's regression to fail on base with only its changed checks overlaid.
 
+    A branch that changes only checks fixes a defect in a check itself; overlaying them
+    would make base the branch, so its regression runs on base as it is.
     Keep a successful probe across rounds and resumes; a passing script must be fixed
     before it can earn that record. The probe's edits belong to neither commit.
     """
@@ -3452,8 +2876,11 @@ def regression_fails_before(lp):
         return "regression.sh cannot be checked without a base commit"
     head = git(lp.wt, "rev-parse", "HEAD")
     base = lp.base_sha
+    changed = [p for p in git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
+                              f"{base}...{head}").split("\0") if p]
+    only_tests = changed_test_paths(lp, head) == changed
     proof = proof_on(lp, f"bash {shlex.quote(str(script))}", lp.run_dir / "regression-base.log",
-                     base, tests_from=head)
+                     base, tests_from=None if only_tests else head)
     if proof["killed"] or proof["returncode"] < 0:
         return f"regression.sh did not finish on base {base}: it does not show the defect"
     if proof["returncode"] == 0:
@@ -3478,9 +2905,9 @@ def verify_work(lp, cmds=None):
         scope = files_scope(lp)
     lp.validation = {} if lp.scratch else commit_identity(lp.wt)
     clean = lp.scratch or lp.state.get("review_pr") or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
-    ok, text = run_done_when(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
-                             lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                             run_dir=lp.run_dir)
+    ok, text = gate.run_done_when(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
+                                  lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                  run_dir=lp.run_dir)
     if not lp.scratch and not lp.state.get("review_pr") and (
             not clean or commit_identity(lp.wt) != lp.validation or
             git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
@@ -4051,7 +3478,7 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
                     *(f":(literal){p}" for p in paths))
         run_record.stop_check(lp.run_dir)
         lp.log(f"--- review proof: checking {revision or 'workspace'}")
-        env = suite_env()
+        env = gate.suite_env()
         env.pop(hand_in.ENV, None)
         env.pop(hand_in.CONTINUE, None)
         with tempfile.TemporaryDirectory(dir=lp.run_dir) as cache, log_path.open("w+b") as progress:
@@ -4271,6 +3698,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.state["resume_notice"] = note
         why = "died on API/transport errors"
         model = lp.reviewer     # a fallback below moves on from it before its tokens are read
+        reviewed = config.model(lp.cfg, model)
+        review_harness, review_model = reviewed["harness"], reviewed["model"]
 
         def handover(detail, out=out):
             try:
@@ -4429,6 +3858,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                           **({"overridden": overridden} if overridden else {})}
     lp.state.pop("review_pending", None)
     lp.save()
+    history.record_review(lp.state.get("run_id"), str(out),
+                          harness=review_harness, model=review_model,
+                          blocking=len(submitted.findings), followup=len(submitted.followups),
+                          note=len(submitted.notes), log=lp.log)
     return verdict
 
 
@@ -5793,7 +5226,7 @@ def target_fails(lp, upstream, dw_log):
             if rc != 0:
                 return None
             lp.log(f"--- merge: `{cmd}` failed; probing it once on {where} ({sha[:12]})")
-            with gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
+            with gate.gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
                 began = time.monotonic()    # from the turn, not the wait
                 while True:
                     with probe_log.open("ab") as progress:
@@ -5803,12 +5236,12 @@ def target_fails(lp, upstream, dw_log):
                         code, _, killed = worker.limited(
                             ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
                             activity=probe_log, output=progress, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=suite_env())
+                            stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=gate.suite_env())
                     # busy is no answer: the turn goes back until the suite runs
-                    if (not heavy_probe or code != SUITE_BUSY or killed
+                    if (not heavy_probe or code != gate.SUITE_BUSY or killed
                             or time.monotonic() - began > lp.done_when_limit):
                         break
-                    began += busy_turn(lp.run_dir, probe_log, lp.log)
+                    began += gate.busy_turn(lp.run_dir, probe_log, lp.log)
             memory_cap_note(lp.run_dir, lp.log)
             # as after a gate: a command that exited may still have left processes behind
             worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=lp.log)
@@ -5905,6 +5338,11 @@ def final_check(lp, upstream):
             cmds_every, cmds_once = [], list(lp.once)
         else:
             cmds_every, cmds_once = list(lp.every), list(lp.once)
+        suite, shared = declared_suite(lp.wt, lp.target), None
+        if suite and suite in cmds_once:
+            shared = suite_shared(lp, upstream, sha, suite, together=not fixed)
+            if shared:
+                cmds_once.remove(suite)
         lp.log(f"--- merge: final check: {len(cmds_every) + len(cmds_once)} commands "
                f"({len(lp.once)} once) on {sha[:12]}")
         identity = commit_identity(lp.wt)
@@ -5912,15 +5350,15 @@ def final_check(lp, upstream):
         log_path = lp.run_dir / "final-check.log"
         began = time.monotonic()
         if cmds_every:
-            ok_every, text_every = run_done_when(
+            ok_every, text_every = gate.run_done_when(
                 cmds_every, lp.wt, log_path, lp.artifacts, lp.done_when_limit, lp.log,
                 silence=lp.turn_limit, run_dir=lp.run_dir, heavy=False)
         else:
             ok_every, text_every = True, ""
         left = lp.done_when_limit - (time.monotonic() - began)
-        ok_once, text_once = run_done_when(
+        ok_once, text_once = gate.run_done_when(
             cmds_once, lp.wt, log_path, lp.artifacts, max(0, left), lp.log,
-            silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True)
+            silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True) if cmds_once else (True, "")
         ok = ok_every and ok_once
         text = "\n\n".join(part.strip() for part in (text_every, text_once) if part.strip())
         if (not clean or commit_identity(lp.wt) != identity
@@ -5943,8 +5381,13 @@ def final_check(lp, upstream):
                           exc.section) from None
         if ok:
             lp.log("final check: all passed")
+            evidence = suite_evidence(lp, cmds_once, identity)
+            if shared:      # the suite ran on the batch's top tree: evidence for that tree only
+                evidence = ({"suite": suite, "tree_sha": shared["tested"]}
+                            if shared["tested"] == identity.get("tree_sha") else {})
+                evidence["together"] = shared["leader"]
             lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing",
-                                       **suite_evidence(lp, cmds_once, identity)}
+                                       **evidence}
             if current_review(lp):
                 lp.state["review"]["passed_head_sha"] = sha
             record_flakes(lp.state, text)
@@ -6014,13 +5457,13 @@ def land(lp, upstream, verify, deliver, execv=None):
     commit the branch was verified on lands. An external move during the suite
     needs verification of the new commit. Without once-commands,
     a disjoint move lands on the task checks; a docs overlap runs the done-when again
-    (`disjoint_move`).  Any other move gives the turn
-    to the next run while this one verifies again holding it, from before its
+    (`disjoint_move`).  Any other move verifies again holding the turn, from before its
     rebase through its merge. Without a suite it lends the delivery turn to branches
     changing other files, so the lap lands when its check passes; a third such lap parks
     the run `waiting`, as a target moving under three integrations does.  A
     reserved turn is let go before any fixer or reviewer starts, and when the run
-    stops, and the next lap takes it again.  A branch cut from a dependency's passed
+    stops; every retake keeps this landing's first merge rank, even through a pickup.
+    A branch cut from a dependency's passed
     branch first waits for that dependency to merge (`wait_for_dependency`).  A
     pickup mid-landing resumes its lap count, so the three laps bound the run across
     the move.  While the run is inside this landing its heavy waits rank ahead of
@@ -6030,15 +5473,14 @@ def land(lp, upstream, verify, deliver, execv=None):
     if not wait_for_dependency(lp):
         return False
     first_lap = lp.state.pop("land_lap", 1)
+    if not lp.state.get("landing"):
+        lp.state.pop("merge_rank", None)
     lp.state["landing"] = True
     if first_lap == 1:
         # A fresh landing counts from its own first wait: a marker a crash left
         # behind belongs to a landing that never finished.  A pickup resume keeps
         # its marker with its lap count.
-        try:
-            (Path(lp.run_dir) / "landing_since").unlink(missing_ok=True)
-        except OSError:
-            pass
+        gate.clear_landing_wait(lp.run_dir)
     lp.write()
     try:
         for lap in range(first_lap, 4):
@@ -6073,10 +5515,8 @@ def land(lp, upstream, verify, deliver, execv=None):
                             upstream, verified)
     finally:
         lp.state.pop("landing", None)
-        try:
-            (Path(lp.run_dir) / "landing_since").unlink(missing_ok=True)
-        except OSError:
-            pass            # the next landing counts from its own first wait
+        lp.state.pop("merge_rank", None)
+        gate.clear_landing_wait(lp.run_dir)
         try:
             lp.write()
         except (OSError, run_record.StopRequested):
@@ -6134,9 +5574,9 @@ def disjoint_move(lp, upstream, verified, tip):
             dw_path = lp.run_dir / f"round-{lp.state['review_pending']['round']}" / "donewhen.log"
             dw_path.parent.mkdir(parents=True, exist_ok=True)
             identity = commit_identity(lp.wt)
-            ok, dw_log = run_done_when(lp.every, lp.wt, dw_path, lp.artifacts,
-                                       lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                                       run_dir=lp.run_dir)
+            ok, dw_log = gate.run_done_when(lp.every, lp.wt, dw_path, lp.artifacts,
+                                            lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                            run_dir=lp.run_dir)
             # pinned as `verify_work` pins, but committing no leftovers: what lands is the
             # rebased commit the review is carried onto, and untracked files stay untracked
             ok = (ok and commit_identity(lp.wt) == identity
@@ -6188,18 +5628,33 @@ def merge_turn(lp, upstream, reserve=False):
     so disjoint branches still land during a reserved lap's re-check, and its waiter
     keeps its rank for when the reservation ends; parking swaps the place for a new one,
     waking whoever waited on the old.  The kernel lets a dead waiter's place go.  A
-    reserved lap taking its lent turn back queues for nobody.
+    reserved lap taking its lent turn back queues for nobody. A landing saves its
+    rank with this boot in the run record and keeps it until it ends. Between laps,
+    including an exec's gap, that live record keeps later waiters behind it.
     """
     current = getattr(_MERGE_HELD, "hold", None)
     if current is not None and not current.lent:
         yield
         return
-    url = git(lp.wt, "remote", "get-url", "origin", check=False) or str(lp.state.get("repo"))
     config.RUNS.mkdir(parents=True, exist_ok=True)
     what = f"{Path(lp.state.get('repo') or lp.wt).name} {upstream.removeprefix('origin/')}"
-    path = merge_turn_lock(url, upstream)
+    path = turn_path(lp, upstream)
+    joined = time.monotonic_ns()
+    rank = f"{0 if lp.state.get('first') else 1}{joined:020d}"
+    if lp.state.get("landing"):
+        boot = (host.process_identity(os.getpid()) or {}).get("boot")
+        saved = lp.state.get("merge_rank")
+        if (boot and isinstance(saved, dict) and saved.get("boot") == boot
+                and saved.get("of") == path.name
+                and isinstance(saved.get("rank"), str)
+                and re.fullmatch(r"[01][0-9]{20}", saved["rank"])
+                and isinstance(saved.get("joined"), int)):
+            rank, joined = saved["rank"], saved["joined"]
+        else:
+            lp.state["merge_rank"] = {"of": path.name, "boot": boot,
+                                      "rank": rank, "joined": joined}
+            lp.write()
     lock = current.lock if current is not None else path.open("a")
-    rank = f"{0 if lp.state.get('first') else 1}{time.monotonic_ns():020d}"
     place = files = None
     waited = False
     retaking = False
@@ -6212,7 +5667,7 @@ def merge_turn(lp, upstream, reserve=False):
     def queue(renew=False):
         nonlocal place
         if current is None and (place is None or renew):
-            old, place = place, merge_turn_queue(path, rank, files)
+            old, place = place, merge_turn_queue(path, rank, files, joined=joined)
             leave(old)
 
     def waiting(at=None):
@@ -6260,13 +5715,17 @@ def merge_turn(lp, upstream, reserve=False):
                 if blocker is not None:
                     queue(renew=True)
                 elif current is None:
-                    blocker = merge_turn_ahead(path, rank)
+                    blocker = merge_turn_ahead(path, rank, joined=joined)
                     if blocker is not None:
                         queue()
                 if blocker is None:
                     break
                 fcntl.flock(lock, fcntl.LOCK_UN)
                 waiting()
+                if blocker.name == "run.json":
+                    # A record survives exec; its writer holds no flock across the move.
+                    time.sleep(0.05)
+                    continue
                 try:
                     with blocker.open() as other:
                         fcntl.flock(other, fcntl.LOCK_EX)
@@ -6304,6 +5763,7 @@ def merge_turn(lp, upstream, reserve=False):
         lock = None             # the hold owns the file from here
         _MERGE_HELD.hold = hold
         try:
+            hold.weighed = raise_cpu_weight(lp)
             yield
         finally:
             if getattr(_MERGE_HELD, "hold", None) is hold:
@@ -6357,14 +5817,15 @@ def merge_turn_blocker(path, files, own=None):
     return None
 
 
-def merge_turn_queue(path, rank, files):
+def merge_turn_queue(path, rank, files, joined=None):
     """(name, file): a place in the queue for `path`'s turn, flocked before it is named.
 
     A probe reads an unlocked place as its dead waiter's and removes it, so the place
     is locked and its files written under another name first.  Its name sorts in rank
     order, and is new on every queueing, so no probe of an old place removes a new one.
     """
-    name = path.with_name(f"{path.stem}.{rank}-{os.getpid()}-{threading.get_ident()}"
+    joined = time.monotonic_ns() if joined is None else joined
+    name = path.with_name(f"{path.stem}.{rank}-{joined:020d}-{os.getpid()}-{threading.get_ident()}"
                           f"-{time.monotonic_ns()}.wait")
     fresh = name.with_suffix(".new")
     place = fresh.open("w")
@@ -6375,12 +5836,13 @@ def merge_turn_queue(path, rank, files):
     return name, place
 
 
-def merge_turn_ahead(path, rank):
+def merge_turn_ahead(path, rank, joined=None):
     """A live waiter's place ranked before `rank` that no reservation blocks; else None.
 
     Probed only while holding delivery's flock, as reservations are.
     """
-    mine = f"{path.stem}.{rank}-"
+    joined = time.monotonic_ns() if joined is None else joined
+    mine = f"{path.stem}.{rank}-{joined:020d}-"
     for place in sorted(path.parent.glob(f"{path.stem}.*.wait")):
         if place.name >= mine:
             break
@@ -6399,24 +5861,49 @@ def merge_turn_ahead(path, rank):
                 place.unlink(missing_ok=True)      # a dead waiter's place is no place
         except FileNotFoundError:
             pass
+    boot = (host.process_identity(os.getpid()) or {}).get("boot")
+    for directory in run_record.run_dirs() if boot else ():
+        state = run_record.read_state(directory) or {}
+        saved = state.get("merge_rank")
+        if (state.get("state") != "running" or not state.get("landing")
+                or state.get("merge_turn") or state.get("merge_hold")
+                or not isinstance(saved, dict) or saved.get("boot") != boot
+                or saved.get("of") != path.name or not isinstance(saved.get("rank"), str)
+                or not isinstance(saved.get("joined"), int)):
+            continue
+        if (f"{path.stem}.{saved['rank']}-{saved['joined']:020d}-" < mine
+                and run_record.process_active(state)):
+            return directory / "run.json"
     return None
+
+
+def turn_path(lp, upstream):
+    """The lock file of the merge turn `lp`'s repository lands on at `upstream`."""
+    url = git(lp.wt, "remote", "get-url", "origin", check=False) or str(lp.state.get("repo"))
+    return merge_turn_lock(url, upstream)
+
+
+def remote_key(url):
+    """`host/owner/repo` for a clone URL, however it spells the repository.
+
+    `git@github.com:acme/widget.git`, `ssh://git@github.com:22/acme/widget` and
+    `https://github.com/Acme/widget` are one repository: the host and the path are what is
+    kept, without a user, a port, a trailing `.git`, or the case GitHub ignores.  A local
+    path is itself.
+    """
+    scp = re.fullmatch(r"(?:[^@/]+@)?([^:/]+):(?!//)(.+)", url)
+    parts = urlsplit(url)
+    host, path = (scp[1], scp[2]) if scp else (parts.hostname, parts.path)
+    return f"{host}/{path.strip('/').removesuffix('.git')}".lower() if host else url
 
 
 def merge_turn_lock(url, upstream):
     """The lock file of one repository's merge turn at `upstream`, however a clone spells it.
 
-    `git@github.com:acme/widget.git`, `ssh://git@github.com:22/acme/widget` and
-    `https://github.com/Acme/widget` are one repository and so one turn: the host and the
-    path are what is kept, without a user, a port, a trailing `.git`, or the case GitHub
-    ignores.  A local path is itself.  The name is a digest of all of it and the branch, so
-    no two repositories share a turn by spelling alike.
+    One repository is one turn (`remote_key`).  The name is a digest of it and the branch,
+    so no two repositories share a turn by spelling alike.
     """
-    scp = re.fullmatch(r"(?:[^@/]+@)?([^:/]+):(?!//)(.+)", url)
-    parts = urlsplit(url)
-    host, path = (scp[1], scp[2]) if scp else (parts.hostname, parts.path)
-    if host:
-        url = f"{host}/{path.strip('/').removesuffix('.git')}".lower()
-    digest = hashlib.sha256(f"{url}\n{upstream}".encode()).hexdigest()
+    digest = hashlib.sha256(f"{remote_key(url)}\n{upstream}".encode()).hexdigest()
     return config.RUNS / f".merge-{digest}.lock"
 
 
@@ -6825,7 +6312,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     else:
         cmds = with_suite(cmds, wt, target, landing=not state.get("no_merge"))
     every, once = taskfile.group_commands(cmds)
-    body += project_lessons(repo, state, log) + repo_rules(wt, state.get("base_sha"), log)
+    body += project_lessons(repo, state, log) + repo_rules(wt, state.get("base_sha"), state, log)
     run_record.save_state(run_dir, state)
     context = (f"{where}\n\n{body}\n\n"
                f"{shell_foreground_note()}\n\n"
@@ -7267,6 +6754,49 @@ def retry_command(state):
             or state.get("review_pr") or not state.get("repo")):
         return None
     return f"ak run merge {state['run_id']}"
+
+
+def suite_shared(lp, upstream, sha, suite, together=True):
+    """The batch whose suite already passed on `sha`'s tree (landing.passed), else None.
+
+    Holding the merge turn, a run with no such batch first checks the passed runs waiting
+    behind it together with itself, in one run of `suite` (landing.together): a pass records
+    every stacked tree, its own first; a failure is split until the passing prefix is
+    recorded, and a run outside it checks itself alone.
+    """
+    turn, tree = turn_path(lp, upstream), git(lp.wt, "rev-parse", f"{sha}^{{tree}}")
+    shared = landing.passed(turn, tree)
+    if shared:
+        if shared["leader"] != lp.state.get("run_id"):
+            lp.log(f"final check: the suite already passed on this tree with "
+                   f"{shared['leader']}; not running it again")
+        return shared
+    if not together or getattr(_MERGE_HELD, "hold", None) is None:
+        return None
+
+    def suite_run(cwd):
+        identity = commit_identity(cwd)
+        clean = git_out(cwd, "diff", "--quiet", "HEAD")[0] == 0
+        log_path = lp.run_dir / "final-check-together.log"
+        ok, text = gate.run_done_when([suite], cwd, log_path, lp.artifacts,
+                                     lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                     run_dir=lp.run_dir, heavy=True)
+        if (not clean or commit_identity(cwd) != identity
+                or git_out(cwd, "diff", "--quiet", "HEAD")[0] != 0):
+            ok = False
+            text += "\n\nCheckout changed during the shared suite; it does not verify the pinned commit."
+        log_path.write_text(f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}")
+        return ok, text
+
+    ok, members, _ = landing.together(lp.wt, sha, upstream, turn, lp.state.get("run_id"),
+                                   suite_run, lp.log)
+    if not members:
+        return None
+    shared = landing.passed(turn, tree)
+    lp.log("final check: the suite on the runs landing together: "
+           + ("all passed" if ok else "FAILED; this run passed in the split" if shared
+              else "FAILED; checking this run alone"))
+    return shared
 
 
 def final_check_line(state, cmds):
@@ -7829,23 +7359,29 @@ def handback_line(state, run_dir, cfg=None):
     reviews spent the whole round budget says so and says to split: the task was too big, not
     the worker.  A FAIL a check left behind says no such thing: more rounds of the same task
     would not have passed it either.  A scratch run names its workspace too: the files
-    there are what it delivered.  A run whose lessons were cut short and whose file is
-    still past its cap says so: the orchestrator keeps that file, and only it can tighten it.
+    there are what it delivered.  Cut rules are reported from the base commit even if the
+    file changed since; cut lessons are reported while their file is still past its cap.
     """
     workspace = (f" Workspace: {state['worktree']}."
                  if state.get("scratch") and state.get("worktree") else "")
     repo = state.get("repo")
-    lessons = ""
-    if state.get("lessons_truncated") and repo:
-        path = config.HOME / "lessons" / f"{Path(repo).name}.md"
-        try:
-            if path.stat().st_size > LESSONS_CAP:
-                lessons = (f" {path} is past its 4 KB cap and "
-                           "reached the workers cut short: tighten it.")
-        except OSError:
-            pass
+    notices = ""
+    if repo:
+        for field, path, cap in (
+                ("lessons_truncated", config.HOME / "lessons" / f"{Path(repo).name}.md", LESSONS_CAP),
+                ("rules_truncated", Path(repo) / "AGENTS.md", RULES_CAP)):
+            if not state.get(field):
+                continue
+            if field == "lessons_truncated":
+                try:
+                    if path.stat().st_size <= cap:
+                        continue
+                except OSError:
+                    continue
+            notices += (f" {path} reached the workers cut short at its "
+                        f"{cap // 1024} KB cap: tighten it.")
     line = (f"run {run_dir.name} finished {handback_verdict(state, cfg)}: "
-            f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace}{lessons} "
+            f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace}{notices} "
             + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
                if state.get("followup_runs") else "") + "Decide the next step.")
     spent = len(state.get("round_summaries") or [])
@@ -8245,11 +7781,11 @@ def pickup_new_code(lp, execv=None, current=None, extra=None):
     if now == start:
         return False
     try:
-        if gate_turn_note(lp.state) or merge_turn_note(lp.state):
+        if gate.gate_turn_note(lp.state) or merge_turn_note(lp.state):
             return False
     except Exception:
         return False
-    if getattr(_PICKUP_HELD, "count", 0):
+    if gate.turn_held() or getattr(_PICKUP_HELD, "count", 0):
         return False
     try:
         children = worker.marked_pids(worker.run_marker(lp.state.get("run_id")))
@@ -8320,18 +7856,10 @@ def slot_order(state):
 CPU_PRESSURE_LIMIT = 40   # ak's own processes are stalled on CPU nearly half the time
 
 
-def _reading(readings, *names):
-    for name in names:
-        value = host._number(readings.get(name))
-        if value is not None:
-            return value
-    return None
-
-
 def resource_limits(readings):
     """Resolve configured gates against one host-reading snapshot."""
-    total = _reading(readings, "mem_total_mb", "total_mb", "mem_total")
-    cpus = _reading(readings, "cpus", "nproc") or 1
+    total = host._reading(readings, "mem_total_mb", "total_mb", "mem_total")
+    cpus = host._reading(readings, "cpus", "nproc") or 1
     return config.min_free_mb(total if total is not None else 0), config.max_load(cpus)
 
 
@@ -8361,7 +7889,7 @@ def host_status_line():
     """
     readings = host.host_readings(slice_dir=orch.slice_cgroup)
     minimum, maximum = resource_limits(readings)
-    cpus = _reading(readings, "cpus", "nproc") or 1
+    cpus = host._reading(readings, "cpus", "nproc") or 1
     gates = []
     if minimum:
         gates.append(f"≥ {_g(minimum)} G free")
@@ -8370,11 +7898,11 @@ def host_status_line():
             gates.append(f"load ≤ {_load(maximum)}")
         admitted = ("a run is admitted while " + " and ".join(gates) if gates else
                     "a run is admitted (host memory and load gates off)")
-        signal = f"load {_load(_reading(readings, 'load', 'load1'))}"
+        signal = f"load {_load(host._reading(readings, 'load', 'load1'))}"
     else:
         gates.append(f"ak cpu ≤ {CPU_PRESSURE_LIMIT}%")
         admitted = "a run is admitted while " + " and ".join(gates)
-        signal = f"ak cpu {_pct(_reading(readings, 'slice_cpu_pressure'))}"
+        signal = f"ak cpu {_pct(host._reading(readings, 'slice_cpu_pressure'))}"
     try:
         limit = config.max_runs()
     except config.Error:
@@ -8389,13 +7917,13 @@ def host_status_line():
         heavy = ("heavy suites: no cap (pinned)" if not pinned else
                  f"heavy suites: {pinned} at once (pinned)")
     else:
-        heavy = f"heavy suites: {derived_heavy_limit(readings)} at once (derived)"
+        heavy = f"heavy suites: {gate.derived_heavy_limit(readings)} at once (derived)"
     segment = ""
-    unit = _unit_memory(readings)
+    unit = host._unit_memory(readings)
     if unit and len(unit) > 3 and unit[3]:
         segment = f" · {unit[3]} {_g(unit[0])} of {_g(unit[1])} G in use"
     first = (f"host: {int(cpus)} cpus · {signal} · "
-             f"{_g(_reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
+             f"{_g(host._reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
              f"{admitted}")
     return f"{first}\n{heavy}"
 
@@ -8454,50 +7982,13 @@ def slot_note(state):
         *slot_counts(state), config.max_runs(), state.get("first"))
 
 
-def _unit_memory(readings):
-    """(used, high, raw, name) for the cgroup the gate reads, or None.
-
-    ``used`` excludes reclaimable file cache; ``raw`` includes it or is None
-    where the readings predate it. A list carries the nearest
-    limit first, so the first valid entry wins.
-    """
-    limits = readings.get("unit_limits")
-    if isinstance(limits, (tuple, list)):
-        for entry in limits:
-            if not isinstance(entry, (tuple, list)):
-                continue
-            if len(entry) == 2:
-                used, high = entry
-                if (host._number(used) is not None and host._number(high) is not None
-                        and high >= 0):
-                    return (used, high, None, None)
-            elif len(entry) >= 3:
-                used, high, raw = entry[0], entry[1], entry[2]
-                name = entry[3] if len(entry) > 3 else None
-                if (host._number(used) is None or host._number(high) is None
-                        or high < 0):
-                    continue
-                raw = host._number(raw)
-                name = name if isinstance(name, str) and name else None
-                return (used, high, raw, name)
-    current = _reading(readings, "unit_memory_current_mb", "memory_current_mb")
-    high = _reading(readings, "unit_memory_high_mb", "memory_high_mb")
-    if current is not None and high is not None and high >= 0:
-        raw = _reading(readings, "unit_memory_raw_mb", "unit_memory_with_cache_mb",
-                       "memory_raw_mb")
-        name = readings.get("unit_memory_name", readings.get("unit_name"))
-        name = name if isinstance(name, str) and name else None
-        return (current, high, raw, name)
-    return None
-
-
 def _slice_cpu_reason(readings):
     """(reason, kind) while ak's own slice is CPU-saturated, else (None, None).
 
     Unreadable fails open with the rest: a host that cannot answer must not
     queue every run forever.
     """
-    pressure = _reading(readings, "slice_cpu_pressure")
+    pressure = host._reading(readings, "slice_cpu_pressure")
     if pressure is not None and pressure > CPU_PRESSURE_LIMIT:
         return (f"waiting for ak's CPU · pressure {pressure:g}%, "
                 f"limit {CPU_PRESSURE_LIMIT}%", "cpu")
@@ -8508,17 +7999,17 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
     # An unreadable gate fails open, as the memory check before it did: a host
     # that cannot answer (no /proc on macOS, no cgroup file in a container)
     # must not queue every run forever.
-    free = _reading(readings, "free_mb", "mem_available_mb", "mem_available")
+    free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
     if minimum and free is not None and free < minimum:
         return f"waiting for memory · {_g(free)} G free, needs {_g(minimum)} G", "memory"
-    load = _reading(readings, "load", "load1", "load_1m")
+    load = host._reading(readings, "load", "load1", "load_1m")
     if maximum and load is not None and load + frozen > maximum:
         if frozen:
             noun = "run" if frozen == 1 else "runs"
             return (f"waiting for the host to calm · load {_load(load)} + {frozen} "
                     f"frozen {noun}, limit {_load(maximum)}", "load")
         return f"waiting for the host to calm · load {_load(load)}, limit {_load(maximum)}", "load"
-    unit = _unit_memory(readings)
+    unit = host._unit_memory(readings)
     if unit and unit[0] > unit[1] * .75:
         raw = unit[2] if len(unit) > 2 else None
         if raw is not None:
@@ -8553,7 +8044,7 @@ def claim_slot(state, limit, readings=None):
     pinned = config.max_load_is_set()
     if pinned:
         frozen = 0
-        load = _reading(readings, "load", "load1", "load_1m")
+        load = host._reading(readings, "load", "load1", "load_1m")
         if maximum and load is not None and load <= maximum:
             # A frozen run adds no load, so the gate reads low behind it; each one
             # counts 1 against the limit. Counted only while the load alone passes:
@@ -8576,13 +8067,13 @@ def claim_slot(state, limit, readings=None):
         # The gates pass but steadiness is still owed: say that, with the
         # readings behind it, rather than the count sentence nothing waits on.
         # The kind stays whatever gate (if any) actually delayed this wait.
-        free = _reading(readings, "free_mb", "mem_available_mb", "mem_available")
+        free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
         if pinned:
-            load = _reading(readings, "load", "load1", "load_1m")
+            load = host._reading(readings, "load", "load1", "load_1m")
             state["slot_wait_reason"] = (
                 f"waiting for steady readings · {_g(free)} G free, load {_load(load)}")
         else:
-            pressure = _reading(readings, "slice_cpu_pressure")
+            pressure = host._reading(readings, "slice_cpu_pressure")
             state["slot_wait_reason"] = (
                 f"waiting for steady readings · {_g(free)} G free, "
                 f"ak cpu pressure {_pct(pressure)}")
@@ -10242,8 +9733,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
         lines.append(f"  {dep_wait_note(state)}")
     elif own_pr_wait_note(state):
         lines.append(f"  {own_pr_wait_note(state)}")
-    elif gate_turn_note(state):
-        lines.append(f"  {gate_turn_note(state)}")
+    elif gate.gate_turn_note(state):
+        lines.append(f"  {gate.gate_turn_note(state)}")
     if merge_hold_note(state):
         lines.append(f"  {merge_hold_note(state)}")
     if needs_recovery(state):
@@ -10291,6 +9782,55 @@ def size_summary_line(repo):
     overall, words, points = summary
     return (f"{repo}: last 20 tasks: {med(overall)} · over 400 words: {med(words)} · "
             f"over 3 points: {med(points)}")
+
+
+def scoreboard_lines():
+    """Print the history's two weeks beside each other without losing words on a phone."""
+    from . import terminal
+    board = history.scoreboard()
+
+    def week(stats, own):
+        if stats is None:
+            return "no runs ended"
+        text = (f"{stats['runs']} runs ended; {stats['first_round']:.0%} merged in round 1; "
+                f"{stats['unmerged']:.0%} ended without merging; ")
+        if not stats["merged"]:
+            text += "no merged runs"
+        elif stats["hours"] is None:
+            text += "merge hours unknown; "
+        else:
+            text += f"median {stats['hours']:g} hours to merge; "
+        if stats["merged"] and stats["tokens"] is None:
+            text += "median tokens per merged run unknown"
+        elif stats["merged"]:
+            tokens = f"{stats['tokens']:,}".removesuffix(".0")
+            text += f"median {tokens} tokens per merged run"
+        if own:
+            share = stats["token_share"]
+            text += f"; {share:.0%} of all recorded tokens" if share is not None else "; no tokens recorded"
+        return text
+
+    def size(stats):
+        if stats is None:
+            return "size unavailable"
+        code = stats["code_lines"]
+        words = stats["readme_words"]
+        return (f"{code} code lines" if code is not None else "code lines unknown") + ", " + (
+            f"{words} README words" if words is not None else "README words unknown")
+
+    rows = [("", "last 7 days", "7 days before"),
+            ("products", *(week(stats, False) for stats in board["products"])),
+            ("ak", *(week(stats, True) for stats in board["ak"])),
+            ("ak size", *(size(stats) for stats in board["size"]))]
+    room = max(1, (terminal.content_width() - 12) // 2)
+    lines = terminal.wrap("Scoreboard (reported tokens; size now and 7 days ago)", terminal.content_width())
+    for label, current, previous in rows:
+        left, right = terminal.wrap(current, room), terminal.wrap(previous, room)
+        for i in range(max(len(left), len(right))):
+            lines.append(terminal.table_row(
+                [label if i == 0 else "", left[i] if i < len(left) else "",
+                 right[i] if i < len(right) else ""], [8, room, room]))
+    return lines
 
 
 def cmd_status(argv):
@@ -10454,8 +9994,8 @@ def cmd_status(argv):
                 print(f"  {dep_wait_note(state)}")
             elif own_pr_wait_note(state):
                 print(f"  {own_pr_wait_note(state)}")
-            elif gate_turn_note(state):
-                print(f"  {gate_turn_note(state)}")
+            elif gate.gate_turn_note(state):
+                print(f"  {gate.gate_turn_note(state)}")
             if merge_hold_note(state):
                 print(f"  {merge_hold_note(state)}")
             if state.get("first"):
@@ -10524,8 +10064,8 @@ def cmd_status(argv):
                     print(f"  {dep_wait_note(state)}")
                 elif own_pr_wait_note(state):
                     print(f"  {own_pr_wait_note(state)}")
-                elif gate_turn_note(state):
-                    print(f"  {gate_turn_note(state)}")
+                elif gate.gate_turn_note(state):
+                    print(f"  {gate.gate_turn_note(state)}")
                 elif blocked_note(state):
                     word = status_state_word(state, index)
                     print("  " + terminal.styled(blocked_note(state, word), "dim"))
@@ -10547,6 +10087,7 @@ def cmd_status(argv):
         print(f"{hidden} older run(s) hidden; ak run status --history [--json] shows full history")
     if show_history and not wanted and not machine:
         from . import terminal
+        print("\n".join(scoreboard_lines()))
         ceiling, source = history.pr_ceiling()
         value = f"{ceiling} changed lines" if ceiling is not None else "none"
         print("\n".join(terminal.wrap(f"PR size ceiling: {value} ({source})", terminal.content_width())))
@@ -11022,6 +10563,7 @@ def cmd_stop(argv):
     state = run_record.read_state(run_dir)
     if state is None:
         raise config.Error(f"{run_id}: cannot read {run_dir / 'run.json'}")
+    config.check_stop_owner(state.get("launched_session") or state.get("session"))
     if state.get("state") == "stopped":
         print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
         return 0
@@ -11031,6 +10573,7 @@ def cmd_stop(argv):
     log = note_in(run_dir / "log.txt")
     with run_record.recovery_lock(run_dir):
         current = run_record.read_state(run_dir) or state
+        config.check_stop_owner(current.get("launched_session") or current.get("session"))
         if current.get("state") == "stopped":
             print(stop_line(run_id, current.get("branch"),
                             current.get("stop_kept", False)))
@@ -11613,7 +11156,7 @@ def cmd_merge(argv):
     cmds = with_suite(taskfile.done_when(body, run_dir / "task.md"), state["worktree"],
                       state.get("target") or state.get("base"))
     body += (project_lessons(state.get("repo") or None, state, log)
-             + repo_rules(state["worktree"], state.get("base_sha"), log))
+             + repo_rules(state["worktree"], state.get("base_sha"), state, log))
     run_record.save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
@@ -12611,7 +12154,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         print(launch_line(run_dir.name, title, None, reviewer,
                           self_review=bool(is_own and same_model(cfg, orchestrator,
                                                                  reviewer))))
-    body += project_lessons(repo, state, log) + repo_rules(wt, base_sha, log)
+    body += project_lessons(repo, state, log) + repo_rules(wt, base_sha, state, log)
     run_record.save_state(run_dir, state)
     context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)
@@ -12735,12 +12278,13 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
 
         The basename itself has to look like a test: a shared runner such as
         `bash tests/smoke.sh` names no test file, however many jobs run it.
+        A glob pattern names no single test file.
         """
         found = set()
         for command in commands:
             for token in command.split():
                 name = token.strip("\"'")
-                if not name:
+                if not name or any(char in name for char in "*?["):
                     continue
                 stem = name.rsplit("/", 1)[-1]
                 base = stem.rsplit(".", 1)[0] if "." in stem else stem

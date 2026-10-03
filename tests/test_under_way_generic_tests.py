@@ -62,9 +62,9 @@ class GeneralChecks(unittest.TestCase):
             state.update(title=title, repo=str(self.repo))
         run_record.save_state(directory, {"run_id": name, "started_at": time.time() - 60, **state})
 
-    def rivals(self, title, cmds):
+    def rivals(self, title, cmds, exclude=None):
         return run.already_under_way(self.root / "task.md", {"repo": str(self.repo)},
-                                     title, cmds)
+                                     title, cmds, exclude=exclude)
 
     def past(self, test, titles=("Add export button", "Rename billing page",
                                  "Explain the retry flag"), stub=False):
@@ -79,6 +79,25 @@ class GeneralChecks(unittest.TestCase):
         self.assertEqual(self.rivals("Search ignores accents",
                                      ["python3 tests/test_search.py",
                                       "python3 tests/test_docs.py"]), [])
+
+    def test_shared_glob_patterns_name_no_test_file(self):
+        cmds = [f'git diff --name-only origin/main...HEAD -- "{pattern}"'
+                for pattern in ("tests/test_*.py", "tests/test_?.py", "tests/test_[xy].py",
+                                "tests/*/test_x.py")]
+        cmds.append(f'for f in $({cmds[0]}); do python3 "$f"; done')
+        self.record("20261002-1200-invoice", "Invoices round to cents", cmds, live=True)
+        self.record("20261002-1201-search", "Search ignores accents", cmds, live=True)
+        self.assertEqual(self.rivals("Search ignores accents", cmds,
+                                     exclude=config.RUNS / "20261002-1201-search"), [])
+
+    def test_shared_single_test_file_still_refuses(self):
+        cmds = ['git diff --name-only origin/main...HEAD -- "tests/test_x.py"']
+        self.record("20261002-1200-invoice", "Invoices round to cents", cmds, live=True)
+        self.record("20261002-1201-search", "Search ignores accents", cmds, live=True)
+        rivals = self.rivals("Search ignores accents", cmds,
+                             exclude=config.RUNS / "20261002-1201-search")
+        self.assertEqual([r["id"] for r in rivals], ["20261002-1200-invoice"])
+        self.assertEqual(rivals[0]["files"], ["tests/test_x.py"])
 
     def test_behaviour_test_still_refuses_beside_a_general_check(self):
         self.past("tests/test_docs.py")

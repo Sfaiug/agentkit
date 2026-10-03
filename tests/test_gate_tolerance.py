@@ -34,7 +34,7 @@ CHECK_1 = SMOKE[SMOKE.index("# --- 1: usage"):SMOKE.index("# --- 2:")]
 # The helpers live in check 1's section, so check 6 runs with them prepended: without that
 # the slice calls `host_held`, `reprobe` and `skip_unavailable` as missing commands.
 CHECK_1_PREAMBLE = CHECK_1[:CHECK_1.index('U="$WORK/usage.json"')]
-CHECK_6 = CHECK_1_PREAMBLE + SMOKE[SMOKE.index("# --- 6: orch"):SMOKE.index("# --- 6c:")]
+CHECK_6 = CHECK_1_PREAMBLE + SMOKE[SMOKE.index("# --- 6: orch"):SMOKE.index("\nfi\n\n# --- 6c:")]
 # The suite's own sandbox setup for the shared cadence: smoke_share_probes is defined just
 # above smoke_home, so the slice between the two is the whole function.
 SHARE = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_home() {")]
@@ -230,6 +230,46 @@ class GateTolerance(unittest.TestCase):
         last = result.stdout.strip().splitlines()[-1]
         self.assertIn("1 skip for what this host lacks counted as passed", last)
         self.assertEqual(self.probes("codex"), ["usage"])
+
+    # A spent window, and a refusal for quota, as check 3 and skip_refused word them.
+    SPENT = {"spent window": "astra (codex): the openai subscription window is spent until "
+                             "2026-10-06 09:00:00 UTC, so every call would be a 429",
+             "quota refusal": "required model astra was refused: You've hit your usage limit"}
+
+    def test_a_spent_window_skip_passes_beside_a_real_call_that_passed(self):
+        # One real call that passed shows the checkout can still make one; a window that
+        # resets in weeks is the provider's state, and holds no host on old code.
+        for kind, why in self.SPENT.items():
+            with self.subTest(kind):
+                result = self.shell('ok_call "3c grok (grokbuild): replied PONG"\n'
+                                    f'skip_spent_checks 3a/3b "{why}"\n',
+                                    AGENTKIT_ACCEPTANCE_REQUIRED="1")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f"SKIP  3a: {why}\nSKIP  3b: {why}\n", result.stdout)
+                self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
+                last = result.stdout.strip().splitlines()[-1]
+                self.assertIn("all checks exercised and passed; "
+                              "2 spent-window skips counted as passed", last)
+        # Beside it, every other skip counts as it did.
+        result = self.shell('ok_call "3c grok (grokbuild): replied PONG"\n'
+                            f'skip_spent_checks 3a "{self.SPENT["spent window"]}"\n'
+                            'skip "4: prerequisite run did not happen"\n',
+                            AGENTKIT_ACCEPTANCE_REQUIRED="1")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("2 passed, 0 failed, 1 skipped", result.stdout)
+        self.assertIn("1 spent-window skip counted as passed", result.stdout)
+
+    def test_a_spent_window_skip_holds_the_gate_with_no_real_call_passed(self):
+        # Every window spent, or every call refused: nothing shows a real call can pass.
+        for kind, why in self.SPENT.items():
+            with self.subTest(kind):
+                result = self.shell('ok "2 offline: an ak command answered"\n'
+                                    f'skip_spent_checks 3a/3b "{why}"\n',
+                                    AGENTKIT_ACCEPTANCE_REQUIRED="1")
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("1 passed, 0 failed, 2 skipped", result.stdout)
+                self.assertIn("acceptance: INCOMPLETE", result.stdout)
+                self.assertNotIn("counted as passed", result.stdout)
 
     def test_retry_held_by_cadence_skips_without_asking(self):
         # The second answer would pass, but the retry is inside Claude's fifteen minutes,

@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, run, watch, worker
+from agentkit import gate, host, config, run, watch, worker
 from agentkit import record
 from agentkit import task as taskfile
 from test_v5j import E2E, SMOKE, lock_argv, lock_program
@@ -60,7 +60,7 @@ class Silence(unittest.TestCase):
     def gate(self, commands, clock):
         logs = []
         with patch.object(worker.time, "monotonic", side_effect=clock):
-            ok, text = run.run_done_when(commands, self.root, self.root / "donewhen.log",
+            ok, text = gate.run_done_when(commands, self.root, self.root / "donewhen.log",
                                          set(), log=logs.append)
         return ok, text, logs
 
@@ -124,7 +124,7 @@ class Silence(unittest.TestCase):
     def test_silence_stop_names_the_sleeping_child(self):
         logs = []
         path = self.root / "donewhen.log"
-        ok, text = run.run_done_when(["sleep 600 & wait"], self.root, path, set(),
+        ok, text = gate.run_done_when(["sleep 600 & wait"], self.root, path, set(),
                                      limit=60, silence=3, log=logs.append)
         self.assertFalse(ok, text)
         self.assertEqual(len(logs), 1)
@@ -149,8 +149,8 @@ class Silence(unittest.TestCase):
         with patch.object(watch, "_proc_table", return_value=table), \
                 patch.object(os, "getpgid", side_effect=lambda pid: pid if pid >= 106 else 100), \
                 patch.object(host, "process_identity", side_effect=lambda pid: {"started_at": pid}), \
-                patch.object(run.time, "time", return_value=131):
-            self.assertEqual(run._running_commands(100), [
+                patch.object(gate.time, "time", return_value=131):
+            self.assertEqual(gate._running_commands(100), [
                 "python3 tests/check.py (29s)", f"{long[:159]}… (28s)",
                 "sleep 600 (26s)", "detached check (25s)"])
 
@@ -293,7 +293,7 @@ class Silence(unittest.TestCase):
                         # The child outwaits a slow start plus the window-plus-one hold.
                         cmd = shlex.join(self.fast_lock(script, path, 60))
                         with patch.object(worker, "ACTIVITY_POLL", 0.05):
-                            ok, text = run.run_done_when(
+                            ok, text = gate.run_done_when(
                                 [cmd], self.root, log_path, set(), silence=silence)
                     finally:
                         done.set()

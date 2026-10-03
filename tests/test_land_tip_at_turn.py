@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, run, worker
+from agentkit import gate, host, config, run, worker
 from agentkit import record
 
 
@@ -99,7 +99,7 @@ class LandTipAtTurn(unittest.TestCase):
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test"}))
         os.environ.pop("AK_MAX_RUNS", None)
-        self.stack.enter_context(patch.object(run, "GATE_POLL", 0.05))
+        self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -129,7 +129,7 @@ class LandTipAtTurn(unittest.TestCase):
                       [f"echo \"every $(git rev-parse HEAD) $(cat tip.txt)\" >> {self.counter}",
                        f"echo \"once $(git rev-parse HEAD)\" >> {self.counter}  # once"])
         repo = run.main_checkout(lp.state["repo"])
-        holder = run.gate_lock(repo, 0).open("a")
+        holder = gate.gate_lock(repo, 0).open("a")
         self.addCleanup(holder.close)
         fcntl.flock(holder, fcntl.LOCK_EX)
         results = {}
@@ -220,9 +220,9 @@ class LandTipAtTurn(unittest.TestCase):
             conflicts = run.git(lp.wt, "diff", "--name-only", "--diff-filter=U",
                                 check=False).splitlines()
             seen["conflicted"] = [p for p in conflicts if p]
-            seen["held"] = getattr(run._GATE_HELD, "hold", None)
+            seen["held"] = getattr(gate._GATE_HELD, "hold", None)
             try:
-                with run.gate_lock(repo, 0).open("a") as slot:
+                with gate.gate_lock(repo, 0).open("a") as slot:
                     fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     fcntl.flock(slot, fcntl.LOCK_UN)
                 seen["free"] = True

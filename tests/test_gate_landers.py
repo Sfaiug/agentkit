@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import gate, config, run, worker
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # a main checkout as the records name it; never opened
@@ -38,7 +38,7 @@ class Gate(threading.Thread):
 
     def run(self):
         try:
-            self.result = run.run_done_when(*self.args, **self.kw)
+            self.result = gate.run_done_when(*self.args, **self.kw)
         except BaseException as exc:      # noqa: BLE001 -- the test reads it
             self.error = exc
 
@@ -58,7 +58,7 @@ class GateLanders(unittest.TestCase):
                                                           "AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0"}))
         os.environ.pop("AK_MAX_RUNS", None)
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
-        self.stack.enter_context(patch.object(run, "GATE_POLL", 0.05))
+        self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         config.RUNS.mkdir(parents=True)
         config.HOME.mkdir()
@@ -113,7 +113,7 @@ class GateLanders(unittest.TestCase):
     def test_landing_waiter_takes_freed_turn_before_longer_round_waiter(self):
         plain = Gate(self, "round-waiter", ACME, [self.mark("round")])
         lander = Gate(self, "landing-waiter", ACME, [self.mark("lander")], landing=True)
-        holder = run.gate_lock(ACME, 0).open("a")
+        holder = gate.gate_lock(ACME, 0).open("a")
         self.addCleanup(holder.close)
         fcntl.flock(holder, fcntl.LOCK_EX)
         plain.start()
@@ -126,12 +126,11 @@ class GateLanders(unittest.TestCase):
         lander_mark = self.turn("landing-waiter")
         self.assertLess(round_since, lander_mark["since"])
         self.assertTrue(lander_mark.get("landing"))
-        lander_first = run._first_landing_wait(lander.run_dir)
+        lander_first = gate._first_landing_wait(lander.run_dir)
         self.assertEqual(lander_first, lander_mark["since"])
         repo = run.main_checkout(ACME)
-        self.assertTrue(run._gate_waiter_before(repo, "round-waiter", False, round_since))
-        self.assertFalse(run._gate_waiter_before(repo, "landing-waiter", False,
-                                                 lander_first, True))
+        self.assertTrue(gate._gate_waiter_before(repo, "round-waiter", round_since))
+        self.assertFalse(gate._gate_waiter_before(repo, "landing-waiter", lander_first, True))
         fcntl.flock(holder, fcntl.LOCK_UN)
         plain.join(20)
         lander.join(20)
@@ -146,13 +145,13 @@ class GateLanders(unittest.TestCase):
         self.waiter("old-lander", ACME, 3000, landing=True, landing_since=1000)
         self.waiter("new-lander", ACME, 2000, landing=True, landing_since=2000)
         repo = run.main_checkout(ACME)
-        self.assertTrue(run._gate_waiter_before(repo, "new-lander", False, 2000, True))
-        self.assertFalse(run._gate_waiter_before(repo, "old-lander", False, 1000, True))
-        # between landers --first still goes before the rest, whatever the waits
+        self.assertTrue(gate._gate_waiter_before(repo, "new-lander", 2000, True))
+        self.assertFalse(gate._gate_waiter_before(repo, "old-lander", 1000, True))
+        # between landers a later --first waits its turn like the rest
         self.waiter("lander-first", ACME, 2500, first=True, landing=True,
                     landing_since=2500)
-        self.assertTrue(run._gate_waiter_before(repo, "old-lander", False, 1000, True))
-        self.assertFalse(run._gate_waiter_before(repo, "lander-first", True, 2500, True))
+        self.assertFalse(gate._gate_waiter_before(repo, "old-lander", 1000, True))
+        self.assertTrue(gate._gate_waiter_before(repo, "lander-first", 2500, True))
         # the ranking fixtures above never leave, and a real landing now takes its own
         # gate turn first, so the laps below run after their marks are gone
         for name in ("old-lander", "new-lander", "lander-first"):
@@ -173,10 +172,10 @@ class GateLanders(unittest.TestCase):
         firsts = []
 
         def verify():
-            began = run.mark_gate_wait(run_dir, repo)
+            began = gate.mark_gate_wait(run_dir, repo)
             firsts.append(began)
-            self.assertEqual(run._first_landing_wait(run_dir), began)
-            run.mark_gate_wait(run_dir, None)
+            self.assertEqual(gate._first_landing_wait(run_dir), began)
+            gate.mark_gate_wait(run_dir, None)
             run_record.save_state(run_dir, lp.state)   # an inner save, as final_check does
             return True
 
@@ -190,8 +189,8 @@ class GateLanders(unittest.TestCase):
         self.assertEqual(firsts[2], firsts[0])
         # a landing mark with no recorded start still seeds one rather than failing
         bare = self.record("bare-lander", ACME, landing=True)
-        began = run.mark_gate_wait(bare, repo)
-        self.assertEqual(run._first_landing_wait(bare), began)
+        began = gate.mark_gate_wait(bare, repo)
+        self.assertEqual(gate._first_landing_wait(bare), began)
 
     def test_two_land_driven_landers_compare_by_their_first_waits(self):
         # no hand-built starts: each landing's first real mark seeds its count,
@@ -199,28 +198,28 @@ class GateLanders(unittest.TestCase):
         early = self.record("seed-early", ACME, landing=True)
         late = self.record("seed-late", ACME, landing=True)
         repo = run.main_checkout(ACME)
-        with patch.object(run.time, "time", side_effect=[1000.0, 1100.0, 2000.0, 2100.0,
+        with patch.object(gate.time, "time", side_effect=[1000.0, 1100.0, 2000.0, 2100.0,
                                                          3000.0, 3100.0]):
-            self.assertEqual(run.mark_gate_wait(early, repo), 1000.0)
-            run.mark_gate_wait(early, None)
-            self.assertEqual(run.mark_gate_wait(late, repo), 2000.0)
-            run.mark_gate_wait(late, None)
+            self.assertEqual(gate.mark_gate_wait(early, repo), 1000.0)
+            gate.mark_gate_wait(early, None)
+            self.assertEqual(gate.mark_gate_wait(late, repo), 2000.0)
+            gate.mark_gate_wait(late, None)
             # second laps wait now but count from their seeds
-            self.assertEqual(run.mark_gate_wait(early, repo), 1000.0)
-            self.assertEqual(run.mark_gate_wait(late, repo), 2000.0)
-        self.assertTrue(run._gate_waiter_before(repo, "seed-late", False, 2000.0, True))
-        self.assertFalse(run._gate_waiter_before(repo, "seed-early", False, 1000.0, True))
+            self.assertEqual(gate.mark_gate_wait(early, repo), 1000.0)
+            self.assertEqual(gate.mark_gate_wait(late, repo), 2000.0)
+        self.assertTrue(gate._gate_waiter_before(repo, "seed-late", 2000.0, True))
+        self.assertFalse(gate._gate_waiter_before(repo, "seed-early", 1000.0, True))
         # a lander that never waited counts from now, behind both seeds
         fresh = self.record("seed-fresh", ACME, landing=True)
-        self.assertIsNone(run._first_landing_wait(fresh))
-        self.assertTrue(run._gate_waiter_before(repo, "seed-fresh", False, 4000.0, True))
+        self.assertIsNone(gate._first_landing_wait(fresh))
+        self.assertTrue(gate._gate_waiter_before(repo, "seed-fresh", 4000.0, True))
 
     def test_round_waiters_keep_wait_order_without_landers(self):
         self.waiter("early", ACME, 1000)
         self.waiter("late", ACME, 2000)
         repo = run.main_checkout(ACME)
-        self.assertTrue(run._gate_waiter_before(repo, "late", False, 2000))
-        self.assertFalse(run._gate_waiter_before(repo, "early", False, 1000))
+        self.assertTrue(gate._gate_waiter_before(repo, "late", 2000))
+        self.assertFalse(gate._gate_waiter_before(repo, "early", 1000))
 
     def test_land_marks_landing_for_its_gate_waits_and_clears_it(self):
         run_dir = self.record("landing-run", ACME)
@@ -238,12 +237,12 @@ class GateLanders(unittest.TestCase):
             on_disk = run_record.read_state(run_dir)
             self.assertTrue(on_disk.get("landing"))
             # the landing starts unwaited: the first wait seeds the count
-            self.assertIsNone(run._first_landing_wait(run_dir))
-            began = run.mark_gate_wait(run_dir, repo)
+            self.assertIsNone(gate._first_landing_wait(run_dir))
+            began = gate.mark_gate_wait(run_dir, repo)
             mark = self.turn("landing-run")
             self.assertTrue(mark.get("landing"))
-            self.assertEqual(run._first_landing_wait(run_dir), began)
-            run.mark_gate_wait(run_dir, None)
+            self.assertEqual(gate._first_landing_wait(run_dir), began)
+            gate.mark_gate_wait(run_dir, None)
             return True
 
         def deliver():
@@ -269,8 +268,8 @@ class GateLanders(unittest.TestCase):
                                write=lambda: run_record.save_state(rerun, kept.state))
 
         def again():
-            self.assertEqual(run.mark_gate_wait(rerun, repo), 1000.0)
-            run.mark_gate_wait(rerun, None)
+            self.assertEqual(gate.mark_gate_wait(rerun, repo), 1000.0)
+            gate.mark_gate_wait(rerun, None)
             return True
 
         with patch.object(run, "git", return_value="base0001"), \

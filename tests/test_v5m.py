@@ -25,7 +25,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import host, config, gc, menu, notify, orch, run, terminal, usage, watch
+from agentkit import gate, host, config, gc, menu, notify, orch, run, terminal, usage, watch
 from agentkit import record
 
 SEAT = "seat-v5m"          # the seat every one of these runs is launched from
@@ -162,7 +162,7 @@ class Sandbox(unittest.TestCase):
                               str(self.task(title, ["true"])),
                               "--exec", "opus", "--review", "astra"])
         before = set(record.run_dirs())
-        ok, text = run.run_done_when([command], self.root,
+        ok, text = gate.run_done_when([command], self.root,
                                      self.root / f"{run.slugify(title)}.log", set())
         self.assertTrue(ok, text)
         made = [d for d in record.run_dirs() if d not in before]
