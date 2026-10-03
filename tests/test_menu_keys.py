@@ -134,7 +134,7 @@ class Menu:
         for fd in (self.master, self.slave):
             try:
                 os.close(fd)
-            except OSError:
+            except (OSError, TypeError):    # TypeError: `written` closed the slave already
                 pass
         self.reader.join(5)
 
@@ -144,6 +144,14 @@ class Menu:
     def text(self):
         with self.lock:
             return self.output.decode("utf-8", "replace")
+
+    def written(self):
+        """All the ended child wrote: `text` straight after its exit can miss what the reader has
+        not read yet, so its end of the pty closes and the reader reads to the end."""
+        os.close(self.slave)
+        self.slave = None
+        self.reader.join(15)
+        return self.text()
 
     def until(self, ready, what, timeout=15):
         deadline = time.monotonic() + timeout
@@ -326,7 +334,7 @@ class MenuKeys(unittest.TestCase):
         self.assertTrue(during[3] & termios.ISIG)          # ^C still interrupts
         menu.leave()
         self.assertEqual(termios.tcgetattr(menu.slave), menu.before)
-        tail = menu.text().rsplit("\x1b[J", 1)[-1]
+        tail = menu.written().rsplit("\x1b[J", 1)[-1]
         for sequence in GIVEN:                             # clicks off, cursor on, screen back
             self.assertIn(sequence, tail)
 
@@ -337,7 +345,7 @@ class MenuKeys(unittest.TestCase):
         menu.proc.send_signal(signal.SIGTERM)             # the child's own pid, nothing wider
         self.assertEqual(menu.proc.wait(15), -signal.SIGTERM)
         self.assertEqual(termios.tcgetattr(menu.slave), menu.before)
-        self.assertIn("\x1b[?1049l", menu.text().rsplit("\x1b[J", 1)[-1])
+        self.assertIn("\x1b[?1049l", menu.written().rsplit("\x1b[J", 1)[-1])
 
     def test_a_second_digit_within_half_a_second_makes_two_and_no_key_is_dropped(self):
         menu = Menu(self, [f"seat-{n:02d}" for n in range(1, 13)])
