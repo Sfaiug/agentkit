@@ -8,8 +8,8 @@ another provider, an `Exhausted` stop ends the run `exhausted` (never `error`), 
 an exhausted run is resumable through `ak run resume`.
 
 The v5i half below drives the same roads with fake adapter scripts answering from a
-plan file: a worker whose provider runs dry gets a reset or another provider, never
-an error.
+plan file: a worker whose provider runs dry gets another provider, never an error,
+and never a usage-limit reset: only the owner spends one.
 """
 
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
@@ -452,9 +452,8 @@ class QuotaDry(unittest.TestCase):
         self.now = time.mktime(time.strptime("2026-09-15 07:00", "%Y-%m-%d %H:%M"))
         self.stack.enter_context(patch.object(usage.time, "time", side_effect=lambda: self.now))
 
-        # --- the fake usage layer: meters, the reset policy and the exhausted mark ----------
+        # --- the fake usage layer: meters, a reset spend and the exhausted mark --------------
         self.providers = self.meters()
-        self.resets = {"openai": 0}
         self.replenished = []
         self.marked = []
         # the real cache-level policy, for the checks that drive it instead of the fake
@@ -515,15 +514,9 @@ class QuotaDry(unittest.TestCase):
         return usage._gate_flags(self.providers, self.now, cfg)
 
     def replenish(self, cfg, provider, **_kw):
-        """The real policy's contract: one credit at most, and only while the day allows."""
+        """Only the owner spends a reset: a run that asks for one is recorded here."""
         self.replenished.append(provider)
-        claimed = config.STATE / f"{provider}-reset.json"
-        if self.resets.get(provider, 0) <= 0 or claimed.exists():
-            return False, float(max(0, self.resets.get(provider, 0)))
-        claimed.write_text(json.dumps({"applied_at": self.now, "outcome": "reset"}))
-        self.resets[provider] -= 1
-        self.providers[provider]["meters"] = [self.meter(0)]
-        return True, float(self.resets[provider])
+        return False, float(self.providers[provider]["resets"])
 
     def mark(self, cfg, provider, until=None):
         """The real contract: the time named, else the soonest window, else DRY_FOR."""
@@ -614,37 +607,15 @@ class QuotaDry(unittest.TestCase):
         said = self.said("muse-exit", "muse")
         self.assertIn("usage limit reached", watch.quotas("muse"))
         self.assertEqual(run.ran_dry(1, said, "muse"), "usage limit reached")
-        # a spent reset retries the same worker at once: asked before any retry, no backoff,
-        # and the quota exit costs none of the transport attempts
-        self.resets["meta"] = 1
-        self.plan({"spark": [{"code": 1, **REFUSALS["muse"], "session": "dead-session"},
-                             {"code": 0, "final": "## Summary\nDone."}]})
-        lines, log = self.logged()
-        code, text, session, dead = run.call_retrying(
-            self.cfg, "spark", "the task", self.root, self.root / "round-1" / "executor",
-            "executor", None, log)
-        self.assertEqual((code, dead), (0, False))
-        self.assertIn("Done.", text)
-        self.assertEqual(self.replenished, ["meta"])
-        self.assertEqual(self.resets["meta"], 0)
-        self.assertIn("executor spark ran dry; reset spent (0 left), retrying", lines[0])
-        self.sleep.assert_not_called()
-        self.assertEqual(len(self.calls()), 2)
-        self.assertEqual([row["model"] for row in self.calls()], ["spark", "spark"])
-        self.assertEqual([row["session"] for row in self.calls()], [[], ["dead-session"]])
-        self.assertEqual(session, "session-spark")
-        self.assertEqual(self.marked, [])
-        # and with no reset left the run is handed over, never an error
+        # the run is handed over, never an error, and the reset it holds is never spent for it
+        self.providers["meta"]["resets"] = 1
         self.plan({"spark": [{"code": 1, **REFUSALS["muse"]}]})
         # astra is the cheaper executor now, so the cheapest legal pair is (astra, opus)
         self.providers["openai"]["meters"] = [self.meter(5)]
-        self.replenished.clear()
-        self.marked.clear()
-        (self.root / "calls.jsonl").unlink()
         code, _, state = self.launch("--exec", "spark", "--review", "opus", "--no-merge")
         self.assertEqual(code, 0)
         self.assertEqual(state["state"], "pass")
-        self.assertEqual(self.replenished, ["meta"])
+        self.assertEqual(self.replenished, [])
         self.assertEqual(self.marked, [("meta", self.now + WEEK / 2)])
         self.assertEqual([row["model"] for row in self.calls()], ["spark", "astra", "opus"])
         self.assertEqual(state["executor"], "astra")
@@ -729,47 +700,23 @@ class QuotaDry(unittest.TestCase):
         self.assertIsNone(run.ran_dry(1, run.harness_said(
             answer, (answer / "final.md").read_text(), "codex"), "codex"))
 
-    # --- (c) and (h): the reset policy at the moment of need -------------------------------
+    # --- (c): a reset held is never spent for a refused worker ------------------------------
 
-    def test_v5i_a_spent_reset_retries_the_same_worker_on_its_session_without_backoff(self):
-        self.resets["openai"] = 2
+    def test_v5i_a_refused_worker_holding_resets_is_parked_and_spends_none(self):
+        self.providers["openai"]["resets"] = 2
         self.plan({"astra": [{"code": 1, **REFUSALS["codex"], "session": "dead-session"},
                              {"code": 0, "final": "## Summary\nDone."}]})
         lines, log = self.logged()
-        code, text, session, dead = run.call_retrying(
-            self.cfg, "astra", "the task", self.root, self.root / "round-1" / "executor",
-            "executor", None, log)
-        self.assertEqual((code, dead), (0, False))
-        self.assertIn("Done.", text)
-        # the policy was asked before anything was retried, and the credit really went
-        self.assertEqual(self.replenished, ["openai"])
-        self.assertEqual(self.resets["openai"], 1)
-        self.assertIn("executor astra ran dry; reset spent (1 left), retrying", lines[0])
+        with self.assertRaises(run.RanDry):
+            run.call_retrying(self.cfg, "astra", "the task", self.root,
+                              self.root / "round-1" / "executor", "executor", None, log)
+        # exactly as with none held: parked until the date the refusal named, never retried
+        until = time.mktime(time.strptime("2026-10-12 23:39", "%Y-%m-%d %H:%M"))
+        self.assertEqual((self.replenished, self.marked), ([], [("openai", until)]))
+        self.assertEqual(self.providers["openai"]["resets"], 2)
+        self.assertEqual([row["model"] for row in self.calls()], ["astra"])
         self.sleep.assert_not_called()
-        # the same worker, resuming the session the refused attempt left behind
-        self.assertEqual([row["model"] for row in self.calls()], ["astra", "astra"])
-        self.assertEqual([row["session"] for row in self.calls()], [[], ["dead-session"]])
-        self.assertEqual(session, "session-astra")
-        self.assertEqual(self.marked, [])
-
-    def test_v5i_a_quota_exit_costs_none_of_the_transport_attempts(self):
-        self.resets["openai"] = 1
-        self.plan({"astra": [{"code": 1, **REFUSALS["codex"]},
-                             {"code": 1, "final": "API Error: 500 upstream"},
-                             {"code": 1, "final": "API Error: 500 upstream"},
-                             {"code": 0, "final": "## Summary\nDone."}]})
-        lines, log = self.logged()
-        code, _, _, dead = run.call_retrying(
-            self.cfg, "astra", "the task", self.root, self.root / "round-1" / "executor",
-            "executor", None, log)
-        self.assertEqual((code, dead), (0, False))
-        self.assertEqual(len(self.calls()), 4)
-        self.assertEqual(self.sleep.call_args_list,
-                         [((delay,),) for delay in run.TRANSIENT_BACKOFF[:2]])
-        self.assertEqual(sum("attempt 3" in line for line in lines), 0)
-        # every attempt keeps its own diagnostics, the refused one included
-        self.assertEqual(sorted(Path(row["out"]).name for row in self.calls()),
-                         ["executor", "executor-retry1", "executor-retry2", "executor-retry3"])
+        self.assertFalse([line for line in lines if "reset" in line])
 
     # --- (d): no reset -> the provider is parked and the work changes hands ----------------
 
@@ -934,7 +881,7 @@ class QuotaDry(unittest.TestCase):
         self.assertNotIn("usage limit", said)
         self.assertNotIn("grep", said)
         # end to end: the transport retries run, and no reset is asked for or spent
-        self.resets["openai"] = 2
+        self.providers["openai"]["resets"] = 2
         row = {"code": 1, "final": "", "events": events, "stderr": stderr}
         self.plan({"astra": [row, row, {"code": 0, "final": "## Summary\nDone."}]})
         lines, log = self.logged()
@@ -942,7 +889,7 @@ class QuotaDry(unittest.TestCase):
             self.cfg, "astra", "the task", self.root, self.root / "round-1" / "executor",
             "executor", None, log)
         self.assertEqual((code, dead), (0, False))
-        self.assertEqual((self.replenished, self.marked, self.resets["openai"]), ([], [], 2))
+        self.assertEqual((self.replenished, self.marked), ([], []))
         self.assertEqual(self.sleep.call_args_list,
                          [((delay,),) for delay in run.TRANSIENT_BACKOFF[:2]])
         self.assertEqual(len(self.calls()), 3)
@@ -1041,9 +988,10 @@ class QuotaDry(unittest.TestCase):
             self.now = session + 1
             self.assertNotIn("exhausted_until", usage.collect(self.cfg)["openai"])
 
-    def test_v5i_a_spent_reset_lifts_the_mark_the_refusal_before_it_left(self):
-        """A fresh week is exactly the capacity the mark says is missing."""
-        used, resets = [95], [0.0]
+    def test_v5i_only_the_owner_s_reset_lifts_the_mark_a_refusal_left(self):
+        """A fresh week is exactly the capacity the mark says is missing, and only the owner
+        buys one: a read with a credit in hand spends nothing and leaves the mark standing."""
+        used, resets, asked = [95], [0.0], []
 
         def probe(cfg, provider, now, account=None):
             return {"provider": provider, "error": None, "pace": None, "exhausted": False,
@@ -1052,6 +1000,7 @@ class QuotaDry(unittest.TestCase):
                     "meters": [self.meter(used[0] if provider == "openai" else 10)]}
 
         def adapter_json(harness, verb, timeout, account=None):
+            asked.append(verb)
             used[0], resets[0] = 0, 0.0
             return {"code": "reset", "available": 0, "weekly_used": 0}
 
@@ -1060,64 +1009,27 @@ class QuotaDry(unittest.TestCase):
                 patch.object(usage, "mark_exhausted", self.real_mark), \
                 patch.object(usage, "_probe", side_effect=probe), \
                 patch.object(usage, "_adapter_json", side_effect=adapter_json):
-            # the refusal came with no credit in hand, so the provider is simply parked
             usage.mark_exhausted(self.cfg, "openai", self.now + 5 * 86400)
             self.assertTrue(usage.model_exhausted(self.cfg, "astra", usage.collect(self.cfg))[0])
             resets[0] = 1.0                          # a credit the account earns later
             self.now += usage.PROBE_EVERY            # read by the next probe, a minute on
             blob = json.loads(cache.read_text())
-            blob["fetched_at"] = self.now - usage.CACHE_TTL - 1      # both clocks go stale, so
-            blob["reset_checked_at"] = self.now - usage.RESET_EVERY_SECS   # the policy may fire
+            blob["fetched_at"] = self.now - usage.CACHE_TTL - 1
             cache.write_text(json.dumps(blob))
             providers = usage.collect(self.cfg)
-            # the spent week is gone, and the fresh one is the next probe's to read
+            self.assertEqual((asked, providers["openai"]["resets"]), ([], 1.0))
+            self.assertTrue(usage.model_exhausted(self.cfg, "astra", providers)[0])
+            # the owner spends it: the spent week is gone, and the fresh one is the next
+            # probe's to read
+            self.assertEqual(self.real_replenish(self.cfg, "openai"), (True, 0.0))
+            self.assertEqual(asked, ["reset"])
+            providers = usage.collect(self.cfg)
             self.assertEqual(providers["openai"]["meters"], [])
             self.assertNotIn("exhausted_until", providers["openai"])
             self.assertFalse(providers["openai"]["exhausted"])
             self.assertIn("astra", usage.pick_order(self.cfg, providers, quiet=True))
             self.assertNotIn("exhausted_until",
                              json.loads(cache.read_text())["providers"]["openai"])
-
-    # --- (g): the cap inside the real replenish -------------------------------------------
-
-    def test_v5i_replenish_bypasses_the_threshold_but_never_the_once_a_day_cap(self):
-        asked = []
-
-        def adapter_json(harness, verb, timeout, account=None):
-            asked.append(verb)
-            return {"code": "reset", "available": 0, "weekly_used": 5}
-
-        probed = []
-
-        def probe(cfg, provider, now, account=None):
-            probed.append(provider)
-            used = 5 if len(probed) > 1 else 12
-            return {"provider": provider, "harness": "codex", "error": None, "resets": 1.0,
-                    "pace": None, "exhausted": False, "meters": [self.meter(used)]}
-
-        with patch.object(usage, "_adapter_json", side_effect=adapter_json), \
-                patch.object(usage, "_probe", side_effect=probe):
-            # 12% used is nowhere near RESET_AT_USED; the refusal is the proof, not the meter
-            self.assertGreater(usage.RESET_AT_USED, 12)
-            self.assertEqual(self.real_replenish(self.cfg, "openai"), (True, 0.0))
-            self.assertEqual(asked.count("reset"), 1)
-            claim = json.loads((config.STATE / "openai-reset.json").read_text())
-            self.assertEqual((claim["outcome"], claim["depleted"], claim["weekly_before"]),
-                             ("reset", True, 12))
-            # inside the host's minute nothing reads it again: the spent week is gone from the
-            # cache until the next probe reads the new one, and the count is the spend's own
-            cached = json.loads((config.STATE / "usage.json").read_text())
-            self.assertEqual(cached["providers"]["openai"]["meters"], [])
-            self.assertEqual(cached["providers"]["openai"]["resets"], 0.0)
-            self.assertEqual(len(probed), 1)
-            # a second refusal inside the same day spends nothing at all
-            for _ in range(3):
-                self.assertEqual(self.real_replenish(self.cfg, "openai"), (False, 0.0))
-            self.assertEqual(asked.count("reset"), 1)
-            # and once the day is over the policy is eligible again
-            self.now += usage.RESET_EVERY_SECS
-            self.assertEqual(self.real_replenish(self.cfg, "openai"), (True, 0.0))
-            self.assertEqual(asked.count("reset"), 2)
 
 
 # Each harness's own refusal, where its own adapter leaves it: Codex's `turn.failed` event
