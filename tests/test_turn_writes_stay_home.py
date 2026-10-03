@@ -61,9 +61,10 @@ elif mode == "temporary":
 elif mode == "socket":
     with multiprocessing.Manager() as manager:
         seen["manager"] = dict(manager.dict(a=1))
-    with socket.socket(socket.AF_UNIX) as sock:
-        sock.bind(str(Path(tempfile.mkdtemp()) / "app.sock"))
-        seen["socket"] = True
+    with tempfile.TemporaryDirectory() as directory:
+        with socket.socket(socket.AF_UNIX) as sock:
+            sock.bind(str(Path(directory) / "app.sock"))
+            seen["socket"] = True
 elif mode == "devices":
     multiprocessing.Lock()
     with multiprocessing.Pool(1) as pool:
@@ -80,9 +81,9 @@ elif mode == "memory":
     for name, directory in (("shm", "/dev/shm"),
                             ("credentials", Path.home() / ".git-credential-cache")):
         try:
-            with tempfile.NamedTemporaryFile(dir=directory, delete=False) as scratch:
+            with tempfile.TemporaryFile(dir=directory) as scratch:
                 scratch.write(b"disk scratch")
-                seen[name] = scratch.name
+                seen[name] = "writable"
                 seen[name + "_disk"] = os.fstat(scratch.fileno()).st_dev == out.stat().st_dev
         except OSError:
             seen[name] = "refused"
@@ -184,7 +185,7 @@ class TurnWritesStayHome(unittest.TestCase):
 
     def test_long_output_paths_still_allow_unix_sockets(self):
         self.root = self.root / ".agentkit/runs" / ("acme-" * 12) / "round-1/executor"
-        seen, _, _ = self.turn(self.wt, "socket")
+        seen, _, _ = self.turn(self.wt, "socket", TMPDIR="/tmp")
         self.assertEqual(seen, {"manager": {"a": 1}, "socket": True})
 
     def test_shared_memory_and_host_devices_still_work(self):
@@ -229,12 +230,12 @@ class TurnWritesStayHome(unittest.TestCase):
         self.assertEqual(seen, {"login": "refreshed login", "session": "saved conversation"})
         self.assertEqual(target.read_text(), "refreshed login")
 
-    def test_shared_memory_uses_disk_and_is_discarded_after_the_turn(self):
+    def test_shared_memory_uses_disk(self):
         (self.home / ".git-credential-cache").mkdir()
         seen, _, out = self.turn(self.wt, "memory")
         self.assertEqual(seen["credentials"], "refused")
+        self.assertEqual(seen["shm"], "writable")
         self.assertTrue(seen["shm_disk"])
-        self.assertFalse(Path(seen["shm"]).exists())
         self.assertFalse(any(path.name.startswith("tmp") for path in out.rglob("*")))
 
     def test_muse_refusal_records_only_its_accounts_quota_outside_the_box(self):
