@@ -43,7 +43,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             land.check_line(self.turn)
         self.assertEqual(len(calls), 2)
         self.assertIn("land", self.wait(member))
-        self.assertEqual(land._trees(self.turn, "red")[1], {})
+        self.assertEqual(land._trees(self.turn, "red_stacks")[1], {})
         self.assert_cleaned()
 
     def test_an_undecided_red_head_still_gets_its_own_check(self):
@@ -66,7 +66,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.member("later", joined=3, **{"later.txt": "later\n"})
         self.advance()
         land.check_line(self.turn)
-        self.assertEqual(land._trees(self.turn, "red")[1], {})
+        self.assertEqual(land._trees(self.turn, "red_stacks")[1], {})
         self.assert_cleaned()
 
     def test_members_from_another_clone_stack_without_changing_its_branches(self):
@@ -107,6 +107,28 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assertEqual(record.read_state(missing), original)
         self.assertTrue(any({"first.txt", "later.txt"} <= self.stacked_files(tree)
                             for tree in land._trees(self.turn)[1]))
+        self.assert_cleaned()
+
+    def test_a_follower_checkout_failure_does_not_stop_later_stacks(self):
+        first = self.member("first", **{"first.txt": "first\n"})
+        failed = self.member("failed", joined=2, **{"failed.txt": "failed\n"})
+        head = record.read_state(failed)["review"]["head_sha"]
+        self.member("later", joined=3, **{"later.txt": "later\n"})
+        self.advance()
+        git_out = run.git_out
+
+        def fail_checkout(repo, *args, **kw):
+            if args[:2] == ("worktree", "add") and args[-1] == head:
+                return 1, "checkout failed"
+            return git_out(repo, *args, **kw)
+
+        with patch.object(run, "git_out", side_effect=fail_checkout):
+            land.check_line(self.turn)
+        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+        self.assertTrue(any({"first.txt", "later.txt"} <= self.stacked_files(tree)
+                            and "failed.txt" not in self.stacked_files(tree)
+                            for tree in land._trees(self.turn)[1]))
+        self.assertNotIn("fix", self.wait(failed))
         self.assert_cleaned()
 
     def test_only_the_newest_member_of_a_red_stack_gets_its_failure(self):
@@ -212,7 +234,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "crash before verdicts"):
                 land.check_line(self.turn)
         count = len(self.checks)
-        failures = land._trees(self.turn, "red")[1]
+        failures = land._trees(self.turn, "red_stacks")[1]
         self.assertTrue(failures)
         self.wake.assert_not_called()
         land.check_line(self.turn)

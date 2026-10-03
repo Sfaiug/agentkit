@@ -56,7 +56,7 @@ def note(turn, trees, leader, alone=(), *, red=None, red_stacks=None):
     """Keep stack evidence separately from target probes awaiting their repair."""
     path, kept = _trees(turn)
     solo = _trees(turn, "alone")[1]
-    failed = _trees(turn, "red_stacks")[1]
+    failed = {} if red_stacks == {} else _trees(turn, "red_stacks")[1]
     repairs = _trees(turn, "red")[1]
     kept.update({tree: {"at": time.time(), "tested": trees[-1], "leader": leader}
                  for tree in trees})
@@ -219,6 +219,10 @@ def check_line(turn, log=lambda _: None):
                     for member, answer in verdicts.items():
                         with record.record(member) as current:
                             current["waiting_on"] = {**current["waiting_on"], **answer}
+                    # A reparked member needs a fresh check, including any red suffix
+                    # discarded during rebuilding.  Save verdicts before dropping evidence.
+                    note(turn, [], directory.name, red_stacks={})
+                    for member in verdicts:
                         watch.launch_resume(member.name, log)
             if checked:
                 return
@@ -247,14 +251,27 @@ def _check(directory, state, scratch, cmds, log_path, log):
     return ok, text
 
 
+def _member_commit(repo, state, head):
+    """One remote's line can contain private commits from separate clones."""
+    from . import run
+    if run.git_out(repo, "cat-file", "-e", f"{head}^{{commit}}")[0] == 0:
+        return 0, ""
+    source = state.get("worktree") or state.get("repo") or str(repo)
+    return run.git_out(repo, "fetch", "--no-tags", "--no-write-fetch-head", "--", str(source), head)
+
 
 def _stack_member(repo, state, top, upstream, opened):
     from . import run
     head = state["review"]["head_sha"]
+    code, out = _member_commit(repo, state, head)
+    if code:
+        return None, f"[exit {code}]\nERROR: reviewed commit {head} is unavailable\n{out}"
     scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix="land-")))
     opened.callback(os.close, os.open(scratch, os.O_RDONLY))
-    run.git(repo, "worktree", "add", "--detach", str(scratch), head)
+    code, out = run.git_out(repo, "worktree", "add", "--detach", str(scratch), head)
     opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
+    if code:
+        return scratch, f"[exit {code}]\nERROR: checkout of {head} failed\n{out}"
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))
@@ -307,6 +324,11 @@ def _check_members(turn, members, tip, target_tree, log):
             if not stacks:
                 break
             green, red = _trees(turn)[1], _trees(turn, "red_stacks")[1]
+            # Undecided follower evidence survives a crash; a head's own check must
+            # retry a kill or flake even when its committed tree has not changed.
+            for member, _, _, tree in stacks:
+                if member == directory:
+                    red.pop(tree, None)
             answers = {tree: {"land": tree} if tree in green else
                        {"fix": {key: red[tree][key] for key in ("line", "log")}}
                        for _, _, _, tree in stacks if tree in green or tree in red}
@@ -418,6 +440,8 @@ def together(wt, head, upstream, turn, leader, suite_run, log):
                 commit = review.get("passed_head_sha")
                 if (state.get("run_id") == leader or review.get("verdict") != "PASS"
                         or not commit or state.get("merge_method") == "merge"):
+                    continue
+                if _member_commit(wt, state, commit)[0]:
                     continue
                 base = run.git(stack, "merge-base", commit, upstream, check=False)
                 code, _ = run.git_out(stack, "-c", "rebase.updateRefs=false", "rebase",

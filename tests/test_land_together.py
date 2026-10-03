@@ -216,6 +216,32 @@ class LandTogether(unittest.TestCase):
         self.assertEqual(len(land._trees(turn)[1]), 2)
         self.assertFalse(any("breaks the suite" in line for line in self.lines))
 
+    def test_private_commits_from_another_clone_stack_past_an_unavailable_member(self):
+        lp = self.leader()
+        other = self.root / "acme-two"
+        self.git("clone", str(self.repo), str(other))
+        self.git("config", "user.name", "fixture", cwd=other)
+        self.git("config", "user.email", "fixture@localhost", cwd=other)
+        self.git("checkout", "-q", "-b", "ak/member", self.base, cwd=other)
+        (other / "member.txt").write_text("member\n")
+        self.git("add", ".", cwd=other)
+        self.git("commit", "-q", "-m", "member", cwd=other)
+        head = self.git("rev-parse", "HEAD", cwd=other)
+        self.assertNotEqual(run.git_out(self.repo, "cat-file", "-e", head)[0], 0)
+        self.wait(lp, "member", head, 1)
+        with record.record(config.RUNS / "member") as current:
+            current["worktree"] = str(other)
+        self.wait(lp, "missing", "f" * 40, 2)
+        with record.record(config.RUNS / "missing") as current:
+            current["worktree"] = str(self.root / "gone-clone")
+        turn = self.wait(lp, "later", self.branch("ak/later", {"later.txt": "later\n"}), 3)
+        self.assertTrue(self.held(lp))
+        tested = land.passed(turn, self.tree("HEAD"))["tested"]
+        self.assertTrue({"member.txt", "later.txt"} <=
+                        set(self.git("ls-tree", "--name-only", tested).splitlines()))
+        self.assertEqual(self.git("rev-parse", "ak/member", cwd=other), head)
+        self.assertEqual(len([cmds for cmds, _ in self.checks if SUITE in cmds]), 1)
+
     def test_a_batch_lands_through_a_symlinked_worktree_home(self):
         disk = self.root / "disk"
         (disk / "wt").mkdir(parents=True)
