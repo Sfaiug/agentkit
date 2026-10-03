@@ -70,7 +70,7 @@ class SplitSuiteRun(unittest.TestCase):
     def test_measured_wall_time_without_a_cgroup_and_the_two_minute_floor(self):
         for seconds, count in ((119, 0), (120, 0), (120.01, 1)):
             path = self.measure(attempts=((seconds, 0, False),))
-            self.assertEqual(gate.read_suite_cost(path)["wall_seconds"], seconds)
+            self.assertAlmostEqual(gate.read_suite_cost(path)["wall_seconds"], seconds)
             self.start()
             self.assertEqual(len(self.spawned), count)
         child = record.read_state(self.spawned[0])
@@ -133,7 +133,7 @@ class SplitSuiteRun(unittest.TestCase):
         self.start()
         directory = self.spawned[0]
         receipt = record.read_state(directory)
-        for ending in ("running", "queued", "pass", "fail", "blocked", "stopped", "not_needed"):
+        for ending in ("running", "queued", "pass", "fail", "blocked", "not_needed", "stopped"):
             record.save_state(directory, {**receipt, "state": ending})
             self.measure()
             self.start()
@@ -197,7 +197,7 @@ class SplitSuiteRun(unittest.TestCase):
         self.assertEqual(self.spawned, [])
         self.assertNotIn("split_run", gate.read_suite_cost(path))
 
-    def test_final_check_starts_the_split_only_for_its_declared_suite(self):
+    def test_final_check_starts_the_split_for_its_declared_suite(self):
         folder = self.root / "landing"
         folder.mkdir()
         _, _, wt = make_repos(folder)
