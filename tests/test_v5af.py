@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted
+from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
 from agentkit import host, config, gc, run, task, usage
 from agentkit import record
@@ -140,6 +140,7 @@ class V5af(unittest.TestCase):
     def script(self, path, text):
         path.write_text(f"#!{sys.executable}\n{scripted(text)}")
         path.chmod(0o755)
+        stateful(path, self.root)
 
     def identity(self, cwd):
         run.git(cwd, "config", "user.name", "fixture")

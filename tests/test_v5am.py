@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted
+from fixtures.hand_in import scripted, stateful
 from agentkit import host, config, job as jobs, menu, notify, orch, run, watch
 from agentkit import record
 
@@ -115,6 +115,7 @@ class Slots(unittest.TestCase):
     def script(self, path, body):
         path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
+        stateful(path, self.root)
 
     def cleanup_processes(self):
         (self.root / "release-all").touch()

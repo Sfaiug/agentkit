@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, harness, orch, run, usage, watch  # noqa: E402
-from fixtures.hand_in import scripted
+from fixtures.hand_in import scripted, stateful
 
 # Every harness's adapter: `auth` answers yes, and `run` plays the next row of plan.json, the
 # last row again once it is the only one left, ending by the row's signal where it names one.
@@ -81,6 +81,7 @@ class QuotaWordsBounded(unittest.TestCase):
             script = self.adapters / f"{manifest.stem}.sh"
             script.write_text(f"#!{sys.executable}\n{ADAPTER}")
             script.chmod(0o755)
+            stateful(script, self.adapters)
         env = {k: v for k, v in os.environ.items()
                if k not in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR",
                             "AGENTKIT_RUN_DIR", "AGENTKIT_SESSION", "AGENTKIT_ACCOUNT")}

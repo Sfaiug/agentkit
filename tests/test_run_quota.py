@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import submitting, scripted
+from fixtures.hand_in import submitting, scripted, stateful
 from agentkit import host, config, notify, orch, run, usage, watch
 from agentkit import record
 
@@ -493,6 +493,7 @@ class QuotaDry(unittest.TestCase):
     def script(self, path, body):
         path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
+        stateful(path, self.root)
 
     def plan(self, responses):
         """model -> list of {code, final, stderr, events} rows, consumed one call at a time."""
