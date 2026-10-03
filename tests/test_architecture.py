@@ -30,7 +30,9 @@ class Architecture(unittest.TestCase):
         self.assertEqual(missing, [], "ARCHITECTURE.md does not map these adapters/ harnesses")
 
     def test_each_module_entry_is_short(self):
-        for entry in re.finditer(r"(?m)^- `([^`/]+\.py)`:[^\n]*(?:\n[ \t]+[^\n]*)*",
+        # Markdown's lazy continuations belong to the bullet even without indentation.
+        for entry in re.finditer(r"(?m)^- `([^`/]+\.py)`:[^\n]*"
+                                 r"(?:\n(?![ \t]*$|[-*+](?:[ \t]|$)|#{1,6}(?:[ \t]|$))[^\n]+)*",
                                  MAP.read_text()):
             with self.subTest(module=entry[1]):
                 self.assertLessEqual(len(" ".join(entry.group().split())), 400,
@@ -60,7 +62,7 @@ class ArchitectureChecks(unittest.TestCase):
 
     def test_a_401_character_entry_is_rejected(self):
         prefix = "- `present.py`: "
-        for separator in (" ", "\n\t  "):
+        for separator in (" ", "\n\t  ", "\n"):
             with self.subTest(separator=separator):
                 result = self.check(prefix + "x" * (401 - len(prefix) - 2) + separator + "y\n")
                 self.assertEqual(result.errors, [])
@@ -69,8 +71,16 @@ class ArchitectureChecks(unittest.TestCase):
 
     def test_400_characters_with_collapsed_whitespace_pass(self):
         prefix = "- `present.py`: "
-        result = self.check(prefix + "é" * (400 - len(prefix) - 2) + "\n\t  y\n")
-        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+        for separator in ("\n\t  ", "\n"):
+            with self.subTest(separator=separator):
+                result = self.check(prefix + "é" * (400 - len(prefix) - 2) + separator + "y\n")
+                self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+
+    def test_other_blocks_do_not_extend_a_module_entry(self):
+        for boundary in ("\n\n", "\n## Other\n", "\n- Other: ", "\n* Other: ", "\n+ Other: "):
+            with self.subTest(boundary=boundary):
+                result = self.check("- `present.py`: short." + boundary + "x" * 600 + "\n")
+                self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
 
     def test_many_short_entries_can_exceed_8_kb(self):
         modules = tuple(f"module_{number}.py" for number in range(30))
