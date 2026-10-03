@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import test_live_status
 from test_v4n import Sandbox
+from test_audit_phone_menu_recovery_layout import Sandbox as PhoneSandbox
 from agentkit import config
 
 
@@ -15,6 +16,9 @@ class SandboxThreads(unittest.TestCase):
 
     def test_live_status_cleanup_waits_for_a_starting_thread(self):
         self.check_cleanup(test_live_status.LiveStatus, ".agentkit")
+
+    def test_phone_cleanup_waits_for_a_starting_thread(self):
+        self.check_cleanup(PhoneSandbox, "home/.agentkit")
 
     def check_cleanup(self, fixture, home):
         begin, booting, release = (threading.Event() for _ in range(3))
