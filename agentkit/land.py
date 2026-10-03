@@ -11,7 +11,7 @@ it check themselves alone on their own turns.  Only a tested tree carries the su
 evidence.  Offers `passed`, `waiting` and `together` for `run.final_check`.
 
 `check_line` checks one parked line member and wakes it to land or fix itself. A red target
-gets one repair first, keeping the other members unblamed until its tree changes. The run
+gets one repair first, keeping the other members unblamed while it holds that tree. The run
 consumes its verdict; this checker never takes ownership of its process or delivery.
 """
 
@@ -37,7 +37,7 @@ def _trees(turn, kind="trees"):
         return path, {}
     kept = data.get(kind) if isinstance(data, dict) else None
     now = time.time()
-    # A failed repair holds its red tree even after the passing evidence has expired.
+    # Red probes do not age out into duplicate repairs; each tick checks the receipt.
     return path, {tree: entry for tree, entry in (kept or {}).items()
                   if isinstance(entry, dict)
                   and (kind == "red" or now - entry.get("at", 0) < KEEP)}
@@ -127,6 +127,8 @@ def check_line(turn, log=lambda _: None):
                     name = _repair(turn, directory, state, target_tree, red, log)
                     if not name:
                         return
+                elif not run.repair_open(repair, red["probe"]["sha"]):
+                    name = None
                 if name and directory.name != name:
                     continue
             verdict = {key: state["waiting_on"][key] for key in ("land", "fix")
