@@ -169,7 +169,7 @@ class RedMain(unittest.TestCase):
         _, _, before = self.red_line()
         self.assertEqual(len(self.prepared), 1)
         repair = self.prepared[0][0]
-        for ending in ("fail", "blocked", "pass", "stopped", "error"):
+        for ending in ("fail", "blocked", "pass", "error", "stopped"):
             with self.subTest(ending=ending):
                 with record.record(repair) as state:
                     state.update(state=ending, slot_waiting=False)
