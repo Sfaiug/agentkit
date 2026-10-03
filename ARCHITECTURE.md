@@ -113,7 +113,8 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   rebuild config.py's seat file names and rename chain.
 - `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
   `trust.py`, `catalog.py`, `desktop-mcp.py`.
-- `tests/`: offline `smoke.sh`, live `live.sh`; `every_file.py`: imports/cases,
+- `tests/`: `landing.py` runs offline `smoke.sh` beside `every_file.py`, with grouped
+  live output; live `live.sh`; `every_file.py`: imports/cases,
   live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`,
   `landing.py` lands a crafted run through its line and lander verdict.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat
