@@ -51,7 +51,8 @@ Workers never compact, nor does a harness with no compact command or no reported
 Any harness can hold the seat: `--model astra` opens Codex, `--model spark` opens Muse. A Claude seat owns its
 conversation from launch by a uuid; its launched pane's `/clear` hook keeps reopening and titles on the new conversation,
 using its recorded login. The watch tick binds older running seats to their own client pane without restarting them; if that pane is removed, restarting uses the session's current pane. Other panes and in-session `/resume` never transfer seat ownership.
-A Codex seat proves its thread through a launch receipt, an OpenCode seat's plugin
+A Codex seat trusts only agentkit's own hooks; other hooks still need Codex's review.
+It proves its thread through a launch receipt, an OpenCode seat's plugin
 writes its session into one, and Muse and Antigravity open a new conversation each time. A seat whose harness exited
 keeps its window. A dead, detached seat nobody has opened for seven days is retired, and a record seven days gone from
 tmux is swept, unless a run of the seat's is unfinished or a question in it is unread; then the name is free again.
