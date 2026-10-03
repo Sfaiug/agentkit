@@ -5530,7 +5530,7 @@ def join_line(lp, upstream, deliver):
                                                "joined": time.time()},
                     error="waiting for the lander", finished_at=None)
     lp.state.pop("recovery_pending", None)
-    lp.write()  # the record starts the lander; the tick retries a missed launch
+    lp.write()
     return False
 
 

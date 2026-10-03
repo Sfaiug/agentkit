@@ -3628,8 +3628,8 @@ fi
 # moved on since -- the shape that got rebased onto its own base and failed. Two things have to
 # hold: the PR is opened `--base main`, and because the executor left a merge commit on the
 # branch, `origin/main` comes in through `git merge` rather than a rebase that would replay the
-# side branch and flatten it. The clean merge keeps the passed review: the done-when runs again
-# on the integrated commit, and nothing reviews it a second time.
+# side branch and flatten it. The clean merge keeps the passed review, and delivery must
+# match the lander's tested tree.
 THOME="$WORK/home-target"; TAD="$WORK/ad-target"; TBIN="$WORK/bin-target"
 GHLOG="$WORK/gh-args.log"
 mkdir -p -- "$THOME" "$TAD" "$TBIN"
