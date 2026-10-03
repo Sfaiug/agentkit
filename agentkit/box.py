@@ -102,6 +102,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
         if (workspace / ".git").exists():
             git_env = {key: value for key, value in clean.items()
                        if key not in ("GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE")}
+            git_env.update(GIT_TERMINAL_PROMPT="0", GH_PROMPT_DISABLED="1")
             result = subprocess.run(["git", "rev-parse", "--absolute-git-dir", "--git-common-dir"],
                                     cwd=workspace, env=git_env, capture_output=True, text=True,
                                     check=True, timeout=10)
