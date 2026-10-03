@@ -37,6 +37,7 @@ class Lander(unittest.TestCase):
         for name in ("HOME", "RUNS", "JOBS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         config.ensure_dirs()
+        self.stack.enter_context(patch.object(land, "start_line"))
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
         self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=999))
         self.stack.enter_context(patch.object(worker, "kill_marked"))

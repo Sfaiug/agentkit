@@ -22,7 +22,7 @@ from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
 from fixtures.hand_in import records, scripted
-from agentkit import gate, host, browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
+from agentkit import gate, host, browser, config, gc, job as jobs, land, menu, notify, orch, run, terminal, watch
 from agentkit import record
 
 SEAT = "seat"
@@ -108,6 +108,7 @@ class HandBack(Sandbox):
 
     def setUp(self):
         super().setUp()
+        self.stack.enter_context(patch.object(land, "start_line", return_value=True))
         self.stack.enter_context(patch.dict(os.environ, {
             "AK_RUN_ROLE": "orchestrator", "AGENTKIT_DISCORD_WEBHOOK": "",
             "AGENTKIT_DISCORD_USER_ID": ""}))

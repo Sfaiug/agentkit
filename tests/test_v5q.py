@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import host, config, gc, history, job as jobs, notify, orch, retention, run, worker
+from agentkit import host, config, gc, history, job as jobs, land, notify, orch, retention, run, worker
 from agentkit import record
 
 ADAPTER = '''import json, os, pathlib, sys, time
@@ -60,6 +60,7 @@ class JobFixture(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.object(land, "start_line", return_value=True))
         self.stack.enter_context(patch.object(config, "HOME", self.root / ".agentkit"))
         # JOBS is deliberately not patched: it follows HOME, which is what keeps job
         # receipts out of the owner's real ~/.agentkit in every other suite too
