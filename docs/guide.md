@@ -371,7 +371,7 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 ## The history
 
 Every run is recorded in `~/.agentkit/history.db`: repository, models and the launching seat's orchestrator, rounds,
-verdict, timestamps, active seconds per step (checkpointed every 30 s; parks, slot, login, retry and merge-turn waits
+verdict, timestamps, active seconds per step (checkpointed every 30 s; parks, slot, login and retry waits
 are no step's), tokens where the harness reports them (else unknown), peak process-tree memory, session, and the task's
 words, goal points, checks and files changed. Merged runs also keep additions plus deletions, excluding files marked
 `linguist-generated` in `.gitattributes`. Smoke and e2e runs are never recorded; an older agentkit's rows are read
