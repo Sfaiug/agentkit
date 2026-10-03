@@ -25,7 +25,6 @@ class UsageRow(Sandbox):
         self.stack.enter_context(patch.object(menu.time, "localtime", side_effect=time.gmtime))
         self.stack.enter_context(patch.object(usage, "collect", side_effect=AssertionError("probe")))
         self.stack.enter_context(patch.object(usage, "_probe", side_effect=AssertionError("probe")))
-        self.stack.enter_context(patch.object(usage, "_maybe_reset", side_effect=AssertionError("reset")))
         self.providers = {
             "anthropic": {"meters": [self.meter("weekly_all", 79),
                                       self.meter("weekly_scoped", 53),

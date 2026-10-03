@@ -196,8 +196,6 @@ class SeatStates(unittest.TestCase):
             "exceeded retry limit, last status: 429 Too Many Requests", "Goal stalled")
         self.assertEqual(watch.keystroke("codex", goal), "/goal resume")
         self.assertEqual(watch.keystroke("claude", goal), "continue")
-        self.assertTrue(watch.reset_policy("codex"))
-        self.assertFalse(watch.reset_policy("claude") or watch.reset_policy("muse"))
         # and no harness is named in the babysitter any more, for a signature or anything else
         source = (config.REPO / "agentkit/watch.py").read_text()
         for harness in ("claude", "codex", "muse"):

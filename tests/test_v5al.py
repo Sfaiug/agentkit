@@ -305,7 +305,8 @@ class UsageCalls(Fixture):
         # ... and a provider whose adapter cannot spend one is never asked to
         prov = {"harness": "echo", "meters": [{"name": "weekly", "used": 99,
                                                "window_secs": 604800}]}
-        self.assertEqual(usage._reset_policy(self.cfg, "test", prov, 10000, True), (prov, False))
+        with patch.object(usage, "_probe_gently", return_value={**prov, "resets": 1}):
+            self.assertEqual(usage.replenish(self.cfg, "test"), (False, 1.0))
         self.assertEqual(self.asked, [("codex", "reset-status")] * 2)
 
     def test_v5al_a_stripped_timestamp_is_dated_by_its_own_plugin(self):

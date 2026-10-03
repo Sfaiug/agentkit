@@ -22,7 +22,6 @@ class UsageLeft(Sandbox):
         self.stack.enter_context(patch.object(menu.time, "localtime", side_effect=time.gmtime))
         self.stack.enter_context(patch.object(usage, "collect", side_effect=AssertionError("probe")))
         self.stack.enter_context(patch.object(usage, "_probe", side_effect=AssertionError("probe")))
-        self.stack.enter_context(patch.object(usage, "_maybe_reset", side_effect=AssertionError("reset")))
         # A tty -- a real one, or the startup test pretending stdin is a keyboard --
         # starts Live.probe's thread. This mock is gone when the test is, and the
         # thread then either raises this AssertionError into whatever runs next or
