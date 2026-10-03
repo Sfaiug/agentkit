@@ -115,6 +115,17 @@ class LanderFixture:
 
 
 class Lander(LanderFixture, unittest.TestCase):
+    def test_a_recorded_tree_is_forgotten_after_a_day(self):
+        now = 1_000_000
+        with patch.object(land.time, "time", return_value=now):
+            land.note(self.turn, ["a", "b"], "leader")
+        with patch.object(land.time, "time", return_value=now + land.KEEP - 1):
+            for tree in ("a", "b"):
+                self.assertEqual(land.passed(self.turn, tree)["tested"], tree)
+        with patch.object(land.time, "time", return_value=now + land.KEEP + 1):
+            for tree in ("a", "b"):
+                self.assertIsNone(land.passed(self.turn, tree))
+
     def test_join_order_one_check_and_only_the_parked_verdict_changes(self):
         later = self.member("a-later", 20)
         first = self.member("z-first", 10.5)
