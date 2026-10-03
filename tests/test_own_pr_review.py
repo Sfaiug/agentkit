@@ -32,7 +32,8 @@ class OwnPrReview(unittest.TestCase):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AGENTKIT_SESSION": "fix-api",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AK_NOTIFY_SINK": "",
+            "AGENTKIT_SESSION": "fix-api",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "NO_COLOR": "1"}))
         config.ensure_dirs()
         self.cfg = config.load()
@@ -118,8 +119,12 @@ class OwnPrReview(unittest.TestCase):
             with self.subTest(background=background):
                 state, reviewer, usage, _ = self.review(background=background)
                 self.assertEqual(state["state"], "pass")
+                self.assertTrue(state["own_pr"])
+                self.assertTrue(state["merged"])
                 reviewer.assert_called_once()
                 self.assertEqual(usage.call_count, 2 if background else 1)
+                run.history_finish(state)
+                self.assertEqual(history.get(state["run_id"])["changed_lines"], 5000)
 
     def test_another_authors_pr_and_a_review_without_a_seat_run(self):
         self.change(1000)

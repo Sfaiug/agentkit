@@ -8,7 +8,7 @@ says to split, no `continue:` line offers more rounds, and `ak run status --hist
 shows rounds per task size so the pattern is visible.
 
 Offline: a temporary HOME with fabricated history rows, scratch (`repo: none`) tasks,
-and a patched-out drive step so no model ever runs.
+and launches stopped before model calls.
 """
 
 from contextlib import ExitStack, closing, redirect_stderr, redirect_stdout
@@ -47,12 +47,13 @@ class Sandbox(unittest.TestCase):
             config.SESSION_ENV: SEAT, config.RUN_DIR_ENV: "", config.UNATTENDED_ENV: "",
             "AK_RUN_ROLE": "", "AK_RUN_LOG": "",
             # a caller that is itself a run would make every launch here a refused worker's worker
-            "AK_RUN_DEPTH": "0", "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", config.ACCOUNT_ENV: "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AGENTKIT_RUN": "", "AK_PARENT_RUN": "",
+            "AK_NOTIFY_SINK": "", config.ACCOUNT_ENV: "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_DISCORD_USER_ID": "",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "PYTHONDONTWRITEBYTECODE": "1", "GIT_CONFIG_NOSYSTEM": "1"}))
         config.ensure_dirs()
-        # the loop itself never runs: getting past the launch checks is what "starts" means
+        # Most tests stop at admission; the size test also records history before model calls.
         self.drive = self.stack.enter_context(patch.object(run, "drive", return_value=0))
 
     # --- fixtures ----------------------------------------------------------
@@ -89,18 +90,34 @@ class Sandbox(unittest.TestCase):
     # --- size never refuses ------------------------------------------------
 
     def test_a_task_of_any_size_starts(self):
-        goal = self.points(4) + "\n\n" + " ".join(["word"] * 600)
-        task = self.task("big.md", goal, cmds=[f"true # {n}" for n in range(7)])
+        goal = self.points(40) + "\n\n" + " ".join(["word"] * 6000)
+        task = self.task("big.md", goal, cmds=[f"true # {n}" for n in range(70)])
+
+        def started(cfg, directory, opts, log, **_kw):
+            with patch.object(gc, "disk_pressure", return_value=False), \
+                    patch.object(run, "collect_usage", side_effect=RuntimeError("before model calls")), \
+                    self.assertRaisesRegex(RuntimeError, "before model calls"):
+                run.loop(cfg, directory, directory / "task.md", opts, log)
+            return 0
+
+        self.drive.side_effect = started
         code, _, err = self.launch(str(task))
         self.assertEqual(code, 0, err)
         self.assertEqual(self.drive.call_count, 1)
         self.assertEqual(len(record.run_dirs()), 1)
+        row = history.get(record.run_dirs()[0].name)
+        self.assertEqual((row["task_words"], row["task_points"], row["task_checks"]),
+                         (6128, 40, 70))
 
     def test_a_job_takes_a_task_of_any_size(self):
         small = self.task("small.md", "One thing.")
-        big = self.task("big.md", self.points(4), cmds=[f"true # {n}" for n in range(7)])
-        jobs.job_create({}, [str(small), str(big)], {"--anyway": False}, None)
+        goal = self.points(40) + "\n\n" + " ".join(["word"] * 6000)
+        big = self.task("big.md", goal, cmds=[f"true # {n}" for n in range(70)])
+        cfg = config.load()
+        directory, job = jobs.job_create(cfg, [str(small), str(big)], {"--anyway": False}, None)
         self.assertEqual(len(list(config.JOBS.iterdir())), 1)
+        run_dir, _ = jobs.job_start_task(cfg, directory, job["tasks"][1], job["opts"], lambda _: None)
+        self.assertEqual((run_dir / "task.md").read_text(), big.read_text())
 
     # --- the round budget --------------------------------------------------
 

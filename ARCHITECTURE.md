@@ -37,7 +37,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - `gc.py`: plans/schedules cleanup of seats, stamps, temps, worktrees, runs and jobs.
   Harness `tmp_rule` owns temps and live sessions; retention deletes.
   `cmd_gc` for bin/ak, run, menu, watch and retention.
-- `task.py`: the task file's front matter, done-when groups, size and round refusals; for
+- `task.py`: the task file's front matter, done-when groups, size counts and round refusals; for
   run and job.
 - `job.py`: task files as one job: receipt, scheduler, task ladders (waits, merge, rerun),
   hand-back and relaunch. Calls `run.*`; for run (main, status, stop, resume), gc, watch, menu.

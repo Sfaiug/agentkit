@@ -5712,7 +5712,7 @@ fi
 # --- 51: task parsing -----------------------------------------------------
 if { python3 "$REPO/tests/test_task_file.py" && python3 "$REPO/tests/test_task_size.py" &&
      python3 "$REPO/tests/test_unknown_front_matter_key.py"; } >"$WORK/task-file.log" 2>&1; then
-  ok "51 task files: parsing, size and unknown keys refused before receipts"
+  ok "51 task files: size accepted; round budgets and unknown keys refused before receipts"
 else
   no "51 task files"; tail -30 "$WORK/task-file.log"
 fi
