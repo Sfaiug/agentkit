@@ -1,4 +1,4 @@
-"""A red tip can park a run only when the same check passed on its old target base.
+"""Legacy probes need a green old base; a lander checks the bare target's own suite once.
 
 Real commands and temporary git repos; the fixer and repair launcher are fakes.
 """
@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_red_target as red
-from agentkit import gate, run
+from agentkit import config, gate, land, run, watch
 from agentkit import record
 
 
@@ -231,6 +231,36 @@ class GreenBase(unittest.TestCase):
         head = run.git(wt, "rev-parse", "HEAD")
         self.assertEqual(run.target_fails(lp, "origin/main", "$ false\n[exit 1]\n"), "`false`")
         self.assertEqual((run_dir / "target-probe.log").read_text().count("$ false (on "), 1)
+        self.assert_on_branch_head_and_clean(wt, head)
+
+    def test_a_lander_repairs_a_red_target_even_when_the_old_base_is_red(self):
+        _, owner, wt = red.make_repos(self.root)
+        cmd = "test ! -f breakage && test ! -f poison"
+        (owner / "AGENTS.md").write_text(f"---\ntests: {cmd}\n---\n")
+        base = self.move_target(owner, wt)
+        run.git(wt, "rebase", base)
+        run.git(wt, "rm", "breakage")
+        run.git(wt, "commit", "-m", "fix the old red base")
+        lp, directory, _ = red.make_loop(config.RUNS, wt, [f"{cmd}  # once"])
+        (directory / "task.md").write_text(f"# Work\n\n## Done when\n```bash\n{cmd}  # once\n```\n")
+        head = run.git(wt, "rev-parse", "HEAD")
+        (owner / "poison").touch()
+        tip = self.move_target(owner, wt)
+        lp.state.update(state="waiting", waiting_on={
+            "line": run.turn_path(lp, "origin/main").name, "joined": 1})
+        lp.save()
+        before = (directory / "run.json").read_bytes()
+        with patch.object(watch, "launch_resume") as wake:
+            land.check_line(run.turn_path(lp, "origin/main"))
+        self.repair.assert_called_once()
+        self.assertEqual(self.repair.call_args.kwargs["repair"]["sha"], tip)
+        self.assertEqual((directory / "run.json").read_bytes(), before)
+        wake.assert_not_called()
+        probe = (directory / "target-probe.log").read_text()
+        self.assertIn(f"Commit: {tip}", probe)
+        self.assertNotIn(base, probe)
+        self.assertEqual(probe.count(f"$ {cmd}\n"), 1)
+        self.assertEqual(self.turns, [])
         self.assert_on_branch_head_and_clean(wt, head)
 
     def landing_review(self, root, once=True):

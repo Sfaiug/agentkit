@@ -9,6 +9,7 @@ receipt: a Codex thread is this seat's only where its own launch reported it.
 """
 
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -95,6 +96,28 @@ def transcript(record, cwd, conversation):
     event = read(record).get("event") or {}
     path = event.get("transcript_path")
     return path if isinstance(path, str) and path else None
+
+
+def user_messages(record, cwd, conversation):
+    from . import entries, user_message
+    for entry in entries(transcript(record, cwd, conversation)):
+        payload = entry.get("payload")
+        # Response items also contain rules and environment text with the user role.
+        # The completed UserMessage item keeps the original prompt exactly once.
+        if (entry.get("type") != "event_msg" or not isinstance(payload, dict)
+                or payload.get("type") != "item_completed"):
+            continue
+        item = payload.get("item")
+        if not isinstance(item, dict) or item.get("type") != "UserMessage":
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        text = "\n".join(part["text"] for part in content if isinstance(part, dict)
+                         and part.get("type") == "text" and isinstance(part.get("text"), str))
+        kept = user_message(entry.get("timestamp"), text)
+        if kept:
+            yield kept
 
 
 def error(record, cwd, conversation):
@@ -287,6 +310,27 @@ def capture(path, event):
         return
 
 
+def trust(hooks):
+    """The `-c` that trusts exactly these command-line hooks, and nobody else's.
+
+    Codex 0.160 runs a hook only once its hash is trusted and otherwise stops a new seat on
+    "Hooks need review" for nobody.  It reads that trust from the command line as well as
+    from the user's config.toml, keyed by layer, event, group and position, and hashes the
+    hook's sorted JSON (`hook_hash` in codex-rs/hooks/src/engine/discovery.rs).
+    """
+    state = {}
+    for event, handlers in hooks.items():
+        label = re.sub(r"(?<!^)(?=[A-Z])", "_", event).lower()
+        for position, (command, timeout) in enumerate(handlers):
+            identity = {"event_name": label, "hooks": [
+                {"async": False, "command": command, "timeout": timeout, "type": "command"}]}
+            digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":"),
+                                               ensure_ascii=False).encode()).hexdigest()
+            state[f"/<session-flags>/config.toml:{label}:0:{position}"] = "sha256:" + digest
+    return "hooks.state={" + ",".join(f"{json.dumps(key)}={{trusted_hash={json.dumps(value)}}}"
+                                      for key, value in state.items()) + "}"
+
+
 def main(argv, launch=None):
     if argv == ["capture"]:
         try:
@@ -328,31 +372,26 @@ def main(argv, launch=None):
         except (OSError, subprocess.TimeoutExpired):
             help_text = ""
         if "--dangerously-bypass-hook-trust" in help_text:
-            hook = shlex.join([sys.executable, str(config.REPO / "tools/codex-seat.py"),
-                               "capture"])
             # CLI overrides form their own hook layer; existing configured hooks still run.
-            # Keep the definition stable across launches so normal hook trust can be reused.
             # The help flag is a capability check only: never bypass trust for other hooks.
-            inline = ('hooks.SessionStart=[{hooks=[{'
-                      'type="command",command=' + json.dumps(hook) + ',timeout=5}]}]')
-            os.environ[CAPTURE_ENV] = receipt
-            cmd += ["-c", inline]
+            hooks = {"SessionStart": [(shlex.join(
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "capture"]), 5)]}
             # The same launch carries the seat-state hooks: the events 0.153.x emits that say
             # what this seat is doing.  They go here rather than into ~/.codex/config.toml
-            # because that file is the user's, and a hook layer added on the command line is
-            # trusted once with the receipt hook instead of twice.  What each event means is
+            # because that file is the user's.  What each event means is
             # adapters/codex.toml's to say; that script only writes down what arrived.  The
             # end-of-turn rule rides the Stop layer beside it, and is the one that decides.
-            seat = shlex.join(["bash", str(config.REPO / "hooks/seat-state.sh")])
-            for event in SEAT_EVENTS:
-                scripts = [seat]
-                if event == "Stop":
-                    scripts.append(shlex.join(["bash", str(config.REPO / STOP_RULE)]))
-                # 3s, not the receipt hook's 5: Interrupt is capped there and 0.153.4 prints a
-                # clamping warning into the seat on every launch that asks for more
-                run = ",".join(f'{{type="command",command={json.dumps(script)},timeout=3}}'
-                               for script in scripts)
+            # 3s, not the receipt hook's 5: Interrupt is capped there and 0.153.4 prints a
+            # clamping warning into the seat on every launch that asks for more
+            seat = (shlex.join(["bash", str(config.REPO / "hooks/seat-state.sh")]), 3)
+            hooks.update((event, [seat]) for event in SEAT_EVENTS)
+            hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), 3))
+            os.environ[CAPTURE_ENV] = receipt
+            for event, handlers in hooks.items():
+                run = ",".join(f'{{type="command",command={json.dumps(command)},timeout={timeout}}}'
+                               for command, timeout in handlers)
                 cmd += ["-c", f'hooks.{event}=[{{hooks=[{run}]}}]']
+            cmd += ["-c", trust(hooks)]
         else:
             print("orch: Codex cannot capture seat ownership on this version; "
                   "an unbound seat starts fresh next time", file=sys.stderr)

@@ -3,7 +3,7 @@
 Temporary HOME, fake run records and an injected exec callable; no test execs or
 signals a real process.  The install is faked as two short commits, the move as the
 old one giving way to the new one at a round or landing boundary.  Held turns are the
-real `gate_turn` and `merge_turn`, taken without contention under the temporary HOME.
+real `gate_turn` and delivery lock, taken without contention under the temporary HOME.
 """
 
 from contextlib import ExitStack, redirect_stdout
@@ -205,13 +205,7 @@ class PickupNewCode(unittest.TestCase):
         lp.state = state
         self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))
         state.pop("gate_turn", None)
-        state["merge_turn"] = {"pid": state["pid"], "of": "acme main"}
         record.save_state(lp.run_dir, state)
-        lp.state = state
-        self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))
-        state.pop("merge_turn", None)
-        record.save_state(lp.run_dir, state)
-        lp.state = state
         # a turn this thread really holds, gate or merge, blocks the move too
         (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")
         gated = config.RUNS / "pickup-gated"
@@ -223,7 +217,7 @@ class PickupNewCode(unittest.TestCase):
         with patch.dict(os.environ, {"AK_MAX_RUNS": "4"}):
             with gate.gate_turn(gated, gated / "gate.log", lambda msg: None):
                 self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))
-        with run.merge_turn(lp, "origin/main"):
+        with run.merge_lock(lp, "origin/main"):
             self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))
         self.assertEqual(getattr(run._PICKUP_HELD, "count", 0), 0)
         with patch.object(worker, "marked_pids", return_value=[12345]):
@@ -296,52 +290,28 @@ class PickupNewCode(unittest.TestCase):
         self.assertIn(f"picked up agentkit {OLD}..{NEW}; continuing on it",
                       (lp.run_dir / "log.txt").read_text())
 
-    def test_landing_keeps_its_lap_count_across_the_move(self):
+
+    def test_landing_target_change_waits_after_one_verification(self):
         lp = self.make_repo_run("pickup-four")
         run._PICKUP_START = OLD
-        calls = []
-
-        def fake_exec(path, argv):
-            calls.append((path, argv))
-
-        self.assertTrue(run.pickup_new_code(lp, execv=fake_exec, current=NEW,
-                                            extra={"land_lap": 2}))
-        self.assertEqual(record.read_state(lp.run_dir)["pickup"]["land_lap"], 2)
-        seen = {}
-
-        def fake_drive(cfg, run_dir, opts, log, prior=None, job=None):
-            seen["prior"] = dict(prior) if prior else None
-            return 0
-
-        with patch.object(run, "drive", side_effect=fake_drive), \
-                redirect_stdout(io.StringIO()):
-            self.assertEqual(run.resume_run(["pickup-four"]), 0)
-        self.assertEqual(seen["prior"]["land_lap"], 2)
-        # the new code verifies laps 2 and 3, then parks, instead of three fresh laps, in the
-        # loop the resumed process builds from the record
-        lp = run.Loop(lp.cfg, lp.run_dir, record.read_state(lp.run_dir), {}, lp.log, lp.wt,
-                      "body", ["true"], "context", [])
-        run._PICKUP_START = NEW
         verifies = []
 
-        def fake_verify():
-            verifies.append(1)
+        def verify():
+            verifies.append(True)
             return True
 
-        with patch.object(run, "installed_head", return_value=NEW), \
-                patch.object(run, "git_out", return_value=(0, "")), \
+        with patch.object(run, "installed_head", return_value=OLD), \
+                patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git", return_value="tip9999"), \
-                patch.object(run, "disjoint_move", return_value=False):
+                patch.object(run.time, "time", return_value=1000):
             self.assertFalse(run.land(
-                lp, "origin/main", fake_verify,
-                lambda: self.fail("a twice-moved target parks, never lands"),
-                execv=fake_exec))
-        self.assertEqual(len(verifies), 2)
-        self.assertEqual(len(calls), 1)
+                lp, "origin/main", verify,
+                lambda: self.fail("a changed target needs fresh verification")))
+        self.assertEqual(verifies, [True])
         state = record.read_state(lp.run_dir)
         self.assertEqual(state["state"], "waiting")
-        self.assertIn("moved three times", state["merge_note"])
-        self.assertNotIn("land_lap", state)
+        self.assertEqual(state["waiting_on"], {"ref": "origin/main", "sha": "base0001"})
+        self.assertNotIn("landing", state)
 
     def test_stale_pickup_with_a_reused_pid_queues_normally(self):
         lp = self.make_scratch("pickup-five")

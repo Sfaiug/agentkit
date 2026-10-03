@@ -191,7 +191,7 @@ elif [ "$SANDBOX" = 0 ]; then
     missing=()
     # python3-pytest is not used by ak itself; tests/smoke.sh, the acceptance gate, runs its
     # generated repo's done-when command with it.  cron is what runs `ak watch` on the server.
-    packages=(tmux:tmux mosh:mosh git:git gh:gh jq:jq curl:curl rsync:rsync crontab:cron)
+    packages=(tmux:tmux mosh:mosh git:git gh:gh jq:jq curl:curl rsync:rsync crontab:cron bwrap:bubblewrap)
     [ "$ROLE" != client ] || packages=(mosh:mosh git:git ssh:openssh-client curl:curl)
     for pair in "${packages[@]}"; do
       have "${pair%%:*}" || missing+=("${pair##*:}")
@@ -891,19 +891,27 @@ EOF
   echo "slice: $LIMITS caps agentkit at $slice_tasks tasks, $mem_max of memory and $cpu_quota CPU"
   fi
   # Sessions keep the larger share of a busy host.  These are separate child slices so a
-  # leaking detached run cannot consume the session slice's weight.
+  # leaking detached run cannot consume the session slice's weight.  Memory says the same: up
+  # to half the slice's 60% is protected for the seats, so under pressure inside the slice the
+  # runs give memory back first.  A share, like the ceiling, so it follows this machine.  Our
+  # own file is rewritten when it differs; one whose first line is not ours is left alone.
   for child in agentkit-seats.slice agentkit-runs.slice; do
-    weight=100
-    [ "$child" = agentkit-runs.slice ] && weight=40
+    weight=100 protect=$'\nMemoryLow=30%'
+    [ "$child" = agentkit-runs.slice ] && weight=40 protect=""
     dropin="$HOME/.config/systemd/user/$child.d/weights.conf"
-    if [ ! -e "$dropin" ]; then
-      mkdir -p -- "${dropin%/*}"
-      cat >"$dropin" <<EOF
-# Written by agentkit's install.sh: interactive sessions have priority over detached runs.
+    want="# Written by agentkit's install.sh: interactive sessions have priority over detached runs.
 [Slice]
 CPUWeight=$weight
-IOWeight=$weight
-EOF
+IOWeight=$weight$protect"
+    if [ -e "$dropin" ]; then
+      case "$(head -n 1 -- "$dropin" 2>/dev/null || true)" in
+        "# Written by agentkit's install.sh"*) ;;
+        *) continue ;;
+      esac
+    fi
+    if [ "$(cat -- "$dropin" 2>/dev/null)" != "$want" ]; then
+      mkdir -p -- "${dropin%/*}"
+      printf '%s\n' "$want" >"$dropin"
       WEIGHTS_CHANGED=1
     fi
   done

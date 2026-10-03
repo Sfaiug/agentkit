@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, menu, notify, orch, watch
+from agentkit import config, host, job as jobs, menu, notify, orch, watch
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
@@ -284,6 +284,29 @@ class StopHook(unittest.TestCase):
         self.assertEqual(self.blocked(self.stop(said=None, **payload))["reason"], REASON)
         self.assertEqual(self.read_as(), ("working", "Stop/held"))
 
+    def test_a_standing_watch_is_no_background_work(self):
+        """orchestration-design, 2026-10-03: its done never carded, the seat working for two days.
+
+        Claude Code keeps the comment watch on an artifact the seat published in
+        `background_tasks`, as a `monitor`, for the rest of the session.  A stop with only that
+        in flight is a turn that ended and is judged as ever; beside real work it is a wait.
+        """
+        watching = {"id": "w1", "type": "monitor", "status": "running",
+                    "description": "Comments on Prompt to Output"}
+        payload = {"transcript_path": str(self.transcript(RECOMMENDATION)),
+                   "background_tasks": [watching], "stop_hook_active": False}
+        self.assertEqual(self.blocked(self.stop(said=None, **payload))["reason"], REASON)
+        self.assertEqual(self.read_as(), ("working", "Stop/held"))
+        self.notified("done", time.time())
+        self.assertEqual(self.stop(said=None, **payload), "")
+        self.assertEqual(self.read_as(), ("at_prompt", "Stop"))
+        # ... while a background agent beside it is still work the seat waits on
+        agent = json.loads(BACKGROUND.read_text())["background_tasks"][1]
+        payload.update(background_tasks=[watching, agent], transcript_path=str(
+            self.transcript(RECOMMENDATION, before=launched(agent))))
+        self.assertEqual(self.stop(said=None, **payload), "")
+        self.assertEqual(self.read_as(), ("working", "Stop/background"))
+
     # --- what happens to a turn that ended on none of them ------------------
 
     def test_a_plain_recommendation_is_blocked_with_the_rule_it_broke(self):
@@ -446,6 +469,18 @@ class StopNudge(unittest.TestCase):
         self.tick()
         self.tick()
 
+    def job_json(self, *states, **fields):
+        self.stack.enter_context(patch.object(host, "alive", lambda pid: pid == 42))
+        self.stack.enter_context(patch.object(
+            host, "process_identity", lambda pid: {"boot": "test-boot", "ticks": 7}))
+        directory = config.JOBS / "one"
+        directory.mkdir(parents=True, exist_ok=True)
+        jobs.save_job(directory, {
+            "seat": SEAT, "pid": 42, "process_identity": {"boot": "test-boot", "ticks": 7},
+            "started_at": self.now - 9000,
+            "tasks": [{"state": state, "run_id": None} for state in states], **fields})
+        return directory
+
     # --- the rule, as a tick reaches it -------------------------------------
 
     def test_a_prompt_with_no_question_no_done_and_no_run_is_typed_into_once(self):
@@ -469,6 +504,33 @@ class StopNudge(unittest.TestCase):
                 self.tick()
                 self.tick()
                 self.typed.assert_not_called()
+
+    def test_a_live_job_with_tasks_to_start_holds_the_nudge_back(self):
+        directory = self.job_json("queued", "waiting")
+        self.assertTrue(jobs.reap_job(directory, jobs.read_job(directory)))
+        self.stopped(RECOMMENDATION)
+        self.tick()
+        self.typed.assert_not_called()
+
+    def test_a_jobs_wait_follows_renames_until_its_last_task_settles(self):
+        self.job_json("merged", "failed", "queued", seat="old-seat")
+        for before, after in (("old-seat", "middle-seat"), ("middle-seat", SEAT)):
+            config.session_path(before).write_text(json.dumps({"renamed": after}))
+        self.stopped(RECOMMENDATION)
+        self.typed.assert_not_called()
+        self.job_json("merged", "failed", "passed", seat="old-seat")
+        self.tick()
+        self.assertEqual([call.args[1] for call in self.typed.call_args_list], ["continue"])
+
+    def test_a_gone_settled_or_other_seats_job_does_not_hold_the_nudge_back(self):
+        for fields in ({"pid": 43}, {"process_identity": {"boot": "test-boot", "ticks": 8}},
+                       {"seat": "other-seat"}, {"seat": None}, {"tasks": []},
+                       {"tasks": [{"state": state} for state in jobs.JOB_TERMINAL]}):
+            with self.subTest(fields=fields):
+                self.setUp()
+                self.job_json("queued", "waiting", **fields)
+                self.stopped(RECOMMENDATION)
+                self.assertEqual([call.args[1] for call in self.typed.call_args_list], ["continue"])
 
     def test_a_question_over_two_lines_is_one_and_a_decision_under_one_is_not(self):
         """pane_tail keeps no blank line, so the rule reads the pane and not its tail."""

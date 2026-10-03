@@ -4,6 +4,10 @@
 # Verified against Claude Code 2.1.263; see tests/fixtures/README.md for the captures.
 version = 1
 
+[check]
+model = "claude-haiku-4-5"
+effort = "none"
+
 # How `ak update` moves this harness, and what `ak usage` needs beyond `<adapter> usage`:
 # `claude install <version>` is a versioned reinstall, so a failed upgrade goes back by command
 # and needs no snapshot, and the usage call is one plain adapter call with no reset to spend.
@@ -158,7 +162,7 @@ refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529"
             "500", "502", "503", "504", "Internal server error", "API Error",
             "Can't reach the API server", "at capacity"]
 quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit", "weekly limit", "429",
-          "insufficient_quota", "insufficient quota", "payment required"]
+          "insufficient_quota", "insufficient quota"]
 # `terminal` is the event log's terminal record kind: the stream ends with a `result` event,
 # which is what adapters/claude.sh reads final.md out of, failure or not.
 terminal = "result"

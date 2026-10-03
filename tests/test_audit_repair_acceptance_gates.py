@@ -17,6 +17,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import tomllib
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -170,8 +171,6 @@ finish
                 (self.root / "dialog.exp").write_text(f'expect 2 {menu_pattern}\nsend n\\n\nexpect 2 {prompt}\n')
                 child = self.root / "dialog.py"
                 child.write_text(f'import sys\nprint({menu.KEYS!r}, flush=True)\ninput()\n'
-                                 + ("print('Hooks need review\\n3. Continue without trusting', flush=True)\n"
-                                    "assert input() == '3'\n" if harness == "codex" else "")
                                  + f'print({pane!r}, flush=True)\ninput()\n')
                 self.shell('python3 "$WORK/ptydrive.py" "$WORK/transcript" "$WORK/dialog.exp" -- python3 "$WORK/dialog.py"', check=True)
         # Seeing the menu before a send cannot satisfy a later expect after the child exits.
@@ -196,7 +195,7 @@ finish
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertRegex(result.stderr, 'MISSING|PRESENT but must not be')
 
-    def test_fresh_hook_dialog_with_cursor_moves_is_declined_before_prompt(self):
+    def test_fresh_hook_dialog_with_cursor_moves_fails_before_prompt(self):
         prompt = re.search(r"^PROMPT='(.*)'$", FRESH, re.M).group(1)
         driver = between(FRESH, 'cat >"$WORK/ptydrive.py"', 'chmod 755 "$WORK/ptydrive.py"')
         self.shell(driver, check=True)
@@ -208,24 +207,60 @@ finish
                 repaint = 'OpenAI Codex\x1b[10;2H' + composer.replace(' ', spaces)
                 (self.root / 'dialog.exp').write_text(f'expect 2 {prompt}\n')
                 (self.root / 'dialog.py').write_text(
-                    f'print({pane!r}, flush=True)\nassert input() == "3"\n'
+                    f'from pathlib import Path\nprint({pane!r}, flush=True)\n'
+                    f'Path({str(self.root / "answer")!r}).write_text(input())\n'
                     f'print({repaint!r}, flush=True)\ninput()\n')
-                result = self.shell('python3 "$WORK/ptydrive.py" "$WORK/transcript" "$WORK/dialog.exp" -- python3 "$WORK/dialog.py"', check=True)
-                self.assertNotIn('MISSING', result.stderr)
+                result = self.shell('python3 "$WORK/ptydrive.py" "$WORK/transcript" "$WORK/dialog.exp" -- python3 "$WORK/dialog.py"')
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn('MISSING', result.stderr)
+                self.assertFalse((self.root / 'answer').exists())
+
+    def test_live_claude_stream_assertion_fails_the_gate(self):
+        self.assertTrue("# --- 3a: Claude streaming" in SMOKE,
+                        "the independent live Claude stream check is missing")
+        stream = between(SMOKE, "# --- 3a:", "# --- 4:")
+        helpers = between(SMOKE, "spent_until()", "# The shared contract check")
+        self.script("python3", f'''if [ "$1" = "$REPO/tests/check_claude_stream.py" ]; then
+  echo "$CHECKER_RC" >>"$WORK/stream-calls"
+  exit "$CHECKER_RC"
+fi
+exec {shlex.quote(sys.executable)} "$@"
+''')
+        for code in (0, 1):
+            with self.subTest(checker_exit=code):
+                result = self.shell(helpers + '''
+spent_until() { :; }
+skip_unavailable() { return 1; }
+''' + stream + "\nfinish", env={"CHECKER_RC": str(code)})
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                self.assertIn(f"{'FAIL' if code else 'PASS'}  3a Claude streaming", result.stdout)
+        self.assertEqual((self.root / "stream-calls").read_text().splitlines(), ["0", "1"])
 
     def test_skipped_harness_browser_and_failed_run_prerequisite(self):
-        skipped = between(SMOKE, "skip_spent()", "printf 'Create a file")
-        loop = between(SMOKE, 'HARNESSES=("opus claude"', '# --- 4:')
+        skipped = between(SMOKE, "skip_spent()", "# The shared contract check")
+        loop = between(SMOKE, '# --- 3:', '# --- 3a:')
+        manifests = list((REPO / "adapters").glob("*.toml"))
+        for path in manifests:
+            shutil.copy2(path, self.adapters)
+            manifest = tomllib.loads(path.read_text())
+            self.script(manifest["update"]["version"][0], 'exit 97\n')
+            adapter = self.adapters / f"{path.stem}.sh"
+            adapter.write_text('#!/bin/bash\necho "fixture: logged in"\n')
+            adapter.chmod(0o755)
+        snapshot = {"providers": {p: {"exhausted_until": 9999999999}
+                    for p in config.load()["providers"]}}
+        (self.root / 'spent.json').write_text(json.dumps(snapshot))
         browser = between(SMOKE, '# 31d/31e: real calls', '\nfi\n\n# --- 32:')
         prerequisite = between(SMOKE, '# --- 4d:', '\nfi\n\n# --- 5:').rsplit('\nfi', 1)[0] + '\nfi\n'
-        result = self.shell('spent_until() { echo "provider tomorrow"; }\n' + skipped + loop
+        result = self.shell('ak() { cat "$WORK/spent.json"; }\n' + loop
+                            + 'spent_until() { echo "provider tomorrow"; }\n' + skipped
                             + 'skip_spent 4/4b/4c/4d opus astra\n'
                             + 'python3() { return 1; }  # fake unavailable browser probe\n' + browser
                             + '\nRC=1 RUNDIR=""\n' + prerequisite + '\nfinish',
                             env={"AGENTKIT_ACCEPTANCE_REQUIRED": "1"})
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         # 31d/31e: no shared browser is a host's absence, counted as passed; the rest are not.
-        self.assertIn('2 passed, 0 failed, 14 skipped', result.stdout)
+        self.assertIn(f'2 passed, 0 failed, {len(manifests) + 5} skipped', result.stdout)
         self.assertIn('4d no dead orchestrator seat: prerequisite', result.stdout)
         self.assertIn('acceptance: INCOMPLETE', result.stdout)
         self.assertNotIn('PASS ', result.stdout)
@@ -239,7 +274,10 @@ finish
         self.test_skipped_harness_browser_and_failed_run_prerequisite()
 
     def test_codex_partial_hook_modal_is_not_a_ready_banner(self):
-        poll = between(SMOKE, 'PANE=""\nfor _ in', '\ncp "$HOME/')
+        block = between(SMOKE, '# --- 6d:', '# --- 6e:')
+        poll = between(block, 'PANE=""\nfor _ in', '\ncp "$HOME/')
+        ready = next(line.strip().removesuffix(" &&") for line in block.splitlines()
+                     if "&& ! grep -q 'Hooks need review'" in line)
         result = self.shell('''tm() {
 case "$1" in
   capture-pane)
@@ -248,13 +286,15 @@ case "$1" in
       cat "$REPO/tests/fixtures/codex-hooks-review-pane.txt";
     else touch "$WORK/partial"; printf 'OpenAI Codex\\nHooks need review\\n'; fi ;;
   send-keys)
-    [ "$*" = 'send-keys -t smoke-astra 3 Enter' ] || return 97
     touch "$WORK/continued" ;;
   *) return 97 ;;
 esac
 }
 sleep() { :; }
-''' + poll + '\ntest -f "$WORK/continued"\n', check=True)
+''' + poll + '\nprintf "%s" "$PANE"\nSEATLIST=1\n' + ready)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('Hooks need review', result.stdout)
+        self.assertFalse((self.root / 'continued').exists())
         self.assertNotIn('forbidden', result.stderr)
 
     def test_usage_and_echo_diagnostics_show_actual_exit_and_error_tail(self):
@@ -371,7 +411,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
                 self.assertIn('1 passed, 0 failed, 0 skipped', result.stdout)
 
     def test_smoke_recovery_and_retention_fixtures(self):
-        task = between(SMOKE, 'cat >"$WORK/retry-task.md"', '# The first sleeps')
+        task = between(SMOKE, 'cat >"$WORK/retry-task.md"', '\nretrylaunch() {')
         block = between(SMOKE, '# --- 13:', '# --- 14:')
         result = self.shell(self.newrepo + self.fakeadapter + task + block + '\nfinish')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

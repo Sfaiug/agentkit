@@ -4,6 +4,10 @@
 # A worker turn still loads Muse's own personal rules and the trusted workspace's: Muse 1.4.1 drops the latter only with the trust its delegation needs.
 version = 1
 
+[check]
+model = "muse-spark-1.3-contributor"
+effort = "minimal"
+
 # How `ak update` moves this harness.  `upgrade` is the launcher's own install path, the one
 # `install.sh` used; with MUSE_NO_AUTO_UPDATE=1 pinning it everywhere else, this is the only way
 # muse ever moves.  It offers no versioned reinstall, so there is no `revert` and `cannot` says
@@ -109,7 +113,7 @@ refusals = ["429", "quota exhausted", "usage limit reached",
             "500", "502", "503", "504", "Internal server error", "server error",
             "overloaded", "529", "at capacity", "model stream idle timeout"]
 quotas = ["429", "quota exhausted", "usage limit reached", "usage limit", "rate limit",
-          "insufficient_quota", "insufficient quota", "payment required"]
+          "insufficient_quota", "insufficient quota"]
 # `terminal` is the event log's terminal record kind: the stream ends with `run_terminal`,
 # which is what adapters/muse.sh reads final.md out of, failure or not.
 terminal = "run_terminal"

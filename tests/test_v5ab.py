@@ -76,6 +76,8 @@ class ReviewerJudgesTheDiff(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "TMUX": "", "NO_COLOR": "1",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
@@ -91,6 +93,9 @@ sys.exit(1)
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
@@ -254,18 +259,18 @@ sys.exit(1)
         self.assertIn("[not run: the done-when limit was already spent]", text)
         self.assertEqual(run.done_when_counts(text, cmds), (0, 1))
 
-    # --- (c) the fixer still verifies its own work ----------------------------
+    # --- (c) ak verifies the fixer's work -------------------------------------
 
-    def test_v5ab_fixer_prompt_still_reruns_done_when(self):
+    def test_v5ab_fixer_prompt_explains_aks_done_when_check(self):
         code, directory, state = self.launch_scratch(fail(), PASS, rounds=3)
         self.assertEqual(code, 0, self.log(directory))
         self.assertEqual(state["round_summaries"][0]["verdict"], "FAIL")
         fixer = self.calls("executor")[1]["prompt"]
-        self.assertIn("re-run the per-round done-when commands", fixer)
+        self.assertIn(worker.CHECKS, fixer)
+        self.assertNotIn("re-run the per-round done-when commands", fixer)
         self.assertNotIn("except done-when commands", self.calls("executor")[0]["prompt"])
         for role in ("fixer", "fixer-scratch"):
-            self.assertIn("re-run the per-round done-when commands",
-                          worker.PREAMBLES[role].format(workspace=self.root))
+            self.assertIn(worker.CHECKS, worker.PREAMBLES[role].format(workspace=self.root))
 
     # --- (d) every preamble keeps the opener the adapters route on ------------
 
@@ -283,16 +288,22 @@ sys.exit(1)
                 text = worker.PREAMBLES[role].format(workspace=self.root)
                 self.assertTrue(text.startswith(opener), text[:80])
 
-    # --- (e) somebody else's PR is unchanged: no loop verification precedes it -
+    # --- (e) somebody else's PR has no preceding loop verification ------------
 
     def test_v5ab_reviewer_pr_still_may_run_commands(self):
         text = worker.PREAMBLES["reviewer-pr"].format(workspace=self.root)
-        self.assertIn("(running tests/commands is fine)", text)
+        self.assertIn("[worker judgement] Run tests/commands as needed", text)
+        self.assertIn(worker.REVIEW_COPY, text)
         self.assertNotIn("except done-when commands", text)
         for role in ("reviewer", "reviewer-scratch"):
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
-                self.assertIn("Read-only: do not edit files under review", text)
+                if role == "reviewer":
+                    self.assertIn(worker.REVIEW_COPY, text)
+                    self.assertNotIn("Read-only: do not edit files", text)
+                else:
+                    self.assertIn("[worker judgement] Read-only: do not edit files under review", text)
+                    self.assertNotIn(worker.REVIEW_COPY, text)
                 self.assertIn("Run whatever is needed to prove or dismiss a finding, except "
                               "done-when commands", text)
                 if role == "reviewer":

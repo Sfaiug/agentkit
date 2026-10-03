@@ -223,7 +223,7 @@ class ExhaustedResume(unittest.TestCase):
             self.assertEqual(run.cmd_status([run_dir.name]), 0)
         # the table reads STATES words: no window, no waiting sentence, and
         # the column reads `needs you` for a run nothing will resume by itself
-        self.assertNotIn("waiting", out.getvalue())
+        self.assertNotIn("waiting for ", out.getvalue())
         row = next(line for line in out.getvalue().splitlines() if run_dir.name in line)
         self.assertIn("! needs you", row)
 

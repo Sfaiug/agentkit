@@ -13,7 +13,8 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import host, config, notify, run, usage, worker
+from fixtures.landing import landing
+from agentkit import host, config, land, notify, orch, run, usage, worker
 from agentkit import record
 
 NO_VERDICT_PROMPT = ("Your previous turn ended without ak hand-in done. Review the diff now, "
@@ -126,6 +127,9 @@ sys.exit(1)
         for executable in ("gh", "claude", "codex", "muse"):
             self.script(self.bin / executable, 'raise AssertionError("external call forbidden")\n')
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
+        self.stack.enter_context(patch.object(land, "start_line", return_value=False))
+        self.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=AssertionError("external launch")))
+        self.stack.enter_context(patch.object(run, "stop_run_tree"))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
@@ -413,6 +417,12 @@ sys.exit(1)
         with patch.object(run, "gh", side_effect=fake_gh):
             self.assertEqual(run.cmd_resume([run_dir.name]), 0,
                              (run_dir / "log.txt").read_text())
+            parked = record.read_state(run_dir)
+            self.assertEqual(parked["state"], "waiting")
+            self.assertIsNone(parked["pid"])
+            lp = run.Loop(self.cfg, run_dir, parked, {}, run.logger(run_dir, True),
+                          wt, "body", ["true"], "context", [])
+            self.assertEqual(landing(lp, consume=lambda _: run.cmd_resume([run_dir.name])), 0)
         after = record.read_state(run_dir)
         self.assertEqual(after["state"], "pass")
         executors = self.calls("executor")

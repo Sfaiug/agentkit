@@ -1,13 +1,14 @@
 """Esc, and only Esc, goes back: from every screen the menu opens, from each question and each
-text prompt, within 100 ms; on the main screen it leaves.  `q` goes back nowhere, and at a
-prompt it is a letter.  Every key line drawn names `esc`.
+text prompt; on the main screen it leaves.  `q` goes back nowhere, and at a prompt it is a
+letter.  Every key line drawn names `esc`.
 
 The screen tests run `menu.loop` in a child process on a pty of its own, the way
 tests/test_close_and_info.py does, with the seat listing, each seat's word, the usage rows, the
-probe, the stop and the rename faked; each screen says when it returned, on the monotonic clock
-the test reads too, so the time is Esc's own and no draw's.  The line-mode test drives
-`menu.loop` in-process with `menu.wait_key` and `menu.read` mocked (AGENTS.md).  Nothing here
-starts a seat or a tmux server, and the only process signalled is the test's own child.
+probe, the stop and the rename faked; each screen marks its return.  The decoder's wait stays
+under 100 ms, checked with select faked: a busy host can deschedule either process.  The
+line-mode test drives `menu.loop` in-process with `menu.wait_key` and `menu.read` mocked
+(AGENTS.md).  Nothing here starts a seat or a tmux server, and the only process signalled is
+the test's own child.
 """
 
 from contextlib import redirect_stdout
@@ -17,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import struct
 import subprocess
 import sys
@@ -35,7 +37,7 @@ from agentkit import menu, orch, terminal
 
 # The child: the real loop, screens, fields and key reader; fakes for the seats and what acts.
 CHILD = r"""
-import os, sys, time
+import os, sys
 sys.path.insert(0, os.environ["ESC_REPO"])
 from agentkit import config, menu, orch, terminal, usage
 
@@ -56,23 +58,33 @@ menu.usage.collect = lambda cfg, **kwargs: usage.Readings({})
 menu.stop_session_runs = lambda name, dry_run=False: None
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>", flush=True)
 
-def timed(module, name):
+read_key, was_q = terminal.read_key, False
+def heard(*args, **kwargs):
+    global was_q
+    if was_q:
+        print("<q handled>", flush=True)
+    key = read_key(*args, **kwargs)
+    was_q = key == terminal.Key("char", "q")
+    return key
+terminal.read_key = heard
+
+def mark_return(module, name):
     real = getattr(module, name)
 
     def screen(*args, **kwargs):
         try:
             return real(*args, **kwargs)
         finally:
-            print(f"<back {name} {time.monotonic():.4f}>", flush=True)
+            print(f"<back {name}>", flush=True)
     setattr(module, name, screen)
 
 for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "config_add"),
                      (menu, "config_add_provider"), (menu, "config_remove_provider"),
                      (menu, "config_discord"), (menu, "show_features"), (menu, "new_session"),
                      (menu, "rename_this_session"), (menu, "pause"), (terminal, "choose")):
-    timed(module, name)
+    mark_return(module, name)
 code = menu.loop(cfg, overlay=os.environ.get("ESC_OVERLAY") == "1")
-print(f"<back loop {time.monotonic():.4f}>", flush=True)
+print("<back loop>", flush=True)
 sys.exit(code)
 """
 # ACME's features command: one switch, listed.
@@ -82,7 +94,7 @@ print(json.dumps([{"id": "dark", "name": "Dark mode", "you": False, "everyone": 
                    "you_switchable": True}]))
 """
 ESC, UP, DOWN, LEFT, RIGHT, ENTER = b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[D", b"\x1b[C", b"\r"
-ESC_WAIT = 0.1       # what Esc may take to go back
+ESC_WAIT = 0.1       # the decoder's wait budget, independent of host scheduling
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES")
@@ -198,7 +210,7 @@ class Menu:
         self.case.fail(f"no row says {text}:\n" + "\n".join(lines))
 
     def back(self, name, where):
-        """`q` leaves the screen `where` accepts up, and Esc takes it down within ESC_WAIT; the
+        """`q` leaves the screen `where` accepts up, and Esc takes it down; the
         key line under it ends `esc back`, or on the menu itself `esc leave`."""
         if where is not None:
             lines = self.screen(where)
@@ -206,14 +218,11 @@ class Menu:
                                  lines)
         mark = len(self.text())
         self.send(b"q")
-        time.sleep(0.3)
-        self.case.assertNotIn(f"<back {name} ", self.text()[mark:])
+        self.until(lambda text: "<q handled>" in text[mark:], "q handled")
+        self.case.assertNotIn(f"<back {name}>", self.text()[mark:])
         mark = len(self.text())
-        sent = time.monotonic()
         self.send(ESC)
-        found = self.until(lambda text: re.search(rf"<back {name} ([\d.]+)>", text[mark:]),
-                           f"{name} back")
-        self.case.assertLess(float(found.group(1)) - sent, ESC_WAIT, name)
+        self.until(lambda text: f"<back {name}>" in text[mark:], f"{name} back")
 
     def leave(self):
         self.screen()
@@ -222,6 +231,41 @@ class Menu:
 
 
 class EscBack(unittest.TestCase):
+    def test_esc_still_goes_back_after_the_menu_is_descheduled(self):
+        menu_ = Menu(self)
+        menu_.screen()
+        menu_.press(b"c", title("config · alpha"))
+        model = lambda lines: any("model id" in line for line in lines)
+        menu_.press(LEFT + ENTER, model)
+        send = menu_.send
+
+        def queued(keys):
+            if keys != ESC:
+                return send(keys)
+            # Only this test's child stops: a busy host may leave Esc queued just as long.
+            menu_.proc.send_signal(signal.SIGSTOP)
+            _, status = os.waitpid(menu_.proc.pid, os.WUNTRACED)
+            self.assertTrue(os.WIFSTOPPED(status))
+            try:
+                send(keys)
+                time.sleep(ESC_WAIT * 2)
+            finally:
+                menu_.proc.send_signal(signal.SIGCONT)
+
+        with patch.object(menu_, "send", side_effect=queued):
+            menu_.back("config_model", model)
+        menu_.back("config_matrix", title("config · alpha"))
+        menu_.leave()
+
+    def test_esc_decoder_waits_less_than_100_ms_for_another_byte(self):
+        with patch.object(terminal, "_KEYED", ESC), \
+                patch.object(terminal.select, "select", return_value=([], [], [])) as wait:
+            self.assertEqual(terminal._key(42), terminal.Key("esc"))
+        self.assertEqual(wait.call_count, 1)
+        self.assertEqual(wait.call_args.args[:3], ([42], [], []))
+        self.assertGreater(wait.call_args.args[3], 0)
+        self.assertLess(wait.call_args.args[3], ESC_WAIT)
+
     def test_every_screen_under_the_menu_goes_back_on_esc_and_never_on_q(self):
         menu_ = Menu(self)
         menu_.highlight("alpha")
@@ -325,11 +369,18 @@ class EscBack(unittest.TestCase):
                              "界" * 30)
         drawn = [terminal.cells(line) for line in out.getvalue().split("\r") if line]
         self.assertLess(max(drawn), 40, drawn)
-        # a paste is drawn once a key and still lets Esc through at once
-        with patch.object(terminal, "width", return_value=40):
-            began = time.monotonic()
+        measured, cells = 0, terminal.cells
+
+        def counted(text):
+            nonlocal measured
+            measured += len(text)
+            return cells(text)
+
+        # Measurement work per key stays bounded by the screen, so a paste cannot hold Esc up.
+        with patch.object(terminal, "width", return_value=40), \
+                patch.object(terminal, "cells", counted):
             self.assertEqual(typed(*[Key("char", "a")] * 800, Key("esc")), terminal.ESC)
-        self.assertLess(time.monotonic() - began, ESC_WAIT)
+        self.assertLessEqual(measured, 800 * 40 * 2)
 
 
 

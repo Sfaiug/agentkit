@@ -302,9 +302,11 @@ class Writes(Sandbox):
         source = self.root / "task.md"
         source.write_text(task)
         popen = {"return_value.pid": 99999999}
+        # The fake launcher assumes a ready box; it cannot answer the host's probes.
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "herdr"}), \
                 patch.object(run.usage, "collect", return_value={}), \
                 patch.object(orch, "scope_oom_policy", return_value=False), \
+                patch.object(run.box, "check", return_value=None), \
                 patch.object(run.subprocess, "Popen", **popen), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(run.main([str(source), "--bg"]), 0)
@@ -317,6 +319,7 @@ class Writes(Sandbox):
         with patch.dict(os.environ, {"AGENTKIT_SESSION": ""}), \
                 patch.object(run.usage, "collect", return_value={}), \
                 patch.object(orch, "scope_oom_policy", return_value=False), \
+                patch.object(run.box, "check", return_value=None), \
                 patch.object(run.subprocess, "Popen", **popen), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(run.main([str(source), "--bg"]), 0)

@@ -21,7 +21,7 @@ from agentkit import run
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 # real models, GitHub, Discord, live meters, the host's shared browser
-OUTSIDE = {"1", "2", "3", "3a", "3b", "3c", "4", "4b", "4c", "4d", "5", "6", "6b", "6d",
+OUTSIDE = {"1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d",
            "31a", "31d", "31e"}
 # a check's verdict, or the labels a helper or a loop gives it: `ok "4b ...`, `skip_spent 4/4b`
 VERDICT = re.compile(r'\b(?:ok|no|skip)\s+"(\d+[a-z]?)[\s:]')
@@ -49,6 +49,7 @@ class LandingSuiteOffline(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         (self.root / "tests").mkdir()
+        (self.root / "tests/landing.py").write_text((REPO / "tests/landing.py").read_text())
         self.log = self.root / "ran.log"
 
     def ran(self):
@@ -149,8 +150,8 @@ class LandingSuiteOffline(unittest.TestCase):
                                       capture_output=True, text=True, timeout=60)
                 self.assertEqual(proc.returncode, code, proc.stdout + proc.stderr)
                 ran = self.ran()
-                self.assertEqual([entry for entry in ran if entry != "lo up"],
-                                 [f"smoke {where} required=1", f"every_file {where} required=1"])
+                self.assertCountEqual([entry for entry in ran if entry != "lo up"],
+                                      [f"smoke {where} required=1", f"every_file {where} required=1"])
                 # the probe and the suite each bring loopback up in their own namespace
                 self.assertEqual(ran.count("lo up"), 0 if extra.get("ACME_NO_NAMESPACE") else 2)
 

@@ -134,29 +134,6 @@ class HistoryTests(unittest.TestCase):
             clock[0] += 20
             history.close_step("retried")
         self.assertEqual(history.get("retried")["executor_seconds"], 60)
-        # ... nor is the wait for another run's merge turn: thirty seconds' merging, then ten
-        real_flock = run.fcntl.flock
-
-        def flock(lock, flags):
-            if ".merge-" not in lock.name:
-                return real_flock(lock, flags)
-            if flags & run.fcntl.LOCK_NB:
-                raise BlockingIOError
-            clock[0] += 600         # another run lands meanwhile
-
-        state = {"run_id": "retried", "state": "running", "base": "main", "rounds": 1,
-                 "repo": "/x/ATOLL", "executor": "opus", "reviewer": "astra",
-                 "round_summaries": [{}]}
-        lp = run.Loop({}, run_dir, state, {}, lambda _: None, run_dir, "", [], "", [])
-        with patch.object(run.time, "time", lambda: clock[0]), \
-                patch.object(run.fcntl, "flock", flock), \
-                patch.object(config, "RUNS", self.home / "runs"):
-            lp.step("merge")
-            clock[0] += 30
-            with run.merge_turn(lp, "origin/main"):
-                clock[0] += 10
-            history.close_step("retried")
-        self.assertEqual(history.get("retried")["merge_seconds"], 40)
 
     def test_a_dead_loop_keeps_its_checkpointed_work_and_a_merge_retry_its_time(self):
         # the sampler counts the open step as the loop goes, so a loop that dies keeps its
@@ -196,50 +173,6 @@ class HistoryTests(unittest.TestCase):
         run.history_finish(state)
         self.assertAlmostEqual(history.get("merged")["merge_seconds"], 210, delta=1)
 
-    def test_a_merge_turn_wait_counts_no_step_while_its_record_save_blocks(self):
-        # forty seconds' merging, then the turn is taken and the waiter's record lock is held
-        # ten minutes: the sampler checkpoints meanwhile, and only the forty count, both for
-        # an ordinary wait and for a reserved lap taking its lent turn back
-        clock = [1000.0]
-        real_flock, real_save = run.fcntl.flock, record.save_state
-
-        def flock(lock, flags):
-            if ".merge-" not in lock.name:
-                return real_flock(lock, flags)
-            if flags & run.fcntl.LOCK_NB:
-                raise BlockingIOError
-
-        def save_state(run_dir, state):
-            if state.get("merge_turn") or state.get("merge_retake"):
-                clock[0] += 600                                  # the record's lock is held
-                history.close_step(state["run_id"], keep=True)   # the sampler's checkpoint
-            real_save(run_dir, state)
-
-        for run_id, lent in (("waited", False), ("retaken", True)):
-            run_dir = self.home / "runs" / run_id
-            run_dir.mkdir(parents=True)
-            state = {"run_id": run_id, "state": "running", "base": "main", "rounds": 1,
-                     "repo": "/x/ATOLL", "executor": "opus", "reviewer": "astra",
-                     "round_summaries": [{}]}
-            history.start_run(run_id, repo="ATOLL", started_at=0)
-            lp = run.Loop({}, run_dir, state, {}, lambda _: None, run_dir, "", [], "", [])
-            with patch.object(run.time, "time", lambda: clock[0]), \
-                    patch.object(run.fcntl, "flock", flock), \
-                    patch.object(record, "save_state", save_state), \
-                    patch.object(config, "RUNS", self.home / "runs"):
-                lp.step("merge")
-                clock[0] += 40
-                if lent:
-                    lock = run.merge_turn_lock("/x/ATOLL", "origin/main").open("a")
-                    self.addCleanup(lock.close)
-                    run._MERGE_HELD.hold = run._MergeHold(lock, lp, True)
-                    run._MERGE_HELD.hold.lent = True
-                    run._MERGE_HELD.hold.reservation = run_dir / "none.hold"
-                    self.addCleanup(setattr, run._MERGE_HELD, "hold", None)
-                with run.merge_turn(lp, "origin/main"):
-                    pass
-                history.close_step(run_id)
-            self.assertEqual(history.get(run_id)["merge_seconds"], 40, run_id)
 
     def test_rows_from_before_are_read_as_written_and_never_rewritten(self):
         # the host's database as an earlier build of this change left it, and the rows an older

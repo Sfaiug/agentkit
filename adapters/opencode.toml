@@ -5,6 +5,10 @@
 # A worker turn still loads ~/.config/opencode/AGENTS.md: OpenCode 2.0.14 has no switch for it, only for the repository's.
 version = 1
 
+[check]
+model = "mimo/mimo-v2.6-flash"
+effort = "none"
+
 # How `ak update` moves this harness: `opencode upgrade [version]` installs the latest release
 # or the named one, so a failed upgrade goes back by command and needs no snapshot.  The
 # binary's own upgrade keeps it on the channel it came from: a 2.x install is never moved

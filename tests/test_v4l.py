@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -505,41 +506,41 @@ class Babysitter(unittest.TestCase):
 
 
 class RunsAndSmoke(unittest.TestCase):
-    def test_smoke_codex_startup_continues_without_trusting_hooks(self):
+    def test_smoke_codex_startup_rejects_hook_review(self):
         source = (REPO / "tests/smoke.sh").read_text()
         block = source[source.index("# --- 6d:"):source.index("# --- 7:")]
         poll = block[block.index('PANE=""'):block.index('\ncp "$HOME/')]
-        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
-            script = '''set -uo pipefail
+        ready = next(line.strip().removesuffix(" &&") for line in block.splitlines()
+                     if "&& ! grep -q 'Hooks need review'" in line)
+        script = '''set -uo pipefail
 tm() {
   case "$1" in
     capture-pane)
-      if [ -f "$WORK/continued" ]; then
-        echo 'OpenAI Codex'
-      elif [ -f "$WORK/first-frame" ]; then
-        touch "$WORK/options-visible"
-        cat "$REPO/tests/fixtures/codex-hooks-review-pane.txt"
-      else
-        touch "$WORK/first-frame"
-        echo 'Hooks need review'  # a partial frame must not get any answer yet
-      fi ;;
+      case "$FRAME" in
+        prompt) echo 'OpenAI Codex' ;;
+        partial) printf 'OpenAI Codex\\nHooks need review\\n' ;;
+        full) cat "$REPO/tests/fixtures/codex-hooks-review-pane.txt" ;;
+      esac ;;
     send-keys)
       printf '%s\\n' "$*" >>"$WORK/keys"
-      [ "$*" = 'send-keys -t smoke-astra 3 Enter' ] || return 1
-      [ -f "$WORK/options-visible" ] || return 1
-      touch "$WORK/continued" ;;
+      return 1 ;;
     *) return 1 ;;
   esac
 }
 sleep() { :; }
 '''
-            env = {**os.environ, "WORK": directory, "REPO": str(REPO)}
-            result = subprocess.run(["bash", "-c", script + poll + '\nprintf "%s" "$PANE"'],
-                                    env=env, text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, "OpenAI Codex")
-            self.assertEqual((Path(directory) / "keys").read_text(),
-                             "send-keys -t smoke-astra 3 Enter\n")
+        for frame, expected in (("prompt", 0), ("partial", 1), ("full", 1)):
+            with self.subTest(frame=frame), \
+                    tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
+                env = {**os.environ, "WORK": directory, "REPO": str(REPO),
+                       "FRAME": frame, "SEATLIST": "1"}
+                result = subprocess.run(
+                    ["bash", "-c", script + poll + '\nprintf "%s" "$PANE"\n' + ready],
+                    env=env, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertIn("OpenAI Codex" if frame == "prompt" else "Hooks need review",
+                              result.stdout)
+                self.assertFalse((Path(directory) / "keys").exists())
 
     def test_smoke_notification_number_ignores_the_callers_resumable_seats(self):
         source = (REPO / "tests/smoke.sh").read_text()
@@ -638,7 +639,7 @@ esac
 
     def test_smoke_skips_spent_dependencies_before_github_and_mcp_calls(self):
         source = (REPO / "tests/smoke.sh").read_text()
-        helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\nprintf 'Create", 1)[0]
+        helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\n# The shared contract check", 1)[0]
         helpers = f'. "{REPO}/tests/acceptance.sh"\n' + helpers
         run_block = source[source.index("# --- 4:"):source.index("# --- 5:")]
         mcp_block = source[source.index("# 31d/31e:"):source.index("\nfi\n\n# --- 32:")]
@@ -817,7 +818,7 @@ esac
 
     def test_smoke_exhaustion_is_scoped_to_the_tested_model(self):
         source = (REPO / "tests/smoke.sh").read_text()
-        function = source.split("spent_until()", 1)[1].split("\nprintf 'Create", 1)[0]
+        function = source.split("spent_until()", 1)[1].split("\n# The shared contract check", 1)[0]
         script = "spent_until()" + function + '\nspent_until "$1"\n'
         with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             work = Path(directory)
@@ -849,7 +850,7 @@ esac
 
     def test_smoke_host_cache_checks_the_login_the_sandbox_borrowed(self):
         source = (REPO / "tests/smoke.sh").read_text()
-        helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\nprintf 'Create", 1)[0]
+        helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\n# The shared contract check", 1)[0]
         script = ('set -uo pipefail\n. "$REPO/tests/acceptance.sh"\n' + helpers +
                   '\nskip_unavailable() { return 1; }\n'
                   'if skip_spent 3a/3b/31d opus; then :; else echo ATTEMPT; fi\nfinish\n')
@@ -900,58 +901,34 @@ esac
                     self.assertEqual((host / "usage.json").read_text(), cache)
 
     def test_smoke_handles_a_live_refusal_below_the_cached_cap(self):
+        from test_update_gate_every_harness import unboxed_worker
+
         source = (REPO / "tests/smoke.sh").read_text()
-        newrepo = source[source.index("newrepo()"):source.index('echo "workdir:')]
         calls = source[source.index("# --- 3:"):source.index("# --- 4:")]
         mcp = source[source.index("# 31d/31e:"):source.index("\nfi\n\n# --- 32:")]
-        # Every live entry point is a shell fake. The stream checker returns the
-        # worker's exit, or a fixture assertion failure after a successful turn.
+        # Models and MCP calls stay fake; the contract itself uses the real worker path.
         fakes = r'''
 python3() {
   case "$*" in
-    *check_claude_stream.py*) shift 2; "$@"; local rc=$?
-                            [ "$rc" != 0 ] || rc=${CHECKER_RC:-0}; return "$rc" ;;
+    *check_claude_stream.py*)
+      echo stream >>"$WORK/calls"
+      mkdir -p "$2"
+      echo DONE >"$2/final.md"
+      printf '%s\n' "${WARNING:-}" >"$2/stderr.log"
+      printf '{"type":"result","is_error":false,"result":"DONE","session_id":"fixture"}\n' >"$2/events.jsonl"
+      echo fixture >"$2/session_id"
+      return "${CHECKER_RC:-0}" ;;
     *urllib.request*|*socket.create_connection*) return 0 ;;
     *) "$PYTHON_BIN" "$@" ;;
   esac
 }
-model_unavailable() { [ "$1" = opus ] || echo 'fixture harness is not installed'; }
 skip_unavailable() { return 1; }
-ak() {
-  case "$1" in
-    usage) cat "$WORK/sandbox.json" ;;
-    browser) return 0 ;;
-    worker)
-      local out='' workspace='' resumed=0 rc text
-      shift 3
-      while [ $# != 0 ]; do
-        case "$1" in
-          --out) out=$2; shift 2 ;;
-          --workspace) workspace=$2; shift 2 ;;
-          --session) resumed=1; shift 2 ;;
-          *) return 97 ;;
-        esac
-      done
-      echo "worker-$resumed" >>"$WORK/calls"
-      if [ "$resumed" = 0 ]; then rc=$FIRST_RC text=$FIRST_TEXT
-      else rc=$RESUME_RC text=$RESUME_TEXT; fi
-      mkdir -p "$out"
-      printf '%s\n' "$text" >"$out/final.md"
-      printf '%s\n' "${WARNING:-}" >"$out/stderr.log"
-      echo fixture-session >"$out/session_id"
-      [ "$rc" != 0 ] || printf 'hello\n' >"$workspace/hello.txt"
-      if [ "$rc" = 0 ] && [ "$resumed" = 0 ]; then
-        "$PYTHON_BIN" "$REPO/tests/fixtures/hand_in.py" smoke "$out" "$workspace" || return $?
-      fi
-      return "$rc" ;;
-    *) return 97 ;;
-  esac
-}
+ak() { case "$1" in usage) cat "$WORK/sandbox.json" ;; browser) return 0 ;; *) return 97 ;; esac; }
 claude() { echo mcp >>"$WORK/calls"; echo "$MCP_TEXT"; return "$MCP_RC"; }
 codex() { echo BROWSER_TABS=1; }
 '''
         script = ('set -uo pipefail\n. "$REPO/tests/acceptance.sh"\n' + fakes +
-                  newrepo + calls + mcp + '\nfinish\n')
+                  calls + mcp + '\nfinish\n')
         notice = "You've hit your weekly limit · resets Oct 2, 2pm (Europe/Berlin)"
         with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
@@ -964,7 +941,44 @@ codex() { echo BROWSER_TABS=1; }
                 "accounts": {"default": meter}}}}
             cache = json.dumps(cached)
             (host / "usage.json").write_text(cache)
+            adapters, binaries = root / "adapters", root / "bin"
+            adapters.mkdir()
+            binaries.mkdir()
+            (binaries / "claude").touch(mode=0o755)
+            shutil.copy2(REPO / "adapters/claude.toml", adapters)
+            adapter = adapters / "claude.sh"
+            adapter.write_text(r'''#!/bin/bash
+case $1 in
+  auth) echo 'fixture: logged in' ;;
+  run)
+    resumed=0; [ -z "${7:-}" ] || resumed=1
+    echo "worker-$resumed" >>"$WORK/calls"
+    if [ "$resumed" = 0 ]; then rc=$FIRST_RC text=$FIRST_TEXT
+    else rc=$RESUME_RC text=$RESUME_TEXT; fi
+    mkdir -p "$6"
+    printf '%s\n' "$text" >"$6/final.md"
+    printf '%s\n' "${WARNING:-}" >"$6/stderr.log"
+    if [ "$resumed" = 0 ]; then
+      sed -n 's/^Run: //p' "$5" >"$6/commands.sh"
+      if [ "${HAND_IN:-1}" = 0 ]; then
+        sed '/hand-in done/d' "$6/commands.sh" >"$6/without-close.sh"
+        mv "$6/without-close.sh" "$6/commands.sh"
+      fi
+      [ "$rc" != 0 ] || (cd "$4" && bash "$6/commands.sh") || exit $?
+      filename=$(sed -n 's/.* > //p' "$6/commands.sh")
+      printf 'fixture:%s\n' "$filename" >"$6/session_id"
+    elif [ "$rc" = 0 ]; then
+      printf '%s\n' "${7#fixture:}" >"$6/final.md"
+      printf '%s\n' "$7" >"$6/session_id"
+    fi
+    exit "$rc" ;;
+esac
+''')
+            adapter.chmod(0o755)
             base = {**os.environ, "HOME": directory, "REPO": str(REPO),
+                    "PYTHONPATH": unboxed_worker(root),
+                    "PATH": f"{binaries}:{os.environ['PATH']}",
+                    "AGENTKIT_ADAPTER_DIR": str(adapters),
                     "SMOKE_CALLER_HOME": str(root / "caller"), "PYTHON_BIN": sys.executable,
                     "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_ACCEPTANCE_REQUIRED": "0",
                     "FIRST_RC": "0", "FIRST_TEXT": "DONE", "RESUME_RC": "0",
@@ -972,17 +986,19 @@ codex() { echo BROWSER_TABS=1; }
                     "MCP_TEXT": "BROWSER_TABS=1 DESKTOP=ok"}
             for name, env, expected, skipped, fail in (
                     ("create", {"FIRST_RC": "1", "FIRST_TEXT": notice},
-                     ["worker-0"], ["3a", "3b", "31d"], False),
+                     ["worker-0"], ["3", "3a", "31d"], False),
                     ("resume", {"RESUME_RC": "1", "RESUME_TEXT": notice},
-                     ["worker-0", "worker-1"], ["3b", "31d"], False),
+                     ["worker-0", "worker-1"], ["3", "3a", "31d"], False),
                     ("mcp", {"MCP_RC": "1", "MCP_TEXT": notice},
-                     ["worker-0", "worker-1", "mcp"], ["31d"], False),
+                     ["worker-0", "worker-1", "stream", "mcp"], ["31d"], False),
                     ("fault", {"FIRST_RC": "1", "FIRST_TEXT": "API Error: HTTP 503"},
-                     ["worker-0", "worker-1", "mcp"], [], True),
+                     ["worker-0", "stream", "mcp"], [], True),
                     ("warning", {"WARNING": notice},
-                     ["worker-0", "worker-1", "mcp"], [], False),
+                     ["worker-0", "worker-1", "stream", "mcp"], [], False),
+                    ("missing hand-in", {"WARNING": notice, "HAND_IN": "0"},
+                     ["worker-0", "stream", "mcp"], [], True),
                     ("stream assertion", {"WARNING": notice, "CHECKER_RC": "1"},
-                     ["worker-0", "worker-1", "mcp"], [], True)):
+                     ["worker-0", "worker-1", "stream", "mcp"], [], True)):
                 with self.subTest(name=name):
                     work = root / name
                     work.mkdir()
@@ -993,8 +1009,9 @@ codex() { echo BROWSER_TABS=1; }
                                             text=True, capture_output=True, timeout=30)
                     self.assertEqual(result.returncode, 1 if fail else 0,
                                      result.stdout + result.stderr)
-                    for label in ("3a", "3b", "31d"):
-                        self.assertEqual(f"SKIP  {label}:" in result.stdout, label in skipped,
+                    for label in ("3", "3a", "31d"):
+                        prefix = "SKIP  3 claude:" if label == "3" else f"SKIP  {label}:"
+                        self.assertEqual(prefix in result.stdout, label in skipped,
                                          result.stdout)
                     self.assertEqual((work / "calls").read_text().splitlines(), expected)
                     self.assertEqual((host / "usage.json").read_text(), cache)

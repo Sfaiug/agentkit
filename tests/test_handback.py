@@ -22,7 +22,7 @@ from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
 from fixtures.hand_in import records, scripted
-from agentkit import gate, host, browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
+from agentkit import gate, host, browser, config, gc, job as jobs, land, menu, notify, orch, run, terminal, watch
 from agentkit import record
 
 SEAT = "seat"
@@ -108,6 +108,7 @@ class HandBack(Sandbox):
 
     def setUp(self):
         super().setUp()
+        self.stack.enter_context(patch.object(land, "start_line", return_value=True))
         self.stack.enter_context(patch.dict(os.environ, {
             "AK_RUN_ROLE": "orchestrator", "AGENTKIT_DISCORD_WEBHOOK": "",
             "AGENTKIT_DISCORD_USER_ID": ""}))
@@ -151,7 +152,7 @@ class HandBack(Sandbox):
                              "conversation": "thread-seat", "id_source": orch.LAUNCHER})
 
     def send(self, session, text, log, harness=None, guard=nullcontext,
-             veto=lambda _name: False, typed=lambda: None, pending=False):
+             veto=lambda _name: False, typed=lambda: None, pending=False, **_kw):
         """The confirmed send, minus tmux: the real lock is taken and the real veto read."""
         with guard() as held:
             if self.leaves:
@@ -327,8 +328,8 @@ class HandBack(Sandbox):
         run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [(SEAT, (
             "run run-fail finished FAIL: after 3 rounds, open findings: "
-            "- a.py:1 - one - why Quote: fixture evidence "
-            "- b.py:2 - two - why Quote: fixture evidence. "
+            "- a.py:1 - one - why $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence "
+            "- b.py:2 - two - why $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence. "
             f"Result: {directory / 'result.md'}. Decide the next step. "
             "three rounds spent: split or re-scope"))])
         self.assertEqual(self.cards, [])
@@ -383,7 +384,7 @@ class HandBack(Sandbox):
                           findings_file=str(answer))
         state = record.read_state(long)
         self.assertTrue(run.handback_reason(state).startswith(
-            f"after 3 rounds, open findings: {first} Quote: fixture evidence - n0.py:1 - "))
+            f"after 3 rounds, open findings: {first} $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence - n0.py:1 - "))
         self.assertTrue(run.handback_line(state, long).endswith(
             "three rounds spent: split or re-scope"))
         # a PASS the loop failed -- the reviewer exited 1, the checkout moved -- says so
@@ -465,7 +466,7 @@ class HandBack(Sandbox):
         run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [(SEAT, (
             "run run-10 finished FAIL: after 2 rounds, open findings: "
-            "- a.py:1 - one - why Quote: fixture evidence. "
+            "- a.py:1 - one - why $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence. "
             f"Result: {directory / 'result.md'}. Decide the next step. "
             "two rounds spent: split or re-scope"))])
         self.assertEqual(self.cards, [])
@@ -581,6 +582,18 @@ class HandBack(Sandbox):
         self.tick()
         self.assertEqual(len(self.typed), 1)
         self.assertIn("finished FAIL:", self.typed[0][1])
+
+    def test_a_line_member_counts_as_work_and_has_no_ending_to_hand_back(self):
+        directory = self.ended("run-line", owner=SEAT, state="waiting", finished_at=1,
+                               recovery_pending=True, waiting_on={"line": run.merge_lock_path(
+                                   "https://github.com/acme/widget.git", "origin/main").name,
+                                   "joined": 100})
+        state = record.read_state(directory)
+        self.assertEqual(run.seat_tallies([state], now=200000)[SEAT], (1, 0, 0))
+        self.assertFalse(menu.v5o_needs_look(state, now=200000))
+        self.assertFalse(run.needs_recovery(state))
+        run.announce(state, directory, self.logs.append)
+        self.assertEqual((self.typed, self.cards), ([], []))
 
     def test_two_snapshots_of_one_ending_deliver_it_exactly_once(self):
         # the loop that finished the run and the tick that found it unheard both hold a copy:

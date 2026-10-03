@@ -16,6 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted
+from fixtures.landing import fork_turn
 from agentkit import config, orch, run, usage, watch
 from agentkit import record as run_record
 
@@ -39,6 +40,7 @@ class Correctness(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.object(run, "join_line", side_effect=fork_turn))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
@@ -585,8 +587,9 @@ esac
         task = self.root / "task.md"
         task.write_text(f"---\nrepo: {repo}\nbase: main\n---\n# Different title\n\n"
                         "## Done when\n```bash\ntest \"$(cat delivered)\" = from-basename\n```\n")
+        # no user manager in XDG_RUNTIME_DIR: the foreground run is never moved into a unit
         env = dict(os.environ, HOME=str(home), AGENTKIT_ADAPTER_DIR=str(adapters),
-                   AK_SLOT_POLL=".05",
+                   AK_SLOT_POLL=".05", XDG_RUNTIME_DIR=str(self.root),
                    AK_HOST_READINGS=json.dumps({"free_mb": 4096, "mem_total_mb": 16384,
                                                 "load": 1, "cpus": 8,
                                                 "unit_memory_current_mb": 100,

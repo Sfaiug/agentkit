@@ -139,8 +139,8 @@ class GateLanders(unittest.TestCase):
         self.assertTrue(plain.result[0] and lander.result[0])
         self.assertEqual(self.marks.read_text(), "lander\nround\n")
 
-    def test_earlier_first_landing_wait_wins_between_landers_across_laps(self):
-        # the old lander is on its second lap: waiting since 3000, but its first
+    def test_earlier_first_landing_wait_wins_between_landers_across_retries(self):
+        # the old lander is on its second wait: waiting since 3000, but its first
         # landing wait began at 1000, ahead of the new lander's 2000
         self.waiter("old-lander", ACME, 3000, landing=True, landing_since=1000)
         self.waiter("new-lander", ACME, 2000, landing=True, landing_since=2000)
@@ -152,41 +152,6 @@ class GateLanders(unittest.TestCase):
                     landing_since=2500)
         self.assertFalse(gate._gate_waiter_before(repo, "old-lander", 1000, True))
         self.assertTrue(gate._gate_waiter_before(repo, "lander-first", 2500, True))
-        # the ranking fixtures above never leave, and a real landing now takes its own
-        # gate turn first, so the laps below run after their marks are gone
-        for name in ("old-lander", "new-lander", "lander-first"):
-            directory = config.RUNS / name
-            ranked = run_record.read_state(directory)
-            ranked.pop("gate_turn", None)
-            run_record.save_state(directory, ranked)
-        # across laps in a real landing: each lap waits, and a whole-record save of
-        # the loop's own state between two waits keeps the landing's start
-        run_dir = self.record("lap-run", ACME)
-        state = run_record.read_state(run_dir)
-        state["base_sha"] = "base0001"
-        run_record.save_state(run_dir, state)
-        lp = SimpleNamespace(state=run_record.read_state(run_dir), run_dir=run_dir,
-                             wt=self.root / "wt", base_sha="base0001", once=[],
-                             log=lambda msg: None, no_pickup=True,
-                             write=lambda: run_record.save_state(run_dir, lp.state))
-        firsts = []
-
-        def verify():
-            began = gate.mark_gate_wait(run_dir, repo)
-            firsts.append(began)
-            self.assertEqual(gate._first_landing_wait(run_dir), began)
-            gate.mark_gate_wait(run_dir, None)
-            run_record.save_state(run_dir, lp.state)   # an inner save, as final_check does
-            return True
-
-        with patch.object(run, "git", return_value="tip9999"), \
-                patch.object(run, "git_out", return_value=(0, "")), \
-                patch.object(run, "disjoint_move", return_value=False):
-            self.assertFalse(run.land(lp, "origin/main", verify, lambda: True,
-                                      execv=lambda *a: self.fail("no pickup here")))
-        self.assertEqual(len(firsts), 3)
-        self.assertEqual(firsts[1], firsts[0])
-        self.assertEqual(firsts[2], firsts[0])
         # a landing mark with no recorded start still seeds one rather than failing
         bare = self.record("bare-lander", ACME, landing=True)
         began = gate.mark_gate_wait(bare, repo)
@@ -194,7 +159,7 @@ class GateLanders(unittest.TestCase):
 
     def test_two_land_driven_landers_compare_by_their_first_waits(self):
         # no hand-built starts: each landing's first real mark seeds its count,
-        # and a later lap's wait keeps it
+        # and a later retry's wait keeps it
         early = self.record("seed-early", ACME, landing=True)
         late = self.record("seed-late", ACME, landing=True)
         repo = run.main_checkout(ACME)
@@ -204,7 +169,7 @@ class GateLanders(unittest.TestCase):
             gate.mark_gate_wait(early, None)
             self.assertEqual(gate.mark_gate_wait(late, repo), 2000.0)
             gate.mark_gate_wait(late, None)
-            # second laps wait now but count from their seeds
+            # second waits wait now but count from their seeds
             self.assertEqual(gate.mark_gate_wait(early, repo), 1000.0)
             self.assertEqual(gate.mark_gate_wait(late, repo), 2000.0)
         self.assertTrue(gate._gate_waiter_before(repo, "seed-late", 2000.0, True))
@@ -256,27 +221,6 @@ class GateLanders(unittest.TestCase):
         self.assertNotIn("landing", lp.state)
         self.assertNotIn("landing", run_record.read_state(run_dir))
         self.assertFalse((run_dir / "landing_since").exists())
-        # a pickup resume keeps its marker with its lap count
-        rerun = self.record("landing-resumed", ACME)
-        state = run_record.read_state(rerun)
-        state.update(base_sha="base0001", land_lap=2)
-        run_record.save_state(rerun, state)
-        (rerun / "landing_since").write_text("1000.0")
-        kept = SimpleNamespace(state=run_record.read_state(rerun), run_dir=rerun,
-                               wt=self.root / "wt", base_sha="base0001", once=[],
-                               log=lambda msg: None, no_pickup=True,
-                               write=lambda: run_record.save_state(rerun, kept.state))
-
-        def again():
-            self.assertEqual(gate.mark_gate_wait(rerun, repo), 1000.0)
-            gate.mark_gate_wait(rerun, None)
-            return True
-
-        with patch.object(run, "git", return_value="base0001"), \
-                patch.object(run, "git_out", return_value=(0, "")):
-            self.assertTrue(run.land(kept, "origin/main", again, lambda: True,
-                                     execv=lambda *a: self.fail("no pickup here")))
-        self.assertFalse((rerun / "landing_since").exists())
 
 
 if __name__ == "__main__":

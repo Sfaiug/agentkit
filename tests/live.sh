@@ -6,4 +6,5 @@
 # runs them; ak runs this file before a host takes new agentkit code and when a harness
 # upgrades, with AGENTKIT_ACCEPTANCE_REQUIRED=1, so a skipped check fails it too.
 export AGENTKIT_SMOKE_LIVE=1
+unset AK_SHARD   # host certification always exercises the whole live suite
 exec bash "$(dirname -- "${BASH_SOURCE[0]}")/smoke.sh"

@@ -42,7 +42,7 @@ SHARE = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_home() {"
 # live call. The helpers live in check 1's section, so the skip runs with them
 # prepended, as check 6 does.
 CHECK_3_SKIP = SMOKE[SMOKE.index('ak usage --json >"$WORK/usage-real.json"'):
-                     SMOKE.index("printf 'Create a file hello.txt")]
+                     SMOKE.index("# The shared contract check")]
 
 FAR_FUTURE = 1999999999
 
@@ -241,7 +241,7 @@ class GateTolerance(unittest.TestCase):
         # resets in weeks is the provider's state, and holds no host on old code.
         for kind, why in self.SPENT.items():
             with self.subTest(kind):
-                result = self.shell('ok_call "3c grok (grokbuild): replied PONG"\n'
+                result = self.shell('ok_call "3 grokbuild: proved the contract"\n'
                                     f'skip_spent_checks 3a/3b "{why}"\n',
                                     AGENTKIT_ACCEPTANCE_REQUIRED="1")
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -251,7 +251,7 @@ class GateTolerance(unittest.TestCase):
                 self.assertIn("all checks exercised and passed; "
                               "2 spent-window skips counted as passed", last)
         # Beside it, every other skip counts as it did.
-        result = self.shell('ok_call "3c grok (grokbuild): replied PONG"\n'
+        result = self.shell('ok_call "3 grokbuild: proved the contract"\n'
                             f'skip_spent_checks 3a "{self.SPENT["spent window"]}"\n'
                             'skip "4: prerequisite run did not happen"\n',
                             AGENTKIT_ACCEPTANCE_REQUIRED="1")

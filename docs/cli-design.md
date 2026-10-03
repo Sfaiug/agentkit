@@ -82,7 +82,8 @@ the seat asked, `waiting for you`, the done summary's first line -- and for
 `working` the tasks bar (`tasks ██░░░ 2/5`) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
 from (the newest wins), else from its unfinished jobs' tasks, else empty --
-never `N running`. No row ever names a run: an ended run is its orchestrator's
+except for a run recorded in the line to land: its seat shows `waiting · 3rd in line to land on main`.
+Never `N running`. No row ever names a run: an ended run is its orchestrator's
 business.
 
 ## Keys
@@ -331,9 +332,9 @@ line names what the keys do on the cell at hand (`⏎ mark`, `⏎ effort`,
 `⏎ open`) and ends `esc back`; Esc or a click on it returns. A
 screen too short shows the part the highlight is on. From a pipe, and in a dry
 run, it is drawn once. ← from the marks reaches the label, and Enter or a click
-there opens `config · <label>`: `model id`, `effort` and `Reviews its own
-company's work` between the arrows ←→ step (the id and the effort only through
-what the harness's catalog lists, the effort following the id), then `Remove`, whose Enter asks on the question
+there opens `config · <label>`: `model id` and `effort` between the arrows ←→ step
+(the id and the effort only through what the harness's catalog lists, the effort
+following the id), then `Remove`, whose Enter asks on the question
 card under it, `Keep` picked; each value goes under its
 label on a phone. Esc returns to the matrix on that model's row. The worker
 token's expiry is the tooltip of the provider it is minted for on `Providers`

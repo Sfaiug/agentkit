@@ -23,7 +23,7 @@ from fixtures.hand_in import scripted
 from agentkit import config, notify, run, worker
 from agentkit import record
 
-RULE = f"{worker.GATE} {worker.REAL_USERS}"
+RULE = f"{worker.GATE}\n{worker.REAL_USERS}"
 ADAPTER = '''import json, os, pathlib, sys
 root = pathlib.Path(os.environ["USERS_FIXTURE"])
 if sys.argv[1] == "usage":
