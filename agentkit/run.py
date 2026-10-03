@@ -9230,7 +9230,7 @@ def upstream_sha(wt, ref):
 
 
 def landing_line(state):
-    """The merge-turn lock named by a waiting member; only the lander moves it."""
+    """The merge-turn lock named by a waiting member."""
     return (state.get("waiting_on") or {}).get("line") if state.get("state") == "waiting" else None
 
 
@@ -11410,7 +11410,8 @@ def resume_run(argv):
     # invocations must never adopt another process's launch, even with an inherited variable.
     with run_record.recovery_lock(run_dir):
         state = run_record.read_state(run_dir)
-    if landing_line(state):
+    # The lander's verdict authorizes the member to take back its own record.
+    if landing_line(state) and not any(key in state["waiting_on"] for key in ("land", "fix")):
         raise config.Error(f"{argv[0]} is in line to land; only the lander moves it")
     child = (os.environ.get(config.RUN_DIR_ENV) == str(run_dir) and
              state.get("state") == "queued" and state.get("resume_from") and

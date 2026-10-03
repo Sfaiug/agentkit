@@ -34,7 +34,7 @@ class Lander(unittest.TestCase):
             "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
-        for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+        for name in ("HOME", "RUNS", "JOBS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         config.ensure_dirs()
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
@@ -85,7 +85,7 @@ class Lander(unittest.TestCase):
         (directory / "task.md").write_text(
             f"# {name}\n\n## Done when\n```bash\nfalse\n{once}  # once\n{SUITE}\n```\n")
         record.save_state(directory, {
-            "run_id": name, "state": "waiting", "pid": 1234,
+            "run_id": name, "state": "waiting", "pid": 1234, "rounds": 3,
             "process_identity": {"boot": "fixture", "ticks": 1}, "scope": "none",
             "repo": str(self.repo), "worktree": str(self.repo), "branch": branch,
             "base": "origin/main", "target": "main", "base_sha": self.base,
@@ -166,6 +166,33 @@ class Lander(unittest.TestCase):
         self.assertIn(SUITE, self.wait(directory)["fix"]["line"])
         self.assertEqual(land._trees(self.turn)[1], {})
         self.wake.assert_called_once()
+
+    def test_recorded_verdicts_resume_the_member_with_its_own_process(self):
+        green = self.member("acme-land")
+        red = self.member("acme-fix", joined=2, **{"broken.txt": "broken\n"})
+        self.advance()
+        owner = {"pid": 5678, "process_identity": {"boot": "fixture", "ticks": 2}}
+        for directory, verdict in ((green, "land"), (red, "fix")):
+            with self.subTest(verdict=verdict):
+                land.check_line(self.turn)
+                self.wake.assert_called_once_with(directory.name, unittest.mock.ANY)
+                self.wake.reset_mock()
+                parked = record.read_state(directory)
+                self.assertIn(verdict, parked["waiting_on"])
+                with (patch.object(config, "load", return_value={}),
+                      patch.object(record, "process_owner", return_value=owner),
+                      patch.object(run, "place_here", return_value=None),
+                      patch.object(run, "drive", return_value=0) as drive):
+                    self.assertEqual(run.resume_run([directory.name]), 0)
+                current = record.read_state(directory)
+                self.assertNotIn("waiting_on", current)
+                self.assertEqual(current["state"], "queued")
+                self.assertEqual(current["resume_from"], "waiting")
+                self.assertEqual(current["pid"], owner["pid"])
+                self.assertEqual(current["process_identity"], owner["process_identity"])
+                self.assertEqual(current["review"], parked["review"])
+                drive.assert_called_once()
+                self.assertEqual(drive.call_args.kwargs["prior"], current)
 
     def test_conflict_wakes_a_fix_without_a_gate_or_a_fixer(self):
         directory = self.member(**{"base.txt": "branch\n"})
