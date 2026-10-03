@@ -106,8 +106,7 @@ def start_line(turn, log=lambda _: None):
             caps.append(run.memory_cap_mb(ceiling))
         properties = ()
         if caps:
-            cap = math.ceil(max(caps))
-            properties = ("-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M")
+            _, properties = run.run_scope_limits(cap_mb=math.ceil(max(caps)))
         env = config.child_env()
         # This work outlives its caller and must not belong to the caller's stop sweep.
         for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
