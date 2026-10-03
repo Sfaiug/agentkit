@@ -106,11 +106,11 @@ class UsageRowAge(Sandbox):
                 "probe_failed_at": NOW, "stale_since": NOW}
         self.assertNotIn("note: acme", self.rendered(prov))
         self.assertNotRegex(self.rendered(prov), "503|rate limited|unavailable")
-        # A stale reading beside a reset credit: the budget stays unknown, bare of why.
-        prov = {"meters": [self.meter()], "fetched_at": NOW - 7 * 3600, "resets": 1,
+        # A stale reading: the budget stays unknown, bare of why.
+        prov = {"meters": [self.meter()], "fetched_at": NOW - 7 * 3600,
                 "probe_error": refused, "stale_since": NOW - 7 * 3600}
         rendered = self.rendered(prov)
-        self.assertIn("(budget unknown)", rendered)
+        self.assertRegex(rendered, r"(?m)^acme .* unknown on track$")
         self.assertNotRegex(rendered, "503|rate limited|unavailable")
         # The menu's fault says nothing either: the age stands alone beside the bar.
         prov = {"meters": [self.meter()], "fetched_at": OLD, "error": refused,
