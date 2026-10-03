@@ -324,11 +324,9 @@ def _check_members(turn, members, repo, tip, target_tree, log):
             if not stacks:
                 break
             green, red = _trees(turn)[1], _trees(turn, "red_stacks")[1]
-            # Undecided follower evidence survives a crash; a head's own check must
-            # retry a kill or flake even when its committed tree has not changed.
-            for member, _, _, tree in stacks:
-                if member == directory:
-                    red.pop(tree, None)
+            # The first stack has no green prefix to attribute a cached failure to.
+            # Retry its own check after a kill or flake; later evidence survives a crash.
+            red.pop(stacks[0][3], None)
             answers = {tree: {"land": tree} if tree in green else
                        {"fix": {key: red[tree][key] for key in ("line", "log")}}
                        for _, _, _, tree in stacks if tree in green or tree in red}
@@ -343,9 +341,9 @@ def _check_members(turn, members, repo, tip, target_tree, log):
                         answer = answers[tree] = check.result()
                         note(turn, [tree] if "land" in answer else [], directory.name,
                              red_stacks={tree: answer["fix"]} if "fix" in answer else None)
-            for member, saved, scratch, tree in stacks:
+            for index, (member, saved, scratch, tree) in enumerate(stacks):
                 answer = answers[tree]
-                if (member == directory and "fix" in answer
+                if (index == 0 and "fix" in answer
                         and not saved.get("repair") and not passed(turn, target_tree)):
                     run.git(scratch, "reset", "--hard", tip)
                     run.git(scratch, "clean", "-fdx")
@@ -365,7 +363,7 @@ def _check_members(turn, members, repo, tip, target_tree, log):
                                            f"there:\n\n{printed}"}}
                             note(turn, [], directory.name, red={target_tree: red})
                             _repair(turn, member, saved, target_tree, red, log)
-                            return {}
+                            return verdicts
                 if member == directory or "fix" in answer:
                     verdicts[member] = answer
                 if "fix" in answer:
