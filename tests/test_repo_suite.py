@@ -89,7 +89,7 @@ class RepoSuite(unittest.TestCase):
         (out_dir / "final.md").write_text(text)
         return 0, text, "fixture-session", False
 
-    def launch(self, name, checks, front="base: main\n", from_branch=""):
+    def launch(self, name, checks, front="base: main\n", from_branch="", expected="pass"):
         directory = config.RUNS / name
         directory.mkdir()
         task = directory / "task.md"
@@ -97,7 +97,7 @@ class RepoSuite(unittest.TestCase):
                         "## Goal\nShip it.\n\n## Done when\n```bash\n"
                         + "\n".join(checks) + "\n```\n")
         state = run.loop(self.cfg, directory, task, self.opts, self.logs.append)
-        self.assertEqual(state["state"], "pass", self.logs)
+        self.assertEqual(state["state"], expected, self.logs)
         return state
 
     def rounds(self):
@@ -116,6 +116,69 @@ class RepoSuite(unittest.TestCase):
         self.assertCountEqual(self.pieces, ["1/2", "2/2"])
         self.assertEqual(state["final_check"]["outcome"], "passed")
         self.assertEqual(state["final_check"]["where"], "landing")
+
+    def test_rebased_landing_replaces_the_loaded_suite(self):
+        task_once = "test -d ."
+        for mode in ("alone", "together", "probe"):
+            with self.subTest(mode=mode):
+                old_suite = f"echo old suite {mode}"
+                self.gates.clear()
+                self.pieces.clear()
+                self.commit(f"---\ntests: {old_suite}\n---\n# acme\n")
+                base = self.git("rev-parse", "HEAD")
+                self.git("update-ref", "refs/remotes/origin/main", base)
+                suite = SUITE + (" && test ! -f broken.txt" if mode == "probe" else "")
+
+                def rebased_check(lp):
+                    self.assertEqual(lp.every, ["true"])
+                    self.assertEqual(lp.once, [task_once, old_suite])
+                    (lp.wt / "work.txt").write_text("work\n")
+                    run.git(lp.wt, "add", "work.txt")
+                    run.git(lp.wt, "commit", "-q", "-m", "work")
+                    before = run.git(lp.wt, "rev-parse", "HEAD")
+                    if mode == "probe":
+                        (self.repo / "broken.txt").write_text("broken\n")
+                        self.git("add", "broken.txt")
+                    self.commit(f"---\ntests: {suite}\n---\n# acme\n")
+                    tip = self.git("rev-parse", "HEAD")
+                    self.git("update-ref", "refs/remotes/origin/main", tip)
+                    run.git(lp.wt, "rebase", "origin/main")
+                    self.assertNotEqual(run.git(lp.wt, "rev-parse", "HEAD"), before)
+                    self.assertEqual(run.declared_suite(lp.wt, lp.target), suite)
+                    with ExitStack() as stack:
+                        if mode == "together":
+                            self.git("checkout", "-q", "-b", "ak/member", base)
+                            (self.repo / "member.txt").write_text("member\n")
+                            self.git("add", "member.txt")
+                            self.git("commit", "-q", "-m", "member")
+                            member = self.git("rev-parse", "HEAD")
+                            self.git("checkout", "-q", "main")
+                            stack.enter_context(patch.object(run._MERGE_HELD, "hold",
+                                                             object(), create=True))
+                            stack.enter_context(patch.object(run.landing, "waiting", return_value=[
+                                (config.RUNS / "member", {"run_id": "member", "review": {
+                                    "verdict": "PASS", "passed_head_sha": member}})]))
+                        self.assertEqual(run.final_check(lp, "origin/main"), mode != "probe")
+                    self.assertEqual(lp.every, ["true"])
+                    self.assertEqual(lp.once, [task_once, suite])
+
+                with patch.object(run, "merge", side_effect=rebased_check), \
+                        patch.object(run, "start_followups", return_value=None):
+                    state = self.launch(f"rebased-{mode}", ["true", f"{task_once}  # once"],
+                                        expected="waiting" if mode == "probe" else "pass")
+                self.assertEqual(self.finals(), [["true"], [task_once] + (
+                    [] if mode == "together" else [suite])], self.gates)
+                ran = [cmd for _, cmds in self.gates for cmd in cmds]
+                self.assertNotIn(old_suite, ran)
+                self.assertEqual(ran.count(suite), 1)
+                if mode == "probe":
+                    text = (config.RUNS / "rebased-probe" / "target-probe.log").read_text()
+                    self.assertIn(f"$ {suite} (on origin/main ", text)
+                    self.assertIn("--- AK_SHARD=2/2 ---", text)
+                    self.assertNotIn(old_suite, text)
+                else:
+                    self.assertCountEqual(self.pieces, ["1/2", "2/2"])
+                    self.assertEqual(state["final_check"]["outcome"], "passed")
 
     def test_done_when_line_identical_to_the_suite_runs_once(self):
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
