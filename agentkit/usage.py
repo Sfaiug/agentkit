@@ -543,9 +543,9 @@ def _write(change, fetched_at=None):
     nothing that only reads takes it at all: the file is only ever replaced whole, through a
     temporary name of this writer's own that it takes away again.
 
-    The snapshot's own clock, `fetched_at`, stays as it is unless given.  A snapshot that was not there is not one anybody assembled, so
-    it starts stale, and the next read assembles the rest rather than answering with one
-    provider for five minutes.
+    The snapshot's own clock, `fetched_at`, stays as it is unless given.  A snapshot that was
+    not there is not one anybody assembled, so it starts stale, and the next read assembles the
+    rest rather than answering with one provider for five minutes.
     """
     cache = config.STATE / "usage.json"
     config.ensure_dirs()

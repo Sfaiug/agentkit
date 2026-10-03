@@ -558,8 +558,9 @@ def continue_turns(cfg, log, accounts=False):
 # An unchanged terminal failure with no known signature asks for inspection after an hour.
 # Ordinary output and idle prompts are not evidence of a blocked session.
 # A quota waits for its provider, a usage-limit reset held or not -- only the owner spends
-# one -- and known windows are waited out even past an hour. Otherwise an hour of the same is the end of it: the user is asked once, by menu
-# number, and nothing is typed into that seat again until they open it and it makes progress.
+# one -- and known windows are waited out even past an hour. Otherwise an hour of the same is
+# the end of it: the user is asked once, by menu number, and nothing is typed into that seat
+# again until they open it and it makes progress.
 
 # Everything a harness shows on its screen is its adapter's, in adapters/<harness>.toml beside
 # adapters/<harness>.sh: the words it uses for a stall, a quota and an expired login, what its
