@@ -87,6 +87,51 @@ class SuitePieces(unittest.TestCase):
                 self.assertEqual(text.count("--- AK_SHARD="), count)
                 self.assertIn(f"--- AK_SHARD={count}/{count} ---", text)
 
+    def test_hard_memory_caps_bound_pieces_at_admission_and_without_a_turn(self):
+        root = self.root / "cgroups"
+        part = root / "agentkit.slice"
+        scope = part / "agentkit-run-acme.scope"
+        scope.mkdir(parents=True)
+        proc = self.root / "proc"
+        proc.mkdir()
+        (proc / "meminfo").write_text("MemAvailable: 33554432 kB\nMemTotal: 33554432 kB\n")
+        (proc / "loadavg").write_text("0 0 0\n")
+        membership = proc / "cgroup"
+        membership.write_text("0::/agentkit.slice/agentkit-run-acme.scope\n")
+        for high, cap, used, parent_high, parent_cap, parent_used, count in (
+                ("max", 1024, 0, 16384, "max", 0, 2),
+                ("max", 1024, 250, 16384, "max", 250, 1),
+                (4096, 1024, 0, 16384, "max", 0, 2),
+                ("max", 4096, 0, 16384, 1024, 0, 2),
+                ("max", 4096, 0, 16384, 2048, 1248, 1),
+                ("max", 4096, 0, 512, "max", 0, 1)):
+            with self.subTest(cap=cap, used=used, parent_cap=parent_cap):
+                for directory, values in ((scope, (high, cap, used)),
+                                          (part, (parent_high, parent_cap, parent_used))):
+                    for name, value in zip(("memory.high", "memory.max", "memory.current"), values):
+                        (directory / name).write_text("max" if value == "max" else str(value * 1024**2))
+                    (directory / "memory.stat").write_text("file 0\n")
+                with patch.dict(os.environ, {"AK_HOST_READINGS": ""}), \
+                        patch.object(host, "PROC", proc), patch.object(host, "cpu_count", return_value=64):
+                    readings = host.host_readings(cgroup_file=membership, cgroup_root=root,
+                                                  slice_dir=part)
+                self.assertEqual(gate.derived_heavy_limit(readings, running=0, unit=True), count)
+                # Ordinary admission still reads the slice; a run cap bounds its pieces only.
+                self.assertEqual(gate.derived_heavy_limit(readings, running=0),
+                                 int((parent_high - parent_used) / gate.HEAVY_MEM_MB))
+                without_slice = {key: value for key, value in readings.items()
+                                 if not key.startswith("slice_")}
+                self.assertEqual(gate.derived_heavy_limit(without_slice, running=0, unit=True), count)
+                soft_room = parent_high - parent_used if high == "max" else high - used
+                self.assertEqual(gate.derived_heavy_limit(without_slice, running=0),
+                                 int(soft_room / gate.HEAVY_MEM_MB))
+                for turn in ("", "0"):
+                    with patch.dict(os.environ, {"AK_MAX_RUNS": turn,
+                                                 "AK_HOST_READINGS": json.dumps(readings)}):
+                        ok, text = self.check()
+                    self.assertTrue(ok, text)
+                    self.assertEqual(text.count("--- AK_SHARD="), count)
+
     def test_all_pieces_start_together_and_all_red_pieces_retry_alone(self):
         barrier, lock = threading.Barrier(2, timeout=3), threading.Lock()
         calls, active, reruns = Counter(), set(), []

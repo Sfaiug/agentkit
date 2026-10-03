@@ -234,7 +234,8 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     no slice answers, the host's idle cores and free memory stand in.  An
     unreadable gate fails open to the other resource, and to one suite where
     neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, for jobs
-    other than a heavy suite.
+    other than a heavy suite. With `unit`, pieces also fit the caller's soft
+    limit and the remaining room under every enclosing hard memory cap.
     """
     if running is None:
         running = _heavy_running()
@@ -258,15 +259,18 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     if slice_used is not None and slice_high is not None:
         mem_free = slice_high - slice_used
     else:
-        unit = host._unit_memory(readings)
-        if unit is not None:
-            mem_free = unit[1] - unit[0]
+        own = host._unit_memory(readings)
+        if own is not None:
+            mem_free = own[1] - own[0]
         else:
             mem_free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
     if unit:
         own = host._unit_memory(readings)
         if own is not None:
             room = own[1] - own[0]
+            mem_free = min(mem_free, room) if mem_free is not None else room
+        room = host._reading(readings, "unit_memory_max_headroom_mb")
+        if room is not None:
             mem_free = min(mem_free, room) if mem_free is not None else room
     candidates = []
     if cpu_free is not None:
