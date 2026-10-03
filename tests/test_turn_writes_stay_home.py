@@ -44,6 +44,8 @@ elif mode == "state":
     if len(sys.argv) > 7:
         seen["login"] = login.read_text()
         seen["session"] = (sessions / sys.argv[7]).read_text()
+    if login.is_symlink():
+        login.write_text("in-place refresh")
     fresh = state / "auth.new"
     fresh.write_text("refreshed login")
     fresh.replace(login)
@@ -52,6 +54,14 @@ elif mode == "temporary":
     with tempfile.NamedTemporaryFile(delete=False) as scratch:
         scratch.write(b"disk scratch")
         seen["temporary"] = scratch.name
+elif mode == "memory":
+    for name, directory in (("shm", "/dev/shm"),
+                            ("credentials", Path.home() / ".git-credential-cache")):
+        try:
+            with tempfile.TemporaryFile(dir=directory):
+                seen[name] = "writable"
+        except OSError:
+            seen[name] = "refused"
 (out / "final.md").write_text(json.dumps(seen))
 (out / "events.jsonl").write_text("{}\n")
 (out / "session_id").write_text("fixture-session")
@@ -82,7 +92,8 @@ class TurnWritesStayHome(unittest.TestCase):
         adapter.write_text(f"#!{sys.executable}\n{ADAPTER}")
         adapter.chmod(0o755)
         (adapters / "acme.toml").write_text(
-            'version = 1\n[worker]\nstate = ["~/.acme", "$ACME_STATE"]\n')
+            'version = 1\n[worker]\nstate = ["~/.acme", "$ACME_STATE"]\n'
+            'logins = ["~/.acme/auth.json", "$ACME_STATE/auth.json"]\n')
         self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
         self.cfg = {"models": {"w": {"harness": "acme", "model": "fixture", "effort": "low",
                                     "provider": "acme"}}, "providers": {"acme": {}}}
@@ -146,6 +157,23 @@ class TurnWritesStayHome(unittest.TestCase):
         scratch = Path(seen["temporary"])
         self.assertTrue(scratch.is_relative_to(out))
         self.assertEqual(scratch.read_bytes(), b"disk scratch")
+
+    def test_linked_login_keeps_in_place_and_atomic_refreshes(self):
+        state = self.home / ".acme"
+        state.mkdir()
+        login = self.root / "borrowed-login"
+        login.write_text("old login")
+        (state / "auth.json").symlink_to(login)
+        _, session, _ = self.turn(self.wt, "state")
+        self.assertEqual(login.read_text(), "in-place refresh")
+        self.assertEqual((state / "auth.json").read_text(), "refreshed login")
+        seen, _, _ = self.turn(self.wt, "state", session=session)
+        self.assertEqual(seen, {"login": "refreshed login", "session": "saved conversation"})
+
+    def test_memory_backed_scratch_is_refused(self):
+        (self.home / ".git-credential-cache").mkdir()
+        seen, _, _ = self.turn(self.wt, "memory")
+        self.assertEqual(seen, {"shm": "refused", "credentials": "refused"})
 
 
 if __name__ == "__main__":

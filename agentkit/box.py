@@ -68,18 +68,57 @@ def _credentials(env, cwd):
     return directories, files
 
 
+def _paths(names, env, cwd):
+    values = {key: value for key, value in env.items() if value}
+    values.setdefault("HOME", str(Path.home()))
+    for name in names:
+        if name.startswith("~/"):
+            name = "$HOME/" + name[2:]
+        try:
+            path = Path(Template(name).substitute(values))
+        except KeyError:
+            continue
+        yield path if path.is_absolute() else Path(cwd or os.getcwd()) / path
+
+
 @contextmanager
-def command(argv, env, out_dir=None, *, cwd=None):
+def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
     """Yield (command, environment, spawn options); wait for teardown on every exit."""
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
-           "--new-session", "--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"]
+           "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--remount-ro", "/dev",
+           "--proc", "/proc", "--remount-ro", "/proc"]
+    writable = set()
+    for path in _paths(state, clean, cwd):
+        path = path.resolve()
+        path.mkdir(parents=True, exist_ok=True)
+        writable.add(path)
+    # A sandbox HOME lends credential files as links. Their targets must also
+    # allow an in-place token refresh; renaming over the link uses its state dir.
+    writable.update(path.resolve() for path in _paths(logins, clean, cwd) if path.is_symlink())
+    if cwd is not None:
+        workspace = Path(cwd).resolve()
+        writable.add(workspace)
+        if (workspace / ".git").exists():
+            git_env = {key: value for key, value in clean.items()
+                       if key not in ("GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE")}
+            result = subprocess.run(["git", "rev-parse", "--absolute-git-dir", "--git-common-dir"],
+                                    cwd=workspace, env=git_env, capture_output=True, text=True,
+                                    check=True, timeout=10)
+            writable.update((workspace / path).resolve() for path in result.stdout.splitlines())
+    if out_dir is not None:
+        output = Path(out_dir).resolve()
+        writable.add(output)
+        # Scratch stays on the output filesystem, never a RAM-backed root layer.
+        clean["TMPDIR"] = str(output)
+    for path in sorted(writable):
+        cmd.extend(["--bind", str(path), str(path)])
     directories, files = _credentials(clean, cwd)
     for paths, option in ((directories, "--tmpfs"), (files, "--dev-bind")):
         # Mount the real target too: a sandbox HOME often links the account's login.
         targets = {path.resolve() for path in paths if path.exists()}
         for path in sorted(targets):
-            cmd.extend([option, str(path)] if option == "--tmpfs" else
+            cmd.extend([option, str(path), "--remount-ro", str(path)] if option == "--tmpfs" else
                        [option, "/dev/null", str(path)])
     if out_dir is None:
         yield [*cmd, "--", *argv], clean, {}

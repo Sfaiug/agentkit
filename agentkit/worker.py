@@ -655,7 +655,9 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     # the loop's stderr and never reached the turn's diagnostics.  It is kept apart while the
     # harness writes that file, and added to the end of it once the turn is over.
     own = out_dir / "adapter-stderr.log"
-    with box.command(cmd, turn_env, out_dir, cwd=workspace) as (cmd, turn_env, spawn), \
+    paths = config.manifest(entry["harness"]).get("worker", {})
+    with box.command(cmd, turn_env, out_dir, cwd=workspace,
+                     state=paths.get("state", ()), logins=paths.get("logins", ())) as (cmd, turn_env, spawn), \
             own.open("wb") as err:
         code, _, killed = limited(cmd, None, silence=limit, activity=out_dir / "events.jsonl",
                                   abort=lambda: watching(out_dir),

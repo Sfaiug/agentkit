@@ -9,6 +9,10 @@ version = 1
 model = "gpt-5.6-luna"
 effort = "low"
 
+[worker]
+state = ["~/.codex", "$CODEX_HOME", "~/.codex-$AGENTKIT_ACCOUNT"]
+logins = ["~/.codex/auth.json", "$CODEX_HOME/auth.json", "~/.codex-$AGENTKIT_ACCOUNT/auth.json"]
+
 [launch]
 seat_env = ["AGENTKIT_CODEX_RECEIPT", "AGENTKIT_CODEX_CAPTURE"]
 

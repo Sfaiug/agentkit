@@ -9,6 +9,10 @@ version = 1
 model = "grok-4.7-build-fast"
 effort = "low"
 
+[worker]
+state = ["~/.grok", "$GROK_HOME", "~/.grok-$AGENTKIT_ACCOUNT"]
+logins = ["~/.grok/auth.json", "$GROK_HOME/auth.json", "~/.grok-$AGENTKIT_ACCOUNT/auth.json"]
+
 # `ak update` reads the version off the TUI, upgrades it with the TUI's own command, and
 # puts a bad build back with the versioned reinstall -- so the plan takes no snapshot.
 # `latest` is its own check on its own channel, which names the installed release first.

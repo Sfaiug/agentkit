@@ -8,6 +8,10 @@ version = 1
 model = "claude-haiku-4-5"
 effort = "none"
 
+[worker]
+state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
+logins = ["~/.claude/.credentials.json", "$CLAUDE_CONFIG_DIR/.credentials.json", "~/.claude-$AGENTKIT_ACCOUNT/.credentials.json"]
+
 # How `ak update` moves this harness, and what `ak usage` needs beyond `<adapter> usage`:
 # `claude install <version>` is a versioned reinstall, so a failed upgrade goes back by command
 # and needs no snapshot, and the usage call is one plain adapter call with no reset to spend.
