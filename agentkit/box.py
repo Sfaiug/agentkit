@@ -136,6 +136,9 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
         output = Path(out_dir).resolve()
         writable.add(output)
     for path in sorted(writable):
+        # A redundant file mount prevents atomic refresh within its writable parent.
+        if any(parent in writable for parent in path.parents):
+            continue
         cmd.extend(["--bind", str(path), str(path)])
     directories, files = _credentials(clean, cwd)
     for paths, option in ((directories, "--tmpfs"), (files, "--dev-bind")):
