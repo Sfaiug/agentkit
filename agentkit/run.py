@@ -10563,6 +10563,7 @@ def cmd_stop(argv):
     state = run_record.read_state(run_dir)
     if state is None:
         raise config.Error(f"{run_id}: cannot read {run_dir / 'run.json'}")
+    config.check_stop_owner(state.get("launched_session") or state.get("session"))
     if state.get("state") == "stopped":
         print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
         return 0
@@ -10572,6 +10573,7 @@ def cmd_stop(argv):
     log = note_in(run_dir / "log.txt")
     with run_record.recovery_lock(run_dir):
         current = run_record.read_state(run_dir) or state
+        config.check_stop_owner(current.get("launched_session") or current.get("session"))
         if current.get("state") == "stopped":
             print(stop_line(run_id, current.get("branch"),
                             current.get("stop_kept", False)))
