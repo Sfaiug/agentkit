@@ -118,7 +118,11 @@ class TransientBackoffClock(unittest.TestCase):
                          ["60", "300"])
         self.assertIn("retrying in 60s", logs["exec"])
         self.assertIn("retrying in 300s", logs["exec"])
-        self.assertEqual((self.root / "ad-retry-exec/claude.n").read_text().strip(), "3")
+        # The successful third attempt survives separately from the later hand-in ask.
+        passed = list((self.root / "home-retry-exec/.agentkit/runs").glob(
+            "*/round-1/executor-retry2/final.md"))
+        self.assertEqual(len(passed), 1)
+        self.assertIn("wrote retry.txt on call 3", passed[0].read_text())
         self.assertIn("reviewer fell back to spark", logs["review"])
         self.assertEqual((self.root / "ad-retry-review/codex.n").read_text().strip(), "1")
 
