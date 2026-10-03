@@ -26,43 +26,53 @@ class ProofMustRun(unittest.TestCase):
         self.assertEqual(self.lp.state["followups"], [])
         self.assertIn("[exit 126]", self.lp.state["notes"][0])
 
-    def test_missing_script_is_a_note_even_when_the_interpreter_exits_two(self):
-        self.assertEqual(self.review(proof.finding(
-            "api.py:1", "missing script", "python3 absent.py")), "PASS")
+    def test_launch_exit_codes_are_notes_even_without_diagnostics(self):
+        self.assertEqual(self.review(*(proof.finding("api.py:1", "reserved exit", f"exit {code}")
+                                       for code in (126, 127))), "PASS")
         self.assertEqual(self.lp.state["followups"], [])
-        self.assertIn("can't open file", self.lp.state["notes"][0])
+        self.assertEqual(len(self.lp.state["notes"]), 2)
 
-    def test_sh_and_perl_missing_scripts_are_notes_on_commit_base_and_followups(self):
+    def test_a_missing_script_blocks_when_the_interpreter_exits_two(self):
+        self.assertEqual(self.review(proof.finding(
+            "api.py:1", "missing script", "python3 absent.py")), "FAIL")
+        self.assertEqual(self.lp.state["followups"], [])
+        self.assertEqual(self.lp.state["notes"], [])
+        self.assertIn("[exit 2]", self.lp.findings)
+        self.assertIn("can't open file", self.lp.findings)
+
+    def test_missing_file_diagnostics_still_fail_on_commit_base_and_followups(self):
         diagnostics = (
-            ("sh", "sh: 0: cannot open probe.sh: No such file"),
-            ("perl", 'Can\'t open perl script "probe.pl": No such file or directory'))
-        for name, diagnostic in diagnostics:
-            with self.subTest(interpreter=name):
-                # Exact launcher diagnostics need no host-specific sh or Perl installation.
-                interpreter = self.root / name
-                interpreter.write_text(f"#!{sys.executable}\nimport sys\n"
-                                       f"print({diagnostic!r}, file=sys.stderr)\nsys.exit(2)\n")
-                interpreter.chmod(0o755)
-                command = shlex.quote(str(interpreter)) + " probe"
+            ("sh", 2, "sh: 0: cannot open probe.sh: No such file"),
+            ("perl", 2, 'Can\'t open perl script "probe.pl": No such file or directory'),
+            ("head", 1, "head: cannot open 'absent' for reading: No such file or directory"))
+        for name, code, diagnostic in diagnostics:
+            with self.subTest(program=name):
+                # Keep diagnostic text independent of installed interpreters and locale.
+                program = self.root / name
+                program.write_text(f"#!{sys.executable}\nimport sys\n"
+                                   f"print({diagnostic!r}, file=sys.stderr)\nsys.exit({code})\n")
+                program.chmod(0o755)
+                command = shlex.quote(str(program)) + " probe"
                 base_only = "if grep -q branch api.py; then exit 7; fi; " + command
                 self.assertEqual(self.review(
                     proof.finding("api.py:1", "missing changed-line proof", command),
                     proof.finding("legacy.py:1", "missing base proof", base_only),
                     proof.finding("api.py:2", "missing follow-up proof", command,
-                                  kind="follow-up", before=self.base)), "PASS")
-                self.assertEqual(self.lp.state["followups"], [])
+                                  kind="follow-up", before=self.base)), "FAIL")
+                self.assertEqual(len(self.lp.state["followups"]), 2)
+                self.assertEqual(self.lp.state["notes"], [])
                 rows = self.lp.state["review_records"]
-                self.assertEqual([row["kind"] for row in rows], ["note", "note", "note", "done"])
-                self.assertEqual(rows[0]["evidence"]["returncode"], 2)
-                self.assertEqual(rows[1]["evidence"]["base"]["returncode"], 2)
-                self.assertIn("Dropped follow-up", self.lp.state["notes"][2])
-                for note in self.lp.state["notes"]:
-                    self.assertIn(diagnostic, note)
+                self.assertEqual([row["kind"] for row in rows], ["finding", "follow-up", "follow-up", "done"])
+                self.assertEqual(rows[0]["evidence"]["returncode"], code)
+                self.assertEqual(rows[1]["evidence"]["base"]["returncode"], code)
+                for text in (self.lp.findings, *self.lp.state["followups"]):
+                    self.assertIn(diagnostic, text)
 
-    def test_a_missing_sourced_script_is_a_note_even_when_bash_exits_one(self):
-        self.assertEqual(self.review(proof.finding("api.py:1", "missing source", "source absent.sh")), "PASS")
+    def test_a_missing_sourced_script_blocks_when_bash_exits_one(self):
+        self.assertEqual(self.review(proof.finding("api.py:1", "missing source", "source absent.sh")), "FAIL")
         self.assertEqual(self.lp.state["followups"], [])
-        self.assertIn("[exit 1]", self.lp.state["notes"][0])
+        self.assertEqual(self.lp.state["notes"], [])
+        self.assertIn("[exit 1]", self.lp.findings)
 
     def test_a_missing_or_unexecutable_shell_is_a_note_and_restores_the_checkout(self):
         limited = worker.limited
@@ -77,19 +87,22 @@ class ProofMustRun(unittest.TestCase):
                 self.assertEqual(self.lp.state["followups"], [])
                 self.assertIn(str(error), self.lp.state["notes"][0])
 
-    def test_a_script_only_in_the_reviewers_copy_cannot_start_a_fixer(self):
+    def test_a_missing_script_reporting_exit_two_reaches_the_fixer(self):
         calls = self.rounds([{
             "commands": [proof.finding("api.py:1", "reviewer script", "python3 probe.py")],
-            "edits": {"probe.py": "raise AssertionError('fixture defect')\n"}}])
-        self.assertEqual([role for role, _ in calls], ["executor"])
+            "edits": {"probe.py": "raise AssertionError('fixture defect')\n"}}, {}])
+        self.assertEqual([role for role, _ in calls], ["executor", "fixer"])
+        self.assertIn("[exit 2]", calls[1][1])
         self.assertEqual(self.lp.state["verdict"], "PASS")
         self.assertEqual(self.lp.state["followups"], [])
 
     def test_a_proof_that_cannot_start_on_base_does_not_prove_an_old_defect(self):
-        command = "if grep -q branch api.py; then exit 7; fi; python3 absent.py"
-        self.assertEqual(self.review(proof.finding("legacy.py:1", "no base proof", command)), "PASS")
-        self.assertEqual(self.lp.state["followups"], [])
-        self.assertIn("can't open file", self.lp.state["notes"][0])
+        for command, code in (("./keep.txt", 126), ("./absent", 127)):
+            with self.subTest(code=code):
+                command = "if grep -q branch api.py; then exit 7; fi; " + command
+                self.assertEqual(self.review(proof.finding("legacy.py:1", "no base proof", command)), "PASS")
+                self.assertEqual(self.lp.state["followups"], [])
+                self.assertIn(f"[exit {code}]", self.lp.state["notes"][0])
 
     def test_a_running_proof_of_a_missing_application_file_still_blocks(self):
         command = "python3 -c " + shlex.quote("from pathlib import Path; Path('absent').read_text()")

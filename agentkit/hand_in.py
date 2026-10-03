@@ -5,7 +5,6 @@ import fcntl
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
 import tempfile
 
@@ -38,13 +37,9 @@ def proof_text(proof):
 
 
 def proof_failed(proof):
-    # A completed test can quote a child's launch error inside its own failure report.
-    missing_script = proof["returncode"] in (1, 2) and re.fullmatch(
-        r"(?:bash: [^\n]*|(?:[^\n:]+: )?"
-        r"(?:[Cc]an't open (?:file|(?:perl )?script)|(?:\d+: )?cannot open)[^\n]*)"
-        r"(?:No such file(?: or directory)?|Permission denied)", proof.get("output", "").strip())
+    # Output can report a missing application file even when the proof ran.
     return (proof["returncode"] > 0 and proof["returncode"] not in (126, 127)
-            and not proof.get("killed") and not missing_script)
+            and not proof.get("killed"))
 
 
 def item_text(row):

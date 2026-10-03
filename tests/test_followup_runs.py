@@ -553,10 +553,10 @@ class FollowupEvidence(unittest.TestCase):
         self.assertIn("--before names no base commit or quote present at base", self.lp.state["notes"][0])
 
     def test_a_followup_whose_command_cannot_run_on_base_is_dropped(self):
-        commands = ("./absent", "./keep.txt", "python3 absent.py")
+        commands = ("./absent", "./keep.txt")
         self.assertEqual(self.review(*(self.followup(command=command) for command in commands)), "PASS")
         self.assertEqual(self.lp.state["followups"], [])
-        self.assertEqual(len(self.lp.state["notes"]), 3)
+        self.assertEqual(len(self.lp.state["notes"]), len(commands))
         for note in self.lp.state["notes"]:
             self.assertIn("Dropped follow-up", note)
 
