@@ -87,15 +87,20 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
     """Yield (command, environment, spawn options); wait for teardown on every exit."""
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
-           "--new-session", "--ro-bind", "/", "/", "--proc", "/proc"]
+           "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"]
     # A read-only bind disables devices too. Restore the nodes, leaving their
     # directories read-only so ordinary files cannot fill the host's /dev tmpfs.
     for device in Path("/dev").rglob("*"):
-        if not device.is_symlink() and (device.is_char_device() or device.is_block_device()):
-            cmd.extend(["--dev-bind", str(device), str(device)])
-    # devpts creates only terminals, which disappear when their descriptors close.
-    if Path("/dev/pts").is_dir():
-        cmd.extend(["--dev-bind", "/dev/pts", "/dev/pts"])
+        # ptmx needs its devpts mount; binding one inode breaks terminal allocation.
+        # Bubblewrap supplies that pair, whose terminals end with their descriptors.
+        if device == Path("/dev/ptmx") or device.is_relative_to("/dev/pts"):
+            continue
+        if device.is_symlink():
+            cmd.extend(["--symlink", os.readlink(device), str(device)])
+        else:
+            option = "--dev-bind" if device.is_char_device() or device.is_block_device() else "--ro-bind"
+            cmd.extend([option, str(device), str(device)])
+    cmd.extend(["--remount-ro", "/dev"])
     scratch_at = len(cmd)
     writable = set()
     for path in _paths(state, clean, cwd):
