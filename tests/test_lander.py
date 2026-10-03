@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gate, land, record, run, watch, worker
 
-SUITE = "test -f work.txt && test ! -f broken.txt"
+SUITE = "test -f base.txt && test ! -f broken.txt"
 ONCE = "test -f tip.txt && test -f work.txt"
 
 
@@ -108,6 +108,10 @@ class Lander(unittest.TestCase):
         self.assertEqual(list(config.WT.glob("land-*")), [])
         self.assertEqual(run.git(self.repo, "worktree", "list", "--porcelain").count("worktree "), 1)
 
+    def assert_only_target_green(self):
+        tree = run.git(self.repo, "rev-parse", "origin/main^{tree}")
+        self.assertEqual(set(land._trees(self.turn)[1]), {tree})
+
     def test_join_order_one_check_and_only_the_parked_verdict_changes(self):
         later = self.member("a-later", 20)
         first = self.member("z-first", 10.5)
@@ -155,7 +159,7 @@ class Lander(unittest.TestCase):
         self.assertIn("FAIL once check", fix["line"])
         self.assertIn(SUITE, Path(fix["log"]).read_text())
         self.assertIn("Tree: ", Path(fix["log"]).read_text())
-        self.assertEqual(land._trees(self.turn)[1], {})
+        self.assert_only_target_green()
         self.wake.assert_called_once()
         self.assert_cleaned()
 
@@ -164,7 +168,7 @@ class Lander(unittest.TestCase):
         self.advance()
         land.check_line(self.turn)
         self.assertIn(SUITE, self.wait(directory)["fix"]["line"])
-        self.assertEqual(land._trees(self.turn)[1], {})
+        self.assert_only_target_green()
         self.wake.assert_called_once()
 
     def test_recorded_verdicts_resume_the_member_with_its_own_process(self):
@@ -275,7 +279,7 @@ class Lander(unittest.TestCase):
         self.assertIn("fix", verdict)
         land.check_line(self.turn)
         self.assertEqual(self.wait(directory), verdict)
-        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(len(self.checks), 2)
         self.assertEqual(self.wake.call_count, 2)
 
     def test_a_member_changed_during_the_check_is_never_written_or_woken(self):
@@ -410,7 +414,7 @@ class Lander(unittest.TestCase):
         self.advance()
         land.check_line(self.turn)
         self.assertIn("Checkout changed during", self.wait(directory)["fix"]["line"])
-        self.assertEqual(land._trees(self.turn)[1], {})
+        self.assert_only_target_green()
         self.wake.assert_called_once()
         self.assert_cleaned()
 
