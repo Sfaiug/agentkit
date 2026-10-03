@@ -51,7 +51,7 @@ elif mode == "state":
         login.write_text("in-place refresh")
     fresh = state / "auth.new"
     fresh.write_text("refreshed login")
-    fresh.replace(login)
+    fresh.replace(login.resolve() if os.environ.get("LOGIN_RESOLVE") else login)
     (sessions / "fixture-session").write_text("saved conversation")
 elif mode == "temporary":
     with tempfile.NamedTemporaryFile(delete=False) as scratch:
@@ -217,6 +217,17 @@ class TurnWritesStayHome(unittest.TestCase):
         self.turn(self.wt, "state")
         self.assertTrue(lock.is_file())
         self.assertEqual((state / "auth.lock").stat().st_ino, lock.stat().st_ino)
+
+    def test_linked_login_can_atomically_refresh_its_target_in_its_own_state(self):
+        state = self.home / ".acme"
+        state.mkdir()
+        target = state / "token.json"
+        target.write_text("old login")
+        (state / "auth.json").symlink_to(target)
+        _, session, _ = self.turn(self.wt, "state", LOGIN_RESOLVE="1")
+        seen, _, _ = self.turn(self.wt, "state", session=session, LOGIN_RESOLVE="1")
+        self.assertEqual(seen, {"login": "refreshed login", "session": "saved conversation"})
+        self.assertEqual(target.read_text(), "refreshed login")
 
     def test_shared_memory_uses_disk_and_is_discarded_after_the_turn(self):
         (self.home / ".git-credential-cache").mkdir()
