@@ -2,7 +2,7 @@
 # tests/fixtures/adapters/echo.sh -- a fourth harness, with no harness behind it.
 #
 # The proof that adding one is an adapter pair and a config.toml line: every verb the contract
-# in docs/guide.md names, answered in a dozen lines, with agentkit planning a seat on it,
+# in docs/guide.md names, with agentkit planning a seat on it,
 # running a loop through it, showing its meter and listing it in an update plan -- and not one
 # line of Python anywhere for it.  Paired with echo.toml; used by tests/test_v5al.py and by
 # smoke check 46.  Nothing here reaches a network, a harness or the owner's files.
@@ -12,10 +12,23 @@ case "${1:-}" in
   run)   # run <model> <effort> <workspace> <prompt-file> <out-dir> [<session-id>]
     out=$6
     mkdir -p -- "$out"
-    # the last line the prompt asked for, echoed back: this harness does exactly that
-    grep -v '^[[:space:]]*$' -- "$5" | tail -1 >"$out/final.md" || : >"$out/final.md"
+    # Scripted prompts exercise real shell access and hand-in, with the filename held in
+    # the fixture's conversation id so a resumed turn needs no file left in the workspace.
+    if [ -n "${7:-}" ]; then
+      printf '%s\n' "${7#echo:}" >"$out/final.md"
+      printf '%s\n' "$7" >"$out/session_id"
+    else
+      sed -n 's/^Run: //p' -- "$5" >"$out/commands.sh"
+      if [ -s "$out/commands.sh" ]; then
+        (cd -- "$4" && bash "$out/commands.sh") || exit $?
+        filename=$(sed -n 's/.* > //p' -- "$out/commands.sh")
+        printf 'echo:%s\n' "$filename" >"$out/session_id"
+      else
+        : >"$out/session_id"
+      fi
+      grep -v '^[[:space:]]*$' -- "$5" | tail -1 >"$out/final.md" || : >"$out/final.md"
+    fi
     printf 'echo fixture: %s on %s\n' "$2" "$3" >"$out/stderr.log"
-    : >"$out/session_id"           # nothing to resume: it keeps no conversation
     exit 0
     ;;
   interactive)   # interactive <model> <effort> [<session-id> [new]]

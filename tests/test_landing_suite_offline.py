@@ -21,7 +21,7 @@ from agentkit import run
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 # real models, GitHub, Discord, live meters, the host's shared browser
-OUTSIDE = {"1", "2", "3", "3a", "3b", "3c", "4", "4b", "4c", "4d", "5", "6", "6b", "6d",
+OUTSIDE = {"1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d",
            "31a", "31d", "31e"}
 # a check's verdict, or the labels a helper or a loop gives it: `ok "4b ...`, `skip_spent 4/4b`
 VERDICT = re.compile(r'\b(?:ok|no|skip)\s+"(\d+[a-z]?)[\s:]')
