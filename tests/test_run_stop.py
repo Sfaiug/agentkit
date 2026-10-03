@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import gate, config, job as jobs, menu, orch, run, worker
+from agentkit import gate, config, job as jobs, land, menu, orch, run, watch, worker
 from agentkit import host, record
 from agentkit import task as taskfile
 
@@ -61,6 +61,30 @@ class RunStop(Sandbox):
                  "pid": 999999999, "process_identity": None, **extra}
         record.save_state(directory, state)
         return directory
+
+    def test_stop_of_a_parked_member_leaves_the_line_and_starts_a_pass(self):
+        turn = config.RUNS / ".merge-acme.lock"
+        with patch.object(land, "start_line") as start:
+            directory = self.running("fix-api", state="waiting",
+                                     waiting_on={"line": turn.name, "joined": 1})
+            start.reset_mock()
+            with (patch.object(orch, "user_manager", return_value=False),
+                  patch.object(run, "marker_pids", return_value=[]),
+                  patch.object(run, "stop_checkout", return_value=True),
+                  patch("agentkit.browser.close_owned"), redirect_stdout(io.StringIO())):
+                self.assertEqual(run.cmd_stop([directory.name]), 0)
+            start.assert_called_once_with(turn)
+        state = record.read_state(directory)
+        self.assertEqual(state["state"], "stopped")
+        self.assertNotIn("waiting_on", state)
+        self.assertEqual(land.line(turn), [])
+
+    def test_a_delayed_lander_wake_never_launches_a_stopped_member(self):
+        directory = self.running("fix-api", state="stopped", verdict="STOPPED")
+        with patch.object(orch, "start_in_slice") as start:
+            self.assertFalse(watch.launch_resume(directory.name))
+        start.assert_not_called()
+        self.assertEqual(record.read_state(directory)["state"], "stopped")
 
     def repo(self):
         """A throwaway git repo with one commit, ready for worktrees."""

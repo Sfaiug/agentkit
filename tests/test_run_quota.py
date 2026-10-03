@@ -403,7 +403,9 @@ class Quota(unittest.TestCase):
                 Path(marker).write_text("12345")
             return type("Proc", (), {"pid": 12345, "poll": lambda self: None})()
 
-        with patch.object(run.subprocess, "Popen", side_effect=fake_popen), \
+        # The fake launcher assumes a ready box; it cannot answer the host's probes.
+        with patch.object(run.box, "check", return_value=None), \
+                patch.object(run.subprocess, "Popen", side_effect=fake_popen), \
                 patch.object(orch, "user_manager", return_value=False), \
                 patch.object(orch, "scope_oom_policy", return_value=False), \
                 redirect_stdout(io.StringIO()):

@@ -461,12 +461,15 @@ sys.exit(row.get("code", 0))
         state["round_summaries"][0]["summary"] = "## Summary\n" + "\U0001f600" * 70000
         self.assertLess(len(run.pr_body(state).encode("utf-8")), 65536)
 
-    def test_all_reviewer_prompts_ask_only_for_hand_in(self):
+    def test_all_reviewer_prompts_keep_hand_in_syntax_and_checked_refusals(self):
         for role, text in worker.PREAMBLES.items():
             if role.startswith("reviewer"):
-                self.assertIn("ak hand-in finding", text)
-                self.assertIn("ak hand-in follow-up", text)
-                self.assertIn("ak hand-in done", text)
+                judgement = "\n".join(line for line in text.splitlines()
+                                      if line.startswith("[worker judgement]"))
+                for command in ("finding", "follow-up", "done"):
+                    self.assertIn("ak hand-in " + command, judgement, role)
+                self.assertIn("[checked by ak: tests/test_hand_in.py] ak refuses malformed "
+                              "or evidence-free findings", text)
                 for old in ("VERDICT:", "## Findings", "## Follow-ups"):
                     self.assertNotIn(old, text)
 

@@ -93,6 +93,8 @@ class OpensAtOnce(Sandbox):
         """Every thread the menu left behind ended."""
         self.gone.set()
         for thread in set(threading.enumerate()) - self.threads:
+            # enumerate includes threads whose start() is still waiting for bootstrap.
+            self.assertTrue(thread._started.wait(15), f"{thread.name} did not start")
             thread.join(15)
             self.assertFalse(thread.is_alive(), thread)
 

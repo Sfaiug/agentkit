@@ -18,7 +18,8 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import gate, host, config, gc, run, usage
+from fixtures.landing import landing
+from agentkit import gate, host, config, gc, land, run, usage
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -154,6 +155,7 @@ class MergeStep(unittest.TestCase):
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         config.ensure_dirs()
+        self.stack.enter_context(patch.object(land, "start_line"))
         def checks(cmds, wt, out, *args, **kwargs):
             out.parent.mkdir(parents=True, exist_ok=True)
             return True, "$ true\n[exit 0]\n"
@@ -702,8 +704,11 @@ class MergeStep(unittest.TestCase):
         info = {"headRefOid": lp.state["delivery_sha"], "baseRefName": "main", "state": "OPEN"}
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "execute", return_value="## Summary\nUnresolved."), \
-                patch.object(run, "stop_run_tree"):
-            self.assertNotEqual(run.cmd_merge([run_dir.name]), 0)
+                patch.object(run, "stop_run_tree"), \
+                patch.object(run, "rights", return_value=("acme/widget", "WRITE")):
+            self.assertEqual(run.cmd_merge([run_dir.name]), 0)
+            lp.state = record.read_state(run_dir)
+            self.assertFalse(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(record.read_state(run_dir)["state"], "waiting")
         self.assertTrue((run_dir / "result.md").read_text().startswith("# WAITING:"))
 
@@ -743,10 +748,19 @@ class MergeStep(unittest.TestCase):
             events.append(("checks", head))
             return True
 
+        def deliver():
+            if run.git(wt, "rev-parse", "HEAD") != lp.state["delivery_sha"]:
+                if not (run.push(lp) and checks(lp, URL) and run.refresh_pr_body(lp)):
+                    return False
+            return run.do_merge(lp, URL, "origin/main")
+
         with patch.object(run, "gh", side_effect=fake_gh), \
                 patch.object(run, "wait_checks", side_effect=checks), \
                 patch.object(run.time, "sleep"):
-            self.assertTrue(run.do_merge(lp, URL, "origin/main"))
+            self.assertFalse(landing(lp, deliver))
+            place = lp.state["waiting_on"]["joined"]
+            self.assertTrue(landing(lp, deliver))
+            self.assertTrue(place)
         self.assertTrue(lp.state["merged"])
         self.assertEqual([name for name, _ in events], ["merge", "view", "checks", "merge"])
 
@@ -769,7 +783,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(run, "gh", side_effect=fake_gh), \
                 patch.object(run.time, "sleep") as slept:
-            self.assertFalse(run.do_merge(lp, URL, "origin/main"))
+            self.assertFalse(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(len(merges), 4)                      # the first try and three retries
         # subprocess may also sleep briefly while reaping the fixture's git calls.
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
@@ -778,7 +792,7 @@ class MergeStep(unittest.TestCase):
         self.assertEqual(state["state"], "waiting")
         self.assertNotEqual(state["verdict"], "FAIL")
         self.assertIn("base branch was modified", state["merge_note"])
-        self.assertEqual(state["waiting_on"]["ref"], "origin/main")
+        self.assertEqual(state["waiting_on"]["line"], run.turn_path(lp, "origin/main").name)
 
     def test_a_base_race_waits_for_known_mergeability_before_retrying(self):
         _, _, wt = make_repos(self.root)
@@ -796,7 +810,7 @@ class MergeStep(unittest.TestCase):
             raise AssertionError(args)
 
         with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
-            self.assertTrue(run.do_merge(lp, URL, "origin/main"))
+            self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(seen, ["merge", "view", "view", "merge"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60, 300])
@@ -818,7 +832,7 @@ class MergeStep(unittest.TestCase):
             raise AssertionError(args)
 
         with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
-            self.assertTrue(run.do_merge(lp, URL, "origin/main"))
+            self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(seen, ["merge", "view"])
         self.assertTrue(record.read_state(run_dir)["merged"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
@@ -839,7 +853,7 @@ class MergeStep(unittest.TestCase):
             raise AssertionError(args)
 
         with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
-            self.assertTrue(run.do_merge(lp, URL, "origin/main"))
+            self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(seen, ["merge", "view", "merge"])
         self.assertTrue(record.read_state(run_dir)["merged"])
 
@@ -885,7 +899,7 @@ class MergeStep(unittest.TestCase):
             raise AssertionError(args)
 
         with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
-            self.assertTrue(run.do_merge(lp, URL, "origin/main"))
+            self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(len(merges), run.MERGE_RETRIES + 1)
         state = record.read_state(run_dir)
         self.assertTrue(state["merged"])

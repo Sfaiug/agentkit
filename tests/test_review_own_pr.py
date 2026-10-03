@@ -163,10 +163,9 @@ class OwnPr(unittest.TestCase):
         merges, turns, inbox, events = [], [], [], []
         real_merge = run.MERGE_METHODS["squash"]
 
-        @contextmanager
         def turn(lp, upstream):
             turns.append(upstream)
-            yield
+            return nullcontext()
 
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="PASS"):

@@ -6,15 +6,16 @@ import os
 from types import SimpleNamespace
 import threading
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from test_v4n import Sandbox
-from agentkit import config, history, job as jobs, menu, record, run, watch
+from agentkit import config, history, job as jobs, land, menu, record, run, watch
 
 
 class LandingLine(Sandbox):
     def setUp(self):
         super().setUp()
+        self.lander = self.stack.enter_context(patch.object(land, "start_line", return_value=True))
         self.stack.enter_context(patch.dict(os.environ, {
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AGENTKIT_RUN_DIR": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
@@ -49,9 +50,15 @@ class LandingLine(Sandbox):
                 patch.object(run, "spawn_bg", side_effect=AssertionError("no worker")), \
                 patch.object(config, "load", side_effect=AssertionError("no replay")):
             for dry_run in (True, False):
-                watch.resume_waiting(dry_run=dry_run, log=lambda _: self.fail("no tick note"))
-                watch.resume_waiting(dry_run=dry_run, run=directory,
-                                     log=lambda _: self.fail("no job resume"))
+                self.lander.reset_mock()
+                notes = []
+                log = notes.append
+                watch.resume_waiting(dry_run=dry_run, log=log)
+                watch.resume_waiting(dry_run=dry_run, run=directory, log=log)
+                self.assertEqual(notes, [f"would start lander for {self.line}"] * 2
+                                 if dry_run else [])
+                self.assertEqual(self.lander.call_args_list, [] if dry_run else
+                                 [call(config.RUNS / self.line, log)] * 2)
             for args in ([directory.name], [directory.name, "--bg"],
                          [directory.name, "--rounds", "3"]):
                 with self.assertRaisesRegex(config.Error, "line to land"):

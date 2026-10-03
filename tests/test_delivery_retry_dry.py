@@ -1,6 +1,6 @@
 """A delivery retry parks a dry landing reviewer on its provider window. Offline."""
 
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, nullcontext, redirect_stdout
 import io
 import os
 from pathlib import Path
@@ -11,7 +11,9 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, record, run
+from agentkit import config, gc, record, run, usage
+from fixtures.landing import landing
+from test_merge_step import make_repos
 
 
 class DeliveryRetryDry(unittest.TestCase):
@@ -32,14 +34,11 @@ class DeliveryRetryDry(unittest.TestCase):
         self.stack.enter_context(patch.object(run.history, "Sampler"))
         self.stack.enter_context(patch.object(run, "finish", return_value=1))
         self.stack.enter_context(patch.object(run, "stop_run_tree"))
-        self.wt = self.root / "checkout"
-        self.wt.mkdir()
-        run.git(self.wt, "init", "--initial-branch=main")
-        run.git(self.wt, "config", "user.name", "fixture")
-        run.git(self.wt, "config", "user.email", "fixture@localhost")
-        (self.wt / "work.txt").write_text("done\n")
-        run.git(self.wt, "add", ".")
-        run.git(self.wt, "commit", "-m", "task work")
+        _, _, self.wt = make_repos(self.root)
+        self.stack.enter_context(patch.object(run, "launcher_world", return_value=nullcontext(True)))
+        self.stack.enter_context(patch.object(usage, "collect", return_value={}))
+        self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
+        self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
 
     def merge_retry(self, exc, stale=False):
         run_dir = config.RUNS / "fix-api"
@@ -56,11 +55,11 @@ class DeliveryRetryDry(unittest.TestCase):
                        "reviewer": "astra", "reviewer_provider": "openai",
                        "returncode": 0, "verdict": "PASS", "done_when": True,
                        "head_sha": head, "tree_sha": tree},
-            "repo": str(self.wt), "worktree": str(self.wt), "branch": "ak/fix-api",
-            "base": "main", "base_sha": head, "scratch": False,
+            "repo": str(self.wt), "worktree": str(self.wt), "branch": "ak/test",
+            "base": "main", "merge_method": "squash", "base_sha": run.git(self.wt, "rev-parse", "origin/main"), "scratch": False,
             "merge_failed": True, "merge_note": "pushing failed", "findings": ""})
 
-        def landing_review(lp, **_kw):
+        def landing_review(lp, *args, **_kw):
             if stale:
                 lp.state.update(quota_dry=True, refusal_retry=123)
             return run.review(lp, "Done.", True, "$ true\n[exit 0]\n", record=False)
@@ -69,10 +68,18 @@ class DeliveryRetryDry(unittest.TestCase):
             self.assertEqual(role, "reviewer")
             raise exc
 
-        with patch.object(run, "merge", side_effect=landing_review), \
+        with patch.object(run, "rights", return_value=("acme/widget", "WRITE")), \
+                patch.object(run.shutil, "which", return_value="/fixture/gh"), \
+                patch.object(run.landing, "start_line"), \
+                patch.object(run, "fix_final_check", side_effect=landing_review), \
+                patch.object(run, "gh", side_effect=AssertionError("GitHub delivery")), \
                 patch.object(run, "call_retrying", side_effect=reviewer_turn) as turn, \
                 redirect_stdout(io.StringIO()):
-            self.assertEqual(run.cmd_merge([run_dir.name]), 1)
+            self.assertEqual(run.cmd_merge([run_dir.name]), 0)
+            state = record.read_state(run_dir)
+            lp = run.Loop(config.load(), run_dir, state, {}, lambda _: None,
+                          self.wt, "", ["false  # once"], "", [])
+            self.assertEqual(landing(lp, consume=lambda _: run.cmd_resume([run_dir.name])), 1)
         self.assertEqual(turn.call_count, 1)
         saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")

@@ -16,6 +16,7 @@ from unittest.mock import patch
 import test_review_gate as gate
 from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, task, watch, worker
 from agentkit import record
+from fixtures.landing import landing
 
 
 DEFECT = "broken.py:1 - empty input crashes - base abc123: `first([])` raises IndexError"
@@ -95,6 +96,9 @@ class FollowupRuns(unittest.TestCase):
         self.git(self.repo, "commit", "-qm", "Existing defect")
         self.git(self.repo, "push", "-qu", "origin", "main")
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(run.landing, "start_line"))
+        self.stack.enter_context(patch.object(run, "join_line", side_effect=lambda lp, upstream, deliver:
+                                            landing(lp, deliver)))
         self.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=self.spawn))
         self.stack.enter_context(patch.object(orch, "set_runs"))
         self.stack.enter_context(patch.object(orch, "stop_scope"))
@@ -155,10 +159,10 @@ class FollowupRuns(unittest.TestCase):
         run.start_followups(state, directory, self.logs.append, self.cfg)
         return [config.RUNS / name for name in state.get("followup_runs", [])]
 
-    def drive(self, directory, mode="fix"):
+    def drive(self, directory, mode="fix", *, prior=None):
         (self.root / "mode").write_text(mode)
         opts = record.read_state(directory)["launch_opts"]
-        code = run.drive(self.cfg, directory, opts, self.logs.append)
+        code = run.drive(self.cfg, directory, opts, self.logs.append, prior=prior)
         return code, record.read_state(directory)
 
     def test_merge_launches_each_item_with_evidence_and_the_session_workers(self):
@@ -287,6 +291,7 @@ class FollowupRuns(unittest.TestCase):
         code, fixed = self.drive(child)
         self.assertEqual(code, 0, "\n".join(self.logs))
         self.assertTrue(fixed["merged"])
+        self.assertEqual(fixed["final_check"]["where"], "landing")
         self.assertTrue(run.review_pass(fixed, self.cfg))
         self.assertEqual(fixed["base_sha"], merged)
         self.assertEqual(self.git(self.repo, "show", "origin/main:merged.txt"),

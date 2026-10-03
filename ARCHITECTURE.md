@@ -1,7 +1,5 @@
 # agentkit architecture
 
-Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` counts copies.
-
 ## What matters most
 
 - `ak` shows seats as working, needs you or done; `ak run task.md` delivers a merged PR.
@@ -23,14 +21,16 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 
 ## agentkit/
 
-- `run.py`: staffing, review, landing, hand-back, provider failures, slots, admission,
-  worktrees and delivery locks. API: `main`, `going`, `pick_models`; for watch, job, gc,
-  orch, menu, notify, usage, worker and a hook.
+- `run.py`: staffing, review, landing, hand-back, failures, slots, worktrees and delivery locks.
+  Passed writable workers park in the line and exit; foreground callers and jobs follow
+  records. Forks keep `land`; review-PR merges use the plain flock. API: `main`, `going`,
+  `pick_models`; for watch, job, gc, orch, menu, notify, usage, worker and a hook.
 - `gate.py`: check commands and host-wide heavy-suite turns; `run_done_when`, turn/env
   helpers and wait notes. For run and tests. Leaks: run's `run_child_env`, `memory_cap_note`,
   `dirty_paths`, `OUT_CAP`.
-- `land.py`: landing-line checks and tested-tree cache; run consumes recorded verdicts.
-  Initial line admission and checker scheduling are not wired into the run or watch paths.
+- `land.py`: shared suite and passed trees. Lander checks scratch worktrees and wakes
+  parked line members to land or fix; record changes and the tick start fresh passes
+  in the runs slice. Run consumes verdicts and rejoins after fixes or a changed target.
 - `record.py`: run.json, stop-safe writes, recovery locks, defaults, folders, writer id.
   API: `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
   `writing`. For run, gate, job, menu, orch, watch, gc, retention, history and worker.
@@ -58,6 +58,8 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - `worker.py`: headless turns, preambles, review, adapters, silence, auth, cleanup.
   API: `turn`, `call`, `kill_marked`, `auth_ok`.
   Used by run, gate, watch, usage, menu, harness. Leak: Claude shell timeout.
+- `box.py`: credential masks, PID teardown. `command`, `check`, `returncode`, `leftovers`;
+  for worker and run.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded
   evidence; worker names the channel; run replays proofs, weighs findings, drops disputes.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
@@ -111,8 +113,10 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   rebuild config.py's seat file names and rename chain.
 - `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
   `trust.py`, `catalog.py`, `desktop-mcp.py`.
-- `tests/`: offline `smoke.sh`, live `live.sh`; `every_file.py`: imports/cases,
-  live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`.
+- `tests/`: `landing.py` runs offline `smoke.sh` beside `every_file.py`, with grouped
+  live output; live `live.sh`; `every_file.py`: imports/cases,
+  live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`,
+  `landing.py` lands a crafted run through its line and lander verdict.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat
   rulebook), `templates/`, `browser/`, `docs/`.
 

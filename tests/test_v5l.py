@@ -322,7 +322,7 @@ sys.exit(1)
         executor, fixer = self.calls("executor")[0], self.calls("executor")[1]
         self.assertTrue(executor["prompt"].startswith("You are the executor."))
         for prompt in (executor["prompt"], fixer["prompt"]):
-            self.assertIn("`ak notify` is not available in this session", prompt)
+            self.assertIn("ak suppresses `ak notify` in worker sessions", prompt)
             self.assertIn("goes into your `## Summary`", prompt)
         self.assertIn("fix every instance of that pattern", fixer["prompt"])
         self.assertIn("list the sites you changed in your summary", fixer["prompt"])
@@ -354,7 +354,7 @@ sys.exit(1)
                     self.assertIn("Report every finding you can establish in this one pass", text)
                     self.assertNotIn("ak notify", text)
                 else:
-                    self.assertIn("`ak notify` is not available in this session", text)
+                    self.assertIn("ak suppresses `ak notify` in worker sessions", text)
                 if role.startswith("fixer"):
                     self.assertIn("fix every instance of that pattern", text)
 
