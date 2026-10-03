@@ -170,8 +170,6 @@ finish
                 (self.root / "dialog.exp").write_text(f'expect 2 {menu_pattern}\nsend n\\n\nexpect 2 {prompt}\n')
                 child = self.root / "dialog.py"
                 child.write_text(f'import sys\nprint({menu.KEYS!r}, flush=True)\ninput()\n'
-                                 + ("print('Hooks need review\\n3. Continue without trusting', flush=True)\n"
-                                    "assert input() == '3'\n" if harness == "codex" else "")
                                  + f'print({pane!r}, flush=True)\ninput()\n')
                 self.shell('python3 "$WORK/ptydrive.py" "$WORK/transcript" "$WORK/dialog.exp" -- python3 "$WORK/dialog.py"', check=True)
         # Seeing the menu before a send cannot satisfy a later expect after the child exits.
@@ -196,7 +194,7 @@ finish
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertRegex(result.stderr, 'MISSING|PRESENT but must not be')
 
-    def test_fresh_hook_dialog_with_cursor_moves_is_declined_before_prompt(self):
+    def test_fresh_hook_dialog_with_cursor_moves_fails_before_prompt(self):
         prompt = re.search(r"^PROMPT='(.*)'$", FRESH, re.M).group(1)
         driver = between(FRESH, 'cat >"$WORK/ptydrive.py"', 'chmod 755 "$WORK/ptydrive.py"')
         self.shell(driver, check=True)
@@ -208,10 +206,13 @@ finish
                 repaint = 'OpenAI Codex\x1b[10;2H' + composer.replace(' ', spaces)
                 (self.root / 'dialog.exp').write_text(f'expect 2 {prompt}\n')
                 (self.root / 'dialog.py').write_text(
-                    f'print({pane!r}, flush=True)\nassert input() == "3"\n'
+                    f'from pathlib import Path\nprint({pane!r}, flush=True)\n'
+                    f'Path({str(self.root / "answer")!r}).write_text(input())\n'
                     f'print({repaint!r}, flush=True)\ninput()\n')
-                result = self.shell('python3 "$WORK/ptydrive.py" "$WORK/transcript" "$WORK/dialog.exp" -- python3 "$WORK/dialog.py"', check=True)
-                self.assertNotIn('MISSING', result.stderr)
+                result = self.shell('python3 "$WORK/ptydrive.py" "$WORK/transcript" "$WORK/dialog.exp" -- python3 "$WORK/dialog.py"')
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn('MISSING', result.stderr)
+                self.assertFalse((self.root / 'answer').exists())
 
     def test_skipped_harness_browser_and_failed_run_prerequisite(self):
         skipped = between(SMOKE, "skip_spent()", "printf 'Create a file")
@@ -239,7 +240,10 @@ finish
         self.test_skipped_harness_browser_and_failed_run_prerequisite()
 
     def test_codex_partial_hook_modal_is_not_a_ready_banner(self):
-        poll = between(SMOKE, 'PANE=""\nfor _ in', '\ncp "$HOME/')
+        block = between(SMOKE, '# --- 6d:', '# --- 6e:')
+        poll = between(block, 'PANE=""\nfor _ in', '\ncp "$HOME/')
+        ready = next(line.strip().removesuffix(" &&") for line in block.splitlines()
+                     if "&& ! grep -q 'Hooks need review'" in line)
         result = self.shell('''tm() {
 case "$1" in
   capture-pane)
@@ -248,13 +252,15 @@ case "$1" in
       cat "$REPO/tests/fixtures/codex-hooks-review-pane.txt";
     else touch "$WORK/partial"; printf 'OpenAI Codex\\nHooks need review\\n'; fi ;;
   send-keys)
-    [ "$*" = 'send-keys -t smoke-astra 3 Enter' ] || return 97
     touch "$WORK/continued" ;;
   *) return 97 ;;
 esac
 }
 sleep() { :; }
-''' + poll + '\ntest -f "$WORK/continued"\n', check=True)
+''' + poll + '\nprintf "%s" "$PANE"\nSEATLIST=1\n' + ready)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('Hooks need review', result.stdout)
+        self.assertFalse((self.root / 'continued').exists())
         self.assertNotIn('forbidden', result.stderr)
 
     def test_usage_and_echo_diagnostics_show_actual_exit_and_error_tail(self):
