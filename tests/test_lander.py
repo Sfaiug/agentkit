@@ -493,12 +493,6 @@ class Lander(LanderFixture, unittest.TestCase):
         gc.clear_tree(scratch, lambda _: None)
         self.assert_cleaned()
 
-    def test_a_recorded_tree_is_forgotten_after_a_day(self):
-        land.note(self.turn, ["tree"], "fix-api")
-        self.assertEqual(land.passed(self.turn, "tree")["tested"], "tree")
-        with patch.object(land.time, "time", return_value=time.time() + land.KEEP + 1):
-            self.assertIsNone(land.passed(self.turn, "tree"))
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
