@@ -37,6 +37,15 @@ def _stem(account):
     return f"usage-meta.{account}" if account else "usage-meta"
 
 
+def record_turn(out, state_dir, account):
+    """Keep a refused turn's quota without letting the box write ak's other records."""
+    report = out / "quota.json"
+    if report.exists():
+        data = json.loads(report.read_text())
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / f"{_stem(account)}.json").write_text(json.dumps(data) + "\n")
+
+
 def usage_extra(out, data, state_dir):
     """Muse's adapter strips its probe timestamp.
 
@@ -62,7 +71,7 @@ def usage_extra(out, data, state_dir):
 
 
 def usage_recorded(state_dir, now):
-    """The quota adapters/muse.sh recorded when a run was refused, for as long as it stands.
+    """The quota imported from a refused turn's adapter report, for as long as it stands.
 
     Each meter is trusted for at most its own window, as the adapter's `usage` verb trusts it.
     Where `[providers.meta]` lists accounts every login has a record of its own, and nothing

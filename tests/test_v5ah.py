@@ -22,6 +22,9 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from agentkit.harness import muse
+
 ADAPTER = REPO / "adapters" / "muse.sh"
 
 _CODE = "42" + "9"
@@ -91,10 +94,12 @@ class V5AH(unittest.TestCase):
         fake.chmod(0o755)
 
     def _run(self, ws, prompt, out):
-        return subprocess.run(
+        proc = subprocess.run(
             [str(ADAPTER), "run", "fixture-model", "minimal",
              str(ws), str(prompt), str(out)],
             env=self._env(), capture_output=True, text=True, timeout=60)
+        muse.record_turn(out, self.state, "")
+        return proc
 
     def _usage(self, adapter):
         return subprocess.run(

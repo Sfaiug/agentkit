@@ -350,7 +350,7 @@ class GentleProbe(unittest.TestCase):
 
     def test_a_recorded_weekly_muse_refusal_renders_spent_with_its_reset(self):
         # alpha's seat is Muse's here: its probe reads 40% used, then a run is refused for the
-        # week and adapters/muse.sh writes the quota down.  That record is the reading at once,
+        # week and its plugin records the adapter's quota report. It is the reading at once,
         # with no request, and it renders as a probed reading does: spent, and when it resets.
         (config.HOME / config.CONFIG_NAME).write_text(
             CONFIG.replace('"fake"', '"muse"').replace("alpha", "meta"))

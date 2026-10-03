@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 from . import box, command_help, config, hand_in, record
+from .harness import load as harness_plugin
 
 # A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
 # the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
@@ -664,6 +665,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
                                   env=turn_env, stderr=err, **spawn)
     if not killed:
         code = box.returncode(out_dir, code)
+    harness_plugin(entry["harness"]).record_turn(out_dir, config.STATE,
+                                                turn_env.get(config.ACCOUNT_ENV, ""))
     try:
         said = own.read_bytes()
         own.unlink()

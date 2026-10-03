@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -86,8 +87,16 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
     """Yield (command, environment, spawn options); wait for teardown on every exit."""
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
-           "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--remount-ro", "/dev",
-           "--proc", "/proc"]
+           "--new-session", "--ro-bind", "/", "/", "--proc", "/proc"]
+    # A read-only bind disables devices too. Restore the nodes, leaving their
+    # directories read-only so ordinary files cannot fill the host's /dev tmpfs.
+    for device in Path("/dev").rglob("*"):
+        if not device.is_symlink() and (device.is_char_device() or device.is_block_device()):
+            cmd.extend(["--dev-bind", str(device), str(device)])
+    # devpts creates only terminals, which disappear when their descriptors close.
+    if Path("/dev/pts").is_dir():
+        cmd.extend(["--dev-bind", "/dev/pts", "/dev/pts"])
+    scratch_at = len(cmd)
     writable = set()
     for path in _paths(state, clean, cwd):
         path = path.resolve()
@@ -95,7 +104,15 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
         writable.add(path)
     # A sandbox HOME lends credential files as links. Their targets must also
     # allow an in-place token refresh; renaming over the link uses its state dir.
-    writable.update(path.resolve() for path in _paths(logins, clean, cwd) if path.is_symlink())
+    for path in _paths(logins, clean, cwd):
+        if path.is_symlink():
+            target = path.resolve()
+            if not target.exists():
+                # A shared refresh lock can be lent before its first use. Create
+                # only that file, keeping its parent read-only inside the turn.
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.touch()
+            writable.add(target)
     if cwd is not None:
         workspace = Path(cwd).resolve()
         writable.add(workspace)
@@ -110,8 +127,6 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
     if out_dir is not None:
         output = Path(out_dir).resolve()
         writable.add(output)
-        # Scratch stays on the output filesystem, never a RAM-backed root layer.
-        clean["TMPDIR"] = str(output)
     for path in sorted(writable):
         cmd.extend(["--bind", str(path), str(path)])
     directories, files = _credentials(clean, cwd)
@@ -166,13 +181,23 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
         except subprocess.TimeoutExpired:
             proc.kill()
 
-    try:
-        yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
-            "pass_fds": (write,), "stop": stop}
-    finally:
-        target = namespace()
-        if target is not None:
-            _wait(target[0])
+    with tempfile.TemporaryDirectory(prefix=".box-", dir=output) as scratch:
+        mounts = []
+        for name, destination in (("tmp", "/var/tmp"), ("shm", "/dev/shm")):
+            source = Path(scratch) / name
+            source.mkdir()
+            mounts.extend(["--bind", str(source), destination])
+        # Short aliases allow Unix sockets even when out has a long run id. Bind
+        # these first so a workspace or declared state under /var/tmp still wins.
+        cmd[scratch_at:scratch_at] = mounts
+        clean["TMPDIR"] = "/var/tmp"
+        try:
+            yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
+                "pass_fds": (write,), "stop": stop}
+        finally:
+            target = namespace()
+            if target is not None:
+                _wait(target[0])
 
 
 def _pidfd(info):
