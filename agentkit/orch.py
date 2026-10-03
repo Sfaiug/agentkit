@@ -128,6 +128,7 @@ _MANAGER = {}              # whether this host has a user systemd manager, asked
 _OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too,
 _OOM_POLICY_LOCK = threading.Lock()   # ... however many of a job's threads launch at once
 _SLICE = {}                # ... and what its slice says about itself, for the same reason
+_LITERAL = {}              # ... and the `systemd-run` a seat's scope runs, and with what
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
 
@@ -379,6 +380,36 @@ def scope_oom_policy():
                 version = int(found.group(1)) if found else 0
             _OOM_POLICY["answer"] = version >= 253
         return _OOM_POLICY["answer"]
+
+
+def seat_scope_run():
+    """The `systemd-run` a seat's pane runs, by its full path, and the switch it is handed.
+
+    From systemd 258 a scope expands `${NAME}` and `$$` in the command it runs, the way a
+    service does, and a harness's arguments are its own to the letter -- a path, a receipt, a
+    JSON value.  `--expand-environment=no` came in 254 and is harmless before 258; an older
+    `systemd-run` refuses it, and the scope with it.  So the binary asked its version is the
+    one the pane runs: a tmux server keeps the PATH it was started with, and a bare name
+    there may find another.  Its full path, too: the pane starts in the seat's own directory,
+    where a path found through a relative PATH entry names another file or none.  Such a one
+    is joined to this directory as found, never tidied: a `..` after a symlink leaves the
+    place the link points to, not the link's own directory.  An absolute one needs no
+    directory, which a long-lived caller's may no longer have.  Asked once per process.
+    """
+    if "argv" not in _LITERAL:
+        found_at = shutil.which("systemd-run")
+        if found_at and not os.path.isabs(found_at):
+            found_at = os.path.join(os.getcwd(), found_at)
+        found_at = found_at or "systemd-run"
+        try:
+            said = subprocess.run([found_at, "--version"], capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL, timeout=SLICE_WAIT).stdout
+        except (OSError, subprocess.SubprocessError):
+            said = ""
+        found = re.match(r"\s*systemd (\d+)", said)
+        _LITERAL["argv"] = [found_at, *(["--expand-environment=no"]
+                                        if found and int(found.group(1)) >= 254 else [])]
+    return _LITERAL["argv"]
 
 
 def can_scope():
@@ -1707,6 +1738,25 @@ def set_runs(name, tally, socket=None):
         pass
 
 
+def seat_command(name, cmd, socket=None):
+    """The pane's command line: the harness, started inside a scope of its own in the seats slice.
+
+    A pane is in whatever slice its server was started in, and a server already up -- started
+    by hand, or before seats were placed -- is in none of agentkit's.  So the harness is put
+    there as it starts, the way `in_slice` puts a server, rather than found and moved later.
+    Every launch names a new scope, so a respawn never meets the one the last harness may
+    have left behind.  The bus is the one `user_manager` found: a server started from cron
+    never told its panes where it is.  Where no manager answers, the command runs plainly.
+    """
+    if not user_manager():
+        return shlex.join(cmd)
+    unit = f"agentkit-seat-{name}-{uuid.uuid4().hex[:8]}"
+    run, *literal = seat_scope_run()
+    return shlex.join(["env", f"XDG_RUNTIME_DIR={bus_env()['XDG_RUNTIME_DIR']}",
+                       run, "--user", f"--slice={seat_slice_name(socket)}", "--scope",
+                       "--quiet", f"--unit={unit}", *literal, "--", *cmd])
+
+
 def start(name, cwd, cmd, orchestrator):
     """Create the seat detached with AGENTKIT_SESSION in its environment, and mark it as ours.
 
@@ -1725,10 +1775,11 @@ def start(name, cwd, cmd, orchestrator):
     # a harness that exits as it starts would otherwise take the session with it.  On a server
     # that is not up this says so and does nothing, and `-f` below is what dresses that one.
     # Its answer is also what says whether this command is the one starting the server: only
-    # that one can put the server, and every pane under it, in agentkit's slice.
+    # that one can put the server in agentkit's slice.  The harness goes in either way.
     running = tmux_out("source-file", str(conf))[0] == 0
     rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
-                       *env, shlex.join(cmd), unit=None if running else f"agentkit-seat-{name}")
+                       *env, seat_command(name, cmd),
+                       unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
     # set-option takes the session name plain: it is the one target that rejects `=name`
@@ -2022,8 +2073,8 @@ def launch(name, model, cwd, cmd, conversation, session=None):
                                  socket=server)
             if rc or owner != name:
                 target = f"={name}:"
-        rc, out = tmux_out("respawn-pane", "-k", "-t", target, shlex.join(cmd),
-                           socket=server)
+        rc, out = tmux_out("respawn-pane", "-k", "-t", target,
+                           seat_command(name, cmd, server), socket=server)
         if rc != 0:
             raise config.Error(f"cannot resume the session {name}: {out}")
         tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
