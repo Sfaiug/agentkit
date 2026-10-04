@@ -473,19 +473,18 @@ def first_command(cmd):
     return cmd
 
 
-def declared_suite(wt, target=None):
-    """The `tests:` suite: the checkout's own declaration wins; a checkout branched before
-    the repository declared one, or one that edits it away, reads the target branch as
-    fetched instead (`origin/<target>`).
+def declared_suite(wt, target=None, *, ref=None):
+    """The target's `tests:` suite at a pinned ref or `origin/<target>`, else the checkout's.
+
+    A change cannot loosen its own landing checks; its line applies after it merges.
     """
-    suite = declared(wt, "tests")
-    if not suite and target:
+    if not ref and target:
         ref = target if target.startswith("origin/") else f"origin/{target}"
-        suite = declared_at(wt, ref, "tests")
-    return suite
+    suite = declared_at(wt, ref, "tests") if ref else None
+    return suite or declared(wt, "tests")
 
 
-def with_suite(cmds, wt, target=None, *, landing=True):
+def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
     """Task checks, plus the declared `tests:` suite as a `# once` line when landing.
 
     A repository names its full suite once, in AGENTS.md, rather than every task writing it
@@ -498,7 +497,7 @@ def with_suite(cmds, wt, target=None, *, landing=True):
     """
     if not landing:
         return [taskfile.split_once(cmd)[0] for cmd in cmds]
-    suite = declared_suite(wt, target)
+    suite = declared_suite(wt, target, ref=ref)
     if not suite:
         return cmds
     targets = {" ".join(suite.split())}
@@ -2686,7 +2685,7 @@ def commit_identity(wt):
 
 def suite_evidence(lp, cmds, identity):
     """Keep the checked tree: integration can carry the SHA without running the suite again."""
-    suite = declared_suite(lp.wt, lp.target)
+    suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
     return {"suite": suite, "tree_sha": identity.get("tree_sha")} if suite and suite in cmds else {}
 
 
@@ -4051,8 +4050,9 @@ def how_to_integrate(lp):
 
 
 def set_base(lp, tip):
-    """The branch now carries the pinned tip, so that is what its diff is against from here on."""
-    lp.state["base_sha"] = git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
+    """Keep the integrated tip for the diff and suite, even if another fetch moves the ref."""
+    tip = git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
+    lp.state.update(base_sha=tip, target_sha=tip)
     lp.write()
 
 
@@ -4807,7 +4807,7 @@ def add_suite_trailer(lp, message, trailer):
 
 def merge_body(lp, head, url=None):
     checked = lp.state.get("final_check") or {}
-    suite = declared_suite(lp.wt, lp.target)
+    suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
     if (suite and checked.get("suite") == suite and checked.get("outcome") == "passed"
             and checked.get("sha") == head and checked.get("tree_sha")
             and checked["tree_sha"] == git(lp.wt, "rev-parse", f"{head}^{{tree}}")):
@@ -5128,7 +5128,7 @@ def target_fails(lp, upstream, dw_log):
     if cmd == (lp.state.get("repair") or {}).get("command"):
         return ""
     try:
-        tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
+        tip = lp.state.get("target_sha") or git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
         head = git(lp.wt, "rev-parse", "HEAD")
     except Stopped:
         raise
@@ -5264,13 +5264,17 @@ def final_check(lp, upstream):
     A command red on the target's tip and green on the old base parks without a
     fixer round.  When those commits are the same, only the tip is probed.
     """
+    if not lp.state.get("target_sha"):
+        lp.state["target_sha"] = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None
     try:
         now = git(lp.wt, "rev-parse", "HEAD")
     except (Stopped, config.Error):
         now = None
     record = lp.state.get("final_check") or {}
     if (now and record.get("outcome") == "passed" and record.get("where") == "landing"
-            and record.get("sha") == now):
+            and record.get("sha") == now
+            and record.get("suite") == declared_suite(lp.wt, lp.target,
+                                                       ref=lp.state.get("target_sha"))):
         try:
             reviewed = current_review(lp)
         except (Stopped, config.Error):
@@ -5281,7 +5285,7 @@ def final_check(lp, upstream):
     fixed = 0       # the fixer rounds this run has spent on these commands here
     while True:
         sha = git(lp.wt, "rev-parse", "HEAD")
-        suite = declared_suite(lp.wt, lp.target)
+        suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
         # A rebase or fixer can change the declaration loaded into lp.once. Rebuild
         # it from the task so only the inherited suite is replaced, including for probes.
         task = lp.run_dir / "task.md"
@@ -5354,12 +5358,12 @@ def final_check(lp, upstream):
         if said:
             return park_waiting(
                 lp, f"{upstream} itself fails: {said}", upstream,
-                git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
+                lp.state.get("target_sha"))
         if fixed >= CONFLICT_ROUNDS:
             return park_waiting(
                 lp, f"the final check still fails after {CONFLICT_ROUNDS} fixer rounds: "
                     f"{failing}", upstream,
-                git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
+                lp.state.get("target_sha"))
         fixed += 1
         lp.log(f"--- merge: final check round {fixed}/{CONFLICT_ROUNDS}: "
                f"fixer {lp.executor} (final check)")
@@ -5440,7 +5444,7 @@ def land_from_line(lp, upstream, deliver):
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],
-                                           "suite": declared_suite(lp.wt, lp.target)}
+                                           "suite": declared_suite(lp.wt, lp.target, ref=tip)}
                 lp.write()
                 result = deliver()
                 if "fix" not in lp.state.get("waiting_on", {}):
@@ -10610,7 +10614,7 @@ def preflight(run_dir, opts, log):
         else:
             method, action = ("none (review only)",
                               f"review {url} at {info['headRefOid']}; publish findings")
-        commands = "AGENTS.md tests: command from the PR checkout, if declared"
+        commands = "AGENTS.md tests: command from the target, else the PR checkout"
     else:
         meta, body, title = taskfile.parse_task(run_dir / "task.md")
         state = run_record.read_state(run_dir) or {}
@@ -11762,14 +11766,15 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     base, head = info["baseRefName"], info["headRefOid"]
     fetch(repo, "origin", f"pull/{number}/head", base, check=True)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
-    base_sha = git(repo, "merge-base", f"origin/{base}", head)
+    target_sha = git(repo, "rev-parse", f"origin/{base}^{{commit}}")
+    base_sha = git(repo, "merge-base", target_sha, head)
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
         if advancing:
             git(wt, "reset", "--hard", head)
     else:
         wt, branch = make_worktree(repo, run_dir.name, f"pr-{number}", head)
-    tests = declared_suite(wt, base)
+    tests = declared_suite(wt, base, ref=target_sha)
     # an own PR's suite runs once, at landing; somebody else's PR has no line behind it --
     # only the inbox's yes -- so its suite runs here, in its one review round
     cmds = [f"{tests}  # once" if is_own else tests] if tests else []
@@ -11789,7 +11794,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
              "launched_session": session_at_launch, "repo": str(repo), "scratch": False,
              "review_pr": url, "pr": url, "head_sha": head, "author": info["author"],
              "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
-             "base": f"origin/{base}", "target": base, "base_sha": base_sha, "branch": branch,
+             "base": f"origin/{base}", "target": base, "base_sha": base_sha,
+             "target_sha": target_sha, "branch": branch,
              "worktree": str(wt), "executor": None, "reviewer": None, "rounds": n_rounds,
              "state": "running", "verdict": None, **run_record.process_owner(), "started_at": receipt["started_at"],
              "finished_at": None, "round_summaries": summaries, "findings": previous, "merge_method": "squash",

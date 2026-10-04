@@ -205,15 +205,16 @@ class CatchCounts(unittest.TestCase):
     def test_an_old_database_and_missing_history_read_as_unused(self):
         self.assert_unused()
         self.assertFalse(history.path().exists())
+        columns = ",".join(history._index())
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute(history.SCHEMA)
             db.execute("INSERT INTO runs (run_id, repo, reviewer) VALUES ('old', 'acme', 'reviewer')")
-            before = db.execute("SELECT * FROM runs WHERE run_id='old'").fetchone()
+            before = db.execute(f"SELECT {columns} FROM runs WHERE run_id='old'").fetchone()
         self.assert_unused()
         self.review(self.loop())
         self.assert_counts(1, 0, 0, 0)
         with closing(sqlite3.connect(history.path())) as db:
-            self.assertEqual(db.execute("SELECT * FROM runs WHERE run_id='old'").fetchone(), before)
+            self.assertEqual(db.execute(f"SELECT {columns} FROM runs WHERE run_id='old'").fetchone(), before)
 
 
 if __name__ == "__main__":

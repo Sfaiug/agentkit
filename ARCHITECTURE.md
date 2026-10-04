@@ -45,7 +45,8 @@
   Calls `run.*`; for run, gc, watch, menu.
 - `watch.py`: tick, watch.json, errors (harness/manifest; `stalls`, `auth_expiry`),
   state (`session_state`, `waiting_on`), typing receipts by source, revive, resume, PR scans,
-  `doctor`. For run, job, orch, menu, notify, update, usage, worker, hooks.
+  after-merge checks, `health:` probes, `doctor`. For run, job, orch, menu, notify,
+  update, usage, worker, hooks.
   Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
