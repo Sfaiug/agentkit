@@ -1200,7 +1200,10 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             if task["state"] != "queued" or not job_legacy_refusal(task):
                 continue
             kept_state = record.read_state(config.RUNS / kept) if kept else None
-            if not kept_state or run.stands_on_dependency(kept_state):
+            # an ending that settles without a resume keeps its own word: stopped stays stopped
+            settles = kept_state and (kept_state.get("merged") or kept_state.get("state")
+                                      in ("stopped", "blocked", "not_needed"))
+            if not kept_state or (run.stands_on_dependency(kept_state) and not settles):
                 job_block_legacy(task, job_legacy_refusal(task))
                 save()
                 log(task["verdict_line"])

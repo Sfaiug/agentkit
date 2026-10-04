@@ -322,6 +322,19 @@ class RunStop(Sandbox):
         self.assertEqual(task["state"], "blocked")
         self.assertIn("launch b.md on its own once a.md merged", task["findings"])
 
+    def test_an_old_task_whose_kept_run_was_stopped_stays_stopped(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        kept = self.running("20260101-0900-kept-stopped", owner=None, state="stopped",
+                            verdict=None, pid=None, base_sha="tip", from_pass=legacy)
+        job_dir, job = self.old_job("20260101-090000-kept-stopped", {
+            "name": "b.md", "title": "B", "after": ["a.md"], "state": "queued",
+            "run_id": kept.name, "from_pass": legacy})
+        with redirect_stdout(io.StringIO()):
+            jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+        task = jobs.read_job(job_dir)["tasks"][1]
+        self.assertEqual(task["state"], "stopped")
+        self.assertNotIn("findings", task)
+
     def test_an_old_task_left_running_without_its_run_gets_no_fresh_one(self):
         job_dir, job = self.old_job("20260101-090000-no-run", {
             "name": "b.md", "title": "B", "after": ["a.md"], "state": "running",
