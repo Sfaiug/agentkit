@@ -305,6 +305,23 @@ class RunStop(Sandbox):
                 self.assertEqual(adopted.call_args.args[4], kept)
                 self.assertEqual(jobs.read_job(job_dir)["tasks"][1]["state"], "merged")
 
+    def test_an_old_task_whose_kept_run_stands_on_its_dependency_goes_back_at_once(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        kept = self.running("20260101-0900-kept-on-dep", owner=None, state="exhausted",
+                            verdict=None, pid=None, base_sha="tip", from_pass=legacy)
+        job_dir, job = self.old_job("20260101-090000-kept-on-dep", {
+            "name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
+            "run_id": kept.name, "from_pass": legacy})
+        # spent providers hold nothing: no budget check and no resume before it goes back
+        with patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
+                patch.object(jobs, "job_adopt_worker", side_effect=AssertionError("adopted")), \
+                redirect_stdout(io.StringIO()):
+            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+        self.assertEqual(rc, 1)
+        task = jobs.read_job(job_dir)["tasks"][1]
+        self.assertEqual(task["state"], "blocked")
+        self.assertIn("launch b.md on its own once a.md merged", task["findings"])
+
     def test_an_old_task_left_running_without_its_run_gets_no_fresh_one(self):
         job_dir, job = self.old_job("20260101-090000-no-run", {
             "name": "b.md", "title": "B", "after": ["a.md"], "state": "running",

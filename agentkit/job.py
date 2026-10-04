@@ -1192,12 +1192,15 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
                                       daemon=True)
             threads[task["name"]] = thread
             thread.start()
-        # a legacy task with no kept run to adopt goes back to its seat before any slot or
-        # budget wait: no fresh run can give it what it waited for
+        # a legacy task goes back to its seat before any slot, retry or budget wait unless its
+        # kept run already stands on the target: no fresh run, and no resume of one still on
+        # its dependency, can give it what it waited for
         for task in job["tasks"]:
             kept = task.get("run_id")
-            if (task["state"] == "queued" and job_legacy_refusal(task)
-                    and not (kept and (config.RUNS / kept / "run.json").exists())):
+            if task["state"] != "queued" or not job_legacy_refusal(task):
+                continue
+            kept_state = record.read_state(config.RUNS / kept) if kept else None
+            if not kept_state or run.stands_on_dependency(kept_state):
                 job_block_legacy(task, job_legacy_refusal(task))
                 save()
                 log(task["verdict_line"])
