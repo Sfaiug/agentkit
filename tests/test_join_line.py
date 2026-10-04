@@ -59,15 +59,6 @@ class JoinLine(Sandbox):
         self.assertIsNone(state["finished_at"])
         self.start.assert_called_once()
 
-    def test_dependency_wait_precedes_permission_and_join(self):
-        events = []
-        with patch.object(run, "wait_for_dependency", side_effect=lambda lp: events.append("dep") or False):
-            self.assertFalse(run.merge(self.lp))
-        self.assertEqual(events, ["dep"])
-        self.rights.assert_not_called()
-        self.start.assert_not_called()
-        self.assertNotIn("waiting_on", self.saved())
-
     def test_drive_releases_the_worker_without_an_ending(self):
         def work():
             run.merge(self.lp)

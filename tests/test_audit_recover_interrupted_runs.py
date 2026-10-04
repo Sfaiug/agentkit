@@ -448,7 +448,7 @@ if role == "reviewer" and (root / "fail-review").exists():
 
         return started, patch.object(orch, "start_in_slice", side_effect=placed)
 
-    def test_the_tick_relaunches_a_dead_job_and_its_waiting_task_starts_after_the_running_one(self):
+    def test_the_tick_relaunches_a_dead_job_and_starts_its_queued_task(self):
         # the scopes the fake placement names are nobody's: no real unit is ever stopped
         self.stack.enter_context(patch.object(orch, "stop_scope", return_value=True))
         config.save_session(self.cfg, "owner", self.executor, [self.executor, self.reviewer])
@@ -457,15 +457,15 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.addCleanup(os.chdir, os.getcwd())
         a, b = self.root / "a.md", self.root / "b.md"
         a.write_text(self.task)
-        b.write_text(self.task.replace("rounds: 1\n", "rounds: 1\nafter: a.md\n"))
+        b.write_text(self.task)
         # a finished before its launcher died: the relaunch adopts that run, never redoes it
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.main([str(a), "--exec", self.executor,
                                        "--review", self.reviewer]), 0)
         finished = run_record.run_dirs()[0]
-        tasks = [{"name": "a.md", "title": "A", "after": [], "state": "running",
+        tasks = [{"name": "a.md", "title": "A", "state": "running",
                   "run_id": finished.name, "started_at": self.now, "task_file": str(a)},
-                 {"name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
+                 {"name": "b.md", "title": "B", "state": "queued",
                   "run_id": None, "task_file": str(b)}]
         job_dir = self.dead_job("20260923-2000-recover", tasks=tasks, cwd=str(launched))
         out = io.StringIO()
@@ -490,7 +490,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         job = jobs.read_job(job_dir)
         self.assertEqual(job["pid"], os.getpid())
         self.assertEqual(len(job["relaunches"]), 1)
-        # the child it started, run here: it adopts a's result and starts b behind it, in the
+        # the child it started, run here: it adopts a's result and starts b, in the
         # directory the job was launched from, where a task naming no repo finds its checkout
         looked, task_repo = [], run.task_repo
         with patch.dict(os.environ, {key: env[key] for key in (config.JOB_DIR_ENV,

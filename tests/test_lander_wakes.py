@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gate, gc, land, record, run, usage, watch, worker
 from fixtures.hand_in import submitting
-from test_merge_step import conflict, make_loop, make_repos, resolve, squashed_dependency
+from test_merge_step import conflict, make_loop, make_repos, resolve
 from test_v4n import Sandbox
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -199,25 +199,6 @@ class LanderWakes(Sandbox):
 
     def test_green_merge_integrates_without_flattening_or_skipping(self):
         self.assert_green("merge")
-
-    def test_green_merge_replays_only_its_own_work_after_a_dependency_squash(self):
-        dep_tip = squashed_dependency(self.owner, self.wt)
-        self.lp.state.update(base_sha=dep_tip, from_pass={"task": "dep.md", "tip": dep_tip})
-        wait = self.park("merge")
-        self.assertIn("land", wait)
-        with patch.object(run, "wait_for_dependency", return_value=True):
-            self.assertEqual(run.cmd_resume([self.directory.name]), 0)
-        state = record.read_state(self.directory)
-        self.assertTrue(state["merged"])
-        self.assertEqual(state["final_check"]["tree_sha"], wait["land"])
-        self.assertFalse(run.integrated(self.wt, dep_tip))
-        self.assertTrue(run.integrated(self.wt, "origin/main"))
-        self.assertEqual(run.git(self.wt, "rev-list", "--count", "origin/main..HEAD"), "1")
-        self.assertEqual((self.wt / "base.txt").read_text(), "later\n")
-        self.assertEqual((self.wt / "work.txt").read_text(), "work\n")
-        self.assertEqual(self.events, [])
-        self.assertIn("--merge", self.merges[0])
-        self.assert_rounds(state)
 
     def test_changed_tree_rejoins_at_the_same_place(self):
         wait = self.park()

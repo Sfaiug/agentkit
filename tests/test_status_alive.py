@@ -212,14 +212,14 @@ class StatusAlive(Sandbox):
         self.job(name, [
             {"name": "a.md", "state": "running", "run_id": "20260922-0900-job-first"},
             {"name": "b.md", "state": "running", "run_id": "20260922-0901-job-second"},
-            {"name": "c.md", "state": "waiting", "after": ["a.md"], "run_id": None}])
+            {"name": "c.md", "state": "queued", "run_id": None}])
         # the launcher and both runs' loops are gone: nothing here is probed or signalled
         with patch.object(record, "process_active", return_value=False), \
                 patch.object(run, "stop_run_tree"):
             alone = self.status([name])
             table = self.status([])
         for text in (table, alone):
-            self.assertIn(f"job {name}: 1 waiting on a.md, 2 interrupted", text)
+            self.assertIn(f"job {name}: 1 queued, 2 interrupted", text)
             self.assertNotIn("running", text)
             self.assertIn(f"launcher gone; ak run resume {name} to continue", text)
         self.assertIn("  a.md interrupted 20260922-0900-job-first  a.md: interrupted", alone)

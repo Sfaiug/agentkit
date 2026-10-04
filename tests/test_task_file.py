@@ -28,7 +28,7 @@ class TaskFile(unittest.TestCase):
         return (f"# Fix the api\n\n## Goal\n{goal}\n\n## Done when\n```bash\n"
                 + "\n".join(cmds) + "\n```\n")
 
-    def test_front_matter_gives_meta_title_and_every_after(self):
+    def test_front_matter_gives_meta_and_title(self):
         path = self.write("---\n# who runs it is the loop's choice\nrepo: none  # scratch\n"
                           "after: base.md\nrounds: 2\nafter: schema.md, Make the docs  # both\n"
                           "---\n" + self.body())
@@ -37,16 +37,14 @@ class TaskFile(unittest.TestCase):
                                 "rounds": "2"})
         self.assertTrue(body.startswith("# Fix the api\n"))
         self.assertEqual(title, "Fix the api")
-        self.assertEqual(task.task_afters(path), ["base.md", "schema.md", "Make the docs"])
 
     def test_a_file_without_front_matter_is_all_body(self):
         path = self.write("no heading here\n")
         self.assertEqual(task.parse_task(path), ({}, "no heading here\n", "fix-api"))
-        self.assertEqual(task.task_afters(path), [])
 
     def test_a_missing_closing_fence_is_refused(self):
         path = self.write("---\nrepo: none\n" + self.body())
-        for read in (task.parse_task, task.task_afters):
+        for read in (task.parse_task, task.task_files):
             with self.subTest(read.__name__), \
                     self.assertRaisesRegex(config.Error, "closing --- line"):
                 read(path)

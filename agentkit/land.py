@@ -321,10 +321,8 @@ def _stack_member(repo, state, top, upstream, opened):
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))
-    how = "rebase" if run.on_pass(lp) else run.how_to_integrate(lp)
-    args = (("merge", "--no-edit", top) if how == "merge" else
-            ("rebase", "--onto", top, lp.base_sha) if run.on_pass(lp) else
-            ("rebase", top))
+    how = run.how_to_integrate(lp)
+    args = ("merge", "--no-edit", top) if how == "merge" else ("rebase", top)
     if how == "rebase":
         # A detached rebase must not rewrite the member's branch through Git config.
         args = ("-c", "rebase.updateRefs=false", *args)
