@@ -11716,7 +11716,8 @@ def review_pr(cfg, run_dir, url, opts, log):
             if not wait_for_own_pr(cfg, run_dir, url, state, log):
                 return state
         summaries = state.get("round_summaries") or []
-        if (state.get("waiting_on") or {}).get("line"):
+        if (state.get("waiting_on") or {}).get("line") and not state.get("merged"):
+            # a merge already recorded is settled below, never sent back to a line that skips it
             _, body, _ = taskfile.parse_task(run_dir / "task.md")
             cmds = taskfile.done_when(body, run_dir / "task.md")
             state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)
@@ -11797,7 +11798,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                          "review_pr": url, "head_sha": prior["head_sha"] if advancing else info["headRefOid"],
                          "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
                          "started_at": prior.get("started_at") or time.time(), "review_posted": False})
-    receipt.pop("own_pr_wait", None)
+    # `own_pr_wait` stays until the new head's checkout is written down below: a fetch that
+    # fails or a process that dies before then still lets the next attempt move to that head
     receipt.pop("own_pr_round_typed", None)
     if advancing:
         receipt["review_session"] = None
@@ -11850,6 +11852,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if is_own:
         # Kept through post failures and cleared only when this verdict is settled.
         state["own_pr_round_pending"] = len(summaries) + 1
+    state.pop("own_pr_wait", None)       # this head is checked out and recorded
+    state.pop("delivery_sha", None)      # a push an earlier round meant to make proves nothing here
     run_record.save_state(run_dir, state)
     join_session_project(session_at_launch)     # a review is a launch too, and votes
     history_start(state, log)
@@ -11992,6 +11996,7 @@ def settle_pr_round(lp, url, info):
             log(f"WARN {state['merge_note']}")
     # An obsolete verdict still supplies the next round's findings. The push wait
     # observes the moved head or closure immediately, including after a post retry.
+    state.pop("waiting_on", None)        # whatever this round settled to, it is out of the line
     if is_own and (verdict == "FAIL" or not posted) and lp.rnd < lp.rounds:
         state.update(state="running", finished_at=None, own_pr_wait=head)
         state.pop("recovery_pending", None)

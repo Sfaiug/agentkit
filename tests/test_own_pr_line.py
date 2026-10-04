@@ -369,6 +369,95 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertEqual(self.review(directory, url)["head_sha"], newest)
         self.assertEqual(self.merges, [])
 
+    def fetch_dies_on_the_fix(self, red_suite):
+        """A landing goes red -- its suite, or its required checks -- the seat pushes a fix, and
+        the process dies fetching it: the next attempt still reviews that fix."""
+        directory, url = self.own_pr("second", 1)
+        with patch.object(run, "gh", return_value=(0, "")):
+            self.assertEqual(self.review(directory, url)["state"], "waiting")
+        if red_suite:
+            self.advance(**{"first.txt": "first\n"})
+        land.check_line(self.turn)
+        failed = (nullcontext() if red_suite else
+                  patch.object(run, "checks", return_value=(False, "required checks failed: fence")))
+        with failed, patch.object(run, "wait_for_own_pr", return_value=False):
+            self.assertEqual(self.review(directory, url)["verdict"], "FAIL")
+        self.push_fix(url, rename=True)
+        newest, fetch = self.prs[url]["head"], run.fetch
+
+        def dies(repo, remote, *args, **kw):
+            if any(arg.startswith("pull/") for arg in args):
+                raise InterruptedError("the process died fetching the seat's fix")
+            return fetch(repo, remote, *args, **kw)
+
+        with patch.object(run, "fetch", side_effect=dies), self.assertRaises(InterruptedError):
+            self.review(directory, url)
+        state = self.review(directory, url)
+        self.assertEqual((state["head_sha"], state["state"]), (newest, "waiting"))
+        self.assertEqual(len(self.reviews), 2)
+        self.assertEqual(self.merges, [])
+
+    def test_a_fetch_that_dies_on_the_fix_for_a_red_suite_leaves_it_to_be_reviewed(self):
+        self.fetch_dies_on_the_fix(red_suite=True)
+
+    def test_a_fetch_that_dies_on_the_fix_for_red_checks_leaves_it_to_be_reviewed(self):
+        self.fetch_dies_on_the_fix(red_suite=False)
+
+    def test_an_earlier_rounds_push_never_overwrites_a_newer_seat_push(self):
+        directory, url = self.own_pr("first", 1)
+        with patch.object(run, "gh", return_value=(0, "")):
+            self.assertEqual(self.review(directory, url)["state"], "waiting")
+        self.advance()
+        land.check_line(self.turn)
+        git_out = run.git_out
+
+        def pushed(cwd, *args, **kw):
+            result = git_out(cwd, *args, **kw)
+            if args[0] == "push" and Path(cwd) != self.repo and result[0] == 0:
+                self.prs[url]["head"] = run.git(self.remote, "rev-parse", self.prs[url]["branch"])
+            return result
+
+        with patch.object(run, "git_out", side_effect=pushed), \
+                patch.object(run, "checks", return_value=(False, "required checks failed: fence")), \
+                patch.object(run, "wait_for_own_pr", return_value=False):
+            earlier = self.review(directory, url)["delivery_sha"]
+        run.git(self.repo, "checkout", self.prs[url]["branch"])
+        run.git(self.repo, "reset", "--hard", earlier)
+        self.push_fix(url)
+        self.assertEqual(self.review(directory, url)["state"], "waiting")
+        land.check_line(self.turn)
+        # the seat withdraws its fix with a newer force-push while this round waits
+        run.git(self.repo, "checkout", self.prs[url]["branch"])
+        run.git(self.repo, "reset", "--hard", earlier)
+        run.git(self.repo, "push", "--force", "origin", self.prs[url]["branch"])
+        self.prs[url]["head"] = earlier
+        with patch.object(run, "wait_for_own_pr", return_value=False):
+            self.review(directory, url)
+        self.assertEqual(self.merges, [])
+        self.assertEqual(run.git(self.remote, "rev-parse", self.prs[url]["branch"]), earlier)
+
+    def test_a_merge_recorded_just_before_a_crash_is_finished_never_rejoined(self):
+        directory, url = self.own_pr("first", 1)
+        self.review(directory, url)
+        land.check_line(self.turn)
+        write = run.Loop.write
+
+        def dies_once_merged(lp):
+            answer = write(lp)
+            if lp.state.get("merged"):
+                raise InterruptedError("the process died after recording the merge")
+            return answer
+
+        with patch.object(run.Loop, "write", dies_once_merged), \
+                self.assertRaises(InterruptedError):
+            self.review(directory, url)
+        self.assertTrue(record.read_state(directory)["merged"])
+        self.advance(**{"later.txt": "another delivery\n"})
+        state = self.review(directory, url)
+        self.assertEqual((state["state"], state["merged"]), ("pass", True))
+        self.assertNotIn("waiting_on", state)
+        self.assertEqual(len(self.merges), 1)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
