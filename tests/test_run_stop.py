@@ -5,6 +5,7 @@ processes for the tree the stop must end, and a real throwaway git repo for the
 checkout it must take. No harness, no network and nothing of the owner's is touched.
 """
 
+import copy
 from contextlib import redirect_stdout
 import io
 import json
@@ -440,6 +441,27 @@ class RunStop(Sandbox):
                     jobs.job_adopt_worker(self.cfg, job_dir, job, task, kept, threading.Lock(),
                                           lambda _: None)
                 self.assertEqual((task["state"], task["run_id"]), ("merged", kept.name))
+
+    def test_a_merged_task_stays_merged_after_its_models_are_removed(self):
+        review = {"executor": "opus", "reviewer": "astra", "returncode": 0, "verdict": "PASS",
+                  "executor_provider": config.model(self.cfg, "opus")["provider"],
+                  "reviewer_provider": config.model(self.cfg, "astra")["provider"],
+                  "done_when": True, "head_sha": "a" * 40, "tree_sha": "b" * 40}
+        for removed in ("opus", "astra"):
+            with self.subTest(removed=removed):
+                kept = self.running(f"20260101-0900-merged-{removed}", owner=None, state="pass",
+                                    pid=None, verdict="PASS", merged=True, review=review,
+                                    repo=str(self.root / "repo"), round_summaries=[])
+                cfg = copy.deepcopy(self.cfg)
+                config.remove_model(cfg, removed)      # its review can no longer be judged today
+                task = {"name": "b.md", "title": "B", "state": "running", "run_id": kept.name}
+                job_dir, job = self.old_job(f"20260101-090000-merged-{removed}", task)
+                with patch.object(run, "reap",
+                                  side_effect=lambda directory, _state: record.read_state(directory)), \
+                        redirect_stdout(io.StringIO()):
+                    jobs.job_adopt_worker(cfg, job_dir, job, task, kept, threading.Lock(),
+                                          lambda _: None)
+                self.assertEqual(task["state"], "merged")
 
     def test_an_old_task_whose_kept_run_was_stopped_stays_stopped(self):
         legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
