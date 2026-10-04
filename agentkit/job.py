@@ -650,21 +650,30 @@ def job_legacy_refusal(task):
             f"{', '.join(map(str, deps))} merged") if deps else ""
 
 
-def job_end_legacy_run(cfg, task, run_dir, run_state):
+def job_end_legacy_run(cfg, task, run_dir):
     """End a legacy task's kept run that still stands on its dependency, and the task with it.
 
     Whatever state the run was saved in, it is ended the way `run.loop` ends one -- blocked,
     with the branch to relaunch from -- before any resume, merge retry, budget or login wait
-    could act on it.  Merged, stopped and other settled endings keep their word, and a run
-    alive elsewhere or in its line is left to its owner.  The ended state, or None.
+    could act on it.  It is read and judged under its own lock, so a run another process has
+    since resumed or delivered is left as that process left it: merged, stopped and other
+    settled endings keep their word, and a run alive elsewhere or in its line is its owner's.
+    The ended state, or None.
     """
-    why = run.stands_on_dependency(run_state) if job_legacy_refusal(task) else ""
-    if (not why or run_state.get("merged")
-            or run_state.get("state") in ("stopped", "blocked", "not_needed")
-            or record.process_active(run_state) or run.landing_line(run_state)):
+    if not job_legacy_refusal(task):
         return None
     with job_adopting(run_dir.name), record.recovery_lock(run_dir):
-        ended = run.end_on_dependency(cfg, run_dir, run_state, run.logger(run_dir, True), why)
+        state = record.read_state(run_dir) or {}
+        why = run.stands_on_dependency(state)
+        if (not why or state.get("merged")
+                or state.get("state") in ("stopped", "blocked", "not_needed")
+                or record.process_active(state) or run.landing_line(state)):
+            return None
+        try:
+            ended = run.end_on_dependency(cfg, run_dir, state, run.logger(run_dir, True), why)
+        except (config.Error, OSError) as exc:
+            # its record says what it got to; the task still goes back with the run and its branch
+            ended = {**(record.read_state(run_dir) or state), "error": f"{why}; ending it: {exc}"}
     task.update(state="blocked", finished_at=time.time(), findings=ended.get("error") or "")
     task["verdict_line"] = job_verdict_line(task, ended)
     return ended
@@ -1021,7 +1030,7 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
     try:
         with job_adopting(run_dir.name):
             run_state = run.reap(run_dir, record.read_state(run_dir) or {})
-        if job_end_legacy_run(cfg, task, run_dir, run_state):
+        if job_end_legacy_run(cfg, task, run_dir):
             with lock:
                 save_job(job_dir, job)
             log(task["verdict_line"])
@@ -1229,7 +1238,7 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             kept_state = record.read_state(config.RUNS / kept) if kept else None
             if not kept_state:
                 job_block_legacy(task, job_legacy_refusal(task))
-            elif not job_end_legacy_run(cfg, task, config.RUNS / kept, kept_state):
+            elif not job_end_legacy_run(cfg, task, config.RUNS / kept):
                 continue
             save()
             log(task["verdict_line"])

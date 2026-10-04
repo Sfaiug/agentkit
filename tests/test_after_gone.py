@@ -194,6 +194,27 @@ class AfterGone(unittest.TestCase):
         self.assertEqual((wt / "fixer.txt").read_text(), "fixer work\n")
         self.assertEqual(git("show", "ak/beta:file.txt"), "own work")
 
+    def test_a_git_that_stops_keeps_the_checkout_and_still_ends_the_run(self):
+        wt = self.root / "wt-delta"
+        wt.mkdir()
+        run_dir, state = self.saved("20261004-0706-delta", state="running", verdict=None,
+                                    merge_failed=False, scratch=False, repo=str(self.root),
+                                    worktree=str(wt))
+        real_git = run.git
+        on_branch = lambda wt, *args, **kw: ("refs/heads/ak/beta" if args[:1] == ("symbolic-ref",)
+                                             else real_git(wt, *args, **kw))
+        with patch.object(run, "git", side_effect=on_branch), \
+                patch.object(run, "in_progress", return_value=False), \
+                patch.object(run, "commit_leftovers", side_effect=run.Stopped("git commit killed")), \
+                patch.object(run, "drop_checkout", side_effect=AssertionError("cleaned up")), \
+                patch("agentkit.browser.close_owned"):
+            ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
+                             lambda _: None, prior=state)
+            self.assertEqual(ended["state"], "blocked")
+            self.assertRegex(ended["error"], r"relaunch with `from: ak/beta`; git could not .*"
+                                             r"git commit killed.* is kept")
+            run.settle_run({**record.read_state(run_dir), "handed_back": True}, run_dir)
+
     def test_work_no_commit_could_take_keeps_its_checkout(self):
         wt = self.root / "wt-gamma"
         wt.mkdir()

@@ -5594,21 +5594,27 @@ def end_on_dependency(cfg, run_dir, state, log, why):
     `why` is `stands_on_dependency`'s.  An interrupted executor's uncommitted edits go onto
     that branch first.  A checkout off it -- a rebase or merge stopped part way -- or still
     holding work no commit took is kept with that work (`checkout_kept`), and the ending
-    says where, so the hand-back's cleanup leaves it for the seat.
+    says where, so the hand-back's cleanup leaves it for the seat.  So is one git could not
+    read or commit in time: the run still ends, and nothing in the checkout is lost.
     """
     wt = Path(state.get("worktree") or "")
     if not state.get("scratch") and state.get("worktree") and wt.is_dir():
         branch = state.get("branch")
-        if (git(wt, "symbolic-ref", "--quiet", "HEAD", check=False) != f"refs/heads/{branch}"
-                or in_progress(wt, "rebase") or in_progress(wt, "merge")):
-            why += (f"; its checkout {wt} stopped part way off {branch} (a rebase or merge) "
-                    f"and is kept with that work")
-            state["checkout_kept"] = True
-        else:
-            commit_leftovers(wt, log, set())
-            if any(not leftover_junk(path) for path in dirty_paths(wt)):
-                why += f"; its uncommitted work could not be committed, so its checkout {wt} is kept"
+        try:
+            if (git(wt, "symbolic-ref", "--quiet", "HEAD", check=False) != f"refs/heads/{branch}"
+                    or in_progress(wt, "rebase") or in_progress(wt, "merge")):
+                why += (f"; its checkout {wt} stopped part way off {branch} (a rebase or merge) "
+                        f"and is kept with that work")
                 state["checkout_kept"] = True
+            else:
+                commit_leftovers(wt, log, set())
+                if any(not leftover_junk(path) for path in dirty_paths(wt)):
+                    why += (f"; its uncommitted work could not be committed, so its checkout "
+                            f"{wt} is kept")
+                    state["checkout_kept"] = True
+        except (config.Error, OSError) as exc:
+            why += f"; git could not put its checkout's work on {branch} ({exc}), so {wt} is kept"
+            state["checkout_kept"] = True
     return finish_blocked(run_dir, state, Blocked(why, f"## Blocked\n\n{why}"), log, cfg)
 
 

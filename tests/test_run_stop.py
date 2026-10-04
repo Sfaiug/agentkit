@@ -14,6 +14,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -340,6 +341,57 @@ class RunStop(Sandbox):
                 # the relaunch goes on from the work the kept run has, never from the target
                 self.assertIn("relaunch with `from: ak/b`", task["findings"])
                 self.assertIn("relaunch with `from: ak/b`", task["verdict_line"])
+
+    def test_an_old_task_whose_kept_run_cannot_be_ended_still_goes_back_with_it(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        for held in ("waiting", "running"):
+            with self.subTest(held=held):
+                kept = self.running(f"20260101-0900-kept-stuck-{held}", owner=None,
+                                    state="interrupted", verdict=None, pid=None, base_sha="tip",
+                                    from_pass=legacy, branch="ak/b", round_summaries=[],
+                                    findings="", merged=False)
+                job_dir, job = self.old_job(f"20260101-090000-stuck-{held}", {
+                    "name": "b.md", "title": "B", "after": ["a.md"], "state": held,
+                    "run_id": kept.name, "from_pass": legacy})
+                with patch.object(run, "end_on_dependency", side_effect=run.Stopped("git killed")), \
+                        patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
+                        patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                        redirect_stdout(io.StringIO()):
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                self.assertEqual(rc, 1)
+                task = jobs.read_job(job_dir)["tasks"][1]
+                self.assertEqual((task["state"], task["run_id"]), ("blocked", kept.name))
+                self.assertIn("relaunch with `from: ak/b`", task["findings"])
+                self.assertIn("git killed", task["findings"])
+
+    def test_a_kept_run_another_process_moved_on_is_left_as_it_left_it(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        kept = self.running("20260101-0900-kept-raced", owner=None, state="interrupted",
+                            verdict=None, pid=None, base_sha="tip", from_pass=legacy,
+                            branch="ak/b", round_summaries=[], findings="", merged=False)
+        stale = record.read_state(kept)
+        job_dir, job = self.old_job("20260101-090000-raced")
+        for live in ({**stale, "state": "running", "pid": 999999991},
+                     {**stale, "state": "pass", "verdict": "PASS", "merged": True}):
+            with self.subTest(state=live["state"]):
+                record.save_state(kept, stale)
+                task = {"name": "b.md", "title": "B", "after": ["a.md"], "state": "running",
+                        "run_id": kept.name, "from_pass": legacy}
+
+                def reap(directory, _state):
+                    # a resume or a delivery wins the run once the reap lets go of it
+                    record.save_state(directory, live)
+                    return stale
+
+                with patch.object(run, "reap", side_effect=reap), \
+                        patch.object(record, "process_active",
+                                     side_effect=lambda state: state.get("pid") == 999999991), \
+                        patch.object(run, "cmd_resume"), patch.object(jobs, "job_ladder"):
+                    jobs.job_adopt_worker(self.cfg, job_dir, {**job, "tasks": [task]}, task, kept,
+                                          threading.Lock(), lambda _: None)
+                saved = record.read_state(kept)
+                self.assertEqual((saved["state"], saved.get("merged"), saved.get("pid")),
+                                 (live["state"], live.get("merged"), live.get("pid")))
 
     def test_an_old_task_whose_kept_run_was_stopped_stays_stopped(self):
         legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
