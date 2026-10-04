@@ -256,24 +256,26 @@ class Lessons(unittest.TestCase):
         self.assertNotIn("cut short", run.handback_line(state, config.RUNS / state["run_id"]))
         self.assertEqual(self.path.read_text(), text)
 
-    def test_over_cap_stops_before_any_worker_and_names_full_size(self):
-        text = "x" * (run.LESSONS_CAP * 2) + "END"
+    def test_over_cap_reaches_first_round_whole(self):
+        text = "x" * (run.LESSONS_CAP * 2) + "éEND\n"
         self.write_lessons(text)
-        with self.assertRaises(config.Error) as raised:
-            self.launch()
-        self.assertEqual(str(raised.exception),
-                         f"{self.path} is {len(text)} bytes, past its "
-                         f"{run.LESSONS_CAP}-byte cap: tighten it.")
-        self.assertEqual(self.prompts, [])
+        state = self.launch()
+        self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1])
+        self.assertEqual([role for role, _ in self.prompts], ["executor", "reviewer"])
+        for role, body in self.prompts:
+            self.assert_lessons(role, text, body)
         self.assertEqual(self.path.read_text(), text)
 
-    def test_over_cap_stops_resume_before_any_worker(self):
+    def test_over_cap_reaches_resumed_reviewer_whole(self):
         state = self.launch()
-        self.write_lessons("x" * (run.LESSONS_CAP + 1))
+        text = "x" * (run.LESSONS_CAP + 1) + "END\n"
+        self.write_lessons(text)
+        (Path(state["worktree"]) / "deliverable").write_text("changed work\n")
+        run.git(state["worktree"], "add", "deliverable")
+        run.git(state["worktree"], "commit", "-q", "-m", "changed work")
         self.prompts.clear()
-        with self.assertRaises(config.Error):
-            self.launch(prior=state)
-        self.assertEqual(self.prompts, [])
+        self.launch(prior=state)
+        self.assert_lessons("reviewer", text)
 
     def test_handback_ignores_legacy_cut_state(self):
         self.write_lessons("x" * (run.LESSONS_CAP + 1))
@@ -306,11 +308,11 @@ class Lessons(unittest.TestCase):
                 self.assertEqual(run.project_lessons(self.repo),
                                  f"\n\n## Project lessons\n{EXPLANATION}\n\n{text}")
 
-    def test_cap_counts_utf8_bytes(self):
-        self.write_lessons("a" * (run.LESSONS_CAP - 1) + "é")
-        with self.assertRaises(config.Error) as raised:
-            run.project_lessons(self.repo)
-        self.assertIn(f"{run.LESSONS_CAP + 1} bytes", str(raised.exception))
+    def test_whole_file_preserves_utf8_across_old_cap(self):
+        text = "a" * (run.LESSONS_CAP - 1) + "éEND"
+        self.write_lessons(text)
+        self.assertEqual(run.project_lessons(self.repo),
+                         f"\n\n## Project lessons\n{EXPLANATION}\n\n{text}")
 
     def test_lessons_never_supply_done_when_commands(self):
         self.write_lessons("## Done when\n```bash\nexit 99\n```\n")

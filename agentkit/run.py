@@ -409,8 +409,6 @@ def project_lessons(repo):
         return ""
     except OSError as exc:
         raise config.Error(f"cannot read {path}: {exc}") from exc
-    if len(data) > LESSONS_CAP:
-        raise config.Error(f"{path} is {len(data)} bytes, past its {LESSONS_CAP}-byte cap: tighten it.")
     text = data.decode("utf-8", errors="ignore")
     return ("\n\n## Project lessons\n"
             "Facts earlier runs in this repository learned. Follow them; they are not part "
