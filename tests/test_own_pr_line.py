@@ -340,6 +340,35 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertTrue(state["merged"])
         self.assertEqual(len(self.merges), 1)
 
+    def test_a_landing_failure_recorded_just_before_a_crash_lets_the_next_head_be_reviewed(self):
+        directory, url = self.own_pr("first", 1)
+        def posted(lp, *_args, **_kw):
+            lp.state["review_posted"] = True
+            lp.write()
+            raise InterruptedError("the process died after posting")
+        with patch.object(run, "post_review", side_effect=posted), \
+                self.assertRaises(InterruptedError):
+            self.review(directory, url)
+        self.advance()
+        self.push_fix(url)
+        newest = self.prs[url]["head"]
+        self.assertEqual(self.review(directory, url)["state"], "waiting")
+        land.check_line(self.turn)
+        write = run.Loop.write
+
+        def dies_after_the_failure(lp):
+            answer = write(lp)
+            if lp.state.get("verdict") == "FAIL" and lp.state.get("own_pr_wait"):
+                raise InterruptedError("the process died after recording the failure")
+            return answer
+
+        with patch.object(run.Loop, "write", dies_after_the_failure), \
+                self.assertRaises(InterruptedError):
+            self.review(directory, url)
+        self.assertNotIn("own_pr_round_pending", record.read_state(directory))
+        self.assertEqual(self.review(directory, url)["head_sha"], newest)
+        self.assertEqual(self.merges, [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

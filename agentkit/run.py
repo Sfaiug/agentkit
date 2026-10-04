@@ -11593,7 +11593,9 @@ def fail_pr_landing(lp, failure):
     lp.state.update(verdict="FAIL", findings=text[-8000:], findings_file=str(path),
                     final_check={"outcome": "failed", "where": "landing", "line": failure["line"]})
     lp.state["review"] = {**lp.state["review"], "verdict": "FAIL", "overridden": failure["line"]}
+    # the round's delivery is settled in this same write: a resume after it reviews the next head
     lp.state.pop("waiting_on", None)
+    lp.state.pop("own_pr_round_pending", None)
     if lp.state.get("own_pr") and lp.rnd < lp.rounds:
         lp.state.update(state="running", finished_at=None, own_pr_wait=lp.state["head_sha"])
     else:
