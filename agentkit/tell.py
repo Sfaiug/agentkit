@@ -93,6 +93,19 @@ def seat_of(name):
     return record.get("created", "")
 
 
+def settled(alias):
+    """(the name that alias goes by, the seat it is), read in a stretch no rename fell inside.
+
+    Read again where a rename moved the seat meanwhile; the queue asks once more under its lock.
+    """
+    for _ in range(3):
+        name = config.resolve_session(alias)
+        seat = seat_of(name)
+        if config.resolve_session(alias) == name:
+            break
+    return name, seat
+
+
 def refusal(sender, name, seat=None):
     """Why that sender cannot tell that seat now -- or, given `seat`, no longer -- else None."""
     if name == sender:
@@ -177,10 +190,15 @@ def main(argv):
     if not sender:
         print("ak tell: no seat: run it inside an orchestrator session", file=sys.stderr)
         return 1
-    name = config.resolve_session(argv[0])
     # the seat it is for is read once, here; every later answer is held to it
-    seat = seat_of(name)
-    refused = refusal(sender, name, seat)
+    name, seat = settled(argv[0])
+    if name == sender:
+        refused = f"{sender} is this seat"
+    elif seat is None:
+        refused = (f"{name} is closed" if name in config.session_records()
+                   else f"no session {name!r}; `ak orch list` shows them")
+    else:
+        refused = None
     if refused:
         print(f"ak tell: {refused}", file=sys.stderr)
         return 1

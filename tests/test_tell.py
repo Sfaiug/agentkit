@@ -241,6 +241,23 @@ class Tell(unittest.TestCase):
         self.assertEqual(self.typed, [])
         self.assertEqual(self.waiting(), [])
 
+    def test_a_receiver_renamed_while_the_sender_first_reads_it_still_gets_the_message(self):
+        """Renamed between resolving its name and reading its record: read again, not refused."""
+        real_seat_of = tell.seat_of
+        renamed = []
+
+        def rename_then_read(name):
+            if not renamed:
+                renamed.append(True)
+                config.rename_session(SEAT, "acme-pages")
+                self.seat = {"name": "acme-pages", "created": 10, "legacy": False}
+            return real_seat_of(name)
+
+        with patch.object(tell, "seat_of", side_effect=rename_then_read):
+            code, out, err = self.tell(SEAT, "Parser merged.")
+        self.assertEqual((code, out, err), (0, "acme-pages: told", ""))
+        self.assertEqual(self.typed, [self.header() + "Parser merged."])
+
     def test_a_message_another_live_sender_is_typing_is_left_to_it_and_a_dead_ones_taken_over(self):
         self.free = False
         self.tell(SEAT, "Parser merged.")
