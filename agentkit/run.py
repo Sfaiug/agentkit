@@ -127,7 +127,7 @@ BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
 # their say: none is a command's output, and reading one as such would make a failure that
 # never moved look new every round.  See `run_done_when`, `verify_work` and `final_check`.
 LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |outside files: "
-                       r"|AGENTS\.md is )")
+                       r"|AGENTS\.md (?:is|could not be read) )")
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
@@ -2728,6 +2728,8 @@ def rules_cap(lp):
                                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
     limit, harness = ceiling
+    if git_out(lp.wt, "cat-file", "-e", "HEAD:AGENTS.md")[0] != 0:
+        return ""       # the branch deleted it
     # the bytes a checkout holds, Git's line-end conversion and filters applied: what a harness
     # reads, not the stored blob, and read as bytes, since a text read would fold CRLF to LF
     try:
@@ -2737,7 +2739,11 @@ def rules_cap(lp):
     except subprocess.TimeoutExpired as exc:
         raise Stopped(f"git cat-file --filters HEAD:AGENTS.md was killed after {TOOL_CAP:g}s "
                       f"in {lp.wt}") from exc
-    size = len(read.stdout) if read.returncode == 0 else 0   # nothing once the branch deleted it
+    if read.returncode != 0:
+        said = read.stderr.decode("utf-8", "replace").strip()
+        return (f"AGENTS.md could not be read as a checkout holds it, so its size against the "
+                f"{limit} bytes {harness} reads of it is unknown: {said}")
+    size = len(read.stdout)
     return (f"AGENTS.md is {size} bytes, past the {limit} bytes {harness} reads of it: "
             "tighten it." if size > limit else "")
 

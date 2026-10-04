@@ -221,6 +221,20 @@ class RulesCapTold(unittest.TestCase):
         self.assertEqual(self.git("cat-file", "-s", "HEAD:AGENTS.md"), str(LIMIT))
         self.assertIn(f"AGENTS.md is {LIMIT // 2 * 3} bytes", run.rules_cap(lp))
 
+    def test_a_read_that_fails_fails_the_check(self):
+        # only a deleted file counts as nothing: a smudge filter that fails leaves the size unknown
+        (self.repo / ".gitattributes").write_text("AGENTS.md filter=broken\n")
+        for key, value in (("smudge", "false"), ("clean", "cat"), ("required", "true")):
+            self.git("config", f"filter.broken.{key}", value)
+        self.git("add", ".gitattributes")
+        self.git("commit", "-q", "-m", "attributes")
+        lp = self.loop()
+        self.commit_rules("x" * (LIMIT + 1))
+        failure = run.rules_cap(lp)
+        self.assertTrue(failure.startswith("AGENTS.md could not be read as a checkout holds it"),
+                        failure)
+        self.assertTrue(run.LOOP_NOTE.match(failure))
+
     def test_removed_oversized_rules_pass_checks(self):
         self.commit_rules("x" * (LIMIT + 1))
         lp = self.loop()
