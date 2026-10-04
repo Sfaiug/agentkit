@@ -34,6 +34,7 @@ Every change to ak is judged by what it does for what you build with it, and by 
 - No fixed capacity numbers: every limit (runs at once, gate turns, memory) is derived from the machine ak runs on, for any user; correctness locks (one merge per repository) are not capacity and stay. [23 Sep, 28 Sep]
 - Everything is umbrella: it works for any ak user, machine, provider and project type, never only for this owner's setup. [23 Sep]
 - Only a person opens a seat: `ak orch` without a terminal opens nothing new, because agents' guessed `ak orch help` and `ak orch roles` opened empty seats that pinged the owner as "needs you". [4 Oct]
+- A Claude seat's conversation never leaves its seat: seats start with Claude Code's background daemon off, because `/background` moved two seats into a daemon process that spoke for another seat. [4 Oct]
 - Nothing may ever get stuck: every state recovers by itself, a dead seat or run resumes where it stopped, and the owner hears only when recovery failed. [16 Sep, 19 Sep]
 - The owner sees only what needs them (a seat's question, their own unsent draft, a final failure nobody handles) or a finished job. Of every line on a screen ask "what would the owner do with it?"; if nothing, it goes. The system cleans up after itself. [15 Sep, 18 Sep]
 - Every screen follows `docs/cli-design.md`: plain words that explain themselves, every glyph followed by its word, nothing cut mid-sentence, the same back, forward and exit keys everywhere. [15 Sep, 16 Sep]
