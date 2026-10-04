@@ -78,11 +78,11 @@ def save_job(job_dir, job):
     tmp.replace(path)
 
 
-def job_logger(job_dir, to_file):
+def job_logger(job_dir):
     def log(message):
         line = f"{datetime.now():%H:%M:%S} {message}"
         print(line, flush=True)
-        if to_file:  # the --bg child's stdout already is log.txt; writing again would double it
+        if not run.log_is_stdout(Path(job_dir)):
             with (Path(job_dir) / "log.txt").open("a") as fh:
                 fh.write(line + "\n")
     return log
@@ -671,7 +671,7 @@ def job_end_legacy_run(cfg, task, run_dir):
                 or record.process_active(state) or run.landing_line(state)):
             return None
         try:
-            ended = run.end_on_dependency(cfg, run_dir, state, run.logger(run_dir, True), why)
+            ended = run.end_on_dependency(cfg, run_dir, state, run.logger(run_dir), why)
         except (config.Error, OSError) as exc:
             # its record says what it got to; the task still goes back with the run and its branch
             ended = {**(record.read_state(run_dir) or state), "error": f"{why}; ending it: {exc}"}
@@ -707,7 +707,7 @@ def job_start_task(cfg, job_dir, task, opts, log):
             log(f"{task['name']}: reviewer {kept} is the rerun executor's own model; "
                 "the rerun will pick another reviewer")
             run_opts["--review"] = None
-    run.prepare(run_dir, run_opts, run.logger(run_dir, True), cfg, job_id=job_dir.name, task_file=task_path)
+    run.prepare(run_dir, run_opts, run.logger(run_dir), cfg, job_id=job_dir.name, task_file=task_path)
     log(f"{task['name']} start: {run_dir.name}")
     return run_dir, run_opts
 
@@ -775,7 +775,7 @@ def job_drive(cfg, run_dir, run_opts, box, scoped=False):
             box["state"] = job_await(run_dir)
             box["rc"] = 0 if job_classify(box["state"], cfg) in ("merged", "passed") else 1
             return
-        log = run.logger(run_dir, True)
+        log = run.logger(run_dir)
         with job_muted():
             box["rc"] = run.drive(cfg, run_dir, run_opts, log)
         box["state"] = record.read_state(run_dir) or {}
@@ -1178,10 +1178,10 @@ def job_gone_line(job_dir, job):
     return f"  launcher gone; ak run resume {job_dir.name} to continue"
 
 
-def run_job_loop(cfg, job_dir, job, to_file=True):
+def run_job_loop(cfg, job_dir, job):
     """Start queued tasks at once up to `--parallel`, each an independent piece."""
     job_dir = Path(job_dir)
-    log = job_logger(job_dir, to_file)
+    log = job_logger(job_dir)
     lock = threading.Lock()
     threads = {}  # name -> worker Thread
     last_picker = [0.0]
@@ -1524,7 +1524,6 @@ def cmd_job_resume(argv):
     if job.get("cwd") and Path(job["cwd"]).is_dir():
         os.chdir(job["cwd"])
     cfg = config.load()
-    to_file = os.environ.get(config.JOB_DIR_ENV) != str(job_dir)
     # Finished tasks keep their result with their run and ladder flags intact. Anything
     # running without a live worker is left running: the loop adopts its kept run in a
     # worker, resuming it through the existing run resume, so no branch runs twice. Only
@@ -1535,4 +1534,4 @@ def cmd_job_resume(argv):
             continue
         task["state"] = "queued"
     save_job(job_dir, job)
-    return run_job_loop(cfg, job_dir, job, to_file=to_file)
+    return run_job_loop(cfg, job_dir, job)

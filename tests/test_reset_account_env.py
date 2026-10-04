@@ -67,9 +67,8 @@ class ResetAccountEnv(unittest.TestCase):
         week = {"window_secs": 7 * 86400, "used": 95}
         for account, name in ((None, ""), ("default", ""), ("third", "third")):
             prov = {"provider": "alpha", "harness": "fake", "meters": [week], "resets": 1}
-            if account:
-                prov["account"] = account
-            self.assertFalse(usage._reset_policy(CFG, "alpha", prov, time.time(), True)[1])
+            with patch.object(usage, "_probe_gently", return_value=prov):
+                self.assertEqual(usage.replenish(CFG, "alpha", account=account), (False, 1.0))
             self.assertEqual(self.told("reset"), name, account)
 
 

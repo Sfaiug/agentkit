@@ -716,6 +716,7 @@ class ScreenRules(GrokSandbox):
         self.assertIsNotNone(watch.auth_expired_on("grokbuild", watch.pane_tail(auth)))
 
     def test_hook_facts_carry_the_seat_state(self):
+        config.save_session(config.load(), "atoll", "grok", ["grok"])
         for name, state in (("grok-hook-submit.json", "working"),
                             ("grok-hook-stop.json", "at_prompt")):
             with self.subTest(name=name):

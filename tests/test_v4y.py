@@ -155,7 +155,7 @@ class SeatStates(unittest.TestCase):
                 patch.object(notify, "progress", return_value=None):
             watch.health(self.cfg, {"stalls": {}}, False, lambda _: None)
         self.assertEqual(menu.status(self.seat), first)
-        self.assertEqual(self.options[orch.STATE_OPTION], "needs you")
+        self.assertEqual(self.options["set-titles-string"], "seat · needs you")
 
     def test_e2_a_live_state_is_never_a_reason_to_type_into_a_seat(self):
         """Classifying is looking. Only a harness's own stall signature moves the babysitter."""
@@ -197,8 +197,6 @@ class SeatStates(unittest.TestCase):
             "exceeded retry limit, last status: 429 Too Many Requests", "Goal stalled")
         self.assertEqual(watch.keystroke("codex", goal), "/goal resume")
         self.assertEqual(watch.keystroke("claude", goal), "continue")
-        self.assertTrue(watch.reset_policy("codex"))
-        self.assertFalse(watch.reset_policy("claude") or watch.reset_policy("muse"))
         # and no harness is named in the babysitter any more, for a signature or anything else
         source = (config.REPO / "agentkit/watch.py").read_text()
         for harness in ("claude", "codex", "muse"):

@@ -173,7 +173,7 @@ class JoinLine(Sandbox):
                             output.write(f"Delivery ending: {word}\n")
 
                 def view(_url):
-                    run.logger(self.directory, True)("Merge retry already shown")
+                    run.logger(self.directory)("Merge retry already shown")
                     return info
 
                 with patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run", "merge",

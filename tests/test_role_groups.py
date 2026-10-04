@@ -32,7 +32,7 @@ class RoleGroups(unittest.TestCase):
     def capture(self, name="fixture"):
         directory = config.RUNS / name
         directory.mkdir()
-        with patch.object(run, "refresh_seat_tally"), \
+        with patch.object(run, "redress_seat"), \
                 patch.object(run, "history_start"), patch.object(run, "claim_slot"):
             run.capture_launch(directory, cfg=self.cfg)
         return directory, run_record.read_state(directory)
@@ -220,7 +220,7 @@ class RoleGroups(unittest.TestCase):
                 "## Done when\n```bash\ntrue\n```\n")
             opts = {"--review-pr": None, "--no-merge": True, "--no-worktree": True}
             with redirect_stdout(io.StringIO()):
-                run.preflight(directory, opts, run.logger(directory, True))
+                run.preflight(directory, opts, run.logger(directory))
             with patch.object(run, "alive_line", return_value=""):
                 details = "\n".join(run.status_details(directory, state))
             for output in ((directory / "log.txt").read_text(), details):

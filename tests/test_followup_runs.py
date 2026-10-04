@@ -109,7 +109,6 @@ class FollowupRuns(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "join_line", side_effect=lambda lp, upstream, deliver:
                                             landing(lp, deliver)))
         self.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=self.spawn))
-        self.stack.enter_context(patch.object(orch, "set_runs"))
         self.stack.enter_context(patch.object(orch, "stop_scope"))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))

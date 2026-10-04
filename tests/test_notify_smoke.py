@@ -74,7 +74,8 @@ verdict() { [ "$NFAIL" = 0 ] && ok "$1"; }
 ''' + certification[start:end]
             else:
                 start = source.index(f"# --- {number}:")
-                end = source.index(f"# --- {number + 1}:", start)
+                # the next section, whatever its number: the numbers have gaps
+                end = source.index("\n# --- ", start) + 1
                 checks = source[start:end]
             script = root / "check.sh"
             script.write_text('set -uo pipefail\n. "$REPO/tests/acceptance.sh"\n'

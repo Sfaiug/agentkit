@@ -49,7 +49,6 @@ class AuthWatch(unittest.TestCase):
         self.capture = self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.pane))
         self.typed = self.stack.enter_context(patch.object(watch, "type_into", return_value=True))
         self.meters = self.stack.enter_context(patch.object(watch, "window_ends", return_value=None))
-        self.reset = self.stack.enter_context(patch.object(watch, "spend_reset"))
         self.sent = self.stack.enter_context(patch.object(notify, "shaped", wraps=notify.shaped))
         self.token_ok = None
         self.stack.enter_context(patch.object(worker, "auth_ok", side_effect=self.authed))
@@ -96,7 +95,6 @@ class AuthWatch(unittest.TestCase):
         self.assertEqual(menu.state(self.seats[0]), "needs you")
         self.typed.assert_not_called()
         self.meters.assert_not_called()
-        self.reset.assert_not_called()
 
     def test_second_tick_and_watcher_restart_do_not_duplicate_logout_alert(self):
         self.tick()
@@ -246,7 +244,6 @@ class AuthWatch(unittest.TestCase):
                     self.assertEqual(menu.state(self.seats[0]), "needs you")
                     self.typed.assert_not_called()
                     self.meters.assert_not_called()
-                    self.reset.assert_not_called()
                     self.assertIsNone(watch.auth_expired_on(harness, f'❯ Explain "{message}"'))
                     self.assertIsNone(watch.auth_expired_on(harness, self.pane + "\nReading tests"))
 
@@ -286,7 +283,6 @@ class AuthWatch(unittest.TestCase):
                     self.sent.assert_called_once()
                     self.typed.assert_not_called()
                     self.meters.assert_not_called()
-                    self.reset.assert_not_called()
                     self.pane += "\nReading the next file"
                     self.tick(1)
                     self.assertEqual(menu.state(self.seats[0]), "needs you")
@@ -519,7 +515,7 @@ class AuthWatch(unittest.TestCase):
         self.harness = "codex"
         self.pane = "usage limit reached"
         self.tick()
-        self.reset.side_effect = lambda *_: setattr(self, "pane", self.fixture("codex"))
+        self.meters.side_effect = lambda *_: setattr(self, "pane", self.fixture("codex"))
         self.tick(watch.STALL_WAIT)
         self.typed.assert_not_called()
         self.tick()

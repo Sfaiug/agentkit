@@ -196,12 +196,11 @@ class MergeTrain(LanderFixture, unittest.TestCase):
 
     def test_only_the_newest_member_of_a_red_stack_gets_its_failure(self):
         suite = "test ! -f api.txt || test ! -f client.txt"
-        first = self.member("api", **{"api.txt": "api\n",
-            "AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        first = self.member("api", **{"api.txt": "api\n"})
         red = self.member("client", joined=2, **{"client.txt": "client\n"})
         later = self.member("later", joined=3, **{"later.txt": "later\n"})
         originals = {d: record.read_state(d) for d in (first, red, later)}
-        self.advance()
+        self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
         land.check_line(self.turn)
         self.assertEqual({call.args[0] for call in self.wake.call_args_list}, {first.name, red.name})
         self.assertIn("land", self.wait(first))
@@ -341,12 +340,11 @@ class MergeTrain(LanderFixture, unittest.TestCase):
 
     def test_a_crash_between_verdicts_keeps_the_red_stack_failure(self):
         suite = "test ! -f api.txt || test ! -f client.txt"
-        head = self.member("api", **{"api.txt": "api\n",
-            "AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        head = self.member("api", **{"api.txt": "api\n"})
         red = self.member("client", joined=2, **{"client.txt": "client\n"})
         later = self.member("later", joined=3, **{"later.txt": "later\n"})
         original = record.read_state(later)
-        self.advance()
+        self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
         save = record.record
 
         @contextmanager

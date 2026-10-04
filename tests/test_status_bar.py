@@ -1,7 +1,7 @@
 """The session's status bar says its state and progress; the in-session menu renames it.
 
 The bar is the menu row's own values -- the state function's word and `last_column` --
-written through the one writer by the tick and every menu draw; the right side is the one
+written through the one writer by the tick and every menu draw; line two ends in the one
 key. The overlay offers four keys, and `r` renames everything that carries the name.
 Offline: fake seats, plan files and run records, `orch.tmux_out` patched.
 """
@@ -9,12 +9,13 @@ Offline: fake seats, plan files and run records, `orch.tmux_out` patched.
 from contextlib import redirect_stdout
 import io
 import os
+import re
 import time
 import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox, menu_input
-from agentkit import config, menu, notify, orch, run, terminal, watch
+from agentkit import config, menu, notify, orch, run, statusbar, terminal, watch
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -45,6 +46,10 @@ class StatusBar(Sandbox):
             self.options[args[args.index("-t") + 2]] = args[-1]
         return 0, ""
 
+    def line(self, option):
+        """That bar option's text as tmux draws it: no styles, `#` single again."""
+        return re.sub(r"#\[[^\]]*\]", "", self.options[option]).replace("##", "#")
+
     def receipt(self, name, owner="herdr", **extra):
         directory = config.RUNS / name
         directory.mkdir(parents=True, exist_ok=True)
@@ -70,21 +75,20 @@ class StatusBar(Sandbox):
                      started_at=NOW - 600)
         found = watch.announce_state(self.seat, cfg=self.cfg)
         self.assertEqual(found["word"], "working")
-        left = self.options["status-left"]
-        self.assertIn("herdr · fable", left)
-        self.assertIn("● working", left)
-        self.assertIn("tasks ", left)
-        self.assertIn("2/5", left)
+        top = self.line(statusbar.TOP)
+        self.assertIn("herdr  fable orchestrates", top)
+        self.assertIn("● working", top)
+        self.assertIn("tasks ", top)
+        self.assertIn("2/5", top)
         self.assertEqual(self.options["set-titles-string"], "herdr · working")
-        self.assertNotIn("idle", left)
+        self.assertNotIn("idle", top)
 
     def test_bar_shows_needs_you_with_reason(self):
         notify.record("herdr", "needs", "Merge the MOV helper before or after?")
         found = watch.announce_state(self.seat, cfg=self.cfg)
         self.assertEqual(found["word"], "needs you")
-        left = self.options["status-left"]
-        self.assertIn("! needs you", left)
-        self.assertIn("Merge the MOV helper before or after?", left)
+        self.assertIn("! needs you", self.line(statusbar.TOP))
+        self.assertEqual(self.line(statusbar.WHY), "  Merge the MOV helper before or after?")
         self.assertEqual(self.options["set-titles-string"], "herdr · needs you")
 
     def test_bar_and_row_come_from_one_function(self):
@@ -96,22 +100,22 @@ class StatusBar(Sandbox):
             watch.announce_state(self.seat, cfg=self.cfg)
         self.assertTrue(patched.called)
         self.assertIn("PATCHED", "\n".join(row))
-        self.assertIn("PATCHED", self.options["status-left"])
+        self.assertIn("PATCHED", self.options[statusbar.TOP] + self.options[statusbar.WHY])
 
-    def test_right_side_is_the_single_hint(self):
-        left, right, _ = orch.bar("herdr", "fable", "working", "tasks x 2/5")
-        self.assertEqual(right, " Ctrl-b m  menu ")
+    def test_line_two_ends_in_the_single_hint(self):
+        top, why, key, _ = statusbar.lines("herdr", "fable", "#D97757", "working", "tasks x 2/5")
+        self.assertTrue(key.startswith("Ctrl-b m#["), key)
         for hint in ("Ctrl-b d", "back to menu", "menu here", "close the menu"):
-            self.assertNotIn(hint, right)
-            self.assertNotIn(hint, left)
-        orch.dress("herdr", "fable")
-        self.assertEqual(self.options["status-right"], " Ctrl-b m  menu ")
-        self.assertEqual(self.options["status-left"], " herdr · fable ")
+            for half in (top, why, key):
+                self.assertNotIn(hint, half)
+        statusbar.dress("herdr", "fable")
+        self.assertEqual(self.line(statusbar.KEY), "Ctrl-b m  menu ")
+        self.assertEqual(self.line(statusbar.TOP), " herdr  fable orchestrates")
+        self.assertEqual(self.line(statusbar.WHY), "")
         self.assertEqual(self.options["set-titles-string"], "herdr")
         # a reason carrying `#` is doubled, so tmux reads text and not a format
-        _, _, title = orch.bar("herdr", "fable", "done", "Merged #75")
-        left, _, _ = orch.bar("herdr", "fable", "done", "Merged #75")
-        self.assertIn("Merged ##75", left)
+        _, why, _, title = statusbar.lines("herdr", "fable", "#D97757", "done", "Merged #75")
+        self.assertIn("Merged ##75", why)
         self.assertEqual(title, "herdr · done")
 
     def test_rename_moves_every_state_file_and_run_records(self):
@@ -154,8 +158,8 @@ class StatusBar(Sandbox):
                          "other")
         # the record moved and the pointer stayed; the bar says the new name at once
         self.assertEqual(config.resolve_session("herdr"), "parser")
-        self.assertIn("parser · fable", self.options["status-left"])
-        self.assertNotIn("herdr · fable", self.options["status-left"])
+        self.assertIn("parser  fable orchestrates", self.line(statusbar.TOP))
+        self.assertNotIn("herdr", self.line(statusbar.TOP))
 
     def test_overlay_lists_the_four_entries(self):
         self.assertEqual(menu.OVERLAY_KEYS,
@@ -213,8 +217,7 @@ class StatusBar(Sandbox):
     def test_legacy_seat_keeps_no_bar(self):
         ghost = dict(self.seat, legacy=True)
         watch.announce_state(ghost, cfg=self.cfg)
-        self.assertNotIn("status-left", self.options)
-        self.assertNotIn("status-right", self.options)
+        self.assertEqual(self.options, {})
 
 
 if __name__ == "__main__":

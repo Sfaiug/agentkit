@@ -27,6 +27,7 @@ tick is running right now and how big the log it writes has grown.
 """
 
 from contextlib import contextmanager, nullcontext, redirect_stdout
+import base64
 import fcntl
 import io
 import json
@@ -36,11 +37,13 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import browser, command_help, config, gc, host, notify, orch, update, usage, worker
+from . import (browser, command_help, config, gc, host, notify, orch, statusbar, update, usage,
+               worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
 
@@ -557,10 +560,10 @@ def continue_turns(cfg, log, accounts=False):
 # a pane that is not showing one. Auth expiry asks for login immediately without typing.
 # An unchanged terminal failure with no known signature asks for inspection after an hour.
 # Ordinary output and idle prompts are not evidence of a blocked session.
-# A quota waits for its provider: OpenAI's is put
-# to the usage-limit reset policy that already exists, and known windows are waited out even
-# past an hour. Otherwise an hour of the same is the end of it: the user is asked once, by menu
-# number, and nothing is typed into that seat again until they open it and it makes progress.
+# A quota waits for its provider, a usage-limit reset held or not -- only the owner spends
+# one -- and known windows are waited out even past an hour. Otherwise an hour of the same is
+# the end of it: the user is asked once, by menu number, and nothing is typed into that seat
+# again until they open it and it makes progress.
 
 # Everything a harness shows on its screen is its adapter's, in adapters/<harness>.toml beside
 # adapters/<harness>.sh: the words it uses for a stall, a quota and an expired login, what its
@@ -648,12 +651,6 @@ def auth_expiry(harness):
     if not isinstance(block, dict):
         return (None, None, ())
     return (block.get("title"), block.get("remedy"), _words(harness, "auth", "signatures"))
-
-
-def reset_policy(harness):
-    """Does this harness's provider hand out usage-limit resets its adapter can spend?"""
-    block = config.manifest(harness).get("quota")
-    return bool(isinstance(block, dict) and block.get("reset_policy"))
 
 
 def _stamp(value):
@@ -1572,22 +1569,6 @@ def wait_mark(name, wait, **marks):
         return False
 
 
-def announce(session, word):
-    """Put the word on that seat's own status bar and terminal title; True where it landed.
-
-    Said every time rather than only on a change, because `set-option` is the whole of it:
-    a bar a failed set left empty, and a seat tmux lost and was given again under the same
-    name, both come right on the next screen that says this word rather than waiting for it
-    to change.  agentkit's own server only: a legacy seat is on the user's default server,
-    and nothing here writes an option there.
-    """
-    if session.get("legacy"):
-        return False
-    rc, _ = orch.tmux_out("set-option", "-t", session["name"], orch.STATE_OPTION, word,
-                          socket=orch.socket_name())
-    return rc == 0
-
-
 def live_state(session, harness=None, pane=None, cfg=None, now=None):
     """Classify one live seat, persist what it is doing, and say what decided it.
 
@@ -1734,8 +1715,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       login no harness owns, and is said only on the seats whose runs cannot push without it;
     * a worker token dies within a fortnight or is dead -- every session says so, on any
       harness, because any seat's next turn on it can be the one that fails;
-    * a question on its screen, or typed text nobody sent while no client is attached, with
-      no turn in flight, is him -- the question, or `unsent: <text>` -- whatever its runs do;
+    * a question on its screen is him even during a turn; so is typed text nobody sent while
+      no client is attached and no turn is in flight -- the question, or `unsent: <text>` --
+      whatever its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
@@ -1832,9 +1814,7 @@ def announce_state(session, cfg=None, look=False, **facts):
                 or previous.get("word_since") != answer["since"]):
             seat_write(name, word=answer["word"], reason=answer["reason"],
                        word_since=answer["since"])
-        announce(session, answer["word"])
-        from . import menu as menu_mod    # here, not at the top: the menu imports this module
-        menu_mod.redress(session, answer, cfg=cfg, records=facts.get("records"))
+        statusbar.redress(session, answer, cfg=cfg)
     return answer
 
 
@@ -1933,7 +1913,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     reason, since = token_alert(token_out)
     if reason:
         return {"word": "needs you", "reason": reason, "since": since}
-    # 1d. typed text nobody sent, or a question on its screen, at a quiet prompt: that is
+    # 1d. typed text nobody sent at a quiet prompt, or a question even during a turn: that is
     # him, whatever its runs are doing.  Three seats read `working` over his own unsent
     # text for nineteen hours while he believed each had his message.  A draft is not that
     # while a client is attached to the seat -- it is his typing, and the seat reads as its
@@ -1944,7 +1924,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     gone = any(session.get(key) for key in orch.CLOSED)
     if (harness and not gone and found.get("state") in ("asking", "draft")
             and (found["state"] == "asking" or not session.get("attached"))
-            and (not _turn_in_flight(harness, found)[0]
+            and (found["state"] == "asking" or not _turn_in_flight(harness, found)[0]
                  or found.get("hooked_event") in _background_stops(harness))):
         asked = " ".join(str(found.get("evidence") or "").split())
         if found.get("state") == "draft":
@@ -2839,27 +2819,6 @@ def window_ends(cfg, provider, name):
     return max(ends, default=None)
 
 
-def spend_reset(cfg, provider, name, log):
-    """Put the subscription that seat stalled on to the usage-limit reset policy now, whatever
-    its due clock says.
-
-    The policy is `ak usage`'s own and its caps are its own too -- 90% of the week gone, and at
-    most one reset a day -- so a seat that stalls again an hour later costs nothing here.  The
-    adapter is asked at most once a minute like everywhere else, and the snapshot stays: deleting
-    it would cost every other provider its reading.  The seat's own subscription is the one
-    asked, the usual login included: a credit spent on another leaves the stalled week as spent.
-    """
-    try:
-        spent, left = usage.replenish(cfg, provider, depleted=False,
-                                      account=seat_subscription(cfg, provider, name))
-    except config.Error as exc:
-        log(f"WARN could not read the {provider} meters: {exc}")
-        return
-    if spent:
-        log(f"{provider}: usage-limit reset applied ({left:.0f} left)")
-    return spent
-
-
 def done_holds(name, live, notice, began, said, dry_run):
     """Does that `done` speak for the turn the seat is stopped on, or for an earlier one?
 
@@ -3011,12 +2970,6 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     home = record.get("home_account") or config.DEFAULT_ACCOUNT
     model = record["orchestrator"]
     waiting = live.get("usage_wait")
-    # Reading the meters can itself spend a reset. Keep that receipt so the old
-    # refusal cannot park the capacity it just restored -- one naming this subscription,
-    # because another's credit, or one a receipt cannot say whose, restores nothing here.
-    mine = current if accounts else config.DEFAULT_ACCOUNT
-    reset_path = usage._reset_file(provider, mine)
-    reset_before = usage._reset_applied_at(reset_path, mine)
     from . import run
     try:
         prov = (run._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
@@ -3060,7 +3013,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if refusal and not waiting and not spent(current):
         if observed.get("line") != line:
             if not dry_run:
-                seat_write(name, usage_refusal={"line": line, "at": now, "reset_at": reset_before})
+                seat_write(name, usage_refusal={"line": line, "at": now})
             return True
         if now - observed["at"] < STALL_WAIT:
             return True
@@ -3097,22 +3050,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if dry_run:
         log(f"would recover {name} on a {provider} account with room, or wait for its reset")
         return True
-    refilled = False
-    if refusal and not waiting and reset_policy(harness) and (until is None or until > now):
-        applied = usage._reset_applied_at(reset_path, mine)
-        refilled = applied is not None and applied != observed.get("reset_at", reset_before)
-        if refilled:
-            log(f"{provider}: usage-limit reset applied")
-        else:
-            refilled = spend_reset(cfg, provider, name, log) is True
-        if refilled:
-            fresh = usage.collect(cfg).get(provider) or {}
-            readings = (fresh.get("accounts") or {}) if accounts else {current: fresh}
     owned = orch.resumable(record)
     eligible = {a: readings[a] for a in (accounts or [current]) if a in readings
                 and not spent(a) and (owned or a == current)
-                and (a != current or waiting or not refusal or refilled)}
-    # Keep the existing login when it has refilled, or on its credits when no window takes
+                and (a != current or waiting or not refusal)}
+    # Keep the existing login when it has room again, or on its credits when no window takes
     # the seat. Probe only possible moves, in order, before the owner-action check: a slow
     # adapter must not undo a stop or typing.
     order = sorted(orch.account_order(cfg, model, eligible, home),
@@ -3127,7 +3069,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                 or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
                 or pane_text(current_seat) != pane):
             return True
-        if refusal and not waiting and not spent(current) and not refilled:
+        if refusal and not waiting and not spent(current):
             # The host may have slept through the deadline. Never replace that old
             # refusal with a new shared-cache park; retry it once in the existing pane.
             if until is not None and until <= now:
@@ -3205,20 +3147,18 @@ def health(cfg, state, dry_run, log):
     from . import run as run_mod     # ... and recover_runs keeps its own
     poll_worker_token(state)   # each declared worker token, once a day: every seat reads the warning
     stalls, seats = state["stalls"], orch.sessions()
-    # one pass over run.json serves every live seat's bar; a failed read writes
-    # nothing, so a transient failure never wipes a correct bar
-    records = []
+    # one pass over run.json serves every live seat; a failed read is None, never a seat
+    # with no runs
     try:
         records = menu_mod.run_records()
-        tallies = run_mod.seat_tallies(state for _, state in records)
     except (config.Error, OSError, ValueError):
-        tallies = None
+        records = None
     # What each seat's runs are parked on, oldest first: the harness, when it parked and what
     # it said.  The seat that launched one has to read the login it waits for even when it
     # runs another harness itself, and the run being parked is the whole of the evidence --
     # `resume_waiting_login` is what asks the verb again, and what unparks it.
     parked_for = {}
-    for _, record in records:
+    for _, record in records or ():
         if (record.get("state") != "waiting_login" or not record.get("waiting_for")
                 or record.get("login_back_at")):
             continue        # back already: being resumed, and no login for anybody to fix
@@ -3290,14 +3230,6 @@ def health(cfg, state, dry_run, log):
                 live = ({} if blank or dry_run or session.get("exited")
                         else live_state(session, harness, pane=pane, cfg=cfg))
             at_prompt = (live or seat_read(name)).get("state") == "at_prompt"
-            if (not blank and not dry_run and not session.get("exited")
-                    and not session.get("legacy") and tallies is not None):
-                # the belt: whatever a run said or died without saying, the seat's own bar
-                # carries the pass's tally, one live seat at a time
-                queued = [record for _, record in records if record.get("state") == "queued"
-                          and run_mod.launched_session(record) == name]
-                orch.set_runs(name, menu_mod.bar_tally(
-                    tallies.get(name), queued, menu_mod.seat_estimate(name, session=session)))
             # Whether a login is expired is the `auth` verb's answer and never the pane's: a
             # pane showing that harness's own logout words is a trigger, and makes the verb
             # run again this pass rather than deciding anything itself.  That is the whole of
@@ -3406,8 +3338,7 @@ def health(cfg, state, dry_run, log):
                     log(f"{name}: moving again")
                 if not stuck_on(harness, tail, name):
                     stalls.pop(name, None)
-                    stop_nudge(session, harness, pane, notice,
-                               records if tallies is not None else None, dry_run, log)
+                    stop_nudge(session, harness, pane, notice, records, dry_run, log)
                     continue
                 if entry.get("pane") != pane:
                     entry = stalls[name] = {"kind": "quiet", "pane": pane, "since": now}
@@ -3455,8 +3386,6 @@ def health(cfg, state, dry_run, log):
             # Read meters only for a possible nudge. A known window is already a decision:
             # wait on the persisted deadline, then resume once, without flushing usage every tick.
             if quota and not dry_run and ends is None and not throttled:
-                if reset_policy(harness):
-                    spend_reset(cfg, provider, name, log)
                 ends = window_ends(cfg, provider, name)
                 if ends and ends > now:
                     entry["resets_at"] = ends
@@ -3506,9 +3435,7 @@ def health(cfg, state, dry_run, log):
                         now - entry.get("nudged_at", 0) < NUDGE_EVERY):
                     continue
                 if dry_run:
-                    note = ("" if not quota else
-                            f" after the {provider} usage-limit reset policy" if reset_policy(harness)
-                            else f" once the {provider} window has passed")
+                    note = f" once the {provider} window has passed" if quota else ""
                     log(f"would resume {name}, stalled on {mark}, with {keys!r}{note}")
                 elif type_into(session, keys, log):
                     entry["nudged_at"] = time.time()
@@ -3528,7 +3455,7 @@ def health(cfg, state, dry_run, log):
                                harness=harness, auth_out=state.get("auth_out") or {},
                                gh_out=state.get("gh_out") or {},
                                token_out=state.get("worker_tokens"),
-                               records=records if tallies is not None else None)
+                               records=records)
 
 
 # --- silent runs: the tick recovers what the loop cannot --------------------
@@ -4937,11 +4864,11 @@ def pushing_seats():
     return sorted(seats)
 
 
-def gh_json(cwd, *args):
+def gh_json(cwd, *args, timeout=120):
     """The parsed JSON a gh command prints, or (None, why)."""
     try:
         proc = subprocess.run(["gh", *args], cwd=str(cwd if cwd.is_dir() else config.REPO), capture_output=True,
-                              encoding="utf-8", errors="replace", timeout=120,
+                              encoding="utf-8", errors="replace", timeout=timeout,
                               stdin=subprocess.DEVNULL,
                               env={**config.child_env(), "GIT_TERMINAL_PROMPT": "0",
                                    "GH_PROMPT_DISABLED": "1"})
@@ -5182,15 +5109,121 @@ def say(dry_run, log, text, url, session, merged=False):
     return True
 
 
-# --- after a merge: the target's own checks ---------------------------------
+# --- after a merge: the target's checks and the project's live product ------
 # A merge to a repository's target starts that repository's own checks on the merge
 # commit -- for one project a release gate of 12-25 min that must pass before
 # production deploys.  The tick follows them for three hours, and a failed one goes
-# back to a seat that can fix the target, never to the owner.  One break is said
+# back to a seat that can fix the target, never to the owner. A project's health
+# command follows its deploy in the same window. One break is said
 # once, for its newest failing commit; a later commit all green ends the break.
 
 AFTER_MERGE_WINDOW = 3 * 3600  # seconds a merge commit's checks are followed
 AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mean green
+HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
+
+
+def health_command(repo, sha, command):
+    """A bounded live probe and its last output, without inherited pipes holding the tick."""
+    try:
+        with tempfile.TemporaryFile() as output:
+            proc = subprocess.Popen(["bash", "-c", command], cwd=repo,
+                                    env={**os.environ, "AK_MERGE_SHA": sha},
+                                    stdin=subprocess.DEVNULL, stdout=output,
+                                    stderr=subprocess.STDOUT, start_new_session=True)
+            timed_out = False
+            try:
+                proc.wait(timeout=HEALTH_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            finally:
+                # Even a shell that exited can have left children in its process group.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            if timed_out:
+                try:
+                    proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+            output.seek(0, os.SEEK_END)
+            output.seek(max(0, output.tell() - 4096))
+            tail = "\n".join(output.read(4096).decode("utf-8", errors="replace").splitlines()[-10:])
+            if timed_out:
+                tail += f"\nhealth command timed out after {HEALTH_TIMEOUT}s"
+            return not timed_out and proc.returncode == 0, tail.strip()
+    except OSError as exc:
+        return False, str(exc)
+
+
+def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes):
+    """Follow the merge's declaration in its original checkout, stopping at its first pass."""
+    from . import history, run
+    inside = now - st["finished_at"] < AFTER_MERGE_WINDOW
+    health = st.get("health") or {}
+    command = health.get("command")
+    if not st.get("live_at") and not command and inside and st.get("repo"):
+        if run.git_out(st["repo"], "cat-file", "-e", f"{sha}^{{commit}}")[0] == 0:
+            command = run.declared_at(st["repo"], sha, "health")
+        else:
+            # The merge may exist only on GitHub; discovering health must not depend on origin.
+            owner, repo, host, _ = after_merge_repo(pr_url)
+            api = ("api",) if host == "github.com" else ("api", "--hostname", host)
+            data, _ = gh_json(config.RUNS, *api,
+                              f"repos/{owner}/{repo}/contents/AGENTS.md?ref={sha}",
+                              timeout=HEALTH_TIMEOUT)
+            if isinstance(data, dict) and data.get("encoding") == "base64":
+                text = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+                command = run.front_value(text, "health")
+    if not st.get("live_at"):
+        if not command:
+            return None
+        if inside:
+            if dry_run:
+                log(f"would check run {run_dir.name}'s live product: {command}")
+                return "pending", None, None
+            probe = (key, sha)
+            if probe not in probes:
+                probes[probe] = health_command(st["repo"], sha, command)
+            passed, output = probes[probe]
+            with run_record.record(run_dir) as current:
+                current["merge_sha"] = sha
+                if passed:
+                    current.setdefault("live_at", now)
+                    current.pop("health", None)
+                else:
+                    current["health"] = {"command": command, "output": output}
+                st.clear()
+                st.update(current)
+            if not passed:
+                return "pending", None, None
+        else:
+            return "failed", f"health: {command}", (
+                f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
+    if not dry_run:
+        history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
+    if not st.get("live_notified"):
+        line = f"run {run_dir.name} is live: {pr_url}."
+        if dry_run:
+            log(f"would tell its launching seat: {line}")
+            return "passed", None, None
+        session = run.launched_session(st)
+        if not session:
+            with run_record.record(run_dir) as current:
+                current["live_notified"] = now
+            return "passed", None, None
+        seat = orch.find(session)
+        if after_merge_live(seat):
+            def kept(mark):
+                with run_record.record(run_dir) as current:
+                    current["live_typed"] = mark
+
+            if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept):
+                with run_record.record(run_dir) as current:
+                    current["live_notified"] = now
+                    current.pop("live_typed", None)
+                log(f"told the {seat['name']} seat: {line}")
+    return "passed", None, None
 
 
 def after_merge_line(check, target, url):
@@ -5390,7 +5423,7 @@ def after_merge_seat(run_state, repo_key):
 
 
 def after_merge_checks(state, dry_run, log, now=None):
-    """Follow merged runs' target checks, and hand one break per repository back to fix.
+    """Follow target checks and health, and hand one break per repository back to fix.
 
     Each merge commit younger than three hours is read the way the loop reads a PR's:
     its latest check runs from `gh`.  Only the newest commit with a failed check is
@@ -5424,13 +5457,17 @@ def after_merge_checks(state, dry_run, log, now=None):
         log(f"WARN merged runs were not followed this tick: {exc}")
         return
     grouped = {}
+    probes = {}
     for run_dir in directories:
         st = run_record.read_state(run_dir)
         if not st or not st.get("merged"):
             continue
         finished = st.get("finished_at")
         if (not isinstance(finished, (int, float)) or isinstance(finished, bool)
-                or not 0 <= now - finished <= AFTER_MERGE_WINDOW):
+                or not 0 <= now - finished):
+            continue
+        if (now - finished > AFTER_MERGE_WINDOW and not st.get("health")
+                and not (st.get("live_at") and not st.get("live_notified"))):
             continue
         pr_url = st.get("pr")
         if not isinstance(pr_url, str) or not pr_url:
@@ -5445,12 +5482,37 @@ def after_merge_checks(state, dry_run, log, now=None):
     for key in sorted(set(grouped) | set(episodes)):
         found = sorted(grouped.get(key, []))
         statuses = []
+        expired_health = []
+
+        def close_health():
+            # Once the episode owns the evidence, an expired probe no longer needs polling.
+            if not dry_run:
+                for directory in expired_health:
+                    with run_record.record(directory) as current:
+                        current.pop("health", None)
+
         for finished, name, run_dir, st, owner, repo, host, sha, pr_url in found:
             if sha is None:
                 statuses.append((finished, name, run_dir, st, None, pr_url,
                                  "unknown", None, None))
                 continue
-            verdict, check, url = after_merge_status(owner, repo, host, sha, log)
+            if now - finished <= AFTER_MERGE_WINDOW:
+                verdict, check, url = after_merge_status(owner, repo, host, sha, log)
+            else:
+                verdict, check, url = "ignored", None, None
+            try:
+                health = after_merge_health(run_dir, st, key, sha, pr_url, now,
+                                            dry_run, log, probes)
+            except (config.Error, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
+                # Until a command is known, discovery cannot change the target's check verdict.
+                health = ("unknown", None, None) if st.get("health") or st.get("live_at") else None
+                if health:
+                    log(f"WARN run {name}'s health could not be followed: {exc}")
+            if now - finished >= AFTER_MERGE_WINDOW and health and health[0] == "failed":
+                expired_health.append(run_dir)
+            if health and verdict != "failed" and (health[0] != "passed" or verdict == "ignored"):
+                if health[0] == "failed" or verdict != "unknown":
+                    verdict, check, url = health
             statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url))
         episode = episodes.get(key)
         if isinstance(episode, str):
@@ -5474,6 +5536,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                     episodes.pop(key, None)
                     notified = None
                 else:
+                    close_health()
                     continue
             elif ended is None:
                 episodes.pop(key, None)
@@ -5486,6 +5549,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                 episodes.pop(key, None)
                 notified = None
             else:
+                close_health()
                 continue
             if notified:
                 continue
@@ -5500,7 +5564,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             check = pending.get("check")
             target = pending.get("target") or "main"
             session = pending.get("session")
-            if (not isinstance(line, str) or not line or typed is None
+            if (not isinstance(line, str) or not line
                     or not isinstance(sha, str) or not sha or finished is None
                     or not isinstance(run_name, str) or not run_name):
                 episode.pop("pending", None)
@@ -5532,6 +5596,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                 else:
                     log(f"run {run_name}'s after-merge notice sits in a composer; "
                         "the next tick presses Enter")
+                close_health()
                 continue
         candidate, at = None, -1
         for i in range(len(statuses) - 1, -1, -1):
@@ -5539,8 +5604,10 @@ def after_merge_checks(state, dry_run, log, now=None):
                 candidate, at = statuses[i], i
                 break
         if candidate is None:
+            close_health()
             continue
         if any(entry[6] == "passed" for entry in statuses[at + 1:]):
+            close_health()
             continue
         if any(entry[6] == "unknown" for entry in statuses[at + 1:]):
             log(f"WARN {key}: a newer merge's checks are unreadable; "
@@ -5566,6 +5633,11 @@ def after_merge_checks(state, dry_run, log, now=None):
             composed.append(True)
             _save()
 
+        if expired_health:
+            # Keep a deadline failure even when no seat is available to compose it yet.
+            fresh(None)
+            composed.clear()
+            close_health()
         if after_merge_deliver(run_dir, st, key, line, log, typed=None, receipt=fresh):
             episodes[key] = {"notified": sha, "at": now, "run": name, "check": check,
                              "finished": finished}

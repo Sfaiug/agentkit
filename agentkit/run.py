@@ -44,7 +44,6 @@ RULES_CAP = 8 * 1024
 # `running` throughout, so its session reads `working`, and never ends in `error` for one.
 TRANSIENT_BACKOFF = (60, 300, 900, 1800, 3600)
 TRANSIENT_HOURLY = 3600
-MAX_REFILLS = 3               # usage-limit resets one turn may spend before handing over
 KILL_WINDOW = 60              # a second signal kill inside this many seconds parks the run
 SWAP_POLL = 10                # seconds between looks at a harness swap a failed turn waits out
 KILLED = {-15: "SIGTERM", -9: "SIGKILL"}   # worker exits by signal, as `subprocess` reports them
@@ -245,7 +244,7 @@ def collect_usage(cfg):
                 exc.filename2 != str(cache)):
             raise
         # collect uses a shared temporary filename. Another reader can publish it
-        # first; re-read its snapshot through the normal freshness/reset checks.
+        # first; re-read its snapshot through the normal freshness checks.
         # Retry once only: a persistent filesystem failure still propagates.
         read = usage.collect(cfg)
     return usage.readiness(cfg, read)
@@ -474,19 +473,18 @@ def first_command(cmd):
     return cmd
 
 
-def declared_suite(wt, target=None):
-    """The `tests:` suite: the checkout's own declaration wins; a checkout branched before
-    the repository declared one, or one that edits it away, reads the target branch as
-    fetched instead (`origin/<target>`).
+def declared_suite(wt, target=None, *, ref=None):
+    """The target's `tests:` suite at a pinned ref or `origin/<target>`, else the checkout's.
+
+    A change cannot loosen its own landing checks; its line applies after it merges.
     """
-    suite = declared(wt, "tests")
-    if not suite and target:
+    if not ref and target:
         ref = target if target.startswith("origin/") else f"origin/{target}"
-        suite = declared_at(wt, ref, "tests")
-    return suite
+    suite = declared_at(wt, ref, "tests") if ref else None
+    return suite or declared(wt, "tests")
 
 
-def with_suite(cmds, wt, target=None, *, landing=True):
+def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
     """Task checks, plus the declared `tests:` suite as a `# once` line when landing.
 
     A repository names its full suite once, in AGENTS.md, rather than every task writing it
@@ -499,7 +497,7 @@ def with_suite(cmds, wt, target=None, *, landing=True):
     """
     if not landing:
         return [taskfile.split_once(cmd)[0] for cmd in cmds]
-    suite = declared_suite(wt, target)
+    suite = declared_suite(wt, target, ref=ref)
     if not suite:
         return cmds
     targets = {" ".join(suite.split())}
@@ -934,7 +932,7 @@ class CannotRun(Blocked):
 
 
 class RanDry(Exception):
-    """This worker's provider refused it, with no applicable reset left to spend.
+    """This worker's provider refused it.
 
     Not a death and not a FAIL -- nothing was executed and nothing was judged -- so the work
     goes to another provider rather than being retried where it cannot run.  The refusal and
@@ -1373,10 +1371,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     Only an answer that names the account hands the round over.  A provider that lists
     `accounts` runs each call on the one with the most room left, and one that refuses for
     quota is marked spent on its own: the same worker goes again at once on the next account
-    with room, on its own session.  A spent window goes to the reset policy next, at the moment
-    of need: a credit spent buys a fresh week, so the same worker goes again at once, on its
-    own session and with no backoff.  Nothing to spend leaves `RanDry` for the caller, whose
-    job is another provider, not another try here.
+    with room, on its own session.  A spent window otherwise leaves `RanDry` for the caller,
+    whose job is another provider, not another try here: a usage-limit reset held is never
+    spent for it, since only the owner spends one.
     An empty exit whose stderr says the harness never ran the turn leaves `CannotRun` the
     same way, at once: another provider, or a run blocked on that line.  Before either, a
     failed exit, not a kill, that an install or revert of its harness overlapped
@@ -1408,7 +1405,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
            "AK_RUN_LOG": str(run_dir / "log.txt")}
     if findings:
         env[hand_in.FINDINGS_ENV] = str(findings)
-    attempt, calls, refills, last_kill, account, span = 1, 0, 0, None, None, None
+    attempt, calls, last_kill, account, span = 1, 0, None, None, None
     handover_tried = False
     last_dir, last_sid = Path(previous) if previous is not None else None, session
 
@@ -1565,13 +1562,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 transient_wait(out_dir, delay)
                 continue
             if account is not None and next_account(try_again_at(said), message):
-                continue
-            spent, left = (usage.replenish(cfg, entry["provider"], account=account)
-                           if refills < MAX_REFILLS else (False, 0.0))
-            if spent:
-                refills += 1
-                log(f"{role} {name} ran dry; reset spent ({left:g} left), retrying"
-                    + (f", resuming session {session}" if session else ""))
                 continue
             requested = try_again_at(said)
             until = usage.mark_exhausted(cfg, entry["provider"], requested) or requested
@@ -2695,7 +2685,7 @@ def commit_identity(wt):
 
 def suite_evidence(lp, cmds, identity):
     """Keep the checked tree: integration can carry the SHA without running the suite again."""
-    suite = declared_suite(lp.wt, lp.target)
+    suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
     return {"suite": suite, "tree_sha": identity.get("tree_sha")} if suite and suite in cmds else {}
 
 
@@ -3171,7 +3161,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                         "--bg": True, **({"--first": True} if request else {})}
                 if split:
                     gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
-                prepare(directory, opts, logger(directory, True), cfg)
+                prepare(directory, opts, logger(directory), cfg)
                 spawn_bg(directory, [str(directory / "task.md")])
             except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
@@ -4060,8 +4050,9 @@ def how_to_integrate(lp):
 
 
 def set_base(lp, tip):
-    """The branch now carries the pinned tip, so that is what its diff is against from here on."""
-    lp.state["base_sha"] = git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
+    """Keep the integrated tip for the diff and suite, even if another fetch moves the ref."""
+    tip = git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
+    lp.state.update(base_sha=tip, target_sha=tip)
     lp.write()
 
 
@@ -4816,7 +4807,7 @@ def add_suite_trailer(lp, message, trailer):
 
 def merge_body(lp, head, url=None):
     checked = lp.state.get("final_check") or {}
-    suite = declared_suite(lp.wt, lp.target)
+    suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
     if (suite and checked.get("suite") == suite and checked.get("outcome") == "passed"
             and checked.get("sha") == head and checked.get("tree_sha")
             and checked["tree_sha"] == git(lp.wt, "rev-parse", f"{head}^{{tree}}")):
@@ -5137,7 +5128,7 @@ def target_fails(lp, upstream, dw_log):
     if cmd == (lp.state.get("repair") or {}).get("command"):
         return ""
     try:
-        tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
+        tip = lp.state.get("target_sha") or git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
         head = git(lp.wt, "rev-parse", "HEAD")
     except Stopped:
         raise
@@ -5273,13 +5264,17 @@ def final_check(lp, upstream):
     A command red on the target's tip and green on the old base parks without a
     fixer round.  When those commits are the same, only the tip is probed.
     """
+    if not lp.state.get("target_sha"):
+        lp.state["target_sha"] = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None
     try:
         now = git(lp.wt, "rev-parse", "HEAD")
     except (Stopped, config.Error):
         now = None
     record = lp.state.get("final_check") or {}
     if (now and record.get("outcome") == "passed" and record.get("where") == "landing"
-            and record.get("sha") == now):
+            and record.get("sha") == now
+            and record.get("suite") == declared_suite(lp.wt, lp.target,
+                                                       ref=lp.state.get("target_sha"))):
         try:
             reviewed = current_review(lp)
         except (Stopped, config.Error):
@@ -5290,7 +5285,7 @@ def final_check(lp, upstream):
     fixed = 0       # the fixer rounds this run has spent on these commands here
     while True:
         sha = git(lp.wt, "rev-parse", "HEAD")
-        suite = declared_suite(lp.wt, lp.target)
+        suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
         # A rebase or fixer can change the declaration loaded into lp.once. Rebuild
         # it from the task so only the inherited suite is replaced, including for probes.
         task = lp.run_dir / "task.md"
@@ -5363,12 +5358,12 @@ def final_check(lp, upstream):
         if said:
             return park_waiting(
                 lp, f"{upstream} itself fails: {said}", upstream,
-                git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
+                lp.state.get("target_sha"))
         if fixed >= CONFLICT_ROUNDS:
             return park_waiting(
                 lp, f"the final check still fails after {CONFLICT_ROUNDS} fixer rounds: "
                     f"{failing}", upstream,
-                git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
+                lp.state.get("target_sha"))
         fixed += 1
         lp.log(f"--- merge: final check round {fixed}/{CONFLICT_ROUNDS}: "
                f"fixer {lp.executor} (final check)")
@@ -5449,7 +5444,7 @@ def land_from_line(lp, upstream, deliver):
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],
-                                           "suite": declared_suite(lp.wt, lp.target)}
+                                           "suite": declared_suite(lp.wt, lp.target, ref=tip)}
                 lp.write()
                 result = deliver()
                 if "fix" not in lp.state.get("waiting_on", {}):
@@ -5896,7 +5891,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                     note_handover(state, handed, "ran dry" if spent else gone,
                                   started_round(run_dir, state), to=executor, reason="dry")
                     log(f"handing executor to {executor}: {handed} "
-                        + ("ran dry, no reset left" if spent else gone))
+                        + ("ran dry" if spent else gone))
             else:
                 executor, reviewer = pick_models(cfg, providers, executor, reviewer, log,
                                                  resuming=True, repo=repo, workers=workers,
@@ -6238,7 +6233,7 @@ def mark_state(run_dir, name, error=None, log=None):
         return run_record.read_state(run_dir) or state
     history_finish(state, log)
     try:
-        refresh_seat_tally(launched_session(state))   # every state change lands on the bar
+        redress_seat(launched_session(state))   # every state change lands on the bar
     except config.Error:
         pass
     return state
@@ -6551,7 +6546,7 @@ def record_decision(run_dir, state, reason, merged=False):
     run_record.save_state(run_dir, state)
     if merged:
         history_finish(state)
-        start_followups(state, run_dir, logger(run_dir, True))
+        start_followups(state, run_dir, logger(run_dir))
     result = run_dir / "result.md"
     try:
         if state.get("worktree") and Path(state["worktree"]).is_dir():
@@ -6756,31 +6751,6 @@ def speaking_for(state):
             os.environ.pop(notify.SINK_ENV, None)
         else:
             os.environ[notify.SINK_ENV] = previous
-
-
-def refresh_seat_tally(session):
-    """Put that seat's run tally on its own status bar, in the menu's words.
-
-    The bar counts what the seat's menu row counts -- runs still queued or running,
-    then endings nobody has acknowledged, both through `menu.bar_tally` over the
-    same records, so the two never disagree.  Merges and empty seats the row shows
-    another way, so the bar shows them no way at all.  Only the seat that launched
-    the run is ever written, and its bar is rewritten too (`redress_seat`).  Best-effort:
-    the run's state on disk is what matters, never the bar.
-    """
-    if not session:
-        return
-    try:
-        from . import menu  # here, not at the top: the menu draws without the loop
-        records = list(menu.run_records())
-        tallies = seat_tallies(state for _, state in records)
-        queued = [state for _, state in records
-                  if state.get("state") == "queued" and launched_session(state) == session]
-        orch.set_runs(session, menu.bar_tally(
-            tallies.get(session), queued, menu.seat_estimate(session)))
-    except (config.Error, OSError, ValueError):
-        pass
-    redress_seat(session)
 
 
 def redress_seat(session):
@@ -7749,7 +7719,7 @@ def wait_for_slot(run_dir):
             run_record.save_state(run_dir, state)
         if not announced:
             print(slot_note(state), flush=True)
-            refresh_seat_tally(state.get("launched_session"))
+            redress_seat(state.get("launched_session"))
             announced = True
         time.sleep(SLOT_POLL)
     if state.get("slot_waited"):
@@ -7764,7 +7734,7 @@ def wait_for_slot(run_dir):
             fh.seek(0)
             fh.write(line + content)
         print(line.rstrip(), flush=True)
-    refresh_seat_tally(state.get("launched_session"))
+    redress_seat(state.get("launched_session"))
     return state
 
 
@@ -7838,7 +7808,7 @@ def notify_recovery(run_dir, state):
     owner = launched_session(state)
     if not owner:
         return                      # a by-hand run has no originating orchestrator
-    log = logger(run_dir, True)
+    log = logger(run_dir)
     # What the run says is worth reading when it is handed back, so it is written first: an
     # interruption has no result of its own, and a resumed one would otherwise point at the
     # attempt before it.
@@ -8158,7 +8128,7 @@ def conclude_memory_cap(run_dir, state, reason):
     stop_run_tree(state, wait=True)
     history_finish(state)
     try:
-        refresh_seat_tally(launched_session(state))
+        redress_seat(launched_session(state))
     except config.Error:
         pass
     return state
@@ -10231,7 +10201,7 @@ def cmd_stop(argv):
         run_record.save_state(run_dir, current)
         history_finish(current, log)
         try:
-            refresh_seat_tally(launched_session(current))
+            redress_seat(launched_session(current))
         except config.Error:
             pass
         try:
@@ -10418,12 +10388,11 @@ def foreground_cli(run_dir):
             and not log_is_stdout(run_dir))
 
 
-def logger(run_dir, to_file):
-    to_file = to_file and not log_is_stdout(run_dir)
+def logger(run_dir):
     def log(message):
         line = f"[{datetime.now():%H:%M:%S}] {message}"
         print(line, flush=True)
-        if to_file:   # the --bg child's stdout already is log.txt; writing again would double it
+        if not log_is_stdout(run_dir):
             with (run_dir / "log.txt").open("a") as fh:
                 fh.write(line + "\n")
     return log
@@ -10493,7 +10462,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
         state.pop("slot_healthy_polls", None)
         run_record.save_state(run_dir, state)
     history_start(state)
-    refresh_seat_tally(session_at_launch)   # the seat's bar counts it from the start
+    redress_seat(session_at_launch)   # the seat's bar says it from the start
 
 
 def launch_line(run_id, title, executor, reviewer, *, self_review=None):
@@ -10645,7 +10614,7 @@ def preflight(run_dir, opts, log):
         else:
             method, action = ("none (review only)",
                               f"review {url} at {info['headRefOid']}; publish findings")
-        commands = "AGENTS.md tests: command from the PR checkout, if declared"
+        commands = "AGENTS.md tests: command from the target, else the PR checkout"
     else:
         meta, body, title = taskfile.parse_task(run_dir / "task.md")
         state = run_record.read_state(run_dir) or {}
@@ -10749,11 +10718,11 @@ def finish(state, run_dir, log, cfg=None):
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the follow-ups
         log(f"WARN could not start follow-ups: {exc}")
     try:
-        refresh_seat_tally(launched_session(state))   # the ending lands on the bar too
+        redress_seat(launched_session(state))   # the ending lands on the bar too
     except run_record.StopRequested:
         raise
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the bar
-        log(f"WARN could not refresh seat tally: {exc}")
+        log(f"WARN could not redraw the seat's bar: {exc}")
     announce(state, run_dir, log, cfg)
     history_finish(state, log)
     settle_run(run_record.read_state(run_dir) or state, run_dir, log)
@@ -10800,7 +10769,7 @@ def cmd_merge(argv):
     if not review_pass(state, cfg):
         raise config.Error(f"{argv[0]}: merge requires a successful reviewer allowed by the model policy; "
                            f"run ak run resume {argv[0]} to obtain review")
-    log = logger(run_dir, True)
+    log = logger(run_dir)
     if state.get("merged"):
         log(delivery(state, cfg))
         return 0
@@ -10947,7 +10916,7 @@ def cmd_resume(argv):
                     # result.md nothing wrote -- or the attempt before this one's -- is no
                     # hand-back: the reason goes in the file before anything reads it
                     state = mark_state(directory, "error", str(exc))
-                    record_result(directory, state, logger(directory, True))
+                    record_result(directory, state, logger(directory))
                 stop_run_tree(state)
         raise
 
@@ -11017,7 +10986,7 @@ def resume_run(argv):
                 raise config.Error("the run changed while choosing recovery; select it again")
             run_record.save_state(run_dir, state)
         cfg = config.load()
-        log = logger(run_dir, os.environ.get(config.RUN_DIR_ENV) != str(run_dir))
+        log = logger(run_dir)
         log(f"picked up agentkit {old}..{new}; continuing on it")
         if state.get("review_pr"):
             return drive(cfg, run_dir, opts, log,
@@ -11213,7 +11182,7 @@ def resume_run(argv):
         state.pop("resume_after", None)
         state.pop("pickup", None)
         run_record.save_state(run_dir, state)
-    log = logger(run_dir, not child)
+    log = logger(run_dir)
     log(f"resume {run_dir.name}: {run_dir / 'task.md'}")
     if not child:
         # the loop goes on from this copy and saves it: it carries the new scope, not the last
@@ -11797,14 +11766,15 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     base, head = info["baseRefName"], info["headRefOid"]
     fetch(repo, "origin", f"pull/{number}/head", base, check=True)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
-    base_sha = git(repo, "merge-base", f"origin/{base}", head)
+    target_sha = git(repo, "rev-parse", f"origin/{base}^{{commit}}")
+    base_sha = git(repo, "merge-base", target_sha, head)
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
         if advancing:
             git(wt, "reset", "--hard", head)
     else:
         wt, branch = make_worktree(repo, run_dir.name, f"pr-{number}", head)
-    tests = declared_suite(wt, base)
+    tests = declared_suite(wt, base, ref=target_sha)
     # an own PR's suite runs once, at landing; somebody else's PR has no line behind it --
     # only the inbox's yes -- so its suite runs here, in its one review round
     cmds = [f"{tests}  # once" if is_own else tests] if tests else []
@@ -11824,7 +11794,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
              "launched_session": session_at_launch, "repo": str(repo), "scratch": False,
              "review_pr": url, "pr": url, "head_sha": head, "author": info["author"],
              "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
-             "base": f"origin/{base}", "target": base, "base_sha": base_sha, "branch": branch,
+             "base": f"origin/{base}", "target": base, "base_sha": base_sha,
+             "target_sha": target_sha, "branch": branch,
              "worktree": str(wt), "executor": None, "reviewer": None, "rounds": n_rounds,
              "state": "running", "verdict": None, **run_record.process_owner(), "started_at": receipt["started_at"],
              "finished_at": None, "round_summaries": summaries, "findings": previous, "merge_method": "squash",
@@ -12168,7 +12139,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         run_dir.mkdir(parents=True)
         (run_dir / "log.txt").touch()
         try:
-            prepare(run_dir, opts, logger(run_dir, True), cfg)
+            prepare(run_dir, opts, logger(run_dir), cfg)
         except run_record.StopRequested:
             # A stop landed during preflight: the receipt already says so, and the
             # stopper printed the line -- this end names it and stands down alike.
@@ -12180,7 +12151,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
                 reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
                                                reviewers=receipt.get("reviewers"))
             except config.Error as exc:
-                refused(run_dir, exc, logger(run_dir, True), cfg)
+                refused(run_dir, exc, logger(run_dir), cfg)
                 raise
             title = (run_record.read_state(run_dir) or {}).get("title")
             if reviewer:
@@ -12205,7 +12176,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         spawn_bg(run_dir, argv)
         return follow_run(run_dir, cfg, offset)
     opts = dict(opts, **flags)
-    log = logger(run_dir, not resumed)
+    log = logger(run_dir)
     log(f"run {run_dir.name}: review of {url}")
     if not resumed:
         place_here(run_dir, log)
@@ -12313,10 +12284,9 @@ def main(argv):
         job_dir, job = jobs.job_create(cfg, positional, opts, parallel)
         if opts["--bg"]:
             return jobs.spawn_job_bg(job_dir)
-        to_file = os.environ.get(config.JOB_DIR_ENV) != str(job_dir)
-        log = jobs.job_logger(job_dir, to_file)
+        log = jobs.job_logger(job_dir)
         log(f"job {job_dir.name}: {len(positional)} tasks")
-        return jobs.run_job_loop(cfg, job_dir, job, to_file=to_file)
+        return jobs.run_job_loop(cfg, job_dir, job)
 
     resumed = os.environ.get(config.RUN_DIR_ENV)
     if resumed and not queued(Path(resumed)):
@@ -12379,7 +12349,7 @@ def main(argv):
         (run_dir / "task.md").write_text(task_path.read_text())
         (run_dir / "log.txt").touch()
         try:
-            prepare(run_dir, opts, logger(run_dir, True), cfg, task_file=task_path)
+            prepare(run_dir, opts, logger(run_dir), cfg, task_file=task_path)
         except run_record.StopRequested:
             # A stop landed during preflight: the receipt already says so, and the
             # stopper printed the line -- this end names it and stands down alike.
@@ -12387,7 +12357,7 @@ def main(argv):
             return 1
         if opts["--bg"]:
             try:
-                executor, reviewer = preset_models(cfg, opts, logger(run_dir, True), run_dir)
+                executor, reviewer = preset_models(cfg, opts, logger(run_dir), run_dir)
             except run_record.StopRequested:
                 print(stop_line(run_dir.name, None, False))
                 return 1
@@ -12402,7 +12372,7 @@ def main(argv):
         offset = (run_dir / "log.txt").stat().st_size
         spawn_bg(run_dir, argv)
         return follow_run(run_dir, cfg, offset)
-    log = logger(run_dir, not resumed)
+    log = logger(run_dir)
     log(f"run {run_dir.name}: {task_path}")
     if not resumed:
         place_here(run_dir, log)

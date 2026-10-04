@@ -78,7 +78,7 @@ class ForegroundScope(Sandbox):
         self.stack.enter_context(patch.object(orch, "scope_oom_policy", return_value=True))
         # a refusal is waited on as long as any answer; the fake busctl still starts in time
         self.stack.enter_context(patch.object(orch, "SLICE_WAIT", 2))
-        self.stack.enter_context(patch.object(run, "refresh_seat_tally"))
+        self.stack.enter_context(patch.object(run, "redress_seat"))
         # `ak run` itself, not this test: only that process is a run's to move
         self.stack.enter_context(patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run"]))
         self.niced, self.renice = [], None

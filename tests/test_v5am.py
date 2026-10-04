@@ -401,7 +401,6 @@ class Slots(unittest.TestCase):
             self.assertEqual(run.cmd_status([]), 0)
         self.assertIn("waiting for a slot · limit full (1 running) · 0 ahead", out.getvalue())
         self.assertFalse(menu.v5o_needs_look(state))
-        self.assertEqual(menu.bar_tally((1, 0, 0), [state]), "1 waiting")
         self.assertEqual(len(self.calls()), 1)
         self.release(first)
         self.started("two")
@@ -484,42 +483,6 @@ usage._store, pathlib.Path.replace = publish, rename
                 with self.assertRaises(type(error)):
                     run.collect_usage(self.cfg)
                 self.assertEqual(collect.call_count, expected)
-
-    def test_v5am_tick_menu_and_refresh_keep_the_same_waiting_bar(self):
-        now = time.time()
-        for name, seat, word in (("holder", "other-seat", "running"),
-                                 ("waiter", "waiting-seat", "queued")):
-            directory = config.RUNS / name
-            directory.mkdir()
-            record.save_state(directory, {
-                "run_id": name, "state": word, "title": name, "launched_session": seat,
-                "started_at": now, "queued_at": now, "slot_waiting": word == "queued",
-                **record.process_owner()})
-        seat = {"name": "waiting-seat", "legacy": False, "exited": False}
-        directory = config.RUNS / "waiter"
-        receipt = record.read_state(directory)
-        self.assertEqual(menu.run_state_word(receipt), "working")
-        with patch.object(orch, "sessions", return_value=[seat]), \
-                patch.object(watch, "seat_model", return_value=("claude", "anthropic")), \
-                patch.object(watch, "pane_text", return_value="output\n$ "), \
-                patch.object(watch, "live_state", return_value={"state": "at_prompt"}), \
-                patch.object(notify, "progress", return_value=False), \
-                patch.object(watch, "stalled_on", return_value=None), \
-                patch.object(watch, "stuck_on", return_value=False), \
-                patch.object(menu, "row", return_value=["1", "waiting-seat", "opus", "working"]), \
-                patch.object(orch, "set_runs") as bar:
-            for word, expected in (("queued", "1 waiting"),
-                                   ("running", "1 running")):
-                receipt["state"] = word
-                record.save_state(directory, receipt)
-                for refresh in (lambda: run.refresh_seat_tally("waiting-seat"),
-                                lambda: menu.projects(self.cfg, [seat]),
-                                lambda: watch.health(self.cfg, {"stalls": {}}, False,
-                                                     lambda _: None)):
-                    with self.subTest(state=word, refresh=refresh):
-                        bar.reset_mock()
-                        refresh()
-                        bar.assert_called_once_with("waiting-seat", expected)
 
     def test_v5am_simultaneous_launches_claim_atomically(self):
         for name in ("one", "two", "three", "four", "five", "six"):

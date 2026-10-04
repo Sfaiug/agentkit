@@ -16,9 +16,9 @@ and its number resumes its owned conversation or starts fresh in the same pane. 
 exited seat is retired automatically after a week. Live and attached seats, and seats with
 unfinished run evidence, stay until `ak orch stop` (the menu's `x`).
 
-Every seat agentkit starts is dressed on the way up: a one-line status bar saying who is in it,
-what it is doing, and the one key to the menu, and `Ctrl-b m` bound to that menu in a popup
-over whatever is running.
+Every seat agentkit starts is dressed on the way up: a two-line status bar (statusbar.py) saying
+who is in it, what it is doing, and the one key to the menu, and `Ctrl-b m` bound to that menu
+in a popup over whatever is running.
 """
 
 import atexit
@@ -48,8 +48,6 @@ from .harness import LAUNCHER, load as harness_plugin
 
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
 PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of the active window
-STATE_OPTION = "@ak_state"  # ... and the one that says what it is doing, for the bar and title
-RUNS_OPTION = "@ak_runs"    # ... and the one that says what its runs add up to, for the bar
 SOCKET_ENV = "AGENTKIT_TMUX_SOCKET"   # the test suite's way to a server of its own
 SOCKET = "agentkit"        # the toolkit's own tmux server, never the user's default one
 JOBS = "-jobs"             # appended to it: the server the background jobs run on
@@ -99,17 +97,6 @@ FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; '
          'set-option -pu -t "$p" @ak_was_$s; else tmux set-option -pu -t "$p" $s; fi; done; '
          'tmux set-option -pu -t "$p" @ak_floats; fi; l -U; true')
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
-HINT = "Ctrl-b m  menu"   # the right half of every seat's status bar: the one key
-CLOSE_HINT = "Ctrl-b m  x close"   # ... and of a done one's, which that menu's `x` closes at once
-BAR_LEFT = 120            # status-left-length: the left half is cut to it here, never by tmux
-# A seat's status line: tmux's own default one, less the window list a seat does not show, with
-# the left half cut, with one `…`, where it would run into the right half on the client drawing
-# it -- so the one key stays whole on every client, a phone's included.
-BAR_FORMAT = ("#[align=left range=left #{E:status-left-style}]#[push-default]"
-              "#{T;=/#{e|-:#{client_width},#{e|+:#{w:status-right},1}}/…:status-left}"
-              "#[pop-default]#[norange default]"
-              "#[nolist align=right range=right #{E:status-right-style}]#[push-default]"
-              "#{T;=/#{status-right-length}:status-right}#[pop-default]#[norange default]")
 UPDATE_JOB = "update"      # the tmux session an update runs in, on the jobs server
 UPDATE_RESULT = "update-result"   # where it leaves the one line the menu shows when it is done
 AGENT_LOOK_EVERY = 10      # how long one reading of the process table answers for every pane
@@ -1659,85 +1646,6 @@ def tmux_conf():
     return path
 
 
-def bar(name, orchestrator, word=None, last="", workers=()):
-    """(status-left, status-right, set-titles-string): the seat's status bar, as text.
-
-    The left half is the name, the orchestrator and the workers it hands runs to, the state
-    word and the last column -- `herdr · fable → opus astra · ● working · tasks ███░░░░░ 2/5`
-    -- the same values the menu row shows for that seat, in the same words, from the same
-    function, cut to BAR_LEFT here with one ellipsis, since tmux would cut it anywhere,
-    mid-glyph included; the right half is the one
-    key, `Ctrl-b m  menu`, on every client -- `Ctrl-b m  x close` once the seat is done, the
-    two keys that close it; the title is the name and the word.  Text
-    rather than formats, so a rename and a change of word each rewrite the bar instead of
-    the bar following an option: the tick and every menu draw write it through the one
-    writer, and a rename writes it at once.  Without a word yet -- a seat just started --
-    the bar carries the name and the orchestrator and the title the name, and never a
-    guessed word.  `#` is doubled throughout, because a reason may carry one (`Merged
-    #75`) and tmux would otherwise read it as a format.
-    """
-    head = f"{name} · {orchestrator}"
-    if workers:
-        head += f" {'→' if terminal.utf8() else '->'} {' '.join(workers)}"
-    if word:
-        head += f" · {terminal.state_text(word)}"
-    if last:
-        head += f" · {last}"
-    head = terminal.cut(head, BAR_LEFT - 2)       # the two spaces that pad it are in the length
-    title = f"{name} · {word}" if word else name
-    hint = CLOSE_HINT if word == "done" else HINT
-    return f" {tmux_text(head)} ", f" {tmux_text(hint)} ", tmux_text(title)
-
-
-def dress(name, orchestrator, socket=None):
-    """The seat's one-line status bar, before its first classification: who is in it.
-
-    Only this session's options are touched, never the global ones, so a user's own tmux
-    sessions on the same server keep the status bar they had.  The window list in the middle
-    is blanked: a seat is one window, and the two halves are the whole line.  The tick or
-    the next menu draw fills in the word and the last column through the one writer both
-    share; until then the bar carries the name, the orchestrator and the one key.
-    """
-    left, right, title = bar(name, orchestrator)
-    # set-titles is set here rather than in tmux.conf because that file is read by the default
-    # server too, where the legacy seats are, and the user's own sessions there are theirs.
-    for option, value in (("set-titles", "on"),
-                          ("set-titles-string", title),
-                          ("status", "on"),
-                          ("status-left", left),
-                          # the left half's length, which bar() cuts its own text to: tmux
-                          # would cut past it mid-word, and mid-glyph
-                          ("status-left-length", str(BAR_LEFT)),
-                          ("status-right", right),
-                          ("status-right-length", "80"),
-                          ("window-status-format", ""),
-                          ("window-status-current-format", "")):
-        # set-option takes the session name plain: it is the one target that rejects `=name`
-        tmux_out("set-option", "-t", name, option, value, socket=socket)
-
-
-def set_runs(name, tally, socket=None):
-    """Put that seat's run tally on its own status bar, in the tally's exact words.
-
-    `tally` is what `ak orch list` says for that seat's runs (`<n> running`,
-    `<n> needs you`) or nothing at all: merges and empty seats the list shows
-    another way, so a seat with nothing going and nothing to look at draws no
-    tally, not `0 running` -- so clearing is unsetting the option, and the bar
-    draws what it always drew.  The one writer every tally source goes through (`ak run`,
-    the tick, the menu), so three places never shell out with three formats.  Never
-    raises: a seat gone mid-draw, tmux away, or a draw under test must not break the
-    draw or the tick that is only dressing a bar.
-    """
-    socket = socket_name() if socket is None else socket
-    try:
-        if not tally or tally == "no runs yet":
-            tmux_out("set-option", "-u", "-t", name, RUNS_OPTION, socket=socket)
-        else:
-            tmux_out("set-option", "-t", name, RUNS_OPTION, tally, socket=socket)
-    except Exception:  # noqa: BLE001 - dressing a bar never breaks the work beneath it
-        pass
-
-
 def seat_command(name, cmd, socket=None):
     """The pane's command line: the harness, started inside a scope of its own in the seats slice.
 
@@ -1788,7 +1696,8 @@ def start(name, cwd, cmd, orchestrator):
     # itself expands the launched pane rather than handing its id back to this caller.
     tmux_out("set-option", "-F", "-t", f"={name}:", PANE_OPTION, "#{pane_id}")
     tmux_out("set-option", "-t", name, "remain-on-exit", "on")
-    dress(name, orchestrator)
+    from . import statusbar   # here, not at the top: the bar's module imports this one
+    statusbar.dress(name, orchestrator)
 
 
 def unknown_term():
@@ -2078,7 +1987,9 @@ def launch(name, model, cwd, cmd, conversation, session=None):
         if rc != 0:
             raise config.Error(f"cannot resume the session {name}: {out}")
         tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
-        dress(name, model, server)
+        if on_own_server(session):
+            from . import statusbar   # here, not at the top: the bar's module imports this one
+            statusbar.dress(name, model)
     else:
         start(name, cwd, cmd, model)
     if plugin.title_command(name):
@@ -2682,7 +2593,7 @@ def cmd_list(argv):
         return 0
     from . import menu, run   # here, not at the top: menu imports this module
     cfg = config.load()
-    # the same tally the seat's status bar carries, from the same one pass over the records
+    # the same tally each seat's menu row carries, from the same one pass over the records
     tallies = run.seat_tallies(state for _, state in menu.run_records())
     # each seat's record is read once here and carried into the table, which
     # would otherwise read every seat again for the same rows
@@ -2755,10 +2666,10 @@ def cmd_stop(argv):
     it launched is stopped the way `ak run stop` stops one, and each run's checkout
     and local branch go with it. The run directories stay: their results are collected
     by age. Its Discord card is closed as `Answered`, the way a gone seat's is, and the
-    seat's `<kind>-<name>.*` state files go, then the stop mark is written
+    seat's `<kind>-<name>.*` state files go except its locks, then the stop mark is written
     back into the seat file so a hand-back still knows the owner ended it -- all of it under
-    the seat's own typing lock, so a line being typed into it finishes first; the locks go
-    last, and the daily collector takes the mark a day later.
+    the seat's own typing lock, so a line being typed into it finishes first; the daily
+    collector takes the mark and unused locks a day later.
     A card Discord would not take the edit for stays, for the tick to close.
     Browser tabs the seat or its runs opened close; a tab with no recorded opener is left
     to the idle rule.
@@ -2807,11 +2718,12 @@ def cmd_stop(argv):
                 seat_plugin(record).forget(record)
             # Every line ak types into a seat goes in under its own lock, the one a rename takes:
             # a line under way finishes into this seat before it closes, and one waiting finds it
-            # closed.  Its lock files go last, below, so whoever waits waits on this very lock.
+            # closed. Keep the lock files: a reopened name must use the same inodes as writers
+            # already holding or waiting on them.
             with notify.session_lock(name):
                 for path in session_owned_files(name):
                     if path == config.card_path(name) or path.suffix == ".lock":
-                        continue  # a card Discord did not take the edit for: the tick closes it
+                        continue  # gc takes unused locks; the tick retries closing the card
                     try:
                         path.unlink(missing_ok=True)
                     except OSError as exc:
@@ -2830,14 +2742,6 @@ def cmd_stop(argv):
                                  usage_wait=None, usage_refusal=None)
         watch.forget(name)   # a new seat with this name must not inherit the old stop latch
         drop_aliases(name)
-        # The mark and the latch above took the seat's and its notices' locks again, and a
-        # seat that is gone has nothing left for them to serialize.
-        for path in session_owned_files(name):
-            try:
-                if path.suffix == ".lock":
-                    path.unlink(missing_ok=True)
-            except OSError as exc:
-                print(f"WARN could not remove {path.name}: {exc}", file=sys.stderr)
     finally:
         signal.signal(signal.SIGHUP, old)
     print(f"stopped {name}")

@@ -48,7 +48,7 @@ class JobLineStoppedTasks(unittest.TestCase):
                   "verdict_line": f"fix-api-{n}.md: {state}"}
                  for n, state in enumerate(states)]
         job = {"job_id": "job-acme", "seat": "seat-acme", "tasks": tasks}
-        return jobs.run_job_loop({}, self.job_dir, job, to_file=True)
+        return jobs.run_job_loop({}, self.job_dir, job)
 
     def test_a_job_whose_only_undelivered_tasks_were_stopped_needs_nobody(self):
         self.close("passed", "stopped", "stopped")
