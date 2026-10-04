@@ -5598,6 +5598,15 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         # before any checkout, pick or round: nothing here can stand on what it was cut from
         state = stamp_origin({**(prior or receipt), "run_id": run_dir.name, "title": title,
                               "task": str(task_path)})
+        wt = Path(state.get("worktree") or "")
+        if prior and not state.get("scratch") and state.get("worktree") and wt.is_dir():
+            # the relaunch starts from the kept branch: an interrupted executor's uncommitted
+            # edits go onto it before the ending's cleanup takes the checkout, and a checkout
+            # still holding work no commit took ends in an error, which keeps it
+            commit_leftovers(wt, log, set())
+            if any(not leftover_junk(path) for path in dirty_paths(wt)):
+                raise config.Error(f"{on_dependency}; its uncommitted work could not be "
+                                   f"committed, so its checkout {wt} is kept")
         return finish_blocked(run_dir, state, Blocked(on_dependency, f"## Blocked\n\n{on_dependency}"),
                               log, cfg)
     if gc.disk_pressure():

@@ -8,6 +8,7 @@ import io
 import os
 from pathlib import Path
 import runpy
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -123,6 +124,48 @@ class AfterGone(unittest.TestCase):
         self.assertIn("relaunch with `from: ak/beta`", ended["error"])
         self.assertEqual(record.read_state(run_dir)["state"], "blocked")
         self.assertIn("relaunch with `from: ak/beta`", (run_dir / "result.md").read_text())
+
+    def test_a_resume_keeps_the_executors_uncommitted_work_on_its_branch(self):
+        repo = self.root / "repo"
+        git = lambda *args, cwd=repo: subprocess.run(
+            ["git", "-C", str(cwd), "-c", "user.name=acme", "-c", "user.email=acme@localhost",
+             *args], check=True, capture_output=True, text=True).stdout.strip()
+        repo.mkdir()
+        git("init", "-q", "-b", "main")
+        (repo / "base.txt").write_text("base\n")
+        git("add", ".")
+        git("commit", "-qm", "base")
+        wt = self.root / "wt-beta"
+        git("worktree", "add", "-q", "-b", "ak/beta", str(wt))
+        tip = git("rev-parse", "HEAD", cwd=wt)
+        (wt / "base.txt").write_text("edited\n")
+        (wt / "new.txt").write_text("new\n")
+        identity = {f"GIT_{who}_{what}": value for who in ("AUTHOR", "COMMITTER")
+                    for what, value in (("NAME", "acme"), ("EMAIL", "acme@localhost"))}
+        self.enterContext(patch.dict(os.environ, identity))
+        run_dir, state = self.saved("20261004-0703-beta", state="running", verdict=None,
+                                    merge_failed=False, scratch=False, repo=str(repo),
+                                    worktree=str(wt), base_sha=tip,
+                                    from_pass={"task": "alpha.md", "tip": tip})
+        with patch.object(run, "settle_run"):
+            ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
+                             lambda _: None, prior=state)
+        self.assertEqual(ended["state"], "blocked")
+        self.assertEqual(git("show", "ak/beta:base.txt"), "edited")
+        self.assertEqual(git("show", "ak/beta:new.txt"), "new")
+
+    def test_work_no_commit_could_take_keeps_its_checkout(self):
+        wt = self.root / "wt-gamma"
+        wt.mkdir()
+        run_dir, state = self.saved("20261004-0704-gamma", state="running", verdict=None,
+                                    merge_failed=False, scratch=False, repo=str(self.root),
+                                    worktree=str(wt))
+        with patch.object(run, "commit_leftovers"), \
+                patch.object(run, "dirty_paths", return_value=["src/api.py"]), \
+                patch.object(run, "settle_run", side_effect=AssertionError("cleaned up")), \
+                self.assertRaisesRegex(config.Error, "checkout .* is kept"):
+            run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
+                     lambda _: None, prior=state)
 
     def test_an_unstarted_run_ends_blocked_before_its_checkout(self):
         run_dir = config.RUNS / "20261004-0702-beta"
