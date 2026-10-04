@@ -26,19 +26,22 @@ class QuestionWithMessageUnder(Sandbox):
         return watch.classify("claude", watch.pane_tail(pane), fact or {}, None, {}, NOW)
 
     def test_dialog_with_queued_message_is_asking_and_needs_you_over_runs(self):
+        running = [(self.root / "run", {"state": "running", "launched_session": SEAT,
+                                       "started_at": NOW - 3600})]
         for fact in ({}, {"event": "Notification", "kind": "permission_prompt",
-                          "text": "Choose a change", "at": NOW - 7200}):
+                          "text": "Choose a change", "at": NOW - 7200},
+                     {"event": "UserPromptSubmit", "at": NOW - 5},
+                     {"event": "Stop", "kind": "held", "at": NOW - 5}):
             for attached in (False, True):
-                with self.subTest(fact=fact, attached=attached):
-                    live = self.classify(QUESTION, fact)
-                    self.assertEqual(live["state"], "asking")
-                    records = [(self.root / "run", {"state": "running",
-                                "launched_session": SEAT, "started_at": NOW - 3600})]
-                    found = watch.session_state(
-                        SEAT, NOW, session={"name": SEAT, "attached": attached},
-                        cfg=self.cfg, records=records, live=live, harness="claude",
-                        auth_out={}, gh_out={}, token_out={}, previous={})
-                    self.assertEqual(found["word"], "needs you")
+                for records in ([], running):
+                    with self.subTest(fact=fact, attached=attached, running=bool(records)):
+                        live = self.classify(QUESTION, fact)
+                        self.assertEqual(live["state"], "asking")
+                        found = watch.session_state(
+                            SEAT, NOW, session={"name": SEAT, "attached": attached},
+                            cfg=self.cfg, records=records, live=live, harness="claude",
+                            auth_out={}, gh_out={}, token_out={}, previous={})
+                        self.assertEqual(found["word"], "needs you", repr(found))
 
     def test_dialog_alone_is_asking_from_its_screen(self):
         live = self.classify(DIALOG)
