@@ -50,8 +50,7 @@
   Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
 - `tell.py`: `ak tell`, one seat's message to another for every harness: queued in the
   receiver's `tell` seat file under the seat's own lock, typed only by the tick through
-  `watch.type_at_prompt`, its receipt naming `seat:<sender>` and the message. For bin/ak and
-  the tick.
+  `watch.type_at_prompt`, its receipt naming `seat:<sender>`. For bin/ak and the tick.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.

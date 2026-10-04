@@ -25,6 +25,7 @@ from agentkit.harness import claude
 SENDER, SEAT = "fix-api", "acme-docs"
 NOW = 1_000_000.0
 QUEUED = f"{SEAT}: queued; ak types it at its next quiet prompt"
+PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
 
 
 def prompt(at, text):
@@ -60,7 +61,7 @@ class Seats(unittest.TestCase):
                                          self.seat if name == self.seat["name"] else None))
         stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         stack.enter_context(patch.object(watch, "at_prompt", side_effect=lambda *_a, **_kw: self.free))
-        stack.enter_context(patch.object(watch, "pane_text", return_value=""))
+        stack.enter_context(patch.object(watch, "pane_text", return_value=PROMPT))
         stack.enter_context(patch.object(watch, "KEY_GAP", 0))
         stack.enter_context(patch.object(watch.time, "sleep"))
         stack.enter_context(patch.object(watch.time, "time", return_value=NOW))
@@ -108,8 +109,8 @@ class Tell(Seats):
         self.tick()
         line = self.header() + "Parser merged. Leave parser.py alone."
         self.assertEqual(self.typed, [line])
-        self.assertEqual([(row["source"], row["ref"], row["text"]) for row in self.receipts()],
-                         [(f"seat:{SENDER}", queued, line)])
+        self.assertEqual([(row["source"], row["text"]) for row in self.receipts()],
+                         [(f"seat:{SENDER}", line)])
         self.assertEqual(self.waiting(), [])
 
     def test_a_busy_seat_gets_it_once_at_its_next_quiet_prompt(self):
@@ -247,12 +248,9 @@ class Typing(Seats):
     def setUp(self):
         super().setUp()
         self.opened(1.0)
-        self.idle = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
+        self.idle = PROMPT
         self.pane, self.taken, self.killed_after_text = self.idle, [], False
         self.killed_before_text, self.keys = False, []
-        record = config.session_records()[SEAT]
-        self.transcript = claude.transcript_path(record, record["conversation"])
-        self.transcript.parent.mkdir(parents=True)
         for target, kwargs in ((watch, {"at_prompt": watch.at_prompt}),
                                (watch, {"pane_text": lambda *_a, **_kw: self.pane}),
                                (orch, {"tmux_out": self.render})):
@@ -286,9 +284,6 @@ class Typing(Seats):
                 raise KeyboardInterrupt("killed right after the text went in")
         elif args[-1] == "Enter" and self.pane != self.idle:
             self.taken.append(self.typed[-1])
-            if self.transcript:
-                with self.transcript.open("a", encoding="utf-8") as fh:
-                    fh.write(json.dumps(prompt(NOW + len(self.taken), self.taken[-1])) + "\n")
             self.pane = self.echoed(self.taken[-1])
         return 0, ""
 
@@ -327,10 +322,8 @@ class TyperDied(Typing):
         self.assertEqual((len(self.taken), len(self.typed)), (1, 1))
         self.assertEqual(self.waiting(), [])
 
-    def test_a_line_that_went_in_is_read_where_it_went_after_the_seat_changes_harness(self):
-        if self.transcript is None:
-            self.skipTest("no conversation to read")
-        self.died("_wait_sent")                       # after its Enter, into this conversation
+    def test_a_line_that_went_in_is_never_typed_again_after_the_seat_changes_harness(self):
+        self.died("_wait_sent")                       # after its Enter
         config.update_session(SEAT, orchestrator="grok")
         tell.deliver(self.cfg, lambda _: None)
         self.assertEqual((len(self.taken), len(self.typed)), (1, 1))
@@ -362,14 +355,28 @@ class TyperDied(Typing):
         self.assertEqual(self.waiting(), [])
 
     def test_text_the_owner_added_to_the_line_is_never_sent_with_it(self):
-        self.died()
-        self.pane = self.composed(self.typed[-1] + " and also check the docs")
-        before = len(self.enters())
+        """Killed before its mark, or after it and before its Enter: either way it waits."""
+        for step in (None, "_send_enter"):
+            with self.subTest(killed_in=step or "right after its text"):
+                self.died(step)
+                self.pane = self.composed(self.typed[-1] + " and also check the docs")
+                before = len(self.enters())
+                for _ in range(3):
+                    tell.deliver(self.cfg, lambda _: None)
+                self.assertEqual(len(self.enters()), before)
+                self.assertEqual((self.taken, len(self.typed)), ([], 1))
+                self.assertEqual(len(self.waiting()), 1)
+                tell.write(config.seat_file("tell", SEAT), [])
+                self.typed.clear()
+                self.pane = self.idle
+
+    def test_a_line_killed_before_its_keys_is_typed_again(self):
+        self.died(before_text=True)
+        self.assertEqual((self.typed, len(self.receipts())), ([], 1))
         for _ in range(3):
             tell.deliver(self.cfg, lambda _: None)
-        self.assertEqual(len(self.enters()), before)
-        self.assertEqual((self.taken, len(self.typed)), ([], 1))
-        self.assertEqual(len(self.waiting()), 1)
+        self.assertEqual(self.taken, [self.header() + "Parser merged."])
+        self.assertEqual(self.waiting(), [])
 
     def test_a_line_lost_from_its_composer_is_typed_again(self):
         self.died()
@@ -380,51 +387,25 @@ class TyperDied(Typing):
         self.assertEqual(self.waiting(), [])
 
 
-class TyperDiedNoConversation(TyperDied):
-    """The same deaths on a seat whose harness keeps no conversation ak reads."""
+class TyperDiedMuse(TyperDied):
+    """The same deaths on a Muse seat, whose composer is drawn without a box of rules."""
 
     EMPTY = "❯\n"
 
     def setUp(self):
         super().setUp()
         config.update_session(SEAT, orchestrator="spark")
-        self.assertFalse(orch.seat_plugin(config.session_records()[SEAT]).keeps_messages)
         self.idle = (REPO / "tests/fixtures/muse-prompt-pane.txt").read_text(encoding="utf-8")
-        self.pane, self.transcript = self.idle, None
-
-    def test_a_line_killed_before_its_keys_is_typed_again(self):
-        self.died(before_text=True)
-        self.assertEqual((self.typed, len(self.receipts())), ([], 1))
-        for _ in range(3):
-            tell.deliver(self.cfg, lambda _: None)
-        self.assertEqual(self.taken, [self.header() + "Parser merged."])
-        self.assertEqual(self.waiting(), [])
-
-    def test_a_line_that_went_in_is_never_typed_again_even_in_a_restored_tmux(self):
-        self.died("_wait_sent")                       # after its Enter
-        self.seat = dict(self.seat, created=11)
-        tell.deliver(self.cfg, lambda _: None)
-        self.assertEqual((len(self.taken), len(self.typed)), (1, 1))
-        self.assertEqual(self.waiting(), [])
-
-    def test_a_line_lost_from_its_composer_is_typed_again(self):
-        """Its keys went in, and with no conversation to read, the gone line counts as taken."""
-        self.died()
         self.pane = self.idle
-        tell.deliver(self.cfg, lambda _: None)
-        self.assertEqual(self.waiting(), [])
-
 
 
 class TyperDiedEchoAbove(Typing):
-    """Antigravity draws the line it took right above its empty composer, and keeps no
-    conversation ak reads."""
+    """Antigravity draws the line it took right above its empty composer."""
 
     EMPTY = "\n>\n"
 
     def setUp(self):
         super().setUp()
-        self.transcript = None
         config.update_session(SEAT, orchestrator="gemini")
         self.assertEqual(orch.seat_plugin(config.session_records()[SEAT]).name, "antigravity")
         self.idle = (REPO / "tests/fixtures/antigravity-prompt-pane.txt").read_text(encoding="utf-8")

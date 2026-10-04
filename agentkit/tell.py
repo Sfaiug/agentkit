@@ -6,7 +6,8 @@ takes (`watch.type_at_prompt`): under the seat's typing lock, never onto a draft
 and never while the owner's question stands, so it answers none.  ak writes the header that
 says who it is from, and the typing receipt names that seat as its source, so the line is never
 the owner's words.  Only the tick types, one tick at a time; one that dies at any key leaves
-the receipt, written before the keys, and the seat's conversation to say how far it got.
+the message's own mark, made once its keys are in and before its Enter, and the seat's
+composer to say how far it got.
 """
 
 import json
@@ -15,7 +16,7 @@ import sys
 import time
 import uuid
 
-from . import command_help, config, harness, notify, orch, watch
+from . import command_help, config, notify, orch, watch
 
 # tmux refuses one command past 16 KiB, and the whole message goes in as one typed line.
 MAX_BYTES = 8000
@@ -80,36 +81,10 @@ def seat_of(name):
     return record.get("created", "")
 
 
-def typed_in(name, message):
-    """The newest receipt of that message typed into that seat, else None.
-
-    `watch` writes it under the seat's typing lock before the keys and takes it back where they
-    fail, so it outlives a typer that died at any key after.  It names the message's id: two
-    messages can hold the same line.
-    """
-    found = None
-    for sent in harness.entries(config.seat_file("input", name)):
-        if sent.get("ref") == message["id"]:
-            found = sent
-    return found
-
-
-def reached(name, sent):
-    """Did the line that receipt typed reach the conversation it was typed into?  Read by the
-    harness the receipt names, whatever the seat runs now; None where ak cannot read one there.
-    A prompt the owner sent with the line in it took the line too."""
-    record = config.session_records().get(name) or {}
-    plugin = orch.harness_plugin(sent["harness"]) if sent.get("harness") else orch.seat_plugin(record)
-    if not plugin.keeps_messages or not sent.get("conversation"):
-        return None
-    messages = plugin.user_messages(record, record.get("cwd"), sent["conversation"])
-    return any(sent["text"] in message["text"] for message in messages[sent.get("after", 0):])
-
-
-def in_composer(name, session, line):
-    """Does that seat's composer hold the line, and only it, now?  Its keys landed."""
-    plugin = orch.seat_plugin(config.session_records().get(name) or {})
-    return watch.composer_draft(plugin.name, watch.pane_text(session)) == re.sub(r"\s+", "", line)
+def composed(name, session):
+    """What that seat's composer holds now, whole and without whitespace; None for none read."""
+    plugin = orch.seat_plugin(config.session_records().get(config.resolve_session(name)) or {})
+    return watch.composer_draft(plugin.name, watch.pane_text(session))
 
 
 def refusal(name, seat):
@@ -127,12 +102,13 @@ def deliver_to(session, log, cfg=None):
     """Type the oldest message waiting for that seat; True when one went in.
 
     Only the tick calls this, and one tick runs at a time, so nothing else types it meanwhile.
-    A line typed before -- by a tick that died, or one whose Enter did not send it -- is
-    settled by where it is now: in the seat's conversation it went in, in its composer it gets
-    its Enter, and in neither it is typed again.  Where ak reads no conversation, the mark left
-    once its keys were in stands for it: with that mark an empty composer means it went in,
-    without it the keys never landed -- the receipt is written before them -- and it is typed
-    again.
+    A line a tick died on is settled by its mark, made under the seat's lock once its keys are
+    in and before its Enter, and by the seat's composer, read whole: keyed and the line alone
+    in the composer, it gets its Enter; keyed and the composer empty, it went in; keyed and
+    anything else there, the owner's edit too, it waits.  Not keyed, its keys may still have
+    landed right before the tick died: the line alone in the composer is marked and gets its
+    Enter; an empty composer means it never went in, and it is typed afresh; anything else
+    there, or no composer read, is never typed onto.
     """
     name = session["name"]
 
@@ -160,23 +136,18 @@ def deliver_to(session, log, cfg=None):
             typed=watch.typing_mark(session, first["line"]) if pending else None,
             # told under the typing lock, the seat's own, once the keys are in
             receipt=lambda _mark: edit(name, keyed),
-            source=source(first["from"]), ref=first["id"],
+            source=source(first["from"]),
             # under the typing lock, right before each key: still the seat it was meant for
             stale=lambda held: seat_of(held) != first["seat"])
 
-    with notify.session_lock(name) as current:
-        sent = typed_in(current, first)
-    went_in = reached(current, sent) if sent else False
-    if went_in is None and not first.get("keyed"):
-        # no conversation to read, and no mark that its keys landed: the composer says
-        if in_composer(current, session, first["line"]):
+    if not first.get("keyed"):
+        held = composed(name, session)
+        if held == re.sub(r"\s+", "", first["line"]):
             locked(name, keyed)
-        else:
-            went_in = False
-    typed = went_in or type_it(pending=sent is not None)
-    if typed and sent and went_in is False:
-        # neither in its conversation nor, as the Enter found, in its composer: typed again
-        typed = type_it(pending=False)
+            first["keyed"] = True
+        elif held != "":
+            return False
+    typed = type_it(pending=bool(first.get("keyed")))
     if typed:
         locked(name, drop)
         log(f"{config.resolve_session(name)}: typed a message from {first['from']}")
