@@ -9,13 +9,13 @@ answers no question of theirs, and opens a turn the stop hook treats as a peer's
 tries once and returns; the tick types what still waits.
 """
 
-from contextlib import contextmanager
-import fcntl
 import json
+import os
 import sys
 import time
+import uuid
 
-from . import command_help, config, notify, orch, watch
+from . import command_help, config, host, notify, orch, watch
 
 # tmux refuses one command past 16 KiB, and the whole message goes in as one typed line.
 MAX_BYTES = 8000
@@ -24,16 +24,6 @@ MAX_BYTES = 8000
 def source(sender):
     """The typing receipt's source for a line one seat sent another."""
     return f"seat:{sender}"
-
-
-@contextmanager
-def held(name):
-    """That seat's waiting messages, for one reader or writer at a time: sender or tick."""
-    path = config.seat_file("tell", name)
-    config.ensure_dirs()
-    with path.with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        yield path
 
 
 def read(path):
@@ -45,7 +35,8 @@ def read(path):
     if not isinstance(data, list):
         return []
     return [message for message in data if isinstance(message, dict)
-            and isinstance(message.get("from"), str) and isinstance(message.get("line"), str)]
+            and isinstance(message.get("id"), str) and isinstance(message.get("from"), str)
+            and isinstance(message.get("line"), str)]
 
 
 def write(path, messages):
@@ -57,29 +48,85 @@ def write(path, messages):
     tmp.replace(path)
 
 
+def edit(name, change):
+    """Rewrite that seat's waiting messages with `change`, returning what it hands back.
+
+    Only while the seat's own lock is held -- the one a rename takes, so the file is the seat's
+    under the name it goes by now and no rename moves it meanwhile.  `change` edits the list in
+    place.
+    """
+    path = config.seat_file("tell", config.resolve_session(name))
+    messages = read(path)
+    answer = change(messages)
+    write(path, messages)
+    return answer
+
+
+def locked(name, change):
+    """`edit` under that seat's lock."""
+    with notify.session_lock(name) as current:
+        return edit(current, change)
+
+
+def me():
+    """This process, as a claim another can test for life after it is gone."""
+    return {"pid": os.getpid(), "identity": host.process_identity(os.getpid())}
+
+
+def claimed(claim):
+    """Is that claim another live process's: one typing the message now?"""
+    if not isinstance(claim, dict) or claim == me():
+        return False
+    if claim.get("identity"):
+        return host.process_identity(claim.get("pid")) == claim["identity"]
+    return host.alive(claim.get("pid"))
+
+
 def deliver_to(session, log, cfg=None):
     """Type the oldest message waiting for that seat; True when one went in.
 
-    The line is fixed when it is sent, so a retry presses Enter on the very text in the
-    composer: `typed` is the mark the receipt left there, the way a hand-back keeps its own.
+    The oldest is claimed first, under the seat's lock, so the sender and the tick never type
+    it both; a claim whose process has died is taken over.  The line was fixed when it was
+    sent, so a retry presses Enter on the very text in the composer: `typed` is the mark the
+    receipt left, written under the typing lock the receipt is told under, the seat's own.
     """
     name = session["name"]
-    with held(name) as path:
-        messages = read(path)
-        if not messages:
-            return False
-        first = messages[0]
 
-        def receipt(mark):
-            first["typed"] = mark
-            write(path, messages)
+    def take(messages):
+        if not messages or claimed(messages[0].get("claim")):
+            return None
+        messages[0]["claim"] = me()
+        return dict(messages[0])
 
-        if not watch.type_at_prompt(session, first["line"], log, cfg=cfg, typed=first.get("typed"),
-                                    receipt=receipt, source=source(first["from"])):
-            return False
-        write(path, messages[1:])
-    log(f"{name}: typed a message from {first['from']}")
-    return True
+    first = locked(name, take)
+    if first is None:
+        return False
+
+    def mark(field, value):
+        def change(messages):
+            for message in messages:
+                if message["id"] == first["id"]:
+                    if value is None:
+                        message.pop(field, None)
+                    else:
+                        message[field] = value
+        return change
+
+    def drop(messages):
+        messages[:] = [message for message in messages if message["id"] != first["id"]]
+
+    typed = False
+    try:
+        # the receipt is told under the seat's typing lock, which is this same lock
+        typed = watch.type_at_prompt(
+            session, first["line"], log, cfg=cfg, typed=first.get("typed"),
+            receipt=lambda receipt: edit(name, mark("typed", receipt)),
+            source=source(first["from"]))
+    finally:
+        locked(name, drop if typed else mark("claim", None))
+    if typed:
+        log(f"{config.resolve_session(name)}: typed a message from {first['from']}")
+    return typed
 
 
 def deliver(cfg, log):
@@ -123,15 +170,14 @@ def main(argv):
         print(f"ak tell: {size:,} bytes is more than one typed line holds ({MAX_BYTES:,}); "
               "write the rest to a file and tell its path", file=sys.stderr)
         return 1
-    message = {"from": sender, "at": now, "line": line}
-    with held(name) as path:
-        write(path, read(path) + [message])
-    session = orch.find(name)
+    message = {"id": uuid.uuid4().hex, "from": sender, "at": now, "line": line}
+    locked(name, lambda messages: messages.append(message))
+    session = orch.find(config.resolve_session(name))
     if session and not any(session.get(key) for key in orch.CLOSED):
         deliver_to(session, lambda _: None)
-    with held(name) as path:
-        waiting = any(entry.get("at") == now and entry.get("from") == sender
-                      for entry in read(path))
+    waiting = locked(name, lambda messages: any(entry["id"] == message["id"]
+                                                for entry in messages))
+    name = config.resolve_session(name)
     if not waiting:
         print(f"{name}: told")
     elif watch.owner_question(notify.last(name)):

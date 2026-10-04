@@ -5,19 +5,22 @@ Offline: a temporary HOME, a fake tmux and pane; no real seat, transcript or sta
 
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
+import fcntl
 import io
 import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, notify, orch, tell, watch
+from agentkit import config, harness, host, notify, orch, tell, watch
 from agentkit.harness import claude
 
 SENDER, SEAT = "fix-api", "acme-docs"
@@ -143,6 +146,42 @@ class Tell(unittest.TestCase):
         self.assertEqual(self.typed, [self.header() + "Parser merged."])
         self.tell(SEAT, "Docs too.")      # the old name still reaches it
         self.assertEqual(self.typed[-1], self.header() + "Docs too.")
+
+    def test_a_message_sent_while_its_receiver_is_renamed_reaches_it(self):
+        """A rename holds the seat's lock while a delivery holds its queue; the sender waits."""
+        self.free = False
+        queue = config.seat_file("tell", SEAT).with_suffix(".lock")
+        sent = []
+        with notify.session_lock(SEAT), queue.open("a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            sender = threading.Thread(target=lambda: sent.append(self.tell(SEAT, "Parser merged.")))
+            sender.start()
+            sender.join(0.5)
+            config.rename_session(SEAT, "acme-pages")
+            self.seat = {"name": "acme-pages", "created": 10, "legacy": False}
+        sender.join(10)
+        self.assertEqual(sent[0][0], 0, sent)
+        self.free = True
+        tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.typed, [self.header() + "Parser merged."])
+        self.assertEqual(self.waiting("acme-pages"), [])
+        self.assertFalse(config.seat_file("tell", SEAT).exists())
+
+    def test_a_message_another_live_sender_is_typing_is_left_to_it_and_a_dead_ones_taken_over(self):
+        self.free = False
+        self.tell(SEAT, "Parser merged.")
+        other = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(other.kill)
+        claim = {"pid": other.pid, "identity": host.process_identity(other.pid)}
+        tell.locked(SEAT, lambda messages: messages[0].update(claim=claim))
+        self.free = True
+        tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.typed, [])
+        other.kill()
+        other.wait()
+        tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.typed, [self.header() + "Parser merged."])
+        self.assertEqual(self.waiting(), [])
 
     def test_what_cannot_be_told_is_refused_in_one_line(self):
         watch.seat_write("acme-closed", stopped_at=1)
