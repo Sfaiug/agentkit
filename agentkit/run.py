@@ -5401,7 +5401,7 @@ def release_line(run_dir, log):
 
 
 def rejoin_line(lp, upstream, reason, *, back=False):
-    """A changed target keeps the place; repaired work queues behind the other members."""
+    """A changed target keeps its place; repaired work rejoins at its priority group's back."""
     wait = lp.state["waiting_on"]
     lp.state.update(state="waiting", error=reason, merge_failed=False, merge_note=reason,
                     waiting_on={"line": turn_path(lp, upstream).name,
@@ -7435,7 +7435,10 @@ def slot_lock():
 
 
 def slot_order(state):
-    return (not state.get("first"),
+    # A green member only needs delivery before the target moves.
+    wait = state.get("waiting_on") or {}
+    return (not (state.get("first") or "land" in wait or "fix" in wait),
+            "land" not in wait,
             state.get("queued_at") or state.get("started_at") or 0,
             state.get("run_id") or "")
 
@@ -7561,7 +7564,7 @@ def slot_line(running, ahead, limit, first=False):
 
 def slot_note(state):
     return state.get("slot_wait_reason") or slot_line(
-        *slot_counts(state), config.max_runs(), state.get("first"))
+        *slot_counts(state), config.max_runs(), not slot_order(state)[0])
 
 
 def _slice_cpu_reason(readings):
@@ -7612,7 +7615,7 @@ def claim_slot(state, limit, readings=None):
                      **run_record.process_owner())
         state.pop("resume_from", None)
         return True
-    is_first = bool(state.get("first"))
+    is_first = not slot_order(state)[0]
     if ahead or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
         state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
@@ -8813,7 +8816,8 @@ def parked_line(state, run_id=None, now=None):
         for directory in run_record.run_dirs():
             member = run_record.read_state(directory) or {}
             if (landing_line(member) == line
-                    and (member["waiting_on"]["joined"], directory.name) < (joined, name)):
+                    and (not member.get("first"), member["waiting_on"]["joined"], directory.name)
+                    < (not state.get("first"), joined, name)):
                 place += 1
         suffix = ("th" if 10 <= place % 100 <= 20 else
                   {1: "st", 2: "nd", 3: "rd"}.get(place % 10, "th"))
