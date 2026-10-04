@@ -588,9 +588,7 @@ def _rule(entry, path):
     return {"id": str(entry.get("id") or entry["state"]), "state": entry["state"],
             "lines": max(1, int(entry.get("lines", 8))), "all": marks("all"),
             "any": marks("any"), "none": marks("none"),
-            "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer")),
-            "above": _pattern(entry.get("above_composer"), path),
-            "ends_turn": bool(entry.get("ends_turn"))}
+            "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer"))}
 
 
 def screen(harness):
@@ -606,6 +604,7 @@ def screen(harness):
              "footer": _pattern(f"(?:{footer})$" if footer else None, path, re.I),
              "ruled": bool(block.get("ruled")),
              "draft": _pattern(block.get("draft"), path, re.M),
+             "turn_ended": _pattern(block.get("turn_ended"), path),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
     return built
@@ -1423,25 +1422,29 @@ def screen_state(harness, tail):
                               index for index in marked
                               if index + 1 == len(region) or not chrome["ruled"]]
             at = next(iter(marked), None)
+            end = None if at is None else at + 1
+            if at is None and rule["chrome"] and chrome["ruled"]:
+                # A wrap or a newline spreads a draft over rows under its prompt row: the box
+                # `ruled_composer` finds over the whole tail, its own rules above and below and
+                # the footer at the bottom, as `composer_draft` reads it for the typing.
+                box, end = ruled_composer(chrome, lines)
+                if (box is not None and box >= 1 and re.match(RULE, lines[box - 1])
+                        and chrome_line(chrome, lines[box - 1])
+                        and chrome_line(chrome, lines[-1])):
+                    region, raws, at = lines, raw_lines, box
             if at is None:
                 continue
             if rule["id"] == "prompt.draft":
-                draft = _draft_text(raws[at], region[at], chrome["composer"])
+                draft = " ".join(part for part in [
+                    _draft_text(raws[at], region[at], chrome["composer"]),
+                    *(row for raw, row in zip(raws[at + 1:end], region[at + 1:end])
+                      if not has_dim(raw))] if part)
                 if draft:
                     return rule["state"], rule["id"], draft[:160]
             elif _suggestion_line(raws[at], region[at]):
                 return rule["state"], rule["id"], region[at][:160]
             continue
         region = lines[-rule["lines"]:]
-        if rule["above"]:
-            # the line right above the composer's box, over its top rule, bare or with the
-            # seat's name in it: what the harness last said, nothing older
-            at = ruled_composer(chrome, region)[0]
-            if (at is not None and at >= 2 and re.match(RULE, region[at - 1])
-                    and chrome_line(chrome, region[at - 1])
-                    and rule["above"].search(region[at - 2])):
-                return rule["state"], rule["id"], region[at - 2][:160]
-            continue
         low = "\n".join(region).lower()
         if ((rule["all"] and not all(mark in low for mark in rule["all"]))
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
@@ -1454,6 +1457,23 @@ def screen_state(harness, tail):
                          if any(mark in line.lower() for mark in marks)), lines[-1])
         return rule["state"], rule["id"], evidence[:160]
     return None, "", ""
+
+
+def turn_ended(harness, tail):
+    """The line right above the composer's box saying its turn ended with no Stop, else "".
+
+    Over the box's top rule, bare or with the seat's name in it: what the harness said last,
+    nothing older, whatever the composer holds -- `[screen] turn_ended` in its manifest.
+    """
+    chrome = screen(harness)
+    if not chrome["turn_ended"]:
+        return ""
+    rows = _screen_rows(harness, tail)[1]
+    at = ruled_composer(chrome, rows)[0]
+    if (at is not None and at >= 2 and re.match(RULE, rows[at - 1])
+            and chrome_line(chrome, rows[at - 1]) and chrome["turn_ended"].search(rows[at - 2])):
+        return rows[at - 2][:160]
+    return ""
 
 
 def classify(harness, tail, fact, opened_at, previous, now):
@@ -1477,10 +1497,10 @@ def classify(harness, tail, fact, opened_at, previous, now):
     seen, rule, line = screen_state(harness, tail)
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
-    if hooked == "working" and any(entry["id"] == rule and entry["ends_turn"]
-                                   for entry in screen(harness)["rules"]):
+    ended = turn_ended(harness, tail) if hooked == "working" else ""
+    if ended:
         # the turn ended with no Stop -- an interrupt -- and the screen positively says so
-        hooked, spoken = "at_prompt", line
+        hooked, spoken = "at_prompt", ended
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
     elif seen:

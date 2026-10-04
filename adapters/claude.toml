@@ -94,6 +94,11 @@ footer = [
 # its composer always has its own rule under it: a prompt-marked line right on the footer is a
 # user's status line, never the composer, even with no composer drawn, as under a picker
 ruled = true
+# A turn the owner interrupted (Esc) ends with no Stop and, in 2.1.289, no idle_prompt either:
+# the composer's box is drawn right under Claude's notice of it, which the next prompt's own
+# echo pushes away.  That line, right above the box, ends the turn its UserPromptSubmit began,
+# whatever the composer holds.
+turn_ended = '^⎿\s+Interrupted · What should Claude do instead\?$'
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.
@@ -134,16 +139,6 @@ state = "draft"
 lines = 8
 at_composer = true
 none = ["esc to interrupt"]
-
-# A turn the owner interrupted (Esc) ends with no Stop and, in 2.1.289, no idle_prompt either:
-# the composer's box is drawn right under Claude's notice of it, which the next prompt's own
-# echo pushes away.  That one line ends the turn its UserPromptSubmit began.
-[[rule]]
-id = "prompt.interrupted"
-state = "at_prompt"
-lines = 8
-above_composer = '^⎿\s+Interrupted · What should Claude do instead\?$'
-ends_turn = true
 
 [[rule]]
 id = "prompt.suggestion"

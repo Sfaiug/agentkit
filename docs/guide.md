@@ -321,7 +321,7 @@ harness runs as besides its `[update] version` program, such as Muse's `muse-bin
 The manifest is everything else, as data: `[check]` (contract model and effort), `[update]` (version, upgrade, revert, latest commands), `[usage]` flags,
 `[conversation]` (what a seat owns), `[hooks] installed`, `[stop] enforce`, `[authority]` and `[[hooks.event]]` (which
 of hooks and screen decides each live fact), `[screen]` and `[[rule]]` (the composer and dialog patterns read off the
-bottom of the pane; `above_composer` matches the line right above the composer's box, and `ends_turn` lets that rule end a turn its hooks never reported ending, such as an interrupt), `[stall]` (its own words for a spent quota, a refusal, an outage and a harness that never ran, beside the ones no harness owns), `[resume]`, `[quota]`, `[auth]`
+bottom of the pane; `[screen] turn_ended` matches the line right above the composer's box that ends a turn its hooks never reported ending, such as an interrupt, whatever the composer holds; a ruled composer's draft is every row from its prompt row to its own rule), `[stall]` (its own words for a spent quota, a refusal, an outage and a harness that never ran, beside the ones no harness owns), `[resume]`, `[quota]`, `[auth]`
 (title, remedy, signatures), `[compact]` (the keys, the signal, where context is read, the idle minutes, the stash key), `[effort]` (its vocabulary),
 `[catalog]` (models, efforts) and `[worker_token]` where it mints one. Then add `[providers.<name>]`.
 `$AGENTKIT_ADAPTER_DIR` points at another adapter directory, which is how the offline suites run the loop with no model

@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, watch
+from agentkit import config, orch, watch
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -22,6 +22,7 @@ FIX = REPO / "tests/fixtures"
 INTERRUPTED = (FIX / "claude-interrupted-pane.txt").read_text(encoding="utf-8")
 NEXT_TURN = (FIX / "claude-after-interrupt-next-turn-pane.txt").read_text(encoding="utf-8")
 RUNNING = (FIX / "claude-working-after-question-pane.txt").read_text(encoding="utf-8")
+MULTILINE = (FIX / "claude-multiline-draft-pane.txt").read_text(encoding="utf-8")
 
 
 class InterruptedTurn(Sandbox):
@@ -63,6 +64,30 @@ class InterruptedTurn(Sandbox):
         self.assertRegex(rows[top], "^─+$")
         rows[top] = "─" * 140 + f" {SEAT} ─"
         self.assertEqual(self.looked("\n".join(rows) + "\n", fact), ("needs you", True))
+
+    def test_a_draft_typed_after_an_interrupt_is_the_owners_and_closed_to_typing(self):
+        """One row or several, wrapped or after a newline: unsent, never typed into."""
+        fact = self.prompt("Run the acme tests.")
+        for draft in ("Fix the login redirect", "Fix the login\n  redirect",
+                      "\n  Fix the login redirect"):
+            with self.subTest(draft=draft):
+                pane = INTERRUPTED.replace("❯\u00a0\n", "❯\u00a0" + draft + "\n")
+                self.assertEqual(self.looked(pane, fact), ("needs you", False))
+                keys = []
+                with patch.object(watch, "pane_text", return_value=pane), \
+                        patch.object(orch, "tmux_out",
+                                     side_effect=lambda *a, **_kw: keys.append(a) or (0, "")):
+                    self.assertFalse(watch.type_at_prompt(
+                        {"name": SEAT}, "The acme tests passed.", lambda _: None, cfg=self.cfg))
+                self.assertEqual(keys, [])
+
+    def test_a_draft_over_several_rows_is_unsent_after_a_finished_turn_too(self):
+        """A real 2.1.289 composer holding two rows of the owner's text, after a Stop."""
+        self.prompt("Run the acme tests.")
+        fact = {"event": "Stop", "kind": "", "at": NOW - 60}
+        self.assertEqual(watch.screen_state("claude", watch.pane_tail(MULTILINE))[:2],
+                         ("draft", "prompt.draft"))
+        self.assertEqual(self.looked(MULTILINE, fact), ("needs you", False))
 
     def test_the_next_prompt_after_an_interrupt_is_a_turn_running(self):
         """Its echo pushes the notice away from the composer: that turn is not the one that ended."""
