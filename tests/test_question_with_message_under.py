@@ -4,6 +4,7 @@ Replay panes with invented names, fake runs and a temporary HOME; no real seats 
 """
 
 import unittest
+from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
 from agentkit import watch
@@ -15,6 +16,7 @@ QUESTION = (FIX / "claude-question-with-message-pane.txt").read_text(encoding="u
 DIALOG, MESSAGE = QUESTION.rstrip().rsplit("\n", 1)
 PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8")
 DRAFT = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8")
+PREVIEW = (FIX / "claude-question-preview-pane.txt").read_text(encoding="utf-8")
 
 
 class QuestionWithMessageUnder(Sandbox):
@@ -58,6 +60,26 @@ class QuestionWithMessageUnder(Sandbox):
                         live = self.classify(pane + queued, fact)
                         self.assertEqual(live["state"], "asking")
                         self.assertEqual(live["authority"], "screen")
+
+    def test_question_with_previews_is_asking_whatever_its_hooks_last_said(self):
+        """Claude 2.1.289 adds `n to add notes` to a question whose options have previews.
+
+        Nothing types into it, however the hooks last read: an Enter there picks an answer.
+        """
+        for fact in ({}, {"event": "Notification", "kind": "permission_prompt", "at": NOW - 60},
+                     {"event": "Notification", "kind": "idle_prompt", "at": NOW - 5},
+                     {"event": "Stop", "kind": "", "at": NOW - 5}):
+            with self.subTest(fact=fact.get("kind", fact.get("event", "none"))):
+                live = self.classify(PREVIEW, fact)
+                self.assertEqual(live["state"], "asking")
+                with patch.object(watch, "pane_text", return_value=PREVIEW), \
+                        patch.object(watch, "live_state", return_value=live):
+                    self.assertFalse(watch.at_prompt({"name": SEAT}, cfg=self.cfg))
+                found = watch.session_state(
+                    SEAT, NOW, session={"name": SEAT, "attached": False}, cfg=self.cfg,
+                    records=[], live=live, harness="claude", auth_out={}, gh_out={},
+                    token_out={}, previous={})
+                self.assertEqual(found["word"], "needs you")
 
     def test_message_under_empty_composer_is_not_a_draft(self):
         self.assertEqual(self.classify(PROMPT + MESSAGE)["state"], "at_prompt")
