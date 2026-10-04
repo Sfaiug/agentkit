@@ -12092,7 +12092,7 @@ def main(argv):
         if selection and selection.get("workers") == []:
             raise config.Error(f"{selection['name']} has no executor: build it in the session, "
                                "or add an executor on its models screen.")
-        if not selection and not cfg["defaults"]["workers"]:
+        if not selection and (cfg.get("defaults") or {}).get("workers") == []:
             raise config.Error("defaults have no executor: start a session with an executor.")
     config.ensure_dirs()
     if not opts["--review-pr"] and len(positional) == 1 and parallel is not None:
