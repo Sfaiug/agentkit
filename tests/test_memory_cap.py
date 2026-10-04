@@ -10,6 +10,7 @@ name this test minted.
 """
 
 from contextlib import ExitStack, redirect_stdout
+import errno
 import io
 import os
 import shlex
@@ -35,23 +36,23 @@ from agentkit import record
 ALLOCATOR = r"""
 import sys, time
 from pathlib import Path
-needle, seat, status_path = sys.argv[1], sys.argv[2], Path(sys.argv[3])
+needle, seat = sys.argv[1:]
 lines = Path("/proc/self/cgroup").read_text().splitlines()
 cg = next(line.split("::", 1)[1] for line in lines if line.startswith("0::"))
 if needle not in cg or seat in cg:
-    status_path.write_text("refused " + cg + "\n")
+    print("refused", cg, flush=True)
     raise SystemExit(3)
 root = Path("/sys/fs/cgroup") / cg.lstrip("/")
 text = (root / "memory.max").read_text().strip()
 swap = (root / "memory.swap.max").read_text().strip()
 if text == "max" or swap == "max":
-    status_path.write_text(f"refused {text} {swap}\n")
+    print("refused", text, swap, flush=True)
     raise SystemExit(3)
 limit, swap_limit = int(text), int(swap)
 if limit > 64 * 1024 * 1024 or swap_limit > 64 * 1024 * 1024:
-    status_path.write_text(f"refused {text} {swap}\n")
+    print("refused", text, swap, flush=True)
     raise SystemExit(3)
-status_path.write_text("armed " + cg + "\n")
+print("armed", cg, flush=True)
 # RAM and swap are capped separately, so the process can sit on both before
 # the kernel kills it.  Hold past the sum and do not exit: a process that
 # returns the moment it crosses the line can win the race against the killer.
@@ -68,7 +69,7 @@ while used < target and time.monotonic() < deadline:
     used += block
 while time.monotonic() < deadline:
     time.sleep(0.05)
-status_path.write_text(f"survived {text} {swap} {used}\n")
+print("survived", text, swap, used, flush=True)
 raise SystemExit(0)
 """
 
@@ -396,6 +397,62 @@ class MemoryCap(unittest.TestCase):
         self.assertEqual(home.parent, self.root)
         self.assertTrue(str(home).startswith(str(self.root)))
 
+    def test_allocator_report_survives_unreadable_capped_pages(self):
+        token = f"agentkit-test-cap{os.getpid() % 100000}0000"
+        seat_cg = f"/{token}.slice/{token}-seats.slice/{token}-seat.scope"
+        bomb_cg = f"/{token}.slice/{token}-runs.slice/{token}-bomb.scope"
+        cgroups = Path("/sys/fs/cgroup")
+        readings = {
+            Path("/proc/self/cgroup"): f"0::{bomb_cg}\n",
+            cgroups / bomb_cg.lstrip("/") / "memory.max": str(32 * 1024 * 1024),
+            cgroups / bomb_cg.lstrip("/") / "memory.swap.max": str(32 * 1024 * 1024),
+            (cgroups / seat_cg.lstrip("/")).parent / "memory.current": "4096\n",
+            (cgroups / seat_cg.lstrip("/")).parent / "memory.pressure": "some avg10=0.00\n",
+        }
+        real_read = Path.read_text
+
+        def read(path, *args, **kwargs):
+            # A report page charged to the exhausted cgroup can fail even when
+            # its reader is outside the cap.  No real cgroup is read here.
+            if path == self.root / "bomb-status":
+                raise OSError(errno.ENOMEM, "Cannot allocate memory")
+            return readings[path] if path in readings else real_read(path, *args, **kwargs)
+
+        def allocate(_size):
+            raise MemoryError
+
+        def command(argv, **_kw):
+            if argv[0] != "systemd-run":
+                self.assertEqual(argv[:2], ["systemctl", "--user"])
+                return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+            script = argv.index("-c")
+            output = io.StringIO()
+            with patch.object(sys, "argv", ["allocator", *argv[script + 2:]]), \
+                    redirect_stdout(output), self.assertRaises(MemoryError):
+                exec(argv[script + 1], {"bytearray": allocate})
+            return subprocess.CompletedProcess(argv, -9, stdout=output.getvalue(), stderr="")
+
+        def show(unit):
+            if unit == f"{token}-seat.scope":
+                return {"ActiveState": "active", "ControlGroup": seat_cg}
+            self.assertEqual(unit, f"{token}-bomb.scope")
+            return {"ActiveState": "failed", "Result": "oom-kill", "ControlGroup": bomb_cg}
+
+        # Keep the fakes through the integration test's registered cleanups too.
+        for mocked in (
+                patch.object(Path, "read_text", read),
+                patch.object(shutil, "which", return_value="systemd-run"),
+                patch.object(uuid, "uuid4", return_value=uuid.UUID(int=0)),
+                patch.object(orch, "user_manager", return_value=True),
+                patch.object(subprocess, "Popen"),
+                patch.object(subprocess, "run", side_effect=command),
+                patch(f"{__name__}._show", side_effect=show),
+                patch.object(record, "process_active", return_value=False),
+                patch.object(run, "_scope_oom_probe", return_value=("oom-kill", 1)),
+                patch.object(orch, "stop_scope", return_value=True)):
+            self.stack.enter_context(mocked)
+        self.test_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure()
+
     def test_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure(self):
         if not shutil.which("systemd-run") or not orch.user_manager():
             self.skipTest("no user systemd manager")
@@ -413,7 +470,6 @@ class MemoryCap(unittest.TestCase):
         cap, props = run.run_scope_limits()
         self.assertEqual((cap, "MemoryMax=32M", "MemorySwapMax=32M"),
                          (32, ) + tuple(item for item in props if item.startswith("Memory")))
-        status = self.root / "bomb-status"
         sleeper = subprocess.Popen(
             ["systemd-run", "--user", f"--slice={seat_slice}", "--scope", "--quiet",
              "--collect", f"--unit={seat_unit}", "--", "sleep", "8"],
@@ -454,22 +510,21 @@ class MemoryCap(unittest.TestCase):
         before_pressure = _pressure_avg10((slice_dir / "memory.pressure").read_text())
         self.assertIsNotNone(before_pressure)
         try:
-            subprocess.run(
+            proc = subprocess.run(
                 ["systemd-run", "--user", f"--slice={run_slice}", "--scope", "--quiet",
                  f"--unit={bomb_unit}", *props, "--",
-                 sys.executable, "-c", ALLOCATOR, run_slice, seat_slice, str(status)],
+                 sys.executable, "-c", ALLOCATOR, run_slice, seat_slice],
                 stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
         except subprocess.TimeoutExpired:
             self.fail("systemd-run did not return; the scope was not started")
-        # systemd-run --scope may return once the scope exists, before the
-        # kernel has killed it.  The status file is the child's own word that
-        # it armed inside the cap; the unit Result is the kernel's.
-        report = ""
+        # The flushed pipe confirms the child armed inside the cap; the unit
+        # Result is the kernel's.  A swapped report file can stay charged to
+        # the exhausted cgroup and fail on read with ENOMEM.
+        reports = proc.stdout.strip().splitlines()
+        report = reports[-1] if reports else ""
         shown = {}
         deadline = time.monotonic() + 25
         while time.monotonic() < deadline:
-            if status.exists():
-                report = status.read_text().strip()
             shown = _show(f"{bomb_unit}.scope")
             if report.startswith("armed") and shown.get("Result") == "oom-kill":
                 break
