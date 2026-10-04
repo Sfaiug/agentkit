@@ -320,7 +320,7 @@ def job_verdict_line(task, run_state=None):
     if task["state"] == "stopped":
         return f"{name}: stopped"
     if task["state"] == "blocked":
-        why = " ".join(((run_state or {}).get("error") or "").split())
+        why = " ".join(((run_state or {}).get("error") or task.get("findings") or "").split())
         return f"{name}: BLOCKED: {why or 'the task cannot be completed as written'}"
     if task["state"] in ("merged", "passed"):
         rounds = len((run_state or {}).get("round_summaries") or [])
@@ -1123,10 +1123,13 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
 
     for task in job["tasks"]:
         if task["state"] == "waiting" or (task["state"] == "queued" and task.get("from_pass")):
-            # a receipt from before `after:` went: its order is the seat's to keep now
-            task.update(state="skipped", finished_at=time.time(),
-                        verdict_line=f"{task['name']}: skipped: `after:` is gone; launch it "
-                                     "on its own once what it waited for has merged")
+            # a receipt from before `after:` went: never built, so it goes back to the seat,
+            # whose order to keep it is now
+            deps = task.get("after") or [(task.get("from_pass") or {}).get("task") or "?"]
+            why = (f"`after:` is gone; launch {task['name']} on its own once "
+                   f"{', '.join(deps)} merged")
+            task.update(state="blocked", finished_at=time.time(), findings=why,
+                        verdict_line=f"{task['name']}: BLOCKED: {why}")
             save()
             log(task["verdict_line"])
     while True:

@@ -215,7 +215,7 @@ class RunStop(Sandbox):
         self.assertIn("kept", line)
         self.assertIn(f"from: {branch2}", line)
 
-    def test_a_stopped_task_fails_the_job_and_an_old_waiting_task_is_skipped(self):
+    def test_a_stopped_task_fails_the_job_and_an_old_waiting_task_is_blocked(self):
         self.assertIn("stopped", jobs.JOB_TERMINAL)
         self.assertIn("stopped", jobs.JOB_UNDELIVERED)
         cfg = self.cfg
@@ -243,8 +243,30 @@ class RunStop(Sandbox):
         waiting = next(task for task in kept["tasks"] if task["name"] == "b.md")
         cut = next(task for task in kept["tasks"] if task["name"] == "c.md")
         for task in (waiting, cut):
-            self.assertEqual(task["state"], "skipped")
+            # never built: undelivered, so the job ends needing its seat, never as done
+            self.assertEqual(task["state"], "blocked")
             self.assertIn("`after:` is gone", task["verdict_line"])
+            self.assertIn(f"launch {task['name']} on its own once a.md merged", task["findings"])
+
+    def test_an_old_task_behind_a_merged_one_goes_back_to_its_seat(self):
+        job_dir = config.JOBS / "20260101-090000-old-after"
+        job_dir.mkdir(parents=True)
+        (job_dir / "log.txt").touch()
+        job = {"job_id": job_dir.name, "seat": "atoll-fix", "started_at": time.time(),
+               "finished_at": None, "parallel": None, **record.process_owner(),
+               "opts": {}, "tasks": [
+                   {"name": "a.md", "title": "A", "state": "merged", "run_id": "gone",
+                    "verdict_line": "a.md: PASS, merged"},
+                   {"name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
+                    "run_id": None}]}
+        jobs.save_job(job_dir, job)
+        with patch.object(jobs, "job_hand_back", return_value="sent") as handed, \
+                redirect_stdout(io.StringIO()):
+            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+        self.assertEqual(rc, 1)
+        line = handed.call_args.args[1]
+        self.assertIn("1 task(s) need you", line)
+        self.assertIn("launch b.md on its own once a.md merged", line)
 
     def test_x_stops_the_sessions_runs_first(self):
         seat = "atoll-fix"
