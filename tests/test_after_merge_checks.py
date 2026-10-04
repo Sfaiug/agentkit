@@ -7,6 +7,7 @@ from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -135,6 +136,30 @@ class AfterMerge(unittest.TestCase):
         self.follow()
         self.assertEqual(self.typed, [(SEAT, (
             f"{CHECK} failed on main after this merge: {URL}. Fix the target."))])
+
+    def test_no_health_with_unreachable_checkout_preserves_green_and_later_break(self):
+        checkout = self.root / "widget"
+        subprocess.run(["git", "init", "-q", str(checkout)], check=True, timeout=10)
+        subprocess.run(["git", "-C", str(checkout), "remote", "add", "origin",
+                        str(self.root / "unreachable.git")], check=True, timeout=10)
+        told, green, broken = "a" * 40, "b" * 40, "c" * 40
+        key = watch.after_merge_repo(PR)[3]
+        state = {"after_merge": {key: {"notified": told, "at": NOW - 1200,
+                                       "run": "run-told", "check": "gate-told",
+                                       "finished": NOW - 1200}}}
+        for name, sha, age in (("run-green", green, 900), ("run-broken", broken, 600)):
+            directory = self.merged(name, sha, age=age)
+            with record.record(directory) as current:
+                current["repo"] = str(checkout)
+        self.set_checks({green: [completed(CHECK, "success")],
+                         broken: [completed("gate-new", "failure", URL + "/new")]})
+        self.rows = [self.live(SEAT)]
+        with patch.object(run, "fetch", wraps=run.fetch) as fetch:
+            self.follow(state)
+        self.assertEqual(len(self.typed), 1, self.logs)
+        self.assertIn("gate-new", self.typed[0][1])
+        self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
+        fetch.assert_not_called()
 
     def test_two_failing_commits_hand_back_only_the_newer_once(self):
         old, new = "a" * 40, "b" * 40
