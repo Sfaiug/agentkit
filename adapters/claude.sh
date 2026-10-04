@@ -206,6 +206,20 @@ usage)
       esac ;;
     *) retry=$((10#$raw)) ;;
   esac
+  # Extra usage answers turns once the windows are spent, out of the prepaid balance, so
+  # that balance is asked for -- only while extra usage is on, by the organization this login
+  # belongs to.  No balance read, none is counted.
+  prepaid=null
+  org=$(jq -r '.oauthAccount.organizationUuid // empty' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" \
+        2>/dev/null) || org=
+  case "$org" in *[!0-9a-f-]*) org= ;; esac
+  if [ "$code" = 200 ] && [ -n "$org" ] \
+     && jq -e '.extra_usage.is_enabled == true' >/dev/null 2>&1 <<<"$body"; then
+    prepaid=$(curl -sf -m 5 "https://api.anthropic.com/api/oauth/organizations/$org/prepaid/credits" \
+        -H @"$hf" -H "x-organization-uuid: $org" -H 'anthropic-beta: oauth-2025-04-20' \
+        -H 'anthropic-version: 2023-06-01' 2>/dev/null) || prepaid=null
+    jq -e 'type == "object"' >/dev/null 2>&1 <<<"$prepaid" || prepaid=null
+  fi
   rm -f -- "$hf" "$df"
   if [ "$code" != 200 ]; then
     msg="HTTP ${code:-000} from api.anthropic.com/api/oauth/usage"
@@ -216,20 +230,27 @@ usage)
     printf '{"provider":"anthropic","meters":[],"error":"unknown: %s","retry_after":%d}\n' "$m" "$retry"
     exit 0
   fi
-  # Extra usage answers turns once the windows are spent, so what its monthly limit has left
-  # is credits; off or uncapped, there is no balance to count.  Its amounts are minor units of
-  # its `currency`, USD where it names none, as Claude Code reads them: cents, or whole yen,
-  # won and dong.  The one-time credit (`cinder_cove`) adds nothing: the reply says only what
-  # share of it is used, never what it is worth.
-  jq -c '{provider:"anthropic", error:null, meters:[ .limits[]
+  # What extra usage has left is credits, counted as Claude Code counts it: the smaller of
+  # what its monthly limit has left and the prepaid balance, the limit unbounded when none is
+  # set and the balance while auto-reload tops it up -- both unbounded is `unlimited`.  The
+  # amounts are minor units of its `currency`, `decimal_places` of them to the unit.  The
+  # one-time credit (`cinder_cove`) adds nothing, as it adds nothing there.
+  jq -c --argjson prepaid "$prepaid" '{provider:"anthropic", error:null, meters:[ .limits[]
       | select(.resets_at != null and .percent != null)
       | {name:.kind, used:.percent,
          resets_at:(.resets_at|sub("\\.[0-9]+";"")|sub("\\+00:00$";"Z")|fromdateiso8601),
          window_secs:(if .group=="session" then 18000 else 604800 end)} ]}
-    + ([.extra_usage | objects | select(.is_enabled == true)
-        | (.currency // "USD" | ascii_upcase) as $c
-        | {credits:((.monthly_limit - .used_credits)?
-                    / (if $c | IN("JPY", "KRW", "VND") then 1 else 100 end)), currency:$c}]
+    + ([.extra_usage | objects | select(.is_enabled == true) | . as $x
+        | $prepaid | objects | . as $p
+        | ($x.decimal_places // $p.balance.money.exponent) as $e
+        | (if $x.monthly_limit == null then infinite else ($x.monthly_limit - $x.used_credits)? end)
+          as $cap
+        | (if $p.auto_reload_settings.enabled == true then infinite else $p.amount end) as $bal
+        | select([$e, $cap, $bal] | all(type == "number"))
+        | ([$cap, $bal] | min) as $left
+        | {credits:(if $left | isinfinite then "unlimited"
+                    else ([$left, 0] | max) / pow(10; $e) end),
+           currency:($x.currency // $p.currency // "USD" | ascii_upcase)}]
        | first // {})' <<<"$body" \
     2>/dev/null || err "unparsable response from api.anthropic.com" ;;
 install)

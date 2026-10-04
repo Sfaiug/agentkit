@@ -21,7 +21,13 @@
    "used_credits": 3760.0,
    "utilization": 75.2,
    "currency": "USD",
-   "disabled_reason": null
+   "decimal_places": 2,
+   "disabled_reason": null,
+   "user_disabled": false,
+   "spend_limit_reached": false,
+   "credits_ever_enabled": true,
+   "daily": null,
+   "weekly": null
   },
   "limits": [
    {
@@ -66,7 +72,13 @@
    "used_credits": 5000.0,
    "utilization": 100.0,
    "currency": "USD",
-   "disabled_reason": "out_of_credits"
+   "decimal_places": 2,
+   "disabled_reason": "out_of_credits",
+   "user_disabled": false,
+   "spend_limit_reached": true,
+   "credits_ever_enabled": true,
+   "daily": null,
+   "weekly": null
   },
   "limits": [
    {
@@ -111,7 +123,13 @@
    "used_credits": 1830.0,
    "utilization": null,
    "currency": "USD",
-   "disabled_reason": null
+   "decimal_places": 2,
+   "disabled_reason": null,
+   "user_disabled": false,
+   "spend_limit_reached": false,
+   "credits_ever_enabled": true,
+   "daily": null,
+   "weekly": null
   },
   "limits": [
    {
@@ -133,5 +151,28 @@
     "scope": null
    }
   ]
+ },
+ "prepaid": {
+  "amount": 9000,
+  "currency": "USD",
+  "balance": {
+   "money": {
+    "amount_minor": 9000,
+    "currency": "USD",
+    "exponent": 2
+   },
+   "credits": null
+  },
+  "balance_credits": null,
+  "amount_without_scoped_credits": null,
+  "auto_reload_settings": null,
+  "auto_reload_disabled_reason": null,
+  "auto_reload_stripe_error_code": null,
+  "pending_invoice_amount_cents": null,
+  "last_paid_purchase_cents": null,
+  "expiry_policy_months": null,
+  "tranches": [],
+  "promo_tranches": [],
+  "next_expires_at": null
  }
 }

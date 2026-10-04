@@ -20,7 +20,8 @@ ignores both numbers and takes the default orchestrator while it still has somet
 Credits an adapter reports (`"credits": <number left>`) are usage left past a spent window:
 such a provider is not spent, only ranked after every one with a window left (`on_credits`),
 because credits cost money and the subscription is already paid.  A `"currency"` beside them,
-an ISO code, says they are money in that currency.
+an ISO code, says they are money in that currency; `"unlimited"` in place of the number says
+nothing bounds them.
 """
 
 import fcntl
@@ -170,8 +171,9 @@ def _probe(cfg, provider, now, account=None):
     out = {"provider": provider, "harness": harness, "via": via, "meters": [],
            "error": data.get("error"), "pace": None, "resets": _resets(harness, account),
            "exhausted": False, "probed_at": now}
-    if _number(data.get("credits")) is not None:
-        out["credits"] = _number(data["credits"])
+    credits = "unlimited" if data.get("credits") == "unlimited" else _number(data.get("credits"))
+    if credits is not None:
+        out["credits"] = credits
         if isinstance(data.get("currency"), str) and data["currency"]:
             out["currency"] = data["currency"]
     retry = _number(data.get("retry_after"))
@@ -1207,7 +1209,10 @@ def _budget(prov, weekly, now=None):
 
 
 def credits_left(prov):
-    """The credits this provider -- or account -- still holds, 0.0 for none or none known."""
+    """The credits this provider -- or account -- still holds, inf for `unlimited`, 0.0 for none
+    or none known."""
+    if isinstance(prov, dict) and prov.get("credits") == "unlimited":
+        return math.inf
     value = _number(prov.get("credits")) if isinstance(prov, dict) else None
     return value if value is not None and value > 0 else 0.0
 
@@ -1217,9 +1222,12 @@ SIGNS = {"USD": "$", "EUR": "€", "GBP": "£"}
 
 
 def credits_note(prov):
-    """`62,469 credits left`, or `$12.40 credits left` in a `currency`, or "" for none."""
+    """`62,469 credits left`, or `$12.40 credits left` in a `currency`, `unlimited credits`, or
+    "" for none."""
     if not credits_left(prov):
         return ""
+    if credits_left(prov) == math.inf:
+        return "unlimited credits"
     unit = prov.get("currency")
     if unit:
         sign = SIGNS.get(unit, f"{unit} ")
