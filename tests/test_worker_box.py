@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -226,6 +227,32 @@ class WorkerBox(unittest.TestCase):
                 code, _, _, killed, left = self.turn()
                 self.assertEqual((code, killed, left), (status, False, False))
                 self.assertIsNone(run.killed_word(code))
+
+    def test_commands_that_cannot_start_keep_shell_exit_codes(self):
+        program = self.root / "unavailable"
+        for mode, expected in ((None, 127), (0o644, 126), (0o755, 126)):
+            with self.subTest(mode=mode):
+                if mode is not None:
+                    program.write_text("invalid executable\n")
+                    program.chmod(mode)
+                with patch.object(config, "adapter", return_value=program):
+                    code, _, _, killed, left = self.turn()
+                self.assertEqual((code, killed, left), (expected, False, False))
+                self.assertEqual(box.returncode(self.out, -1), expected)
+                diagnostic = (self.out / "stderr.log").read_text()
+                self.assertIn(str(program), diagnostic)
+                self.assertNotIn("Traceback", diagnostic)
+
+                activity = self.root / "check.log"
+                with activity.open("w+b") as output:
+                    code, _, killed = worker.boxed(
+                        [str(program)], 10, env=dict(os.environ), cwd=self.root,
+                        activity=activity, output=output, stderr=subprocess.STDOUT)
+                    output.seek(0)
+                    diagnostic = output.read().decode()
+                self.assertEqual((code, killed), (expected, False))
+                self.assertIn(str(program), diagnostic)
+                self.assertNotIn("Traceback", diagnostic)
 
     def test_silence_kills_unmarked_detached_children_too(self):
         with patch.dict(os.environ, {"BOX_HANG": "1", "BOX_TERM": "exit"}):
