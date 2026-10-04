@@ -50,6 +50,7 @@ class LandingSuiteOffline(unittest.TestCase):
         self.root = Path(tmp.name)
         (self.root / "tests").mkdir()
         (self.root / "tests/landing.py").write_text((REPO / "tests/landing.py").read_text())
+        (self.root / "tests/gate_contract.py").write_text("")
         self.log = self.root / "ran.log"
 
     def ran(self):
