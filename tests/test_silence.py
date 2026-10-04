@@ -20,6 +20,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import gate, host, config, run, watch, worker
 from agentkit import record
 from agentkit import task as taskfile
+from test_run_tree import wait_gone
 from test_v5j import E2E, SMOKE, lock_argv, lock_program
 
 
@@ -163,7 +164,8 @@ class Silence(unittest.TestCase):
         self.assertFalse(ok, text)
         self.assertIn("20 min of silence", logs[0])
         self.assertRegex(logs[0], r"; still running: sleep 600 \(\d+s\)$")
-        self.assertTrue(watch._gone(int(child.read_text())))
+        # Closing its output can precede the signalled child's exit: wait for that exit too.
+        self.assertTrue(wait_gone(int(child.read_text())))
 
     def test_chatty_command_past_silence_total_is_not_killed(self):
         # No newline: any output counts, and it reaches the gate log before exit.
