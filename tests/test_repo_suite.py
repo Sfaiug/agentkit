@@ -121,7 +121,7 @@ class RepoSuite(RepoSuiteFixture, unittest.TestCase):
 
     def test_rebased_landing_replaces_the_loaded_suite(self):
         task_once = "test -d ."
-        for mode in ("landing", "probe"):
+        for mode in ("landing", "probe", "unrebased"):
             with self.subTest(mode=mode):
                 old_suite = f"echo old suite {mode}"
                 self.gates.clear()
@@ -144,8 +144,11 @@ class RepoSuite(RepoSuiteFixture, unittest.TestCase):
                     self.commit(f"---\ntests: {suite}\n---\n# acme\n")
                     tip = self.git("rev-parse", "HEAD")
                     self.git("update-ref", "refs/remotes/origin/main", tip)
-                    run.git(lp.wt, "rebase", "origin/main")
-                    self.assertNotEqual(run.git(lp.wt, "rev-parse", "HEAD"), before)
+                    if mode != "unrebased":
+                        run.git(lp.wt, "rebase", "origin/main")
+                        self.assertNotEqual(run.git(lp.wt, "rev-parse", "HEAD"), before)
+                    else:
+                        self.assertEqual(run.git(lp.wt, "rev-parse", "HEAD"), before)
                     self.assertEqual(run.declared_suite(lp.wt, lp.target), suite)
                     self.assertEqual(run.final_check(lp, "origin/main"), mode != "probe")
                     self.assertEqual(lp.every, ["true"])
@@ -206,28 +209,38 @@ class RepoSuite(RepoSuiteFixture, unittest.TestCase):
                 self.assertNotIn("once.log", [name for name, _ in self.gates])
                 self.assertEqual(self.finals(), [["true"], [SUITE]], self.gates)
 
-    def test_checkout_tests_wins_over_origin_main(self):
+    def test_target_tests_win_over_checkout(self):
         origin_suite = "test -d ."
         self.add_origin()
         self.commit(f"---\ntests: {origin_suite}\n---\n# acme\n")
         self.git("push", "-q", "-u", "origin", "main")
-        # a run is cut from its base as origin has it, so the checkout's own line is its
-        # base branch's, and its target's is another
         self.git("checkout", "-q", "-b", "feature")
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
         self.git("push", "-q", "-u", "origin", "feature")
-        self.launch("own-wins", ["true"], front="base: feature\ntarget: main\n")
+        self.launch("target-wins", ["true"], front="base: feature\ntarget: main\n")
         self.assertTrue(self.rounds())
-        self.assertTrue(all(SUITE not in cmds for cmds in self.rounds()), self.gates)
+        self.assertTrue(all(origin_suite not in cmds for cmds in self.rounds()), self.gates)
         self.assertNotIn("once.log", [name for name, _ in self.gates])
-        self.assertEqual(self.finals(), [["true"], [SUITE]], self.gates)
+        self.assertEqual(self.finals(), [["true"], [origin_suite]], self.gates)
         ran = [cmd for _, cmds in self.gates for cmd in cmds]
-        self.assertNotIn(origin_suite, ran, self.gates)
+        self.assertNotIn(SUITE, ran, self.gates)
 
-    def test_review_pr_still_runs_declared_tests(self):
+    def test_checkout_tests_run_when_target_declares_none(self):
+        self.add_origin()
+        self.commit("# acme\n")
+        self.git("push", "-q", "-u", "origin", "main")
+        self.git("checkout", "-q", "-b", "feature")
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
+        self.git("push", "-q", "-u", "origin", "feature")
+        self.launch("checkout-suite", ["true"], front="base: feature\ntarget: main\n")
+        self.assertEqual(self.finals(), [["true"], [SUITE]], self.gates)
+
+    def test_review_pr_runs_target_tests_over_checkout(self):
+        self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
+        target = self.git("rev-parse", "HEAD")
+        self.git("update-ref", "refs/remotes/origin/main", target)
+        self.commit("---\ntests: true\n---\n# acme\n")
         head = self.git("rev-parse", "HEAD")
-        self.git("update-ref", "refs/remotes/origin/main", head)
         directory = config.RUNS / "pr-review"
         directory.mkdir()
         info = {"state": "OPEN", "headRefOid": head, "baseRefName": "main",

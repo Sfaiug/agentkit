@@ -474,15 +474,15 @@ def first_command(cmd):
 
 
 def declared_suite(wt, target=None):
-    """The `tests:` suite: the checkout's own declaration wins; a checkout branched before
-    the repository declared one, or one that edits it away, reads the target branch as
-    fetched instead (`origin/<target>`).
+    """The target's `tests:` suite as fetched (`origin/<target>`), else the checkout's.
+
+    A change cannot loosen its own landing checks; its line applies after it merges.
     """
-    suite = declared(wt, "tests")
-    if not suite and target:
+    suite = None
+    if target:
         ref = target if target.startswith("origin/") else f"origin/{target}"
         suite = declared_at(wt, ref, "tests")
-    return suite
+    return suite or declared(wt, "tests")
 
 
 def with_suite(cmds, wt, target=None, *, landing=True):
@@ -10610,7 +10610,7 @@ def preflight(run_dir, opts, log):
         else:
             method, action = ("none (review only)",
                               f"review {url} at {info['headRefOid']}; publish findings")
-        commands = "AGENTS.md tests: command from the PR checkout, if declared"
+        commands = "AGENTS.md tests: command from the target, else the PR checkout"
     else:
         meta, body, title = taskfile.parse_task(run_dir / "task.md")
         state = run_record.read_state(run_dir) or {}
