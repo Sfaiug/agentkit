@@ -2169,11 +2169,12 @@ class Loop:
         self.written = copy.deepcopy(self.state)
 
     def step(self, name):
-        """Record which step this run is in, and since when, for `ak run status` to read."""
+        """Record which step this run is in, and since when, for `ak run status` and the bar."""
         now = time.time()
         history.open_step(self.state.get("run_id"), name, now, log=self.log)
         self.state.update(step=name, step_at=now)
         self.save()
+        redress_seat(launched_session(self.state))
 
 
 HANDOVER = ("## Another model started this round\n"
@@ -6724,8 +6725,8 @@ def refresh_seat_tally(session):
     then endings nobody has acknowledged, both through `menu.bar_tally` over the
     same records, so the two never disagree.  Merges and empty seats the row shows
     another way, so the bar shows them no way at all.  Only the seat that launched
-    the run is ever written.  Best-effort: the run's state on disk is what matters,
-    never the bar.
+    the run is ever written, and its bar is rewritten too (`redress_seat`).  Best-effort:
+    the run's state on disk is what matters, never the bar.
     """
     if not session:
         return
@@ -6739,6 +6740,40 @@ def refresh_seat_tally(session):
             tallies.get(session), queued, menu.seat_estimate(session)))
     except (config.Error, OSError, ValueError):
         pass
+    redress_seat(session)
+
+
+def redress_seat(session):
+    """Rewrite the bar of the seat that launched a run now, not at the next tick or draw.
+
+    A run's step, round and ending are what the bar names, so each one is published the moment
+    it happens, through the one writer the tick uses and from the facts already on record: no
+    look at the seat's screen.  The writer waits on the seat's lock and on tmux, so the run
+    hands it to a `run-shell -b` job on the seats' own server (`publish_seat`) and waits on
+    neither.  The handoff times out after a second; the next tick or step repairs a missed
+    update.  The job is the server's, not the run's: the run's exit, the stop of its scope and
+    its marker sweep leave it be.  A seat tmux has lost, and a legacy one on the user's own
+    server, is no target there, so nothing runs for it; nothing here ever raises into the run.
+    """
+    if not session:
+        return
+    publish = shlex.join([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+                          "from agentkit import run; run.publish_seat(sys.argv[2])",
+                          str(config.REPO), session])
+    try:
+        # silent and always 0: tmux shows a job's output, or its failure, in the seat's pane
+        orch.tmux_out("run-shell", "-b", "-t", f"={session}:",
+                      orch.tmux_text(f"{publish} >/dev/null 2>&1; true"),
+                      socket=orch.socket_name(), timeout=1)
+    except Exception:  # noqa: BLE001 - the bar is dressing; the run beneath it is what matters
+        pass
+
+
+def publish_seat(session):
+    """`redress_seat`'s job: that seat's bar, if tmux still holds it on agentkit's own server."""
+    seat = orch.find(session)
+    if seat is not None and orch.on_own_server(seat):
+        watch.announce_state(seat)
 
 
 def seat_tallies(records, now=None):
@@ -11594,6 +11629,7 @@ def wait_for_own_pr(cfg, run_dir, url, state, log):
                  step="waiting for the seat's push", step_at=time.time())
     run_record.save_state(run_dir, state)
     history.open_step(run_dir.name, state["step"], log=log)
+    redress_seat(launched_session(state))
     log(own_pr_wait_note(state))
     while True:
         run_record.stop_check(run_dir)
