@@ -2588,6 +2588,11 @@ def at_prompt(session, cfg=None):
     return found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
 
 
+def typing_mark(session, text):
+    """The mark `type_at_prompt` hands its `receipt` for that line in that seat."""
+    return {"line": text, "seat": session.get("created")}
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
                    source="ak", stale=lambda held: False):
     """One line into a seat, and only while its harness sits at its own prompt.
@@ -2606,7 +2611,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     too, with the name the seat goes by then, before every key: a line that has stopped being
     this seat's to have is typed no further.
     """
-    mark = {"line": text, "seat": session.get("created")}
+    mark = typing_mark(session, text)
     if typed == mark:
         try:
             harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]

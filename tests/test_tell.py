@@ -3,7 +3,7 @@
 Offline: a temporary HOME, a fake tmux and pane; no real seat, transcript or state.
 """
 
-from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, nullcontext, redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 import fcntl
 import io
@@ -32,7 +32,9 @@ def prompt(at, text):
             "message": {"role": "user", "content": text}}
 
 
-class Tell(unittest.TestCase):
+class Seats(unittest.TestCase):
+    """Two seats in a temporary HOME, the receiver's pane and tmux faked."""
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-tell-", dir=REPO)
         self.addCleanup(tmp.cleanup)
@@ -86,6 +88,15 @@ class Tell(unittest.TestCase):
     def waiting(self, name=SEAT):
         return tell.read(config.seat_file("tell", name))
 
+    def opened(self, created):
+        """The seat named SEAT, opened at `created`: a new one where that differs."""
+        config.save_session(self.cfg, SEAT, "opus", ["astra"], {
+            "cwd": str(self.root / SEAT), "conversation": f"thread-{created}",
+            "id_source": harness.LAUNCHER, "created": created})
+        watch.seat_write(SEAT, stopped_at=None)
+
+
+class Tell(Seats):
     def test_a_seat_at_its_prompt_gets_it_at_once_headed_with_who_sent_it(self):
         code, out, _ = self.tell(SEAT, "Parser merged.\n  Leave parser.py alone.")
         self.assertEqual((code, out), (0, f"{SEAT}: told"))
@@ -166,13 +177,6 @@ class Tell(unittest.TestCase):
         self.assertEqual(self.typed, [self.header() + "Parser merged."])
         self.assertEqual(self.waiting("acme-pages"), [])
         self.assertFalse(config.seat_file("tell", SEAT).exists())
-
-    def opened(self, created):
-        """The seat named SEAT, opened at `created`: a new one where that differs."""
-        config.save_session(self.cfg, SEAT, "opus", ["astra"], {
-            "cwd": str(self.root / SEAT), "conversation": f"thread-{created}",
-            "id_source": harness.LAUNCHER, "created": created})
-        watch.seat_write(SEAT, stopped_at=None)
 
     def test_a_receiver_closed_or_replaced_while_the_sender_waits_is_refused_then(self):
         """Its refusals are asked again under the seat's lock, when the message is queued."""
@@ -274,6 +278,20 @@ class Tell(unittest.TestCase):
         self.assertEqual(self.typed, [self.header() + "Parser merged."])
         self.assertEqual(self.waiting(), [])
 
+    def test_a_message_dropped_for_a_replaced_receiver_is_never_reported_told(self):
+        """Replaced after the message is queued and before it is typed: refused, not told."""
+        self.opened(1.0)
+
+        def replaced(name):
+            self.opened(2.0)
+            return self.seat if name == SEAT else None
+
+        with patch.object(orch, "find", side_effect=replaced):
+            code, out, err = self.tell(SEAT, "Parser merged.")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn(f"{SEAT} was closed and opened again; nothing was sent", err)
+        self.assertEqual(self.typed, [])
+
     def test_what_cannot_be_told_is_refused_in_one_line(self):
         watch.seat_write("acme-closed", stopped_at=1)
         config.save_session(self.cfg, "acme-closed", "opus", ["astra"], {"cwd": str(self.root)})
@@ -292,6 +310,78 @@ class Tell(unittest.TestCase):
         with self.assertRaises(config.Error):
             tell.main([SEAT])
         self.assertEqual(self.typed, [])
+        self.assertEqual(self.waiting(), [])
+
+
+class TyperDied(Seats):
+    """Whoever types a message dies at some key: the next pass finishes it, once.
+
+    A real pane: the composer shows what is typed, Enter takes it into the conversation."""
+
+    def setUp(self):
+        super().setUp()
+        self.opened(1.0)
+        self.idle = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
+        self.pane, self.taken, self.killed_after_text = self.idle, [], False
+        record = config.session_records()[SEAT]
+        self.transcript = claude.transcript_path(record, record["conversation"])
+        self.transcript.parent.mkdir(parents=True)
+        for target, kwargs in ((watch, {"at_prompt": watch.at_prompt}),
+                               (watch, {"pane_text": lambda *_a, **_kw: self.pane}),
+                               (orch, {"tmux_out": self.render})):
+            for attribute, value in kwargs.items():
+                patcher = patch.object(target, attribute, side_effect=value)
+                patcher.start()
+                self.addCleanup(patcher.stop)
+
+    def render(self, *args, **kwargs):
+        self.tmux(*args, **kwargs)
+        if "-l" in args:
+            self.pane = self.idle.replace("❯\u00a0\n", "❯ " + args[-1] + "\n")
+            if self.killed_after_text:
+                self.killed_after_text = False
+                raise KeyboardInterrupt("killed right after the text went in")
+        elif args[-1] == "Enter" and self.pane != self.idle:
+            self.taken.append(self.typed[-1])
+            with self.transcript.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(prompt(NOW + len(self.taken), self.taken[-1])) + "\n")
+            self.pane = self.idle
+        return 0, ""
+
+    def died(self, step=None):
+        """`ak tell` killed in that step of watch's, else right after its text went in; its
+        claim left behind, its process gone."""
+        self.killed_after_text = step is None
+        killed = KeyboardInterrupt("killed")
+        with (patch.object(watch, step, side_effect=killed) if step else nullcontext()), \
+                self.assertRaises(KeyboardInterrupt):
+            self.tell(SEAT, "Parser merged.")
+        tell.locked(SEAT, lambda messages: messages[0].update(
+            claim={"pid": 2 ** 22 + 1, "identity": {"boot": "gone", "ticks": 0}}))
+
+    def test_a_line_typed_without_its_enter_gets_its_enter_once(self):
+        self.died()
+        self.assertEqual((self.taken, len(self.receipts())), ([], 1))
+        for _ in range(3):
+            tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.taken, [self.header() + "Parser merged."])
+        self.assertEqual(len(self.typed), 1)
+        self.assertEqual(self.waiting(), [])
+
+    def test_a_line_that_went_in_is_never_typed_again_even_in_a_restored_tmux(self):
+        self.died("_wait_sent")                       # after its Enter
+        self.assertEqual(len(self.taken), 1)
+        self.seat = dict(self.seat, created=11)       # its tmux restored, the same seat
+        tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual((len(self.taken), len(self.typed)), (1, 1))
+        self.assertEqual(self.waiting(), [])
+
+    def test_a_line_lost_from_its_composer_is_typed_again(self):
+        self.died()
+        self.pane = self.idle                          # the composer's text gone, never sent
+        tell.deliver(self.cfg, lambda _: None)
+        tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.taken, [self.header() + "Parser merged."])
         self.assertEqual(self.waiting(), [])
 
 

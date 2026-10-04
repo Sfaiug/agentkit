@@ -413,6 +413,11 @@ class Harness:
         return hook(record, cwd, conversation) if hook else None
 
     @property
+    def keeps_messages(self):
+        """Whether `user_messages` reads anything: a harness may keep no conversation ak reads."""
+        return self._hook("user_messages") is not None
+
+    @property
     def keeps_errors(self):
         """Whether `error` reads anything: a transcript alone may hold no error a reader knows."""
         return self._hook("error") is not None

@@ -5,7 +5,9 @@ seat's next quiet prompt, through the confirmed send a run's ending takes
 (`watch.type_at_prompt`): under the seat's typing lock, never onto a draft or a dialog, and
 never while the owner's question stands, so it answers none.  ak writes the header that says
 who it is from, and the typing receipt names that seat as its source, so the line is never the
-owner's words.  The sender tries once and returns; the tick types what still waits.
+owner's words.  The sender tries once and returns; the tick types what still waits.  Whoever
+types it may die at any key: the receipt, written before the keys, and the seat's conversation
+say afterwards how far it got.
 """
 
 import json
@@ -14,7 +16,7 @@ import sys
 import time
 import uuid
 
-from . import command_help, config, host, notify, orch, watch
+from . import command_help, config, harness, host, notify, orch, watch
 
 # tmux refuses one command past 16 KiB, and the whole message goes in as one typed line.
 MAX_BYTES = 8000
@@ -47,24 +49,18 @@ def write(path, messages):
     tmp.replace(path)
 
 
-def edit(name, change):
+def locked(name, change):
     """Rewrite that seat's waiting messages with `change`, returning what it hands back.
 
-    Only while the seat's own lock is held -- the one a rename takes, so the file is the seat's
-    under the name it goes by now and no rename moves it meanwhile.  `change` edits the list in
-    place.
+    Under the seat's own lock -- the one a rename takes, so the file is the seat's under the
+    name it goes by now and no rename moves it meanwhile.  `change` edits the list in place.
     """
-    path = config.seat_file("tell", config.resolve_session(name))
-    messages = read(path)
-    answer = change(messages)
-    write(path, messages)
-    return answer
-
-
-def locked(name, change):
-    """`edit` under that seat's lock."""
     with notify.session_lock(name) as current:
-        return edit(current, change)
+        path = config.seat_file("tell", current)
+        messages = read(path)
+        answer = change(messages)
+        write(path, messages)
+        return answer
 
 
 def me():
@@ -106,6 +102,30 @@ def settled(alias):
     return name, seat
 
 
+def typed_in(name, message):
+    """The receipt of that message's line typed into that seat since it was sent, else None.
+
+    `watch` writes it under the seat's typing lock before the keys and takes it back where they
+    fail, so it outlives a typer that died at any key after.
+    """
+    found = None
+    for sent in harness.entries(config.seat_file("input", name)):
+        if sent.get("text") == message["line"] and sent.get("at", 0) >= message["at"]:
+            found = sent
+    return found
+
+
+def reached(name, sent):
+    """Did the line that receipt typed reach the seat's conversation?  None where ak cannot read
+    one there."""
+    record = config.session_records().get(name) or {}
+    plugin = orch.seat_plugin(record)
+    if not plugin.keeps_messages or not sent.get("conversation"):
+        return None
+    messages = plugin.user_messages(record, record.get("cwd"), sent["conversation"])
+    return any(message["text"] == sent["text"] for message in messages[sent.get("after", 0):])
+
+
 def refusal(sender, name, seat=None):
     """Why that sender cannot tell that seat now -- or, given `seat`, no longer -- else None."""
     if name == sender:
@@ -123,9 +143,10 @@ def deliver_to(session, log, cfg=None):
     """Type the oldest message waiting for that seat; True when one went in.
 
     The oldest is claimed first, under the seat's lock, so the sender and the tick never type
-    it both; a claim whose process has died is taken over.  The line was fixed when it was
-    sent, so a retry presses Enter on the very text in the composer: `typed` is the mark the
-    receipt left, written under the typing lock the receipt is told under, the seat's own.
+    it both; a claim whose process has died is taken over.  A line typed before -- by a typer
+    that died, or one whose Enter did not send it -- is settled by where it is now: in the
+    seat's conversation it went in, in its composer it gets its Enter, and in neither it is
+    typed again.  Where ak reads no conversation, an empty composer means it went in.
     """
     name = session["name"]
 
@@ -142,30 +163,33 @@ def deliver_to(session, log, cfg=None):
     if first is None:
         return False
 
-    def mark(field, value):
-        def change(messages):
-            for message in messages:
-                if message["id"] == first["id"]:
-                    if value is None:
-                        message.pop(field, None)
-                    else:
-                        message[field] = value
-        return change
+    def unclaim(messages):
+        for message in messages:
+            if message["id"] == first["id"]:
+                message.pop("claim", None)
 
     def drop(messages):
         messages[:] = [message for message in messages if message["id"] != first["id"]]
 
-    typed = False
-    try:
-        # the receipt is told under the seat's typing lock, which is this same lock
-        typed = watch.type_at_prompt(
-            session, first["line"], log, cfg=cfg, typed=first.get("typed"),
-            receipt=lambda receipt: edit(name, mark("typed", receipt)),
+    def type_it(pending):
+        return watch.type_at_prompt(
+            session, first["line"], log, cfg=cfg,
+            typed=watch.typing_mark(session, first["line"]) if pending else None,
             source=source(first["from"]),
             # under the typing lock, right before each key: still the seat it was meant for
             stale=lambda held: "seat" in first and seat_of(held) != first["seat"])
+
+    typed = False
+    try:
+        with notify.session_lock(name) as current:
+            sent = typed_in(current, first)
+        went_in = reached(current, sent) if sent else False
+        typed = went_in or type_it(pending=sent is not None)
+        if typed and sent and went_in is False:
+            # neither in its conversation nor, as the Enter found, in its composer: typed again
+            typed = type_it(pending=False)
     finally:
-        locked(name, drop if typed else mark("claim", None))
+        locked(name, drop if typed else unclaim)
     if typed:
         log(f"{config.resolve_session(name)}: typed a message from {first['from']}")
     return typed
@@ -229,13 +253,18 @@ def main(argv):
         print(f"ak tell: {refused}", file=sys.stderr)
         return 1
     session = orch.find(config.resolve_session(name))
+    typed = False
     if session and not any(session.get(key) for key in orch.CLOSED):
-        deliver_to(session, lambda _: None)
+        typed = deliver_to(session, lambda _: None)
     waiting = locked(name, lambda messages: any(entry["id"] == message["id"]
                                                 for entry in messages))
     name = config.resolve_session(name)
-    if not waiting:
+    # gone from the queue untyped -- by this call or the tick's -- is a seat replaced meanwhile
+    if typed or (not waiting and typed_in(name, message)):
         print(f"{name}: told")
+    elif not waiting:
+        print(f"ak tell: {name} was closed and opened again; nothing was sent", file=sys.stderr)
+        return 1
     elif watch.owner_question(notify.last(name)):
         print(f"{name}: waits on the owner's answer; ak types this after it")
     else:
