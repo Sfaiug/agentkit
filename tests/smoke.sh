@@ -3611,7 +3611,7 @@ run.clear_delivery(state)
 record.save_state(folder, state)
 _, body, _ = task.parse_task(folder / "task.md")
 commands = run.with_suite(task.done_when(body, folder / "task.md"), state["worktree"])
-log = run.logger(folder, True)
+log = run.logger(folder)
 loop = run.Loop(config.load(), folder, state, {}, log, Path(state["worktree"]),
                 body, commands, body, [])
 assert landing(loop), loop.state

@@ -247,7 +247,7 @@ class Quota(unittest.TestCase):
                 patch.object(notify, "shaped",
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
-            self.assertEqual(run.drive(self.cfg, run_dir, opts, run.logger(run_dir, False),
+            self.assertEqual(run.drive(self.cfg, run_dir, opts, run.logger(run_dir),
                                        prior=state), 1)
         saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
@@ -282,7 +282,7 @@ class Quota(unittest.TestCase):
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 patch.object(notify, "post", return_value=None), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
-            self.assertEqual(run.drive(self.cfg, run_dir, opts, run.logger(run_dir, False),
+            self.assertEqual(run.drive(self.cfg, run_dir, opts, run.logger(run_dir),
                                        prior=state), 0)
         saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "pass")
@@ -330,7 +330,7 @@ class Quota(unittest.TestCase):
         with patch.object(run, "loop", side_effect=run.Stopped("git push stopped: timed out")), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.drive(self.cfg, run_dir, {"--rounds": None}, run.logger(
-                run_dir, False), prior=state), 1)
+                run_dir), prior=state), 1)
         saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
         self.assertNotIn("quota_dry", saved)
@@ -345,7 +345,7 @@ class Quota(unittest.TestCase):
         with patch.object(run, "loop", side_effect=run.Stopped("git push stopped: timed out")), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.drive(self.cfg, run_dir, {"--rounds": None}, run.logger(
-                run_dir, False), prior=state), 1)
+                run_dir), prior=state), 1)
         saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
         self.assertNotIn("quota_dry", saved)

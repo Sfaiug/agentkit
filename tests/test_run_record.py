@@ -7,14 +7,18 @@ and one it cannot read is left as it is.  Offline: a sandbox HOME, no real proce
 seat.
 """
 
+from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
-from test_v4n import Sandbox
-from agentkit import gate, host, config, orch, run, watch, worker
+from test_v4n import REPO, Sandbox
+from agentkit import gate, host, config, job, orch, run, watch, worker
 from agentkit import record
 
 
@@ -41,6 +45,51 @@ class Fixture(Sandbox):
         state = record.read_state(self.run_dir)
         self.assertEqual(state["step"], step)
         return state
+
+
+class Logging(Fixture):
+    def child_logs(self, logger, stdout, *messages):
+        return subprocess.run([
+            sys.executable, "-c",
+            "from pathlib import Path\nimport sys\n"
+            f"from {logger.__module__} import {logger.__name__}\n"
+            f"log = {logger.__name__}(Path(sys.argv[1]))\n"
+            "for message in sys.argv[2:]: log(message)\n",
+            str(self.run_dir), *messages], cwd=REPO, stdout=stdout,
+            stderr=subprocess.PIPE, text=True, check=True, timeout=10)
+
+    def test_stdout_is_the_log_file(self):
+        path = self.run_dir / "log.txt"
+        for logger in (run.logger, job.job_logger):
+            with self.subTest(logger=logger.__name__):
+                path.write_text("waiting for a slot\n")
+                with path.open("a") as stdout:
+                    self.child_logs(logger, stdout, "resuming at round 2/3", "already passed")
+                lines = path.read_text().splitlines()
+                self.assertEqual(lines[0], "waiting for a slot")
+                self.assertEqual([line.split(" ", 1)[1] for line in lines[1:]],
+                                 ["resuming at round 2/3", "already passed"])
+
+    def test_stdout_is_elsewhere(self):
+        path = self.run_dir / "log.txt"
+        for logger in (run.logger, job.job_logger):
+            with self.subTest(logger=logger.__name__):
+                path.unlink(missing_ok=True)
+                child = self.child_logs(logger, subprocess.PIPE, "resumed")
+                self.assertEqual(path.read_text(), child.stdout)
+                self.assertEqual([line.split(" ", 1)[1] for line in child.stdout.splitlines()],
+                                 ["resumed"])
+
+    def test_stdout_has_no_descriptor(self):
+        path = self.run_dir / "log.txt"
+        for logger in (run.logger, job.job_logger):
+            with self.subTest(logger=logger.__name__):
+                path.unlink(missing_ok=True)
+                log = logger(self.run_dir)
+                with redirect_stdout(io.StringIO()) as stdout:
+                    log("resumed")
+                self.assertEqual(path.read_text(), stdout.getvalue())
+                self.assertEqual(len(stdout.getvalue().splitlines()), 1)
 
 
 class LiveRun(Fixture):
