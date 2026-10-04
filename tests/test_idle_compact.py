@@ -521,21 +521,21 @@ class Listing(unittest.TestCase):
         config.ensure_dirs()
 
     def test_v5e_k_every_seat_is_told_whether_and_how_it_compacts_itself(self):
-        seats, kept = [], {}
+        seats, kept, now = [], {}, time.time()
         for name, model in (("one", "fable"), ("two", "astra"), ("three", "spark")):
-            seats.append({"name": name, "path": "/tmp", "created": time.time() - 3600,
+            seats.append({"name": name, "path": "/tmp", "created": now - 3600,
                           "attached": False, "exited": False, "legacy": False,
                           "resumable": True, "repo": None})
             kept[name] = {"orchestrator": model, "conversation": "c", "id_source": orch.LAUNCHER}
         (config.STATE / "compact-two.json").write_text(json.dumps(
-            {"session": "two", "harness": "codex", "last_compact_at": time.time() - 720,
+            {"session": "two", "harness": "codex", "last_compact_at": now - 720,
              "context_tokens": 51000}))
         # left by an earlier seat of this name: it compacted that one, and says nothing of this
         (config.STATE / "compact-three.json").write_text(json.dumps(
-            {"session": "three", "harness": "muse", "last_compact_at": time.time() - 90000,
+            {"session": "three", "harness": "muse", "last_compact_at": now - 90000,
              "context_tokens": 44000}))
         out = subprocess.run([sys.executable, "-c", CHECK_LIST], input=json.dumps(
-            {"root": str(self.root), "seats": seats, "records": kept}).encode(),
+            {"root": str(self.root), "seats": seats, "records": kept, "now": now}).encode(),
             capture_output=True, cwd=str(REPO))
         self.assertEqual(out.returncode, 0, out.stderr.decode())
         text = out.stdout.decode()
@@ -546,8 +546,10 @@ class Listing(unittest.TestCase):
 
 
 # `ak orch list --why` in a process of its own, so the seats it reads are only the fake ones.
+# The parent's clock, stopped, so a child started a minute late on a busy host still reads the
+# ages the parent wrote; and no tmux, so the listing's status-bar write reaches no real server.
 CHECK_LIST = '''
-import json, sys
+import json, sys, time
 from pathlib import Path
 from unittest.mock import patch
 from agentkit import config, orch
@@ -556,7 +558,9 @@ given = json.load(sys.stdin)
 root = Path(given["root"])
 for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
     setattr(config, name, root / name.lower())
-with patch.object(orch, "listing", return_value=given["seats"]), \
+with patch.object(time, "time", return_value=given["now"]), \
+     patch.object(orch, "tmux_out", return_value=(1, "no tmux in this test")), \
+     patch.object(orch, "listing", return_value=given["seats"]), \
      patch.object(config, "session_records", return_value=given["records"]):
     raise SystemExit(orch.cmd_list(["--why"]))
 '''
