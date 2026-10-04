@@ -32,7 +32,8 @@ class RoleGroups(unittest.TestCase):
     def capture(self, name="fixture"):
         directory = config.RUNS / name
         directory.mkdir()
-        with patch.object(run, "history_start"), patch.object(run, "claim_slot"):
+        with patch.object(run, "redress_seat"), \
+                patch.object(run, "history_start"), patch.object(run, "claim_slot"):
             run.capture_launch(directory, cfg=self.cfg)
         return directory, run_record.read_state(directory)
 

@@ -1146,8 +1146,8 @@ class HandBack(Sandbox):
         self.assertIn(run.blocked_note(state), terminal.plain(out.getvalue()))
 
     def test_finish_reaches_its_ending_when_best_effort_steps_fail(self):
-        # 2026-09-29, run 20260928-2050: a merge changed two modules together, a best-effort
-        # step imported the new menu against the old orch and raised AttributeError,
+        # 2026-09-29, run 20260928-2050: a merge changed two modules together, the bar
+        # refresh imported the new menu against the old orch and raised AttributeError,
         # and the run never handed back, never wrote its history line, never settled.
         directory = self.ended("run-ending", owner=SEAT, merged=True,
                                pr="https://github.com/o/r/pull/7")
@@ -1155,7 +1155,9 @@ class HandBack(Sandbox):
         state = record.read_state(directory)
         histories, settles = [], []
         followup_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
+        bar_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
         with patch.object(run, "start_followups", side_effect=followup_boom), \
+                patch.object(run, "redress_seat", side_effect=bar_boom), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(run, "settle_run",
@@ -1167,8 +1169,9 @@ class HandBack(Sandbox):
         self.assertEqual(histories, ["run-ending"])
         self.assertEqual(settles, ["run-ending"])
         failures = [line for line in self.logs if "WARN could not" in line]
-        self.assertEqual(len(failures), 1)     # one line per failed step, in the run's log
+        self.assertEqual(len(failures), 2)     # one line per failed step, in the run's log
         self.assertTrue(any("follow-up" in line for line in failures), failures)
+        self.assertTrue(any("the seat's bar" in line for line in failures), failures)
         for line in failures:
             self.assertNotIn("\n", line)
             self.assertIn("ROLE_HEADS", line)
@@ -1183,6 +1186,7 @@ class HandBack(Sandbox):
         histories, settles = [], []
         with patch.object(run, "start_followups",
                           side_effect=record.StopRequested("fix-child was stopped")), \
+                patch.object(run, "redress_seat"), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(run, "settle_run",

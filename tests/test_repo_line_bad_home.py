@@ -96,7 +96,7 @@ class RepoLineBadHome(Sandbox):
         self.task(directory / "task.md", self.acme)
         opts = {"--no-merge": False, "--no-worktree": False, "--anyway": False, "--bg": False}
         with chdir(self.root), patch.dict(os.environ, {"AK_MAX_RUNS": "4"}), \
-                redirect_stdout(io.StringIO()):
+                patch.object(run, "redress_seat"), redirect_stdout(io.StringIO()):
             run.prepare(directory, opts, lambda _: None)
         self.assertEqual(record.read_state(directory)["state"], "queued")
         self.assertEqual(run.run_project(record.read_state(directory)), self.acme)
