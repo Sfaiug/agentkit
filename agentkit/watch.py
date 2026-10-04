@@ -1091,6 +1091,22 @@ def pane_tail(text):
     return "\n".join(lines[-PANE_LINES:])
 
 
+def screen_tail(harness, pane):
+    """The tail that harness's screen is read from: `pane_tail`, reaching up to the top rule of
+    a ruled composer's box that a long draft pushed above it, found over the whole pane."""
+    lines = [line.rstrip() for line in pane.splitlines() if strip_sgr(line).strip()]
+    try:
+        chrome = screen(harness)
+    except config.Error:
+        chrome = {"ruled": False}
+    start = len(lines) - PANE_LINES
+    if chrome["ruled"] and start > 0:
+        at = ruled_composer(chrome, [strip_sgr(line).strip() for line in lines])[0]
+        if at is not None:
+            start = min(start, at - 1)
+    return "\n".join(lines[max(0, start):])
+
+
 def _plain_lines(tail):
     """Stripped plain lines; `-e` attributes never make a blank line non-empty."""
     return [strip_sgr(line).strip() for line in tail.splitlines() if strip_sgr(line).strip()]
@@ -1607,8 +1623,8 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         pane = pane_text(session)
     at = time.time() if now is None else now
     try:
-        found = classify(harness, pane_tail(pane), hook_facts(name), previous.get("opened_at"),
-                         previous, at)
+        found = classify(harness, screen_tail(harness, pane), hook_facts(name),
+                         previous.get("opened_at"), previous, at)
     except config.Error as exc:
         # a manifest somebody is in the middle of writing is not a reason for a blank menu
         print(f"WARN cannot read what {name} is doing: {exc}", file=sys.stderr)
@@ -2233,7 +2249,7 @@ def _decided_state(name, harness, pane):
         return None
     try:
         previous = seat_read(name)
-        found = classify(harness, pane_tail(pane), hook_facts(name),
+        found = classify(harness, screen_tail(harness, pane), hook_facts(name),
                          previous.get("opened_at"), previous, time.time())
     except (config.Error, OSError):
         return None
@@ -2441,7 +2457,7 @@ def composer_draft(harness, pane):
     rule closes is one -- a user's status line under the rule never is, whatever its mark.
     """
     chrome = screen(harness)
-    raws, rows = _screen_rows(harness, pane_tail(pane))
+    raws, rows = _screen_rows(harness, screen_tail(harness, pane))
     if chrome["draft"]:
         # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
         # block of them, and finding none reads as empty.
@@ -2589,9 +2605,12 @@ def at_prompt(session, cfg=None):
         return False
     if not found.get("authority"):
         return False            # nothing said anything: that is not a prompt, it is silence
-    # whatever decided the state, a composer holding typed text is the owner's: never typed into
-    return (found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
-            and not composer_draft(harness, pane))
+    if found.get("state") != "at_prompt" or _turn_in_flight(harness, found)[0]:
+        return False
+    # whatever decided the state, a composer holding typed text is the owner's: never typed
+    # into -- nor one a ruled harness draws whose box is nowhere on the screen to be read
+    held = composer_draft(harness, pane)
+    return held == "" or (held is None and not screen(harness)["ruled"])
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *, source="ak"):

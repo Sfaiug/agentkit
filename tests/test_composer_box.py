@@ -35,7 +35,7 @@ class ComposerBox(Sandbox):
 
     def looked(self, pane):
         """(the seat's word, free to type into, keys a hand-back sent) on that screen."""
-        live = watch.classify("claude", watch.pane_tail(pane), STOPPED, None, {}, NOW)
+        live = watch.live_state({"name": SEAT}, "claude", pane=pane, cfg=self.cfg)
         word = watch.session_state(SEAT, NOW, session={"name": SEAT, "attached": False},
                                    cfg=self.cfg, records=[], live=live, harness="claude",
                                    auth_out={}, gh_out={}, token_out={}, previous={})["word"]
@@ -67,6 +67,24 @@ class ComposerBox(Sandbox):
                                  ("draft", "prompt.draft", said))
                 self.assertEqual(watch.composer_draft("claude", pane), said.replace(" ", ""))
                 self.assertEqual(self.looked(pane), ("needs you", False, []))
+
+    def test_a_draft_longer_than_the_tail_is_read_whole(self):
+        """Thirteen rows push the box's top rule above the last 15 rows; the pane still has it."""
+        rows = [f"step {n} of the acme migration" for n in range(1, 14)]
+        pane = drafted("\n  ".join(rows))
+        self.assertTrue(watch.pane_tail(pane).startswith("❯"))     # its top rule cut off
+        self.assertEqual(watch.composer_draft("claude", pane), "".join(rows).replace(" ", ""))
+        self.assertEqual(self.looked(pane), ("needs you", False, []))
+
+    def test_a_box_whose_top_left_the_screen_is_never_typed_into(self):
+        """A draft taller than the pane: no box to read, so the seat is not free."""
+        rows = [f"step {n} of the acme migration" for n in range(1, 60)]
+        pane = drafted("\n  ".join(rows))
+        cut = pane.splitlines()
+        top = max(at for at, row in enumerate(cut) if row.startswith("❯"))
+        pane = "\n".join(cut[top + 1:]) + "\n"
+        self.assertIsNone(watch.composer_draft("claude", pane))
+        self.assertEqual(self.looked(pane)[1:], (False, []))
 
     def test_an_empty_composer_is_still_free(self):
         self.assertEqual(watch.composer_draft("claude", PROMPT), "")
