@@ -495,8 +495,8 @@ if role == "reviewer" and (root / "fail-review").exists():
         looked, task_repo = [], run.task_repo
         with patch.dict(os.environ, {key: env[key] for key in (config.JOB_DIR_ENV,
                                                                config.SESSION_ENV)}), \
-                patch.object(run, "task_repo", side_effect=lambda meta, path: (
-                    looked.append(Path.cwd()) or task_repo(meta, path))), \
+                patch.object(run, "task_repo", side_effect=lambda meta, path, *rest: (
+                    looked.append(Path.cwd()) or task_repo(meta, path, *rest))), \
                 patch.dict(os.environ, {"AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}), \
                 patch.object(jobs, "JOB_TICK", 0.05), \
                 patch.object(jobs, "JOB_PICKER_INTERVAL", 0), \

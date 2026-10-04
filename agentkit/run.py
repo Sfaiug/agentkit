@@ -548,13 +548,18 @@ def repo_line(meta, task_path):
                            "does not have") from None
 
 
-def task_repo(meta, task_path):
-    """`repo:` if the task names one, else the git repository the `ak run` was invoked from.
+def task_repo(meta, task_path, task_file=None):
+    """`repo:` if the task names one, else the git repository the `ak run` was invoked from,
+    else the checkout its task folder is named for.
 
-    A task file that names no repo is the common case: the orchestrator writes it while sitting
-    in the repo it is about.  None means there is no repository in this job at all -- `repo:
-    none`, or nothing to inherit because the `ak run` was not launched from a checkout -- and
-    the run works in a scratch workspace instead.
+    `task_file` is the file the run was launched from, where `task_path` is the run's own
+    copy of it: only the original stands in a task folder.
+
+    A task file that names no repo is the common case: the orchestrator writes it under
+    ~/.agentkit/tasks/<project>/, and launches it from that checkout or from a folder of
+    checkouts such as ~/code.  None means there is no repository in this job at all -- `repo:
+    none`, or a launch outside any checkout of a task filed under none -- and the run works in
+    a scratch workspace instead.
     """
     if meta.get("repo"):
         if meta["repo"].lower() == "none":
@@ -569,7 +574,8 @@ def task_repo(meta, task_path):
         # or the work asked for in a checkout would quietly run in a scratch workspace instead
         raise Stopped(f"git rev-parse --show-toplevel failed: {err.strip()}")
     if code != 0:
-        return None
+        checkout = task_project(None, str(task_file or task_path))
+        return checkout.resolve() if checkout else None
     return Path(out.strip()).resolve()
 
 
@@ -5657,7 +5663,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         if "repo" in receipt:
             repo = Path(receipt["repo"]) if receipt["repo"] else None
         else:
-            repo = task_repo(meta, task_path)  # receipts from before preflight saved it
+            repo = task_repo(meta, task_path, receipt.get("task_file"))  # receipts before preflight saved it
         scratch = repo is None
         raw_rounds = opts["--rounds"] or meta.get("rounds") or 3
         try:
@@ -10658,7 +10664,7 @@ def preflight(run_dir, opts, log):
         state["title"] = title
         run_record.save_state(run_dir, state)
         every, once = taskfile.done_when_groups(body, run_dir / "task.md")
-        repo = task_repo(meta, run_dir / "task.md")
+        repo = task_repo(meta, run_dir / "task.md", state.get("task_file"))
         if opts["--no-merge"] or repo is None:
             every = [taskfile.split_once(cmd)[0]
                      for cmd in taskfile.done_when(body, run_dir / "task.md")]

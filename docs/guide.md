@@ -65,8 +65,8 @@ runs opened; the collector takes the stop mark a day later. The remote branch st
 
 `ak run task.md --bg` is one job: a task file, a worktree, an executor, the checks, a reviewer, fix rounds and a merge.
 The orchestrator writes the task from `templates/task.md`: a title, `## Goal`, `## Constraints`, and a `bash` block
-under `## Done when` whose every command must exit 0. Optional front matter: `repo` (the launching checkout; `none` is a
-scratch workspace), `base` (the repo's default branch), `target` (the branch the PR merges into, default `base`), `from`
+under `## Done when` whose every command must exit 0. Optional front matter: `repo` (the launching checkout, else the one its
+`~/.agentkit/tasks/<project>/` folder is named for; `none` is a scratch workspace), `base` (the repo's default branch), `target` (the branch the PR merges into, default `base`), `from`
 (a local branch to cut from), `merge` (`squash`, `merge` or `rebase`), `rounds` (3, the most), `after` (a job
 dependency, repeatable). A fresh `from:` run merges its fetched or local target before round 1, aborting conflicts and leaving them or missing targets for landing; a resumed run never repeats it. A check ending in `# once` runs once at landing on the commit to be merged; the executor is told not to run it,
 its absence from the reviewer's input by design. Scratch and `--no-merge` runs execute every task check in each round, including `# once` and explicit suite lines; the declared suite is not added. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is deferred in every run
