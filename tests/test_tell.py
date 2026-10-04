@@ -167,6 +167,43 @@ class Tell(unittest.TestCase):
         self.assertEqual(self.waiting("acme-pages"), [])
         self.assertFalse(config.seat_file("tell", SEAT).exists())
 
+    def opened(self, created):
+        """The seat named SEAT, opened at `created`: a new one where that differs."""
+        config.save_session(self.cfg, SEAT, "opus", ["astra"], {
+            "cwd": str(self.root / SEAT), "conversation": f"thread-{created}",
+            "id_source": harness.LAUNCHER, "created": created})
+        watch.seat_write(SEAT, stopped_at=None)
+
+    def test_a_receiver_closed_or_replaced_while_the_sender_waits_is_refused_then(self):
+        """Its refusals are asked again under the seat's lock, when the message is queued."""
+        for change, said in (
+                (lambda: watch.seat_write(SEAT, stopped_at=NOW), f"{SEAT} is closed"),
+                (lambda: self.opened(2.0), f"{SEAT} was closed and opened again")):
+            with self.subTest(said=said):
+                self.opened(1.0)
+                self.free, sent = False, []
+                with notify.session_lock(SEAT):
+                    sender = threading.Thread(
+                        target=lambda: sent.append(self.tell(SEAT, "Parser merged.")))
+                    sender.start()
+                    sender.join(0.5)
+                    change()
+                sender.join(10)
+                code, _, err = sent[0]
+                self.assertEqual(code, 1, sent)
+                self.assertIn(said, err)
+                self.assertEqual(self.waiting(), [])
+
+    def test_a_message_for_a_seat_closed_and_opened_again_never_reaches_the_new_one(self):
+        self.opened(1.0)
+        self.free = False
+        self.tell(SEAT, "Parser merged.")
+        self.opened(2.0)
+        self.free = True
+        tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.typed, [])
+        self.assertEqual(self.waiting(), [])
+
     def test_a_message_another_live_sender_is_typing_is_left_to_it_and_a_dead_ones_taken_over(self):
         self.free = False
         self.tell(SEAT, "Parser merged.")

@@ -81,6 +81,31 @@ def claimed(claim):
     return host.alive(claim.get("pid"))
 
 
+def seat_of(name):
+    """The seat that name is now, as the moment its record was made, or None for no open seat.
+
+    A seat closed and opened again under the same name is another seat: a message meant for
+    the first is never the second's.
+    """
+    record = config.session_records().get(name)
+    if record is None or watch.seat_read(name).get("stopped_at"):
+        return None
+    return record.get("created", "")
+
+
+def refusal(sender, name, seat=None):
+    """Why that sender cannot tell that seat now -- or, given `seat`, no longer -- else None."""
+    if name == sender:
+        return f"{sender} is this seat"
+    now = seat_of(name)
+    if now is None:
+        return (f"{name} is closed" if name in config.session_records()
+                else f"no session {name!r}; `ak orch list` shows them")
+    if seat is not None and now != seat:
+        return f"{name} was closed and opened again; nothing was sent"
+    return None
+
+
 def deliver_to(session, log, cfg=None):
     """Type the oldest message waiting for that seat; True when one went in.
 
@@ -92,6 +117,9 @@ def deliver_to(session, log, cfg=None):
     name = session["name"]
 
     def take(messages):
+        # meant for a seat this name no longer is: never typed into the one it is now
+        seat = seat_of(config.resolve_session(name))
+        messages[:] = [message for message in messages if message.get("seat", seat) == seat]
         if not messages or claimed(messages[0].get("claim")):
             return None
         messages[0]["claim"] = me()
@@ -148,15 +176,11 @@ def main(argv):
         print("ak tell: no seat: run it inside an orchestrator session", file=sys.stderr)
         return 1
     name = config.resolve_session(argv[0])
-    if name == sender:
-        print(f"ak tell: {sender} is this seat", file=sys.stderr)
+    refused = refusal(sender, name)
+    if refused:
+        print(f"ak tell: {refused}", file=sys.stderr)
         return 1
-    if name not in config.session_records():
-        print(f"ak tell: no session {argv[0]!r}; `ak orch list` shows them", file=sys.stderr)
-        return 1
-    if watch.seat_read(name).get("stopped_at"):
-        print(f"ak tell: {name} is closed", file=sys.stderr)
-        return 1
+    seat = seat_of(name)
     text = " ".join(argv[1].split())
     if not text:
         print("ak tell: nothing to say", file=sys.stderr)
@@ -169,8 +193,20 @@ def main(argv):
         print(f"ak tell: {size:,} bytes is more than one typed line holds ({MAX_BYTES:,}); "
               "write the rest to a file and tell its path", file=sys.stderr)
         return 1
-    message = {"id": uuid.uuid4().hex, "from": sender, "at": now, "line": line}
-    locked(name, lambda messages: messages.append(message))
+    message = {"id": uuid.uuid4().hex, "from": sender, "at": now, "line": line, "seat": seat}
+
+    def queue(messages):
+        # asked again under the seat's lock, with both names as they are now: a rename or a
+        # close that came after the first answer is not past it
+        refused = refusal(config.current_session(), config.resolve_session(name), seat)
+        if not refused:
+            messages.append(message)
+        return refused
+
+    refused = locked(name, queue)
+    if refused:
+        print(f"ak tell: {refused}", file=sys.stderr)
+        return 1
     session = orch.find(config.resolve_session(name))
     if session and not any(session.get(key) for key in orch.CLOSED):
         deliver_to(session, lambda _: None)
