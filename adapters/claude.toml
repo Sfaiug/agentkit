@@ -76,6 +76,10 @@ state = "at_prompt"
 kinds = ["idle_prompt"]
 
 [screen]
+# A line typed while a turn runs waits above the composer ("Press up to edit queued messages")
+# and goes to the model at its next tool step, as a queued prompt (2.1.289): another seat's
+# `ak tell` is typed then, not held for the turn's end.
+queues_typing = true
 # Queued session messages sit below dialogs and composers; they are neither controls nor drafts.
 inbound = '› Message from @[^:]+: .* \(ctrl\+o to expand\)'
 # fullmatch against a bottom line: the input box, which is chrome and not anything Claude said;

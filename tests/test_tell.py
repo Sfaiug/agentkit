@@ -24,6 +24,7 @@ from agentkit import config, harness, host, notify, orch, tell, watch
 from agentkit.harness import claude
 
 SENDER, SEAT = "fix-api", "acme-docs"
+FIX = REPO / "tests/fixtures"
 NOW = 1_000_000.0
 
 
@@ -124,6 +125,30 @@ class Tell(unittest.TestCase):
         tell.deliver(self.cfg, lambda _: None)
         self.assertEqual(self.typed, [])
         self.assertEqual(len(self.waiting()), 1)
+
+    def turn_running(self, pane, seat=SEAT):
+        """That seat is mid-turn by its own hooks, with `pane` on its screen."""
+        config.hook_facts_path(seat).write_text(json.dumps(
+            {"session": seat, "event": "UserPromptSubmit", "kind": "", "text": "", "at": NOW - 60}))
+        self.free = False
+        return patch.object(watch, "pane_text", return_value=(FIX / pane).read_text(encoding="utf-8"))
+
+    def test_a_seat_whose_harness_queues_typing_gets_it_mid_turn(self):
+        with self.turn_running("claude-queued-midturn-pane.txt"):
+            code, out, _ = self.tell(SEAT, "Parser merged.")
+        self.assertEqual((code, out), (0, f"{SEAT}: told"))
+        self.assertEqual(self.typed, [self.header() + "Parser merged."])
+
+    def test_mid_turn_it_waits_for_a_question_unsent_text_or_a_harness_that_drops_typing(self):
+        for pane in ("claude-question-with-message-pane.txt", "claude-draft-pane.txt"):
+            with self.subTest(pane=pane), self.turn_running(pane):
+                self.assertEqual(self.tell(SEAT, "Parser merged.")[1],
+                                 f"{SEAT}: busy; ak types this at its next quiet prompt")
+        config.save_session(self.cfg, SEAT, "astra", ["opus"], {"cwd": str(self.root / SEAT)})
+        with self.turn_running("claude-queued-midturn-pane.txt"):
+            tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.typed, [])
+        self.assertEqual(len(self.waiting()), 2)
 
     def test_a_told_line_is_never_the_owners_words(self):
         self.tell(SEAT, "Parser merged.")

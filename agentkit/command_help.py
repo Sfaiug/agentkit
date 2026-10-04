@@ -140,8 +140,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
              "--eye is the owner's to judge, and tick N marks it done on their word.",
              "ak plan add \"each session sees its project\" --check 'python3 tests/test_x.py'"),
     "tell": ('usage: ak tell SESSION "TEXT"',
-             "ak types it into that session at its next quiet prompt, headed with who sent\n"
-             "it; it never counts as the owner's words.",
+             "ak types it into that session as soon as it can take a line, headed with who\n"
+             "sent it; it never counts as the owner's words.",
              'ak tell fix-api "I am changing parser.py; leave it until my PR lands"'),
     "update": ("usage: ak update [--dry-run]",
                "Upgrade harnesses and verify with acceptance gates; --dry-run prints the plan.",

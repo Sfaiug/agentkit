@@ -603,6 +603,7 @@ def screen(harness):
     built = {"composer": _pattern(block.get("composer"), path),
              "footer": _pattern(f"(?:{footer})$" if footer else None, path, re.I),
              "ruled": bool(block.get("ruled")),
+             "queues": bool(block.get("queues_typing")),
              "draft": _pattern(block.get("draft"), path, re.M),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
@@ -2588,9 +2589,31 @@ def at_prompt(session, cfg=None):
     return found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
 
 
+def takes_line(session, cfg=None, midturn=False):
+    """May a line be typed into that seat now: at its own prompt, or -- `midturn` -- during a
+    turn whose harness queues a typed line for its model's next step, with no question and no
+    unsent text of the owner's on its screen."""
+    if at_prompt(session, cfg=cfg):
+        return True
+    if not midturn or any(session.get(key) for key in orch.CLOSED):
+        return False
+    try:
+        harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
+        if not harness or not screen(harness)["queues"]:
+            return False
+        pane = pane_text(session)
+        if not pane.strip():
+            return False
+        found = live_state(session, harness, pane=pane, cfg=cfg)
+    except (config.Error, OSError):
+        return False
+    return _turn_in_flight(harness, found)[0] and found.get("state") not in ("asking", "draft")
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
-                   source="ak", stale=lambda held: False):
-    """One line into a seat, and only while its harness sits at its own prompt.
+                   source="ak", midturn=False, stale=lambda held: False):
+    """One line into a seat, and only while its harness sits at its own prompt -- or, with
+    `midturn`, while a turn runs where its harness queues the line (`takes_line`).
 
     The prompt is tested twice: once here, and once more inside the send lock, because two
     runs ending together would both find the seat free and the second would then type into
@@ -2621,7 +2644,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                 return True
             _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
-    if not at_prompt(session, cfg=cfg):
+    if not takes_line(session, cfg=cfg, midturn=midturn):
         return False
     composed = []
 
@@ -2631,7 +2654,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         if composed:
             return False        # the text is typed; what is left is the Enter that sends it
         composed.append(True)
-        return not at_prompt(session, cfg=cfg)
+        return not takes_line(session, cfg=cfg, midturn=midturn)
 
     return type_checked(session, text, log, None,
                         guard=lambda: notify.session_lock(session["name"]), veto=veto,

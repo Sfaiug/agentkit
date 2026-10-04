@@ -1,11 +1,12 @@
 """`ak tell SEAT TEXT`: one seat's message to another, the same way for every harness.
 
-The message waits in the receiving seat's own file until ak types it there, once, at that
-seat's next quiet prompt, through the confirmed send a run's ending takes
-(`watch.type_at_prompt`): under the seat's typing lock, never onto a draft or a dialog, and
-never while the owner's question stands, so it answers none.  ak writes the header that says
-who it is from, and the typing receipt names that seat as its source, so the line is never the
-owner's words.  The sender tries once and returns; the tick types what still waits.
+The message waits in the receiving seat's own file until ak types it there, once, through the
+confirmed send a run's ending takes (`watch.type_at_prompt`): at the seat's next quiet prompt,
+or at once mid-turn where its harness queues a typed line for its model's next step; under the
+seat's typing lock, never onto a draft or a dialog, and never while the owner's question
+stands, so it answers none.  ak writes the header that says who it is from, and the typing
+receipt names that seat as its source, so the line is never the owner's words.  The sender
+tries once and returns; the tick types what still waits.
 """
 
 import json
@@ -161,7 +162,7 @@ def deliver_to(session, log, cfg=None):
         typed = watch.type_at_prompt(
             session, first["line"], log, cfg=cfg, typed=first.get("typed"),
             receipt=lambda receipt: edit(name, mark("typed", receipt)),
-            source=source(first["from"]),
+            source=source(first["from"]), midturn=True,
             # under the typing lock, right before each key: still the seat it was meant for
             stale=lambda held: "seat" in first and seat_of(held) != first["seat"])
     finally:
