@@ -330,6 +330,27 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.assertIn("land", self.wait(members[0]))
         self.assert_cleaned()
 
+    def test_a_red_suffix_is_not_blamed_while_a_stack_ahead_is_unanswered(self):
+        suite = "test ! -f bad.txt || { test -f mitigation.txt && test ! -f tail.txt; }"
+        head = self.member("head", joined=1, once="true", **{
+            "bad.txt": "bad\n", "AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        self.member("mitigation", joined=2, once="true", **{"mitigation.txt": "ok\n"})
+        tail = self.member("tail", joined=3, once="true", **{"tail.txt": "ok\n"})
+        self.advance()
+        self.capacity.return_value = 6
+
+        def suffixes_first(futures):
+            futures = list(futures)
+            # The shorter suffix checks finish while the head's own check still runs.
+            return iter([futures[1], futures[2], futures[0]] if len(futures) == 3 else futures)
+
+        with patch.object(land, "as_completed", side_effect=suffixes_first):
+            land.check_line(self.turn)
+        self.assertIn("fix", self.wait(head))
+        self.assertNotIn("fix", self.wait(tail))
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [head.name])
+        self.assert_cleaned()
+
     def test_a_green_member_leaves_the_line_after_landing_or_stopping(self):
         members = self.members()
         land.check_line(self.turn)

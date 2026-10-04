@@ -424,11 +424,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 green_prefix = bool(prefix)
                 for index, (member, saved, scratch, tree) in enumerate(stacks):
                     answer = answers.get(tree)
-                    if answer is None:
-                        green_prefix = False
-                        continue
-                    if "fix" in answer and index and not green_prefix:
-                        continue
+                    # A red is blamed only behind stacks all answered green: an unanswered
+                    # one ahead may be the culprit, and removing it changes every later tree.
+                    if answer is None or ("fix" in answer and index and not green_prefix):
+                        break
                     if (index == 0 and not prefix and "fix" in answer
                             and not saved.get("repair") and not passed(turn, target_tree)):
                         run.git(scratch, "reset", "--hard", tip)
