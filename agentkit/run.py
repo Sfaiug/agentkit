@@ -11740,11 +11740,15 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
                                    or prior.get("own_pr_wait"))
                      and prior.get("head_sha") != info["headRefOid"])
-    if prior.get("worktree") and (
-            git(prior["worktree"], "rev-parse", "HEAD") != ((prior.get("review") or {}).get("head_sha")
-                                                         or prior.get("head_sha"))
-            or (prior.get("head_sha") != info["headRefOid"] and not advancing)):
-        raise config.Error("the PR head or review checkout changed; existing work is kept for inspection")
+    if prior.get("worktree"):
+        at = git(prior["worktree"], "rev-parse", "HEAD")
+        recorded = (prior.get("review") or {}).get("head_sha") or prior.get("head_sha")
+        # a reset to the head this round moves to may have finished just before a crash
+        moved = advancing and at == info["headRefOid"]
+        if ((at != recorded and not moved)
+                or (prior.get("head_sha") != info["headRefOid"] and not advancing)):
+            raise config.Error("the PR head or review checkout changed; existing work is kept "
+                               "for inspection")
     previous = saved_findings(run_dir, prior) if is_own else ""
     # Persist before fetch/checkout/provider work: the PR can move at any of those steps.
     receipt = stamp_origin({**(run_record.read_state(run_dir) or {}), "run_id": run_dir.name,
