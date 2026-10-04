@@ -11799,7 +11799,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
              "worktree": str(wt), "executor": None, "reviewer": None, "rounds": n_rounds,
              "state": "running", "verdict": None, **run_record.process_owner(), "started_at": receipt["started_at"],
              "finished_at": None, "round_summaries": summaries, "findings": previous, "merge_method": "squash",
-             "no_merge": not is_own, "merged": False, "merge_note": None, "reported": False})
+             "no_merge": not is_own or bool(opts.get("--no-merge")), "merged": False,
+             "merge_note": None, "reported": False})
     # a review is a run like any other: its history row carries its task's size, measured
     # off the same body the task file on disk holds
     sized_words, sized_points, sized_checks = taskfile.task_size(
@@ -11921,7 +11922,10 @@ def settle_pr_round(lp, url, info):
         write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
         log(f"ERROR {state['error']}")
         return state
-    if verdict == "PASS" and posted and not state.get("merged"):
+    if is_own and state.get("no_merge") and verdict == "PASS" and posted:
+        # launched with --no-merge: the verdict is the whole delivery
+        state["merge_note"] = "not merged: the review was launched with --no-merge"
+    elif verdict == "PASS" and posted and not state.get("merged"):
         if is_own:
             # the verdict owes its delivery until it lands, fails or goes back to its writer:
             # a delivery that errors keeps the mark, and with it the checkout a retry needs

@@ -582,6 +582,16 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertEqual(spawned.call_args.args[1], ["resume", directory.name])
         followed.assert_called_once()
 
+    def test_an_own_pr_reviewed_with_no_merge_is_never_landed(self):
+        directory, url = self.own_pr("first", 1)
+        opts = {"--review": None, "--review-pr": url, "--no-merge": True}
+        with patch.object(run, "gh", return_value=(0, "")):
+            state = run.review_pr(self.cfg, directory, url, opts, lambda _: None)
+        self.assertEqual((state["state"], state["merged"], state["no_merge"]), ("pass", False, True))
+        self.assertNotIn("waiting_on", state)
+        self.assertIn("--no-merge", state["merge_note"])
+        self.assertEqual((land.line(self.turn), self.merges), ([], []))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
