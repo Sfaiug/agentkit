@@ -46,6 +46,7 @@ exec "$NOTIFY_SMOKE_TMUX" -L agentkit-test -S agentkit-test "$@"
                    "AK_MAX_RUNS": "0",
                    "TMUX_TMPDIR": str(sockets), "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                    "NOTIFY_SMOKE_TMUX": TMUX, "TMPDIR": str(root), "NO_COLOR": "1",
+                   "XDG_RUNTIME_DIR": str(root),
                    "PATH": f"{binaries}:{REPO / 'bin'}:{os.environ['PATH']}",
                    "PYTHONPATH": f"{binaries}:{REPO}", "PYTHONDONTWRITEBYTECODE": "1",
                    "AGENTKIT_DISCORD_USER_ID": "", "AGENTKIT_DISCORD_WEBHOOK": "off",
