@@ -5588,6 +5588,30 @@ def finish_blocked(run_dir, state, exc, log, cfg):
     return state
 
 
+def end_on_dependency(cfg, run_dir, state, log, why):
+    """End a run cut from a dependency's passed tip, blocked, with the branch to relaunch from.
+
+    `why` is `stands_on_dependency`'s.  An interrupted executor's uncommitted edits go onto
+    that branch first.  A checkout off it -- a rebase or merge stopped part way -- or still
+    holding work no commit took is kept with that work (`checkout_kept`), and the ending
+    says where, so the hand-back's cleanup leaves it for the seat.
+    """
+    wt = Path(state.get("worktree") or "")
+    if not state.get("scratch") and state.get("worktree") and wt.is_dir():
+        branch = state.get("branch")
+        if (git(wt, "symbolic-ref", "--quiet", "HEAD", check=False) != f"refs/heads/{branch}"
+                or in_progress(wt, "rebase") or in_progress(wt, "merge")):
+            why += (f"; its checkout {wt} stopped part way off {branch} (a rebase or merge) "
+                    f"and is kept with that work")
+            state["checkout_kept"] = True
+        else:
+            commit_leftovers(wt, log, set())
+            if any(not leftover_junk(path) for path in dirty_paths(wt)):
+                why += f"; its uncommitted work could not be committed, so its checkout {wt} is kept"
+                state["checkout_kept"] = True
+    return finish_blocked(run_dir, state, Blocked(why, f"## Blocked\n\n{why}"), log, cfg)
+
+
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
     receipt = run_record.read_state(run_dir) or {}
     # a --bg parent's pick, consumed here: one launch, one pick, whichever process prints it
@@ -5601,25 +5625,9 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     on_dependency = stands_on_dependency(prior or receipt)
     if on_dependency:
         # before any checkout, pick or round: nothing here can stand on what it was cut from
-        state = stamp_origin({**(prior or receipt), "run_id": run_dir.name, "title": title,
-                              "task": str(task_path)})
-        wt = Path(state.get("worktree") or "")
-        if prior and not state.get("scratch") and state.get("worktree") and wt.is_dir():
-            # the relaunch starts from the kept branch: an interrupted executor's uncommitted
-            # edits go onto it before the ending's cleanup takes the checkout.  A checkout off
-            # that branch -- a rebase or merge stopped part way -- or still holding work no
-            # commit took ends in an error, which keeps it
-            branch = state.get("branch")
-            if (git(wt, "symbolic-ref", "--quiet", "HEAD", check=False) != f"refs/heads/{branch}"
-                    or in_progress(wt, "rebase") or in_progress(wt, "merge")):
-                raise config.Error(f"{on_dependency}; its checkout {wt} stopped part way off "
-                                   f"{branch} (a rebase or merge), so it is kept with that work")
-            commit_leftovers(wt, log, set())
-            if any(not leftover_junk(path) for path in dirty_paths(wt)):
-                raise config.Error(f"{on_dependency}; its uncommitted work could not be "
-                                   f"committed, so its checkout {wt} is kept")
-        return finish_blocked(run_dir, state, Blocked(on_dependency, f"## Blocked\n\n{on_dependency}"),
-                              log, cfg)
+        return end_on_dependency(cfg, run_dir, stamp_origin(
+            {**(prior or receipt), "run_id": run_dir.name, "title": title,
+             "task": str(task_path)}), log, on_dependency)
     if gc.disk_pressure():
         gc.gc(log)     # before this run adds a worktree of its own
     if prior:
@@ -9878,7 +9886,7 @@ def _drop_told(state, log, run_dir=None):
         drop_checkout(state, log, keep_branch=False)
         return
     if state.get("state") in ("fail", "error", "blocked", "stopped"):
-        if resume_holds_tree(state, run_dir):
+        if resume_holds_tree(state, run_dir) or state.get("checkout_kept"):
             return
         drop_checkout(state, log)
 
@@ -9922,8 +9930,9 @@ def settle_run(state, run_dir, log=None):
     A merged run loses the checkout in this step, and its branch with it; a
     scratch run keeps its workspace, which is the delivery. A failed, blocked,
     stopped or error run loses the checkout once the seat has been told --
-    unless a resume can still take it, which holds the checkout for the
-    seven-day clock -- and keeps its branch, the only copy a run that never
+    unless a resume can still take it, or its ending kept it for the seat
+    (`checkout_kept`), which holds the checkout for the seven-day clock --
+    and keeps its branch, the only copy a run that never
     pushed has. The run directory stays either way: `result.md` is what is read
     afterwards. Logs are left for the collector to gzip; readers of a run that
     just finished still have `log.txt`.
@@ -9941,7 +9950,8 @@ def settle_run(state, run_dir, log=None):
         drop_checkout(state, log, keep_branch=False)
         return
     if (state.get("state") in ("fail", "error", "blocked", "stopped")
-            and already_handed_back(state) and not resume_holds_tree(state, run_dir)):
+            and already_handed_back(state) and not resume_holds_tree(state, run_dir)
+            and not state.get("checkout_kept")):
         drop_checkout(state, log)
 
 

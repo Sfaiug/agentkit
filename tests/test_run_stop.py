@@ -307,27 +307,39 @@ class RunStop(Sandbox):
 
     def test_an_old_task_whose_kept_run_stands_on_its_dependency_ends_through_its_guard(self):
         legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
-        workspace = config.WORK / "20260101-0900-kept-on-dep"
-        workspace.mkdir(parents=True)
-        kept = self.running("20260101-0900-kept-on-dep", owner=None, state="exhausted",
-                            verdict=None, pid=None, base_sha="tip", from_pass=legacy,
-                            scratch=True, repo=None, worktree=str(workspace), branch="ak/b",
-                            round_summaries=[], findings="", merged=False,
-                            error="provider has no budget")
-        job_dir, job = self.old_job("20260101-090000-kept-on-dep", {
-            "name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
-            "run_id": kept.name, "from_pass": legacy})
-        # spent providers hold nothing: no budget check before its own guard ends it
-        with patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
-                patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
-                redirect_stdout(io.StringIO()):
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
-        self.assertEqual(rc, 1)
-        self.assertEqual(record.read_state(kept)["state"], "blocked")
-        task = jobs.read_job(job_dir)["tasks"][1]
-        self.assertEqual(task["state"], "blocked")
-        # the relaunch goes on from the work the kept run has, never from the target
-        self.assertIn("relaunch with `from: ak/b`", task["findings"])
+        # whatever state it was saved in, and whether its job died before or while it ran:
+        # no resume, merge retry, budget or login wait first
+        cases = [(saved, held) for held in ("waiting", "running") for saved in (
+            {"state": "exhausted", "error": "provider has no budget"},
+            {"state": "interrupted"},
+            {"state": "waiting_login", "error": "the login expired"},
+            {"state": "pass", "verdict": "PASS", "merge_failed": True,
+             "error": "git push failed"})]
+        for saved, held in cases:
+            with self.subTest(saved=saved["state"], held=held):
+                name = f"20260101-0900-kept-{saved['state']}-{held}"
+                workspace = config.WORK / name
+                workspace.mkdir(parents=True)
+                kept = self.running(name, owner=None, **{
+                    "verdict": None, "pid": None, "base_sha": "tip", "from_pass": legacy,
+                    "scratch": True, "repo": None, "worktree": str(workspace), "branch": "ak/b",
+                    "round_summaries": [], "findings": "", "merged": False, **saved})
+                job_dir, job = self.old_job(f"20260101-090000-{saved['state']}-{held}", {
+                    "name": "b.md", "title": "B", "after": ["a.md"], "state": held,
+                    "run_id": kept.name, "from_pass": legacy})
+                with patch.object(run, "collect_usage", side_effect=AssertionError("budget")), \
+                        patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                        patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
+                        patch.object(run, "cmd_merge", side_effect=AssertionError("a merge")), \
+                        redirect_stdout(io.StringIO()):
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                self.assertEqual(rc, 1)
+                self.assertEqual(record.read_state(kept)["state"], "blocked")
+                task = jobs.read_job(job_dir)["tasks"][1]
+                self.assertEqual((task["state"], task["run_id"]), ("blocked", kept.name))
+                # the relaunch goes on from the work the kept run has, never from the target
+                self.assertIn("relaunch with `from: ak/b`", task["findings"])
+                self.assertIn("relaunch with `from: ak/b`", task["verdict_line"])
 
     def test_an_old_task_whose_kept_run_was_stopped_stays_stopped(self):
         legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}

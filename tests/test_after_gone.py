@@ -183,10 +183,14 @@ class AfterGone(unittest.TestCase):
                                     merge_failed=False, scratch=False, repo=str(repo),
                                     worktree=str(wt), base_sha=tip,
                                     from_pass={"task": "alpha.md", "tip": tip})
-        with patch.object(run, "settle_run", side_effect=AssertionError("cleaned up")), \
-                self.assertRaisesRegex(config.Error, "stopped part way off ak/beta .* is kept"):
-            run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
-                     lambda _: None, prior=state)
+        with patch("agentkit.browser.close_owned"):
+            ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
+                             lambda _: None, prior=state)
+            self.assertEqual(ended["state"], "blocked")
+            self.assertRegex(ended["error"], r"relaunch with `from: ak/beta`; its checkout "
+                                             r".* stopped part way off ak/beta .* is kept")
+            # the seat is told, and the hand-back's cleanup leaves the checkout to it
+            run.settle_run({**record.read_state(run_dir), "handed_back": True}, run_dir)
         self.assertEqual((wt / "fixer.txt").read_text(), "fixer work\n")
         self.assertEqual(git("show", "ak/beta:file.txt"), "own work")
 
@@ -196,12 +200,20 @@ class AfterGone(unittest.TestCase):
         run_dir, state = self.saved("20261004-0704-gamma", state="running", verdict=None,
                                     merge_failed=False, scratch=False, repo=str(self.root),
                                     worktree=str(wt))
-        with patch.object(run, "commit_leftovers"), \
+        real_git = run.git
+        on_branch = lambda wt, *args, **kw: ("refs/heads/ak/beta" if args[:1] == ("symbolic-ref",)
+                                             else real_git(wt, *args, **kw))
+        with patch.object(run, "git", side_effect=on_branch), \
+                patch.object(run, "in_progress", return_value=False), \
+                patch.object(run, "commit_leftovers"), \
                 patch.object(run, "dirty_paths", return_value=["src/api.py"]), \
-                patch.object(run, "settle_run", side_effect=AssertionError("cleaned up")), \
-                self.assertRaisesRegex(config.Error, "checkout .* is kept"):
-            run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
-                     lambda _: None, prior=state)
+                patch.object(run, "drop_checkout", side_effect=AssertionError("cleaned up")), \
+                patch("agentkit.browser.close_owned"):
+            ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
+                             lambda _: None, prior=state)
+            self.assertEqual(ended["state"], "blocked")
+            self.assertRegex(ended["error"], "could not be committed, so its checkout .* is kept")
+            run.settle_run({**record.read_state(run_dir), "handed_back": True}, run_dir)
 
     def test_an_unstarted_run_ends_blocked_before_its_checkout(self):
         run_dir = config.RUNS / "20261004-0702-beta"
