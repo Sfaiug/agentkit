@@ -1405,6 +1405,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     """
     limit = 60 * run_record.SILENCE_MINUTES if limit is None else limit
     out_dir = Path(out_dir)
+    run_dir = out_dir.parent.parent
     note = shell_foreground_note()
     if note not in body:
         # the executor and fixer bodies already carry it in the context header; the reviewer
@@ -1414,7 +1415,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     # Mark only the worker child; the loop's orphaned-orchestrator fallback may still speak.
     # Every role (and retry) lives under <run>/round-N/<role> and inherits this audit log.
     env = {**run_child_env(), "AK_RUN_ROLE": "worker",
-           "AK_RUN_LOG": str(out_dir.parent.parent / "log.txt")}
+           "AK_RUN_LOG": str(run_dir / "log.txt")}
     if findings:
         env[hand_in.FINDINGS_ENV] = str(findings)
     attempt, calls, refills, last_kill, account, span = 1, 0, 0, None, None, None
@@ -1429,7 +1430,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         record wants anymore.
         """
         nonlocal account, span, last_dir, last_sid
-        run_record.stop_check(out_dir.parent.parent)
+        run_record.stop_check(run_dir)
         account = usage.account(cfg, entry["provider"])[0]
         began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
@@ -1448,7 +1449,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         else:
             span = (began, time.time())
         finally:
-            memory_cap_note(out_dir.parent.parent, log)     # however the turn ended
+            memory_cap_note(run_dir, log)     # however the turn ended
         note_turn_meters(cfg, name, target, account)
         last_dir, last_sid = target, result[2] or session
         return result
