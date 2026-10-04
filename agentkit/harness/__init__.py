@@ -81,26 +81,27 @@ def says(text, word):
     parts = [part.strip() for part in word.split("…")]
     if not all(parts):
         return False
-    ignored = []
-    if re.search(r"[\d#]", word):
-        # Paths, file names and ak's run and job ids (a date-time stamp, then words) join
-        # numbers with punctuation too; `HTTP-503` or `Error-429` is still the status. Keep
-        # adjacent status fields and refusal text: stripping a whole JSON record or line
-        # would hide a real refusal.
-        ignored = list(re.finditer(
-            r'''(?P<quote>["'`])(?:[^\s"'`{}<>,:;|]*/|[A-Za-z]:\\|\\\\)'''
-            r'''[^"'`{}<>,:;|]*(?P=quote)|[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|'''
-            r'''(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*|'''
-            r'''\b\d{8}-\d{4,6}(?:-[\w.]+)+|\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*\b''',
-            text))
     pattern = ".{0,80}".join(
         (r"(?<!\w)(?<!\d\.)" if re.match(r"[\w#]", part) else "")
         + re.escape(part).replace(r"\#", r"\d").replace(r"\~", r"[\W_]{0,3}")
         + (r"(?!\w)(?!\.\d)" if re.search(r"[\w#]$", part) else "")
         for part in parts)
-    return any(not any(path.start() < match.end() and match.start() < path.end()
-                       for path in ignored)
-               for match in re.finditer(pattern, text, re.I))
+    # Paths, file names and ak's run and job ids (a date-time stamp, then words) join
+    # numbers with punctuation too. A match stands unless every number in it sits inside
+    # one: `HTTP/1.1 429`, `HTTP-503` and `Error-429` are still the status.
+    ignored = [span.span() for span in re.finditer(
+        r'''[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*|'''
+        r'''\b\d{8}-\d{4,6}(?:-[\w.]+)+|\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*\b''', text)
+        ] if re.search(r"[\d#]", word) else []
+
+    def stands(match):
+        numbers = [(match.start() + number.start(), match.start() + number.end())
+                   for number in re.finditer(r"\d+", match.group())]
+        return not numbers or not all(any(start <= first and last <= end
+                                          for start, end in ignored)
+                                      for first, last in numbers)
+
+    return any(stands(match) for match in re.finditer(pattern, text, re.I))
 
 
 def limited(text):

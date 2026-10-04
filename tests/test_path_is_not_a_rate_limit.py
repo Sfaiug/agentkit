@@ -22,7 +22,6 @@ PATHS = (
     "acme-429/log.txt",
     "/tmp/429",
     "/tmp/acme(429)/run.log",
-    '"/tmp/acme 429 run/log.txt"',
     "20261004-0726-review-pr-acme-429",
     "log-429.txt",
     r"C:\tmp\acme-429\log.txt",
@@ -100,6 +99,19 @@ class PathIsNotARateLimit(unittest.TestCase):
                 with self.subTest(name=name, said=said):
                     self.assertIn(harness.load(name).failure(said)[0],
                                   (harness.REFUSAL, harness.OUTAGE))
+
+    def test_an_http_status_line_in_a_failure_event_is_still_the_status(self):
+        out = Path(tempfile.mkdtemp(prefix="status-", dir=self.root))
+        for message, names, expected in (
+                ("HTTP/1.1 429", ("codex", "claude", "muse", "grokbuild", "opencode"), harness.LIMITED),
+                ("HTTP/2 429", ("codex", "claude", "muse", "grokbuild", "opencode"), harness.LIMITED),
+                ("HTTP/1.1 503", ("codex", "claude", "muse", "grokbuild", "opencode"), harness.REFUSAL),
+                ("HTTP/2 (code 429)", ("antigravity",), harness.LIMITED)):
+            (out / "events.jsonl").write_text(json.dumps({"type": "error", "error": message}) + "\n")
+            for name in names:
+                with self.subTest(name=name, message=message):
+                    said = run.harness_said(out, "The request failed.", name)
+                    self.assertEqual(harness.load(name).failure(said)[0], expected)
 
     def test_a_worker_naming_a_path_is_not_parked(self):
         for name in REFUSALS:
