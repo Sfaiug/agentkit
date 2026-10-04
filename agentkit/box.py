@@ -223,8 +223,15 @@ def leftovers(out_dir):
 
 
 def _supervise(report, argv, drain=False):
-    proc = subprocess.Popen(argv, start_new_session=True, **(
-        {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT} if drain else {}))
+    try:
+        proc = subprocess.Popen(argv, start_new_session=True, **(
+            {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT} if drain else {}))
+    except OSError as exc:
+        # A command that never started proves no defect; keep the shell's launch codes.
+        code = 127 if isinstance(exc, FileNotFoundError) else 126
+        print(exc, file=sys.stderr)
+        Path(report).write_text(json.dumps({"returncode": code, "processes": []}))
+        return code
 
     def term(signum, _frame):
         # Outer bwrap cannot forward TERM; leave it alive while the harness saves
