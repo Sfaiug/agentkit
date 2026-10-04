@@ -2728,8 +2728,16 @@ def rules_cap(lp):
                                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
     limit, harness = ceiling
-    out = git(lp.wt, "cat-file", "-s", "HEAD:AGENTS.md", check=False)   # "" once it is deleted
-    size = int(out) if out.isdigit() else 0
+    # the bytes a checkout holds, Git's line-end conversion and filters applied: what a harness
+    # reads, not the stored blob, and read as bytes, since a text read would fold CRLF to LF
+    try:
+        read = subprocess.run(["git", "-C", str(lp.wt), "cat-file", "--filters", "HEAD:AGENTS.md"],
+                              capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
+                              env=tool_env())
+    except subprocess.TimeoutExpired as exc:
+        raise Stopped(f"git cat-file --filters HEAD:AGENTS.md was killed after {TOOL_CAP:g}s "
+                      f"in {lp.wt}") from exc
+    size = len(read.stdout) if read.returncode == 0 else 0   # nothing once the branch deleted it
     return (f"AGENTS.md is {size} bytes, past the {limit} bytes {harness} reads of it: "
             "tighten it." if size > limit else "")
 

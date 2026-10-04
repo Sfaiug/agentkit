@@ -200,13 +200,26 @@ class RulesCapTold(unittest.TestCase):
         # a timed-out read is no deleted file: the oversized file must not pass as 0 bytes
         lp = self.loop()
         self.commit_rules("x" * (LIMIT + 1))
-        real = run.tool_run
+        real = subprocess.run
 
         def timing_out(argv, **kwargs):
-            return (None, "", "timed out") if "cat-file" in argv else real(argv, **kwargs)
+            if "cat-file" in argv:
+                raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
+            return real(argv, **kwargs)
 
-        with patch.object(run, "tool_run", side_effect=timing_out), self.assertRaises(run.Stopped):
+        with patch.object(run.subprocess, "run", side_effect=timing_out), \
+                self.assertRaises(run.Stopped):
             run.rules_cap(lp)
+
+    def test_the_size_is_the_file_as_checked_out(self):
+        # with CRLF line ends on checkout, a blob at the limit is past it where a harness reads it
+        (self.repo / ".gitattributes").write_text("AGENTS.md text eol=crlf\n")
+        self.git("add", ".gitattributes")
+        self.git("commit", "-q", "-m", "attributes")
+        lp = self.loop()
+        self.commit_rules("x\n" * (LIMIT // 2))
+        self.assertEqual(self.git("cat-file", "-s", "HEAD:AGENTS.md"), str(LIMIT))
+        self.assertIn(f"AGENTS.md is {LIMIT // 2 * 3} bytes", run.rules_cap(lp))
 
     def test_removed_oversized_rules_pass_checks(self):
         self.commit_rules("x" * (LIMIT + 1))
