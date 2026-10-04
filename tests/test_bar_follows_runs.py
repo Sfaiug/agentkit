@@ -107,7 +107,7 @@ class BarFollowsRuns(unittest.TestCase):
         """The line-one writes that seat's bar got on agentkit's own server."""
         rows = [line.split("\t") for line in self.calls.read_text().splitlines()]
         return [row[5] for row in rows
-                if row[:5] == ["agentkit-test", "set-option", "-t", name, statusbar.TOP]]
+                if row[:5] == ["agentkit-test", "set-option", "-t", f"={name}:", statusbar.TOP]]
 
     def step(self, name):
         run.Loop.step(self.loop, name)

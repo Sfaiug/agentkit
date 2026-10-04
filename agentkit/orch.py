@@ -1690,12 +1690,11 @@ def start(name, cwd, cmd, orchestrator):
                        unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
-    # set-option takes the session name plain: it is the one target that rejects `=name`
-    tmux_out("set-option", "-t", name, MARK, "1")
+    tmux_out("set-option", "-t", f"={name}:", MARK, "1")
     # A server started as a systemd service writes its stdout to the journal, so tmux
     # itself expands the launched pane rather than handing its id back to this caller.
     tmux_out("set-option", "-F", "-t", f"={name}:", PANE_OPTION, "#{pane_id}")
-    tmux_out("set-option", "-t", name, "remain-on-exit", "on")
+    tmux_out("set-option", "-t", f"={name}:", "remain-on-exit", "on")
     from . import statusbar   # here, not at the top: the bar's module imports this one
     statusbar.dress(name, orchestrator)
 
