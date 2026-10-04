@@ -1031,6 +1031,7 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
     model and spend a launch on a wall every pass.  It goes to the ladder, which waits for
     it the way it waits for spent budget, and the tick resumes it when the login is back.
     """
+    run_state = {}
     try:
         with job_adopting(run_dir.name):
             run_state = run.reap(run_dir, record.read_state(run_dir) or {})
@@ -1060,6 +1061,17 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
         job_ladder(cfg, job_dir, job, task, run_dir, run_state,
                    0 if job_classify(run_state, cfg) in ("merged", "passed") else 1, log, lock)
     except config.Error as exc:
+        current = record.read_state(run_dir) or {}
+        if ((current.get("state"), current.get("merged")) != (run_state.get("state"),
+                                                              run_state.get("merged"))
+                and (current.get("merged") or current.get("state") in
+                     ("pass", "fail", "blocked", "stopped", "not_needed"))):
+            # another process ended it after this one read it -- a resume or a delivery --
+            # so the resume was refused: that ending is the task's, never a fresh start
+            log(f"{task['name']}: ended elsewhere while adopted: {current.get('state')}")
+            job_ladder(cfg, job_dir, job, task, run_dir, current,
+                       0 if job_classify(current, cfg) in ("merged", "passed") else 1, log, lock)
+            return
         # the kept run refuses resume (e.g. a budget FAIL rerun from scratch is the ladder's
         # job, not this adoption's): clear it and let the scheduler start the task over with
         # its ladder flags intact

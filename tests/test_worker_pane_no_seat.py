@@ -71,7 +71,7 @@ class WorkerPaneNoSeat(unittest.TestCase):
         return subprocess.CompletedProcess(argv, 0, "\n".join(
             f"{pid} {parent} {' '.join(words)}" for pid, (parent, words) in self.table.items()))
 
-    def tmux(self, *args, socket=None):
+    def tmux(self, *args, socket=None, **_kw):
         if socket == "":
             self.assertEqual(args[0], "list-sessions")
             return 1, "no server running"

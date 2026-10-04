@@ -79,7 +79,7 @@ class Claude:
         self.composer, self.read, self.typed, self.chosen = "", [], 0, 0
         self.takes, self.fails, self.dialog = True, False, False
 
-    def keys(self, *args, socket=None, client=False):
+    def keys(self, *args, socket=None, client=False, **_kw):
         if args[0] == "send-keys" and args[-2] == "-l":
             self.composer += args[-1]
             self.typed += 1

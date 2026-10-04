@@ -83,7 +83,7 @@ class AskInboxLock(unittest.TestCase):
         stack.enter_context(patch.object(watch, "seat_model", return_value=("claude", "anthropic")))
         self.pinged = stack.enter_context(patch.object(notify, "shaped", return_value=0))
 
-    def tmux(self, *args, socket=None, client=False):
+    def tmux(self, *args, socket=None, client=False, **_kw):
         if args[0] == "send-keys":
             self.sent.append(args[-1])
         if args[0] != "capture-pane":
@@ -182,7 +182,7 @@ class AskInboxLock(unittest.TestCase):
 
         lost = []
 
-        def tmux(*args, socket=None, client=False):
+        def tmux(*args, socket=None, client=False, **_kw):
             if args[0] == "send-keys" and args[-1] == "Enter" and not lost:
                 lost.append(True)     # the one Enter that never arrives
                 return 1, "lost server"
