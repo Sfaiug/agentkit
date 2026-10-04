@@ -103,10 +103,11 @@ class SeatStates(unittest.TestCase):
                 self.assertEqual(watch.seat_read("seat")["rule"], "UserPromptSubmit")
 
     def test_b2_a_question_the_harness_never_retracts_is_retired_by_its_own_screen(self):
-        """Claude 2.1.263 reports a prompt going up and nothing when it comes down."""
+        """Claude reports a prompt going up and nothing when it comes down; only a Stop ends
+        the turn that asked it, so a screen that has moved on is that turn running on."""
         self.fact("Notification", kind="permission_prompt",
                   text="Claude needs your permission to use Bash")
-        self.assertEqual(menu.state(self.seat), "needs you")   # the screen has moved on
+        self.assertEqual(menu.state(self.seat), "working")   # the screen has moved on
         self.pane = self.fixture("claude", "working")
         self.assertEqual(menu.state(self.seat), "working")
         self.pane = "streaming an answer"     # nothing positive on the screen: the hook stands

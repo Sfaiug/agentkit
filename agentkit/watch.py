@@ -1449,17 +1449,23 @@ def classify(harness, tail, fact, opened_at, previous, now):
     """What that live seat is doing, since when, and what decided it.  A pure function.
 
     The hook decides the states its manifest reserves for it, except where a rule positively
-    names a different one: a harness that reports a question going up and nothing when it comes
-    down would otherwise leave the row on `asking` for the rest of the turn.  With neither a
+    names a different one.  A harness reports a question going up and nothing when it comes
+    down, and a question is asked inside a turn that only its Stop ends: a record still holding
+    the question has had no Stop since.  So where its hooks own `working`, a rule reading
+    anything but a question -- the composer, a draft, a turn running -- means the question was
+    answered and the turn that asked it runs on, however the screen draws it.  With neither a
     hook fact nor a rule the answer is `at_prompt`: `working` needs a `UserPromptSubmit` hook
-    fact or a rule that names it.  These are the facts, not the word a screen says: what the
-    user reads is one of `session_state`'s three, and this is one of the things it reads.
+    fact, an answered question or a rule that names it.  These are the facts, not the word a
+    screen says: what the user reads is one of `session_state`'s three, and this is one of the
+    things it reads.
     """
     authority = config.manifest(harness).get("authority") or {}
     opened = (opened_at if isinstance(opened_at, (int, float))
               and not isinstance(opened_at, bool) else None)
     hooked, event, spoken, when = hook_state(harness, fact)
     seen, rule, line = screen_state(harness, tail)
+    if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
+        hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
     elif seen:
