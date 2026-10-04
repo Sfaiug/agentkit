@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import box, config, host, notify, orch, retention, run, task as taskfile, watch
-from . import record
+from . import land, record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
 JOB_TICK = 2              # seconds between scheduler passes over the job receipt
@@ -735,20 +735,26 @@ def job_await(run_dir, poll=lambda: None):
     It is a lone run in everything but its voice, so it goes on as one does: while its
     process lives, and while the tick carries a death of it on -- a resume ordered or backing
     off, or a death recorded for the dead-loop pass -- it is still going.  What comes back is
-    its ending, a wait for budget or a login, or what the tick left for a person.
+    its ending, a wait for budget or a login, or what the tick left for a person.  While it
+    waits in the landing line its lander is started again at the picker's rate, as the tick
+    does: the one its run started on leaving can die with that run's unit, and a sandbox
+    runs no tick at all.
     """
+    asked = time.time()
     while True:
         poll()
         state = record.read_state(run_dir) or {}
         if not record.process_active(state):
             with job_adopting(run_dir.name):
                 state = run.reap(run_dir, state)
-            if not (state.get("state") in ("queued", "running")
-                    or (state.get("state") == "waiting"
-                        and (state.get("waiting_on") or {}).get("line"))
+            line = run.landing_line(state)
+            if not (state.get("state") in ("queued", "running") or line
                     or (state.get("state") == "interrupted" and state.get("deaths")
                         and run.tick_resumes(state))):
                 return state
+            if line and time.time() - asked >= JOB_PICKER_INTERVAL:
+                asked = time.time()
+                land.start_line(config.RUNS / line)
         time.sleep(JOB_TICK)
 
 
@@ -810,7 +816,7 @@ def job_follow_waiting(run_dir, run_state, log):
             watch.resume_waiting(log=log, run=run_dir)
         time.sleep(JOB_TICK)
         run_state = record.read_state(run_dir) or run_state
-        if run_state.get("state") != "waiting":
+        if run_state.get("state") != "waiting" or run.landing_line(run_state):
             run_state = job_await(run_dir)
     return run_state
 

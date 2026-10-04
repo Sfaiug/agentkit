@@ -88,7 +88,8 @@ def green_delivery(wait):
 
 
 def start_line(turn, log=lambda _: None):
-    """Start a fresh checker when no pass is running; the tick retries a missed start."""
+    """Start a fresh checker when no pass is running; the tick and every follower of a
+    member (`job.job_await`) retry a missed start."""
     from . import host, orch, run, worker
     turn = Path(turn)
     if turn.parent != config.RUNS or not turn.name.startswith(".merge-"):
