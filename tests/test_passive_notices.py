@@ -90,6 +90,43 @@ class PassiveNotices(Sandbox):
         self.assertEqual(self.hook("UnmappedEvent"), before)
         self.assertEqual(self.looked(), ("working", False))
 
+    def test_a_seat_with_no_record_still_writes_its_notices(self):
+        config.session_path(SEAT).unlink()
+        for kind in ("permission_prompt", PASSIVE[0]):
+            with self.subTest(kind=kind):
+                fact = json.loads(self.hook("Notification", notification_type=kind))
+                self.assertEqual((fact["event"], fact["kind"]), ("Notification", kind))
+
+    def test_an_unreadable_manifest_still_writes_the_notice(self):
+        adapters = self.root / "adapters"
+        adapters.mkdir()
+        (adapters / "claude.toml").write_text("[hooks\n")
+        fact = json.loads(self.hook(
+            "Notification", notification_type=PASSIVE[0],
+            env={**self.env, config.ADAPTER_DIR_ENV: str(adapters)}))
+        self.assertEqual((fact["event"], fact["kind"]), ("Notification", PASSIVE[0]))
+
+    def test_a_failed_classifier_still_writes_the_notice(self):
+        bindir = self.root / "bin"
+        bindir.mkdir()
+        python = bindir / "python3"
+        python.write_text('''#!/bin/bash
+if [[ ${1:-} = -c && ${2:-} = *watch.hook_state* ]]; then
+  exit "$CHECK_STATUS"
+fi
+exec "$REAL_PYTHON" "$@"
+''')
+        python.chmod(0o755)
+        env = {**self.env, "PATH": f"{bindir}:{self.env['PATH']}",
+               "REAL_PYTHON": shutil.which("python3")}
+        for status in (1, 2, 127, 137):
+            with self.subTest(status=status):
+                self.hook("UserPromptSubmit")
+                fact = json.loads(self.hook(
+                    "Notification", notification_type=PASSIVE[0],
+                    env={**env, "CHECK_STATUS": str(status)}))
+                self.assertEqual((fact["event"], fact["kind"]), ("Notification", PASSIVE[0]))
+
     def test_a_renamed_seat_keeps_its_launch_names_hook_fact(self):
         self.hook("UserPromptSubmit")
         config.rename_session(SEAT, "acme")

@@ -94,7 +94,7 @@ seat_state() {
   # ends the turn while Python is deciding: there is no old fact to put back over that Stop.
   # Where nothing can say -- no record names the harness, or the asking fails -- the event is
   # written as it always was: only a known passive notice is left out.
-  if [[ $event != UserPromptSubmit && $event != Stop ]]; then
+  if [[ $event != UserPromptSubmit && $event != Stop ]] &&
     /usr/bin/env python3 -c '
 import sys
 from pathlib import Path
@@ -106,8 +106,9 @@ try:
     passive = bool(harness) and watch.hook_state(harness, fact)[0] is None
 except Exception:
     passive = False
-sys.exit(1 if passive else 0)
-' "${BASH_SOURCE[0]}" "$row" "$event" "$kind" "$ts" || return 0
+sys.exit(0 if passive else 1)
+' "${BASH_SOURCE[0]}" "$row" "$event" "$kind" "$ts"; then
+    return 0
   fi
   # Claude says its prompt is idle a minute after a turn ends whether or not background work is
   # in flight.  A seat waiting on work it started is not idle, and the Stop that said so stands
