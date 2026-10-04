@@ -5775,6 +5775,13 @@ def main(argv):
                 tell_waits(config.load(), log)
             except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
                 log(f"WARN the wait pass did not run: {exc}")
+            # ... and what another seat sent one with `ak tell` is typed into it, at its next
+            # quiet prompt, oldest first.
+            try:
+                from . import tell
+                tell.deliver(config.load(), log)
+            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
+                log(f"WARN the message pass did not run: {exc}")
             # Cards are derived from every session's current three-state word, including
             # seats whose panes were not available to the health pass.
             try:

@@ -122,6 +122,18 @@ seat_state() {
       <<<"$payload" >/dev/null 2>&1; then
     peer=true
   fi
+  # So does a line another seat sent with `ak tell`: ak writes its typing receipt, source
+  # `seat:<sender>`, before the text goes in, so the prompt is found among the latest ones.
+  if [[ $peer = false && -r $dir/input-$row.jsonl ]] &&
+    /usr/bin/tail -n 50 -- "$dir/input-$row.jsonl" 2>/dev/null |
+      "$jq" -Rse --argjson p "$payload" '
+        [split("\n")[] | fromjson? | objects] as $sent
+        | [($p.prompt // empty), ($p.message // empty)] | map(strings | gsub("\\s"; "")) as $said
+        | any($sent[]; (.source | strings | startswith("seat:"))
+                       and ((.text | strings | gsub("\\s"; "")) as $t | any($said[]; . == $t)))' \
+      >/dev/null 2>&1; then
+    peer=true
+  fi
   asked=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
                | any(test("\\?([[:space:]]|$)"))' \

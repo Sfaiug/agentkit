@@ -47,6 +47,9 @@
   state (`session_state`, `waiting_on`), typing receipts by source, revive, resume, PR scans,
   `doctor`. For run, job, orch, menu, notify, update, usage, worker, hooks.
   Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
+- `tell.py`: `ak tell`, one seat's message to another for every harness: kept in the receiver's
+  `tell` seat file until `watch.type_at_prompt` types it, receipted `seat:<sender>`; the
+  seat-state hook reads that receipt as a peer's prompt. For bin/ak and the tick.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.

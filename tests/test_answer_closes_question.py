@@ -281,6 +281,14 @@ class AnswerClosesQuestion(Sandbox):
                 self.prompt(**{field: "<cross-session-message from='acme'>Ready.</cross-session-message>"})
                 self.assert_open()
 
+    def test_a_line_another_seat_sent_with_ak_tell_leaves_it_open(self):
+        told = "[from seat acme-other at 09:14, not the owner; reply with ak tell acme-other] Ready."
+        config.seat_file("input", SEAT).write_text(json.dumps(
+            {"at": 1, "text": told, "source": "seat:acme-other"}) + "\n")
+        self.notice()
+        self.prompt(prompt=told)
+        self.assert_open()
+
     def test_task_notification_leaves_it_open(self):
         self.notice()
         for field in ("prompt", "message"):

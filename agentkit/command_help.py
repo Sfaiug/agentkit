@@ -139,6 +139,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
              "add runs the check on the project's default branch and refuses one that passes;\n"
              "--eye is the owner's to judge, and tick N marks it done on their word.",
              "ak plan add \"each session sees its project\" --check 'python3 tests/test_x.py'"),
+    "tell": ('usage: ak tell SESSION "TEXT"',
+             "ak types it into that session at its next quiet prompt, headed with who sent\n"
+             "it; it never counts as the owner's words.",
+             'ak tell fix-api "I am changing parser.py; leave it until my PR lands"'),
     "update": ("usage: ak update [--dry-run]",
                "Upgrade harnesses and verify with acceptance gates; --dry-run prints the plan.",
                "ak update --dry-run"),
@@ -181,7 +185,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
 
 # `ak --help` is one screen: the menu, then the commands an orchestrator uses, one line
 # each, and under one dim `internal:` line the ones the toolkit runs for itself.
-ORCHESTRATOR = ("run", "plan", "notify", "wait", "usage", "browser", "fetch")
+ORCHESTRATOR = ("run", "plan", "notify", "wait", "tell", "usage", "browser", "fetch")
 INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor")
 
 PURPOSES = {
@@ -198,6 +202,7 @@ PURPOSES = {
     "doctor": "show the slice, the tick, and any model set to an effort it does not take",
     "notify": "record a needs-you question or a job summary",
     "wait": "end this turn waiting on another session's work",
+    "tell": "send another session a message",
     "fetch": "copy requested Mac files to this host",
     "macbridge": "macOS only: forward requested files to the server over SSH",
 }

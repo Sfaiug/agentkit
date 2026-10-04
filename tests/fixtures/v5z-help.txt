@@ -5,6 +5,7 @@ usage: ak [command]
   plan     show or write this session's checked plan
   notify   record a needs-you question or a job summary
   wait     end this turn waiting on another session's work
+  tell     send another session a message
   usage    show provider usage and worker pick order
   browser  inspect the shared browser, sign in, register MCP tools, or install the stack
   fetch    copy requested Mac files to this host

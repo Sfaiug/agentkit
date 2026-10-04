@@ -70,6 +70,8 @@ Agentkit does not stop until the work is merged, or until it truly needs you. Tr
 
 A turn can end waiting on its job while the launcher is alive and any task is unsettled, even before the first run starts and after a seat rename. A job whose launcher is gone or whose tasks have all settled gives no wait.
 
+Sessions talk to each other with `ak tell <session> "<text>"`, the same way for every harness: ak types the message into that session at its next quiet prompt, headed with who sent it. It never counts as your words and never answers your question.
+
 A run recorded in the line to land holds no process and stays working however long it waits. Status and the menu show `waiting · 3rd in line to land on main`; only the lander moves it. Its job follows it to its ending.
 
 Each Codex seat runs its own app server with Remote Control enabled; the pane connects over a private Unix socket. The seat trusts only the hooks agentkit installs; Codex still asks you to review other hooks. Its hooks, rulebook, launch receipt and synced name stay with that conversation. Startup waits as long as the live server needs while the seat is open; closing it during its history import leaves the next start working. The server stops when the pane exits and starts again on resume. Its remote computer and conversation use the seat name in the ChatGPT app. Resumes and account switches keep its installation; removing the seat removes its remote enrollment. If pairing is needed, one `Needs you` card gives the code and a command to refresh an expired code; only pairing or removing the seat closes that card. No daemon or separate Codex installation is needed; workers still use `codex exec`.
