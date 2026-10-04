@@ -3,10 +3,12 @@
 Offline: task files in a temporary directory, read through `agentkit.task` alone.
 """
 
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -79,6 +81,16 @@ class TaskFile(unittest.TestCase):
                     "echo `echo $((1 << 2))`", "echo \"`echo '<<'`\"", "echo \"a<(cat <<E\""):
             with self.subTest(cmd):
                 self.assertIsNone(task.launch_refusal({}, [cmd]))
+
+    def test_only_bash_s_own_warning_counts_whatever_the_environment(self):
+        # an inherited `verbose` would echo the line itself to stderr
+        lines = ("printf '%s' 'here-document at line'", "true # here-document at line 1 is text",
+                 "test 'here-document at line' = 'here-document at line'")
+        with patch.dict(os.environ, {"SHELLOPTS": "verbose", "BASH_ENV": "/nonexistent"}):
+            for cmd in lines:
+                with self.subTest(cmd):
+                    self.assertIsNone(task.launch_refusal({}, [cmd]))
+            self.assertIn("opens a heredoc", task.launch_refusal({}, ["cat <<EOF"]))
 
     def test_substitutions_are_read_as_bash_reads_them(self):
         # each body is parsed on its own: bash leaves backquoted ones (and, before 5.2, all)

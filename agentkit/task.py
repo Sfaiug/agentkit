@@ -14,6 +14,10 @@ TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
 FENCE = re.compile(r"```(?:bash|sh)?\n(.*?)```", re.S)
 ONCE_MARKER = re.compile(r"#\s*once\s*$")
+# bash's own warning for a heredoc it never closes, from 3.2 (`bash: warning: …`) to 5.2
+# (`bash: line 1: warning: …`)
+UNCLOSED_HEREDOC = re.compile(r"^[^:\n]+: (?:line \d+: )?warning: here-document at line \d+ "
+                              r"delimited by end-of-file", re.M)
 
 
 def front_matter(path):
@@ -159,14 +163,15 @@ def opens_heredoc(command):
     leaves a substitution's body for when it runs (every backquoted one, and before bash 5.2
     every one), so each body is asked on its own.
     """
-    env = {**os.environ, "LC_ALL": "C"}
-    env.pop("BASH_ENV", None)
+    # nothing inherited may make bash read a file first or echo the line back (`verbose`)
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS")}
     try:
         said = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True,
-                              env=env, timeout=30).stderr
+                              env={**env, "LC_ALL": "C"}, timeout=30).stderr
     except (OSError, subprocess.SubprocessError):
         return False
-    return "here-document at line" in said or any(map(opens_heredoc, substitutions(command)))
+    return bool(UNCLOSED_HEREDOC.search(said)) or any(map(opens_heredoc, substitutions(command)))
 
 
 def substitutions(text):
