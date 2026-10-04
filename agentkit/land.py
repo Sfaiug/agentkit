@@ -41,15 +41,17 @@ def passed(turn, tree):
     return _trees(turn)[1].get(tree)
 
 
-def note(turn, trees, leader, *, red=None, red_stacks=None):
-    """Keep stack evidence separately from target probes awaiting their repair."""
+def note(turn, trees, leader, *, checks=(), red=None, red_stacks=None):
+    """Keep stack evidence, with the `checks` it ran, separately from target probes awaiting
+    their repair."""
     path, kept = _trees(turn)
     failed = {} if red_stacks == {} else _trees(turn, "red_stacks")[1]
     repairs = _trees(turn, "red")[1]
-    kept.update({tree: {"at": time.time(), "tested": tree, "leader": leader}
-                 for tree in trees})
+    kept.update({tree: {"at": time.time(), "tested": tree, "leader": leader,
+                        "checks": list(checks)} for tree in trees})
     repairs.update(red or {})
-    failed.update({tree: {"at": time.time(), **fix} for tree, fix in (red_stacks or {}).items()})
+    failed.update({tree: {"at": time.time(), **fix, "checks": list(checks)}
+                   for tree, fix in (red_stacks or {}).items()})
     for tree in trees:
         failed.pop(tree, None)
     fresh = path.with_name(path.name + ".new")
@@ -332,14 +334,18 @@ def _stack_member(repo, state, top, upstream, opened):
     return scratch, text
 
 
-def _check_tree(directory, state, scratch, upstream, log):
+def _landing_checks(directory, scratch, upstream):
+    """The member's own landing checks on `scratch`: its `# once` commands and the suite."""
     from . import run, task
-    tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
-    log_path = directory / f"lander-{tree}.log"
     _, body, _ = task.parse_task(directory / "task.md")
-    cmds = task.group_commands(run.with_suite(
-        task.done_when(body, directory / "task.md"), scratch, upstream))[1]
-    ok, text = _check(directory, state, scratch, cmds, log_path, log)
+    return tuple(task.group_commands(run.with_suite(
+        task.done_when(body, directory / "task.md"), scratch, upstream))[1])
+
+
+def _check_tree(directory, state, scratch, tree, checks, log):
+    from . import run
+    log_path = directory / f"lander-{tree}.log"
+    ok, text = _check(directory, state, scratch, list(checks), log_path, log)
     return {"land": tree} if ok else {"fix": {"line": run.first_failure(text), "log": str(log_path)}}
 
 
@@ -376,7 +382,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         continue
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
-                stacks.append((member, saved, scratch, tree))
+                stacks.append((member, saved, scratch, tree,
+                               _landing_checks(member, scratch, upstream)))
             if not stacks:
                 break
             if remaining is None:
@@ -386,21 +393,27 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
             # Retry its own check after a kill or flake; later evidence survives a crash.
             if not prefix:
                 red.pop(stacks[0][3], None)
-            answers = {tree: {"land": tree} if tree in green else
-                       {"fix": {key: red[tree][key] for key in ("line", "log")}}
-                       for _, _, _, tree in stacks if tree in green or tree in red}
+            # Evidence answers a stack only for the checks it ran: two tasks can stack
+            # the same tree, and each owes its own `# once` commands.
+            answers = {}
+            for _, _, _, tree, checks in stacks:
+                if green.get(tree, {}).get("checks") == list(checks):
+                    answers[tree, checks] = {"land": tree}
+                elif red.get(tree, {}).get("checks") == list(checks):
+                    answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log")}}
             unchecked = {}
-            for member, saved, scratch, tree in stacks:
-                if tree not in answers and len(unchecked) < remaining:
-                    unchecked.setdefault(tree, (member, saved, scratch))
+            for member, saved, scratch, tree, checks in stacks:
+                if (tree, checks) not in answers and len(unchecked) < remaining:
+                    unchecked.setdefault((tree, checks), (member, saved, scratch, tree, checks))
             remaining -= len(unchecked)
 
-            def answer_tree(tree, check):
-                if tree not in answers:
-                    answer = answers[tree] = check.result()
-                    note(turn, [tree] if "land" in answer else [], directory.name,
+            def answer_tree(key, check):
+                if key not in answers:
+                    tree, checks = key
+                    answer = answers[key] = check.result()
+                    note(turn, [tree] if "land" in answer else [], directory.name, checks=checks,
                          red_stacks={tree: answer["fix"]} if "fix" in answer else None)
-                return answers[tree]
+                return answers[key]
 
             rebuild, target_red = False, False
 
@@ -409,8 +422,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 if target_red:
                     return
                 green_prefix = bool(prefix)
-                for index, (member, saved, scratch, tree) in enumerate(stacks):
-                    answer = answers.get(tree)
+                for index, (member, saved, scratch, tree, checks) in enumerate(stacks):
+                    answer = answers.get((tree, checks))
                     # A red is blamed only behind stacks all answered green: an unanswered
                     # one ahead may be the culprit, and removing it changes every later tree.
                     if answer is None or ("fix" in answer and index and not green_prefix):
@@ -424,7 +437,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             ok, probe = _check(member, saved, scratch, [suite],
                                                member / "target-probe.log", log)
                             if ok:
-                                note(turn, [target_tree], directory.name)
+                                note(turn, [target_tree], directory.name, checks=[suite])
                             else:
                                 printed = "\n".join("    " + line
                                                     for line in probe[-run.OUT_CAP:].splitlines())
@@ -450,17 +463,17 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         return
 
             with ThreadPoolExecutor(max_workers=max(1, len(unchecked))) as pool:
-                checks = {pool.submit(_check_tree, *args, upstream, log): tree
-                          for tree, args in unchecked.items()}
+                running = {pool.submit(_check_tree, *args, log): key
+                           for key, args in unchecked.items()}
                 try:
                     decide()
-                    for check in as_completed(checks):
-                        answer_tree(checks[check], check)
+                    for check in as_completed(running):
+                        answer_tree(running[check], check)
                         decide()
                 finally:
                     # Keep suffix evidence even if a wake or verdict write crashes.
-                    for check, tree in checks.items():
-                        answer_tree(tree, check)
+                    for check, key in running.items():
+                        answer_tree(key, check)
             if target_red or not rebuild:
                 break
     return verdicts
