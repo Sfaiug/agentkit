@@ -1,0 +1,129 @@
+"""Compute and render the history scoreboard of delivered work and ak's cost."""
+
+import os
+import subprocess
+import time
+from statistics import median
+
+from . import config, history, record, terminal
+
+
+def compute(now=None):
+    """Two weeks of ended work, newest first, and the installed ak's committed size.
+
+    Shares use all ended runs; merge time and token medians use merged runs only.
+    Changed lines survive run cleanup as evidence of a merge; older, unsized merges
+    need their run record. Missing token measurements never become free work.
+    """
+    now = time.time() if now is None else now
+    week = 7 * 86400
+
+    def git(*args):
+        try:
+            result = subprocess.run(["git", "-C", str(config.REPO), *args],
+                                    capture_output=True, timeout=10)
+            if result.returncode == 0 or (args[0] == "grep" and result.returncode == 1):
+                return result.stdout
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return None
+
+    common = git("rev-parse", "--git-common-dir")
+    own_names = {config.REPO.name}
+    if common:
+        own_names.add((config.REPO / os.fsdecode(common).strip()).resolve().parent.name)
+    rows = [row for row in history.ended_runs(now - 2 * week, now)
+            if row["final_state"] in ("pass", "fail", "error", "blocked", "exhausted")]
+
+    board = {"products": [], "ak": []}
+    for end in (now, now - week):
+        ended = [row for row in rows if end - week <= row["finished_at"] and
+                 (row["finished_at"] <= end if end == now else row["finished_at"] < end)]
+        total_tokens = sum((row.get(role + "_tokens") or 0)
+                           for row in ended for role in ("executor", "reviewer"))
+        for label in board:
+            group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
+            if not group:
+                board[label].append(None)
+                continue
+            merged = [row for row in group if row.get("changed_lines") is not None or
+                      (record.read_state(config.RUNS / row["run_id"]) or {}).get("merged")]
+            hours = [(row["finished_at"] - row["started_at"]) / 3600 for row in merged
+                     if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]]
+            tokens = [row["executor_tokens"] + row["reviewer_tokens"] for row in merged
+                      if row.get("executor_tokens") is not None and row.get("reviewer_tokens") is not None]
+            stats = {"runs": len(group), "merged": len(merged),
+                     "first_round": sum(row["rounds_used"] == 1 for row in merged) / len(group),
+                     "unmerged": sum(row["final_state"] in ("fail", "error", "blocked", "exhausted")
+                                     for row in group if row not in merged) / len(group),
+                     "hours": median(hours) if hours else None,
+                     "tokens": median(tokens) if tokens else None}
+            if label == "ak":
+                spent = sum((row.get(role + "_tokens") or 0)
+                            for row in group for role in ("executor", "reviewer"))
+                stats["token_share"] = spent / total_tokens if total_tokens else None
+            board[label].append(stats)
+
+    def size(ref):
+        if not ref:
+            return None
+        code = git("grep", "-I", "-h", "--no-color", "-e", "^", ref, "--",
+                   "agentkit/", "bin/", "hooks/", "adapters/", "tools/", "install.sh")
+        readme = git("show", f"{ref}:README.md")
+        if code is None and readme is None:
+            return None
+        return {"code_lines": code.count(b"\n") if code is not None else None,
+                "readme_words": len(readme.decode("utf-8", "replace").split()) if readme is not None else None}
+
+    before = git("rev-list", "--first-parent", "-1",
+                 "--before=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - week)), "HEAD")
+    board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
+    return board
+
+
+def render():
+    """The two weeks beside each other without losing words on a phone."""
+    board = compute()
+
+    def week(stats, own):
+        if stats is None:
+            return "no runs ended"
+        text = (f"{stats['runs']} runs ended; {stats['first_round']:.0%} merged in round 1; "
+                f"{stats['unmerged']:.0%} ended without merging; ")
+        if not stats["merged"]:
+            text += "no merged runs"
+        elif stats["hours"] is None:
+            text += "merge hours unknown; "
+        else:
+            text += f"median {stats['hours']:g} hours to merge; "
+        if stats["merged"] and stats["tokens"] is None:
+            text += "median tokens per merged run unknown"
+        elif stats["merged"]:
+            tokens = f"{stats['tokens']:,}".removesuffix(".0")
+            text += f"median {tokens} tokens per merged run"
+        if own:
+            share = stats["token_share"]
+            text += f"; {share:.0%} of all recorded tokens" if share is not None else "; no tokens recorded"
+        return text
+
+    def size(stats):
+        if stats is None:
+            return "size unavailable"
+        code = stats["code_lines"]
+        words = stats["readme_words"]
+        return (f"{code} code lines" if code is not None else "code lines unknown") + ", " + (
+            f"{words} README words" if words is not None else "README words unknown")
+
+    rows = [("", "last 7 days", "7 days before"),
+            ("products", *(week(stats, False) for stats in board["products"])),
+            ("ak", *(week(stats, True) for stats in board["ak"])),
+            ("ak size", *(size(stats) for stats in board["size"]))]
+    room = max(1, (terminal.content_width() - 12) // 2)
+    lines = terminal.wrap("Scoreboard (reported tokens; size now and 7 days ago)", terminal.content_width())
+    for label, current, previous in rows:
+        left, right = terminal.wrap(current, room), terminal.wrap(previous, room)
+        for i in range(max(len(left), len(right))):
+            lines.append(terminal.table_row(
+                [label if i == 0 else "", left[i] if i < len(left) else "",
+                 right[i] if i < len(right) else ""], [8, room, room]))
+    return lines

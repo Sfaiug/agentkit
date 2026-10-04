@@ -2128,7 +2128,7 @@ def run_age_secs(state):
     started = state.get("started_at") or 0
     if run.needs_recovery(state):
         return max(0.0, now - (state.get("interrupted_at") or started or now))
-    if state.get("state") in ("queued", "running"):
+    if state.get("state") in ("queued", "running") or run.landing_line(state):
         return max(0.0, now - (started or now))
     if not started:
         return 0.0

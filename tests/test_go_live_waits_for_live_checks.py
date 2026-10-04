@@ -3,8 +3,8 @@
 The tick starts each check detached, in a directory of its own under the state directory, in a
 throwaway worktree of the commit with the acceptance gate's environment and a marker naming the
 check; one runs while anything carries that marker, one at a time, and one past its cap is ended
-by its own runner and by that marker, and counted red.  A red check keeps the host where it is, is handed back once with its last
-lines, however far main moved since, and is tried again on watch.RETRY_BACKOFF from its end, or
+by its own runner and by that marker, and counted red.  A red check keeps the host where it is, is handed back once with its failures
+and closing lines, however far main moved since, and is tried again on watch.RETRY_BACKOFF from its end, or
 from its cap; a newer origin/main is tried as soon as nothing runs.  Every caller of update_agentkit moves
 only to a commit that passed, exactly it, and a commit without tests/live.sh moves as before.
 `ak update`'s harness upgrade runs tests/live.sh after tests/smoke.sh and reverts on its failure.

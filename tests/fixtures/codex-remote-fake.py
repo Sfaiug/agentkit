@@ -145,7 +145,10 @@ else:
             client.call('thread/resume', {'threadId': args[args.index('resume') + 1]})
         else:
             client.call('thread/start', {})
-        (ch / 'fake-tui.json').write_text(json.dumps({'argv': args, 'pid': os.getpid()}))
+        # Tests treat the receipt's existence as readiness, so publish complete JSON.
+        ready = ch / 'fake-tui.tmp'
+        ready.write_text(json.dumps({'argv': args, 'pid': os.getpid()}))
+        ready.replace(ch / 'fake-tui.json')
         while os.environ.get('FAKE_HOLD'):
             time.sleep(.05)
     finally:

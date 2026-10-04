@@ -23,6 +23,13 @@ REPO = Path(__file__).resolve().parents[1]
 SCOPE = ("--", ".", ":!tests/", ":!*.md")
 
 RULES = [
+    # Scoreboard formulas and display words stay together so a change has one home.
+    {"name": "scoreboard",
+     "flags": (),
+     "pattern": r"\b(first_round|token_share|code_lines|readme_words)\b|"
+                r"Scoreboard \(reported tokens|no runs ended|median tokens per merged run",
+     "home": ("agentkit/scoreboard.py",),
+     "max": 0},
     # Process cleanup must use the worker's marker, so every ak home sweeps only its runs.
     {"name": "run marker",
      "flags": (),

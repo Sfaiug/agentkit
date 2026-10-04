@@ -31,7 +31,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 from . import (box, command_help, config, gate, gc, hand_in, history, host, job as jobs,
-               land as landing, notify, orch, record as run_record, retention,
+               land as landing, notify, orch, record as run_record, retention, scoreboard,
                task as taskfile, update, usage, watch, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
@@ -548,13 +548,18 @@ def repo_line(meta, task_path):
                            "does not have") from None
 
 
-def task_repo(meta, task_path):
-    """`repo:` if the task names one, else the git repository the `ak run` was invoked from.
+def task_repo(meta, task_path, task_file=None):
+    """`repo:` if the task names one, else the git repository the `ak run` was invoked from,
+    else the checkout its task folder is named for.
 
-    A task file that names no repo is the common case: the orchestrator writes it while sitting
-    in the repo it is about.  None means there is no repository in this job at all -- `repo:
-    none`, or nothing to inherit because the `ak run` was not launched from a checkout -- and
-    the run works in a scratch workspace instead.
+    `task_file` is the file the run was launched from, where `task_path` is the run's own
+    copy of it: only the original stands in a task folder.
+
+    A task file that names no repo is the common case: the orchestrator writes it under
+    ~/.agentkit/tasks/<project>/, and launches it from that checkout or from a folder of
+    checkouts such as ~/code.  None means there is no repository in this job at all -- `repo:
+    none`, or a launch outside any checkout of a task filed under none -- and the run works in
+    a scratch workspace instead.
     """
     if meta.get("repo"):
         if meta["repo"].lower() == "none":
@@ -569,7 +574,8 @@ def task_repo(meta, task_path):
         # or the work asked for in a checkout would quietly run in a scratch workspace instead
         raise Stopped(f"git rev-parse --show-toplevel failed: {err.strip()}")
     if code != 0:
-        return None
+        checkout = task_project(None, str(task_file or task_path))
+        return checkout.resolve() if checkout else None
     return Path(out.strip()).resolve()
 
 
@@ -2163,11 +2169,12 @@ class Loop:
         self.written = copy.deepcopy(self.state)
 
     def step(self, name):
-        """Record which step this run is in, and since when, for `ak run status` to read."""
+        """Record which step this run is in, and since when, for `ak run status` and the bar."""
         now = time.time()
         history.open_step(self.state.get("run_id"), name, now, log=self.log)
         self.state.update(step=name, step_at=now)
         self.save()
+        redress_seat(launched_session(self.state))
 
 
 HANDOVER = ("## Another model started this round\n"
@@ -3379,10 +3386,14 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
             progress.write(f"$ {command} (on {revision or 'workspace'})\n".encode())
             progress.flush()
             start = progress.tell()
-            code, _, killed = worker.limited(
-                ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
-                activity=log_path, output=progress, stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)
+            try:
+                code, _, killed = worker.limited(
+                    ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
+                    activity=log_path, output=progress, stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)
+            except (FileNotFoundError, PermissionError) as exc:
+                code, killed = (127 if isinstance(exc, FileNotFoundError) else 126), False
+                progress.write(str(exc).encode())
             output = hand_in.output_excerpt(progress, start)
             progress.write(f"\n[{'did not finish' if killed or code < 0 else f'exit {code}'}]\n".encode())
         memory_cap_note(lp.run_dir, lp.log)
@@ -3420,20 +3431,39 @@ def quoted_sites(lp, submitted, head):
         return sites
 
 
+def before_at_base(lp, row):
+    before = row.get("before", "").strip()
+    if not before:
+        return False
+    named = re.match(r"(?:base\s+)?([^\s:]+)(?::|\s|$)", before)
+    if named:
+        commit = git(lp.wt, "rev-parse", "--verify", "--end-of-options",
+                     f"{named[1]}^{{commit}}", check=False)
+        if commit and git_out(lp.wt, "merge-base", "--is-ancestor", commit, lp.base_sha)[0] == 0:
+            return True
+    code, content = git_out(lp.wt, "show", f"{lp.base_sha}:{row['path']}")
+    return code == 0 and before in content
+
+
 def weigh_review(lp, submitted, head=None):
     """The reviewer's editable copy cannot decide what blocks the reviewed commit."""
-    if not submitted.findings:
+    if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records):
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
     sites = quoted_sites(lp, submitted, head)
     records = []
     for index, row in enumerate(submitted.records, 1):
-        if row["kind"] != "finding":
+        if row["kind"] not in ("finding", "follow-up"):
             records.append(row)
             continue
         evidence = row["evidence"]
-        kind = "finding"
-        if index in sites and sites[index] is None:
+        kind = row["kind"]
+        if kind == "follow-up":
+            if not lp.scratch and "run" in evidence:
+                command = evidence["run"]
+                evidence = {"run": command, "commit": lp.base_sha, **proof_on(
+                    lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
+        elif index in sites and sites[index] is None:
             kind = "note"
         elif "run" in evidence:
             command = evidence["run"]
@@ -3442,21 +3472,33 @@ def weigh_review(lp, submitted, head=None):
             if not lp.scratch:
                 evidence["base"] = {"sha": lp.base_sha, **proof_on(
                     lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
-            if evidence["returncode"] == 0 or evidence["killed"] or evidence["returncode"] < 0:
+            if not hand_in.proof_failed(evidence):
                 kind = "note"
             elif not lp.scratch and not changed_line(lp, row, head):
                 base = evidence["base"]
-                if base["returncode"] != 0 or base["killed"]:
+                if hand_in.proof_failed(base):
                     kind = "follow-up"
+                elif base["returncode"] != 0 or base["killed"]:
+                    kind = "note"
         else:
             row = {**row, **sites[index]}
             if not lp.scratch and not changed_line(lp, row, head):
                 kind = "follow-up"
         row = {**row, "kind": kind, "evidence": evidence}
         if kind == "follow-up":
-            row["before"] = f"base {lp.base_sha}: " + (
-                "the proof does not pass there either" if "run" in evidence
-                else "quoted lines outside the change")
+            if "before" not in row:
+                row["before"] = f"base {lp.base_sha}: " + (
+                    "the proof fails there too" if "run" in evidence
+                    else "quoted lines outside the change")
+            reason = ("no base commit" if lp.scratch else
+                      "needs a --run proof that fails on base" if "run" not in evidence else
+                      "the command did not fail on base" if not hand_in.proof_failed(
+                          evidence.get("base", evidence)) else
+                      "--before names no commit in base's history or quote present at base" if not before_at_base(lp, row)
+                      else "")
+            if reason:
+                row.update(kind="note", dropped=reason)
+                lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
         records.append(row)
     return hand_in.Review(records)
 
@@ -3902,6 +3944,26 @@ def note(lp, reason, failed=False):
     return False
 
 
+def stands_on_dependency(state):
+    """Why a record from before `after:` went cannot go on, or "" when it can.
+
+    Its branch was to be cut from, or still stands on, a dependency's passed tip: the
+    reviewed diff leaves that dependency's commits out, so landing would deliver them
+    unreviewed, and replaying them after the dependency's squash conflicts.  Once
+    integrated onto the target the branch stands on its own commits and goes on.
+    """
+    after = state.get("from_pass")
+    if not isinstance(after, dict) or state.get("base_sha") not in (None, after.get("tip")):
+        return ""
+    dep, branch = after.get("task"), state.get("branch")
+    if not branch:
+        # never started: there is no branch to go on from, only the task to launch again
+        return (f"this run was to start from {dep}'s passed work, which `after:` no longer "
+                f"waits for; once that has merged, launch its task again")
+    return (f"this branch stands on {dep}'s passed work, which `after:` no longer "
+            f"waits for; once that has merged, relaunch with `from: {branch}`")
+
+
 def park_waiting(lp, reason, ref, sha=None):
     """Park the run `waiting` on the next merge to `ref`, with the reason.
 
@@ -3998,66 +4060,6 @@ def set_base(lp, tip):
     """The branch now carries the pinned tip, so that is what its diff is against from here on."""
     lp.state["base_sha"] = git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
     lp.write()
-
-
-def on_pass(lp):
-    """The dependency whose passed branch this branch still stands on, or None.
-
-    From the cut until the first integration puts the branch on a target commit instead: the
-    dependency's commits are under it, and reach the target only with its own merge.
-    """
-    after = lp.state.get("from_pass")
-    return after["task"] if after and lp.base_sha == after.get("tip") else None
-
-
-def dep_wait_note(state):
-    """`waiting for <dep> to merge` while a run waits in `wait_for_dependency`, else "".
-
-    The mark names the process that waits, so one a kill left on the record, or a resume
-    carried forward to a new process, says nothing.
-    """
-    wait = state.get("dep_wait")
-    if (state.get("state") != "running" or not isinstance(wait, dict)
-            or wait.get("pid") != state.get("pid")):
-        return ""
-    return f"waiting for {wait.get('of')} to merge"
-
-
-def wait_for_dependency(lp):
-    """Hold a branch cut from a dependency's passed branch until the dependency has merged.
-
-    Landing first would deliver the dependency's work under this task's name, so the run
-    waits for its job to settle that task, then `integrate` replays only its own commits.
-    A dependency settled without merging leaves nothing to stand on: the run stops before
-    landing, its branch kept, and the job skips the task as `after:` always did.
-    """
-    dep = on_pass(lp)
-    if not dep:
-        return True
-    waited, step = False, None
-    while True:
-        run_record.stop_check(lp.run_dir)
-        job = jobs.read_job(config.JOBS / str(lp.state.get("job_id")))
-        word = (jobs.job_task_by_name(job, dep) or {}).get("state") if job else None
-        if word in ("merged", "passed"):
-            break
-        if word is None or word in (*jobs.JOB_UNDELIVERED, "skipped"):
-            lp.state["skipped_dep"] = dep
-            lp.state.pop("dep_wait", None)
-            return note(lp, f"{dep} did not merge; this branch stands on its work and is kept")
-        if not waited:
-            lp.state["dep_wait"] = {"pid": os.getpid(), "of": dep}
-            lp.write()
-            lp.log(f"--- merge: waiting for {dep} to merge before landing on it")
-            step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
-            waited = True
-        time.sleep(jobs.JOB_TICK)
-    if waited:
-        lp.state.pop("dep_wait", None)
-        lp.write()
-        history.open_step(lp.state.get("run_id"), step, log=lp.log)
-        lp.log(f"--- merge: {dep} merged; landing")
-    return True
 
 
 def abort_integration(lp, how):
@@ -4278,10 +4280,7 @@ def integrate(lp, upstream):
         return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
                     failed=True)
     tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
-    # a branch cut from a dependency's passed branch replays only its own commits: the
-    # dependency most often lands squashed, its commits on the target under other names
-    onto = ("--onto", tip, lp.base_sha) if on_pass(lp) else (tip,)
-    how = "rebase" if on_pass(lp) else how_to_integrate(lp)
+    how = how_to_integrate(lp)
     try:
         pre_identity = commit_identity(lp.wt)
     except Stopped:
@@ -4314,7 +4313,7 @@ def integrate(lp, upstream):
             rc, out = git_out(lp.wt, "merge", "--no-edit", tip)
         else:
             lp.log(f"--- merge: rebasing {lp.state['branch']} onto {upstream} ({tip[:12]})")
-            rc, out = git_out(lp.wt, "rebase", *onto)
+            rc, out = git_out(lp.wt, "rebase", tip)
     except Stopped:
         abort_stopped_integration(lp, how)
         raise
@@ -4343,7 +4342,7 @@ def integrate(lp, upstream):
             if (not landing_review and was_pass and saved is not None and pre_identity is not None
                     and saved.get("head_sha") == pre_identity.get("head_sha")
                     and saved.get("tree_sha") == pre_identity.get("tree_sha")
-                    and not on_pass(lp) and old_base and old_head and carried_here
+                    and old_base and old_head and carried_here
                     and target_disjoint_from_branch(lp.wt, old_base, old_head, tip)):
                 new_identity = commit_identity(lp.wt)
                 lp.log(f"--- merge: clean {how} of {upstream}; target moved outside "
@@ -5401,7 +5400,7 @@ def release_line(run_dir, log):
 
 
 def rejoin_line(lp, upstream, reason, *, back=False):
-    """A changed target keeps the place; repaired work queues behind the other members."""
+    """A changed target keeps its place; repaired work rejoins at its priority group's back."""
     wait = lp.state["waiting_on"]
     lp.state.update(state="waiting", error=reason, merge_failed=False, merge_note=reason,
                     waiting_on={"line": turn_path(lp, upstream).name,
@@ -5414,16 +5413,14 @@ def rejoin_line(lp, upstream, reason, *, back=False):
 def land_from_line(lp, upstream, deliver):
     """Consume the lander's verdict in this run; only delivery holds the plain merge flock."""
     wait = lp.state["waiting_on"]
-    if "land" in wait and "fix" not in wait:
+    if landing.green_delivery(wait):
         turn = turn_path(lp, upstream)
         try:
             with merge_lock(lp, upstream):
                 fetch(lp.wt, "origin", "--prune", check=True)
                 tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
-                how = "rebase" if on_pass(lp) else how_to_integrate(lp)
-                args = (("merge", "--no-edit", tip) if how == "merge" else
-                        ("rebase", "--onto", tip, lp.base_sha) if on_pass(lp) else
-                        ("rebase", tip))
+                how = how_to_integrate(lp)
+                args = ("merge", "--no-edit", tip) if how == "merge" else ("rebase", tip)
                 saved = dict(lp.state["review"])
                 try:
                     code, _ = git_out(lp.wt, *args)
@@ -5493,11 +5490,8 @@ def land_from_line(lp, upstream, deliver):
 def land(lp, upstream, verify, deliver, execv=None):
     """Consume a line verdict, or verify once before taking the delivery lock.
 
-    A branch cut from a dependency's passed branch waits for it to merge first.
     Only delivery holds the repository lock; checks and fixers run outside it.
     """
-    if not wait_for_dependency(lp):
-        return False
     if (lp.state.get("waiting_on") or {}).get("line"):
         return land_from_line(lp, upstream, deliver)
     pickup_new_code(lp, execv=execv)
@@ -5599,8 +5593,6 @@ def merge(lp):
         return note(lp, f"this run works directly on {branch}, which is the branch it would merge "
                         "into, so there is no PR to open", failed=True)
 
-    if not wait_for_dependency(lp):
-        return False
     upstream_repo, permission = rights(lp)
     if upstream_repo and permission not in PUSH_RIGHTS:
         return land(lp, upstream, lambda: integrate(lp, upstream) and final_check(lp, upstream),
@@ -5618,6 +5610,50 @@ def merge(lp):
     return join_line(lp, upstream, deliver)
 
 
+def finish_blocked(run_dir, state, exc, log, cfg):
+    """The task cannot be done as written: a final state of its own, because there is no
+    verdict on work here and nothing a resume could spend.  The orchestrator that wrote
+    the task hears why and writes a new one."""
+    log(f"BLOCKED {exc}")
+    state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
+                  "blocked": exc.section, "finished_at": time.time()})
+    state.pop("quota_dry", None)
+    run_record.save_state(run_dir, state)
+    record_result(run_dir, state, log, cfg)
+    settle_run(state, run_dir, log)
+    return state
+
+
+def end_on_dependency(cfg, run_dir, state, log, why):
+    """End a run cut from a dependency's passed tip, blocked, with the branch to relaunch from.
+
+    `why` is `stands_on_dependency`'s.  An interrupted executor's uncommitted edits go onto
+    that branch first.  A checkout off it -- a rebase or merge stopped part way -- or still
+    holding work no commit took is kept with that work (`checkout_kept`), and the ending
+    says where, so the hand-back's cleanup leaves it for the seat.  So is one git could not
+    read or commit in time: the run still ends, and nothing in the checkout is lost.
+    """
+    wt = Path(state.get("worktree") or "")
+    if not state.get("scratch") and state.get("worktree") and wt.is_dir():
+        branch = state.get("branch")
+        try:
+            if (git(wt, "symbolic-ref", "--quiet", "HEAD", check=False) != f"refs/heads/{branch}"
+                    or in_progress(wt, "rebase") or in_progress(wt, "merge")):
+                why += (f"; its checkout {wt} stopped part way off {branch} (a rebase or merge) "
+                        f"and is kept with that work")
+                state["checkout_kept"] = True
+            else:
+                commit_leftovers(wt, log, set())
+                if any(not leftover_junk(path) for path in dirty_paths(wt)):
+                    why += (f"; its uncommitted work could not be committed, so its checkout "
+                            f"{wt} is kept")
+                    state["checkout_kept"] = True
+        except (config.Error, OSError) as exc:
+            why += f"; git could not put its checkout's work on {branch} ({exc}), so {wt} is kept"
+            state["checkout_kept"] = True
+    return finish_blocked(run_dir, state, Blocked(why, f"## Blocked\n\n{why}"), log, cfg)
+
+
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
     receipt = run_record.read_state(run_dir) or {}
     # a --bg parent's pick, consumed here: one launch, one pick, whichever process prints it
@@ -5628,6 +5664,12 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     ignore_time_keys(run_dir, meta, log)
     cmds = taskfile.done_when(body, task_path)
     sized_words, sized_points, sized_checks = taskfile.task_size(body, cmds)
+    on_dependency = stands_on_dependency(prior or receipt)
+    if on_dependency:
+        # before any checkout, pick or round: nothing here can stand on what it was cut from
+        return end_on_dependency(cfg, run_dir, stamp_origin(
+            {**(prior or receipt), "run_id": run_dir.name, "title": title,
+             "task": str(task_path)}), log, on_dependency)
     if gc.disk_pressure():
         gc.gc(log)     # before this run adds a worktree of its own
     if prior:
@@ -5657,7 +5699,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         if "repo" in receipt:
             repo = Path(receipt["repo"]) if receipt["repo"] else None
         else:
-            repo = task_repo(meta, task_path)  # receipts from before preflight saved it
+            repo = task_repo(meta, task_path, receipt.get("task_file"))  # receipts before preflight saved it
         scratch = repo is None
         raw_rounds = opts["--rounds"] or meta.get("rounds") or 3
         try:
@@ -5725,10 +5767,6 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                                        "is not a local branch")
                 wt, branch = make_worktree(repo, run_dir.name, slugify(title), from_branch)
             else:
-                if receipt.get("from_pass"):
-                    # a dependency's passed branch that has not merged yet: the run stands on
-                    # its reviewed tip, so its own diff, and later its rebase, start there
-                    base_sha = receipt["from_pass"]["tip"]
                 wt, branch = make_worktree(repo, run_dir.name, slugify(title), base_sha)
         # run.json names the worktree before anything else can fail: a step that ends the run here
         # -- exclude_junk does -- would otherwise leave a worktree `ak run clean` cannot find
@@ -5753,9 +5791,6 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 log(f"worktree {wt} on {branch} from {from_branch}, "
                     f"base {base} ({base_sha[:12]})"
                     + (f", merging into {target}" if target != base else ""))
-            elif state.get("from_pass"):
-                log(f"worktree {wt} on {branch} from {state['from_pass']['task']}'s passed "
-                    f"branch ({base_sha[:12]}), landing on {target} after it merges")
             else:
                 log(f"worktree {wt} on {branch} from {base} ({base_sha[:12]})"
                     + (f", merging into {target}" if target != base else ""))
@@ -5995,17 +6030,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         settle_run(state, run_dir, log)
         return state
     except Blocked as exc:
-        # The task cannot be done as written: a final state of its own, because there is no
-        # verdict on work here and nothing a resume could spend.  The orchestrator that wrote
-        # the task hears why and writes a new one.
-        log(f"BLOCKED {exc}")
-        state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
-                      "blocked": exc.section, "finished_at": time.time()})
-        state.pop("quota_dry", None)
-        run_record.save_state(run_dir, state)
-        write_result(run_dir, state, cmds, log, cfg)
-        settle_run(state, run_dir, log)
-        return state
+        return finish_blocked(run_dir, state, exc, log, cfg)
 
     # a parked run is no ending at all: `waiting` is the tick's, and its reason stands
     if state.get("state") != "waiting":
@@ -6735,8 +6760,8 @@ def refresh_seat_tally(session):
     then endings nobody has acknowledged, both through `menu.bar_tally` over the
     same records, so the two never disagree.  Merges and empty seats the row shows
     another way, so the bar shows them no way at all.  Only the seat that launched
-    the run is ever written.  Best-effort: the run's state on disk is what matters,
-    never the bar.
+    the run is ever written, and its bar is rewritten too (`redress_seat`).  Best-effort:
+    the run's state on disk is what matters, never the bar.
     """
     if not session:
         return
@@ -6750,6 +6775,40 @@ def refresh_seat_tally(session):
             tallies.get(session), queued, menu.seat_estimate(session)))
     except (config.Error, OSError, ValueError):
         pass
+    redress_seat(session)
+
+
+def redress_seat(session):
+    """Rewrite the bar of the seat that launched a run now, not at the next tick or draw.
+
+    A run's step, round and ending are what the bar names, so each one is published the moment
+    it happens, through the one writer the tick uses and from the facts already on record: no
+    look at the seat's screen.  The writer waits on the seat's lock and on tmux, so the run
+    hands it to a `run-shell -b` job on the seats' own server (`publish_seat`) and waits on
+    neither.  The handoff times out after a second; the next tick or step repairs a missed
+    update.  The job is the server's, not the run's: the run's exit, the stop of its scope and
+    its marker sweep leave it be.  A seat tmux has lost, and a legacy one on the user's own
+    server, is no target there, so nothing runs for it; nothing here ever raises into the run.
+    """
+    if not session:
+        return
+    publish = shlex.join([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+                          "from agentkit import run; run.publish_seat(sys.argv[2])",
+                          str(config.REPO), session])
+    try:
+        # silent and always 0: tmux shows a job's output, or its failure, in the seat's pane
+        orch.tmux_out("run-shell", "-b", "-t", f"={session}:",
+                      orch.tmux_text(f"{publish} >/dev/null 2>&1; true"),
+                      socket=orch.socket_name(), timeout=1)
+    except Exception:  # noqa: BLE001 - the bar is dressing; the run beneath it is what matters
+        pass
+
+
+def publish_seat(session):
+    """`redress_seat`'s job: that seat's bar, if tmux still holds it on agentkit's own server."""
+    seat = orch.find(session)
+    if seat is not None and orch.on_own_server(seat):
+        watch.announce_state(seat)
 
 
 def seat_tallies(records, now=None):
@@ -7435,7 +7494,10 @@ def slot_lock():
 
 
 def slot_order(state):
-    return (not state.get("first"),
+    # A green member only needs delivery before the target moves.
+    wait = state.get("waiting_on") or {}
+    return (not (state.get("first") or "land" in wait or "fix" in wait),
+            not landing.green_delivery(wait),
             state.get("queued_at") or state.get("started_at") or 0,
             state.get("run_id") or "")
 
@@ -7561,7 +7623,7 @@ def slot_line(running, ahead, limit, first=False):
 
 def slot_note(state):
     return state.get("slot_wait_reason") or slot_line(
-        *slot_counts(state), config.max_runs(), state.get("first"))
+        *slot_counts(state), config.max_runs(), not slot_order(state)[0])
 
 
 def _slice_cpu_reason(readings):
@@ -7612,7 +7674,7 @@ def claim_slot(state, limit, readings=None):
                      **run_record.process_owner())
         state.pop("resume_from", None)
         return True
-    is_first = bool(state.get("first"))
+    is_first = not slot_order(state)[0]
     if ahead or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
         state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
@@ -8808,13 +8870,8 @@ def parked_line(state, run_id=None, now=None):
     name = run_id or state.get("run_id") or "?"
     line = landing_line(state)
     if line:
-        joined = state["waiting_on"]["joined"]
-        place = 1
-        for directory in run_record.run_dirs():
-            member = run_record.read_state(directory) or {}
-            if (landing_line(member) == line
-                    and (member["waiting_on"]["joined"], directory.name) < (joined, name)):
-                place += 1
+        ahead = [directory.name for directory, _ in landing.line(config.RUNS / line)]
+        place = ahead.index(name) + 1 if name in ahead else len(ahead) + 1
         suffix = ("th" if 10 <= place % 100 <= 20 else
                   {1: "st", 2: "nd", 3: "rd"}.get(place % 10, "th"))
         target = (state.get("target") or state.get("base") or "main").removeprefix("origin/")
@@ -9386,8 +9443,6 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
     lines.extend(death_lines(state))
     if state.get("state") == "queued":
         lines.append(f"  {slot_note(state)}")
-    elif dep_wait_note(state):
-        lines.append(f"  {dep_wait_note(state)}")
     elif own_pr_wait_note(state):
         lines.append(f"  {own_pr_wait_note(state)}")
     elif gate.gate_turn_note(state):
@@ -9437,55 +9492,6 @@ def size_summary_line(repo):
     overall, words, points = summary
     return (f"{repo}: last 20 tasks: {med(overall)} · over 400 words: {med(words)} · "
             f"over 3 points: {med(points)}")
-
-
-def scoreboard_lines():
-    """Print the history's two weeks beside each other without losing words on a phone."""
-    from . import terminal
-    board = history.scoreboard()
-
-    def week(stats, own):
-        if stats is None:
-            return "no runs ended"
-        text = (f"{stats['runs']} runs ended; {stats['first_round']:.0%} merged in round 1; "
-                f"{stats['unmerged']:.0%} ended without merging; ")
-        if not stats["merged"]:
-            text += "no merged runs"
-        elif stats["hours"] is None:
-            text += "merge hours unknown; "
-        else:
-            text += f"median {stats['hours']:g} hours to merge; "
-        if stats["merged"] and stats["tokens"] is None:
-            text += "median tokens per merged run unknown"
-        elif stats["merged"]:
-            tokens = f"{stats['tokens']:,}".removesuffix(".0")
-            text += f"median {tokens} tokens per merged run"
-        if own:
-            share = stats["token_share"]
-            text += f"; {share:.0%} of all recorded tokens" if share is not None else "; no tokens recorded"
-        return text
-
-    def size(stats):
-        if stats is None:
-            return "size unavailable"
-        code = stats["code_lines"]
-        words = stats["readme_words"]
-        return (f"{code} code lines" if code is not None else "code lines unknown") + ", " + (
-            f"{words} README words" if words is not None else "README words unknown")
-
-    rows = [("", "last 7 days", "7 days before"),
-            ("products", *(week(stats, False) for stats in board["products"])),
-            ("ak", *(week(stats, True) for stats in board["ak"])),
-            ("ak size", *(size(stats) for stats in board["size"]))]
-    room = max(1, (terminal.content_width() - 12) // 2)
-    lines = terminal.wrap("Scoreboard (reported tokens; size now and 7 days ago)", terminal.content_width())
-    for label, current, previous in rows:
-        left, right = terminal.wrap(current, room), terminal.wrap(previous, room)
-        for i in range(max(len(left), len(right))):
-            lines.append(terminal.table_row(
-                [label if i == 0 else "", left[i] if i < len(left) else "",
-                 right[i] if i < len(right) else ""], [8, room, room]))
-    return lines
 
 
 def cmd_status(argv):
@@ -9645,8 +9651,6 @@ def cmd_status(argv):
                 print(f"  {parked_line(state, d.name)}")
             elif state.get("state") == "queued":
                 print(f"  {slot_note(state)}")
-            elif dep_wait_note(state):
-                print(f"  {dep_wait_note(state)}")
             elif own_pr_wait_note(state):
                 print(f"  {own_pr_wait_note(state)}")
             elif gate.gate_turn_note(state):
@@ -9711,8 +9715,6 @@ def cmd_status(argv):
                 parked = parked_line(state, directory.name)
                 if state.get("state") == "queued":
                     print(f"  {slot_note(state)}")
-                elif dep_wait_note(state):
-                    print(f"  {dep_wait_note(state)}")
                 elif own_pr_wait_note(state):
                     print(f"  {own_pr_wait_note(state)}")
                 elif gate.gate_turn_note(state):
@@ -9735,7 +9737,7 @@ def cmd_status(argv):
     if not wanted:
         print(f"{hidden} older run(s) hidden; ak run status --history [--json] shows full history")
     if show_history and not wanted and not machine:
-        print("\n".join(scoreboard_lines()))
+        print("\n".join(scoreboard.render()))
         for repo in history.finished_repos():
             line = size_summary_line(repo)
             if line:
@@ -9911,7 +9913,7 @@ def _drop_told(state, log, run_dir=None):
         drop_checkout(state, log, keep_branch=False)
         return
     if state.get("state") in ("fail", "error", "blocked", "stopped"):
-        if resume_holds_tree(state, run_dir):
+        if resume_holds_tree(state, run_dir) or state.get("checkout_kept"):
             return
         drop_checkout(state, log)
 
@@ -9955,8 +9957,9 @@ def settle_run(state, run_dir, log=None):
     A merged run loses the checkout in this step, and its branch with it; a
     scratch run keeps its workspace, which is the delivery. A failed, blocked,
     stopped or error run loses the checkout once the seat has been told --
-    unless a resume can still take it, which holds the checkout for the
-    seven-day clock -- and keeps its branch, the only copy a run that never
+    unless a resume can still take it, or its ending kept it for the seat
+    (`checkout_kept`), which holds the checkout for the seven-day clock --
+    and keeps its branch, the only copy a run that never
     pushed has. The run directory stays either way: `result.md` is what is read
     afterwards. Logs are left for the collector to gzip; readers of a run that
     just finished still have `log.txt`.
@@ -9974,7 +9977,8 @@ def settle_run(state, run_dir, log=None):
         drop_checkout(state, log, keep_branch=False)
         return
     if (state.get("state") in ("fail", "error", "blocked", "stopped")
-            and already_handed_back(state) and not resume_holds_tree(state, run_dir)):
+            and already_handed_back(state) and not resume_holds_tree(state, run_dir)
+            and not state.get("checkout_kept")):
         drop_checkout(state, log)
 
 
@@ -10660,7 +10664,7 @@ def preflight(run_dir, opts, log):
         state["title"] = title
         run_record.save_state(run_dir, state)
         every, once = taskfile.done_when_groups(body, run_dir / "task.md")
-        repo = task_repo(meta, run_dir / "task.md")
+        repo = task_repo(meta, run_dir / "task.md", state.get("task_file"))
         if opts["--no-merge"] or repo is None:
             every = [taskfile.split_once(cmd)[0]
                      for cmd in taskfile.done_when(body, run_dir / "task.md")]
@@ -10798,6 +10802,8 @@ def cmd_merge(argv):
         state.pop("quota_dry", None)
     if not state or state.get("verdict") != "PASS" or state.get("state") != "pass":
         raise config.Error(f"{argv[0]}: merge requires a finished PASS")
+    if stands_on_dependency(state):
+        raise config.Error(f"{argv[0]}: {stands_on_dependency(state)}")
     if (state.get("review_pr") or state.get("scratch")
             or not (state.get("pr") or state.get("merge_failed"))):
         raise config.Error(f"{argv[0]}: no delivery PR to merge")
@@ -10860,7 +10866,7 @@ def cmd_merge(argv):
             if info is None:
                 log(f"no delivery PR: {stopped_on}; delivering again from integration")
                 merge(lp)
-            elif wait_for_dependency(lp):
+            else:
                 upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
                 upstream_repo, permission = rights(lp)
 
@@ -11658,6 +11664,7 @@ def wait_for_own_pr(cfg, run_dir, url, state, log):
                  step="waiting for the seat's push", step_at=time.time())
     run_record.save_state(run_dir, state)
     history.open_step(run_dir.name, state["step"], log=log)
+    redress_seat(launched_session(state))
     log(own_pr_wait_note(state))
     while True:
         run_record.stop_check(run_dir)
@@ -12296,7 +12303,7 @@ def main(argv):
         # says to start regardless.  A run's own child launch never runs the
         # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.rounds_refusal(meta.get("rounds"), "task rounds")
+        refusal = taskfile.launch_refusal(meta)
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2

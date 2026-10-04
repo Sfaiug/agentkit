@@ -94,7 +94,7 @@ class Wait(Sandbox):
         fake tmux was given, in order."""
         sent = []
 
-        def tmux(*args, socket=None, client=False):
+        def tmux(*args, socket=None, client=False, **_kw):
             if args[0] == "send-keys" and "-l" in args:
                 sent.append(args[-1])
             return 0, ""

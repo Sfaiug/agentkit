@@ -954,7 +954,7 @@ def tmux_env(client=False):
     return dict(os.environ) if client else {k: v for k, v in os.environ.items() if k != "TMUX"}
 
 
-def tmux_out(*args, socket=None, client=False, unit=None):
+def tmux_out(*args, socket=None, client=False, unit=None, timeout=None):
     """(exit code, output) of one tmux command; 127 when there is no tmux to ask.
 
     `unit` names the transient scope a command that starts a server runs in, so that the
@@ -969,11 +969,11 @@ def tmux_out(*args, socket=None, client=False, unit=None):
         argv, env = in_slice(argv, unit, socket, env)
     try:
         proc = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
-                              env=env)
+                              env=env, timeout=timeout)
     except OSError as exc:
         return 127, str(exc)
     if proc.returncode != 0 and unit and argv[0] != "tmux":
-        return tmux_out(*args, socket=socket, client=client)
+        return tmux_out(*args, socket=socket, client=client, timeout=timeout)
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
@@ -1549,6 +1549,11 @@ def session_name(raw):
     """
     name = re.sub(r"[^a-z0-9_-]+", "-", config.normalize_session(raw).lower())
     return re.sub(r"-+", "-", name).strip("-")[:NAME_CAP].strip("-")
+
+
+def typed_here():
+    """A person is at this command's keyboard: agents run `ak` with no terminal on stdin."""
+    return sys.stdin.isatty()
 
 
 def seat_cwd():
@@ -2751,8 +2756,9 @@ def cmd_stop(argv):
     and local branch go with it. The run directories stay: their results are collected
     by age. Its Discord card is closed as `Answered`, the way a gone seat's is, and the
     seat's `<kind>-<name>.*` state files go, then the stop mark is written
-    back into the seat file so a hand-back still knows the owner ended it; the locks that
-    writing it takes again go last, and the daily collector takes the mark a day later.
+    back into the seat file so a hand-back still knows the owner ended it -- all of it under
+    the seat's own typing lock, so a line being typed into it finishes first; the locks go
+    last, and the daily collector takes the mark a day later.
     A card Discord would not take the edit for stays, for the tick to close.
     Browser tabs the seat or its runs opened close; a tab with no recorded opener is left
     to the idle rule.
@@ -2799,24 +2805,29 @@ def cmd_stop(argv):
             run_mod.release_session(name)
             if record:
                 seat_plugin(record).forget(record)
-            for path in session_owned_files(name):
-                if path == config.card_path(name):
-                    continue      # one Discord did not take the edit for: the tick closes it
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError as exc:
-                    print(f"WARN could not remove {path.name}: {exc}", file=sys.stderr)
-            if session:
-                rc, out = tmux_out("kill-session", "-t", f"={name}", socket=seat_socket(session))
-                if rc != 0:
-                    raise config.Error(f"could not stop the session {name}: {out}")
-            # the owner ended this seat: a run of its that finishes later, or is still going,
-            # brings it back through neither run.announce nor the tick, until a seat is
-            # launched under the name again.  The hand-back reads `closed_by_owner` for the
-            # same decision, and a pause script that ends a seat writes the same mark through
-            # `mark_owner_closed`.
-            watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
-                             usage_wait=None, usage_refusal=None)
+            # Every line ak types into a seat goes in under its own lock, the one a rename takes:
+            # a line under way finishes into this seat before it closes, and one waiting finds it
+            # closed.  Its lock files go last, below, so whoever waits waits on this very lock.
+            with notify.session_lock(name):
+                for path in session_owned_files(name):
+                    if path == config.card_path(name) or path.suffix == ".lock":
+                        continue  # a card Discord did not take the edit for: the tick closes it
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError as exc:
+                        print(f"WARN could not remove {path.name}: {exc}", file=sys.stderr)
+                if session:
+                    rc, out = tmux_out("kill-session", "-t", f"={name}",
+                                       socket=seat_socket(session))
+                    if rc != 0:
+                        raise config.Error(f"could not stop the session {name}: {out}")
+                # the owner ended this seat: a run of its that finishes later, or is still
+                # going, brings it back through neither run.announce nor the tick, until a seat
+                # is launched under the name again.  The hand-back reads `closed_by_owner` for
+                # the same decision, and a pause script that ends a seat writes the same mark
+                # through `mark_owner_closed`.
+                watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
+                                 usage_wait=None, usage_refusal=None)
         watch.forget(name)   # a new seat with this name must not inherit the old stop latch
         drop_aliases(name)
         # The mark and the latch above took the seat's and its notices' locks again, and a
@@ -3704,6 +3715,12 @@ def main(argv):
             # launched with where it was given one, and fresh where it was not.
             # Naming a model or a worker list is the one way to ask for a new seat by that name.
             return resume(cfg, name, dry_run=dry_run)
+    if not dry_run and not typed_here():
+        # An agent's guessed `ak orch help` or `ak orch roles` once opened a real seat, which
+        # sat in the owner's list as "needs you": only a person opens a seat.
+        seat = f"no seat named {name}" if name else "no seat name given"
+        raise config.Error(f"{seat}; a new seat opens only from a terminal (the menu's n, or "
+                           f"`ak orch NAME` typed there)\n{USAGE}")
     if forced is not None and forced_workers is None:
         # Reject invalid flags before asking any interactive question.
         providers = usage.collect(cfg)
