@@ -3919,8 +3919,13 @@ def stands_on_dependency(state):
     after = state.get("from_pass")
     if not isinstance(after, dict) or state.get("base_sha") not in (None, after.get("tip")):
         return ""
-    return (f"this branch stands on {after.get('task')}'s passed work, which `after:` no longer "
-            f"waits for; once that has merged, relaunch with `from: {state.get('branch')}`")
+    dep, branch = after.get("task"), state.get("branch")
+    if not branch:
+        # never started: there is no branch to go on from, only the task to launch again
+        return (f"this run was to start from {dep}'s passed work, which `after:` no longer "
+                f"waits for; once that has merged, launch its task again")
+    return (f"this branch stands on {dep}'s passed work, which `after:` no longer "
+            f"waits for; once that has merged, relaunch with `from: {branch}`")
 
 
 def park_waiting(lp, reason, ref, sha=None):

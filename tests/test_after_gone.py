@@ -178,6 +178,9 @@ class AfterGone(unittest.TestCase):
             ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
                              lambda _: None)
         self.assertEqual(ended["state"], "blocked")
+        # no branch to go on from: the relaunch is the task itself, never `from: None`
+        self.assertIn("launch its task again", ended["error"])
+        self.assertNotIn("from:", ended["error"])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
