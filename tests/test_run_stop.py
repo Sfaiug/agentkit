@@ -856,6 +856,16 @@ class RunStop(Sandbox):
         again = out.getvalue().strip()
         self.assertNotIn("removed", again)
 
+    def test_missing_run_is_checked_without_creating_or_locking(self):
+        directory = self.root / "no-record"
+        directory.mkdir()
+        with patch.object(record, "recovery_lock", wraps=record.recovery_lock) as lock:
+            self.assertIsNone(record.stop_check(None))
+            self.assertIsNone(record.stop_check(directory / "no-such-run"))
+            self.assertIsNone(record.stop_check(directory))
+        self.assertEqual(list(directory.iterdir()), [])
+        lock.assert_not_called()
+
     def test_spawn_boundaries_ask_under_the_stop_lock(self):
         import threading
         run_id = "20260101-0900-stop-gate"
