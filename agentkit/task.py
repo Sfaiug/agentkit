@@ -152,10 +152,12 @@ def launch_refusal(meta, cmds):
 
 
 def opens_heredoc(command):
-    """Whether bash, reading `command` as a whole script, meets a heredoc it never closes.
+    """Whether bash, running `command` as a whole script, meets a heredoc it never closes.
 
     Bash's own parser answers (`bash -n` runs nothing), so a shift in arithmetic, a comment,
-    any quoting and a `<<<` here-string are no heredoc, exactly as when the line runs.
+    any quoting and a `<<<` here-string are no heredoc, exactly as when the line runs.  It
+    leaves a substitution's body for when it runs (every backquoted one, and before bash 5.2
+    every one), so each body is asked on its own.
     """
     env = {**os.environ, "LC_ALL": "C"}
     env.pop("BASH_ENV", None)
@@ -164,7 +166,68 @@ def opens_heredoc(command):
                               env=env, timeout=30).stderr
     except (OSError, subprocess.SubprocessError):
         return False
-    return "here-document at line" in said
+    return "here-document at line" in said or any(map(opens_heredoc, substitutions(command)))
+
+
+def substitutions(text):
+    """The command in each outermost `...`, $(...), <(...) and >(...) of `text`, as bash reads it.
+
+    Single quotes, $'...' and a backslash make what they cover literal; a word that starts with
+    `#` is a comment to the end of its line; a substitution opens anywhere else, inside double
+    quotes too.  $((...)) is arithmetic, no command, though substitutions inside it count.
+    Inside backquotes, \\`, \\\\ and \\$ stand for the character itself.
+    """
+    bodies, stack, i, word = [], [], 0, True     # stack: [kind, where its command starts]
+    while i < len(text):
+        c, top = text[i], stack[-1][0] if stack else ""
+        outermost = not any(kind in ("$(", "`") for kind, _ in stack)
+        if c == "\\":
+            i, word = i + 2, False
+        elif c == "`":
+            body = []
+            i += 1
+            while i < len(text) and text[i] != "`":
+                if text[i] == "\\" and text[i + 1:i + 2] in ("`", "\\", "$"):
+                    i += 1
+                body.append(text[i])
+                i += 1
+            if outermost:
+                bodies.append("".join(body))
+            i, word = i + 1, False
+        elif text.startswith("$((", i):
+            stack.append(["((", i])
+            i, word = i + 3, True
+        elif text.startswith("$(", i) or (top != '"' and text[i:i + 2] in ("<(", ">(")):
+            stack.append(["$(", i + 2])
+            i, word = i + 2, True
+        elif top == '"':
+            if c == '"':
+                stack.pop()
+            i += 1
+        elif c == "'" or text.startswith("$'", i):
+            i += 1 if c == "'" else 2
+            while i < len(text) and text[i] != "'":
+                i += 2 if c == "$" and text[i] == "\\" else 1
+            i, word = i + 1, False
+        elif c == "#" and word:
+            newline = text.find("\n", i)
+            i = len(text) if newline < 0 else newline
+        elif c == '"':
+            stack.append(['"', i])
+            i, word = i + 1, False
+        elif c == "(":
+            stack.append(["(", i])
+            i, word = i + 1, True
+        elif c == ")" and top in ("(", "((", "$("):
+            kind, begun = stack.pop()
+            if kind == "$(" and not any(k in ("$(", "`") for k, _ in stack):
+                bodies.append(text[begun:i])
+            i += 2 if kind == "((" and text.startswith("))", i) else 1
+            word = False
+        else:
+            word = c in " \t\n;&|()<>"
+            i += 1
+    return bodies
 
 
 def rounds_refusal(value, what):
