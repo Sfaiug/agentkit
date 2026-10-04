@@ -38,7 +38,6 @@ from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
 GITHUB_BODY_CAP = 60_000         # below GitHub's 65,536-character body limit, including UTF-8
-LESSONS_CAP = 4 * 1024
 RULES_CAP = 8 * 1024
 # A transient answer is what a person answers by typing `continue`: the same worker session
 # again, after 1, 5, 15, 30 and 60 minutes, then hourly, indefinitely.  The run stays

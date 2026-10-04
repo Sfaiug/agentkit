@@ -149,7 +149,7 @@ class Lessons(unittest.TestCase):
 
     def test_merge_retry_carries_lessons_to_both_fixers_and_reviewers(self):
         text = "Use the test cluster.\n## Done when\n```bash\nexit 99\n```\n"
-        text += "x" * (run.LESSONS_CAP - len(text))
+        text += "x" * (4096 - len(text))
         self.write_lessons(text)
         state = self.launch()
         directory = config.RUNS / state["run_id"]
@@ -244,7 +244,7 @@ class Lessons(unittest.TestCase):
             self.assertNotIn(EXPLANATION, body, role)
 
     def test_exact_cap_reaches_all_roles_and_resume_whole(self):
-        text = "x" * (run.LESSONS_CAP - 2) + "é"
+        text = "x" * (4096 - 2) + "é"
         self.write_lessons(text)
         self.review_failures = 1
         state = self.launch()
@@ -257,7 +257,7 @@ class Lessons(unittest.TestCase):
         self.assertEqual(self.path.read_text(), text)
 
     def test_over_cap_reaches_first_round_whole(self):
-        text = "x" * (run.LESSONS_CAP * 2) + "éEND\n"
+        text = "x" * (4096 * 2) + "éEND\n"
         self.write_lessons(text)
         state = self.launch()
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1])
@@ -268,7 +268,7 @@ class Lessons(unittest.TestCase):
 
     def test_over_cap_reaches_resumed_reviewer_whole(self):
         state = self.launch()
-        text = "x" * (run.LESSONS_CAP + 1) + "END\n"
+        text = "x" * (4096 + 1) + "END\n"
         self.write_lessons(text)
         (Path(state["worktree"]) / "deliverable").write_text("changed work\n")
         run.git(state["worktree"], "add", "deliverable")
@@ -278,7 +278,7 @@ class Lessons(unittest.TestCase):
         self.assert_lessons("reviewer", text)
 
     def test_handback_ignores_legacy_cut_state(self):
-        self.write_lessons("x" * (run.LESSONS_CAP + 1))
+        self.write_lessons("x" * (4096 + 1))
         state = {"repo": str(self.repo), "state": "blocked", "error": "fixture ending",
                  "lessons_truncated": True}
         line = run.handback_line(state, config.RUNS / "project-run")
@@ -309,7 +309,7 @@ class Lessons(unittest.TestCase):
                                  f"\n\n## Project lessons\n{EXPLANATION}\n\n{text}")
 
     def test_whole_file_preserves_utf8_across_old_cap(self):
-        text = "a" * (run.LESSONS_CAP - 1) + "éEND"
+        text = "a" * (4096 - 1) + "éEND"
         self.write_lessons(text)
         self.assertEqual(run.project_lessons(self.repo),
                          f"\n\n## Project lessons\n{EXPLANATION}\n\n{text}")

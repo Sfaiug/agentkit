@@ -120,7 +120,7 @@ class RulesCapTold(unittest.TestCase):
                  "rules_truncated": True, "lessons_truncated": True}
         lessons = config.HOME / "lessons" / "acme.md"
         lessons.parent.mkdir(parents=True)
-        lessons.write_text("x" * (run.LESSONS_CAP + 1))
+        lessons.write_text("x" * (4096 + 1))
         line = run.handback_line(state, config.RUNS / "acme-run", self.cfg)
         self.assertNotIn("cut short", line)
         self.assertNotIn(str(self.path), line)
