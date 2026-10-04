@@ -1069,10 +1069,20 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
                    0 if job_classify(run_state, cfg) in ("merged", "passed") else 1, log, lock)
     except config.Error as exc:
         current = record.read_state(run_dir) or {}
-        if ((current.get("state"), current.get("merged")) != (run_state.get("state"),
-                                                              run_state.get("merged"))
-                and (current.get("merged") or current.get("state") in
-                     ("pass", "fail", "blocked", "stopped", "not_needed"))):
+        moved = ((current.get("state"), current.get("merged"))
+                 != (run_state.get("state"), run_state.get("merged")))
+        if moved and current.get("state") in ("running", "queued", "waiting"):
+            # another process took it on after this one read it -- a resume, or its delivery
+            # parked in its line -- so the resume was refused: its attempt is still the task's,
+            # looked at again at the picker's pace
+            log(f"{task['name']}: taken on elsewhere while adopted: {current.get('state')}")
+            task["retry_after"] = time.time() + JOB_PICKER_INTERVAL
+            task["state"] = "queued"
+            with lock:
+                save_job(job_dir, job)
+            return
+        if moved and (current.get("merged") or current.get("state") in
+                      ("pass", "fail", "blocked", "stopped", "not_needed")):
             # another process ended it after this one read it -- a resume or a delivery --
             # so the resume was refused: that ending is the task's, never a fresh start
             log(f"{task['name']}: ended elsewhere while adopted: {current.get('state')}")
