@@ -62,6 +62,8 @@ Every model has all three marks; the headings stay visible while the rows scroll
 
 After `/clear` in a Claude seat's launched pane, reopening and title changes follow its new conversation on its login. The watch tick binds older running seats to their own client pane without restarting them. If that pane is removed, restarting the seat uses its current pane. In-session `/resume` does not transfer seat ownership. Say what you want. The orchestrator asks until the goal is clear and checkable, then goes. Close the terminal.
 
+`ak plan` lists [numbered outcomes with checks or your judgement](docs/guide.md#the-states-and-the-cards).
+
 ## While you are away
 
 Agentkit does not stop until the work is merged, or until it truly needs you. Truly needs you means exactly two things: a question only you can answer, or a failure it has tried every way around. Everything else it handles itself: a provider running dry or down for hours, a crash, a reboot, main moving underneath, its own upgrade (the host moves only to a commit whose `tests/live.sh`, agentkit's checks that need the outside world, passed on it; a run takes the new code at its next round, saying `picked up agentkit <old>..<new>`), a reviewer that hesitates, a test budget that was too small, a stuck session.
