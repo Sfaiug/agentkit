@@ -253,6 +253,7 @@ class Projects(Sandbox):
             orch.main(["new"])
             resume.assert_called_once()
         with patch.object(Path, "cwd", return_value=repo), patch.object(orch, "maintenance"), \
+                patch.object(orch, "typed_here", return_value=True), \
                 patch.object(terminal, "readline", return_value="0"), \
                 patch.object(usage, "collect", return_value={}), \
                 patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
@@ -293,6 +294,7 @@ class Projects(Sandbox):
                         "user.email=fixture@localhost", "commit", "-q", "--allow-empty", "-m", "fixture"],
                        check=True)
         with chdir(child), patch.object(orch, "maintenance"), \
+                patch.object(orch, "typed_here", return_value=True), \
                 patch.object(usage, "collect", return_value={}), \
                 patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
                 patch.object(orch, "launch") as launch, patch.object(orch, "attach"), \

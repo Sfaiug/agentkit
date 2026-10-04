@@ -355,7 +355,8 @@ class Seats(Fixture):
         self.assertNotIn("echo-seat", config.session_records())
         with patch.object(terminal, "ask", return_value=""), redirect_stdout(io.StringIO()), \
                 patch.object(orch, "maintenance"), patch.object(orch, "launch"), \
-                patch.object(orch, "attach", return_value=0):
+                patch.object(orch, "attach", return_value=0), \
+                patch.object(orch, "typed_here", return_value=True):
             self.assertEqual(orch.main(["echo-seat", "--model", "echo"]), 0)
         record = config.session_records()["echo-seat"]
         self.assertEqual(record["orchestrator"], "echo")

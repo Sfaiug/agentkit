@@ -1,0 +1,44 @@
+
+ ▐▛███▛█   Claude Code v2.1.289
+▝▜██████▀  Haiku 4.5 · Claude Max
+ ▝▝   ▝▝   /…/fixture-workspace
+
+
+❯ Use your AskUserQuestion tool exactly once to ask me which colour I prefer, with the options Red and Blue. After I answer, run the shell command: 
+  sleep 20, then reply with one word.
+
+● User answered Claude's questions:
+  ⎿  · Which colour do you prefer? → Red
+
+  Sleeping for 20 seconds
+  ⎿  $ sleep 20
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+✶ Mulling… (5s · ↓ 356 tokens · thought for 1s)
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  acme@host:/…/fixture-workspace | Haiku 4.5 | c…
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

@@ -283,6 +283,21 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     return max(1, running + max(0, min(candidates)))
 
 
+def whole_checks_that_fit(command=None):
+    """How many checks running `command` fit side by side, as `gate_turn` hands out turns.
+
+    A sharded suite takes every free turn, so one fits; any other takes one turn of the
+    pinned count, or of the derived one when nothing pins it or the pin means no cap.
+    """
+    if names_shard(command or ""):
+        return 1
+    try:
+        pinned = config.max_gates()
+    except config.Error:
+        pinned = None
+    return pinned or derived_heavy_limit()
+
+
 def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     """Wait for and hold one host-wide heavy-suite turn; None when no turn is taken."""
     record = context if context is not None else (run_record.read_state(run_dir) or {}

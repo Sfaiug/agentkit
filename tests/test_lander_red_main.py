@@ -123,7 +123,9 @@ class RedMain(unittest.TestCase):
         self.assertEqual(self.wait(first)["land"], tree)
         self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
         self.assertEqual((later / "run.json").read_bytes(), before[later])
-        self.assertEqual(len(self.checks), checks)
+        # The repair's green tree is first's too, but first's own `# once` check still runs.
+        self.assertEqual(len(self.checks), checks + 1)
+        self.assertIn("true", self.checks[-1][0])
 
     def test_a_green_bare_target_wakes_only_the_members_that_fail(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})

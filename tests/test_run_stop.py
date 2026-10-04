@@ -14,6 +14,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -215,7 +216,7 @@ class RunStop(Sandbox):
         self.assertIn("kept", line)
         self.assertIn(f"from: {branch2}", line)
 
-    def test_dependant_task_is_skipped(self):
+    def test_a_stopped_task_fails_the_job_and_an_old_waiting_task_is_blocked(self):
         self.assertIn("stopped", jobs.JOB_TERMINAL)
         self.assertIn("stopped", jobs.JOB_UNDELIVERED)
         cfg = self.cfg
@@ -228,10 +229,12 @@ class RunStop(Sandbox):
         job = {"job_id": job_dir.name, "seat": None, "started_at": time.time(),
                "finished_at": None, "parallel": None, **record.process_owner(),
                "opts": {}, "tasks": [
-                   {"name": "a.md", "title": "A", "after": [], "state": "stopped",
+                   {"name": "a.md", "title": "A", "state": "stopped",
                     "run_id": "gone", "verdict_line": "a.md: stopped"},
                    {"name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
-                    "run_id": None}]}
+                    "run_id": None},
+                   {"name": "c.md", "title": "C", "after": ["a.md"], "state": "queued",
+                    "run_id": None, "from_pass": {"task": "a.md", "tip": "tip"}}]}
         jobs.save_job(job_dir, job)
         out = io.StringIO()
         with redirect_stdout(out):
@@ -239,9 +242,200 @@ class RunStop(Sandbox):
         self.assertEqual(rc, 1)
         kept = jobs.read_job(job_dir)
         waiting = next(task for task in kept["tasks"] if task["name"] == "b.md")
-        self.assertEqual(waiting["state"], "skipped")
-        self.assertEqual(waiting["skipped_dep"], "a.md")
-        self.assertIn("a.md did not merge", waiting["verdict_line"])
+        cut = next(task for task in kept["tasks"] if task["name"] == "c.md")
+        for task in (waiting, cut):
+            # never built: undelivered, so the job ends needing its seat, never as done
+            self.assertEqual(task["state"], "blocked")
+            self.assertIn("`after:` is gone", task["verdict_line"])
+            self.assertIn(f"launch {task['name']} on its own once a.md merged", task["findings"])
+
+    def test_an_old_task_behind_a_merged_one_goes_back_to_its_seat(self):
+        job_dir = config.JOBS / "20260101-090000-old-after"
+        job_dir.mkdir(parents=True)
+        (job_dir / "log.txt").touch()
+        job = {"job_id": job_dir.name, "seat": "atoll-fix", "started_at": time.time(),
+               "finished_at": None, "parallel": None, **record.process_owner(),
+               "opts": {}, "tasks": [
+                   {"name": "a.md", "title": "A", "state": "merged", "run_id": "gone",
+                    "verdict_line": "a.md: PASS, merged"},
+                   {"name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
+                    "run_id": None}]}
+        jobs.save_job(job_dir, job)
+        # spent providers never hold it: it goes back before any budget check
+        with patch.object(jobs, "job_hand_back", return_value="sent") as handed, \
+                patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
+                redirect_stdout(io.StringIO()):
+            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+        self.assertEqual(rc, 1)
+        line = handed.call_args.args[1]
+        self.assertIn("1 task(s) need you", line)
+        self.assertIn("launch b.md on its own once a.md merged", line)
+
+    def old_job(self, name, *tasks):
+        job_dir = config.JOBS / name
+        job_dir.mkdir(parents=True)
+        (job_dir / "log.txt").touch()
+        job = {"job_id": job_dir.name, "seat": None, "started_at": time.time(),
+               "finished_at": None, "parallel": None, **record.process_owner(), "opts": {},
+               "tasks": [{"name": "a.md", "title": "A", "state": "merged", "run_id": "gone",
+                          "verdict_line": "a.md: PASS, merged"}, *tasks]}
+        jobs.save_job(job_dir, job)
+        return job_dir, job
+
+    def test_an_old_task_with_a_kept_run_is_adopted_never_blocked(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        for state in ("waiting", "queued"):
+            with self.subTest(state=state):
+                kept = self.running(f"20260101-0900-kept-{state}", owner=None, state="pass",
+                                    verdict="PASS", merged=True, pid=None)
+                job_dir, job = self.old_job(f"20260101-090000-kept-{state}", {
+                    "name": "b.md", "title": "B", "after": ["a.md"], "state": state,
+                    "run_id": kept.name, "from_pass": legacy})
+
+                def adopt(cfg, job_dir, receipt, task, run_dir, lock, log):
+                    task.update(state="merged", finished_at=time.time(),
+                                verdict_line="b.md: PASS, merged")
+                    with lock:
+                        jobs.save_job(job_dir, receipt)
+
+                with patch.object(jobs, "job_adopt_worker", side_effect=adopt) as adopted, \
+                        patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                        redirect_stdout(io.StringIO()):
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                self.assertEqual(rc, 0)
+                self.assertEqual(adopted.call_args.args[4], kept)
+                self.assertEqual(jobs.read_job(job_dir)["tasks"][1]["state"], "merged")
+
+    def test_an_old_task_whose_kept_run_stands_on_its_dependency_ends_through_its_guard(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        # whatever state it was saved in, and whether its job died before or while it ran:
+        # no resume, merge retry, budget or login wait first
+        cases = [(saved, held) for held in ("waiting", "running") for saved in (
+            {"state": "exhausted", "error": "provider has no budget"},
+            {"state": "interrupted"},
+            {"state": "waiting_login", "error": "the login expired"},
+            {"state": "pass", "verdict": "PASS", "merge_failed": True,
+             "error": "git push failed"})]
+        for saved, held in cases:
+            with self.subTest(saved=saved["state"], held=held):
+                name = f"20260101-0900-kept-{saved['state']}-{held}"
+                workspace = config.WORK / name
+                workspace.mkdir(parents=True)
+                kept = self.running(name, owner=None, **{
+                    "verdict": None, "pid": None, "base_sha": "tip", "from_pass": legacy,
+                    "scratch": True, "repo": None, "worktree": str(workspace), "branch": "ak/b",
+                    "round_summaries": [], "findings": "", "merged": False, **saved})
+                job_dir, job = self.old_job(f"20260101-090000-{saved['state']}-{held}", {
+                    "name": "b.md", "title": "B", "after": ["a.md"], "state": held,
+                    "run_id": kept.name, "from_pass": legacy})
+                with patch.object(run, "collect_usage", side_effect=AssertionError("budget")), \
+                        patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                        patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
+                        patch.object(run, "cmd_merge", side_effect=AssertionError("a merge")), \
+                        redirect_stdout(io.StringIO()):
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                self.assertEqual(rc, 1)
+                self.assertEqual(record.read_state(kept)["state"], "blocked")
+                task = jobs.read_job(job_dir)["tasks"][1]
+                self.assertEqual((task["state"], task["run_id"]), ("blocked", kept.name))
+                # the relaunch goes on from the work the kept run has, never from the target
+                self.assertIn("relaunch with `from: ak/b`", task["findings"])
+                self.assertIn("relaunch with `from: ak/b`", task["verdict_line"])
+
+    def test_an_old_task_whose_kept_run_cannot_be_ended_still_goes_back_with_it(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        for held in ("waiting", "running"):
+            with self.subTest(held=held):
+                kept = self.running(f"20260101-0900-kept-stuck-{held}", owner=None,
+                                    state="interrupted", verdict=None, pid=None, base_sha="tip",
+                                    from_pass=legacy, branch="ak/b", round_summaries=[],
+                                    findings="", merged=False)
+                job_dir, job = self.old_job(f"20260101-090000-stuck-{held}", {
+                    "name": "b.md", "title": "B", "after": ["a.md"], "state": held,
+                    "run_id": kept.name, "from_pass": legacy})
+                with patch.object(run, "end_on_dependency", side_effect=run.Stopped("git killed")), \
+                        patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
+                        patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                        redirect_stdout(io.StringIO()):
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                self.assertEqual(rc, 1)
+                task = jobs.read_job(job_dir)["tasks"][1]
+                self.assertEqual((task["state"], task["run_id"]), ("blocked", kept.name))
+                self.assertIn("relaunch with `from: ak/b`", task["findings"])
+                self.assertIn("git killed", task["findings"])
+
+    def test_a_kept_run_another_process_moved_on_is_left_as_it_left_it(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        kept = self.running("20260101-0900-kept-raced", owner=None, state="interrupted",
+                            verdict=None, pid=None, base_sha="tip", from_pass=legacy,
+                            branch="ak/b", round_summaries=[], findings="", merged=False)
+        stale = record.read_state(kept)
+        job_dir, job = self.old_job("20260101-090000-raced")
+        for live in ({**stale, "state": "running", "pid": 999999991},
+                     {**stale, "state": "pass", "verdict": "PASS", "merged": True}):
+            with self.subTest(state=live["state"]):
+                record.save_state(kept, stale)
+                task = {"name": "b.md", "title": "B", "after": ["a.md"], "state": "running",
+                        "run_id": kept.name, "from_pass": legacy}
+
+                def reap(directory, _state):
+                    # a resume or a delivery wins the run once the reap lets go of it
+                    record.save_state(directory, live)
+                    return stale
+
+                with patch.object(run, "reap", side_effect=reap), \
+                        patch.object(record, "process_active",
+                                     side_effect=lambda state: state.get("pid") == 999999991), \
+                        patch.object(run, "cmd_resume"), patch.object(jobs, "job_ladder"):
+                    jobs.job_adopt_worker(self.cfg, job_dir, {**job, "tasks": [task]}, task, kept,
+                                          threading.Lock(), lambda _: None)
+                saved = record.read_state(kept)
+                self.assertEqual((saved["state"], saved.get("merged"), saved.get("pid")),
+                                 (live["state"], live.get("merged"), live.get("pid")))
+
+    def test_a_queued_task_whose_file_now_names_after_gets_no_fresh_run(self):
+        # the receipt saved it plain; its file was edited to wait on another task since
+        task_file = self.root / "beta.md"
+        task_file.write_text("---\nrepo: none\nafter: alpha.md\n---\n# Beta\n\n"
+                             "## Done when\n```bash\ntrue\n```\n")
+        job_dir, job = self.old_job("20260101-090000-after-added", {
+            "name": "beta.md", "title": "Beta", "state": "queued", "run_id": None,
+            "task_file": str(task_file)})
+        with patch.object(run, "collect_usage", return_value={}), \
+                patch.object(run, "pick_models", return_value=("opus", "astra")), \
+                patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                redirect_stdout(io.StringIO()):
+            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+        self.assertEqual(rc, 1)
+        task = jobs.read_job(job_dir)["tasks"][1]
+        self.assertEqual(task["state"], "blocked")
+        self.assertIn("`after:` is gone", task["findings"])
+
+    def test_an_old_task_whose_kept_run_was_stopped_stays_stopped(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        kept = self.running("20260101-0900-kept-stopped", owner=None, state="stopped",
+                            verdict=None, pid=None, base_sha="tip", from_pass=legacy)
+        job_dir, job = self.old_job("20260101-090000-kept-stopped", {
+            "name": "b.md", "title": "B", "after": ["a.md"], "state": "queued",
+            "run_id": kept.name, "from_pass": legacy})
+        with redirect_stdout(io.StringIO()):
+            jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+        task = jobs.read_job(job_dir)["tasks"][1]
+        self.assertEqual(task["state"], "stopped")
+        self.assertNotIn("findings", task)
+
+    def test_an_old_task_left_running_without_its_run_gets_no_fresh_one(self):
+        job_dir, job = self.old_job("20260101-090000-no-run", {
+            "name": "b.md", "title": "B", "after": ["a.md"], "state": "running",
+            "run_id": None, "from_pass": {"task": "a.md", "branch": "ak/a", "tip": "tip"}})
+        with patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
+                redirect_stdout(io.StringIO()):
+            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+        self.assertEqual(rc, 1)
+        task = jobs.read_job(job_dir)["tasks"][1]
+        self.assertEqual(task["state"], "blocked")
+        self.assertIn("launch b.md on its own once a.md merged", task["findings"])
 
     def test_x_stops_the_sessions_runs_first(self):
         seat = "atoll-fix"

@@ -100,7 +100,7 @@ class Screen:
         self.master, self.slave = os.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
         env = {key: value for key, value in os.environ.items()
-               if key not in ("NO_COLOR", "COLUMNS", "LINES", "TMUX")}
+               if key not in ("NO_COLOR", "COLORTERM", "COLUMNS", "LINES", "TMUX")}
         env.update({"HOME": home.name, "PATH": f"{tmux.parent}:{os.environ['PATH']}",
                     "TERM": "xterm-256color", "LANG": "C.UTF-8",
                     "LC_ALL": "C.UTF-8", "AGENTKIT_TMUX_SOCKET": "agentkit-test",

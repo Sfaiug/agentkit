@@ -143,12 +143,11 @@ def smoke_runs(smoke, offline, live=False):
 
 def run_file(root, path, env):
     began = time.monotonic()
-    # Files can run beside smoke.sh in the same checkout. Their HOME, temp files and
-    # explicit py_compile output must not reach another piece's sandbox or bytecode.
+    # Files can run beside smoke.sh in the same checkout. Their HOME and temp files must
+    # not reach another file's sandbox; their bytecode is the piece's own (`env`).
     # tmux canonicalizes TMUX_TMPDIR; a long worktree path cannot hold its socket.
     with tempfile.TemporaryDirectory(prefix="ak-test-file-", dir="/tmp") as sandbox:
-        child_env = dict(env, HOME=sandbox, TMPDIR=sandbox,
-                         PYTHONPYCACHEPREFIX=str(Path(sandbox) / "pycache"))
+        child_env = dict(env, HOME=sandbox, TMPDIR=sandbox)
         proc = subprocess.run([sys.executable, str(path.relative_to(root))], cwd=root,
                               env=child_env, stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -232,11 +231,15 @@ def main(root):
     todo = [path for path in todo if owners[path] == number]
     cache = Path.home() / ".cache/agentkit/test-times" / os.uname().nodename
     todo.sort(key=lambda path: last_time(cache / path.name), reverse=True)
+    # One bytecode cache for the piece: each file compiling all of agentkit again cost
+    # about three quarters of a short file's CPU. No other piece writes or reads it.
+    pycache = tempfile.TemporaryDirectory(prefix="ak-test-pycache-", dir="/tmp")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
+    env["PYTHONPYCACHEPREFIX"] = pycache.name
     pending = iter(todo)
     path = next(pending, None)
     began, failed, jobs = time.monotonic(), 0, 0
-    with ThreadPoolExecutor(max(1, len(todo))) as pool:
+    with pycache, ThreadPoolExecutor(max(1, len(todo))) as pool:
         running = {}
         while path is not None or running:
             for done in list(running):
