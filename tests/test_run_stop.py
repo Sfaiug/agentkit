@@ -411,6 +411,36 @@ class RunStop(Sandbox):
         self.assertEqual(task["state"], "blocked")
         self.assertIn("`after:` is gone", task["findings"])
 
+    def test_a_kept_run_merged_elsewhere_while_adopted_is_the_tasks_ending(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        for name, extra in (("legacy", {"after": ["a.md"], "from_pass": legacy}),
+                            ("plain", {})):
+            with self.subTest(task=name):
+                kept = self.running(f"20260101-0900-merged-{name}", owner=None,
+                                    state="interrupted", verdict=None, pid=None, branch="ak/b",
+                                    round_summaries=[], findings="", merged=False,
+                                    **({"from_pass": legacy, "base_sha": "tip"} if extra else {}))
+                stale = record.read_state(kept)
+                job_dir, job = self.old_job(f"20260101-090000-merged-{name}")
+                task = {"name": "b.md", "title": "B", "state": "running",
+                        "run_id": kept.name, **extra}
+                job["tasks"] = [job["tasks"][0], task]
+
+                def reap(directory, _state):
+                    # a delivery wins the run once the reap lets go of it
+                    record.save_state(directory, {**stale, "state": "pass", "verdict": "PASS",
+                                                  "merged": True, "base_sha": "main"})
+                    return dict(stale)
+
+                with patch.object(run, "reap", side_effect=reap), \
+                        patch.object(run, "review_pass",
+                                     side_effect=lambda state, _cfg: state.get("verdict") == "PASS"), \
+                        patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                        redirect_stdout(io.StringIO()):
+                    jobs.job_adopt_worker(self.cfg, job_dir, job, task, kept, threading.Lock(),
+                                          lambda _: None)
+                self.assertEqual((task["state"], task["run_id"]), ("merged", kept.name))
+
     def test_an_old_task_whose_kept_run_was_stopped_stays_stopped(self):
         legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
         kept = self.running("20260101-0900-kept-stopped", owner=None, state="stopped",
