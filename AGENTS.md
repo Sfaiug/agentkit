@@ -6,7 +6,7 @@ tests: export AK_SHARD AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --use
 
 ## What ak is for
 
-ak builds whatever you want. You state an intent and get the finished result, live. It always takes one path: intent → alignment → build → review → live, and what breaks live comes back in as a new intent. ak delegates, asks the user only what only they can answer, and keeps running review rounds until the work passes.
+ak builds whatever you want. You state an intent and get the finished result, live. It always takes one path: intent → alignment → build → review → live, and what breaks live comes back in as a new intent. ak does the work, asks the user only what only they can answer, and keeps running review rounds until the work passes.
 
 Every change to ak is judged by what it does for what you build with it, and by these four rules:
 
