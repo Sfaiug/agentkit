@@ -215,7 +215,7 @@ class RunStop(Sandbox):
         self.assertIn("kept", line)
         self.assertIn(f"from: {branch2}", line)
 
-    def test_dependant_task_is_skipped(self):
+    def test_a_stopped_task_fails_the_job_and_an_old_waiting_task_is_skipped(self):
         self.assertIn("stopped", jobs.JOB_TERMINAL)
         self.assertIn("stopped", jobs.JOB_UNDELIVERED)
         cfg = self.cfg
@@ -228,7 +228,7 @@ class RunStop(Sandbox):
         job = {"job_id": job_dir.name, "seat": None, "started_at": time.time(),
                "finished_at": None, "parallel": None, **record.process_owner(),
                "opts": {}, "tasks": [
-                   {"name": "a.md", "title": "A", "after": [], "state": "stopped",
+                   {"name": "a.md", "title": "A", "state": "stopped",
                     "run_id": "gone", "verdict_line": "a.md: stopped"},
                    {"name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
                     "run_id": None}]}
@@ -240,8 +240,7 @@ class RunStop(Sandbox):
         kept = jobs.read_job(job_dir)
         waiting = next(task for task in kept["tasks"] if task["name"] == "b.md")
         self.assertEqual(waiting["state"], "skipped")
-        self.assertEqual(waiting["skipped_dep"], "a.md")
-        self.assertIn("a.md did not merge", waiting["verdict_line"])
+        self.assertIn("`after:` is gone", waiting["verdict_line"])
 
     def test_x_stops_the_sessions_runs_first(self):
         seat = "atoll-fix"

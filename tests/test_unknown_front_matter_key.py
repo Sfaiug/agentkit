@@ -80,7 +80,6 @@ class UnknownFrontMatterKey(unittest.TestCase):
         meta, _, title = task.parse_task(path)
         self.assertEqual(set(meta), set(KEYS))
         self.assertEqual(title, "Fix the api")
-        self.assertEqual(task.task_afters(path), ["value", "base.md", "schema.md"])
         self.assertEqual(task.task_files(path), ["value", "src/", "tests/", "docs/"])
 
 

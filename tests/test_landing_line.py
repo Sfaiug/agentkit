@@ -161,32 +161,5 @@ class LandingLine(Sandbox):
                     self.assertEqual(task["state"], expected)
                     self.assertNotIn("rerun_attempted", task)
 
-    def test_after_dependency_waits_until_its_line_member_has_merged_and_settled(self):
-        directory = self.member("alpha")
-        job_dir = config.JOBS / "build-widget"
-        job_dir.mkdir(parents=True)
-        job = {"tasks": [{"name": "alpha", "state": "running", "run_id": directory.name}]}
-        jobs.save_job(job_dir, job)
-        dependant = self.ended("beta", state="running")
-        lp = SimpleNamespace(run_dir=dependant, base_sha="tip", log=Mock(), write=Mock(),
-                             state={"job_id": job_dir.name, "from_pass": {"task": "alpha", "tip": "tip"}})
-        phases = []
-
-        def land(_seconds):
-            phases.append(1)
-            if len(phases) == 1:
-                record.save_state(directory, {**record.read_state(directory), "state": "pass", "merged": True})
-            else:
-                self.assertEqual(len(phases), 2, "dependant did not follow the job's result")
-                job["tasks"][0]["state"] = "merged"
-                jobs.save_job(job_dir, job)
-
-        with patch.object(run.time, "sleep", side_effect=land), \
-                patch.object(history, "close_step"), patch.object(history, "open_step"):
-            self.assertTrue(run.wait_for_dependency(lp))
-        self.assertEqual(len(phases), 2)
-        self.assertNotIn("skipped_dep", lp.state)
-
-
 if __name__ == "__main__":
     unittest.main(verbosity=2)

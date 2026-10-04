@@ -4006,66 +4006,6 @@ def set_base(lp, tip):
     lp.write()
 
 
-def on_pass(lp):
-    """The dependency whose passed branch this branch still stands on, or None.
-
-    From the cut until the first integration puts the branch on a target commit instead: the
-    dependency's commits are under it, and reach the target only with its own merge.
-    """
-    after = lp.state.get("from_pass")
-    return after["task"] if after and lp.base_sha == after.get("tip") else None
-
-
-def dep_wait_note(state):
-    """`waiting for <dep> to merge` while a run waits in `wait_for_dependency`, else "".
-
-    The mark names the process that waits, so one a kill left on the record, or a resume
-    carried forward to a new process, says nothing.
-    """
-    wait = state.get("dep_wait")
-    if (state.get("state") != "running" or not isinstance(wait, dict)
-            or wait.get("pid") != state.get("pid")):
-        return ""
-    return f"waiting for {wait.get('of')} to merge"
-
-
-def wait_for_dependency(lp):
-    """Hold a branch cut from a dependency's passed branch until the dependency has merged.
-
-    Landing first would deliver the dependency's work under this task's name, so the run
-    waits for its job to settle that task, then `integrate` replays only its own commits.
-    A dependency settled without merging leaves nothing to stand on: the run stops before
-    landing, its branch kept, and the job skips the task as `after:` always did.
-    """
-    dep = on_pass(lp)
-    if not dep:
-        return True
-    waited, step = False, None
-    while True:
-        run_record.stop_check(lp.run_dir)
-        job = jobs.read_job(config.JOBS / str(lp.state.get("job_id")))
-        word = (jobs.job_task_by_name(job, dep) or {}).get("state") if job else None
-        if word in ("merged", "passed"):
-            break
-        if word is None or word in (*jobs.JOB_UNDELIVERED, "skipped"):
-            lp.state["skipped_dep"] = dep
-            lp.state.pop("dep_wait", None)
-            return note(lp, f"{dep} did not merge; this branch stands on its work and is kept")
-        if not waited:
-            lp.state["dep_wait"] = {"pid": os.getpid(), "of": dep}
-            lp.write()
-            lp.log(f"--- merge: waiting for {dep} to merge before landing on it")
-            step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
-            waited = True
-        time.sleep(jobs.JOB_TICK)
-    if waited:
-        lp.state.pop("dep_wait", None)
-        lp.write()
-        history.open_step(lp.state.get("run_id"), step, log=lp.log)
-        lp.log(f"--- merge: {dep} merged; landing")
-    return True
-
-
 def abort_integration(lp, how):
     """Put the branch back, keeping any earlier landing review.
 
@@ -4284,10 +4224,7 @@ def integrate(lp, upstream):
         return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
                     failed=True)
     tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
-    # a branch cut from a dependency's passed branch replays only its own commits: the
-    # dependency most often lands squashed, its commits on the target under other names
-    onto = ("--onto", tip, lp.base_sha) if on_pass(lp) else (tip,)
-    how = "rebase" if on_pass(lp) else how_to_integrate(lp)
+    how = how_to_integrate(lp)
     try:
         pre_identity = commit_identity(lp.wt)
     except Stopped:
@@ -4320,7 +4257,7 @@ def integrate(lp, upstream):
             rc, out = git_out(lp.wt, "merge", "--no-edit", tip)
         else:
             lp.log(f"--- merge: rebasing {lp.state['branch']} onto {upstream} ({tip[:12]})")
-            rc, out = git_out(lp.wt, "rebase", *onto)
+            rc, out = git_out(lp.wt, "rebase", tip)
     except Stopped:
         abort_stopped_integration(lp, how)
         raise
@@ -4349,7 +4286,7 @@ def integrate(lp, upstream):
             if (not landing_review and was_pass and saved is not None and pre_identity is not None
                     and saved.get("head_sha") == pre_identity.get("head_sha")
                     and saved.get("tree_sha") == pre_identity.get("tree_sha")
-                    and not on_pass(lp) and old_base and old_head and carried_here
+                    and old_base and old_head and carried_here
                     and target_disjoint_from_branch(lp.wt, old_base, old_head, tip)):
                 new_identity = commit_identity(lp.wt)
                 lp.log(f"--- merge: clean {how} of {upstream}; target moved outside "
@@ -5426,10 +5363,8 @@ def land_from_line(lp, upstream, deliver):
             with merge_lock(lp, upstream):
                 fetch(lp.wt, "origin", "--prune", check=True)
                 tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
-                how = "rebase" if on_pass(lp) else how_to_integrate(lp)
-                args = (("merge", "--no-edit", tip) if how == "merge" else
-                        ("rebase", "--onto", tip, lp.base_sha) if on_pass(lp) else
-                        ("rebase", tip))
+                how = how_to_integrate(lp)
+                args = ("merge", "--no-edit", tip) if how == "merge" else ("rebase", tip)
                 saved = dict(lp.state["review"])
                 try:
                     code, _ = git_out(lp.wt, *args)
@@ -5499,11 +5434,8 @@ def land_from_line(lp, upstream, deliver):
 def land(lp, upstream, verify, deliver, execv=None):
     """Consume a line verdict, or verify once before taking the delivery lock.
 
-    A branch cut from a dependency's passed branch waits for it to merge first.
     Only delivery holds the repository lock; checks and fixers run outside it.
     """
-    if not wait_for_dependency(lp):
-        return False
     if (lp.state.get("waiting_on") or {}).get("line"):
         return land_from_line(lp, upstream, deliver)
     pickup_new_code(lp, execv=execv)
@@ -5605,8 +5537,6 @@ def merge(lp):
         return note(lp, f"this run works directly on {branch}, which is the branch it would merge "
                         "into, so there is no PR to open", failed=True)
 
-    if not wait_for_dependency(lp):
-        return False
     upstream_repo, permission = rights(lp)
     if upstream_repo and permission not in PUSH_RIGHTS:
         return land(lp, upstream, lambda: integrate(lp, upstream) and final_check(lp, upstream),
@@ -5731,10 +5661,6 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                                        "is not a local branch")
                 wt, branch = make_worktree(repo, run_dir.name, slugify(title), from_branch)
             else:
-                if receipt.get("from_pass"):
-                    # a dependency's passed branch that has not merged yet: the run stands on
-                    # its reviewed tip, so its own diff, and later its rebase, start there
-                    base_sha = receipt["from_pass"]["tip"]
                 wt, branch = make_worktree(repo, run_dir.name, slugify(title), base_sha)
         # run.json names the worktree before anything else can fail: a step that ends the run here
         # -- exclude_junk does -- would otherwise leave a worktree `ak run clean` cannot find
@@ -5759,9 +5685,6 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 log(f"worktree {wt} on {branch} from {from_branch}, "
                     f"base {base} ({base_sha[:12]})"
                     + (f", merging into {target}" if target != base else ""))
-            elif state.get("from_pass"):
-                log(f"worktree {wt} on {branch} from {state['from_pass']['task']}'s passed "
-                    f"branch ({base_sha[:12]}), landing on {target} after it merges")
             else:
                 log(f"worktree {wt} on {branch} from {base} ({base_sha[:12]})"
                     + (f", merging into {target}" if target != base else ""))
@@ -9390,8 +9313,6 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
     lines.extend(death_lines(state))
     if state.get("state") == "queued":
         lines.append(f"  {slot_note(state)}")
-    elif dep_wait_note(state):
-        lines.append(f"  {dep_wait_note(state)}")
     elif own_pr_wait_note(state):
         lines.append(f"  {own_pr_wait_note(state)}")
     elif gate.gate_turn_note(state):
@@ -9649,8 +9570,6 @@ def cmd_status(argv):
                 print(f"  {parked_line(state, d.name)}")
             elif state.get("state") == "queued":
                 print(f"  {slot_note(state)}")
-            elif dep_wait_note(state):
-                print(f"  {dep_wait_note(state)}")
             elif own_pr_wait_note(state):
                 print(f"  {own_pr_wait_note(state)}")
             elif gate.gate_turn_note(state):
@@ -9715,8 +9634,6 @@ def cmd_status(argv):
                 parked = parked_line(state, directory.name)
                 if state.get("state") == "queued":
                     print(f"  {slot_note(state)}")
-                elif dep_wait_note(state):
-                    print(f"  {dep_wait_note(state)}")
                 elif own_pr_wait_note(state):
                     print(f"  {own_pr_wait_note(state)}")
                 elif gate.gate_turn_note(state):
@@ -10864,7 +10781,7 @@ def cmd_merge(argv):
             if info is None:
                 log(f"no delivery PR: {stopped_on}; delivering again from integration")
                 merge(lp)
-            elif wait_for_dependency(lp):
+            else:
                 upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
                 upstream_repo, permission = rights(lp)
 
@@ -12300,7 +12217,7 @@ def main(argv):
         # says to start regardless.  A run's own child launch never runs the
         # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.rounds_refusal(meta.get("rounds"), "task rounds")
+        refusal = taskfile.launch_refusal(meta)
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2
