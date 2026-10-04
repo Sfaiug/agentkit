@@ -213,17 +213,23 @@ sys.exit(every_file.main(every_file.Path(sys.argv[2])))
         self.files()
         with ThreadPoolExecutor(3) as pool:
             procs = list(pool.map(self.run_files, ("1/3", "2/3", "3/3")))
-        found = []
+        found, caches = [], set()
         for proc in procs:
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-            found.extend(json.loads(line.removeprefix("fixture: "))
-                         for line in proc.stdout.splitlines() if line.startswith("fixture: "))
+            rows = [json.loads(line.removeprefix("fixture: "))
+                    for line in proc.stdout.splitlines() if line.startswith("fixture: ")]
+            # A piece's files share one bytecode cache that no other piece uses.
+            self.assertEqual(len({row["cache"] for row in rows}), 1)
+            caches.add(rows[0]["cache"])
+            found.extend(rows)
+        self.assertEqual(len(caches), 3)
         self.assertCountEqual([row["name"] for row in found],
                               [f"test_acme_{n:02d}" for n in range(12)])
         self.assertEqual(len({row["home"] for row in found}), 12)
         for row in found:
             self.assertEqual(row["home"], row["temp"])
-            self.assertEqual(row["cache"], row["home"] + "/pycache")
+            self.assertFalse(row["cache"].startswith(row["home"]))
+            self.assertFalse(Path(row["cache"]).exists())
             socket = Path(row["temp"]) / "acme-fixture-12345678" / f"tmux-{os.getuid()}/agentkit-test"
             self.assertLessEqual(len(os.fsencode(socket.resolve())), 103)
             self.assertFalse(Path(row["home"]).exists())
