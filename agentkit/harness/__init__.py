@@ -72,7 +72,7 @@ _LOADED = {}
 
 def says(text, word):
     """Does `text` say `word` on its own: never inside a longer word, nor its digits inside a
-    longer number -- a request id, a byte count, a duration?
+    longer number, a file path or a run id?
 
     A `#` in a word is any one digit, a `~` up to three characters that are neither letters
     nor digits, or none (`status~5##` is `"status": 503` too), and `…` joins parts that each
@@ -86,7 +86,22 @@ def says(text, word):
         + re.escape(part).replace(r"\#", r"\d").replace(r"\~", r"[\W_]{0,3}")
         + (r"(?!\w)(?!\.\d)" if re.search(r"[\w#]$", part) else "")
         for part in parts)
-    return re.search(pattern, text, re.I) is not None
+    # Paths, file names and ak's run and job ids (a date-time stamp, then words) join
+    # numbers with punctuation too. A match stands unless every number in it sits inside
+    # one: `HTTP/1.1 429`, `HTTP-503` and `Error-429` are still the status.
+    ignored = [span.span() for span in re.finditer(
+        r'''[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*|'''
+        r'''\b\d{8}-\d{4,6}(?:-[\w.]+)+|\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*\b''', text)
+        ] if re.search(r"[\d#]", word) else []
+
+    def stands(match):
+        numbers = [(match.start() + number.start(), match.start() + number.end())
+                   for number in re.finditer(r"\d+", match.group())]
+        return not numbers or not all(any(start <= first and last <= end
+                                          for start, end in ignored)
+                                      for first, last in numbers)
+
+    return any(stands(match) for match in re.finditer(pattern, text, re.I))
 
 
 def limited(text):

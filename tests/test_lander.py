@@ -34,6 +34,7 @@ class LanderFixture:
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "",
             "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            "AK_HOST_READINGS": json.dumps({"cpus": 16, "load": 0, "free_mb": 16000}),
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
         for name in ("HOME", "RUNS", "JOBS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
@@ -326,12 +327,25 @@ class Lander(LanderFixture, unittest.TestCase):
     def test_one_pass_per_line(self):
         self.member()
         self.advance()
-        with self.turn.open("a") as lock:
+        with self.turn.with_suffix(".lander.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             land.check_line(self.turn)
         self.assertEqual(self.checks, [])
         self.wake.assert_not_called()
         land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.wake.assert_called_once()
+
+    def test_a_delivery_does_not_block_a_pass(self):
+        directory = self.member()
+        self.advance()
+        lp = SimpleNamespace(wt=self.repo, state={}, write=lambda: None)
+        with run.merge_lock(lp, "origin/main"):
+            land.check_line(self.turn)
+            self.assertIn("land", self.wait(directory))
+            with self.turn.open("a") as probe:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
         self.assertEqual(len(self.checks), 1)
         self.wake.assert_called_once()
 
