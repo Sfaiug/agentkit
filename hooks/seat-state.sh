@@ -1,10 +1,11 @@
 #!/bin/bash
 # The one hook agentkit asks a harness to run, for every lifecycle event it offers.
 #
-# It writes down what happened and decides nothing.  What the seat is doing -- the event, its
+# It writes down events the manifest gives a state. What the seat is doing -- the event, its
 # payload discriminator and the moment it arrived -- goes to ~/.agentkit/state/hook-<seat>.json,
-# and the classifier reads adapters/<harness>.toml to say what that event means.  A prompt also
-# starts a turn, and ~/.agentkit/state/stop-<seat>.json is where that moment is kept, for
+# and the classifier reads adapters/<harness>.toml to say what that event means. A notice with
+# no state leaves that fact alone, so it cannot erase a turn or restore one over a Stop. A prompt
+# also starts a turn, and ~/.agentkit/state/stop-<seat>.json is where that moment is kept, for
 # hooks/orchestrator-stop.sh to judge the turn's end against.  On a turn's end it also stamps
 # the time, the context size and the processes it ran under into the file
 # tools/idle-compact.py polls, which is the half of the idle auto-compact that lives outside the
@@ -88,6 +89,20 @@ seat_state() {
     case "$next" in */*|.|..|"") break ;; esac
     row=$next
   done
+  # Only events that could be passive ask the classifier; prompt and Stop stay on their fast
+  # path. A notice with no mapped state writes nothing, even if another hook ends the turn
+  # while Python is deciding: there is no old fact to put back over that Stop.
+  if [[ $event != UserPromptSubmit && $event != Stop ]]; then
+    /usr/bin/env python3 -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+from agentkit import config, watch
+harness = watch.seat_model(config.load(), sys.argv[2])[0]
+fact = {"event": sys.argv[3], "kind": sys.argv[4], "at": float(sys.argv[5])}
+sys.exit(0 if watch.hook_state(harness, fact)[0] is not None else 1)
+' "${BASH_SOURCE[0]}" "$row" "$event" "$kind" "$ts" || return 0
+  fi
   # Claude says its prompt is idle a minute after a turn ends whether or not background work is
   # in flight.  A seat waiting on work it started is not idle, and the Stop that said so stands
   # until that work's notification begins a turn; a question going up still replaces it.
