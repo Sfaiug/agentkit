@@ -2396,7 +2396,11 @@ elif [ -n "$SEATWHY" ]; then
 else
 SEAT=$(newrepo seat)
 tm kill-session -t =smoke-astra 2>/dev/null    # a seat a previous, interrupted smoke left
-printf '\n' | ( cd "$SEAT" && ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
+# A seat opens only where a person types, so its one answer comes through a terminal on stdin.
+( cd "$SEAT" && python3 -c 'import os, subprocess, sys
+typist, stdin = os.openpty()
+os.write(typist, b"\n")
+sys.exit(subprocess.run(sys.argv[1:], stdin=stdin).returncode)' ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
 SEATRC=$?
 PANE=""
 for _ in $(seq 1 30); do
