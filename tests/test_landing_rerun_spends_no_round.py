@@ -143,7 +143,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         state = record.read_state(self.run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["waiting_on"]["line"], turn.name)
-        self.assertGreater(state["waiting_on"]["joined"], 1)
+        self.assertEqual(state["waiting_on"]["joined"], 1)
         self.assertNotIn("fix", state["waiting_on"])
 
     def test_line_rerun_review_failure_keeps_findings_without_a_task_fixer(self):
