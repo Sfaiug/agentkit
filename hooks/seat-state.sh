@@ -90,17 +90,23 @@ seat_state() {
     row=$next
   done
   # Only events that could be passive ask the classifier; prompt and Stop stay on their fast
-  # path. A notice with no mapped state writes nothing, even if another hook ends the turn
-  # while Python is deciding: there is no old fact to put back over that Stop.
+  # path. A notice the seat's own manifest gives no state writes nothing, even if another hook
+  # ends the turn while Python is deciding: there is no old fact to put back over that Stop.
+  # Where nothing can say -- no record names the harness, or the asking fails -- the event is
+  # written as it always was: only a known passive notice is left out.
   if [[ $event != UserPromptSubmit && $event != Stop ]]; then
     /usr/bin/env python3 -c '
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
-from agentkit import config, watch
-harness = watch.seat_model(config.load(), sys.argv[2])[0]
-fact = {"event": sys.argv[3], "kind": sys.argv[4], "at": float(sys.argv[5])}
-sys.exit(0 if watch.hook_state(harness, fact)[0] is not None else 1)
+try:
+    sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+    from agentkit import config, watch
+    harness = watch.seat_model(config.load(), sys.argv[2])[0]
+    fact = {"event": sys.argv[3], "kind": sys.argv[4], "at": float(sys.argv[5])}
+    passive = bool(harness) and watch.hook_state(harness, fact)[0] is None
+except Exception:
+    passive = False
+sys.exit(1 if passive else 0)
 ' "${BASH_SOURCE[0]}" "$row" "$event" "$kind" "$ts" || return 0
   fi
   # Claude says its prompt is idle a minute after a turn ends whether or not background work is
