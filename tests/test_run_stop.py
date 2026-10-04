@@ -393,6 +393,24 @@ class RunStop(Sandbox):
                 self.assertEqual((saved["state"], saved.get("merged"), saved.get("pid")),
                                  (live["state"], live.get("merged"), live.get("pid")))
 
+    def test_a_queued_task_whose_file_now_names_after_gets_no_fresh_run(self):
+        # the receipt saved it plain; its file was edited to wait on another task since
+        task_file = self.root / "beta.md"
+        task_file.write_text("---\nrepo: none\nafter: alpha.md\n---\n# Beta\n\n"
+                             "## Done when\n```bash\ntrue\n```\n")
+        job_dir, job = self.old_job("20260101-090000-after-added", {
+            "name": "beta.md", "title": "Beta", "state": "queued", "run_id": None,
+            "task_file": str(task_file)})
+        with patch.object(run, "collect_usage", return_value={}), \
+                patch.object(run, "pick_models", return_value=("opus", "astra")), \
+                patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                redirect_stdout(io.StringIO()):
+            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+        self.assertEqual(rc, 1)
+        task = jobs.read_job(job_dir)["tasks"][1]
+        self.assertEqual(task["state"], "blocked")
+        self.assertIn("`after:` is gone", task["findings"])
+
     def test_an_old_task_whose_kept_run_was_stopped_stays_stopped(self):
         legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
         kept = self.running("20260101-0900-kept-stopped", owner=None, state="stopped",

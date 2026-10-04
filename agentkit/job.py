@@ -633,12 +633,13 @@ def job_wait_login(job_dir, job, task, log, lock, run_state, where):
     return True
 
 
-class LegacyTask(config.Error):
-    """A task from a receipt before `after:` went: a fresh run would lack what it waited for."""
+class RefusedTask(config.Error):
+    """A task no fresh run may start as written: one from a receipt before `after:` went, which
+    would lack what it waited for, or one whose file now asks for what a launch refuses."""
 
 
-def job_block_legacy(task, exc):
-    """Hand a never-built legacy task back to its seat: blocked, the relaunch its findings."""
+def job_block_refused(task, exc):
+    """Hand a task no fresh run may start back to its seat: blocked, why its findings."""
     task.update(state="blocked", finished_at=time.time(), findings=str(exc),
                 verdict_line=f"{task['name']}: BLOCKED: {exc}")
 
@@ -682,9 +683,12 @@ def job_end_legacy_run(cfg, task, run_dir):
 def job_start_task(cfg, job_dir, task, opts, log):
     """Allocate an ordinary run directory and launch it; the caller marks running first."""
     if job_legacy_refusal(task):
-        raise LegacyTask(job_legacy_refusal(task))
+        raise RefusedTask(job_legacy_refusal(task))
     task_path = Path(task["task_file"])
-    _, _, title = taskfile.parse_task(task_path)
+    meta, _, title = taskfile.parse_task(task_path)
+    # the file as it reads now, which may have changed since the job began
+    if taskfile.launch_refusal(meta):
+        raise RefusedTask(taskfile.launch_refusal(meta))
     run_dir = job_allocate_run_dir(title)
     extra = task.get("starting_branch")
     text = task_path.read_text()
@@ -942,8 +946,8 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
                 save_job(job_dir, job)
             try:
                 run_dir2, run_opts2 = job_start_task(cfg, job_dir, task, job["opts"], log)
-            except LegacyTask as exc:
-                job_block_legacy(task, exc)
+            except RefusedTask as exc:
+                job_block_refused(task, exc)
                 with lock:
                     save_job(job_dir, job)
                 log(task["verdict_line"])
@@ -1237,7 +1241,7 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
                 continue
             kept_state = record.read_state(config.RUNS / kept) if kept else None
             if not kept_state:
-                job_block_legacy(task, job_legacy_refusal(task))
+                job_block_refused(task, job_legacy_refusal(task))
             elif not job_end_legacy_run(cfg, task, config.RUNS / kept):
                 continue
             save()
@@ -1306,8 +1310,8 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             save()
             try:
                 run_dir, run_opts = job_start_task(cfg, job_dir, task, opts, log)
-            except LegacyTask as exc:
-                job_block_legacy(task, exc)
+            except RefusedTask as exc:
+                job_block_refused(task, exc)
                 save()
                 log(task["verdict_line"])
                 continue
