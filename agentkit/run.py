@@ -11195,7 +11195,7 @@ def resume_run(argv):
     if background:
         return spawn_bg(run_dir, ["resume", *requested], expected=expected)
     if (not child and not state.get("no_merge") and not state.get("scratch")
-            and not state.get("review_pr") and foreground_cli(run_dir)):
+            and foreground_cli(run_dir)):
         offset = (run_dir / "log.txt").stat().st_size
         spawn_bg(run_dir, ["resume", *requested], expected=expected)
         return follow_run(run_dir, cfg, offset)
@@ -12212,12 +12212,22 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
                                   self_review=bool(saved.get("own_pr") and same_model(
                                       cfg, saved.get("own_orchestrator"), reviewer))))
             return rc
+    if not resumed and foreground_cli(run_dir):
+        # as a task run: a worker reviews the PR and parks it in its line, processless, and
+        # this terminal follows the record to its real ending
+        offset = (run_dir / "log.txt").stat().st_size
+        spawn_bg(run_dir, argv)
+        return follow_run(run_dir, cfg, offset)
     opts = dict(opts, **flags)
     log = logger(run_dir, not resumed)
     log(f"run {run_dir.name}: review of {url}")
     if not resumed:
         place_here(run_dir, log)
-    return drive(cfg, run_dir, opts, log, job=lambda: review_pr(cfg, run_dir, url, opts, log))
+    rc = drive(cfg, run_dir, opts, log, job=lambda: review_pr(cfg, run_dir, url, opts, log))
+    if (rc == 0 and not log_is_stdout(run_dir)
+            and (run_record.read_state(run_dir) or {}).get("state") == "waiting"):
+        return 1        # a caller that does not follow it hears the truth: reviewed, not landed
+    return rc
 
 
 def reviewer_transport_dead(error):

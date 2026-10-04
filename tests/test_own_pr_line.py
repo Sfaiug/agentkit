@@ -540,6 +540,48 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
                             f"the target repair is stuck in {state['state']} behind an ended "
                             f"repair run; suite calls={len(self.checks)}, wait={state.get('waiting_on')}")
 
+    def test_a_review_parked_in_its_line_is_no_success_until_it_lands(self):
+        directory, url = self.own_pr("first", 1)
+        with patch.object(run, "run_slot", side_effect=lambda *_: nullcontext()), \
+                patch.object(run.history, "Sampler"), \
+                patch.object(run.history, "sample_rss", return_value=None), \
+                patch.object(run, "settle_run"), patch.object(run, "stop_run_tree"), \
+                patch.object(run, "finish", return_value=0), \
+                patch.object(run, "gh", return_value=(0, "")):
+            rc = run.review_pr_main(self.cfg, {"--review": None, "--review-pr": url},
+                                    {"--bg": False}, ["--review-pr", url], directory)
+        self.assertEqual((rc, record.read_state(directory)["state"]), (1, "waiting"))
+
+    def test_a_terminal_follows_its_review_to_the_ending_as_a_task_run_does(self):
+        url = "https://github.com/acme/widget/pull/1"
+        followed = []
+        with patch.object(run, "foreground_cli", return_value=True), \
+                patch.object(run, "prepare"), \
+                patch.object(run, "spawn_bg", return_value=0) as spawned, \
+                patch.object(run, "follow_run",
+                             side_effect=lambda directory, _cfg, _offset: followed.append(directory) or 0), \
+                patch.object(run, "drive", side_effect=AssertionError("reviewed in the terminal")):
+            self.assertEqual(run.review_pr_main(self.cfg, {"--review": None, "--review-pr": url},
+                                                {"--bg": False}, ["--review-pr", url], None), 0)
+        self.assertEqual(spawned.call_args.args[1], ["--review-pr", url])
+        self.assertEqual(followed, [spawned.call_args.args[0]])
+
+    def test_a_terminal_resuming_a_review_follows_it_too(self):
+        directory, url = self.own_pr("first", 1)
+        with patch.object(run, "gh", return_value=(0, "")):
+            self.review(directory, url)
+        state = record.read_state(directory)
+        state.pop("waiting_on", None)
+        state.update(state="interrupted", recovery_pending=True)
+        record.save_state(directory, state)
+        with patch.object(run, "foreground_cli", return_value=True), \
+                patch.object(run, "spawn_bg", return_value=0) as spawned, \
+                patch.object(run, "follow_run", return_value=0) as followed, \
+                patch.object(run, "drive", side_effect=AssertionError("resumed in the terminal")):
+            self.assertEqual(run.resume_run([directory.name]), 0)
+        self.assertEqual(spawned.call_args.args[1], ["resume", directory.name])
+        followed.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
