@@ -124,10 +124,10 @@ class Cleanup(Sandbox):
                      "rulebook-atoll.md"):
             self.assertFalse((config.STATE / leaf).exists(), leaf)
         self.assertTrue((config.STATE / "plan-other.md").is_file())
-        # Writing the stop mark back takes the seat's lock and the notices' lock again;
-        # neither is left behind. The mark is the one file, and the daily gc takes it.
-        self.assertEqual([path.name for path in orch.session_owned_files("atoll")],
-                         ["seat-atoll.json"])
+        # Waiting writers and a reopened name must keep using the same lock inodes;
+        # the daily gc takes unused locks and the stop mark.
+        self.assertEqual({path.name for path in orch.session_owned_files("atoll")},
+                         {"seat-atoll.json", "seat-atoll.lock", "notify-atoll.lock"})
         seat = watch.seat_read("atoll")
         self.assertTrue(seat.get("closed_by_owner"))
         self.assertTrue(seat.get("stopped_at"))

@@ -311,7 +311,7 @@ class RuleProgress(unittest.TestCase):
         os.kill(screen.proc.pid, signal.SIGWINCH)      # the test's own child
         screen.when(r"\x1b\[H\x1b\[Kagentkit · config · acme", after)
         drawn = screen.text().rindex("\x1b[H")
-        self.assertRegex(screen.text()[drawn:], r"[^─]─{40}\x1b")     # the rule 40 wide
+        screen.when(r"[^─]─{40}\x1b", drawn)          # the rule 40 wide, once it arrives
         screen.when(GLIDE.pattern, drawn)
         columns = re.findall(r"\x1b\[2;(\d+)H", screen.text()[drawn:])
         self.assertLessEqual(max(map(int, columns)), 40)

@@ -597,7 +597,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         with patch.object(jobs, "save_job"), \
                 patch.object(run.time, "sleep", side_effect=Stop), \
                 redirect_stdout(io.StringIO()), self.assertRaises(Stop):
-            jobs.run_job_loop(self.cfg, job_dir, jobs.read_job(job_dir), to_file=False)
+            jobs.run_job_loop(self.cfg, job_dir, jobs.read_job(job_dir))
         # fresh, not two days old: the file clock may trail `time.time()` by a tick
         self.assertGreater((job_dir / "job.json").stat().st_mtime, self.now - 60)
 

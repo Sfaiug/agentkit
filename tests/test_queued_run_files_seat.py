@@ -58,7 +58,7 @@ class QueuedRunFilesSeat(Sandbox):
         opts = {"--no-merge": False, "--no-worktree": False, "--anyway": False, "--bg": False}
         with chdir(where), patch.dict(os.environ, {config.SESSION_ENV: "fix-api",
                                                    "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "4"}), \
-                patch.object(run, "refresh_seat_tally"), redirect_stdout(io.StringIO()):
+                patch.object(run, "redress_seat"), redirect_stdout(io.StringIO()):
             run.prepare(directory, opts, lambda _: None, task_file=task_file)
         self.assertEqual(record.read_state(directory)["state"], "queued")
         return directory

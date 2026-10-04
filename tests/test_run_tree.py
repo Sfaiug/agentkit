@@ -237,7 +237,7 @@ class RunTree(unittest.TestCase):
         with patch.object(worker, "call", side_effect=attempt), \
                 patch.object(run, "TRANSIENT_BACKOFF", (0, 0)):
             code, _, _, dead = run.call_retrying(
-                cfg, "w", "do the thing", self.root, self.root / "out",
+                cfg, "w", "do the thing", self.root, self.root / "round-1" / "executor",
                 "executor", None, lambda _: None)
         self.assertEqual(code, 0)
         self.assertFalse(dead)
@@ -279,7 +279,7 @@ class RunTree(unittest.TestCase):
             return 0, "## Summary\nall done", None, False
 
         with patch.object(worker, "call", side_effect=attempt):
-            run.call_retrying(cfg, "w", "do the thing", self.root, self.root / "out",
+            run.call_retrying(cfg, "w", "do the thing", self.root, self.root / "round-1" / "executor",
                               "executor", None, lambda _: None)
         self.assertTrue(seen["worker"].startswith(f"{self.marker}/turn-"))
 

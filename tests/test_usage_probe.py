@@ -301,8 +301,8 @@ class GentleProbe(unittest.TestCase):
                          ["two", "one"])
 
     def test_the_week_a_reset_reads_back_ends_the_refusals_before_it(self):
-        # Six hours of refusals leave alpha unknown.  A refused worker spends a credit inside
-        # the minute, and the week that spend read back is a fresh reading, ranked on at once.
+        # Six hours of refusals leave alpha unknown.  The owner spends a credit inside the
+        # minute, and the week that spend read back is a fresh reading, ranked on at once.
         manifest = self.fake / "fake.toml"
         manifest.write_text("[usage]\nreset = true\n")
         os.utime(manifest, (NOW, NOW))
@@ -321,15 +321,15 @@ class GentleProbe(unittest.TestCase):
         self.assertNotIn("probe_error", prov)
 
     def test_a_replenish_that_spends_nothing_keeps_the_refusal_mark(self):
-        # Alpha refused a worker an hour ago while its adapter still reports room: the
-        # re-read a quota stall asks for spends no reset, so the mark stays, and the
-        # next pick -- the gate's skip is this same `model_exhausted` -- still sees it
-        # spent instead of sending real calls at the week that just refused one.
+        # Alpha refused a worker an hour ago while its adapter still reports room: a
+        # replenish whose adapter has no reset to spend re-reads and spends nothing, so the
+        # mark stays, and the next pick -- the gate's skip is this same `model_exhausted` --
+        # still sees it spent instead of sending real calls at the week that just refused one.
         usage.collect(self.cfg)
         usage.mark_exhausted(self.cfg, "alpha", until=NOW + 3600)
         self.assertTrue(usage.model_exhausted(self.cfg, "one", usage.collect(self.cfg))[0])
         self.now[0] += usage.PROBE_EVERY
-        self.assertEqual(usage.replenish(self.cfg, "alpha", depleted=False), (False, 0.0))
+        self.assertEqual(usage.replenish(self.cfg, "alpha"), (False, 0.0))
         providers = usage.collect(self.cfg)
         self.assertEqual(providers["alpha"].get("exhausted_until"), NOW + 3600)
         self.assertTrue(usage.model_exhausted(self.cfg, "one", providers)[0])

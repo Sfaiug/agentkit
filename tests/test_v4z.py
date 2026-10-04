@@ -14,7 +14,7 @@ from unittest.mock import patch
 import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
-from agentkit import config, menu, notify, orch, run, terminal, usage, watch
+from agentkit import config, menu, notify, orch, run, statusbar, terminal, usage, watch
 from agentkit import record as run_record
 
 
@@ -373,24 +373,25 @@ class Projects(Sandbox):
                 "exited": False, "legacy": False, "resumable": False}
         with patch.dict(os.environ, {key: value for key, value in env.items() if key != "NO_COLOR"}, clear=True), \
                 patch.object(orch, "tmux_out", side_effect=lambda *args, **kw: (0, tmux(*args))):
-            orch.dress("state", "fable")
-        left = tmux("show-options", "-t", "state", "-v", "status-left")
-        right = tmux("show-options", "-t", "state", "-v", "status-right")
+            statusbar.dress("state", "fable")
+
+        def shown(option):
+            """What tmux makes of a bar option: its words, the styles around them dropped."""
+            text = tmux("display-message", "-p", "-t", "state", f"#{{E:{option}}}")
+            return re.sub(r"#\[[^\]]*\]", "", text).strip()
+
         title = tmux("show-options", "-t", "state", "-v", "set-titles-string")
-        self.assertEqual(left, "state · fable")   # the helper strips the padding
-        self.assertEqual(right, "Ctrl-b m  menu")
+        self.assertEqual(shown(statusbar.TOP), "state  fable orchestrates")
+        self.assertEqual(shown(statusbar.KEY), "Ctrl-b m  menu")
         self.assertEqual(title, "state")
-        self.assertNotIn("#[", left + right + title)
+        self.assertNotIn("#[", title)
         self.assertIn('terminal-features ",*:RGB"', orch.tmux_conf().read_text())
         with patch.dict(os.environ, {key: value for key, value in env.items() if key != "NO_COLOR"}, clear=True), \
                 patch.object(orch, "tmux_out", side_effect=lambda *args, **kw: (0, tmux(*args))):
             for word in terminal.STATES:
-                menu.redress(seat, {"word": word, "reason": f"why {word}", "since": None},
-                             cfg=self.cfg, records=[])
-                label = terminal.state_text(word)
-                shown = tmux("display-message", "-p", "-t", "state",
-                             tmux("show-options", "-t", "state", "-v", "status-left"))
-                self.assertIn(label, shown)
+                statusbar.redress(seat, {"word": word, "reason": f"why {word}", "since": None},
+                                  cfg=self.cfg)
+                self.assertIn(terminal.state_text(word), shown(statusbar.TOP))
                 self.assertEqual(tmux("show-options", "-t", "state", "-v", "set-titles-string"),
                                  f"state · {word}")
 

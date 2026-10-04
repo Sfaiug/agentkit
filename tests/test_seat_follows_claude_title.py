@@ -120,12 +120,10 @@ class SeatFollowsTitle(Sandbox):
         logs = []
         with patch.object(orch, "sessions", return_value=seats), \
                 patch.object(orch, "tmux_out", side_effect=tmux), \
-                patch.object(orch, "set_runs") as bars, \
                 patch.object(watch, method, side_effect=fail_first) as titles:
             watch.health(self.cfg, watch.load_state(), False, logs.append)
         self.assertEqual([call.args[0]["name"] for call in titles.call_args_list],
                          ["lagoon", "quay"])
-        self.assertEqual([call.args[0] for call in bars.call_args_list], ["lagoon", "quay"])
         for action, index in ((watch.seat_account, 1), (watch.stop_nudge, 0),
                               (watch.announce_state, 0)):
             self.assertEqual([call.args[index]["name"] for call in action.call_args_list],

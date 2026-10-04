@@ -36,7 +36,7 @@ class WokenMemberAdmission(unittest.TestCase):
             record, "process_active", side_effect=lambda state: state.get("state") == "running"))
         self.stack.enter_context(patch.object(land, "start_line", return_value=False))
         self.stack.enter_context(patch.object(host, "host_readings", return_value=READINGS))
-        self.stack.enter_context(patch.object(run, "refresh_seat_tally"))
+        self.stack.enter_context(patch.object(run, "redress_seat"))
 
     def receipt(self, name, queued_at, verdict=None, word="queued"):
         directory = config.RUNS / name

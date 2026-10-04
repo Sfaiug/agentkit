@@ -18,8 +18,8 @@ pace_margin = 10          # the one knob: a subscription more than this far ahea
 # Orchestrator = the default while none of its meters reads 100% used, else the first model in
 # this file's order that can still be spent, else the default anyway with a WARN.
 # Executor = the worker with the highest budget (Fable's lag preference still applies).
-# Budget = minimum (fraction left + usage-limit resets in hand) / fraction of the window left
-# across non-session limits; each reset in hand counts as one whole weekly allowance.
+# Budget = minimum fraction left / fraction of the window left across non-session limits;
+# a usage-limit reset in hand counts for nothing, since ak never spends one by itself.
 # Reviewer = highest budget on a different provider, else another model on the same
 # provider, else the executor's own model, marked self-reviewed. A meter at 100% used
 # removes a worker even without a reset time, and so does a harness that is not

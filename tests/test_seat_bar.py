@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, menu, orch, run, terminal, watch
+from agentkit import config, menu, orch, run, statusbar, terminal, watch
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -72,11 +72,11 @@ class SeatBar(Sandbox):
              "tasks": [{"name": f"task-{n}.md", "state": state} for n, state in enumerate(states)]}))
 
     def drawn(self, seat):
-        """(word, the row's last column, the whole row, the status bar's left half)."""
+        """(word, the row's last column, the whole row, the status bar's line one)."""
         info = menu.v5o_seat_info(self.cfg, 1, seat, menu.run_records(), {}, {}, NOW)
         watch.announce_state(seat, cfg=self.cfg)
         row = "\n".join(terminal.plain(line) for line in menu.v5o_seat_blocks([info], 100)[0])
-        return info["word"], menu._last_text(info), row, self.options["status-left"]
+        return info["word"], menu._last_text(info), row, self.options[statusbar.TOP]
 
     def test_a_renamed_seats_plan_under_its_old_name_draws_its_bar(self):
         seat = self.seat("fix-api", was="api-fix")
@@ -150,7 +150,7 @@ class SeatBar(Sandbox):
         self.assertEqual(word, "working")
         self.assertEqual(last, "")
         self.assertTrue(row.rstrip().endswith("● working"), row)
-        self.assertTrue(bar.rstrip().endswith("● working"), bar)
+        self.assertTrue(bar.endswith(" orchestrates#[default]"), bar)
         self.assertEqual(menu.seat_progress("fix-api"), (0, 0))
         # `needs you` and `done` keep their reason, a bar or not
         self.assertEqual(menu.last_column("needs you", "Merge first?", 3, 7), "Merge first?")

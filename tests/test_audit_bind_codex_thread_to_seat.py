@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, terminal, usage
+from agentkit import config, menu, orch, statusbar, terminal, usage
 from agentkit.harness import codex as codex_plugin
 
 
@@ -72,7 +72,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
         self.stack.enter_context(patch.object(orch, "attach", return_value=0))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(orch, "start", side_effect=self.start))
-        self.stack.enter_context(patch.object(orch, "dress"))
+        self.stack.enter_context(patch.object(statusbar, "dress"))
         self.stack.enter_context(patch.object(orch.time, "time", return_value=100))
 
     def fake(self, name, script):

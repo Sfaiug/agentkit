@@ -420,7 +420,7 @@ sys.exit(1)
             parked = record.read_state(run_dir)
             self.assertEqual(parked["state"], "waiting")
             self.assertIsNone(parked["pid"])
-            lp = run.Loop(self.cfg, run_dir, parked, {}, run.logger(run_dir, True),
+            lp = run.Loop(self.cfg, run_dir, parked, {}, run.logger(run_dir),
                           wt, "body", ["true"], "context", [])
             self.assertEqual(landing(lp, consume=lambda _: run.cmd_resume([run_dir.name])), 0)
         after = record.read_state(run_dir)
