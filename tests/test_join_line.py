@@ -384,7 +384,6 @@ class JoinLine(Sandbox):
         run.merge(self.lp)
         run.release_line(self.directory, self.lp.log)
         line = config.RUNS / self.saved()["waiting_on"]["line"]
-        self.start.reset_mock()
         clock = [1000.0]
 
         class Waited(Exception):
@@ -392,13 +391,20 @@ class JoinLine(Sandbox):
 
         def sleep(seconds):
             clock[0] += seconds
-            if clock[0] > 1000 + 2 * job.JOB_PICKER_INTERVAL:
+            if clock[0] > 1000 + job.JOB_TICK + 2 * job.JOB_PICKER_INTERVAL:
                 raise Waited
 
-        with patch.object(job.time, "time", side_effect=lambda: clock[0]), \
-                patch.object(job.time, "sleep", side_effect=sleep), self.assertRaises(Waited):
-            job.job_await(self.directory)
-        self.assertEqual([call.args for call in self.start.call_args_list], [(line,), (line,)])
+        for follower, args in (
+                (job.job_await, (self.directory,)),
+                (job.job_follow_waiting, (self.directory, self.saved(), self.lp.log))):
+            with self.subTest(follower=follower.__name__):
+                self.start.reset_mock()
+                clock[0] = 1000.0
+                with patch.object(job.time, "time", side_effect=lambda: clock[0]), \
+                        patch.object(job.time, "sleep", side_effect=sleep), self.assertRaises(Waited):
+                    follower(*args)
+                self.assertEqual([call.args for call in self.start.call_args_list],
+                                 [(line,), (line,)])
 
 
 if __name__ == "__main__":

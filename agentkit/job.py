@@ -816,7 +816,7 @@ def job_follow_waiting(run_dir, run_state, log):
             watch.resume_waiting(log=log, run=run_dir)
         time.sleep(JOB_TICK)
         run_state = record.read_state(run_dir) or run_state
-        if run_state.get("state") != "waiting":
+        if run_state.get("state") != "waiting" or run.landing_line(run_state):
             run_state = job_await(run_dir)
     return run_state
 
