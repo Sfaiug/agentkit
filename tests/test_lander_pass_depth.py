@@ -332,11 +332,10 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
 
     def test_a_red_suffix_is_not_blamed_while_a_stack_ahead_is_unanswered(self):
         suite = "test ! -f bad.txt || { test -f mitigation.txt && test ! -f tail.txt; }"
-        head = self.member("head", joined=1, once="true", **{
-            "bad.txt": "bad\n", "AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        head = self.member("head", joined=1, once="true", **{"bad.txt": "bad\n"})
         self.member("mitigation", joined=2, once="true", **{"mitigation.txt": "ok\n"})
         tail = self.member("tail", joined=3, once="true", **{"tail.txt": "ok\n"})
-        self.advance()
+        self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
         self.capacity.return_value = 6
 
         def suffixes_first(futures):
