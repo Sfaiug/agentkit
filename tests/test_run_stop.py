@@ -5,6 +5,7 @@ processes for the tree the stop must end, and a real throwaway git repo for the
 checkout it must take. No harness, no network and nothing of the owner's is touched.
 """
 
+import copy
 from contextlib import redirect_stdout
 import io
 import json
@@ -238,7 +239,7 @@ class RunStop(Sandbox):
         jobs.save_job(job_dir, job)
         out = io.StringIO()
         with redirect_stdout(out):
-            rc = jobs.run_job_loop(cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(cfg, job_dir, job)
         self.assertEqual(rc, 1)
         kept = jobs.read_job(job_dir)
         waiting = next(task for task in kept["tasks"] if task["name"] == "b.md")
@@ -265,7 +266,7 @@ class RunStop(Sandbox):
         with patch.object(jobs, "job_hand_back", return_value="sent") as handed, \
                 patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
                 redirect_stdout(io.StringIO()):
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)
         line = handed.call_args.args[1]
         self.assertIn("1 task(s) need you", line)
@@ -301,7 +302,7 @@ class RunStop(Sandbox):
                 with patch.object(jobs, "job_adopt_worker", side_effect=adopt) as adopted, \
                         patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                         redirect_stdout(io.StringIO()):
-                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job)
                 self.assertEqual(rc, 0)
                 self.assertEqual(adopted.call_args.args[4], kept)
                 self.assertEqual(jobs.read_job(job_dir)["tasks"][1]["state"], "merged")
@@ -333,7 +334,7 @@ class RunStop(Sandbox):
                         patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
                         patch.object(run, "cmd_merge", side_effect=AssertionError("a merge")), \
                         redirect_stdout(io.StringIO()):
-                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job)
                 self.assertEqual(rc, 1)
                 self.assertEqual(record.read_state(kept)["state"], "blocked")
                 task = jobs.read_job(job_dir)["tasks"][1]
@@ -357,7 +358,7 @@ class RunStop(Sandbox):
                         patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
                         patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                         redirect_stdout(io.StringIO()):
-                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job)
                 self.assertEqual(rc, 1)
                 task = jobs.read_job(job_dir)["tasks"][1]
                 self.assertEqual((task["state"], task["run_id"]), ("blocked", kept.name))
@@ -405,7 +406,7 @@ class RunStop(Sandbox):
                 patch.object(run, "pick_models", return_value=("opus", "astra")), \
                 patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                 redirect_stdout(io.StringIO()):
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)
         task = jobs.read_job(job_dir)["tasks"][1]
         self.assertEqual(task["state"], "blocked")
@@ -441,6 +442,27 @@ class RunStop(Sandbox):
                                           lambda _: None)
                 self.assertEqual((task["state"], task["run_id"]), ("merged", kept.name))
 
+    def test_a_merged_task_stays_merged_after_its_models_are_removed(self):
+        review = {"executor": "opus", "reviewer": "astra", "returncode": 0, "verdict": "PASS",
+                  "executor_provider": config.model(self.cfg, "opus")["provider"],
+                  "reviewer_provider": config.model(self.cfg, "astra")["provider"],
+                  "done_when": True, "head_sha": "a" * 40, "tree_sha": "b" * 40}
+        for removed in ("opus", "astra"):
+            with self.subTest(removed=removed):
+                kept = self.running(f"20260101-0900-merged-{removed}", owner=None, state="pass",
+                                    pid=None, verdict="PASS", merged=True, review=review,
+                                    repo=str(self.root / "repo"), round_summaries=[])
+                cfg = copy.deepcopy(self.cfg)
+                config.remove_model(cfg, removed)      # its review can no longer be judged today
+                task = {"name": "b.md", "title": "B", "state": "running", "run_id": kept.name}
+                job_dir, job = self.old_job(f"20260101-090000-merged-{removed}", task)
+                with patch.object(run, "reap",
+                                  side_effect=lambda directory, _state: record.read_state(directory)), \
+                        redirect_stdout(io.StringIO()):
+                    jobs.job_adopt_worker(cfg, job_dir, job, task, kept, threading.Lock(),
+                                          lambda _: None)
+                self.assertEqual(task["state"], "merged")
+
     def test_an_old_task_whose_kept_run_was_stopped_stays_stopped(self):
         legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
         kept = self.running("20260101-0900-kept-stopped", owner=None, state="stopped",
@@ -449,7 +471,7 @@ class RunStop(Sandbox):
             "name": "b.md", "title": "B", "after": ["a.md"], "state": "queued",
             "run_id": kept.name, "from_pass": legacy})
         with redirect_stdout(io.StringIO()):
-            jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            jobs.run_job_loop(self.cfg, job_dir, job)
         task = jobs.read_job(job_dir)["tasks"][1]
         self.assertEqual(task["state"], "stopped")
         self.assertNotIn("findings", task)
@@ -461,7 +483,7 @@ class RunStop(Sandbox):
         with patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                 patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
                 redirect_stdout(io.StringIO()):
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)
         task = jobs.read_job(job_dir)["tasks"][1]
         self.assertEqual(task["state"], "blocked")
@@ -717,7 +739,7 @@ class RunStop(Sandbox):
         with patch.object(jobs, "job_start_task",
                           side_effect=record.StopRequested("20260101 stopped")), \
                 redirect_stdout(out):
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)
         kept = jobs.read_job(job_dir)
         self.assertEqual(kept["tasks"][0]["state"], "stopped")
@@ -855,6 +877,16 @@ class RunStop(Sandbox):
             self.assertEqual(run.cmd_stop(["20260101-0900-stop-shared"]), 0)
         again = out.getvalue().strip()
         self.assertNotIn("removed", again)
+
+    def test_missing_run_is_checked_without_creating_or_locking(self):
+        directory = self.root / "no-record"
+        directory.mkdir()
+        with patch.object(record, "recovery_lock", wraps=record.recovery_lock) as lock:
+            self.assertIsNone(record.stop_check(None))
+            self.assertIsNone(record.stop_check(directory / "no-such-run"))
+            self.assertIsNone(record.stop_check(directory))
+        self.assertEqual(list(directory.iterdir()), [])
+        lock.assert_not_called()
 
     def test_spawn_boundaries_ask_under_the_stop_lock(self):
         import threading

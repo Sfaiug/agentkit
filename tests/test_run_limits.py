@@ -1022,7 +1022,7 @@ class Limits(unittest.TestCase):
         (run_dir / "task.md").write_text(path.read_text())
         (run_dir / "log.txt").touch()
         (self.root / "slow-git").write_text("--show-toplevel")
-        log = run.logger(run_dir, True)
+        log = run.logger(run_dir)
         with self.git_shim(), patch.object(run, "TOOL_CAP", 1), \
                 redirect_stdout(io.StringIO()):
             # the re-raise is what the foreground parent prints, so it carries the remedy

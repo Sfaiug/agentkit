@@ -24,6 +24,7 @@ from agentkit import record
 NOW = 1_800_000_000
 DAY = 86400
 STOP = ("seat-state.sh", "orchestrator-stop.sh")    # what Claude Code runs on Stop, side by side
+TITLE = "set-titles-string"   # the seat's window title: its name and its word
 
 
 class ThreeStates(Sandbox):
@@ -335,7 +336,7 @@ class ThreeStates(Sandbox):
         self.assertIn("reason:", why.getvalue())
 
     def test_j_the_tmux_bar_carries_one_of_the_three_words(self):
-        self.assertNotIn(orch.STATE_OPTION, self.options)   # a read never writes one
+        self.assertNotIn(TITLE, self.options)   # a read never writes one
         for setup, word in ((lambda: self.receipt("20260101-0900-going", state="running",
                                                   finished_at=None, started_at=NOW - 60),
                              "working"),
@@ -350,13 +351,13 @@ class ThreeStates(Sandbox):
                 self.assertEqual(self.decide()["word"], word)
                 # a screen that draws a row publishes it; deciding alone writes nothing
                 self.assertEqual(watch.announce_state(self.seat, cfg=self.cfg)["word"], word)
-                self.assertEqual(self.options[orch.STATE_OPTION], word)
-                self.assertIn(self.options[orch.STATE_OPTION], terminal.STATES)
+                self.assertEqual(self.options[TITLE], f"atoll · {word}")
+                self.assertIn(self.options[TITLE].split(" · ")[1], terminal.STATES)
                 # tmux lost the option -- a failed set, or the seat given the name again:
                 # the next screen says it again rather than waiting for the word to change.
-                self.options.pop(orch.STATE_OPTION)
+                self.options.pop(TITLE)
                 watch.announce_state(self.seat, cfg=self.cfg)
-                self.assertEqual(self.options[orch.STATE_OPTION], word)
+                self.assertEqual(self.options[TITLE], f"atoll · {word}")
 
     def test_k_one_function_decides_and_the_table_holds_three_words(self):
         self.assertEqual(list(terminal.STATES), ["working", "needs you", "done"])
@@ -395,7 +396,7 @@ class ThreeStates(Sandbox):
             self.assertEqual(bare["word"], "working")
             for call in listed.call_args_list:
                 self.assertEqual(call.kwargs.get("reconcile", call.args and call.args[0]), False)
-        self.assertNotIn(orch.STATE_OPTION, self.options)
+        self.assertNotIn(TITLE, self.options)
         after = {path: path.read_bytes() for directory in (config.RUNS, config.STATE)
                  for path in directory.rglob("*") if path.is_file()}
         self.assertEqual(after, before)
@@ -444,7 +445,7 @@ class ThreeStates(Sandbox):
                 patch.object(watch, "type_into", return_value=True), \
                 patch.object(notify, "progress", return_value=False):
             watch.health(self.cfg, watch.load_state(), False, logs.append)
-        self.assertEqual(self.options[orch.STATE_OPTION], "needs you")
+        self.assertEqual(self.options[TITLE], "atoll · needs you")
         self.assertIs(watch.load_state()["auth_out"]["claude"]["ok"], False)
         self.assertEqual(self.decide()["reason"],
                          "claude login expired: open it and run /login")
@@ -461,7 +462,7 @@ class ThreeStates(Sandbox):
                 patch.object(orch, "listing", return_value=closed), \
                 patch.object(notify, "progress", return_value=False):
             watch.health(self.cfg, watch.load_state(), False, logs.append)
-        self.assertEqual(self.options[orch.STATE_OPTION], "needs you")
+        self.assertEqual(self.options[TITLE], "atoll · needs you")
         self.assertEqual(watch.seat_read("atoll")["reason"],
                          "session closed: press 1 to reopen")
 

@@ -62,6 +62,7 @@ MATRIX = [
     ("notify done", "usage: ak notify done", ["Summary", "--pr"],
      {"--session", "--dry-run", "--pr"}),
     ("wait", "usage: ak wait SESSION", ["fix-api"], set()),
+    ("plan", "usage: ak plan", ["unexpected"], {"--check", "--eye"}),
     ("update", "usage: ak update [--dry-run]", ["--dry-run"], {"--dry-run"}),
     ("watch", "usage: ak watch [--dry-run]", ["--dry-run"], {"--dry-run"}),
     ("doctor", "usage: ak doctor", ["unexpected"], set()),
@@ -171,7 +172,7 @@ def probe():
             if mode == "help":
                 # Public help must return before command imports.
                 loaded = [name for name in ("usage", "worker", "hand_in", "run", "notify", "orch", "menu",
-                                            "update", "watch", "browser", "macbridge")
+                                            "update", "watch", "browser", "macbridge", "plan")
                           if f"agentkit.{name}" in sys.modules]
                 assert not loaded, f"help imported operational modules: {loaded}"
         finally:

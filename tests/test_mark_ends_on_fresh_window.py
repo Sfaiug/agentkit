@@ -563,7 +563,7 @@ class FreshWindowEndsMark(unittest.TestCase):
         self.two_accounts()
         self.set_meters("alpha", self.old_window(used=95), account="first")
         self.set_meters("alpha", self.old_window(used=98), account="second")
-        cache, armed = config.STATE / "usage.json", []
+        armed = []
 
         def adapter(harness, verb, *_a, **_kw):
             if verb != "reset" or not armed:
@@ -577,27 +577,18 @@ class FreshWindowEndsMark(unittest.TestCase):
         with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
                     **self.fake_probe(*a, **kw), "resets": 1.0}), \
                 patch.object(usage, "_adapter_json", side_effect=adapter):
-            for cached in (False, True):
-                with self.subTest(cached=cached):
-                    shutil.rmtree(config.STATE)
-                    config.ensure_dirs()
-                    armed.clear()
-                    if cached:
-                        # a fresh snapshot whose reset policy is due: the credit goes from it
-                        usage.collect(self.cfg)
-                        blob = json.loads(cache.read_text())
-                        blob["reset_checked_at"] = NOW - usage.CACHE_TTL - 1
-                        cache.write_text(json.dumps(blob))
-                    armed.append(True)
-                    read = usage.collect(self.cfg)
-                    second = read["alpha"]["accounts"]["second"]
-                    self.assertEqual([meter["used"] for meter in second["meters"]], [100])
-                    self.assertTrue(second["exhausted"])
-                    self.assertEqual(read["alpha"]["account"], "first")
-                    self.assertEqual([meter["used"] for meter in
-                                      self.stored_account("second")["meters"]], [100])
+            usage.collect(self.cfg)
+            armed.append(True)
+            self.assertTrue(usage.replenish(self.cfg, "alpha", account="first")[0])
+            read = usage.collect(self.cfg)
+            second = read["alpha"]["accounts"]["second"]
+            self.assertEqual([meter["used"] for meter in second["meters"]], [100])
+            self.assertTrue(second["exhausted"])
+            self.assertEqual(read["alpha"]["account"], "first")
+            self.assertEqual([meter["used"] for meter in
+                              self.stored_account("second")["meters"]], [100])
 
-    def test_a_count_a_cached_read_recovers_is_spent_by_that_read(self):
+    def test_a_count_a_cached_read_recovers_is_read_and_never_spent(self):
         self.reset_adapter({"available": 1}, weekly_used=0, resets_at=NOW + WEEK)
         self.set_meters("alpha", self.old_window(used=100))
         self.set_meters("beta", self.old_window(used=10))
@@ -605,16 +596,13 @@ class FreshWindowEndsMark(unittest.TestCase):
         with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
                 **self.fake_probe(*a, **kw), "resets": None}):
             self.assertTrue(usage.collect(self.cfg)["alpha"]["exhausted"])
-            # a fresh snapshot that could not count alpha's resets, its policy check due
-            blob = json.loads(cache.read_text())
-            blob["reset_checked_at"] = NOW - usage.CACHE_TTL - 1
-            cache.write_text(json.dumps(blob))
+            # a fresh snapshot that could not count alpha's resets counts them on the next read
             read = usage.collect(self.cfg)
         stored = json.loads(cache.read_text())["providers"]["alpha"]
         for alpha in (read["alpha"], stored):
-            self.assertEqual([meter["used"] for meter in alpha["meters"]], [0])
-            self.assertEqual(alpha["resets"], 0)
-        self.assertFalse(read["alpha"]["exhausted"])
+            self.assertEqual([meter["used"] for meter in alpha["meters"]], [100])
+            self.assertEqual(alpha["resets"], 1)
+        self.assertTrue(read["alpha"]["exhausted"])
 
     def test_a_mark_written_with_its_deadline_alone_survives_later_writes(self):
         # Marks written before `exhausted_at` existed hold the deadline alone.

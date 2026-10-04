@@ -1155,9 +1155,9 @@ class HandBack(Sandbox):
         state = record.read_state(directory)
         histories, settles = [], []
         followup_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
-        tally_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
+        bar_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
         with patch.object(run, "start_followups", side_effect=followup_boom), \
-                patch.object(run, "refresh_seat_tally", side_effect=tally_boom), \
+                patch.object(run, "redress_seat", side_effect=bar_boom), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(run, "settle_run",
@@ -1171,7 +1171,7 @@ class HandBack(Sandbox):
         failures = [line for line in self.logs if "WARN could not" in line]
         self.assertEqual(len(failures), 2)     # one line per failed step, in the run's log
         self.assertTrue(any("follow-up" in line for line in failures), failures)
-        self.assertTrue(any("tally" in line for line in failures), failures)
+        self.assertTrue(any("the seat's bar" in line for line in failures), failures)
         for line in failures:
             self.assertNotIn("\n", line)
             self.assertIn("ROLE_HEADS", line)
@@ -1186,7 +1186,7 @@ class HandBack(Sandbox):
         histories, settles = [], []
         with patch.object(run, "start_followups",
                           side_effect=record.StopRequested("fix-child was stopped")), \
-                patch.object(run, "refresh_seat_tally"), \
+                patch.object(run, "redress_seat"), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(run, "settle_run",

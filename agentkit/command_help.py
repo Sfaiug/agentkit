@@ -26,7 +26,8 @@ COMMANDS = {
                 "Paths and lines must exist in the checkout; a quote must occur in that file.\n"
                 "--run executes in the checkout and records bounded output excerpts and the exit status.\n"
                 "A finding's command must fail while the defect exists; ak re-runs it on commit and base.\n"
-                "--before proves a follow-up existed before the task.\n"
+                "A follow-up's command must run and fail on base; --before names the base or an ancestor commit, or verbatim lines in its file at base.\n"
+                "Unproven follow-ups are dropped into Notes.\n"
                 "Only a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\n"
                 "ak gives the next reviewer the dispute and its own proof output beside the finding.\n"
                 "Hand the finding in again to uphold it; otherwise it is dropped into result.md's Disputes.\n"
@@ -41,7 +42,7 @@ COMMANDS = {
                         'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py"'),
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
                           "Hand in a proven defect that existed before the task; it cannot fail this review.",
-                          'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --quote "return None" --before "base abc123 has the same defect"'),
+                          'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py" --before "return None"'),
     "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",
                         "Dispute a blocking finding handed to this fixer, with a passing command or quoted evidence.",
                         'ak hand-in dispute api.py:12 "The result is correct" --run "python3 check_result.py"'),
@@ -132,6 +133,12 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                     'ak notify done "Parser fixed" --dry-run'),
     "wait": ("usage: ak wait SESSION", "End this turn waiting on another session's work.",
              "ak wait fix-api"),
+    "plan": ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
+             "ak plan add \"OUTCOME\" --eye | ak plan tick N",
+             "This session's plan: each line an outcome with the check that proves it.\n"
+             "add runs the check on the project's default branch and refuses one that passes;\n"
+             "--eye is the owner's to judge, and tick N marks it done on their word.",
+             "ak plan add \"each session sees its project\" --check 'python3 tests/test_x.py'"),
     "update": ("usage: ak update [--dry-run]",
                "Upgrade harnesses and verify with acceptance gates; --dry-run prints the plan.",
                "ak update --dry-run"),
@@ -174,11 +181,12 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
 
 # `ak --help` is one screen: the menu, then the commands an orchestrator uses, one line
 # each, and under one dim `internal:` line the ones the toolkit runs for itself.
-ORCHESTRATOR = ("run", "notify", "wait", "usage", "browser", "fetch")
+ORCHESTRATOR = ("run", "plan", "notify", "wait", "usage", "browser", "fetch")
 INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor")
 
 PURPOSES = {
     "run": "execute a task file to a merged PR",
+    "plan": "show or write this session's checked plan",
     "orch": "open a seat",
     "worker": "run one headless model turn from a task or prompt file",
     "hand-in": "hand in review evidence or close a worker turn",

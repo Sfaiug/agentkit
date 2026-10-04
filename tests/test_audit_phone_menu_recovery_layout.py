@@ -31,7 +31,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, terminal
+from agentkit import config, menu, orch, run, statusbar, terminal
 from agentkit import record as run_record
 from test_v4n import menu_input
 
@@ -346,24 +346,29 @@ class Recovery(Sandbox):
 
 class Bar(Sandbox):
     def test_the_bar_is_the_row_s_values_and_the_one_key(self):
-        left, right, title = orch.bar("herdr", "fable", "working", "tasks x 2/5")
-        self.assertEqual(left,
-                         f" herdr · fable · {terminal.state_text('working')} · tasks x 2/5 ")
-        self.assertEqual(right, " Ctrl-b m  menu ")
+        top, why, key, title = statusbar.lines("herdr", "fable", "#D97757", "working",
+                                               "tasks x 2/5")
+        self.assertIn(terminal.state_text("working"), top)
+        self.assertTrue(top.endswith("   tasks x 2/5"), top)
+        self.assertEqual(why, "")
+        self.assertTrue(key.startswith("Ctrl-b m#["), key)
         self.assertEqual(title, "herdr · working")
         for hint in ("Ctrl-b d", "back to menu", "menu here"):
-            self.assertNotIn(hint, left + right)
+            self.assertNotIn(hint, top + why + key)
 
     def test_reviewed_text_is_pinned_independently_of_the_renderer(self):
         # Smoke compares the installed tmux options with these same literal expectations.
         env = {**os.environ, "TERM": "xterm-256color", "LC_ALL": "C.UTF-8"}
         env.pop("NO_COLOR", None)
+        key = "Ctrl-b m#[fg=#6c7086]  menu #[default]"
+        fable = "#[bold]herdr#[nobold]  #[fg=#D97757]fable#[fg=#6c7086] orchestrates#[default]"
         with patch.dict(os.environ, env, clear=True):
-            self.assertEqual(orch.bar("herdr", "fable", "working", "tasks x 2/5"),
-                             (" herdr · fable · ● working · tasks x 2/5 ",
-                              " Ctrl-b m  menu ", "herdr · working"))
-            self.assertEqual(orch.bar("herdr", "fable"),
-                             (" herdr · fable ", " Ctrl-b m  menu ", "herdr"))
+            self.assertEqual(statusbar.lines("herdr", "fable", "#D97757", "working", "tasks x 2/5"),
+                             (" #[fg=#89b4fa]▐#[fg=#11111b,bg=#89b4fa,bold]● working#[default]"
+                              f"#[fg=#89b4fa]▌#[default]  {fable}   tasks x 2/5",
+                              "", key, "herdr · working"))
+            self.assertEqual(statusbar.lines("herdr", "fable", "#D97757"),
+                             (f" {fable}", "", key, "herdr"))
 
 
 # --- the phone: real tmux at 40x24 and 100x30 -------------------------------
@@ -658,7 +663,7 @@ class Phone(Sandbox):
         self.fits(screen, width, height)
         phone.keys("Enter")
         # the unnamed seat opens in this terminal, and its bar keeps the key
-        screen = phone.until(STAND_IN, "new · astra", "Ctrl-b m  menu")
+        screen = phone.until(STAND_IN, "new  astra orch", "Ctrl-b m  menu")
         self.fits(screen, width, height)
         bar = screen[-1]
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
@@ -687,18 +692,18 @@ class Phone(Sandbox):
         phone.keys("Enter")
         phone.until("agentkit · new session", prompt="esc back")
         phone.keys("Enter")                  # what the last creation was given: astra
-        phone.until("new-2 · astra", "Ctrl-b m  menu", absent=["esc leave"])
+        phone.until("new-2  astra orch", "Ctrl-b m  menu", absent=["esc leave"])
         phone.settled()
         self.assertTrue(self.has_seat("new-2"))
         phone.keys("C-b", "m")
         phone.until("esc leave", "1  new-2", "2  phone-au", prompt="esc leave")
         phone.press("2")
-        phone.until("phone-audit · astra", absent=["esc leave"])
+        phone.until("phone-audit  astra orch", absent=["esc leave"])
         phone.settled()
         phone.keys("C-b", "m")
         phone.until("esc leave", "1  new-2", prompt="esc leave")
         phone.press("1")
-        phone.until("new-2 · astra", absent=["esc leave"])
+        phone.until("new-2  astra orch", absent=["esc leave"])
         phone.settled()
         phone.keys("C-b", "m")
         phone.until("esc leave", prompt="esc leave")
@@ -730,23 +735,22 @@ class Phone(Sandbox):
         self.assertEqual(self.marked(screen), 11)
         self.assertNotIn("j more", "\n".join(screen))
         # a number is answered from whichever page is up: 12 opens the twelfth seat, its two
-        # digits inside half a second, and its bar says the row's own words; past the width the
-        # left half is cut, with one ellipsis, where it would reach the one key
+        # digits inside half a second, and its bar says the row's own words; past the width
+        # line one is cut with one ellipsis, and line two keeps the one key whole
         phone.press("12")
         if narrow:
             screen = phone.until(STAND_IN, LONG_NAME[:20], "Ctrl-b m  menu")
         else:
             # the menu's look at it publishes the words, behind the frame the key was read on
-            screen = phone.until(STAND_IN, "Ctrl-b m  menu", "· astra → opus · ! needs you")
-        bar = screen[-1]
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you▌  {LONG_NAME}")
+        top, bar = screen[-2:]
         self.fits(screen, width, height)
         if narrow:
-            self.assertIn(LONG_NAME[:20], bar)
-            self.assertIn("…", bar)
+            self.assertIn(LONG_NAME[:20], top)
+            self.assertTrue(top.endswith("…"), top)
         else:
-            self.assertIn(LONG_NAME, bar)
-            # the word the row shows is on the bar too, beside the one key
-            self.assertIn(f"{LONG_NAME} · astra → opus · ! needs you", bar)
+            # the word the row shows opens the bar, then the name and who orchestrates it
+            self.assertIn(f"! needs you▌  {LONG_NAME}  astra orchestrates", top)
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
         phone.keys("C-b", "d")
         screen = phone.until("your projects", prompt="esc leave")
@@ -761,7 +765,7 @@ class Phone(Sandbox):
             self.assertNotIn("j more", "\n".join(screen))
         # the popup over a seat holds fewer rows still, and pages them the same way
         phone.press("11")                    # phone-audit, eleventh by name
-        phone.until(STAND_IN, "phone-audit · astra")
+        phone.until(STAND_IN, "phone-audit  astra orch")
         phone.keys("C-b", "m")
         screen = phone.until("esc leave", "your projects", " 1/", prompt="esc leave")
         self.every_page(phone, screen, self.popup_page, 12, 8)
@@ -792,7 +796,7 @@ class Phone(Sandbox):
         self.every_page(phone, screen, lambda lines: lines, 12, 6)
         # the popup over a seat on that short screen fills it, and still pages rows
         phone.press("11")
-        phone.until(STAND_IN, "phone-audit · astra")
+        phone.until(STAND_IN, "phone-audit  astra orch")
         phone.keys("C-b", "m")
         screen = phone.until("esc leave", "1/", prompt="esc leave")
         self.assertIn("no project", "\n".join(Terminal.inside(screen)))

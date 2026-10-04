@@ -288,7 +288,6 @@ class SeatWordsBounded(unittest.TestCase):
         self.stack.enter_context(patch.object(
             watch, "type_into", side_effect=lambda _, keys, *a, **k: self.typed.append(keys) or True))
         self.stack.enter_context(patch.object(watch.notify, "shaped", return_value=0))
-        self.reset = self.stack.enter_context(patch.object(watch, "spend_reset"))
         self.window = self.stack.enter_context(
             patch.object(watch, "window_ends", side_effect=lambda *_: self.now + 7200))
 
@@ -316,7 +315,6 @@ class SeatWordsBounded(unittest.TestCase):
         self.tick(state)
         self.tick(state, watch.STALL_WAIT)
         self.assertEqual(self.typed, ["continue"])
-        self.reset.assert_not_called()
         self.window.assert_not_called()
         # nor is a usage probe's 401 read as a rate limit by one, while HTTP's own 429 still is
         self.assertIsNone(usage.probe_refused(
@@ -338,13 +336,11 @@ class SeatWordsBounded(unittest.TestCase):
             with self.subTest(harness=harness, pane=pane):
                 self.harness, self.provider, self.pane = harness, provider, pane
                 self.typed.clear()
-                self.reset.reset_mock()
                 self.window.reset_mock()
                 state = watch.load_state()
                 self.tick(state)
                 self.tick(state, watch.STALL_WAIT)
-                # no reset is spent and no window waited on: the error is typed at, as any other
-                self.reset.assert_not_called()
+                # no window waited on: the error is typed at, as any other
                 self.window.assert_not_called()
                 self.assertNotIn("status", state["stalls"]["fix-api"])
                 self.assertEqual(self.typed, [watch.keystroke(harness, pane)])
@@ -356,12 +352,10 @@ class SeatWordsBounded(unittest.TestCase):
                                           "Error ID: 4b2d-1")):
             with self.subTest(harness=harness, pane=pane):
                 self.harness, self.provider, self.pane, self.typed = harness, provider, pane, []
-                self.reset.reset_mock()
                 self.window.reset_mock()
                 state = watch.load_state()
                 self.tick(state)
                 self.tick(state, watch.STALL_WAIT)
-                self.assertEqual(self.reset.call_count, int(harness == "codex"))
                 self.window.assert_called_once()
                 self.assertEqual(self.typed, [])
                 self.assertTrue(state["stalls"]["fix-api"]["status"].startswith("waiting until "))
@@ -457,7 +451,6 @@ class SeatWordsBounded(unittest.TestCase):
                 state = watch.load_state()
                 self.tick(state)
                 self.tick(state, watch.STALL_WAIT)
-                self.reset.assert_not_called()
                 self.window.assert_not_called()
                 self.assertNotIn("status", state["stalls"].get("fix-api", {}))
                 # Codex's answer behind its `•` is still a stall, typed at as any other

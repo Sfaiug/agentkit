@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS runs (
 
 MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"),
-              ("changed_lines", "INTEGER"))
+              ("changed_lines", "INTEGER"), ("live_at", "REAL"))
 
 REVIEWS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviews (
@@ -189,7 +189,7 @@ def update_run(run_id, *, log=None, **fields):
                "started_at", "finished_at", "executor_seconds", "done_when_seconds",
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
-               "task_checks", "task_files", "orchestrator", "changed_lines"}
+               "task_checks", "task_files", "orchestrator", "changed_lines", "live_at"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return

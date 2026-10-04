@@ -173,7 +173,7 @@ class JoinLine(Sandbox):
                             output.write(f"Delivery ending: {word}\n")
 
                 def view(_url):
-                    run.logger(self.directory, True)("Merge retry already shown")
+                    run.logger(self.directory)("Merge retry already shown")
                     return info
 
                 with patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run", "merge",
@@ -222,20 +222,13 @@ class JoinLine(Sandbox):
         self.assertNotIn("waiting_on", self.saved())
         self.start.assert_not_called()
 
-    def test_review_pr_holds_the_same_plain_lock_without_joining(self):
+    def test_review_pr_joins_without_taking_the_delivery_lock(self):
         self.lp.state["own_orchestrator"] = "opus"
-        turn = run.turn_path(self.lp, "origin/main")
-
-        def gh(cwd, *args, **_kw):
-            with turn.open("a") as lock:
-                with self.assertRaises(BlockingIOError):
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return 0, ""
-
-        with patch.object(run, "gh", side_effect=gh):
-            self.assertTrue(run.merge_own_pr(self.lp, "https://github.com/acme/widget/pull/7",
+        with patch.object(run, "gh", side_effect=AssertionError("delivery")), \
+                patch.object(run, "merge_lock", side_effect=AssertionError("delivery lock")):
+            self.assertFalse(run.merge_own_pr(self.lp, "https://github.com/acme/widget/pull/7",
                                               self.lp.state["review"]["head_sha"]))
-        self.assertNotIn("waiting_on", self.saved())
+        self.assertEqual(self.saved()["waiting_on"]["line"], run.turn_path(self.lp, "origin/main").name)
         self.assertFalse(list(config.RUNS.glob("*.wait")))
 
     def test_job_and_foreground_follow_the_processless_line_to_its_ending(self):
@@ -378,6 +371,33 @@ class JoinLine(Sandbox):
                            self.directory, box["state"], box["rc"], lambda _: None, None)
         follow.assert_called_once_with(self.directory)
         self.assertEqual(settle.call_args.args[5], finished)
+
+    def test_a_follower_starts_the_lander_again_where_no_tick_runs(self):
+        # the lander a run starts on leaving can die with that run's unit
+        run.merge(self.lp)
+        run.release_line(self.directory, self.lp.log)
+        line = config.RUNS / self.saved()["waiting_on"]["line"]
+        clock = [1000.0]
+
+        class Waited(Exception):
+            pass
+
+        def sleep(seconds):
+            clock[0] += seconds
+            if clock[0] > 1000 + job.JOB_TICK + 2 * job.JOB_PICKER_INTERVAL:
+                raise Waited
+
+        for follower, args in (
+                (job.job_await, (self.directory,)),
+                (job.job_follow_waiting, (self.directory, self.saved(), self.lp.log))):
+            with self.subTest(follower=follower.__name__):
+                self.start.reset_mock()
+                clock[0] = 1000.0
+                with patch.object(job.time, "time", side_effect=lambda: clock[0]), \
+                        patch.object(job.time, "sleep", side_effect=sleep), self.assertRaises(Waited):
+                    follower(*args)
+                self.assertEqual([call.args for call in self.start.call_args_list],
+                                 [(line,), (line,)])
 
 
 if __name__ == "__main__":

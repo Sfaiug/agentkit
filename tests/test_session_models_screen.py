@@ -125,7 +125,7 @@ class SessionModels(Sandbox):
         selected = self.selected("fix-api")
         menu.session_mark(self.cfg, "fix-api", selected, "fable", 1, {})
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}), \
-                patch.object(run, "refresh_seat_tally"), \
+                patch.object(run, "redress_seat"), \
                 patch.object(run, "history_start"), patch.object(run, "claim_slot"):
             directory = config.RUNS / "next-run"
             directory.mkdir()

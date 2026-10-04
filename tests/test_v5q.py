@@ -359,7 +359,7 @@ sys.exit(1)
         self.assertEqual([t["state"] for t in saved["tasks"]], ["queued", "queued"])
         self.assertEqual(record.run_dirs(), [])
         with redirect_stdout(io.StringIO()):
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=True)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 0)
         saved = self.read_job(job_dir)
         self.assertIsNotNone(saved["finished_at"])
@@ -399,7 +399,7 @@ sys.exit(1)
                     "--review-pr": None, "--no-merge": False, "--no-worktree": False,
                     "--bg": False}
         with redirect_stdout(io.StringIO()):
-            run.prepare(run_dir_a, run_opts, run.logger(run_dir_a, True))
+            run.prepare(run_dir_a, run_opts, run.logger(run_dir_a))
         state = record.read_state(run_dir_a)
         state.update(state="interrupted", interrupted_at=time.time(),
                      interruption_reason="killed in test", recovery_pending=True)
@@ -473,7 +473,7 @@ sys.exit(1)
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=True)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)
         job = self.read_job(self.job_dirs()[0])
         task = job["tasks"][0]
@@ -612,7 +612,7 @@ sys.exit(1)
                                            "--no-worktree": False}, None)
         task = job["tasks"][0]
         task.update(state="running", run_id="kept-run", executor=self.executor)
-        log = jobs.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir)
         lock = threading.Lock()
         # the suite paces the picker at 0; production paces it at JOB_PICKER_INTERVAL
         before = time.time()
@@ -670,7 +670,7 @@ sys.exit(1)
         (run_dir / "run.json").write_text(json.dumps(state))
         task = job["tasks"][0]
         task.update(state="running", run_id=run_dir.name)
-        log = jobs.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir)
         lock = threading.Lock()
         with patch.object(run, "cmd_resume", side_effect=AssertionError("given more rounds")), \
                 redirect_stdout(io.StringIO()):
@@ -692,7 +692,7 @@ sys.exit(1)
                                            "--no-worktree": False}, None)
         task = job["tasks"][0]
         task.update(state="running", run_id="kept-run", executor=self.executor)
-        log = jobs.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir)
         lock = threading.Lock()
         # a pending review parked on spent meters: the message decides first, so the
         # run waits for budget even with `review_pending` still set
@@ -718,7 +718,7 @@ sys.exit(1)
                                            "--no-worktree": False}, None)
         task = job["tasks"][0]
         task.update(state="running", run_id="kept-run", executor=self.executor)
-        log = jobs.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir)
         lock = threading.Lock()
         outage = (f"reviewer {self.reviewer} died on API/transport errors 3 times and no "
                   "eligible reviewer is left on another provider; waiting for review")
@@ -748,7 +748,7 @@ sys.exit(1)
                                            "--no-worktree": False}, None)
         task = job["tasks"][0]
         task.update(state="running", run_id="kept-run", executor=self.executor)
-        log = jobs.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir)
         lock = threading.Lock()
         outage = (f"reviewer {self.reviewer} died on API/transport errors 3 times and no "
                   "eligible reviewer is left on another provider; waiting for review")
@@ -776,7 +776,7 @@ sys.exit(1)
                                            "--no-worktree": False}, None)
         task = job["tasks"][0]
         task.update(state="running", run_id="kept-run", executor=self.executor)
-        log = jobs.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir)
         lock = threading.Lock()
         with redirect_stdout(io.StringIO()):
             jobs.job_ladder(self.cfg, job_dir, job, task, job_dir,
@@ -822,7 +822,7 @@ sys.exit(1)
             record.save_state(run_dir, current)
             return 0
 
-        log = jobs.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir)
         for waits_in_line in (False, True):
             with self.subTest(waits_in_line=waits_in_line):
                 record.save_state(run_dir, dict(state))

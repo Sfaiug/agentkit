@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, usage, watch  # noqa: E402
+from agentkit import config, orch, statusbar, usage, watch  # noqa: E402
 
 NAME = "fix-api"
 CONVERSATION = "d6fae368-678c-444e-8032-9c5c5338c84e"
@@ -62,7 +62,7 @@ class UsualAccountFirst(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[self.seat]))
         self.stack.enter_context(patch.object(orch, "listing", return_value=[self.seat]))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
-        self.stack.enter_context(patch.object(orch, "dress"))
+        self.stack.enter_context(patch.object(statusbar, "dress"))
         self.stack.enter_context(patch.object(watch, "pane_text", side_effect=lambda _: self.pane))
         self.pane = "❯"
         self.stack.enter_context(patch.object(watch, "type_into", side_effect=self.type_into))

@@ -33,7 +33,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from test_v4n import Sandbox
-from agentkit import browser, config, menu, notify, orch, terminal, watch
+from agentkit import browser, config, menu, notify, orch, statusbar, terminal, watch
 
 # The child: the real loop, draw, key reader and selector; fakes for what a seat is and the stop.
 CHILD = r"""
@@ -481,9 +481,12 @@ class ClosedSeat(Sandbox):
         self.assertFalse(config.session_path("atoll").exists())
 
     def test_a_done_seats_bar_offers_the_close(self):
-        self.assertEqual(orch.bar("atoll", "fable", "done", "shipped")[1], " Ctrl-b m  x close ")
+        def key(word, last=""):
+            return statusbar.lines("atoll", "fable", "#D97757", word, last)[2].replace(
+                "#[fg=#6c7086]", "").replace("#[default]", "")
+        self.assertEqual(key("done", "shipped"), "Ctrl-b m  x close ")
         for word in (None, "working", "needs you"):
-            self.assertEqual(orch.bar("atoll", "fable", word)[1], " Ctrl-b m  menu ")
+            self.assertEqual(key(word), "Ctrl-b m  menu ")
 
 
 if __name__ == "__main__":

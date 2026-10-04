@@ -166,11 +166,12 @@ sys.exit(1)
                               "never for a transient provider failure, a capacity refusal, or a check "
                               "the loop runs later such as the `# once` suite.", text)
 
-    def test_pass_follow_ups_are_recorded_by_the_loop(self):
+    def test_pass_drops_unproven_follow_ups_into_notes(self):
         self.reviews(PASS_FOLLOWUPS)
         code, directory, state = self.launch(rounds=1)
         self.assertEqual(code, 0, (directory / "log.txt").read_text())
-        self.assertEqual([item.splitlines()[0] for item in state["followups"]],
+        self.assertEqual(state["followups"], [])
+        self.assertEqual([item.splitlines()[0] for item in state["notes"]],
                          ["a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError",
                           "b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"])
 
@@ -234,7 +235,8 @@ sys.exit(1)
         self.reviews(first, second)
         code, directory, state = self.launch(rounds=3)
         self.assertEqual(code, 0, (directory / "log.txt").read_text())
-        self.assertEqual([item.splitlines()[0] for item in state["followups"]],
+        self.assertEqual(state["followups"], [])
+        self.assertEqual([item.splitlines()[0] for item in state["notes"]],
                          ["b.py:2 - empty input crashes - base abc123: `parse([])` raises IndexError",
                           "c.py:3 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"])
 

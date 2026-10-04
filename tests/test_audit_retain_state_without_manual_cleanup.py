@@ -972,7 +972,7 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
                 patch.object(watch, "health", side_effect=lambda *a: order.append("health")), \
                 patch.object(gc, "schedule_gc", side_effect=lambda *a: order.append("schedule")), \
                 patch.object(orch, "sweep", side_effect=AttributeError("bad metadata")), \
-                patch.object(watch, "gh_json", side_effect=lambda *a: (order.append("github") or
+                patch.object(watch, "gh_json", side_effect=lambda *a, **_kw: (order.append("github") or
                                                                         (None, "offline"))), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(watch.main([]), 0)

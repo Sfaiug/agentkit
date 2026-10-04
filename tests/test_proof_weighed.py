@@ -17,10 +17,10 @@ from agentkit import config, hand_in, run, worker
 from fixtures.hand_in import findings_section, scripted, stateful
 
 
-def finding(site, what, command=None, quote=None, kind="finding"):
+def finding(site, what, command=None, quote=None, kind="finding", before="base already has this defect"):
     args = [kind, site, what, "breaks callers", "--run" if command else "--quote",
             command if command else quote]
-    return args + (["--before", "base already has this defect"] if kind == "follow-up" else [])
+    return args + (["--before", before] if kind == "follow-up" else [])
 
 
 class ProofWeighed(unittest.TestCase):
@@ -169,20 +169,22 @@ out = pathlib.Path(sys.argv[6])
         self.assertIn("saw head", self.lp.findings)
         self.assertIn("saw base", self.lp.findings)
 
-    def test_old_failures_and_quotes_join_the_reviewers_followups_without_rerunning_them(self):
+    def test_old_failures_join_the_reviewers_verified_followups_and_quotes_are_notes(self):
         own = "echo 'reviewer follow-up proof'; exit 9"
         with patch.object(worker, "limited", wraps=worker.limited) as limited:
             verdict = self.review(
                 finding("api.py:2", "old failure in a changed file", self.fails),
                 finding("legacy.py:1", "old failure in an untouched file", self.fails),
                 finding("api.py:5", "old quoted defect", quote="tail = True"),
-                finding("legacy.py:1", "reviewers own follow-up", own, kind="follow-up"))
+                finding("legacy.py:1", "reviewers own follow-up", own, kind="follow-up",
+                        before=f"base {self.base}"))
         self.assertEqual(verdict, "PASS")
         self.assertFalse(run.review_failed(self.lp.state))
         self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 0)
-        self.assertEqual(len(self.lp.state["followups"]), 4)
+        self.assertEqual(len(self.lp.state["followups"]), 3)
         self.assertIn("proof on base", self.lp.state["followups"][0])
-        self.assertFalse(any(call.args[0] == ["bash", "-c", own] for call in limited.call_args_list))
+        self.assertTrue(any(call.args[0] == ["bash", "-c", own] for call in limited.call_args_list))
+        self.assertIn("Dropped follow-up", self.lp.state["notes"][0])
 
     def test_quotes_on_changed_lines_and_removal_borders_block(self):
         self.assertEqual(self.review(

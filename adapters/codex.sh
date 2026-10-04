@@ -66,8 +66,8 @@ who() {
 # jq is the tool most likely to be missing, so build the error object with printf
 err() { local m=${1//\\/}; m=${m//\"/\'}
         printf '{"provider":"openai","meters":[],"error":"unknown: %s"}\n' "$m"; exit 0; }
-# reset-status and reset answer with an object carrying `error`, which the policy in
-# agentkit/usage.py reads and then does nothing, rather than guessing at a half-answer
+# reset-status and reset answer with an object carrying `error`, which agentkit/usage.py
+# reads and then does nothing, rather than guessing at a half-answer
 jerr() { local m=${1//\\/}; m=${m//\"/\'}
          printf '{"error":"%s"}\n' "$m"; exit 1; }
 # The ChatGPT token stays out of the process table and out of everything printed here: it is
@@ -240,7 +240,7 @@ reset)
   outcome=$(jq -r '.code // empty' <<<"$out" 2>/dev/null)
   [ "$outcome" = reset ] || jerr "no reset was applied: ${outcome:-the response carried no outcome}"
   # from here on a credit has been spent, so every answer says so -- whatever the re-read does,
-  # the caller has to record the spend or it will spend a second one on the next read
+  # the owner who asked for it learns that it went
   spent() { printf '{"code":"reset","available":null,"weekly_used":null,"resets_at":null,"error":"%s"}\n' "$1"; exit 0; }
   list=$(get "$API/rate-limit-reset-credits")
   code=${list##*$'\n'}; list=${list%$'\n'*}

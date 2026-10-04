@@ -18,6 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
+from fixtures.landing import landing
 from agentkit import host, config, gc, menu, orch, run, watch, worker
 from agentkit import record
 
@@ -76,8 +77,10 @@ class OwnPrRounds(unittest.TestCase):
                                                 name, return_value=value))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=lambda *_: dict(self.pr)))
-        self.stack.enter_context(patch.object(run, "gh_json", side_effect=lambda *a, **k: (dict(self.pr), "")))
+        self.stack.enter_context(patch.object(run, "gh_json", side_effect=self.gh_json))
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                                             landing(lp, deliver=deliver)))
         self.stack.enter_context(patch.object(run, "merge_lock", side_effect=lambda *a, **k: nullcontext()))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         clock = self.stack.enter_context(patch.object(run, "time", wraps=time))
@@ -100,6 +103,12 @@ class OwnPrRounds(unittest.TestCase):
         if args[0] == "api":
             self.events.append(args[args.index("-f") + 3])
         return 0, ""
+
+    def gh_json(self, _cwd, *args, **_kw):
+        if args[:2] == ("api", "repos/acme/widget/pulls/7"):
+            return {"state": self.pr["state"].lower(), "merged": self.pr["state"] == "MERGED",
+                    "head": {"sha": self.pr["headRefOid"]}, "base": {"ref": "main"}}, ""
+        return dict(self.pr), ""
 
     def tell(self, seat, line, *args, **_kw):
         self.notices.append(line)
@@ -459,6 +468,38 @@ class OwnPrRounds(unittest.TestCase):
         self.assertEqual(len(self.prompts), 2)
         self.assertEqual(len(self.merges), 1)
 
+
+    def test_a_crash_before_the_new_heads_review_leaves_it_to_be_reviewed(self):
+        def dies_once_checked_out(*_args, **_kw):
+            if record.read_state(self.run_dir).get("head_sha") == self.heads[1]:
+                raise InterruptedError("the process died before the new head's review")
+            return {}
+
+        with patch.object(run, "collect_usage", side_effect=dies_once_checked_out), \
+                self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        state = record.read_state(self.run_dir)
+        self.assertEqual(run.git(state["worktree"], "rev-parse", "HEAD"), self.heads[1])
+        self.assertNotIn("review", state)      # the old head's review went with its round
+        state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(len(self.prompts), 2)
+
+    def test_a_crash_right_after_checking_out_the_new_head_is_resumed(self):
+        git = run.git
+
+        def dies_after_reset(cwd, *args, **kw):
+            result = git(cwd, *args, **kw)
+            if args == ("reset", "--hard", self.heads[1]):
+                raise InterruptedError("the process died after the reset, before recording it")
+            return result
+
+        with patch.object(run, "git", side_effect=dies_after_reset), \
+                self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        state = self.review(["FAIL", "PASS"])
+        self.assertEqual(state["head_sha"], self.heads[1])
+        self.assertTrue(state["merged"])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

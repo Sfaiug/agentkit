@@ -1,13 +1,14 @@
-"""A quota refusal spends the reset credit of the subscription that was refused, not the usual one.
+"""A quota refusal parks the subscription that was refused, and spends no reset credit.
 
 A provider listing `accounts` runs a worker turn on the one with room; when that account is
-refused for quota and no other has room, the reset policy is asked at once.  The credit it
-spends is the refused account's: the usual login's week is not the one that ran out.  A fake
-adapter in a temporary HOME records the account each verb was told, and a fake worker call
-refuses the first turn; nothing real is asked or spent.
+refused for quota and no other has room, the refused account is parked and the work goes to
+another provider, a reset held or not: only the owner spends one.  A fake adapter in a
+temporary HOME records each verb it was asked, and a fake worker call refuses the turn;
+nothing real is asked or spent.
 """
 
 from contextlib import ExitStack
+import json
 import os
 from pathlib import Path
 import sys
@@ -80,25 +81,26 @@ class RefusedSubscription(unittest.TestCase):
         self.ran_on = []
 
     def call(self, cfg, name, text, workspace, out, role, session, env=None, **_kw):
-        """The first turn is refused for quota, as a spent window is; the next one answers."""
+        """The turn is refused for quota, as a spent window is."""
         self.ran_on.append(env.get(config.ACCOUNT_ENV) or "default")
-        out = Path(out)
-        out.mkdir(parents=True, exist_ok=True)
-        if len(self.ran_on) == 1:
-            return 1, "Claude AI usage limit reached", "s1", False
-        return 0, "## Summary\nDone.\n", "s1", False
+        Path(out).mkdir(parents=True, exist_ok=True)
+        return 1, "Claude AI usage limit reached", "s1", False
 
-    def test_a_refusal_on_the_second_spends_the_second_s_credit(self):
+    def test_a_refusal_on_the_second_parks_the_second_and_spends_no_credit(self):
         out = self.root / "run" / "round-1" / "executor"
         out.parent.mkdir(parents=True)
         lines = []
-        with patch.object(run.worker, "call", side_effect=self.call):
-            code, _, _, _ = run.call_retrying(self.cfg, "one", "Do the task.", self.root, out,
-                                              "executor", None, lines.append, limit=120)
-        self.assertEqual((code, self.ran_on[0]), (0, "second"), lines)
+        with patch.object(run.worker, "call", side_effect=self.call), \
+                self.assertRaises(run.RanDry):
+            run.call_retrying(self.cfg, "one", "Do the task.", self.root, out,
+                              "executor", None, lines.append, limit=120)
+        self.assertEqual(self.ran_on, ["second"], lines)
         told = (self.fake / "told").read_text().splitlines()
-        self.assertEqual([line for line in told if line.startswith("reset ")],
-                         ["reset second"], lines)
+        self.assertIn("reset-status second", told)
+        self.assertEqual([line for line in told if line.startswith("reset ")], [], lines)
+        cached = json.loads((config.STATE / "usage.json").read_text())["providers"]["alpha"]
+        self.assertIn("exhausted_until", cached["accounts"]["second"])
+        self.assertNotIn("exhausted_until", cached["accounts"]["default"])
 
 
 if __name__ == "__main__":
