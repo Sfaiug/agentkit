@@ -136,17 +136,31 @@ def start_line(turn, log=lambda _: None):
 
 
 def _repair(turn, directory, state, tree, red, log):
-    """Keep the probe before launch: a crash can reuse its repair receipt without a suite."""
-    from . import run
+    """Keep the probe before launch: a crash can reuse its repair receipt without a suite.
+
+    A PR whose seat can start no repair -- a solo seat runs no tasks -- would wait on a red
+    target nobody fixes, so it is handed that target's failure as its own landing finding.
+    """
+    from . import run, watch
     try:
         name = run.start_followups(state, directory, log, repair=red["probe"])
     except record.StopRequested:
         raise
     except Exception as exc:  # a refused repair leaves the line waiting, unblamed
         log(f"WARN no target repair could start: {exc}")
-        return None
+        name = None
     if name:
         note(turn, [], directory.name, red={tree: {**red, "run": name}})
+    elif state.get("review_pr"):
+        path = directory / "target-red.log"
+        path.write_text(red["probe"]["text"] + "\n")
+        with record.recovery_lock(directory):
+            if record.read_state(directory) != state or record.process_active(state):
+                return None
+            with record.record(directory) as current:
+                current["waiting_on"] = {**current["waiting_on"], "fix": {
+                    "line": red["probe"]["text"].splitlines()[0], "log": str(path)}}
+        watch.launch_resume(directory.name, log)
     return name
 
 

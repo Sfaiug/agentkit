@@ -5,6 +5,7 @@ Offline: real Git and the declared fixture suite, fake GitHub, reviewers and sea
 
 from contextlib import nullcontext, redirect_stdout
 import io
+import json
 import sys
 from pathlib import Path
 import unittest
@@ -457,6 +458,29 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertEqual((state["state"], state["merged"]), ("pass", True))
         self.assertNotIn("waiting_on", state)
         self.assertEqual(len(self.merges), 1)
+
+    def test_a_solo_seats_pr_on_a_red_target_goes_back_to_its_seat(self):
+        # a solo seat starts no repair run, so the red target is the PR's own finding
+        seat = config.session_path("fix-api")
+        seat.write_text(json.dumps({**json.loads(seat.read_text()), "solo": True}))
+        (self.repo / "AGENTS.md").write_text("---\nusers: none\ntests: test ! -f broken.txt\n---\n")
+        self.commit("a check the target will fail")
+        run.git(self.repo, "push", "origin", "main")
+        self.base = run.git(self.repo, "rev-parse", "HEAD")
+        directory, url = self.own_pr("first", 1)
+        self.advance(**{"broken.txt": "the target is red\n"})
+        with patch.object(run, "gh", return_value=(0, "")), \
+                patch.object(watch, "seat_closed", return_value=False), \
+                patch.object(run, "prepare", side_effect=AssertionError("a repair run")):
+            self.assertEqual(self.review(directory, url)["state"], "waiting")
+            land.check_line(self.turn)
+        self.assertIn("fix", self.wait(directory))
+        self.wake.assert_called_with(directory.name, unittest.mock.ANY)
+        with patch.object(run, "wait_for_own_pr", return_value=False):
+            state = self.review(directory, url)
+        self.assertEqual(state["verdict"], "FAIL")
+        self.assertIn("broken.txt", state["findings"])
+        self.assertEqual(self.merges, [])
 
 
 if __name__ == "__main__":

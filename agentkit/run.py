@@ -11854,6 +11854,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         state["own_pr_round_pending"] = len(summaries) + 1
     state.pop("own_pr_wait", None)       # this head is checked out and recorded
     state.pop("delivery_sha", None)      # a push an earlier round meant to make proves nothing here
+    state.pop("review", None)            # nor does its review: this head's comes with this round
     run_record.save_state(run_dir, state)
     join_session_project(session_at_launch)     # a review is a launch too, and votes
     history_start(state, log)

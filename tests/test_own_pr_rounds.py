@@ -469,5 +469,21 @@ class OwnPrRounds(unittest.TestCase):
         self.assertEqual(len(self.merges), 1)
 
 
+    def test_a_crash_before_the_new_heads_review_leaves_it_to_be_reviewed(self):
+        def dies_once_checked_out(*_args, **_kw):
+            if record.read_state(self.run_dir).get("head_sha") == self.heads[1]:
+                raise InterruptedError("the process died before the new head's review")
+            return {}
+
+        with patch.object(run, "collect_usage", side_effect=dies_once_checked_out), \
+                self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        state = record.read_state(self.run_dir)
+        self.assertEqual(run.git(state["worktree"], "rev-parse", "HEAD"), self.heads[1])
+        self.assertNotIn("review", state)      # the old head's review went with its round
+        state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(len(self.prompts), 2)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
