@@ -4,8 +4,10 @@ Offline: real Git and checks, sandbox records, fake processes and wakes.
 """
 
 from contextlib import contextmanager
+import fcntl
 from pathlib import Path
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -24,6 +26,43 @@ class MergeTrain(LanderFixture, unittest.TestCase):
 
     def stacked_files(self, tree):
         return set(run.git(self.repo, "ls-tree", "--name-only", tree).splitlines())
+
+    def test_a_woken_member_merges_while_a_later_stack_is_checking(self):
+        first = self.member("head")
+        self.advance()
+        land.check_line(self.turn)
+        tree = self.wait(first)["land"]
+        later = self.member("later", joined=2, **{"later.txt": "later\n"})
+        state = record.read_state(first)
+        lp = SimpleNamespace(state=state, wt=self.repo, base_sha=self.base, target="main",
+                             log=lambda _: None, write=lambda: record.save_state(first, state))
+        run.git(self.repo, "checkout", state["branch"])
+
+        def deliver():
+            with self.turn.open("a") as probe:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            run.git(self.repo, "push", "origin", "HEAD:main")
+            state.update(state="pass", merged=True)
+            return True
+
+        def mid_check(cmds, cwd, log_path, *args, **kw):
+            with self.turn.open("a") as probe:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.turn.with_suffix(".lander.lock").open("a") as probe:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertTrue(run.land_from_line(lp, "origin/main", deliver))
+            self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), tree)
+            return self.check(cmds, cwd, log_path, *args, **kw)
+
+        with patch.object(gate, "run_done_when", side_effect=mid_check):
+            land.check_line(self.turn)
+        self.assertTrue(record.read_state(first)["merged"])
+        self.assertNotIn("waiting_on", record.read_state(first))
+        self.assertIn("land", self.wait(later))
+        self.assertEqual(len(self.checks), 2)
+        self.assert_cleaned()
 
     def test_a_head_parked_again_rechecks_its_failed_tree(self):
         member = self.member()
@@ -278,7 +317,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                             for tree in land._trees(self.turn)[1]))
         self.assert_cleaned()
 
-    def test_a_crash_before_verdicts_reuses_each_tree_and_its_red_log(self):
+    def test_a_crash_before_verdicts_reuses_checked_trees_and_rebuilds_the_red_suffix(self):
         head = self.member("head")
         red = self.member("red", joined=2, **{"broken.txt": "x\n"})
         self.member("later", joined=3, **{"later.txt": "later\n"})
@@ -287,11 +326,15 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "crash before verdicts"):
                 land.check_line(self.turn)
         count = len(self.checks)
+        checked = {tree for tree, _ in self.trees}
         failures = land._trees(self.turn, "red_stacks")[1]
         self.assertTrue(failures)
         self.wake.assert_not_called()
         land.check_line(self.turn)
-        self.assertEqual(len(self.checks), count)
+        self.assertEqual(len(self.checks), count + 1)
+        rebuilt, files = self.trees[-1]
+        self.assertNotIn(rebuilt, checked)
+        self.assertNotIn("broken.txt", files)
         self.assertIn(self.wait(red)["fix"]["log"], [entry["log"] for entry in failures.values()])
         self.assertIn("land", self.wait(head))
         self.assert_cleaned()
@@ -322,6 +365,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assertIn(suite, fix["line"])
         tree = Path(fix["log"]).read_text().split("Tree: ", 1)[1].splitlines()[0]
         self.assertTrue({"api.txt", "client.txt"} <= self.stacked_files(tree))
+        self.assertEqual([checked for checked, _ in self.trees].count(tree), 1)
         self.assertEqual(record.read_state(later), original)
         with record.record(head) as current:
             current["state"] = "running"

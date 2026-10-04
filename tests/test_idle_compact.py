@@ -322,6 +322,54 @@ class Seat(unittest.TestCase):
                                   AGENTKIT_SESSION="seat")
         self.assertEqual(self.typed(events), "", events)
 
+    def said(self, seat, event, kind="", state=None):
+        """That seat's own hooks last said this, and its record reads `state` where given."""
+        directory = self.root / ".agentkit/state"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"hook-{seat}.json").write_text(json.dumps(
+            {"session": seat, "event": event, "kind": kind, "text": "", "at": time.time()}))
+        if state:
+            (directory / f"seat-{seat}.json").write_text(json.dumps(
+                {"session": seat, "state": state, "evidence": "Which schema should acme use?"}))
+
+    def test_a_turn_running_past_the_idle_minutes_or_a_question_up_is_never_typed_into(self):
+        """The turn-end stamp is old, the screen silent: a dialog waiting, or a long tool call."""
+        for event, kind, state in (("UserPromptSubmit", "", None),
+                                   ("Notification", "permission_prompt", None),
+                                   ("Stop", "", "asking")):
+            with self.subTest(event=event, state=state):
+                self.said("seat", event, kind, state)
+                _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_LIFE=6,
+                                          AGENTKIT_SESSION="seat")
+                self.assertEqual(self.typed(events), "", events)
+
+    def test_what_comes_up_while_another_sender_holds_the_typing_lock_is_never_typed_into(self):
+        """Ready when it decides, then a question, a turn or a dialog on the record comes up while
+        it waits for the seat's lock: asked again under the lock, it types nothing."""
+        for event, kind, state in (("UserPromptSubmit", "", None),
+                                   ("Notification", "permission_prompt", None),
+                                   ("Stop", "", "asking")):
+            with self.subTest(event=event, state=state):
+                self.said("seat", "Stop")
+                (self.root / ".agentkit/state/seat-seat.json").unlink(missing_ok=True)
+                held = open(self.root / ".agentkit/state/notify-seat.lock", "a")
+                self.addCleanup(held.close)       # released even where the step never ran
+                fcntl.flock(held, fcntl.LOCK_EX)
+
+                def change(test, proc, master, held=held, event=event, kind=kind, state=state):
+                    test.said("seat", event, kind, state)
+                    held.close()
+
+                _, events = self.run_seat(script=[(4.5, change)], FAKE_TOKENS=40000,
+                                          FAKE_LIFE=9, AGENTKIT_SESSION="seat")
+                self.assertEqual(self.typed(events), "", events)
+
+    def test_a_seat_whose_hooks_say_its_turn_ended_still_compacts(self):
+        self.said("seat", "Stop")
+        _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_STOP_ON="/compact", FAKE_LIFE=15,
+                                  AGENTKIT_SESSION="seat")
+        self.assert_compacted(events, manifest_command("claude"))
+
     # --- (f) the half of it that lives in the hook --------------------------
 
     def test_v5e_f_the_hook_stamps_time_tokens_and_pid_and_never_a_zero(self):
@@ -473,21 +521,21 @@ class Listing(unittest.TestCase):
         config.ensure_dirs()
 
     def test_v5e_k_every_seat_is_told_whether_and_how_it_compacts_itself(self):
-        seats, kept = [], {}
+        seats, kept, now = [], {}, time.time()
         for name, model in (("one", "fable"), ("two", "astra"), ("three", "spark")):
-            seats.append({"name": name, "path": "/tmp", "created": time.time() - 3600,
+            seats.append({"name": name, "path": "/tmp", "created": now - 3600,
                           "attached": False, "exited": False, "legacy": False,
                           "resumable": True, "repo": None})
             kept[name] = {"orchestrator": model, "conversation": "c", "id_source": orch.LAUNCHER}
         (config.STATE / "compact-two.json").write_text(json.dumps(
-            {"session": "two", "harness": "codex", "last_compact_at": time.time() - 720,
+            {"session": "two", "harness": "codex", "last_compact_at": now - 720,
              "context_tokens": 51000}))
         # left by an earlier seat of this name: it compacted that one, and says nothing of this
         (config.STATE / "compact-three.json").write_text(json.dumps(
-            {"session": "three", "harness": "muse", "last_compact_at": time.time() - 90000,
+            {"session": "three", "harness": "muse", "last_compact_at": now - 90000,
              "context_tokens": 44000}))
         out = subprocess.run([sys.executable, "-c", CHECK_LIST], input=json.dumps(
-            {"root": str(self.root), "seats": seats, "records": kept}).encode(),
+            {"root": str(self.root), "seats": seats, "records": kept, "now": now}).encode(),
             capture_output=True, cwd=str(REPO))
         self.assertEqual(out.returncode, 0, out.stderr.decode())
         text = out.stdout.decode()
@@ -498,8 +546,10 @@ class Listing(unittest.TestCase):
 
 
 # `ak orch list --why` in a process of its own, so the seats it reads are only the fake ones.
+# The parent's clock, stopped, so a child started a minute late on a busy host still reads the
+# ages the parent wrote; and no tmux, so the listing's status-bar write reaches no real server.
 CHECK_LIST = '''
-import json, sys
+import json, sys, time
 from pathlib import Path
 from unittest.mock import patch
 from agentkit import config, orch
@@ -508,7 +558,9 @@ given = json.load(sys.stdin)
 root = Path(given["root"])
 for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
     setattr(config, name, root / name.lower())
-with patch.object(orch, "listing", return_value=given["seats"]), \
+with patch.object(time, "time", return_value=given["now"]), \
+     patch.object(orch, "tmux_out", return_value=(1, "no tmux in this test")), \
+     patch.object(orch, "listing", return_value=given["seats"]), \
      patch.object(config, "session_records", return_value=given["records"]):
     raise SystemExit(orch.cmd_list(["--why"]))
 '''

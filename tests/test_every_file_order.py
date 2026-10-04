@@ -29,6 +29,7 @@ class EveryFileOrder(unittest.TestCase):
         (self.root / "tests").mkdir(parents=True)
         (self.root / "tests/smoke.sh").write_text("#!/bin/bash\n")
         (self.root / "tests/landing.py").write_text((REPO / "tests/landing.py").read_text())
+        (self.root / "tests/gate_contract.py").write_text("")
         self.enterContext(patch.dict(os.environ, {
             "HOME": str(self.home), "PATH": os.environ.get("PATH", os.defpath),
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "PYTHONDONTWRITEBYTECODE": "1",
@@ -120,15 +121,18 @@ while not pathlib.Path("smoke-started").exists():
 print("files done", flush=True)
 sys.exit(int(os.environ["ACME_FILES"]))
 ''')
-        expected = "smoke stdout\nsmoke stderr\nsmoke done\nfiles stdout\nfiles stderr\nfiles done\n"
-        for smoke, files in ((0, 0), (3, 0), (0, 7), (3, 7)):
-            with self.subTest(smoke=smoke, files=files):
+        (self.root / "tests/gate_contract.py").write_text(
+            'import os, sys\nprint("contract done")\nsys.exit(int(os.environ["ACME_CONTRACT"]))\n')
+        expected = ("smoke stdout\nsmoke stderr\nsmoke done\nfiles stdout\nfiles stderr\nfiles done\n"
+                    "contract done\n")
+        for smoke, files, contract in ((0, 0, 0), (3, 0, 0), (0, 7, 0), (3, 7, 0), (0, 0, 5)):
+            with self.subTest(smoke=smoke, files=files, contract=contract):
                 for name in ("smoke-started", "files-started"):
                     (self.root / name).unlink(missing_ok=True)
-                env.update(ACME_SMOKE=str(smoke), ACME_FILES=str(files))
+                env.update(ACME_SMOKE=str(smoke), ACME_FILES=str(files), ACME_CONTRACT=str(contract))
                 proc = subprocess.run(["bash", "-c", self.landing_line()], cwd=self.root, env=env,
                                       capture_output=True, text=True, timeout=30)
-                self.assertEqual(proc.returncode, files or smoke, proc.stdout + proc.stderr)
+                self.assertEqual(proc.returncode, files or smoke or contract, proc.stdout + proc.stderr)
                 self.assertEqual(proc.stdout, expected)
                 self.assertEqual(proc.stderr, "")
                 self.assertEqual(list(Path(env["TMPDIR"]).iterdir()), [], "suite output buffers leaked")

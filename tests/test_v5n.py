@@ -251,7 +251,7 @@ class SeatNeverSaysWorking(Sandbox):
         events = []
         panes = list(panes)
 
-        def out(*args, socket=None, client=False):
+        def out(*args, socket=None, client=False, **_kw):
             if args[0] == "send-keys":
                 events.append("send")
                 return 0, ""

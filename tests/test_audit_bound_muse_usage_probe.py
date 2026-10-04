@@ -162,6 +162,9 @@ else:
     if mode == "overlap":
         while len((root / "callers").read_text().splitlines()) < 2:
             time.sleep(.01)
+    if mode == "near_deadline":
+        time.sleep(max(0, float(os.environ["AGENTKIT_MUSE_USAGE_DEADLINE"])
+                       - time.monotonic() - 4))
     status = {"capacity": 429, "quota": 429, "server": 503}.get(mode, 200)
     print(status, flush=True)
     if status != 200:
@@ -347,9 +350,11 @@ raise AssertionError("this regression needs no tmux server")
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_near_deadline_success_is_kept_by_caller(self):
-        # Real adapters and descendants run, but clock readings at the response and cleanup
-        # are pinned just before the work deadline; host scheduling cannot spend that margin.
-        os.environ["RESPONSE"] = "near_deadline"
+        # Real adapters and descendants run; pin response and cleanup readings just before
+        # the work deadline. Wait on the caller's deadline so cutting the work budget still
+        # drops the late response, while process startup spends from the wait.
+        os.environ.update(AGENTKIT_MUSE_USAGE_TIMEOUT="12", RESPONSE="near_deadline")
+        started = time.monotonic()
         with patch.object(usage_probe.subprocess, "run", wraps=subprocess.run) as captured:
             data = self.collect()
         self.assertIsNone(data["error"])
@@ -360,6 +365,7 @@ raise AssertionError("this regression needs no tmux server")
                          {"muse_usage", "usage_probe"})
         for row in self.records("late"):
             self.assertAlmostEqual(row["left"], .01)
+        self.assertGreater(time.monotonic() - started, 7)
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_credential_extraction_timeout_and_success_clean_descendants(self):

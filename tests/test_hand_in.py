@@ -277,16 +277,18 @@ sys.exit(row.get("code", 0))
         self.assertEqual(lp.reviewer, "spark")
         self.assertEqual(len(lp.state["round_summaries"]), 1)
 
-    def test_a_followup_does_not_block_and_keeps_the_evidence_for_its_fix_run(self):
+    def test_a_followup_without_a_base_does_not_block_and_records_why_it_was_dropped(self):
         followup = ["follow-up", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer",
                     "--before", "base abc123 has the same defect"]
         verdict, lp, _, _ = self.review({"commands": [followup, ["done"]]})
         self.assertEqual(verdict, "PASS")
-        self.assertEqual(len(lp.state["followups"]), 1)
-        self.assertIn("api.py:2", lp.state["followups"][0])
-        self.assertIn("wrong answer", lp.state["followups"][0])
-        self.assertIn("abc123", lp.state["followups"][0])
-        self.assertIn(lp.state["followups"][0].replace("\n", "\n  "), run.pr_body(lp.state))
+        self.assertEqual(lp.state["followups"], [])
+        self.assertEqual(len(lp.state["notes"]), 1)
+        self.assertIn("api.py:2", lp.state["notes"][0])
+        self.assertIn("wrong answer", lp.state["notes"][0])
+        self.assertIn("abc123", lp.state["notes"][0])
+        self.assertIn("Dropped follow-up: no base commit", lp.state["notes"][0])
+        self.assertIn(lp.state["notes"][0].replace("\n", "\n  "), run.pr_body(lp.state))
 
     def test_a_passing_hand_in_still_cannot_override_failing_checks(self):
         verdict, lp, _, _ = self.review({"commands": [["done"]]}, ok=False)

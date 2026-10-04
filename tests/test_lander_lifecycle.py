@@ -91,6 +91,28 @@ class LanderLifecycle(unittest.TestCase):
             self.assertFalse(land.start_line(self.turn))
         self.assertEqual(self.starts, [])
 
+    def test_a_woken_green_member_allows_a_pass_behind_it(self):
+        first = self.member(state="running", worktree=str(self.root), waiting_on={
+            "line": self.turn.name, "joined": 1, "land": "tree"})
+        self.assertEqual(self.starts, [])
+        with patch.object(record, "process_active", side_effect=lambda state: bool(state.get("pid"))):
+            later = self.member("fix-docs", pid=None)
+        self.assertEqual(len(self.starts), 1)
+        self.assertEqual([member for member, _ in land.line(self.turn)], [first, later])
+
+    def test_a_live_rejoiner_behind_a_green_member_finishes_cleanup_before_a_pass(self):
+        self.member(state="running", worktree=str(self.root), pid=5678, waiting_on={
+            "line": self.turn.name, "joined": 1, "land": "tree"})
+        self.member("fix-docs", pid=4321, waiting_on={"line": self.turn.name, "joined": 2})
+        self.starts.clear()
+        with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") in (5678, 4321)):
+            self.assertFalse(land.start_line(self.turn))
+            self.assertEqual(self.starts, [])
+            with record.record(config.RUNS / "fix-docs") as current:
+                current.update(pid=None)
+            self.assertTrue(land.start_line(self.turn))
+        self.assertEqual(len(self.starts), 1)
+
     def test_a_suite_oom_keeps_the_lander_scope_running(self):
         self.member(memory_cap_mb=6000)
         _, properties = run.run_scope_limits(cap_mb=6000)
@@ -150,7 +172,7 @@ class LanderLifecycle(unittest.TestCase):
         self.assertEqual({start[0][-1] for start in self.starts}, {self.turn.name, other.name})
 
     def test_a_held_singleton_defers_the_join_until_the_tick(self):
-        with self.turn.open("a") as lock:
+        with self.turn.with_suffix(".lander.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             self.member()
             watch.resume_waiting(log=lambda _: None)
@@ -237,9 +259,14 @@ class LanderDelivery(unittest.TestCase):
         self.starts = []
 
         def start(*_args, **_kw):
-            self.case.assert_free()
+            with self.case.turn.open("a") as probe:
+                try:
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    free = True
+                except BlockingIOError:
+                    free = False
             self.starts.append((len(self.case.merges),
-                                record.read_state(self.case.directory).get("waiting_on")))
+                                record.read_state(self.case.directory).get("waiting_on"), free))
             return 999
 
         self.case.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=start))
@@ -260,23 +287,23 @@ class LanderDelivery(unittest.TestCase):
         self.assertEqual(run.cmd_resume([self.case.directory.name]), 0)
         self.assertTrue(record.read_state(self.case.directory)["merged"])
         self.assertEqual([member.name for member, _ in land.line(self.case.turn)], ["fix-docs"])
-        self.assertEqual(self.starts, [(1, None)], "the next pass starts only after delivery")
+        self.assertEqual(self.starts, [(1, None, False), (1, None, True)])
 
-    def test_squash_starts_the_next_pass_after_releasing_the_lock(self):
+    def test_squash_starts_the_next_pass_while_delivery_holds_its_lock(self):
         self.landed("squash")
 
-    def test_rebase_starts_the_next_pass_after_releasing_the_lock(self):
+    def test_rebase_starts_the_next_pass_while_delivery_holds_its_lock(self):
         self.landed("rebase")
 
-    def test_merge_starts_the_next_pass_after_releasing_the_lock(self):
+    def test_merge_starts_the_next_pass_while_delivery_holds_its_lock(self):
         self.landed("merge")
 
-    def test_work_already_on_target_starts_the_next_pass_after_unlock(self):
+    def test_work_already_on_target_starts_the_next_pass_before_unlock(self):
         self.prepare()
         run.git(self.case.wt, "push", "origin", "HEAD:main")
         self.assertEqual(run.cmd_resume([self.case.directory.name]), 0)
         self.assertTrue(record.read_state(self.case.directory)["on_target"])
-        self.assertEqual(self.starts, [(0, None)])
+        self.assertEqual(self.starts, [(0, None, False), (0, None, True)])
 
     def test_a_changed_target_rejoins_and_starts_the_next_pass_after_unlock(self):
         self.prepare()
@@ -286,7 +313,7 @@ class LanderDelivery(unittest.TestCase):
         self.assertEqual(run.cmd_resume([self.case.directory.name]), 0)
         wait = record.read_state(self.case.directory)["waiting_on"]
         self.assertEqual(wait, {"line": self.case.turn.name, "joined": 10})
-        self.assertEqual(self.starts, [(0, wait)])
+        self.assertEqual(self.starts, [(0, wait, True)])
 
 
 if __name__ == "__main__":

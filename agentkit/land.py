@@ -5,7 +5,7 @@ its newest member to fix; later stacks are rebuilt without it. A red target gets
 one repair first. The lander never owns a member's process or delivery.
 """
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
 import fcntl
 import json
@@ -41,15 +41,17 @@ def passed(turn, tree):
     return _trees(turn)[1].get(tree)
 
 
-def note(turn, trees, leader, *, red=None, red_stacks=None):
-    """Keep stack evidence separately from target probes awaiting their repair."""
+def note(turn, trees, leader, *, checks=(), red=None, red_stacks=None):
+    """Keep stack evidence, with the `checks` it ran, separately from target probes awaiting
+    their repair."""
     path, kept = _trees(turn)
     failed = {} if red_stacks == {} else _trees(turn, "red_stacks")[1]
     repairs = _trees(turn, "red")[1]
-    kept.update({tree: {"at": time.time(), "tested": tree, "leader": leader}
-                 for tree in trees})
+    kept.update({tree: {"at": time.time(), "tested": tree, "leader": leader,
+                        "checks": list(checks)} for tree in trees})
     repairs.update(red or {})
-    failed.update({tree: {"at": time.time(), **fix} for tree, fix in (red_stacks or {}).items()})
+    failed.update({tree: {"at": time.time(), **fix, "checks": list(checks)}
+                   for tree, fix in (red_stacks or {}).items()})
     for tree in trees:
         failed.pop(tree, None)
     fresh = path.with_name(path.name + ".new")
@@ -59,35 +61,47 @@ def note(turn, trees, leader, *, red=None, red_stacks=None):
 
 
 def line(turn):
-    """Parked members of `turn` in join order; verdicts stay until resume."""
+    """Members including green deliveries that continue themselves: green deliveries first,
+    then the rest, each group in join order."""
+    from . import run
     members = []
     for directory in record.run_dirs():
         state = record.read_state(directory) or {}
         wait = state.get("waiting_on")
-        if (state.get("state") == "waiting" and isinstance(wait, dict)
+        if (isinstance(wait, dict) and not state.get("merged")
+                and (state.get("state") == "waiting"
+                     or (green_delivery(wait)
+                         and state.get("state") not in run.ENDED
+                         and run.followup_open(state)
+                         and (record.process_active(state) or run.tick_resumes(state))))
                 and wait.get("line") == turn.name
                 and type(wait.get("joined")) in (int, float)):
             members.append((directory, state))
-    return sorted(members, key=lambda member: (member[1]["waiting_on"]["joined"],
+    return sorted(members, key=lambda member: (not green_delivery(member[1]["waiting_on"]),
+                                              member[1]["waiting_on"]["joined"],
                                               member[0].name))
 
 
+def green_delivery(wait):
+    """A green delivery stays ahead: the stacks behind it are the ones that can land."""
+    return "land" in wait and "fix" not in wait
+
+
 def start_line(turn, log=lambda _: None):
-    """Start a fresh checker when the line is free; the tick retries a missed start."""
+    """Start a fresh checker when no pass is running; the tick retries a missed start."""
     from . import host, orch, run, worker
     turn = Path(turn)
     if turn.parent != config.RUNS or not turn.name.startswith(".merge-"):
         return False
     try:
-        with turn.open("a") as lock:
+        with turn.with_suffix(".lander.lock").open("a") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 return False
             members = line(turn)
-            if not members:
-                return False
-            if record.process_active(members[0][1]):
+            waiting = next((state for _, state in members if state.get("state") == "waiting"), None)
+            if waiting is None or record.process_active(waiting):
                 return False  # the joining attempt must finish cleanup before a wake
         # The suite gets the run's derived allowance or the largest recorded need,
         # never the small scope of the run or tick that happened to start this pass.
@@ -122,8 +136,24 @@ def start_line(turn, log=lambda _: None):
 
 
 def _repair(turn, directory, state, tree, red, log):
-    """Keep the probe before launch: a crash can reuse its repair receipt without a suite."""
-    from . import run
+    """Keep the probe before launch: a crash can reuse its repair receipt without a suite.
+
+    A PR's own seat is its fixer, as for its review findings: a PR never gets a repair run,
+    and is handed the red target as its own landing finding -- its next head is checked on
+    its own merits, so one that repairs the target lands (see `check_line`).
+    """
+    from . import run, watch
+    if state.get("review_pr"):
+        path = directory / "target-red.log"
+        path.write_text(red["probe"]["text"] + "\n")
+        with record.recovery_lock(directory):
+            if record.read_state(directory) != state or record.process_active(state):
+                return None
+            with record.record(directory) as current:
+                current["waiting_on"] = {**current["waiting_on"], "fix": {
+                    "line": red["probe"]["text"].splitlines()[0], "log": str(path)}}
+        watch.launch_resume(directory.name, log)
+        return None
     try:
         name = run.start_followups(state, directory, log, repair=red["probe"])
     except record.StopRequested:
@@ -139,23 +169,30 @@ def _repair(turn, directory, state, tree, red, log):
 def check_line(turn, log=lambda _: None):
     """Check stacks from the first member without a verdict, under the singleton flock.
 
+    The singleton is separate from delivery so checks and merges can overlap.
     Saved verdicts are woken again if a crash or refused launch left them parked.  A member
     can resume or stop during its check: only an unchanged, processless parked record gets
     the verdict.  The recovery lock covers that write and the wake, never the suite.
     """
     from . import run, watch
     turn = Path(turn)
-    with turn.open("a") as lock:
+    with turn.with_suffix(".lander.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
-        target = None
+        target, prefix = None, []
         members = line(turn)
         for index, (directory, state) in enumerate(members):
             with record.recovery_lock(directory):
                 if record.read_state(directory) != state or record.process_active(state):
-                    continue
+                    if "land" in state["waiting_on"] and "fix" not in state["waiting_on"]:
+                        prefix.append((directory, state))
+                        continue
+                    return  # a live rejoiner still holds its place ahead of later stacks
+            if state.get("state") != "waiting":
+                prefix.append((directory, state))
+                continue
             if target is None:
                 repo = Path(state.get("worktree") or state["repo"])
                 upstream = state.get("target") or state["base"]
@@ -166,7 +203,8 @@ def check_line(turn, log=lambda _: None):
             tip, target_tree = target
             red = _trees(turn, "red")[1].get(target_tree)
             name = None
-            if red and not passed(turn, target_tree):
+            # a PR waits on no repair: its own tree is checked, and lands if it mends the target
+            if red and not passed(turn, target_tree) and not state.get("review_pr"):
                 name = red.get("run")
                 repair = record.read_state(config.RUNS / name) if name else None
                 if repair is None:
@@ -186,35 +224,70 @@ def check_line(turn, log=lambda _: None):
                 candidates = [(directory, state)]
                 for later, saved in members[index + 1:] if not name else ():
                     with record.recovery_lock(later):
-                        if (record.read_state(later) == saved and not record.process_active(saved)
-                                and (saved.get("review") or {}).get("verdict") == "PASS"
+                        if (record.read_state(later) != saved or record.process_active(saved)
+                                or saved.get("state") != "waiting"):
+                            break
+                        if ((saved.get("review") or {}).get("verdict") == "PASS"
                                 and not any(k in saved["waiting_on"] for k in ("land", "fix"))):
                             candidates.append((later, saved))
-                verdicts = _check_members(turn, candidates, repo, tip, target_tree, log)
-                if not verdicts:
-                    return
             else:
-                candidates, verdicts = [(directory, state)], {directory: verdict}
-            # Every attribution depends on the unchanged members ahead of it.  Hold their
-            # recovery locks together so a resume cannot replace that evidence mid-write.
-            with ExitStack() as held:
-                for member, saved in candidates:
-                    held.enter_context(record.recovery_lock(member))
-                    if record.read_state(member) != saved or record.process_active(saved):
-                        break
-                else:
-                    # Save red verdicts before the head can advance: a crash must not
-                    # lose a failure that only appears together with that head.
-                    for member, answer in sorted(verdicts.items(), key=lambda item: "land" in item[1]):
+                candidates = [(directory, state)]
+            sent, snapshots, valid = set(), dict(candidates), True
+
+            def publish(answers):
+                nonlocal valid
+                if not valid:
+                    return False
+                fresh = {member: answer for member, answer in answers.items() if member not in sent}
+                if not fresh:
+                    return True
+                # Delivery rewrites ownership and rebase receipts, but keeps the reviewed
+                # work and tested tree. Only an unwoken recipient must stay processless.
+                with ExitStack() as held:
+                    for member, saved in prefix + candidates:
+                        held.enter_context(record.recovery_lock(member))
+                        if member in sent and "fix" in saved["waiting_on"]:
+                            continue  # this member is already omitted from rebuilt stacks
+                        current = record.read_state(member)
+                        if member not in snapshots or member in sent:
+                            review = (current or {}).get("review") or {}
+                            tree = saved["waiting_on"]["land"]
+                            same = (current and review.get("verdict") == "PASS"
+                                    and run.passed_review_head(current) == run.passed_review_head(saved)
+                                    and ((current.get("waiting_on") == saved["waiting_on"]
+                                          and current.get("state") not in run.ENDED
+                                          and (current.get("state") == "waiting"
+                                               or (run.followup_open(current)
+                                                   and (record.process_active(current) or run.tick_resumes(current))))
+                                          and review.get("tree_sha") in (saved["review"].get("tree_sha"), tree))
+                                         or ((current.get("merged") or current.get("on_target"))
+                                             and review.get("tree_sha") == tree)))
+                        else:
+                            same = current == saved and not record.process_active(current)
+                        if not same:
+                            valid = False
+                            return False
+                    for member, answer in sorted(fresh.items(), key=lambda item: "land" in item[1]):
                         with record.record(member) as current:
                             current["waiting_on"] = {**current["waiting_on"], **answer}
-                    # A reparked member needs a fresh check, including any red suffix
-                    # discarded during rebuilding.  Save verdicts before dropping evidence.
-                    note(turn, [], directory.name, red_stacks={})
-                    for member in verdicts:
+                        # Later answers still compare against this pass's own writes.
+                        snapshots[member]["waiting_on"] = dict(current["waiting_on"])
+                    sent.update(fresh)
+                    for member in fresh:
                         watch.launch_resume(member.name, log)
+                return True
+
+            verdicts = (_check_members(turn, candidates, repo, tip, target_tree, log,
+                                      prefix=prefix, ready=publish) if checked else {directory: verdict})
+            if not verdicts:
+                return
+            if publish(verdicts) and checked:
+                # A reparked member must retry red suffixes discarded during rebuilding.
+                note(turn, [], directory.name, red_stacks={})
             if checked:
                 return
+            if "land" in verdict and "fix" not in verdict:
+                prefix.append((directory, state))
 
 
 def _check(directory, state, scratch, cmds, log_path, log):
@@ -265,10 +338,8 @@ def _stack_member(repo, state, top, upstream, opened):
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))
-    how = "rebase" if run.on_pass(lp) else run.how_to_integrate(lp)
-    args = (("merge", "--no-edit", top) if how == "merge" else
-            ("rebase", "--onto", top, lp.base_sha) if run.on_pass(lp) else
-            ("rebase", top))
+    how = run.how_to_integrate(lp)
+    args = ("merge", "--no-edit", top) if how == "merge" else ("rebase", top)
     if how == "rebase":
         # A detached rebase must not rewrite the member's branch through Git config.
         args = ("-c", "rebase.updateRefs=false", *args)
@@ -278,27 +349,40 @@ def _stack_member(repo, state, top, upstream, opened):
     return scratch, text
 
 
-def _check_tree(directory, state, scratch, upstream, log):
+def _landing_checks(directory, state, scratch, upstream):
+    """The member's own landing checks on `scratch`: its `# once` commands and the suite."""
     from . import run, task
-    tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
-    log_path = directory / f"lander-{tree}.log"
     _, body, _ = task.parse_task(directory / "task.md")
-    cmds = task.group_commands(run.with_suite(
-        task.done_when(body, directory / "task.md"), scratch, upstream))[1]
-    ok, text = _check(directory, state, scratch, cmds, log_path, log)
+    # A review PR owes the suite declared on this stack, never an earlier head's suite too.
+    cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
+    return tuple(task.group_commands(run.with_suite(cmds, scratch, upstream))[1])
+
+
+def _check_tree(directory, state, scratch, tree, checks, log):
+    from . import run
+    log_path = directory / f"lander-{tree}.log"
+    ok, text = _check(directory, state, scratch, list(checks), log_path, log)
     return {"land": tree} if ok else {"fix": {"line": run.first_failure(text), "log": str(log_path)}}
 
 
-def _check_members(turn, members, repo, tip, target_tree, log):
-    from . import run
+def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None):
+    from . import gate, run
     directory, state = members[0]
     upstream = state.get("target") or state["base"]
     upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
     config.WT.mkdir(parents=True, exist_ok=True)
     pending, verdicts = list(members), {}
+    remaining = None
     while pending:
         with ExitStack() as opened:
             top, stacks = tip, []
+            for _, saved in prefix:
+                scratch, text = _stack_member(repo, saved, top, upstream, opened)
+                if text:
+                    return verdicts
+                top = run.git(scratch, "rev-parse", "HEAD")
+                if run.git(scratch, "rev-parse", "HEAD^{tree}") != saved["waiting_on"]["land"]:
+                    return verdicts
             for member, saved in pending:
                 # Earlier changes can hide a target conflict, so try the bare tip first.
                 scratch, text = _stack_member(repo, saved, tip, upstream, opened)
@@ -314,57 +398,98 @@ def _check_members(turn, members, repo, tip, target_tree, log):
                         continue
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
-                stacks.append((member, saved, scratch, tree))
+                stacks.append((member, saved, scratch, tree,
+                               _landing_checks(member, saved, scratch, upstream)))
             if not stacks:
                 break
+            if remaining is None:
+                remaining = gate.whole_checks_that_fit(run.declared_suite(stacks[0][2], upstream))
             green, red = _trees(turn)[1], _trees(turn, "red_stacks")[1]
             # The first stack has no green prefix to attribute a cached failure to.
             # Retry its own check after a kill or flake; later evidence survives a crash.
-            red.pop(stacks[0][3], None)
-            answers = {tree: {"land": tree} if tree in green else
-                       {"fix": {key: red[tree][key] for key in ("line", "log")}}
-                       for _, _, _, tree in stacks if tree in green or tree in red}
-            unchecked = {tree: (member, saved, scratch) for member, saved, scratch, tree in reversed(stacks)
-                         if tree not in answers}
-            if unchecked:
-                # Heavy-turn admission derives how many checks can run; threads only wait.
-                with ThreadPoolExecutor(max_workers=len(unchecked)) as pool:
-                    checks = {tree: pool.submit(_check_tree, *args, upstream, log)
-                              for tree, args in unchecked.items()}
-                    for tree, check in checks.items():
-                        answer = answers[tree] = check.result()
-                        note(turn, [tree] if "land" in answer else [], directory.name,
-                             red_stacks={tree: answer["fix"]} if "fix" in answer else None)
-            for index, (member, saved, scratch, tree) in enumerate(stacks):
-                answer = answers[tree]
-                if (index == 0 and "fix" in answer
-                        and not saved.get("repair") and not passed(turn, target_tree)):
-                    run.git(scratch, "reset", "--hard", tip)
-                    run.git(scratch, "clean", "-fdx")
-                    suite = run.declared_suite(scratch)
-                    if suite:
-                        ok, probe = _check(member, saved, scratch, [suite],
-                                           member / "target-probe.log", log)
-                        if ok:
-                            note(turn, [target_tree], directory.name)
-                        else:
-                            printed = "\n".join("    " + line
-                                                for line in probe[-run.OUT_CAP:].splitlines())
-                            red = {"probe": {"command": suite, "check": f"{suite}  # once",
-                                   "sha": tip,
-                                   "text": f"`{suite}` fails on {upstream} at {tip}, the target's "
-                                           f"own tip, whichever branch runs it. What it printed "
-                                           f"there:\n\n{printed}"}}
-                            note(turn, [], directory.name, red={target_tree: red})
-                            _repair(turn, member, saved, target_tree, red, log)
-                            return verdicts
-                if member == directory or "fix" in answer:
-                    verdicts[member] = answer
-                if "fix" in answer:
-                    # Only this green-to-red transition identifies a culprit.  Evidence
-                    # behind it includes its changes, so rebuild before deciding again.
-                    pending = [(m, s) for m, s in pending if m not in verdicts or "land" in verdicts[m]]
-                    break
-            else:
+            if not prefix:
+                red.pop(stacks[0][3], None)
+            # Evidence answers a stack only for the checks it ran: two tasks can stack
+            # the same tree, and each owes its own `# once` commands.
+            answers = {}
+            for _, _, _, tree, checks in stacks:
+                if green.get(tree, {}).get("checks") == list(checks):
+                    answers[tree, checks] = {"land": tree}
+                elif red.get(tree, {}).get("checks") == list(checks):
+                    answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log")}}
+            unchecked = {}
+            for member, saved, scratch, tree, checks in stacks:
+                if (tree, checks) not in answers and len(unchecked) < remaining:
+                    unchecked.setdefault((tree, checks), (member, saved, scratch, tree, checks))
+            remaining -= len(unchecked)
+
+            def answer_tree(key, check):
+                if key not in answers:
+                    tree, checks = key
+                    answer = answers[key] = check.result()
+                    note(turn, [tree] if "land" in answer else [], directory.name, checks=checks,
+                         red_stacks={tree: answer["fix"]} if "fix" in answer else None)
+                return answers[key]
+
+            rebuild, target_red = False, False
+
+            def decide():
+                nonlocal pending, rebuild, target_red
+                if target_red:
+                    return
+                green_prefix = bool(prefix)
+                for index, (member, saved, scratch, tree, checks) in enumerate(stacks):
+                    answer = answers.get((tree, checks))
+                    # A red is blamed only behind stacks all answered green: an unanswered
+                    # one ahead may be the culprit, and removing it changes every later tree.
+                    if answer is None or ("fix" in answer and index and not green_prefix):
+                        break
+                    if (index == 0 and not prefix and "fix" in answer
+                            and not saved.get("repair") and not passed(turn, target_tree)):
+                        run.git(scratch, "reset", "--hard", tip)
+                        run.git(scratch, "clean", "-fdx")
+                        suite = run.declared_suite(scratch)
+                        if suite:
+                            ok, probe = _check(member, saved, scratch, [suite],
+                                               member / "target-probe.log", log)
+                            if ok:
+                                note(turn, [target_tree], directory.name, checks=[suite])
+                            else:
+                                printed = "\n".join("    " + line
+                                                    for line in probe[-run.OUT_CAP:].splitlines())
+                                red = {"probe": {"command": suite, "check": f"{suite}  # once",
+                                       "sha": tip,
+                                       "text": f"`{suite}` fails on {upstream} at {tip}, the target's "
+                                               f"own tip, whichever branch runs it. What it printed "
+                                               f"there:\n\n{printed}"}}
+                                note(turn, [], directory.name, red={target_tree: red})
+                                _repair(turn, member, saved, target_tree, red, log)
+                                target_red = True
+                                return
+                    if (member == directory or "fix" in answer) and member not in verdicts:
+                        verdicts[member] = answer
+                        ready({member: answer})
+                    green_prefix = "land" in answer
+                    if "fix" in answer:
+                        # Only this green-to-red transition identifies a culprit.
+                        # Rebuilding shares the pass's remaining checks.
+                        pending = [(m, s) for m, s in pending
+                                   if m not in verdicts or "land" in verdicts[m]]
+                        rebuild = True
+                        return
+
+            with ThreadPoolExecutor(max_workers=max(1, len(unchecked))) as pool:
+                running = {pool.submit(_check_tree, *args, log): key
+                           for key, args in unchecked.items()}
+                try:
+                    decide()
+                    for check in as_completed(running):
+                        answer_tree(running[check], check)
+                        decide()
+                finally:
+                    # Keep suffix evidence even if a wake or verdict write crashes.
+                    for check, key in running.items():
+                        answer_tree(key, check)
+            if target_red or not rebuild:
                 break
     return verdicts

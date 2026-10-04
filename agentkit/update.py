@@ -48,6 +48,7 @@ E2E_CAP = 90 * 60           # a fresh account, three harness installs and one re
 FETCH_CAP = 60              # the tick's look at origin; one not back by then is offline
 START_WAIT = 2              # the detached start-up check's deadline for origin
 UPDATE_TAIL = 10            # how many of a failed start-up update's last lines the menu shows
+LIVE_REPORT_CAP = 4 * 1024  # a typed hand-back stays readable even with long diagnostics
 ASK_EVERY = 60 * 60         # how often the tick asks a harness's latest release, at most
 RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause: try it daily
 
@@ -1031,8 +1032,41 @@ def live_tick(log, now, fetched):
                           worker.RUN_MARKER: str(check)})
 
 
+def _live_excerpt(said):
+    """Failure blocks before the closing tail, each with a share of the message's cap."""
+    output = said.splitlines()
+    failures, following = [], False
+    for n, line in enumerate(output):
+        if line.startswith("FAIL  "):
+            failures.append([])
+            following = True
+        elif not line[:1].isspace():
+            following = False
+        if following and line.strip():
+            failures[-1].append(n)
+    covered = {n for block in failures for n in block}
+    tail = [n for n, line in enumerate(output) if line.strip()][-UPDATE_TAIL:]
+    blocks = [*failures[:UPDATE_TAIL], [n for n in tail if n not in covered]]
+    omitted = ([f"[{len(failures) - UPDATE_TAIL} more failed checks omitted]"]
+               if len(failures) > UPDATE_TAIL else [])
+    cap = (LIVE_REPORT_CAP - sum(map(len, omitted)) - 3 * len(blocks)) // len(blocks)
+    lines = []
+    for n, block in enumerate(blocks):
+        part = [output[i] for i in block]
+        text = " / ".join(part)
+        closing = n == len(blocks) - 1
+        if len(text) > cap:
+            note = "[output truncated]"
+            room = cap - len(note) - 3
+            part = [f"{note} / {text[-room:]}" if closing else f"{text[:room]} / {note}"]
+        if closing:
+            lines.extend(omitted)
+        lines.extend(part)
+    return lines
+
+
 def live_hand_back(commit, check, code, log):
-    """Hand that red check of that commit back to fix, once, with its last lines.
+    """Hand that red check of that commit back to fix, once, with its failures and summary.
 
     Its record is `handed` in the check's directory, the tick's own file: the line, the
     composer's mark while its Enter has not landed, so it is entered and never typed twice,
@@ -1052,7 +1086,7 @@ def live_hand_back(commit, check, code, log):
                 errors="replace")
         except OSError:
             said = ""
-        lines = [line for line in said.splitlines() if line.strip()][-UPDATE_TAIL:]
+        lines = _live_excerpt(said)
         lines += [] if code is not None else ["[stopped before it finished]"]
         log(f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}:")
         for line in lines:

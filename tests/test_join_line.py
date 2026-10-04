@@ -59,15 +59,6 @@ class JoinLine(Sandbox):
         self.assertIsNone(state["finished_at"])
         self.start.assert_called_once()
 
-    def test_dependency_wait_precedes_permission_and_join(self):
-        events = []
-        with patch.object(run, "wait_for_dependency", side_effect=lambda lp: events.append("dep") or False):
-            self.assertFalse(run.merge(self.lp))
-        self.assertEqual(events, ["dep"])
-        self.rights.assert_not_called()
-        self.start.assert_not_called()
-        self.assertNotIn("waiting_on", self.saved())
-
     def test_drive_releases_the_worker_without_an_ending(self):
         def work():
             run.merge(self.lp)
@@ -231,20 +222,13 @@ class JoinLine(Sandbox):
         self.assertNotIn("waiting_on", self.saved())
         self.start.assert_not_called()
 
-    def test_review_pr_holds_the_same_plain_lock_without_joining(self):
+    def test_review_pr_joins_without_taking_the_delivery_lock(self):
         self.lp.state["own_orchestrator"] = "opus"
-        turn = run.turn_path(self.lp, "origin/main")
-
-        def gh(cwd, *args, **_kw):
-            with turn.open("a") as lock:
-                with self.assertRaises(BlockingIOError):
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return 0, ""
-
-        with patch.object(run, "gh", side_effect=gh):
-            self.assertTrue(run.merge_own_pr(self.lp, "https://github.com/acme/widget/pull/7",
+        with patch.object(run, "gh", side_effect=AssertionError("delivery")), \
+                patch.object(run, "merge_lock", side_effect=AssertionError("delivery lock")):
+            self.assertFalse(run.merge_own_pr(self.lp, "https://github.com/acme/widget/pull/7",
                                               self.lp.state["review"]["head_sha"]))
-        self.assertNotIn("waiting_on", self.saved())
+        self.assertEqual(self.saved()["waiting_on"]["line"], run.turn_path(self.lp, "origin/main").name)
         self.assertFalse(list(config.RUNS.glob("*.wait")))
 
     def test_job_and_foreground_follow_the_processless_line_to_its_ending(self):

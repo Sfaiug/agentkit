@@ -72,7 +72,7 @@ class SeatsInSlice(Sandbox):
                 python=sys.executable, said=f"systemd {said} (fake)"))
             (where / "systemd-run").chmod(0o755)
 
-    def tmux(self, *args, socket=None, client=False, unit=None):
+    def tmux(self, *args, socket=None, client=False, unit=None, **_kw):
         self.calls.append((args, unit))
         if args[0] == "source-file":
             return (0, "") if self.server_up else (1, "no server running")

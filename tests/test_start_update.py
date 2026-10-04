@@ -110,7 +110,7 @@ def running(pid):
     try:
         os.kill(pid, 0)
         stat = Path(f"/proc/{pid}/stat")
-        return not stat.exists() or stat.read_text().split(") ", 1)[1][0] != "Z"
+        return sys.platform != "linux" or stat.read_text().split(") ", 1)[1][0] != "Z"
     except (ProcessLookupError, FileNotFoundError):
         return False
 
@@ -248,7 +248,10 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
             time.sleep(0.01)
         for pid in self.updaters():
             if running(pid):
-                os.killpg(pid, signal.SIGKILL)    # only a child recorded in this test's HOME
+                try:
+                    os.killpg(pid, signal.SIGKILL)    # only a child recorded in this test's HOME
+                except ProcessLookupError:
+                    continue
                 self.fail(f"fixture updater {pid} did not finish")
 
     def installs(self):
@@ -414,6 +417,40 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         again.when("<draw new fix-api>")
         self.assertNotIn("<start old>", again.text())
         again.leave()
+
+
+class UpdaterCleanup(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-updater-cleanup-", dir=REPO)
+        self.addCleanup(tmp.cleanup)
+        self.case = StartUpdate()
+        self.case.root = Path(tmp.name)
+        (self.case.root / "updaters").write_text("12345\n")
+
+    def test_a_zombie_reaped_between_signal_and_stat_is_gone(self):
+        stat = Mock()
+        stat.exists.return_value = True
+        stat.read_text.return_value = "12345 (updater) Z"
+
+        def reap(pid, sig):
+            if kill.call_count == 2:
+                stat.exists.return_value = False
+                stat.read_text.side_effect = FileNotFoundError
+
+        with patch(__name__ + ".Path", return_value=stat), \
+                patch.object(sys, "platform", "linux"), \
+                patch.object(os, "kill", side_effect=reap) as kill, \
+                patch.object(os, "killpg", side_effect=ProcessLookupError) as killpg:
+            self.case.finish_updates()
+        self.assertEqual(kill.call_count, 2)
+        killpg.assert_not_called()
+
+    def test_a_group_reaped_between_check_and_kill_is_gone(self):
+        with patch(__name__ + ".running", return_value=True), \
+                patch.object(time, "monotonic", side_effect=[0, 5]), \
+                patch.object(os, "killpg", side_effect=ProcessLookupError) as killpg:
+            self.case.finish_updates()
+        killpg.assert_called_once_with(12345, signal.SIGKILL)
 
 
 class OriginTimeout(unittest.TestCase):

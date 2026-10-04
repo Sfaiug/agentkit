@@ -3,10 +3,12 @@
 Replay panes with invented names, fake runs and a temporary HOME; no real seats or hooks.
 """
 
+import json
 import unittest
+from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import watch
+from agentkit import config, watch
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -15,6 +17,8 @@ QUESTION = (FIX / "claude-question-with-message-pane.txt").read_text(encoding="u
 DIALOG, MESSAGE = QUESTION.rstrip().rsplit("\n", 1)
 PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8")
 DRAFT = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8")
+PREVIEW = (FIX / "claude-question-preview-pane.txt").read_text(encoding="utf-8")
+NOTES = (FIX / "claude-question-notes-pane.txt").read_text(encoding="utf-8")
 
 
 class QuestionWithMessageUnder(Sandbox):
@@ -58,6 +62,32 @@ class QuestionWithMessageUnder(Sandbox):
                         live = self.classify(pane + queued, fact)
                         self.assertEqual(live["state"], "asking")
                         self.assertEqual(live["authority"], "screen")
+
+    def test_question_with_previews_is_asking_whatever_its_hooks_last_said(self):
+        """Claude 2.1.289 adds `n to add notes` to a question whose options have previews, and
+        `ctrl+g to edit in <editor>` beside it while a note is open.
+
+        Nothing types into it, however the hooks last read: an Enter there picks an answer.
+        """
+        for pane, fact in ((pane, fact) for pane in (PREVIEW, NOTES) for fact in ({}, {"event": "Notification", "kind": "permission_prompt", "at": NOW - 60},
+                     {"event": "Notification", "kind": "idle_prompt", "at": NOW - 5},
+                     {"event": "Stop", "kind": "", "at": NOW - 5})):
+            with self.subTest(note=pane is NOTES, fact=fact.get("kind", fact.get("event", "none"))):
+                live = self.classify(pane, fact)
+                self.assertEqual(live["state"], "asking")
+                # a real Claude seat whose own hooks last said `fact`, read the way the tick
+                # reads it: only the screen is this test's
+                config.save_session(self.cfg, SEAT, "opus", ["astra"], {"cwd": str(self.root)})
+                config.hook_facts_path(SEAT).write_text(json.dumps({"session": SEAT, **fact}))
+                with patch.object(watch, "pane_text", return_value=pane) as read:
+                    self.assertFalse(watch.at_prompt({"name": SEAT}, cfg=self.cfg))
+                self.assertTrue(read.called, "at_prompt never read the screen")
+                self.assertEqual(watch.seat_read(SEAT)["state"], "asking")
+                found = watch.session_state(
+                    SEAT, NOW, session={"name": SEAT, "attached": False}, cfg=self.cfg,
+                    records=[], live=live, harness="claude", auth_out={}, gh_out={},
+                    token_out={}, previous={})
+                self.assertEqual(found["word"], "needs you")
 
     def test_message_under_empty_composer_is_not_a_draft(self):
         self.assertEqual(self.classify(PROMPT + MESSAGE)["state"], "at_prompt")

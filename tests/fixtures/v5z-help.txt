@@ -2,6 +2,7 @@ usage: ak [command]
 
   ak       the menu
   run      execute a task file to a merged PR
+  plan     show or write this session's checked plan
   notify   record a needs-you question or a job summary
   wait     end this turn waiting on another session's work
   usage    show provider usage and worker pick order

@@ -1,9 +1,12 @@
-"""`ak orch NAME --dry-run` leaves nothing behind.
+"""`ak orch NAME --dry-run` leaves nothing behind, and without a terminal no seat opens.
 
 A dry run only looks: no session record and no rulebook stay for a seat it never opened, so
 the next real `ak orch NAME` creates that seat instead of resuming a record nobody launched;
 and no rulebook a seat was opened with, nor what an adapter makes beside one, is changed, nor
 the last notification a seat of that name sent, which only a start clears.
+
+A real `ak orch NAME` for a seat that does not exist opens it only where a person types: an
+agent has no terminal, so its guessed `ak orch help` gets the commands, not a new seat.
 
 Offline: a temporary HOME, a tmux that holds no session, and fake adapters that write the
 rulebook through the real tools/rulebook.py the way every adapter's `interactive` does.
@@ -63,6 +66,7 @@ class DryRun(unittest.TestCase):
         self.resume = stack.enter_context(patch.object(orch, "resume", return_value=0))
         stack.enter_context(patch.object(orch, "attach", return_value=0))
         stack.enter_context(patch.object(orch, "maintenance"))
+        self.typed = stack.enter_context(patch.object(orch, "typed_here", return_value=True))
 
     def dry_run(self, argv, name):
         with redirect_stdout(io.StringIO()) as out:
@@ -81,6 +85,17 @@ class DryRun(unittest.TestCase):
         self.resume.assert_not_called()
         self.launch.assert_called_once()
         self.assertIn("acme-fix", orch.records())
+
+    def test_without_a_terminal_a_new_seat_is_refused_and_a_dry_run_still_looks(self):
+        self.typed.return_value = False
+        for argv in (["help"], [], ["acme-fix", "--model", "fable"]):
+            with self.subTest(argv=argv), redirect_stdout(io.StringIO()) as out:
+                with self.assertRaisesRegex(config.Error, r"opens only from a terminal[^\n]*\nusage: ak orch"):
+                    orch.main(argv)
+                self.assertEqual(out.getvalue(), "")
+        self.launch.assert_not_called()
+        self.assertEqual(orch.records(), {})
+        self.dry_run(["acme-fix"], "acme-fix")
 
     def test_an_unnamed_dry_run_saves_nothing(self):
         self.dry_run([], "new")

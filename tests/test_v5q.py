@@ -138,10 +138,8 @@ sys.exit(1)
     def reviews(self, *answers):
         (self.root / "reviews.json").write_text(json.dumps(list(answers)))
 
-    def task(self, name, title, after=(), rounds=1):
+    def task(self, name, title, rounds=1):
         lines = ["---", "repo: none", f"rounds: {rounds}"]
-        for dep in after:
-            lines.append(f"after: {dep}")
         lines += ["---", f"# {title}", "", "## Done when", "```bash", "test -f deliverable", "```", ""]
         path = self.root / name
         path.write_text("\n".join(lines))
@@ -167,10 +165,8 @@ sys.exit(1)
         self.git(path, "push", "-q", "origin", "main")
         return path
 
-    def repo_task(self, name, title, repo, after=(), rounds=1):
+    def repo_task(self, name, title, repo, rounds=1):
         lines = ["---", f"repo: {repo}", "base: main", f"rounds: {rounds}"]
-        for dep in after:
-            lines.append(f"after: {dep}")
         lines += ["---", f"# {title}", "", "## Done when", "```bash", "test -f deliverable", "```", ""]
         path = self.root / name
         path.write_text("\n".join(lines))
@@ -303,35 +299,16 @@ sys.exit(1)
         job = self.read_job(self.job_dirs()[0])
         self.assertEqual({t["state"] for t in job["tasks"]}, {"passed"})
 
-    def test_v5q_after_holds_until_dependency_merged(self):
-        a = self.task("a.md", "Alpha task")
-        b = self.task("b.md", "Beta task", after=["a.md"])
-        with redirect_stdout(io.StringIO()):
-            rc = run.main([a, b, "--exec", self.executor, "--review", self.reviewer])
-        self.assertEqual(rc, 0)
-        job = self.read_job(self.job_dirs()[0])
-        by_name = {t["name"]: t for t in job["tasks"]}
-        self.assertEqual(by_name["a.md"]["after"], [])
-        self.assertEqual(by_name["b.md"]["after"], ["a.md"])
-        self.assertEqual(by_name["a.md"]["state"], "passed")
-        self.assertEqual(by_name["b.md"]["state"], "passed")
-        self.assertLessEqual(by_name["a.md"]["finished_at"], by_name["b.md"]["started_at"])
-
-    def test_v5q_failed_dependency_skips_dependant(self):
+    def test_v5q_a_failed_task_holds_up_no_other(self):
         a = self.task("fail-a.md", "Failing task", rounds=1)
-        b = self.task("dep-b.md", "Dependant task", after=["fail-a.md"])
         c = self.task("lone-c.md", "Independent task")
         with redirect_stdout(io.StringIO()):
-            rc = run.main([a, b, c, "--exec", self.executor, "--review", self.reviewer])
+            rc = run.main([a, c, "--exec", self.executor, "--review", self.reviewer])
         self.assertEqual(rc, 1)
         job = self.read_job(self.job_dirs()[0])
         by_name = {t["name"]: t for t in job["tasks"]}
         self.assertEqual(by_name["fail-a.md"]["state"], "failed")
-        self.assertEqual(by_name["dep-b.md"]["state"], "skipped")
-        self.assertIn("skipped: fail-a.md did not merge", by_name["dep-b.md"]["verdict_line"])
         self.assertEqual(by_name["lone-c.md"]["state"], "passed")
-        log = (self.job_dirs()[0] / "log.txt").read_text()
-        self.assertIn("skipped: fail-a.md did not merge", log)
 
     def test_v5q_one_done_card_when_all_merged(self):
         a = self.task("a.md", "Alpha task")
@@ -387,7 +364,7 @@ sys.exit(1)
         self.assertIsNotNone(saved["finished_at"])
         self.assertEqual({t["state"] for t in saved["tasks"]}, {"passed"})
         for task in saved["tasks"]:
-            for key in ("name", "title", "after", "state", "run_id", "executor",
+            for key in ("name", "title", "state", "run_id", "executor",
                         "reviewer", "started_at", "finished_at"):
                 self.assertIn(key, task)
             self.assertIsNotNone(task["run_id"])
@@ -518,22 +495,6 @@ sys.exit(1)
         reviewers = self.calls("reviewer")
         self.assertEqual(len(executors), 1, executors)
         self.assertEqual(len(reviewers), 1, reviewers)
-
-    def test_v5q_repo_dependency_merges_then_dependant_starts(self):
-        repo = self.git_repo()
-        a = self.repo_task("ra.md", "Repo alpha", repo)
-        b = self.repo_task("rb.md", "Repo beta", repo, after=["ra.md"])
-        with self.fake_delivery(), redirect_stdout(io.StringIO()):
-            rc = run.main([a, b, "--exec", self.executor, "--review", self.reviewer])
-        self.assertEqual(rc, 0)
-        job = self.read_job(self.job_dirs()[0])
-        by_name = {t["name"]: t for t in job["tasks"]}
-        # the merge gate is real: the dependant lands after its dependency, which it may have
-        # started from before that merged (tests/test_after_from_pass.py)
-        self.assertEqual(by_name["ra.md"]["state"], "merged")
-        self.assertIn("PASS, merged", by_name["ra.md"]["verdict_line"])
-        self.assertEqual(by_name["rb.md"]["state"], "merged")
-        self.assertLessEqual(by_name["ra.md"]["finished_at"], by_name["rb.md"]["finished_at"])
 
     def test_v5q_two_repo_tasks_merge_in_separate_worktrees(self):
         repo = self.git_repo()
