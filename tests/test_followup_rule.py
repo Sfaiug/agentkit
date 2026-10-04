@@ -37,9 +37,11 @@ class FollowupRule(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "history_role_tokens"))
         self.stack.enter_context(patch.object(run.history, "update_run"))
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
-        # These checks cover carrying weighed records; replay is covered by followup_runs.
-        self.stack.enter_context(patch.object(run, "weigh_review", side_effect=
-                                             lambda _lp, submitted, *_args, **_kw: submitted))
+        # These checks cover list replacement; the fake fixer repairs earlier findings.
+        def weighed(_lp, submitted, *_args, reprove=False, **_kw):
+            return hand_in.Review([{**row, "kind": "fixed", "evidence": {
+                **row["evidence"], "returncode": 0}} for row in submitted.records]) if reprove else submitted
+        self.stack.enter_context(patch.object(run, "weigh_review", side_effect=weighed))
         self.workspace = self.root / "workspace"
         self.workspace.mkdir()
         directory = config.RUNS / "followup-fixture"

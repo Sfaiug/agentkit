@@ -45,6 +45,8 @@ class Correctness(unittest.TestCase):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), config.SESSION_ENV: "", config.RUN_DIR_ENV: "",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(self.root / "sockets"),
             "AGENTKIT_DISCORD_WEBHOOK": "off", "FAKE_ROOT": str(self.root)}))
         (self.root / "sockets").mkdir(mode=0o700)
@@ -94,7 +96,7 @@ sys.exit(item.get("rc", 0))
     def lp(self):
         d = self.root / "run"
         d.mkdir(exist_ok=True)
-        return SimpleNamespace(run_dir=d, target="origin/release/v4", reviewer="stub",
+        return SimpleNamespace(run_dir=d, round_dir=d, target="origin/release/v4", reviewer="stub",
                                state={"head_sha": SHA}, findings="VERDICT: PASS", log=lambda s: None,
                                write=lambda: None,
                                turn_limit=60 * run_record.SILENCE_MINUTES,

@@ -36,6 +36,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.tip = run.git(self.wt, "rev-parse", "origin/main")
         self.events = []
         self.verdicts = iter(["PASS"])
+        self.finding_site = "work.txt:1"
         self.stack.enter_context(patch.object(gate, "run_done_when",
                                               return_value=(True, "$ true\n[exit 0]\n")))
         self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
@@ -48,7 +49,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertEqual(role, "reviewer")
         self.events.append(("reviewer", out.parent.name))
         verdict = next(self.verdicts)
-        finding = "- work.txt:1 - the merged tree breaks\n" if verdict == "FAIL" else "- none\n"
+        finding = f"- {self.finding_site} - the merged tree breaks\n" if verdict == "FAIL" else "- none\n"
         answer = f"VERDICT: {verdict}\n\n## Findings\n{finding}"
         out.mkdir(parents=True)
         (out / "final.md").write_text(answer)
@@ -59,6 +60,9 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertIn("work.txt:1 - the merged tree breaks", text)
         self.events.append(("fixer", lp.rnd))
         lp.round_dir.mkdir(parents=True, exist_ok=True)
+        (self.wt / "work.txt").write_text("fixed work\n")
+        run.git(self.wt, "add", "work.txt")
+        run.git(self.wt, "commit", "-qm", "Fix the reviewed work")
         return "## Summary\nFixed the findings."
 
     def pending_merge(self, spent=3):
@@ -124,14 +128,26 @@ class LandingReviewSpendsNoRound(Sandbox):
 
     def test_fail_at_the_budget_is_reviewed_and_keeps_its_findings(self):
         self.pending_merge()
+        self.finding_site = "base.txt:1"
         self.verdicts = iter(["FAIL"])
         self.assertFalse(self.land())
         self.assertEqual(self.events, [("reviewer", "round-3")])
         self.assert_no_round(self.lp)
         state = record.read_state(self.run_dir)
         self.assertEqual(state["review"]["verdict"], "FAIL")
-        self.assertIn("work.txt:1 - the merged tree breaks", state["findings"])
+        self.assertIn("base.txt:1 - the merged tree breaks", state["findings"])
         self.assertFalse(state["merged"])
+
+    def test_a_late_untouched_finding_at_the_budget_becomes_a_followup(self):
+        self.pending_merge()
+        self.verdicts = iter(["FAIL"])
+        self.assertTrue(self.land())
+        self.assertEqual(self.events, [("reviewer", "round-3")])
+        self.assert_no_round(self.lp)
+        state = record.read_state(self.run_dir)
+        self.assertEqual(state["review"]["verdict"], "PASS")
+        self.assertIn("work.txt:1 - the merged tree breaks", state["followups"][0])
+        self.assertTrue(state["merged"])
 
     def test_interrupted_landing_review_resumes_at_the_budget_and_lands(self):
         self.history = copy.deepcopy(self.lp.state["round_summaries"])
@@ -169,13 +185,25 @@ class LandingReviewSpendsNoRound(Sandbox):
 
     def test_legacy_landing_review_fail_at_the_budget_keeps_its_findings(self):
         resumed = self.legacy_merge()
+        self.finding_site = "base.txt:1"
         self.verdicts = iter(["FAIL"])
         run.rounds(resumed)
         self.assertEqual(self.events, [("reviewer", "round-3")])
         self.assert_no_round(resumed)
         state = record.read_state(self.run_dir)
         self.assertEqual(state["review"]["verdict"], "FAIL")
-        self.assertIn("work.txt:1 - the merged tree breaks", state["findings"])
+        self.assertIn("base.txt:1 - the merged tree breaks", state["findings"])
+        self.assertFalse(state["merged"])
+
+    def test_legacy_landing_review_defers_a_late_untouched_finding_at_the_budget(self):
+        resumed = self.legacy_merge()
+        self.verdicts = iter(["FAIL"])
+        run.rounds(resumed)
+        self.assertEqual(self.events, [("reviewer", "round-3")])
+        self.assert_no_round(resumed)
+        state = record.read_state(self.run_dir)
+        self.assertEqual(state["review"]["verdict"], "PASS")
+        self.assertIn("work.txt:1 - the merged tree breaks", state["followups"][0])
         self.assertFalse(state["merged"])
 
     def test_changed_checkout_resume_does_not_integrate_a_no_merge_run(self):

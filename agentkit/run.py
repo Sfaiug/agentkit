@@ -122,7 +122,7 @@ NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
-NOTES = re.compile(r"^(#+)[ \t]*Notes\b[^\n]*$", re.M | re.I)
+NOTES = re.compile(r"^(#+)[ \t]*(?:Notes|Fixed findings)\b[^\n]*$", re.M | re.I)
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
                 "the task or its checks are wrong")
 # What the loop itself adds to a done-when log, in its own words, after the commands have had
@@ -2934,6 +2934,7 @@ def record_findings(lp, out, text, submitted=None):
     would hand the next fixer the wrong review -- worse than the tail it replaces.
     """
     source = written_answer(out, text)
+    weighed = submitted is not None
     if submitted is None:
         submitted = hand_in.read(source.parent / hand_in.FILE) or hand_in.Review([])
     text = submitted.text
@@ -2944,7 +2945,9 @@ def record_findings(lp, out, text, submitted=None):
     lp.findings = text
     lp.state["findings"] = text.strip()[-8000:]
     lp.state["findings_file"] = str(source)
-    lp.state["review_records"] = submitted.records
+    if weighed:
+        # An unfinished attempt cannot replace the blockers a completed review proved.
+        lp.state["review_records"] = submitted.records
 
 
 def saved_findings(run_dir, state):
@@ -2973,13 +2976,12 @@ def saved_findings(run_dir, state):
 def without_followups(text):
     """The reviewer's answer as its fixer gets it, without follow-ups or unproven notes.
 
-    Follow-ups predate the task and start runs of their own once this one merges; handed to
-    a fixer told to address every finding below, they become out-of-scope work. Each section
+    Follow-ups start runs of their own once this one merges; handed to a fixer, they
+    become out-of-scope work. Fixed findings need no repair. Each section
     ends at the next heading of the same level or higher.
     """
     for pattern in (FOLLOWUPS, NOTES):
-        heading = pattern.search(text or "")
-        if heading:
+        while heading := pattern.search(text or ""):
             section = text[heading.end():]
             end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
             text = text[:heading.start()] + (section[end.start():] if end else "")
@@ -3348,9 +3350,10 @@ def changed_test_paths(lp, head="HEAD"):
         or any(p in cmd for cmd in getattr(lp, "cmds", [])))]
 
 
-def changed_line(lp, row, head):
+def changed_line(lp, row, head, base=None):
     diff = git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
-               "--unified=0", f"{lp.base_sha}...{head}", "--", f":(literal){row['path']}")
+               "--unified=0", f"{base}..{head}" if base else f"{lp.base_sha}...{head}",
+               "--", f":(literal){row['path']}")
     for hunk in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", diff, re.M):
         start, count = int(hunk[1]), int(hunk[2] or 1)
         # A pure removal leaves an anchor between the two surviving neighbouring lines.
@@ -3406,7 +3409,7 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
                 restore_probe_checkout(lp, head, branch, before, f"proof on {revision}")
 
 
-def quoted_sites(lp, submitted, head):
+def quoted_sites(lp, submitted, head, relocate=False):
     quotes = {index: row for index, row in enumerate(submitted.records, 1)
               if row["kind"] == "finding" and "quote" in row["evidence"]}
     if not quotes:
@@ -3424,7 +3427,10 @@ def quoted_sites(lp, submitted, head):
         for index, row in quotes.items():
             try:
                 root, path, line = hand_in.checked_site(
-                    f"{row['path']}:{row['line']}", checkout, row["evidence"]["quote"])
+                    f"{row['path']}:{1 if relocate else row['line']}", checkout, row["evidence"]["quote"])
+                if relocate:
+                    content = path.read_text(errors="replace")
+                    line = content[:content.index(row["evidence"]["quote"])].count("\n") + 1
                 sites[index] = {"path": str(path.relative_to(root)), "line": line}
             except (config.Error, OSError, ValueError, RuntimeError):
                 sites[index] = None
@@ -3445,12 +3451,14 @@ def before_at_base(lp, row):
     return code == 0 and before in content
 
 
-def weigh_review(lp, submitted, head=None):
+def weigh_review(lp, submitted, head=None, *, reprove=False, previous_head=None, earlier=(),
+                 disputed=()):
     """The reviewer's editable copy cannot decide what blocks the reviewed commit."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records):
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
-    sites = quoted_sites(lp, submitted, head)
+    sites = quoted_sites(lp, submitted, head, relocate=reprove)
+    known = {(row["path"], row["line"], row["what"]) for row in earlier}
     records = []
     for index, row in enumerate(submitted.records, 1):
         if row["kind"] not in ("finding", "follow-up"):
@@ -3464,17 +3472,20 @@ def weigh_review(lp, submitted, head=None):
                 evidence = {"run": command, "commit": lp.base_sha, **proof_on(
                     lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
         elif index in sites and sites[index] is None:
-            kind = "note"
+            kind = "fixed" if reprove else "note"
         elif "run" in evidence:
             command = evidence["run"]
-            evidence = {"run": command, "commit": head or "workspace",
-                        **proof_on(lp, command, lp.round_dir / f"proof-{index}-commit.log", head)}
-            if not lp.scratch:
+            evidence = {**(evidence if reprove else {}), "run": command, "commit": head or "workspace",
+                        **proof_on(lp, command, lp.round_dir / (
+                            f"{'earlier-' if reprove else ''}proof-{index}-commit.log"), head)}
+            if not lp.scratch and not reprove:
                 evidence["base"] = {"sha": lp.base_sha, **proof_on(
                     lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
-            if not hand_in.proof_failed(evidence):
+            if reprove and evidence["returncode"] == 0 and not evidence["killed"]:
+                kind = "fixed"
+            elif not hand_in.proof_failed(evidence):
                 kind = "note"
-            elif not lp.scratch and not changed_line(lp, row, head):
+            elif not reprove and not lp.scratch and not changed_line(lp, row, head):
                 base = evidence["base"]
                 if hand_in.proof_failed(base):
                     kind = "follow-up"
@@ -3482,10 +3493,18 @@ def weigh_review(lp, submitted, head=None):
                     kind = "note"
         else:
             row = {**row, **sites[index]}
-            if not lp.scratch and not changed_line(lp, row, head):
+            if not reprove and not lp.scratch and not changed_line(lp, row, head):
                 kind = "follow-up"
+        late = (not reprove and not lp.scratch and previous_head and row["kind"] == "finding"
+                and (kind != "note" or "run" in evidence and hand_in.proof_failed(evidence))
+                and (row["path"], row["line"], row["what"]) not in known
+                and (row["path"], row["line"]) not in disputed
+                and not changed_line(lp, row, head, previous_head))
+        if late:
+            kind = "follow-up"
+            row = {**row, "late": previous_head}
         row = {**row, "kind": kind, "evidence": evidence}
-        if kind == "follow-up":
+        if kind == "follow-up" and not late:
             if "before" not in row:
                 row["before"] = f"base {lp.base_sha}: " + (
                     "the proof fails there too" if "run" in evidence
@@ -3539,6 +3558,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     on it.
     """
     passed_head = passed_review_head(lp.state)
+    earlier = hand_in.Review(lp.state.get("review_records") or []).findings
+    previous_head = (lp.state.get("reviewed_head_sha") or
+        (lp.state.get("review") or {}).get("head_sha") or next((row["head_sha"] for row in
+        reversed(lp.state["round_summaries"]) if row.get("head_sha")), None))
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd, "summary": summary,
                                     **({"passed_head_sha": passed_head} if passed_head else {})})
@@ -3572,7 +3595,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             checks = ("## Checks the executor changed\n```\n"
                       + "\n".join(stat.splitlines()[:-1]) + "\n```\n\n")
     identity = {} if lp.scratch else commit_identity(lp.wt)
+    lp.round_dir.mkdir(parents=True, exist_ok=True)
     disputes = review_disputes(lp, identity.get("head_sha"))
+    disputed = {(row["path"], row["line"]) for row in disputes.disputes}
+    reproved = weigh_review(lp, hand_in.Review([row for row in earlier
+        if (row["path"], row["line"]) not in disputed]), identity.get("head_sha"), reprove=True)
     validation = getattr(lp, "validation", identity if lp.state.get("review_pr") else {})
     # A hand-built stand-in for the loop (as in test_v4c) carries no commands; the real
     # Loop always does, and only then are markers attributed to their commands.
@@ -3594,6 +3621,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                  "that fails runs once more at once, and it passes if that re-run does.")
     lp.log(f"--- round {lp.rnd}: reviewer {lp.reviewer}")
     rbody = (f"{lp.body}\n\n{work}\n\n"
+             + (reproved.text.replace("## Findings", "## Still-open earlier findings") + "\n"
+                if reproved.records else "")
              + (disputes.text + "\n" if disputes.disputes else "")
              + f"## Executor summary\n{summary}\n\n{heading}\n"
              + (f"{deferred}\n" if deferred else "")
@@ -3775,7 +3804,13 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     checkout_changed = not lp.scratch and (
         identity != validation or commit_identity(lp.wt) != identity
         or (not lp.state.get("review_pr") and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
-    submitted = weigh_review(lp, submitted, identity.get("head_sha"))
+    open_keys = {(row["path"], row["line"], row["what"]) for row in reproved.findings}
+    submitted = hand_in.Review([row for row in submitted.records if row["kind"] != "finding"
+        or (row["path"], row["line"], row["what"]) not in open_keys])
+    submitted = weigh_review(lp, submitted, identity.get("head_sha"),
+                             previous_head=previous_head if lp.rnd >= 2 else None,
+                             earlier=[*earlier, *reproved.findings], disputed=disputed)
+    submitted = hand_in.Review([*reproved.records, *submitted.records])
     upheld = {(row["path"], row["line"]) for row in submitted.findings}
     for row in disputes.disputes:
         if (row["path"], row["line"]) not in upheld:
@@ -3816,6 +3851,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
              "summary": summary.strip()[-4000:], **validation, **passed})
     lp.log(f"round {lp.rnd} verdict: {verdict}")
     lp.state["verdict"] = verdict
+    lp.state["reviewed_head_sha"] = identity.get("head_sha")
     lp.state["review"] = {"executor": lp.executor, "executor_provider": exec_provider,
                           "reviewer": lp.reviewer, "reviewer_provider": review_provider,
                           "returncode": code, "verdict": verdict, "done_when": ok, **validation, **passed,
@@ -6515,6 +6551,9 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
         parts += ["## Why this run stopped", "", state["error"], ""]
     if state["verdict"] != "PASS" and state["findings"]:
         parts += ["## Reviewer findings", "", without_followups(state["findings"]), ""]
+    fixed = hand_in.Review([row for row in state.get("review_records", []) if row["kind"] == "fixed"])
+    if fixed.records:
+        parts += [fixed.text.strip(), ""]
     if state.get("notes"):
         parts += ["## Notes", "", *("- " + item.replace("\n", "\n  ") for item in state["notes"]), ""]
     if state.get("disputes"):
@@ -11889,13 +11928,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         summary = (f"PR #{number} by {info['author']}: {info['title']}. agentkit executed nothing; "
                    "review the author's diff.")
     try:
-        if summaries:
-            preface = ("## Previous review findings\nIn this re-review, first rule on each previous "
-                       "finding: fixed, upheld or dropped, and why; then report anything new.\n\n"
-                       + previous)
-            verdict = review(lp, summary, ok, dw_log, preface=preface)
-        else:
-            verdict = review(lp, summary, ok, dw_log)
+        verdict = review(lp, summary, ok, dw_log)
     except Blocked as exc:
         # No reviewer's harness can run: the review ends `blocked` on the harness's own line,
         # as a task run does, and not in an `error` the tick would retry into that harness.

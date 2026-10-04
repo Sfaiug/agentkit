@@ -61,7 +61,7 @@ def followups_in(text):
             if not re.fullmatch(r"(?:none|n/a)\.?", item, re.I)]
 
 
-def records(text):
+def records(text, command="echo 'fixture evidence'; exit 1"):
     verdicts = review_verdicts(text)
     if not verdicts:
         return []
@@ -78,7 +78,7 @@ def records(text):
             row = {"kind": kind, "path": path or "deliverable", "line": int(line) if line.isdigit() else 1,
                    "what": what or item, "why": why or "fixture defect",
                    "evidence": {"quote": "fixture evidence"} if kind == "follow-up" else {
-                       "run": "echo 'fixture evidence'; exit 1", "returncode": 1,
+                       "run": command, "returncode": 1,
                        "output": "fixture evidence\n"}}
             if kind == "follow-up":
                 row["before"] = "base abc123 (fixture)"
@@ -86,7 +86,7 @@ def records(text):
     if verdicts[-1].upper() == "FAIL" and not any(row["kind"] == "finding" for row in rows):
         rows.insert(0, {"kind": "finding", "path": "deliverable", "line": 1,
                         "what": "fixture blocking finding", "why": "fixture defect",
-                        "evidence": {"run": "echo 'fixture evidence'; exit 1", "returncode": 1,
+                        "evidence": {"run": command, "returncode": 1,
                                      "output": "fixture evidence\n"}})
     return rows + [{"kind": "done"}]
 
@@ -111,12 +111,32 @@ def executor_records(text):
     return [{"kind": "done"}] if summary else []
 
 
+def author_turns(run_dir):
+    count = 0
+    for path in Path(run_dir).glob("round-*/*/hand-in.jsonl"):
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        count += bool(rows) and not rows[0].get("role", "reviewer").startswith("reviewer") and rows[-1]["kind"] == "done"
+    return count
+
+
+def proof_command(workspace, out):
+    # Scripted findings stand for a defect in this revision. A fake repair must make
+    # their proof pass too: a new commit, or a completed author turn in scratch.
+    if (Path(workspace) / ".git").exists():
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=workspace,
+                              check=True, capture_output=True, text=True).stdout.strip()
+        return f"echo 'fixture evidence'; test \"$(git rev-parse HEAD)\" != {shlex.quote(head)}"
+    run_dir = Path(out).parent.parent
+    return " ".join(map(shlex.quote, [sys.executable, os.path.relpath(__file__, workspace),
+        "proof", os.path.relpath(run_dir, workspace), str(author_turns(run_dir))]))
+
+
 def submitting(fake):
     """Mocked worker calls hand in their scripted result just like fake adapters."""
     def call(*args, **kwargs):
         answer = fake(*args, **kwargs) if callable(fake) else fake
         role = kwargs.get("role", args[5] if len(args) > 5 else "executor")
-        rows = (records(answer[1]) if role.startswith("reviewer") else
+        rows = (records(answer[1], proof_command(args[3], args[4])) if role.startswith("reviewer") else
                 executor_records(answer[1]) if answer[0] == 0 else [])
         if rows:
             out = Path(args[4])
@@ -139,7 +159,8 @@ def write(out):
         return
     reviewing = (out / "prompt.md").read_text().startswith("You are the reviewer")
     text = (out / "final.md").read_text()
-    rows = records(text) if reviewing else executor_records(text)
+    workspace = json.loads(Path(file).read_text().splitlines()[0])["workspace"]
+    rows = records(text, proof_command(workspace, out)) if reviewing else executor_records(text)
     if rows:
         with Path(file).open("a") as fh:
             fh.write("".join(json.dumps(row) + "\n" for row in rows))
@@ -165,7 +186,10 @@ def smoke(out, workspace):
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "smoke":
+    if sys.argv[1] == "proof":
+        print("fixture evidence")
+        raise SystemExit(author_turns(sys.argv[2]) <= int(sys.argv[3]))
+    elif sys.argv[1] == "smoke":
         smoke(sys.argv[2], sys.argv[3])
     else:
         write(sys.argv[1])

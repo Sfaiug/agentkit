@@ -155,6 +155,13 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         self.assertEqual(self.lp.state["verdict"], "FAIL")
         self.assertNotIn("## Disputes", result)
 
+    def test_rewording_the_disputed_finding_still_upholds_it(self):
+        finding = [*FINDING[:2], "the feature is still disabled", *FINDING[3:]]
+        _, result = self.rounds(["--run", PROOF], [finding])
+        self.assertEqual([r["finding_count"] for r in self.lp.state["round_summaries"]], [2, 1])
+        self.assertEqual(self.lp.state["verdict"], "FAIL")
+        self.assertNotIn("## Disputes", result)
+
     def test_rehanding_a_finding_cannot_bypass_the_loops_proof_weighing(self):
         command = 'if test "$PROOF_ORIGIN" = fixer; then exit 7; fi; echo "no defect in loop proof"'
         finding = [*FINDING[:4], "--run", command]

@@ -267,7 +267,7 @@ out = pathlib.Path(sys.argv[6])
                 self.review(finding("api.py:1", "interrupted proof", self.fails))
         self.assert_restored()
 
-    def rounds(self, plans):
+    def rounds(self, plans, fix=None):
         self.plan.write_text(json.dumps(plans))
         self.lp.rnd = 0
         calls = []
@@ -275,6 +275,14 @@ out = pathlib.Path(sys.argv[6])
         def execute(lp, role, body, *_args, **_kw):
             lp.round_dir.mkdir(parents=True, exist_ok=True)
             calls.append((role, body))
+            if role == "fixer":
+                if fix:
+                    fix()
+                else:
+                    path = self.wt / "api.py"
+                    path.write_text(path.read_text().replace('mode = "branch"', 'mode = "base"'))
+                self.commit("Fix the reported defect")
+                self.head = run.git(self.wt, "rev-parse", "HEAD")
             return "## Summary\nFixture"
 
         with patch.object(run, "execute", side_effect=execute), patch.object(run, "pickup_new_code"):

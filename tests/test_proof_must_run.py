@@ -47,6 +47,9 @@ class ProofMustRun(unittest.TestCase):
             ("head", 1, "head: cannot open 'absent' for reading: No such file or directory"))
         for name, code, diagnostic in diagnostics:
             with self.subTest(program=name):
+                # Each diagnostic represents an independent first review.
+                self.lp.state["review_records"] = []
+                self.lp.state["round_summaries"] = []
                 # Keep diagnostic text independent of installed interpreters and locale.
                 program = self.root / name
                 program.write_text(f"#!{sys.executable}\nimport sys\n"
@@ -90,7 +93,8 @@ class ProofMustRun(unittest.TestCase):
     def test_a_missing_script_reporting_exit_two_reaches_the_fixer(self):
         calls = self.rounds([{
             "commands": [proof.finding("api.py:1", "reviewer script", "python3 probe.py")],
-            "edits": {"probe.py": "raise AssertionError('fixture defect')\n"}}, {}])
+            "edits": {"probe.py": "raise AssertionError('fixture defect')\n"}}, {}],
+            fix=lambda: (self.wt / "probe.py").write_text("pass\n"))
         self.assertEqual([role for role, _ in calls], ["executor", "fixer"])
         self.assertIn("[exit 2]", calls[1][1])
         self.assertEqual(self.lp.state["verdict"], "PASS")

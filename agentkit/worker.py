@@ -28,8 +28,10 @@ ONE_PASS = ("[worker judgement] Report every finding you can establish in this o
             "[checked by ak: tests/test_dispute_hand_in.py] ak supplies each dispute beside its finding "
             "with ak's proof output; findings handed in again are weighed normally, others are dropped.\n"
             "[worker judgement] Uphold a disputed finding by handing it in again with "
-            "`ak hand-in finding`. Drop it by not handing it in "
-            "again. Then say which earlier findings are fixed and which are not, then anything new.")
+            "`ak hand-in finding`. Drop it by not handing it in again.\n"
+            "[checked by ak: tests/test_findings_re_proven.py] ak re-proves undisputed earlier findings "
+            "and supplies the fixed and still-open lists; from round two, new findings on lines "
+            "unchanged since the last reviewed head become follow-ups.")
 # A task that cannot be done as written is the task's defect, not the worker's: handing it in ends
 # the run there, and the orchestrator that wrote the task gets the sentence back instead of a
 # reviewer's verdict on work nobody could do.
@@ -57,7 +59,7 @@ GATE = ("[worker judgement] Hand in a **blocking** finding only for a correctnes
         "checkout of the commit and on the base with changed tests overlaid (scratch: workspace only). "
         "Passing or unfinished proofs and exits 126/127 become notes; proven changed-line defects or regressions "
         "that pass on base block; pre-existing defects elsewhere become follow-ups only if the proof runs and fails on base.\n"
-        "[worker judgement] **Follow-ups** are defects "
+        "[worker judgement] **Follow-ups you submit** are defects "
         "of a kind that would fail a round, with that same evidence, that existed before this "
         "task: prove that by naming the base or an ancestor commit, or quoting main as it was before the task. "
         "Hand in only these with `ak hand-in follow-up` using `--run 'command'` and "

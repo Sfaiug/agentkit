@@ -153,7 +153,7 @@ class OwnPrRounds(unittest.TestCase):
         self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "PASS"])
         self.assertEqual(len(self.waits), 1)
         self.assertIn("defect 1", self.prompts[1])
-        self.assertIn("first rule on each previous finding", self.prompts[1])
+        self.assertIn("## Fixed findings", self.prompts[1])
         self.assertEqual(self.events, ["event=COMMENT", "event=COMMENT"])
         self.assertEqual(len(self.merges), 1)
         self.assertEqual(self.merges[0][-1], self.heads[1])
@@ -356,7 +356,9 @@ class OwnPrRounds(unittest.TestCase):
         self.assertEqual([(s["round"], s["head_sha"]) for s in state["round_summaries"]],
                          list(enumerate(self.heads[:3], 1)))
         self.assertEqual(len(self.prompts), 3)
-        self.assertIn("first rule on each previous finding", self.prompts[2])
+        if self.verdicts[1] == "FAIL":
+            self.assertIn("## Fixed findings", self.prompts[2])
+        self.assertNotIn("first rule on each previous finding", self.prompts[2])
         self.assertEqual(self.events, ["event=COMMENT", "event=COMMENT"])
         self.assertEqual(len(self.merges), 1)
         self.assertEqual(self.merges[0][-1], self.heads[2])

@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import finding_count, reported, scripted
+from fixtures.hand_in import finding_count, scripted
 from agentkit import host, config, notify, run, worker
 from agentkit import record
 
@@ -245,7 +245,7 @@ sys.exit(1)
 
     def test_v5l_resume_with_a_larger_budget_continues_a_fail_at_its_next_round(self):
         directory, state = self.exhausted_run()
-        findings = state["findings"]
+        findings = run.without_followups(run.saved_findings(directory, state))
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 0, self.log(directory))
         after = record.read_state(directory)
         self.assertEqual(after["state"], "pass")
@@ -332,7 +332,8 @@ sys.exit(1)
         self.assertIn("grouped by pattern with every site listed", reviewer)
         self.assertIn("Uphold a disputed finding by handing it in again", reviewer)
         self.assertIn("Drop it by not handing it in again", reviewer)
-        self.assertIn("Then say which earlier findings are fixed and which are not", reviewer)
+        self.assertIn("ak re-proves undisputed findings", reviewer)
+        self.assertNotIn("say which earlier findings", reviewer)
         self.assertIn("ak hand-in done", reviewer)
         self.assertNotIn("VERDICT:", reviewer)
         self.assertIn('ak hand-in finding path:line "what" "why it matters"', reviewer)
@@ -381,10 +382,11 @@ sys.exit(1)
         self.assertEqual((code, state["state"]), (1, "fail"))
         self.assertNotIn(first, state["findings"])        # the tail alone has lost it
         self.assertIn(first, self.calls("executor")[1]["prompt"])
+        findings = run.without_followups(run.saved_findings(directory, state))
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 0, self.log(directory))
         resumed = self.calls("executor")[2]["prompt"]
         self.assertIn(first, resumed)
-        self.assertIn(reported(wide).strip(), resumed)
+        self.assertIn(findings.strip(), resumed)
         state = record.read_state(directory)
         self.assertEqual(state["findings_file"],
                          str(directory / "round-3" / "reviewer" / "review.md"))
@@ -437,11 +439,12 @@ sys.exit(1)
         wide = fail(2, note=first) + "\n" + fail(40, note="z" * 300).split("## Findings\n", 1)[1]
         self.reviews(wide, wide, PASS)
         _, directory, state = self.launch(rounds=2)
+        whole = run.saved_findings(directory, state)
         state = self.existing_format(directory)
         self.assertNotIn(first, state["findings"])
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 0, self.log(directory))
         self.assertIn(first, self.calls("executor")[2]["prompt"])
-        self.assertEqual(run.saved_findings(directory, state), reported(wide))
+        self.assertEqual(run.saved_findings(directory, state), whole)
 
     def test_v5l_an_existing_conflict_fail_drops_its_obsolete_pending_review(self):
         self.reviews(fail(2), fail(2), PASS)

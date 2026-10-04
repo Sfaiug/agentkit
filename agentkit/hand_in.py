@@ -55,7 +55,9 @@ def item_text(row):
         text += proof_text(evidence)
         if "base" in evidence:
             text += f"\nBase {evidence['base']['sha']}:\n" + proof_text(evidence["base"])
-    if row["kind"] == "follow-up" or row.get("dropped"):
+    if row.get("late"):
+        text += "\nEarlier review: " + row["late"] + "; cited line unchanged"
+    elif row["kind"] == "follow-up" or row.get("dropped"):
         text += "\nBefore the task: " + row["before"]
     if row.get("dropped"):
         text += "\nDropped follow-up: " + row["dropped"]
@@ -99,7 +101,8 @@ class Review:
     def text(self):
         parts = [f"VERDICT: {self.verdict}"] if self.done else []
         for kind, heading in (("finding", "Findings"), ("follow-up", "Follow-ups"),
-                              ("note", "Notes"), ("dispute", "Disputes")):
+                              ("fixed", "Fixed findings"), ("note", "Notes"),
+                              ("dispute", "Disputes")):
             items = ["- " + item_text(row).replace("\n", "\n  ")
                      for row in self.records if row["kind"] == kind]
             if items:
