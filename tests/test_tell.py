@@ -204,6 +204,43 @@ class Tell(unittest.TestCase):
         self.assertEqual(self.typed, [])
         self.assertEqual(self.waiting(), [])
 
+    def test_a_receiver_replaced_between_any_two_reads_never_gets_the_message(self):
+        """Replaced right after the sender first reads which seat it is, or after a delivery
+        claims the message and before it types: nothing reaches the seat that replaced it."""
+        real_seat_of = tell.seat_of
+        self.opened(1.0)
+        replaced = []
+
+        def seat_of_then_replace(name):
+            found = real_seat_of(name)
+            if not replaced:
+                replaced.append(True)
+                self.opened(2.0)
+            return found
+
+        with patch.object(tell, "seat_of", side_effect=seat_of_then_replace):
+            code, _, err = self.tell(SEAT, "Parser merged.")
+        self.assertEqual(code, 1)
+        self.assertIn(f"{SEAT} was closed and opened again", err)
+        self.assertEqual(self.typed, [])
+
+        self.opened(1.0)
+        self.free = False
+        self.tell(SEAT, "Docs merged.")
+        real_type = watch.type_at_prompt
+
+        def replace_then_type(*args, **kwargs):
+            self.opened(3.0)
+            return real_type(*args, **kwargs)
+
+        self.free = True
+        with patch.object(watch, "type_at_prompt", side_effect=replace_then_type):
+            tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.typed, [])
+        tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.typed, [])
+        self.assertEqual(self.waiting(), [])
+
     def test_a_message_another_live_sender_is_typing_is_left_to_it_and_a_dead_ones_taken_over(self):
         self.free = False
         self.tell(SEAT, "Parser merged.")

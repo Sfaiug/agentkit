@@ -148,7 +148,9 @@ def deliver_to(session, log, cfg=None):
         typed = watch.type_at_prompt(
             session, first["line"], log, cfg=cfg, typed=first.get("typed"),
             receipt=lambda receipt: edit(name, mark("typed", receipt)),
-            source=source(first["from"]))
+            source=source(first["from"]),
+            # under the typing lock, right before each key: still the seat it was meant for
+            stale=lambda held: "seat" in first and seat_of(held) != first["seat"])
     finally:
         locked(name, drop if typed else mark("claim", None))
     if typed:
@@ -176,11 +178,12 @@ def main(argv):
         print("ak tell: no seat: run it inside an orchestrator session", file=sys.stderr)
         return 1
     name = config.resolve_session(argv[0])
-    refused = refusal(sender, name)
+    # the seat it is for is read once, here; every later answer is held to it
+    seat = seat_of(name)
+    refused = refusal(sender, name, seat)
     if refused:
         print(f"ak tell: {refused}", file=sys.stderr)
         return 1
-    seat = seat_of(name)
     text = " ".join(argv[1].split())
     if not text:
         print("ak tell: nothing to say", file=sys.stderr)

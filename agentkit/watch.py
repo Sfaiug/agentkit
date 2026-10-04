@@ -2588,7 +2588,8 @@ def at_prompt(session, cfg=None):
     return found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
 
 
-def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *, source="ak"):
+def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
+                   source="ak", stale=lambda held: False):
     """One line into a seat, and only while its harness sits at its own prompt.
 
     The prompt is tested twice: once here, and once more inside the send lock, because two
@@ -2601,7 +2602,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     ending's own record to keep until its delivery is recorded; given that mark back as `typed`,
     this only presses Enter, and only while the composer still holds the line -- read under the
     send lock, past any dialog -- and gone from there, the seat has it.  A reopened seat is a
-    new one, with an empty composer, and matches no mark.
+    new one, with an empty composer, and matches no mark.  `stale` is asked under the send lock
+    too, with the name the seat goes by then, before every key: a line that has stopped being
+    this seat's to have is typed no further.
     """
     mark = {"line": text, "seat": session.get("created")}
     if typed == mark:
@@ -2611,7 +2614,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             return False
         with notify.session_lock(session["name"]) as held:
             pane = pane_text(session)
-            if (not pane.strip() or owner_question(notify.last(held))
+            if (stale(held) or not pane.strip() or owner_question(notify.last(held))
                     or _decided_state(held, harness, pane) == "asking"):
                 return False    # nothing to read, or the screen is somebody else's: next pass
             if not _holds_text(pane, text):
@@ -2623,7 +2626,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     composed = []
 
     def veto(held):
-        if owner_question(notify.last(held)):
+        if owner_question(notify.last(held)) or stale(held):
             return True
         if composed:
             return False        # the text is typed; what is left is the Enter that sends it
