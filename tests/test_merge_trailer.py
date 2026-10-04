@@ -339,7 +339,8 @@ class MergeTrailer(unittest.TestCase):
         self.assertEqual(state["final_check"]["outcome"], "failed")
         self.assertEqual(self.calls, [])
 
-    def test_failed_pr_reviews_defer_the_suite_and_name_no_nonexistent_log(self):
+    def test_failed_pr_reviews_name_no_nonexistent_log(self):
+        # an own PR's suite waits for its landing; somebody else's runs in its review
         for own in (True, False):
             with self.subTest(own=own):
                 state, _ = self.review_pr("false", own=own, verdict="FAIL")
@@ -347,10 +348,11 @@ class MergeTrailer(unittest.TestCase):
                 self.assertFalse(state["merged"])
                 self.assertNotIn("final_check", state)
                 self.assertNotIn("once.log", run.handback_line(state, self.directory, self.cfg))
-                self.assertFalse((self.directory / "round-1/donewhen.log").exists())
+                self.assertEqual((self.directory / "round-1/donewhen.log").exists(), not own)
                 self.assertFalse((self.directory / "round-1/once.log").exists())
                 result = (self.directory / "result.md").read_text()
-                self.assertIn("final check: not run", result)
+                self.assertIn("final check: not run" if own
+                              else "final check: none (no once-commands)", result)
 
 
 if __name__ == "__main__":

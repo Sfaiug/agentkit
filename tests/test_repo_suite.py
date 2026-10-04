@@ -222,7 +222,7 @@ class RepoSuite(unittest.TestCase):
         ran = [cmd for _, cmds in self.gates for cmd in cmds]
         self.assertNotIn(origin_suite, ran, self.gates)
 
-    def test_review_pr_defers_declared_tests_to_landing(self):
+    def test_review_pr_still_runs_declared_tests(self):
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
         head = self.git("rev-parse", "HEAD")
         self.git("update-ref", "refs/remotes/origin/main", head)
@@ -239,10 +239,8 @@ class RepoSuite(unittest.TestCase):
             state = run.review_pr(self.cfg, directory, "https://github.com/acme/acme/pull/1",
                                   {**self.opts, "--no-merge": True}, self.logs.append)
         self.assertEqual(state["state"], "pass", self.logs)
-        self.assertEqual(self.rounds(), [])
+        self.assertEqual(self.rounds(), [[SUITE]])
         self.assertEqual(self.finals(), [])
-        self.assertFalse((directory / "round-1" / "donewhen.log").exists())
-        self.assertIn(f"\n{SUITE}  # once\n", (directory / "task.md").read_text())
 
 
 if __name__ == "__main__":

@@ -301,6 +301,45 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertNotIn("waiting_on", state)
         self.assertEqual(self.merges, [])
 
+    def test_somebody_elses_pr_runs_its_suite_in_its_review(self):
+        # no line lands it, only the inbox's yes: a red suite is never offered
+        run.git(self.repo, "checkout", "-b", "feature/both", self.base)
+        for name in ("first", "second"):
+            (self.repo / f"{name}.txt").write_text(name + "\n")
+        self.commit("both halves")
+        run.git(self.repo, "push", "origin", "feature/both")
+        url = "https://github.com/acme/widget/pull/9"
+        self.prs[url] = dict(branch="feature/both", head=run.git(self.repo, "rev-parse", "HEAD"),
+                             state="OPEN")
+        directory = config.RUNS / "both"
+        directory.mkdir()
+        (directory / "log.txt").touch()
+        with patch.dict(run.os.environ, {config.SESSION_ENV: ""}):
+            run.capture_launch(directory, {"--review-pr": url})
+        with patch.object(watch, "ask_inbox", side_effect=AssertionError("offered for merge")):
+            state = self.review(directory, url)
+        self.assertFalse(state["own_pr"])
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(state["verdict"], "FAIL")
+        self.assertEqual(self.merges, [])
+
+    def test_a_delivery_error_keeps_the_checkout_its_retry_delivers_from(self):
+        directory, url = self.own_pr("first", 1)
+        self.review(directory, url)
+        land.check_line(self.turn)
+        api = self.gh_json
+        down = lambda cwd, *args, **kw: ((None, "HTTP 503") if args[:1] == ("api",)
+                                         else api(cwd, *args, **kw))
+        with patch.object(run, "gh_json", side_effect=down), self.assertRaises(config.Error):
+            self.review(directory, url)
+        # drive records the error, and the seat's hand-back cleans up after it
+        state = run.mark_state(directory, "error", "cannot verify the PR before delivery")
+        run.settle_run({**state, "handed_back": True}, directory)
+        self.assertTrue(Path(state["worktree"]).is_dir())
+        state = self.review(directory, url)
+        self.assertTrue(state["merged"])
+        self.assertEqual(len(self.merges), 1)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

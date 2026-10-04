@@ -4713,9 +4713,7 @@ PRR=0
 grep -q "^api repos/smokeowner/$PREPO/pulls/7/reviews --method POST -f commit_id=$PHEAD -f event=COMMENT -F body=@" "$PGHLOG" || PRR=1
 grep -q "^agentkit review of ${PHEAD:0:12} by " "${PGHLOG%.log}-review.md" 2>/dev/null || PRR=1
 grep -q '^VERDICT: PASS' "${PGHLOG%.log}-review.md" 2>/dev/null || PRR=1
-[ ! -e "$PH/.agentkit/runs/$PRUNID/round-1/donewhen.log" ] || PRR=1
-grep -q '^runs once at landing on the commit to be merged: test -f contrib.txt$' \
-  "$PH/.agentkit/runs/$PRUNID/round-1/reviewer/prompt.md" 2>/dev/null || PRR=1
+grep -q '^\$ test -f contrib.txt' "$PH/.agentkit/runs/$PRUNID/round-1/donewhen.log" 2>/dev/null || PRR=1
 grep -q 'You are the reviewer of a pull request by another author' \
   "$PH/.agentkit/runs/$PRUNID/round-1/reviewer/prompt.md" 2>/dev/null || PRR=1
 grep -q '^+c$' "$PH/.agentkit/runs/$PRUNID/round-1/reviewer/prompt.md" 2>/dev/null || PRR=1   # the diff
@@ -4728,7 +4726,7 @@ grep -q "message: Needs you . $INBOX: PR #7 by bob: Add contrib. Merge? yes/no" 
 jq -e '.kind == "needs" and .text == "PR #7 by bob: Add contrib. Merge? yes/no"' \
   "$PH/.agentkit/state/notify-$INBOX.json" >/dev/null 2>&1 || PRR=1
 tm kill-session -t "=$INBOX" 2>/dev/null
-[ "$PRR" = 0 ] && ok "25 ak run --review-pr: astra reviews despite Fable lagging 80/53, PR head checked out, suite deferred to landing, PASS posted as a comment, smoke-inbox seat asked to merge --match-head-commit ${PHEAD:0:12}, user pinged" \
+[ "$PRR" = 0 ] && ok "25 ak run --review-pr: astra reviews despite Fable lagging 80/53, PR head checked out, tests: run, PASS posted as a comment, smoke-inbox seat asked to merge --match-head-commit ${PHEAD:0:12}, user pinged" \
              || { no "25 ak run --review-pr: exit=$PRC verdict=$(jq -r .verdict "$PJSON" 2>/dev/null)"; sed 's/^/      /' "$WORK/prreview.log" | tail -8; }
 
 # --- 25b: a review that cannot be posted is an error, not a PASS (offline) ---

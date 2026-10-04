@@ -11722,6 +11722,8 @@ def review_pr(cfg, run_dir, url, opts, log):
             lp = Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body,
                       cmds, body, [])
             merge_own_pr(lp, url, state["head_sha"])
+            if state.get("state") != "waiting":
+                state.pop("own_pr_round_pending", None)
             if state.get("state") != "waiting" and not state.get("own_pr_wait"):
                 state.pop("waiting_on", None)
                 state.update(state="pass" if state["verdict"] == "PASS" else "fail",
@@ -11813,7 +11815,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     else:
         wt, branch = make_worktree(repo, run_dir.name, f"pr-{number}", head)
     tests = declared_suite(wt, base)
-    cmds = [f"{tests}  # once"] if tests else []
+    # an own PR's suite runs once, at landing; somebody else's PR has no line behind it --
+    # only the inbox's yes -- so its suite runs here, in its one review round
+    cmds = [f"{tests}  # once" if is_own else tests] if tests else []
     title = f"Review PR #{number}: {info['title']}"
     if is_own:
         wrote = (f"The {session_at_launch} seat's orchestrator {orchestrator} wrote this diff; "
@@ -11901,10 +11905,14 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     lp.rnd += 1
     lp.round_dir.mkdir(parents=True, exist_ok=True)
     state.pop("final_check", None)
-    ok = None
-    dw_log = ("(the repository suite runs once at landing; nothing was run in this review round)"
-              if tests else "(AGENTS.md declares no `tests:` command; nothing was run)")
-    log(dw_log)
+    if tests and not is_own:
+        ok, dw_log = verify_work(lp)
+        log(f"tests ({tests}): {'passed' if ok else 'FAILED'}")
+    else:
+        ok = None
+        dw_log = ("(the repository suite runs once at landing; nothing was run in this review round)"
+                  if tests else "(AGENTS.md declares no `tests:` command; nothing was run)")
+        log(dw_log)
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
@@ -11951,8 +11959,11 @@ def settle_pr_round(lp, url, info):
         return state
     if verdict == "PASS" and posted and not state.get("merged"):
         if is_own:
-            state.pop("own_pr_round_pending", None)
+            # the verdict owes its delivery until it lands, fails or goes back to its writer:
+            # a delivery that errors keeps the mark, and with it the checkout a retry needs
             merge_own_pr(lp, url, head)
+            if state.get("state") != "waiting":
+                state.pop("own_pr_round_pending", None)
             if state.get("state") != "waiting" and not state.get("own_pr_wait"):
                 state.pop("waiting_on", None)
                 state.update(state="pass" if state["verdict"] == "PASS" else "fail",
