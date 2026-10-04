@@ -1,4 +1,5 @@
-"""Boundary maxima are compared by name with origin/main, without running its code."""
+"""Boundary maxima are compared by name with where the change left origin/main, without
+running its code."""
 
 from contextlib import redirect_stdout
 import io
@@ -13,14 +14,20 @@ BASE = [{"name": "first boundary", "home": (), "max": 2},
 
 
 class Maxima(unittest.TestCase):
-    def check(self, rules, source=None, returncode=0):
+    def check(self, rules, source=None, returncode=0, base="5ba5e"):
         source = f"RULES = {BASE!r}\n" if source is None else source
         proc = subprocess.CompletedProcess([], returncode, source, "")
+
+        def answer(argv, **_kw):
+            if "merge-base" in argv:
+                return subprocess.CompletedProcess(argv, 0 if base else 1, base + "\n", "")
+            return proc
+
         output = io.StringIO()
         result = unittest.TestResult()
         with patch.object(boundaries, "RULES", rules), \
                 patch.object(boundaries, "outside", return_value=[]), \
-                patch.object(boundaries.subprocess, "run", return_value=proc) as git, \
+                patch.object(boundaries.subprocess, "run", side_effect=answer) as git, \
                 redirect_stdout(output):
             unittest.defaultTestLoader.loadTestsFromTestCase(boundaries.Boundaries).run(result)
         return result, output.getvalue(), git
@@ -51,12 +58,16 @@ class Maxima(unittest.TestCase):
         result, _, _ = self.check(BASE + [{"name": "new boundary", "home": (), "max": 20}])
         self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
 
-    def test_reads_origin_main(self):
-        result, _, git = self.check(BASE)
-        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
-        git.assert_called_once_with(
-            ["git", "-C", str(boundaries.REPO), "show", "origin/main:tests/test_boundaries.py"],
-            capture_output=True, text=True)
+    def test_reads_the_maxima_where_the_change_left_origin_main(self):
+        # a commit main has moved past compares with itself, not with maxima main lowered later
+        repo = str(boundaries.REPO)
+        for base, shown in (("5ba5e", "5ba5e"), ("", "origin/main")):
+            with self.subTest(base=base):
+                result, _, git = self.check(BASE, base=base)
+                self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+                self.assertEqual([call.args[0] for call in git.call_args_list], [
+                    ["git", "-C", repo, "merge-base", "HEAD", "origin/main"],
+                    ["git", "-C", repo, "show", f"{shown}:tests/test_boundaries.py"]])
 
     def test_unreadable_origin_main_prints_and_skips(self):
         for returncode in (1, 128):
