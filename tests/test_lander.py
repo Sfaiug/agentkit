@@ -129,6 +129,24 @@ class Lander(LanderFixture, unittest.TestCase):
             for tree in ("a", "b"):
                 self.assertIsNone(land.passed(self.turn, tree))
 
+    def assert_a_shared_tree_runs_each_tasks_own_checks(self):
+        head = self.member("head", once="true")
+        tail = self.member("tail", joined=2, once="test -f acceptance.txt")
+        self.advance()
+        land.check_line(self.turn)
+        land.check_line(self.turn)
+        tree = self.wait(head)["land"]
+        self.assertEqual(Path(self.wait(tail)["fix"]["log"]).name, f"lander-{tree}.log")
+        self.assertIn("test -f acceptance.txt", [cmd for cmds, _, _ in self.checks for cmd in cmds])
+        self.assert_cleaned()
+
+    def test_a_tree_checked_in_the_same_pass_still_runs_another_tasks_checks(self):
+        self.assert_a_shared_tree_runs_each_tasks_own_checks()
+
+    def test_a_tree_green_from_an_earlier_pass_still_runs_another_tasks_checks(self):
+        with patch.object(gate, "derived_heavy_limit", return_value=1):
+            self.assert_a_shared_tree_runs_each_tasks_own_checks()
+
     def test_join_order_one_check_and_only_the_parked_verdict_changes(self):
         later = self.member("a-later", 20)
         first = self.member("z-first", 10.5)
