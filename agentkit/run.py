@@ -12084,7 +12084,9 @@ def main(argv):
     opts.update(flags)
     box.check()
     cfg = config.load()
-    if not opts["--review-pr"]:
+    queued_child = os.environ.get(config.RUN_DIR_ENV)
+    # a --bg child carries on the receipt its launch prepared, with the executors it saved
+    if not opts["--review-pr"] and not (queued_child and queued(Path(queued_child))):
         selection = config.active_session(cfg)
         if selection and selection.get("solo"):
             command = shlex.join(["ak", "orch", "solo", selection["name"], "off"])

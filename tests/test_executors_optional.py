@@ -168,5 +168,60 @@ class ExecutorsOptional(Sandbox):
         self.assertEqual(chosen, ("opus", [], ["astra"]))
 
 
+    def outside_a_seat(self):
+        return patch.dict(os.environ, {config.SESSION_ENV: ""})
+
+    def test_defaults_that_never_name_executors_keep_the_fallback(self):
+        self.cfg["defaults"] = {"orchestrator": "opus", "reviewers": ["astra"]}
+        (config.HOME / config.CONFIG_NAME).write_text(config.dump(self.cfg))
+        self.assertTrue(config.load()["defaults"]["workers"])     # nobody chose an empty group
+        with self.outside_a_seat(), patch.object(run.box, "check"), \
+                patch.object(run, "prepare"), patch.object(run, "place_here"), \
+                patch.object(run, "drive", return_value=0) as drive, redirect_stdout(io.StringIO()):
+            self.assertEqual(run.main([str(self.task), "--no-merge"]), 0)
+        drive.assert_called_once()
+
+    def test_a_queued_run_carries_on_with_the_executors_it_saved(self):
+        directory = config.RUNS / "queued-task"
+        directory.mkdir()
+        task = directory / "task.md"
+        task.write_text(self.task.read_text())
+        (directory / "log.txt").touch()
+        record.save_state(directory, {"run_id": directory.name, "state": "queued",
+                                      "launched_session": None, "workers": ["opus"],
+                                      "reviewers": ["astra"]})
+        # the defaults lost their executors after the launch prepared it
+        self.cfg["defaults"] = {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]}
+        (config.HOME / config.CONFIG_NAME).write_text(config.dump(self.cfg))
+        with self.outside_a_seat(), patch.dict(os.environ, {config.RUN_DIR_ENV: str(directory)}), \
+                patch.object(run.box, "check"), patch.object(run, "prepare") as prepare, \
+                patch.object(run, "drive", return_value=0) as drive, redirect_stdout(io.StringIO()):
+            self.assertEqual(run.main([str(task)]), 0)
+        self.assertEqual(drive.call_args.args[1], directory)
+        prepare.assert_not_called()
+
+    def test_a_review_out_of_quota_resumes_on_its_reviewer_with_no_executor(self):
+        self.cfg["defaults"] = {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]}
+        (config.HOME / config.CONFIG_NAME).write_text(config.dump(self.cfg))
+        cfg, now = config.load(), 10000
+        meter = lambda name: {"name": name, "used": 10, "pace": -40, "elapsed": 50,
+                              "window_secs": 604800, "resets_at": now + 302400}
+        providers = usage.Readings({name: {"meters": [meter(n) for n in
+                                                      ("weekly", "weekly_all", "weekly_scoped")],
+                                           "resets": 0} for name in cfg["providers"]})
+        directory = config.RUNS / "review-refilled"
+        directory.mkdir()
+        record.save_state(directory, {
+            "run_id": directory.name, "state": "exhausted", "quota_dry": True, "workers": [],
+            "reviewers": ["astra"], "executor": None, "reviewer": "astra",
+            "worktree": str(self.root), "launched_session": "fix-api",
+            "review_pr": "https://github.com/acme/api/pull/7", "own_pr": True,
+            "own_orchestrator": "opus"})
+        from agentkit import watch
+        with self.outside_a_seat(), patch.object(usage, "readiness", return_value=providers), \
+                patch.object(run, "spawn_bg", return_value=0) as spawn:
+            watch.resume_exhausted(cfg, providers, log=lambda _: None, now=now)
+        spawn.assert_called_once()
+
 if __name__ == "__main__":
     unittest.main()

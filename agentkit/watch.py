@@ -4451,8 +4451,9 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                             f"{wt or '(none)'} is gone; leaving it for an explicit resume")
                     continue
                 saved = state.get("executor")
-                if transport:
-                    if (isinstance(last, (int, float)) and not isinstance(last, bool)
+                # a PR review runs no executor: its reviewer is all it waits for
+                if transport or state.get("review_pr"):
+                    if (transport and isinstance(last, (int, float)) and not isinstance(last, bool)
                             and 0 <= now - last < run_mod.ERROR_RETRY_CAP):
                         continue  # re-resumed within the hour: a dead reviewer gets an
                         # hour like an error, not a reviewer turn every ten minutes
@@ -4460,7 +4461,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                                                           executor=saved)
                     if not reviewers:
                         continue  # no reviewer is eligible yet; the run keeps waiting, silently
-                    # the executor never died, so it stays: the resume re-picks the
+                    # the executor, if any, never died, so it stays: the resume re-picks the
                     # reviewer, which is the one this run waited for.
                     chosen, why = saved, f"reviewer {reviewers[0][0]} eligible again"
                     reviewer = None

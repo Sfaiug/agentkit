@@ -361,6 +361,7 @@ def load():
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
+    written = "workers" in defaults        # an empty group nobody wrote is no choice of one
     workers = defaults.setdefault("workers", [])
     if (not isinstance(workers, list) or any(not isinstance(name, str) for name in workers)
             or len(set(workers)) != len(workers)):
@@ -376,7 +377,7 @@ def load():
     # Only a creation writes [defaults], so one may name a model removed since: passed over
     # here, as a default nobody named is, and the first model takes a place it empties, so a
     # seat can still start with Enter.
-    _fall_back(defaults, names)
+    _fall_back(defaults, names, written)
     for name, entry in cfg["providers"].items():
         listed = entry.get("accounts", []) if isinstance(entry, dict) else []
         # each name is a path component: the adapters keep that account's login under it
@@ -460,13 +461,14 @@ def shipped():
         return {}
 
 
-def _fall_back(defaults, left):
-    """Keep defaults to models `left`; explicit empty executors stay empty."""
+def _fall_back(defaults, left, written=True):
+    """Keep defaults to models `left`; executors written empty beside reviewers stay empty,
+    and a `[defaults]` that never named its executors falls back to the first model."""
     if defaults.get("orchestrator") not in left:
         defaults["orchestrator"] = left[0]
     named = defaults.get("workers") or []
     defaults["workers"] = [model for model in named if model in left] or (
-        [] if not named and "reviewers" in defaults else [left[0]])
+        [] if not named and written and "reviewers" in defaults else [left[0]])
     if "reviewers" in defaults:
         defaults["reviewers"] = [model for model in defaults["reviewers"]
                                 if model in left] or [left[0]]
