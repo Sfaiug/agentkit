@@ -186,10 +186,12 @@ class Picks(unittest.TestCase):
         providers = self.read(62469.67)
         (config.STATE / "usage.json").write_text(json.dumps(
             {"fetched_at": self.now, "providers": providers}))
-        rows = [terminal.plain(line) for line in menu.usage_lines(self.cfg, 100)]
-        chat = next(row for row in rows if row.lstrip().startswith("ChatGPT"))
-        self.assertIn("0% left · 62,469 credits left", chat)
-        self.assertFalse(any("credits" in row for row in rows if row is not chat), rows)
+        for width in (100, 40):           # a phone's row says it too: the credits stand
+            rows = [terminal.plain(line) for line in menu.usage_lines(self.cfg, width)]
+            chat = next(row for row in rows if row.lstrip().startswith("ChatGPT"))
+            self.assertRegex(chat, r"ChatGPT +░+ +62,469 credits left")   # where 0% would
+            self.assertNotIn("% left", chat)
+            self.assertFalse(any("credits" in row for row in rows if row is not chat), rows)
         with patch.object(usage, "review_pair", return_value=None):
             shown = terminal.plain(usage.render(self.cfg, providers, self.order(providers)))
         self.assertIn("openai: 62,469 credits left", shown)

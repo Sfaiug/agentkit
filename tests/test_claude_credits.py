@@ -121,11 +121,12 @@ class Shown(unittest.TestCase):
         self.assertTrue(providers["anthropic"]["on_credits"])
         (config.STATE / "usage.json").write_text(json.dumps(
             {"fetched_at": self.now, "providers": providers}))
-        rows = [terminal.plain(line) for line in menu.usage_lines(self.cfg, 100)]
-        claude = next(row for row in rows if row.lstrip().startswith("Claude"))
-        chat = next(row for row in rows if row.lstrip().startswith("ChatGPT"))
-        self.assertIn("0% left · $12.40 credits left", claude)
-        self.assertIn("0% left · 62,469 credits left", chat)
+        for width in (100, 40):
+            rows = [terminal.plain(line) for line in menu.usage_lines(self.cfg, width)]
+            claude = next(row for row in rows if row.lstrip().startswith("Claude"))
+            chat = next(row for row in rows if row.lstrip().startswith("ChatGPT"))
+            self.assertRegex(claude, r"░ +\$12\.40 credits left")
+            self.assertRegex(chat, r"░ +62,469 credits left")
         with patch.object(usage, "review_pair", return_value=None):
             shown = terminal.plain(usage.render(self.cfg, providers, ["opus", "astra"]))
         self.assertIn("anthropic: $12.40 credits left", shown)
