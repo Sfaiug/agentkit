@@ -643,12 +643,17 @@ def job_block_legacy(task, exc):
                 verdict_line=f"{task['name']}: BLOCKED: {exc}")
 
 
+def job_legacy_refusal(task):
+    """Why a task from a receipt before `after:` went cannot get a fresh run, or ""."""
+    deps = task.get("after") or ([task["from_pass"].get("task")] if task.get("from_pass") else [])
+    return (f"`after:` is gone; launch {task['name']} on its own once "
+            f"{', '.join(map(str, deps))} merged") if deps else ""
+
+
 def job_start_task(cfg, job_dir, task, opts, log):
     """Allocate an ordinary run directory and launch it; the caller marks running first."""
-    deps = task.get("after") or ([task["from_pass"].get("task")] if task.get("from_pass") else [])
-    if deps:
-        raise LegacyTask(f"`after:` is gone; launch {task['name']} on its own once "
-                         f"{', '.join(map(str, deps))} merged")
+    if job_legacy_refusal(task):
+        raise LegacyTask(job_legacy_refusal(task))
     task_path = Path(task["task_file"])
     _, _, title = taskfile.parse_task(task_path)
     run_dir = job_allocate_run_dir(title)
@@ -1144,7 +1149,7 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
     for task in job["tasks"]:
         if task["state"] == "waiting":
             # a receipt from before `after:` went: a kept run decides for itself (`run.loop`
-            # ends one still on its dependency), and a fresh one is refused (`job_start_task`)
+            # ends one still on its dependency); one without goes back to its seat below
             task["state"] = "queued"
             save()
     while True:
@@ -1187,6 +1192,15 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
                                       daemon=True)
             threads[task["name"]] = thread
             thread.start()
+        # a legacy task with no kept run to adopt goes back to its seat before any slot or
+        # budget wait: no fresh run can give it what it waited for
+        for task in job["tasks"]:
+            kept = task.get("run_id")
+            if (task["state"] == "queued" and job_legacy_refusal(task)
+                    and not (kept and (config.RUNS / kept / "run.json").exists())):
+                job_block_legacy(task, job_legacy_refusal(task))
+                save()
+                log(task["verdict_line"])
         running = sum(1 for task in job["tasks"] if task["state"] == "running")
         # queued tasks with no brake start at once; provider budgets only
         for task in job["tasks"]:

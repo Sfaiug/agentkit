@@ -260,7 +260,9 @@ class RunStop(Sandbox):
                    {"name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
                     "run_id": None}]}
         jobs.save_job(job_dir, job)
+        # spent providers never hold it: it goes back before any budget check
         with patch.object(jobs, "job_hand_back", return_value="sent") as handed, \
+                patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
                 redirect_stdout(io.StringIO()):
             rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
         self.assertEqual(rc, 1)
@@ -308,6 +310,7 @@ class RunStop(Sandbox):
             "name": "b.md", "title": "B", "after": ["a.md"], "state": "running",
             "run_id": None, "from_pass": {"task": "a.md", "branch": "ak/a", "tip": "tip"}})
         with patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
                 redirect_stdout(io.StringIO()):
             rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
         self.assertEqual(rc, 1)
