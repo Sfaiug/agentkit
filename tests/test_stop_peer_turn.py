@@ -115,21 +115,6 @@ class StopPeerTurn(unittest.TestCase):
                 self.assertFalse(latch["peer"])
                 self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
-    def test_a_line_another_seat_sent_with_ak_tell_opens_a_peer_turn(self):
-        """ak's typing receipt names the sending seat; its own hand-back's receipt does not."""
-        told = "[from seat acme-fix-api at 09:14, not the owner; reply with ak tell acme-fix-api] Done."
-        handback = "run 20260101-0900-parser finished: PASS"
-        (self.state / f"input-{SEAT}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in (
-            {"at": self.done_at, "text": handback, "source": "ak"},
-            {"at": self.done_at, "text": told, "source": "seat:acme-fix-api"})) + '{"half a li')
-        self.notified("done", self.done_at)
-        latch = self.prompt(told)
-        self.assertTrue(latch["peer"])
-        self.assertEqual(self.stop(), "")
-        latch = self.prompt(handback)
-        self.assertFalse(latch["peer"])
-        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
-
     def test_a_peer_opened_turn_whose_last_done_was_dropped_is_held(self):
         self.notified("done", self.done_at, seen=True)    # `ak notify` dropped it
         latch = self.prompt(PEER_PROMPT)

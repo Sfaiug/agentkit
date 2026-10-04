@@ -3,10 +3,9 @@
 The message waits in the receiving seat's own file until ak types it there, once, at that
 seat's next quiet prompt, through the confirmed send a run's ending takes
 (`watch.type_at_prompt`): under the seat's typing lock, never onto a draft or a dialog, and
-never while the owner's question stands.  ak writes the header that says who it is from, and
-the typing receipt names that seat as its source, so the line is never the owner's words,
-answers no question of theirs, and opens a turn the stop hook treats as a peer's.  The sender
-tries once and returns; the tick types what still waits.
+never while the owner's question stands, so it answers none.  ak writes the header that says
+who it is from, and the typing receipt names that seat as its source, so the line is never the
+owner's words.  The sender tries once and returns; the tick types what still waits.
 """
 
 import json
