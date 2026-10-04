@@ -85,14 +85,15 @@ class QuoteRechecked(unittest.TestCase):
                 self.assertEqual(weighed.verdict, "FAIL")
                 self.assertEqual(weighed.records[0], checked)
 
-    def test_scratch_quotes_are_checked_in_the_workspace_and_followups_are_untouched(self):
+    def test_scratch_quotes_are_checked_in_the_workspace_and_followups_are_dropped(self):
         self.lp.scratch = True
         followup = self.quote(path="missing.py", kind="follow-up")
         weighed = self.weigh(self.quote(), self.quote(quote="absent"),
                             self.quote(path="missing.py"), self.quote(line=6), followup)
         self.assertEqual([row["kind"] for row in weighed.records],
-                         ["finding", "note", "note", "note", "follow-up", "done"])
-        self.assertEqual(weighed.records[-2], followup)
+                         ["finding", "note", "note", "note", "note", "done"])
+        self.assertEqual(weighed.followups, [])
+        self.assertIn("no base commit", weighed.records[-2]["dropped"])
 
 
 if __name__ == "__main__":

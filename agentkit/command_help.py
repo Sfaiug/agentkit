@@ -26,7 +26,8 @@ COMMANDS = {
                 "Paths and lines must exist in the checkout; a quote must occur in that file.\n"
                 "--run executes in the checkout and records bounded output excerpts and the exit status.\n"
                 "A finding's command must fail while the defect exists; ak re-runs it on commit and base.\n"
-                "--before proves a follow-up existed before the task.\n"
+                "A follow-up's command must run and fail on base; --before names the base or an ancestor commit, or verbatim lines in its file at base.\n"
+                "Unproven follow-ups are dropped into Notes.\n"
                 "Only a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\n"
                 "ak gives the next reviewer the dispute and its own proof output beside the finding.\n"
                 "Hand the finding in again to uphold it; otherwise it is dropped into result.md's Disputes.\n"
@@ -41,7 +42,7 @@ COMMANDS = {
                         'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py"'),
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
                           "Hand in a proven defect that existed before the task; it cannot fail this review.",
-                          'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --quote "return None" --before "base abc123 has the same defect"'),
+                          'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py" --before "return None"'),
     "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",
                         "Dispute a blocking finding handed to this fixer, with a passing command or quoted evidence.",
                         'ak hand-in dispute api.py:12 "The result is correct" --run "python3 check_result.py"'),

@@ -3386,10 +3386,14 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
             progress.write(f"$ {command} (on {revision or 'workspace'})\n".encode())
             progress.flush()
             start = progress.tell()
-            code, _, killed = worker.limited(
-                ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
-                activity=log_path, output=progress, stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)
+            try:
+                code, _, killed = worker.limited(
+                    ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
+                    activity=log_path, output=progress, stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)
+            except (FileNotFoundError, PermissionError) as exc:
+                code, killed = (127 if isinstance(exc, FileNotFoundError) else 126), False
+                progress.write(str(exc).encode())
             output = hand_in.output_excerpt(progress, start)
             progress.write(f"\n[{'did not finish' if killed or code < 0 else f'exit {code}'}]\n".encode())
         memory_cap_note(lp.run_dir, lp.log)
@@ -3427,20 +3431,39 @@ def quoted_sites(lp, submitted, head):
         return sites
 
 
+def before_at_base(lp, row):
+    before = row.get("before", "").strip()
+    if not before:
+        return False
+    named = re.match(r"(?:base\s+)?([^\s:]+)(?::|\s|$)", before)
+    if named:
+        commit = git(lp.wt, "rev-parse", "--verify", "--end-of-options",
+                     f"{named[1]}^{{commit}}", check=False)
+        if commit and git_out(lp.wt, "merge-base", "--is-ancestor", commit, lp.base_sha)[0] == 0:
+            return True
+    code, content = git_out(lp.wt, "show", f"{lp.base_sha}:{row['path']}")
+    return code == 0 and before in content
+
+
 def weigh_review(lp, submitted, head=None):
     """The reviewer's editable copy cannot decide what blocks the reviewed commit."""
-    if not submitted.findings:
+    if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records):
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
     sites = quoted_sites(lp, submitted, head)
     records = []
     for index, row in enumerate(submitted.records, 1):
-        if row["kind"] != "finding":
+        if row["kind"] not in ("finding", "follow-up"):
             records.append(row)
             continue
         evidence = row["evidence"]
-        kind = "finding"
-        if index in sites and sites[index] is None:
+        kind = row["kind"]
+        if kind == "follow-up":
+            if not lp.scratch and "run" in evidence:
+                command = evidence["run"]
+                evidence = {"run": command, "commit": lp.base_sha, **proof_on(
+                    lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
+        elif index in sites and sites[index] is None:
             kind = "note"
         elif "run" in evidence:
             command = evidence["run"]
@@ -3449,21 +3472,33 @@ def weigh_review(lp, submitted, head=None):
             if not lp.scratch:
                 evidence["base"] = {"sha": lp.base_sha, **proof_on(
                     lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
-            if evidence["returncode"] == 0 or evidence["killed"] or evidence["returncode"] < 0:
+            if not hand_in.proof_failed(evidence):
                 kind = "note"
             elif not lp.scratch and not changed_line(lp, row, head):
                 base = evidence["base"]
-                if base["returncode"] != 0 or base["killed"]:
+                if hand_in.proof_failed(base):
                     kind = "follow-up"
+                elif base["returncode"] != 0 or base["killed"]:
+                    kind = "note"
         else:
             row = {**row, **sites[index]}
             if not lp.scratch and not changed_line(lp, row, head):
                 kind = "follow-up"
         row = {**row, "kind": kind, "evidence": evidence}
         if kind == "follow-up":
-            row["before"] = f"base {lp.base_sha}: " + (
-                "the proof does not pass there either" if "run" in evidence
-                else "quoted lines outside the change")
+            if "before" not in row:
+                row["before"] = f"base {lp.base_sha}: " + (
+                    "the proof fails there too" if "run" in evidence
+                    else "quoted lines outside the change")
+            reason = ("no base commit" if lp.scratch else
+                      "needs a --run proof that fails on base" if "run" not in evidence else
+                      "the command did not fail on base" if not hand_in.proof_failed(
+                          evidence.get("base", evidence)) else
+                      "--before names no commit in base's history or quote present at base" if not before_at_base(lp, row)
+                      else "")
+            if reason:
+                row.update(kind="note", dropped=reason)
+                lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
         records.append(row)
     return hand_in.Review(records)
 
