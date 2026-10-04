@@ -138,20 +138,12 @@ def start_line(turn, log=lambda _: None):
 def _repair(turn, directory, state, tree, red, log):
     """Keep the probe before launch: a crash can reuse its repair receipt without a suite.
 
-    A PR whose seat can start no repair -- a solo seat runs no tasks -- would wait on a red
-    target nobody fixes, so it is handed that target's failure as its own landing finding.
+    A PR's own seat is its fixer, as for its review findings: a PR never gets a repair run,
+    and is handed the red target as its own landing finding -- its next head is checked on
+    its own merits, so one that repairs the target lands (see `check_line`).
     """
     from . import run, watch
-    try:
-        name = run.start_followups(state, directory, log, repair=red["probe"])
-    except record.StopRequested:
-        raise
-    except Exception as exc:  # a refused repair leaves the line waiting, unblamed
-        log(f"WARN no target repair could start: {exc}")
-        name = None
-    if name:
-        note(turn, [], directory.name, red={tree: {**red, "run": name}})
-    elif state.get("review_pr"):
+    if state.get("review_pr"):
         path = directory / "target-red.log"
         path.write_text(red["probe"]["text"] + "\n")
         with record.recovery_lock(directory):
@@ -161,6 +153,16 @@ def _repair(turn, directory, state, tree, red, log):
                 current["waiting_on"] = {**current["waiting_on"], "fix": {
                     "line": red["probe"]["text"].splitlines()[0], "log": str(path)}}
         watch.launch_resume(directory.name, log)
+        return None
+    try:
+        name = run.start_followups(state, directory, log, repair=red["probe"])
+    except record.StopRequested:
+        raise
+    except Exception as exc:  # a refused repair leaves the line waiting, unblamed
+        log(f"WARN no target repair could start: {exc}")
+        return None
+    if name:
+        note(turn, [], directory.name, red={tree: {**red, "run": name}})
     return name
 
 
@@ -201,7 +203,8 @@ def check_line(turn, log=lambda _: None):
             tip, target_tree = target
             red = _trees(turn, "red")[1].get(target_tree)
             name = None
-            if red and not passed(turn, target_tree):
+            # a PR waits on no repair: its own tree is checked, and lands if it mends the target
+            if red and not passed(turn, target_tree) and not state.get("review_pr"):
                 name = red.get("run")
                 repair = record.read_state(config.RUNS / name) if name else None
                 if repair is None:

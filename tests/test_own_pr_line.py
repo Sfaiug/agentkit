@@ -459,28 +459,86 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertNotIn("waiting_on", state)
         self.assertEqual(len(self.merges), 1)
 
-    def test_a_solo_seats_pr_on_a_red_target_goes_back_to_its_seat(self):
-        # a solo seat starts no repair run, so the red target is the PR's own finding
+    def test_a_red_target_goes_back_to_the_prs_seat_and_its_repair_lands(self):
+        # a solo seat's PR, which no repair run could ever serve
         seat = config.session_path("fix-api")
         seat.write_text(json.dumps({**json.loads(seat.read_text()), "solo": True}))
         (self.repo / "AGENTS.md").write_text("---\nusers: none\ntests: test ! -f broken.txt\n---\n")
-        self.commit("a check the target will fail")
+        self.commit("declare the target check")
         run.git(self.repo, "push", "origin", "main")
         self.base = run.git(self.repo, "rev-parse", "HEAD")
         directory, url = self.own_pr("first", 1)
-        self.advance(**{"broken.txt": "the target is red\n"})
+        pr = self.prs[url]
+        (self.repo / "broken.txt").write_text("broken\n")
+        self.commit("the branch has the same failure")
+        run.git(self.repo, "push", "origin", pr["branch"])
+        pr["head"] = run.git(self.repo, "rev-parse", "HEAD")
+        self.advance(**{"broken.txt": "broken\n"})
         with patch.object(run, "gh", return_value=(0, "")), \
                 patch.object(watch, "seat_closed", return_value=False), \
-                patch.object(run, "prepare", side_effect=AssertionError("a repair run")):
-            self.assertEqual(self.review(directory, url)["state"], "waiting")
-            land.check_line(self.turn)
-        self.assertIn("fix", self.wait(directory))
-        self.wake.assert_called_with(directory.name, unittest.mock.ANY)
-        with patch.object(run, "wait_for_own_pr", return_value=False):
+                patch.object(run, "prepare", side_effect=AssertionError("solo seat started a repair run")), \
+                patch.object(run, "wait_for_own_pr", side_effect=lambda cfg, directory, url, state, log:
+                             self.prs[url]["head"] != state["head_sha"]):
             state = self.review(directory, url)
-        self.assertEqual(state["verdict"], "FAIL")
-        self.assertIn("broken.txt", state["findings"])
-        self.assertEqual(self.merges, [])
+            if state["state"] == "waiting":
+                land.check_line(self.turn)
+                state = self.review(directory, url)
+            self.assertEqual(state["verdict"], "FAIL")
+            run.git(self.repo, "checkout", pr["branch"])
+            run.git(self.repo, "fetch", "origin", "main")
+            run.git(self.repo, "merge", "--no-edit", "origin/main")
+            run.git(self.repo, "rm", "broken.txt")
+            self.commit("the seat repairs the target in its PR")
+            run.git(self.repo, "push", "origin", pr["branch"])
+            pr["head"] = run.git(self.repo, "rev-parse", "HEAD")
+            self.assertEqual(run.git_out(self.repo, "diff", "--quiet", "HEAD")[0], 0)
+            self.assertFalse((self.repo / "broken.txt").exists())
+            state = self.review(directory, url)
+            self.assertEqual(state["head_sha"], pr["head"])
+            self.assertEqual(len(self.reviews), 2)
+            if state["state"] == "waiting":
+                land.check_line(self.turn)
+                state = self.review(directory, url)
+            self.assertTrue(state["merged"],
+                            f"the repaired PR never lands: verdict={state['verdict']}, "
+                            f"wait={state.get('own_pr_wait')}, suite calls={len(self.checks)}, "
+                            f"finding={state.get('final_check')}")
+
+    def test_a_pr_mending_the_target_lands_past_a_repair_that_failed(self):
+        suite = "test ! -f broken.txt"
+        (self.repo / "AGENTS.md").write_text(f"---\nusers: none\ntests: {suite}\n---\n")
+        self.commit("declare the target check")
+        run.git(self.repo, "push", "origin", "main")
+        self.base = run.git(self.repo, "rev-parse", "HEAD")
+        self.advance(**{"broken.txt": "broken\n"})
+        run.fetch(self.repo, "origin", "main", check=True)
+        tip = run.git(self.repo, "rev-parse", "origin/main")
+        tree = run.git(self.repo, "rev-parse", "origin/main^{tree}")
+        repair = config.RUNS / "target-repair"
+        repair.mkdir()
+        record.save_state(repair, {"run_id": repair.name, "state": "fail", "merged": False,
+                                  "repair_tip": tip, "repo": str(self.repo)})
+        self.assertTrue(run.repair_open(record.read_state(repair), tip))
+        land.note(self.turn, [], repair.name, red={tree: {
+            "run": repair.name, "probe": {"sha": tip, "command": suite, "check": f"{suite}  # once",
+                                         "text": f"{suite} fails on origin/main at {tip}"}}})
+        directory, url = self.own_pr("first", 1)
+        pr = self.prs[url]
+        run.git(self.repo, "merge", "--no-edit", "origin/main")
+        run.git(self.repo, "rm", "broken.txt")
+        self.commit("the seat takes over the failed repair in its own PR")
+        run.git(self.repo, "push", "origin", pr["branch"])
+        pr["head"] = run.git(self.repo, "rev-parse", "HEAD")
+        self.assertFalse((self.repo / "broken.txt").exists())
+        with patch.object(run, "gh", return_value=(0, "")):
+            state = self.review(directory, url)
+            if state["state"] == "waiting":
+                for _ in range(3):
+                    land.check_line(self.turn)
+                state = self.review(directory, url)
+            self.assertTrue(state["merged"],
+                            f"the target repair is stuck in {state['state']} behind an ended "
+                            f"repair run; suite calls={len(self.checks)}, wait={state.get('waiting_on')}")
 
 
 if __name__ == "__main__":
