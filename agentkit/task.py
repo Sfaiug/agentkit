@@ -163,6 +163,8 @@ def opens_heredoc(command):
     runs it -- a backquoted body, and before bash 5.2 any substitution's -- this leaves as bash
     -n does: reading it any other way would refuse lines bash runs as written.
     """
+    if "<<" not in command:
+        return False        # no expansion makes a heredoc: its operator is in the text
     # nothing inherited may make bash read a file first or echo the line back (`verbose`)
     env = {key: value for key, value in os.environ.items()
            if key not in ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS")}

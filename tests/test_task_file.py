@@ -82,13 +82,17 @@ class TaskFile(unittest.TestCase):
 
     def test_only_bash_s_own_warning_counts_whatever_the_environment(self):
         # an inherited `verbose` would echo the line itself to stderr
-        lines = ("printf '%s' 'here-document at line'", "true # here-document at line 1 is text",
-                 "test 'here-document at line' = 'here-document at line'")
+        lines = ("echo 'bash: warning: here-document at line 1 delimited by end-of-file <<'",
+                 "true # x: warning: here-document at line 1 delimited by end-of-file <<E")
         with patch.dict(os.environ, {"SHELLOPTS": "verbose", "BASH_ENV": "/nonexistent"}):
             for cmd in lines:
                 with self.subTest(cmd):
                     self.assertIsNone(task.launch_refusal({}, [cmd]))
             self.assertIn("opens a heredoc", task.launch_refusal({}, ["cat <<EOF"]))
+
+    def test_a_line_without_a_heredoc_operator_starts_no_bash(self):
+        with patch.object(task.subprocess, "run", side_effect=AssertionError("bash started")):
+            self.assertIsNone(task.launch_refusal({}, ["true", "python3 -m pytest -q"]))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
