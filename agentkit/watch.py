@@ -1119,7 +1119,7 @@ def screen_tail(harness, pane):
         chrome = {"ruled": False}
     start = len(lines) - PANE_LINES
     if chrome["ruled"] and start > 0:
-        at = ruled_composer(chrome, [strip_sgr(line).strip() for line in lines])[0]
+        at = ruled_composer(chrome, lines)[0]
         if at is not None:
             start = min(start, at - 1)
     return "\n".join(lines[max(0, start):])
@@ -1136,7 +1136,8 @@ def content_lines(harness, tail):
     # The composer box and key hints are chrome, not progress. Strip only known harness
     # chrome at the bottom; arbitrary output below an old error still means it has moved on.
     chrome = screen(harness)
-    lines = lines[:chrome_below(chrome, lines)]
+    lines = lines[:chrome_below(chrome, [line for line in tail.splitlines()
+                                         if strip_sgr(line).strip()])]
     while lines and chrome_line(chrome, lines[-1]):
         lines.pop()
     return lines
@@ -1149,18 +1150,22 @@ def ruled_composer(chrome, rows):
     with the seat's name in it -- closed by the first row under it drawn in that rule's own
     glyph, at least as long as its run before any name.  Every row between is the composer's,
     a wrapped or multi-line draft's even where one reads like a rule (`---`), and a user's
-    status line under the box is never it, even where it starts with a prompt mark.
+    status line under the box is never it, even where it starts with a prompt mark.  The box's
+    rules and prompt row start at the pane's left edge, and a draft's rows under its prompt row
+    are indented: `rows` keep their leading spaces (raw or plain), so nothing typed -- a rule's
+    glyphs, a prompt mark -- is ever the box.
     """
     if not chrome["ruled"]:
         return None, None
-    for at in range(len(rows) - 1, 0, -1):
-        top = rows[at - 1].strip()
+    cells = [strip_sgr(row).rstrip() for row in rows]
+    for at in range(len(cells) - 1, 0, -1):
+        top = cells[at - 1]
         run = re.match(r"([─━═])\1*", top)
-        if not (run and re.match(r"(?:│\s*)?[❯›⟩]", rows[at]) and chrome_line(chrome, top)):
+        if not (run and re.match(r"(?:│\s*)?[❯›⟩]", cells[at]) and chrome_line(chrome, top)):
             continue
         closing = re.compile(f"{run.group(1)}{{{len(run.group(0))},}}")
-        end = next((row for row in range(at + 1, len(rows))
-                    if closing.fullmatch(rows[row].strip())), None)
+        end = next((row for row in range(at + 1, len(cells)) if closing.fullmatch(cells[row])),
+                   None)
         if end is not None:
             return at, end
     return None, None
@@ -1449,7 +1454,7 @@ def screen_state(harness, tail):
                 # between its own rules, under the footer at the pane's bottom -- or, with none
                 # drawn, a prompt row right on that bottom.
                 region, raws = lines, raw_lines
-                at, end = ruled_composer(chrome, lines)
+                at, end = ruled_composer(chrome, raw_lines)
                 if at is not None and not chrome_line(chrome, lines[-1]):
                     at = None
                 elif at is None and re.match(prompt, lines[-1]):
@@ -2494,7 +2499,7 @@ def composer_draft(harness, pane):
     stop = None if at is None else end(at)
     if chrome["ruled"]:
         # Its box between its own rules; a pane's bottom row stands in where none is drawn.
-        at, stop = ruled_composer(chrome, rows)
+        at, stop = ruled_composer(chrome, raws)
         if at is None and marked and marked[0] + 1 == len(rows):
             at, stop = marked[0], len(rows)
     if at is None:

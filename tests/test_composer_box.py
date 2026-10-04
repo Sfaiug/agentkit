@@ -69,6 +69,21 @@ class ComposerBox(Sandbox):
                 self.assertEqual(watch.composer_draft("claude", pane), said.replace(" ", ""))
                 self.assertEqual(self.looked(pane), ("needs you", False, []))
 
+    def test_typed_rule_glyphs_and_prompt_marks_are_never_the_box(self):
+        """The box's rules and prompt row start at the left edge; a draft's rows are indented."""
+        rows = PROMPT.splitlines()
+        top = max(at for at, row in enumerate(rows) if row.startswith("❯")) - 1
+        rows[top] = "─" * 89 + f" {SEAT} ─"           # a renamed seat's top rule
+        named = "\n".join(rows) + "\n"
+        for pane, said in (
+                (named.replace("❯\u00a0\n", "❯\u00a0\n  " + "─" * 89 + "\n"), "─" * 89),
+                (drafted("Fix the login\n  ───\n  ❯"), "Fix the login ─── ❯")):
+            with self.subTest(said=said[:20]):
+                self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane)),
+                                 ("draft", "prompt.draft", said))
+                self.assertEqual(watch.composer_draft("claude", pane), said.replace(" ", ""))
+                self.assertEqual(self.looked(pane), ("needs you", False, []))
+
     def test_a_draft_longer_than_the_tail_is_read_whole(self):
         """Thirteen rows push the box's top rule above the last 15 rows; the pane still has it."""
         rows = [f"step {n} of the acme migration" for n in range(1, 14)]
