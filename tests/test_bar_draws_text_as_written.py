@@ -1,0 +1,69 @@
+"""A seat's bar draws what it says as it was said: a `#`, a `%` or a `#{…}` in a question, a
+summary or a tasks bar is text, never a format, a style or a time.
+
+Runs tmux itself: the seat on a server of its own, and a client attached to it in a pane of a
+second server, whose screen is read back as a person would see it.
+"""
+
+import os
+import shutil
+import subprocess
+import tempfile
+import time
+import unittest
+from unittest.mock import patch
+
+from test_v4n import Sandbox
+from agentkit import orch, statusbar
+
+SAID = "## heading, a ## b, ### c, 50% at %H, #{session_name} and #[bold] end #"
+
+
+class AsWritten(Sandbox):
+    def setUp(self):
+        super().setUp()
+        if not shutil.which("tmux"):
+            self.skipTest("tmux not installed")
+        sockets = tempfile.mkdtemp(prefix="ak", dir="/tmp")   # a socket path has a length limit
+        self.addCleanup(shutil.rmtree, sockets, ignore_errors=True)
+        self.stack.enter_context(patch.dict(os.environ, {
+            "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TMUX_TMPDIR": sockets,
+            orch.SOCKET_ENV: "written"}))
+        os.environ.pop("TMUX", None)
+        self.addCleanup(orch.tmux_out, "kill-server")
+        self.addCleanup(self.view, "kill-server")
+        self.assertEqual(orch.tmux_out("new-session", "-d", "-s", "fix-api", "-x", "120", "-y",
+                                       "8", "sleep 600")[0], 0)
+        attach = f"env -u TMUX tmux -L {orch.socket_name()} attach-session -t =fix-api:"
+        self.view("-f", "/dev/null", "new-session", "-d", "-s", "view", "-x", "120", "-y", "8",
+                  attach)
+        self.view("set-option", "-t", "=view:", "status", "off")
+
+    def view(self, *args):
+        return subprocess.run(["tmux", "-L", "view", *args], capture_output=True, text=True,
+                              timeout=10).stdout
+
+    def screen(self, wanted):
+        """The attached client's two bar lines once they show `wanted`, or as they last were."""
+        for _ in range(50):
+            orch.tmux_out("refresh-client", "-S")
+            lines = self.view("capture-pane", "-p", "-t", "=view:").rstrip("\n").split("\n")[-2:]
+            if wanted in "\n".join(lines):
+                break
+            time.sleep(.1)
+        return lines
+
+    def test_a_a_question_and_a_summary_draw_every_hash_and_percent_as_said(self):
+        for word in ("needs you", "done"):
+            statusbar._write("fix-api", "fable", word, SAID, self.cfg)
+            self.assertIn("  " + SAID + " ", self.screen(SAID)[1], word)
+
+    def test_b_a_tasks_bar_drawn_in_hashes_keeps_every_cell(self):
+        bar = "tasks ####---- 4/8"
+        statusbar._write("fix-api", "fable", "working", bar, self.cfg)
+        self.assertTrue(self.screen(bar)[0].rstrip().endswith("fable orchestrates   " + bar),
+                        self.screen(bar))
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
