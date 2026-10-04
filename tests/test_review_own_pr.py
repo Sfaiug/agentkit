@@ -12,6 +12,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -189,6 +190,170 @@ class OwnPr(unittest.TestCase):
         self.assertEqual(turns, [])
         self.assertIn("line", state["waiting_on"])
         self.assertNotIn("pending_inbox", state)
+
+    def text_review(self, author):
+        run_dir = self.launch_dir(f"20260927-0009-text-{author}")
+        opts = {"--review": None, "--review-pr": URL}
+        events, inbox = [], []
+        with ExitStack() as mocks:
+            for m in self.base_patches(author=author, reviewer="PASS"):
+                mocks.enter_context(m)
+            mocks.enter_context(patch.object(run, "text_only_pr", return_value=True))
+            mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
+            mocks.enter_context(patch.object(
+                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
+            mocks.enter_context(patch.object(
+                watch, "ask_inbox", side_effect=lambda *a, **k: inbox.append(a) or 0))
+            reviewed = mocks.enter_context(patch.object(run, "review", wraps=self.review_pass))
+            probed = mocks.enter_context(patch.object(run, "collect_usage", return_value={}))
+            with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
+                state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
+        return state, events, inbox, reviewed, probed
+
+    def test_the_seats_own_wording_skips_review_and_joins_the_line(self):
+        state, events, inbox, reviewed, probed = self.text_review(LOGIN)
+        reviewed.assert_not_called()
+        probed.assert_not_called()
+        self.assertEqual(events, [])        # no review to post: none was made
+        self.assertEqual(inbox, [])
+        self.assertEqual(state["state"], "waiting")
+        self.assertIn("line", state["waiting_on"])
+        self.assertTrue(state["review"]["skipped"])
+        self.assertTrue(run.review_pass(state, self.cfg))
+        self.assertIn("review skipped", state["round_summaries"][-1]["summary"])
+
+    def test_anyone_elses_wording_is_reviewed_and_asks_the_inbox(self):
+        state, events, inbox, reviewed, _ = self.text_review("contributor")
+        reviewed.assert_called_once()
+        self.assertEqual(len(inbox), 1)
+        self.assertNotIn("skipped", state.get("review") or {})
+
+    def test_delivery_takes_a_skipped_review_only_for_the_commit_it_names(self):
+        """The line's delivery gate holds skipped evidence to its commit, as a review's."""
+        run.git(self.repo, "init", "-q", "-b", "main")
+        run.git(self.repo, "config", "user.name", "Fixture")
+        run.git(self.repo, "config", "user.email", "fixture@localhost")
+        (self.repo / "README.md").write_text("words\n")
+        run.git(self.repo, "add", ".")
+        run.git(self.repo, "commit", "-qm", "Fixture wording")
+        state = {"review_pr": URL, "own_pr": True, "verdict": "PASS", "repo": str(self.repo),
+                 "review": {**run.commit_identity(self.repo), "verdict": "PASS", "skipped": True}}
+        lp = SimpleNamespace(state=state, cfg=self.cfg, scratch=False, wt=self.repo)
+        run.require_review_pass(lp)
+        # the lander's rebase rewrites the evidence to the tree it tested, as it does a review's
+        (self.repo / "NOTICE").write_text("target moved\n")
+        run.git(self.repo, "add", ".")
+        run.git(self.repo, "commit", "-qm", "Fixture rebased onto the target")
+        saved = state["review"]
+        state["review"] = {**saved, **run.commit_identity(self.repo),
+                           "rebased_from": saved["head_sha"]}
+        run.require_review_pass(lp)
+        (self.repo / "app.py").write_text("print('code')\n")
+        run.git(self.repo, "add", ".")
+        run.git(self.repo, "commit", "-qm", "Fixture adds code after the check")
+        with self.assertRaises(run.Exhausted):
+            run.require_review_pass(lp)
+
+    def test_skipped_review_evidence_counts_only_on_the_seats_own_review(self):
+        state = {"review_pr": URL, "own_pr": True, "verdict": "PASS",
+                 "review": {"head_sha": HEAD, "tree_sha": "c" * 40, "verdict": "PASS",
+                            "skipped": True}}
+        self.assertTrue(run.review_pass(state, self.cfg))
+        for change in ({"own_pr": False}, {"review_pr": None}, {"verdict": "FAIL"},
+                       {"review": {**state["review"], "tree_sha": None}}):
+            with self.subTest(change=change):
+                self.assertFalse(run.review_pass({**state, **change}, self.cfg))
+
+    def test_text_classification_checks_complete_commit_diff_and_both_sides_of_renames(self):
+        run.git(self.repo, "init", "-q", "-b", "main")
+        run.git(self.repo, "config", "user.name", "Fixture")
+        run.git(self.repo, "config", "user.email", "fixture@localhost")
+        (self.repo / "app.py").write_text("print('fixture')\n")
+        (self.repo / "AGENTS.md").write_text("---\ntests: test -f MISSING\n---\n# acme\n")
+        run.git(self.repo, "add", ".")
+        run.git(self.repo, "commit", "-qm", "Fixture base")
+        base = run.git(self.repo, "rev-parse", "HEAD")
+        self.assertFalse(run.text_only_pr(self.repo, base, base))
+        for name in ("README.md", "README.txt", "LICENSE.text", "guide.rst", "en.po", "app.xlf", "NOTICE"):
+            (self.repo / name).write_text("words\n")
+        run.git(self.repo, "add", ".")
+        run.git(self.repo, "commit", "-qm", "Fixture wording")
+        words = run.git(self.repo, "rev-parse", "HEAD")
+        self.assertTrue(run.text_only_pr(self.repo, base, words))
+        run.git(self.repo, "mv", "app.py", "code.md")
+        run.git(self.repo, "commit", "-qm", "Fixture code rename")
+        self.assertFalse(run.text_only_pr(self.repo, words, "HEAD"))
+        for name, content in (("requirements.txt", b"a\n"), ("binary.md", b"a\0b")):
+            (self.repo / name).write_bytes(content)
+            run.git(self.repo, "add", name)
+            run.git(self.repo, "commit", "-qm", "Fixture requires review")
+            self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
+        for name in ("AGENTS.md", "docs/AGENTS.md", "other/agents.MD"):
+            path = self.repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("---\ntests: true\ncleanup: printf fixture\n---\n# acme\n")
+            run.git(self.repo, "add", name)
+            run.git(self.repo, "commit", "-qm", "Fixture changes repository commands")
+            self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
+        run.git(self.repo, "mv", "AGENTS.md", "instructions.md")
+        run.git(self.repo, "commit", "-qm", "Fixture renames repository commands")
+        self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
+        run.git(self.repo, "rm", "docs/AGENTS.md")
+        run.git(self.repo, "commit", "-qm", "Fixture deletes repository commands")
+        self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
+        # a submodule's commit or a link names code elsewhere, however its path is spelled
+        # and whatever the local git settings hide
+        for name, ignore in (("vendor", "all"), ("docs.md", "none")):
+            with self.subTest(submodule=name, ignore=ignore):
+                run.git(self.repo, "config", "diff.ignoreSubmodules", ignore)
+                run.git(self.repo, "update-index", "--add", "--cacheinfo", f"160000,{base},{name}")
+                (self.repo / "README.md").write_text(f"before {name}\n")
+                run.git(self.repo, "add", "README.md")
+                run.git(self.repo, "commit", "-qm", "Fixture adds a submodule")
+                run.git(self.repo, "update-index", "--cacheinfo", f"160000,{words},{name}")
+                (self.repo / "README.md").write_text(f"after {name}\n")
+                run.git(self.repo, "add", "README.md")
+                run.git(self.repo, "commit", "-qm", "Fixture moves the submodule and the wording")
+                self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
+        run.git(self.repo, "config", "diff.ignoreSubmodules", "none")
+        # binary bytes need review even where an attribute tells the diff to read them as text
+        (self.repo / ".gitattributes").write_text("*.md diff\n")
+        run.git(self.repo, "add", ".gitattributes")
+        run.git(self.repo, "commit", "-qm", "Fixture forces text diffs")
+        (self.repo / "forced.md").write_bytes(b"a\0b\n")
+        run.git(self.repo, "add", "forced.md")
+        run.git(self.repo, "commit", "-qm", "Fixture adds binary prose")
+        self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
+        # a binary file whose name git's text output would turn into a text file's name
+        for binary, lookalike in ((b"binary\r.md", b"binary\n.md"),
+                                  (b"binary-\xff.md", "binary-\ufffd.md".encode())):
+            with self.subTest(name=binary):
+                (self.repo / os.fsdecode(lookalike)).write_text("plain words\n")
+                run.git(self.repo, "add", "-A")
+                run.git(self.repo, "commit", "-qm", "Fixture adds a text file")
+                (self.repo / os.fsdecode(binary)).write_bytes(b"a\0b\n")
+                run.git(self.repo, "add", "-A")
+                run.git(self.repo, "commit", "-qm", "Fixture adds a binary lookalike")
+                self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
+        # an AGENTS.md below the root that is a link makes its target configuration too
+        (self.repo / "rules.md").write_text("---\ntests: true\n---\n")
+        (self.repo / "nested").mkdir()
+        (self.repo / "nested/AGENTS.md").symlink_to("../rules.md")
+        run.git(self.repo, "add", "-A")
+        run.git(self.repo, "commit", "-qm", "Fixture links nested instructions")
+        (self.repo / "rules.md").write_text("---\ntests: false\n---\n")
+        run.git(self.repo, "add", "-A")
+        run.git(self.repo, "commit", "-qm", "Fixture changes them through the link")
+        self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
+        (self.repo / "nested/AGENTS.md").unlink()
+        run.git(self.repo, "add", "-A")
+        run.git(self.repo, "commit", "-qm", "Fixture drops the link")
+        (self.repo / "LICENSE").symlink_to("app.py")
+        run.git(self.repo, "add", "LICENSE")
+        run.git(self.repo, "commit", "-qm", "Fixture links prose to code")
+        self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
+
 
     def test_own_pr_pass_leaves_head_verification_to_delivery(self):
         run_dir = self.launch_dir("20260927-0003-own-moved")

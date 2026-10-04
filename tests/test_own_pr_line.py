@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, land, record, run, watch, worker
+from agentkit import config, gc, hand_in, land, record, run, watch, worker
 from fixtures.hand_in import submitting
 from test_lander import LanderFixture
 
@@ -135,6 +135,121 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.commit("the seat's fix")
         run.git(self.repo, "push", "origin", pr["branch"])
         pr["head"] = run.git(self.repo, "rev-parse", "HEAD")
+
+    def pushed(self, url, message):
+        self.commit(message)
+        run.git(self.repo, "push", "origin", self.prs[url]["branch"])
+        self.prs[url]["head"] = run.git(self.repo, "rev-parse", "HEAD")
+
+    def on_main(self, change, message):
+        run.git(self.repo, "checkout", "main")
+        change()
+        self.commit(message)
+        run.git(self.repo, "push", "origin", "main")
+        self.base = run.git(self.repo, "rev-parse", "HEAD")
+
+    def test_wording_the_target_carries_onto_code_goes_back_for_review(self):
+        original = "".join(f"# Deployment example {i}\n" for i in range(30)) + "RETENTION_DAYS = 30\n"
+        self.on_main(lambda: (self.repo / "example.md").write_text(original), "document retention")
+        directory, url = self.own_pr("README", 1)
+        run.git(self.repo, "rm", "-q", "README.txt")
+        (self.repo / "example.md").write_text(original.replace("= 30", "= 0"))
+        self.pushed(url, "change the documented retention")
+        state = self.review(directory, url)
+        self.assertTrue(state["review"]["skipped"])
+        # the target renames the prose file to code while the wording waits in the line
+        self.on_main(lambda: run.git(self.repo, "mv", "example.md", "app.py"), "run the example")
+        land.check_line(self.turn)
+        handed_back = []
+
+        def push(seconds):
+            if seconds != run.SLOT_POLL or handed_back:
+                return
+            handed_back.append(record.read_state(directory).get("findings") or "")
+            self.assertEqual(self.merges, [])
+            # the seat brings its branch onto the target and pushes it: now it is code
+            run.git(self.repo, "checkout", self.prs[url]["branch"])
+            run.git(self.repo, "rebase", "-q", "main")
+            run.git(self.repo, "push", "-q", "-f", "origin", self.prs[url]["branch"])
+            self.prs[url]["head"] = run.git(self.repo, "rev-parse", "HEAD")
+
+        with patch.object(run.time, "sleep", side_effect=push):
+            state = self.review(directory, url)
+        self.assertIn("need review", handed_back[0])
+        self.assertFalse(state["review"].get("skipped", False))
+        self.assertEqual(len(self.reviews), 1)
+
+    def fail_first_review(self, lp, summary, ok, dw_log, **kw):
+        rows = [{"kind": "finding", "path": "first.txt", "line": 1,
+                 "what": "Remove the unsafe setting", "why": "It removes saved data",
+                 "evidence": {"quote": "first\n"}}, {"kind": "done"}]
+        text = hand_in.Review(rows).text
+        lp.findings = text
+        lp.state.update(verdict="FAIL", findings=text, review_records=rows,
+                        review={"verdict": "FAIL", **run.commit_identity(lp.wt)})
+        lp.state["round_summaries"].append({"round": lp.rnd, "verdict": "FAIL",
+                                           "done_when": ok, "summary": summary,
+                                           **run.commit_identity(lp.wt)})
+        lp.save()
+        return "FAIL"
+
+    def test_red_wording_reports_the_current_failure(self):
+        (self.repo / "AGENTS.md").write_text("---\nusers: none\ntests: test ! -f README.md\n---\n")
+        self.commit("fixture suite")
+        run.git(self.repo, "push", "origin", "main")
+        self.base = run.git(self.repo, "rev-parse", "HEAD")
+        directory, url = self.own_pr("first", 1)
+        with patch.object(run, "review", side_effect=self.fail_first_review), \
+                patch.object(run, "wait_for_own_pr", return_value=False):
+            state = self.review(directory, url)
+        self.assertEqual(state["verdict"], "FAIL")
+        run.git(self.repo, "checkout", self.prs[url]["branch"])
+        run.git(self.repo, "rm", "first.txt")
+        (self.repo / "README.md").write_text("replacement wording\n")
+        self.commit("fixture removes the finding and leaves wording")
+        run.git(self.repo, "push", "origin", self.prs[url]["branch"])
+        self.prs[url]["head"] = run.git(self.repo, "rev-parse", "HEAD")
+        self.review(directory, url)
+        land.check_line(self.turn)
+        with patch.object(run, "wait_for_own_pr", return_value=False):
+            state = self.review(directory, url)
+        self.assertEqual(state["verdict"], "FAIL")
+        current_failure = state["review"]["overridden"]
+        reason = run.handback_reason(state, self.cfg)
+        self.assertIn(current_failure, reason, f"obsolete findings hid the landing failure: {reason}")
+
+    def test_wording_already_on_the_target_is_recorded_as_landed(self):
+        directory, url = self.own_pr("README", 1)
+        state = self.review(directory, url)
+        self.assertTrue(state["review"]["skipped"])
+        run.git(self.repo, "checkout", "main")
+        run.git(self.repo, "cherry-pick", state["head_sha"])
+        run.git(self.repo, "push", "origin", "main")
+        land.check_line(self.turn)
+        with patch.object(run, "wait_for_own_pr", return_value=False):
+            state = self.review(directory, url)
+        self.assertTrue(state.get("on_target"))
+        self.assertEqual(self.merges, [])
+
+    def test_wording_skips_review_only_when_every_file_reads_back_as_text(self):
+        for name, setup in (("a name git mangles", lambda: (
+                                self.repo / ".gitattributes").write_text("*.md diff\n")),
+                            ("a linked AGENTS.md", lambda: (
+                                run.git(self.repo, "mv", "AGENTS.md", "rules.md"),
+                                (self.repo / "AGENTS.md").symlink_to("rules.md")))):
+            with self.subTest(case=name):
+                self.doCleanups()
+                self.setUp()
+                self.on_main(setup, name)
+                directory, url = self.own_pr("README", 1)
+                if name == "a name git mangles":
+                    (self.repo / "binary\r.md").write_bytes(b"words\0binary\n")
+                else:
+                    (self.repo / "rules.md").write_text("---\nusers: none\ntests: true\n---\n")
+                self.pushed(url, name)
+                state = self.review(directory, url)
+                self.assertFalse(state["review"].get("skipped", False))
+                self.assertEqual(len(self.reviews), 1)
 
     def test_review_round_starts_no_suite(self):
         directory, url = self.own_pr("first", 1)
