@@ -70,7 +70,7 @@ After `/clear` in a Claude seat's launched pane, reopening and title changes fol
 
 Agentkit does not stop until the work ships, or until it truly needs you. Truly needs you means exactly two things: a question only you can answer, or a failure it has tried every way around. Everything else it handles itself: a provider running dry or down for hours, a crash, a reboot, main moving underneath, its own upgrade (the host moves only to a commit whose `tests/live.sh`, agentkit's checks that need the outside world, passed on it; a run takes the new code at its next round, saying `picked up agentkit <old>..<new>`), a reviewer that hesitates, a test budget that was too small, a stuck session.
 
-Declare `health: <shell command>` in `AGENTS.md` front matter: exit 0 means the deployed change works live. Each tick runs the merge commit's command in the original checkout with `AK_MERGE_SHA` set to that SHA, once per commit per tick until success. A 30-second timeout kills its process group. Success records `live_at` and tells the launching seat the change is live. Still failing after three hours, it goes back once with its last output. Projects own deploys; without `health:`, merging is unchanged.
+`AGENTS.md`'s `health:` command checks merged changes in production; passing reports them live.
 
 A turn can end waiting on its job while the launcher is alive and any task is unsettled, even before the first run starts and after a seat rename. A job whose launcher is gone or whose tasks have all settled gives no wait.
 
