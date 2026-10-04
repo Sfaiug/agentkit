@@ -124,9 +124,9 @@ class HarnessUpdatePins(PinnedHome):
         conf.write_text("set -g remain-on-exit on\nset -g default-shell /bin/bash\n")
         self.enterContext(patch.object(orch, "tmux_conf", lambda: conf))
         self.enterContext(patch.object(statusbar, "dress", lambda *a, **kw: None))
-        # The private tmux server needs no unit in the host's real systemd manager.
-        self.enterContext(patch.object(orch, "in_slice",
-                                       lambda argv, unit, socket=None, env=None, **_kw: (argv, env)))
+        # Neither the private tmux server nor its pane needs a unit in the host's real systemd
+        # manager: with none found, both start plainly.
+        self.enterContext(patch.object(orch, "user_manager", return_value=False))
         cmd, conversation = orch.fresh_command(cfg, "fixture")
         assert conversation is None
         # This checkout's absolute path exceeds Unix's socket length limit. A relative -S
