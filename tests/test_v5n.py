@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, menu, orch, terminal, watch
+from agentkit import config, menu, orch, statusbar, terminal, watch
 
 FIX = REPO / "tests/fixtures"
 DRAFT = "Fix the login redirect"
@@ -110,7 +110,7 @@ class SeatNeverSaysWorking(Sandbox):
                 "rule": "prompt.draft", "evidence": DRAFT}
         with patch.object(watch, "live_state", return_value=live), \
                 patch.object(watch, "seat_model", return_value=("claude", "anthropic")), \
-                patch.object(watch, "announce"), \
+                patch.object(statusbar, "redress"), \
                 patch("agentkit.menu.notify.last", return_value=None), \
                 patch.object(menu, "run_records", return_value=[]), \
                 patch.object(config, "load_session", return_value={"orchestrator": "astra"}), \

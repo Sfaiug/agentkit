@@ -40,7 +40,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import browser, command_help, config, gc, host, notify, orch, update, usage, worker
+from . import (browser, command_help, config, gc, host, notify, orch, statusbar, update, usage,
+               worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
 
@@ -1566,22 +1567,6 @@ def wait_mark(name, wait, **marks):
         return False
 
 
-def announce(session, word):
-    """Put the word on that seat's own status bar and terminal title; True where it landed.
-
-    Said every time rather than only on a change, because `set-option` is the whole of it:
-    a bar a failed set left empty, and a seat tmux lost and was given again under the same
-    name, both come right on the next screen that says this word rather than waiting for it
-    to change.  agentkit's own server only: a legacy seat is on the user's default server,
-    and nothing here writes an option there.
-    """
-    if session.get("legacy"):
-        return False
-    rc, _ = orch.tmux_out("set-option", "-t", session["name"], orch.STATE_OPTION, word,
-                          socket=orch.socket_name())
-    return rc == 0
-
-
 def live_state(session, harness=None, pane=None, cfg=None, now=None):
     """Classify one live seat, persist what it is doing, and say what decided it.
 
@@ -1827,9 +1812,7 @@ def announce_state(session, cfg=None, look=False, **facts):
                 or previous.get("word_since") != answer["since"]):
             seat_write(name, word=answer["word"], reason=answer["reason"],
                        word_since=answer["since"])
-        announce(session, answer["word"])
-        from . import menu as menu_mod    # here, not at the top: the menu imports this module
-        menu_mod.redress(session, answer, cfg=cfg, records=facts.get("records"))
+        statusbar.redress(session, answer, cfg=cfg)
     return answer
 
 
@@ -3162,20 +3145,18 @@ def health(cfg, state, dry_run, log):
     from . import run as run_mod     # ... and recover_runs keeps its own
     poll_worker_token(state)   # each declared worker token, once a day: every seat reads the warning
     stalls, seats = state["stalls"], orch.sessions()
-    # one pass over run.json serves every live seat's bar; a failed read writes
-    # nothing, so a transient failure never wipes a correct bar
-    records = []
+    # one pass over run.json serves every live seat; a failed read is None, never a seat
+    # with no runs
     try:
         records = menu_mod.run_records()
-        tallies = run_mod.seat_tallies(state for _, state in records)
     except (config.Error, OSError, ValueError):
-        tallies = None
+        records = None
     # What each seat's runs are parked on, oldest first: the harness, when it parked and what
     # it said.  The seat that launched one has to read the login it waits for even when it
     # runs another harness itself, and the run being parked is the whole of the evidence --
     # `resume_waiting_login` is what asks the verb again, and what unparks it.
     parked_for = {}
-    for _, record in records:
+    for _, record in records or ():
         if (record.get("state") != "waiting_login" or not record.get("waiting_for")
                 or record.get("login_back_at")):
             continue        # back already: being resumed, and no login for anybody to fix
@@ -3247,14 +3228,6 @@ def health(cfg, state, dry_run, log):
                 live = ({} if blank or dry_run or session.get("exited")
                         else live_state(session, harness, pane=pane, cfg=cfg))
             at_prompt = (live or seat_read(name)).get("state") == "at_prompt"
-            if (not blank and not dry_run and not session.get("exited")
-                    and not session.get("legacy") and tallies is not None):
-                # the belt: whatever a run said or died without saying, the seat's own bar
-                # carries the pass's tally, one live seat at a time
-                queued = [record for _, record in records if record.get("state") == "queued"
-                          and run_mod.launched_session(record) == name]
-                orch.set_runs(name, menu_mod.bar_tally(
-                    tallies.get(name), queued, menu_mod.seat_estimate(name, session=session)))
             # Whether a login is expired is the `auth` verb's answer and never the pane's: a
             # pane showing that harness's own logout words is a trigger, and makes the verb
             # run again this pass rather than deciding anything itself.  That is the whole of
@@ -3363,8 +3336,7 @@ def health(cfg, state, dry_run, log):
                     log(f"{name}: moving again")
                 if not stuck_on(harness, tail, name):
                     stalls.pop(name, None)
-                    stop_nudge(session, harness, pane, notice,
-                               records if tallies is not None else None, dry_run, log)
+                    stop_nudge(session, harness, pane, notice, records, dry_run, log)
                     continue
                 if entry.get("pane") != pane:
                     entry = stalls[name] = {"kind": "quiet", "pane": pane, "since": now}
@@ -3481,7 +3453,7 @@ def health(cfg, state, dry_run, log):
                                harness=harness, auth_out=state.get("auth_out") or {},
                                gh_out=state.get("gh_out") or {},
                                token_out=state.get("worker_tokens"),
-                               records=records if tallies is not None else None)
+                               records=records)
 
 
 # --- silent runs: the tick recovers what the loop cannot --------------------

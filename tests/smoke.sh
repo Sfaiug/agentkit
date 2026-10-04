@@ -3788,7 +3788,7 @@ PY
 
 # --- 20e: the menu as a popup inside a seat (offline, real tmux seats) --------
 # Every seat `ak orch` starts is dressed on the way up, out of agentkit's own tmux config and
-# never the user's ~/.tmux.conf: a one-line status bar, and `Ctrl-b m` bound to the same menu in
+# never the user's ~/.tmux.conf: a two-line status bar, and `Ctrl-b m` bound to the same menu in
 # a `display-popup` sized for the client that presses it -- the whole screen on a phone, 80% by
 # 70% anywhere larger. Two seats holding a `sleep` stand in for two orchestrators, and a second
 # tmux server on a socket of its own is the terminal that attaches one of them -- a popup needs
@@ -3820,15 +3820,19 @@ config.save_session(cfg, sys.argv[2], "astra", ["opus"])
 orch.start(sys.argv[1], "/tmp", ["sleep", "600"], "fable")
 orch.start(sys.argv[2], "/tmp", ["sleep", "600"], "astra")
 PY
-# the status bar, set on the sessions themselves and on nothing else. Both halves are
-# plain text: the name and the orchestrator until the first classification, the one key on
-# the right, the name as the title. The tick and every menu draw rewrite them through the
-# one writer; a rename writes them at once. What they come to on screen is asserted
-# further down.
-[ "$(ovtmux show-options -t "$OV1" -v status 2>/dev/null)" = on ] || OVERLAY=1
-[ "$(ovtmux show-options -t "$OV1" -v status-left 2>/dev/null)" = " $OV1 · fable " ] || OVERLAY=1
-[ "$(ovtmux show-options -t "$OV2" -v status-left 2>/dev/null)" = " $OV2 · astra " ] || OVERLAY=1
-[ "$(ovtmux show-options -t "$OV1" -v status-right 2>/dev/null)" = " Ctrl-b m  menu " ] || OVERLAY=1
+# the status bar, set on the sessions themselves and on nothing else: two lines, its text in
+# options the bar's formats draw -- the name and who orchestrates it, in its company's colour,
+# until the first classification, the one key at the right of line two, the name as the title.
+# The tick and every menu draw rewrite them through the one writer; a rename writes them at
+# once. What they come to on screen is asserted further down.
+[ "$(ovtmux show-options -t "$OV1" -v status 2>/dev/null)" = 2 ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV1" -v status-style 2>/dev/null)" = default ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV1" -v @ak_top 2>/dev/null)" \
+  = " #[bold]$OV1#[nobold]  #[fg=#D97757]fable#[fg=#6c7086] orchestrates#[default]" ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV2" -v @ak_top 2>/dev/null)" \
+  = " #[bold]$OV2#[nobold]  #[fg=default]astra#[fg=#6c7086] orchestrates#[default]" ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV1" -v @ak_key 2>/dev/null)" \
+  = "Ctrl-b m#[fg=#6c7086]  menu #[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v set-titles-string 2>/dev/null)" = "$OV1" ] || OVERLAY=1
 # the binding and the three server options, out of agentkit's own file and into the server
 grep -q '^bind-key m if-shell -F .*display-popup -E -w 100% -h 100% .*attach --overlay.*display-popup -E -w 80% -h 70% .*attach --overlay' \
@@ -3872,12 +3876,12 @@ for _ in $(seq 1 30); do
   OVWHERE=$(ovtmux list-clients -F '#{session_name}' 2>/dev/null | grep -c "^$OV2\$")
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-after.txt" 2>/dev/null
   [ "$OVWHERE" = 1 ] && ! grep -q 'n start a session' "$WORK/overlay-after.txt" &&
-    grep -q "$OV2 · astra" "$WORK/overlay-after.txt" && break
+    grep -q "$OV2  astra orchestrates" "$WORK/overlay-after.txt" && break
   sleep 1
 done
 [ "$OVWHERE" = 1 ] || OVERLAY=1
 grep -q 'n start a session' "$WORK/overlay-after.txt" && OVERLAY=1        # the popup came down with it
-grep -q "$OV2 · astra" "$WORK/overlay-after.txt" || OVERLAY=1   # the seat's own status bar
+grep -q "$OV2  astra orchestrates" "$WORK/overlay-after.txt" || OVERLAY=1   # its own bar
 ovhost kill-server 2>/dev/null
 ovtmux kill-server 2>/dev/null
 [ "$OVERLAY" = 0 ] && ok "20e Ctrl-b m: the popup drew both seats under the overlay's own keys, 2 switched the client to smoke-ov-2 and closed the popup behind it; each seat carried the status bar agentkit's own tmux.conf dressed it with" \
@@ -4039,10 +4043,10 @@ akp() { "${PENV[@]}" ak "$@"; }
   >"$WORK/name-nopin.log" 2>&1 || NAME=1
 jq -e '.resumable == false and (has("conversation") | not)' \
   "$NH/.agentkit/state/session-nopin-seat.json" >/dev/null 2>&1 || NAME=1
-tm show-options -t nopin-seat -v status-right 2>/dev/null \
-  | grep -q 'Ctrl-b m  menu' || NAME=1
-tm show-options -t pair-one -v status-right 2>/dev/null \
-  | grep -q 'Ctrl-b m  menu' || NAME=1    # every seat carries the one key
+tm show-options -t nopin-seat -v @ak_key 2>/dev/null \
+  | grep -q '^Ctrl-b m#\[fg=#6c7086\]  menu ' || NAME=1
+tm show-options -t pair-one -v @ak_key 2>/dev/null \
+  | grep -q '^Ctrl-b m#\[fg=#6c7086\]  menu ' || NAME=1    # every seat carries the one key
 SLUGX=$(printf '%s' "$NNOPIN" | sed 's/[^A-Za-z0-9]/-/g')
 mkdir -p -- "$NH/.claude/projects/$SLUGX"
 printf '{"type":"mode"}\n' >"$NH/.claude/projects/$SLUGX/conv-later.jsonl"   # somebody else's
@@ -4080,8 +4084,8 @@ jq -e '.resumable == false and (has("conversation") | not)' \
 akp orch old-seat >"$WORK/name-old-open.log" 2>&1 || NAME=1
 grep -q "^orch: resuming old-seat on fable in $NOLD (no conversation recorded; it starts fresh)\$" \
   "$WORK/name-old-open.log" || NAME=1
-tm show-options -t old-seat -v status-right 2>/dev/null \
-  | grep -q 'Ctrl-b m  menu' || NAME=1
+tm show-options -t old-seat -v @ak_key 2>/dev/null \
+  | grep -q '^Ctrl-b m#\[fg=#6c7086\]  menu ' || NAME=1
 grep -rqF conv-5555 "$NH/.agentkit/state" 2>/dev/null && NAME=1
 # (f5) and `stop` ends that seat once tmux has lost it too: what holds a name is the record,
 # so stopping takes the record and the names the seat was renamed from whether or not there is

@@ -51,9 +51,10 @@
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
-- `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`. Also owns run listing
-  (`run_records`, `tally`) and the seat status bar (`redress`) that watch, run, orch and
-  notify import. Leaks: provider colour and name tables; reads `usage.json` itself.
+- `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`,
+  `tally`) and a seat's last column, for watch, run, orch, notify, statusbar. Leaks:
+  provider colour and name tables; reads `usage.json` itself.
+- `statusbar.py`: a seat's two tmux status lines; for orch, watch.
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,
   manifests, seat records, rename chain, `SEAT_FILES`, child env. Used by nearly everything.
 - `worker.py`: headless turns, preambles, review, adapters, silence, auth, cleanup.

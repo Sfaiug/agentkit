@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, terminal
+from agentkit import config, menu, orch, run, statusbar, terminal
 from agentkit import record
 from test_v4n import menu_input
 
@@ -136,13 +136,13 @@ class Back(unittest.TestCase):
                          [call.args[0] for call in read.call_args_list])
 
     def test_v5u_status_bar_names_the_one_key(self):
-        self.assertEqual(orch.HINT, "Ctrl-b m  menu")
-        left, right, _ = orch.bar("herdr", "fable", "working", "tasks x 2/5")
-        self.assertEqual(right, " Ctrl-b m  menu ")
-        self.assertNotIn("Ctrl-b d", right)
-        self.assertNotIn("back to menu", right)
-        self.assertNotIn("menu here", right)
-        self.assertNotIn("Ctrl-b d", left)
+        self.assertEqual(statusbar.HINT, "Ctrl-b m  menu")
+        top, _, key, _ = statusbar.lines("herdr", "fable", "#D97757", "working", "tasks x 2/5")
+        self.assertEqual(key, "Ctrl-b m#[fg=#6c7086]  menu #[default]")
+        self.assertNotIn("Ctrl-b d", key)
+        self.assertNotIn("back to menu", key)
+        self.assertNotIn("menu here", key)
+        self.assertNotIn("Ctrl-b d", top)
 
     def test_v5u_no_enter_to_go_back_in_menu(self):
         self.assertNotIn("Enter to go back", (REPO / "agentkit" / "menu.py").read_text())

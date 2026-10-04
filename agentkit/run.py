@@ -6229,7 +6229,7 @@ def mark_state(run_dir, name, error=None, log=None):
         return run_record.read_state(run_dir) or state
     history_finish(state, log)
     try:
-        refresh_seat_tally(launched_session(state))   # every state change lands on the bar
+        redress_seat(launched_session(state))   # every state change lands on the bar
     except config.Error:
         pass
     return state
@@ -6747,31 +6747,6 @@ def speaking_for(state):
             os.environ.pop(notify.SINK_ENV, None)
         else:
             os.environ[notify.SINK_ENV] = previous
-
-
-def refresh_seat_tally(session):
-    """Put that seat's run tally on its own status bar, in the menu's words.
-
-    The bar counts what the seat's menu row counts -- runs still queued or running,
-    then endings nobody has acknowledged, both through `menu.bar_tally` over the
-    same records, so the two never disagree.  Merges and empty seats the row shows
-    another way, so the bar shows them no way at all.  Only the seat that launched
-    the run is ever written, and its bar is rewritten too (`redress_seat`).  Best-effort:
-    the run's state on disk is what matters, never the bar.
-    """
-    if not session:
-        return
-    try:
-        from . import menu  # here, not at the top: the menu draws without the loop
-        records = list(menu.run_records())
-        tallies = seat_tallies(state for _, state in records)
-        queued = [state for _, state in records
-                  if state.get("state") == "queued" and launched_session(state) == session]
-        orch.set_runs(session, menu.bar_tally(
-            tallies.get(session), queued, menu.seat_estimate(session)))
-    except (config.Error, OSError, ValueError):
-        pass
-    redress_seat(session)
 
 
 def redress_seat(session):
@@ -7740,7 +7715,7 @@ def wait_for_slot(run_dir):
             run_record.save_state(run_dir, state)
         if not announced:
             print(slot_note(state), flush=True)
-            refresh_seat_tally(state.get("launched_session"))
+            redress_seat(state.get("launched_session"))
             announced = True
         time.sleep(SLOT_POLL)
     if state.get("slot_waited"):
@@ -7755,7 +7730,7 @@ def wait_for_slot(run_dir):
             fh.seek(0)
             fh.write(line + content)
         print(line.rstrip(), flush=True)
-    refresh_seat_tally(state.get("launched_session"))
+    redress_seat(state.get("launched_session"))
     return state
 
 
@@ -8149,7 +8124,7 @@ def conclude_memory_cap(run_dir, state, reason):
     stop_run_tree(state, wait=True)
     history_finish(state)
     try:
-        refresh_seat_tally(launched_session(state))
+        redress_seat(launched_session(state))
     except config.Error:
         pass
     return state
@@ -10222,7 +10197,7 @@ def cmd_stop(argv):
         run_record.save_state(run_dir, current)
         history_finish(current, log)
         try:
-            refresh_seat_tally(launched_session(current))
+            redress_seat(launched_session(current))
         except config.Error:
             pass
         try:
@@ -10483,7 +10458,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
         state.pop("slot_healthy_polls", None)
         run_record.save_state(run_dir, state)
     history_start(state)
-    refresh_seat_tally(session_at_launch)   # the seat's bar counts it from the start
+    redress_seat(session_at_launch)   # the seat's bar says it from the start
 
 
 def launch_line(run_id, title, executor, reviewer, *, self_review=None):
@@ -10739,11 +10714,11 @@ def finish(state, run_dir, log, cfg=None):
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the follow-ups
         log(f"WARN could not start follow-ups: {exc}")
     try:
-        refresh_seat_tally(launched_session(state))   # the ending lands on the bar too
+        redress_seat(launched_session(state))   # the ending lands on the bar too
     except run_record.StopRequested:
         raise
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the bar
-        log(f"WARN could not refresh seat tally: {exc}")
+        log(f"WARN could not redraw the seat's bar: {exc}")
     announce(state, run_dir, log, cfg)
     history_finish(state, log)
     settle_run(run_record.read_state(run_dir) or state, run_dir, log)

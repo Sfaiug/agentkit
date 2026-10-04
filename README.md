@@ -45,7 +45,7 @@ A session is one of three things, and nothing else:
 ✓ done        it said so, and the row carries its summary
 ```
 
-The word moves when the session's harness starts or ends a turn or asks something: at once on the session's own tmux bar, which names its orchestrator and workers (`ak-verification · opus → opus astra · ● working · tasks ████░░░░ 4/8`), and within two seconds on an open menu. Runs update it at each step, round and ending, waiting at most one second for tmux; the next tick or step retries.
+The word moves when the session's harness starts or ends a turn or asks something: at once on the session's own two-line tmux bar, which opens with the word and says who orchestrates (`● working  ak-verification  opus orchestrates   tasks ████░░░░ 4/8`), with the question or summary and `Ctrl-b m  menu` on the line under it, and within two seconds on an open menu. Runs update it at each step, round and ending, waiting at most one second for tmux; the next tick or step retries.
 
 Notices with no state in the harness's manifest leave the last hook fact alone: a running turn stays working, and an ended turn stays at its prompt.
 
