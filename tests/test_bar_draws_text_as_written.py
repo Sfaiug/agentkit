@@ -1,5 +1,5 @@
 """A seat's bar draws what it says as it was said: a `#`, a `%` or a `#{…}` in a question, a
-summary or a tasks bar is text, never a format, a style or a time.
+summary, a tasks bar or a seat's name is text, never a format, a style or a time.
 
 Runs tmux itself: the seat on a server of its own, and a client attached to it in a pane of a
 second server, whose screen is read back as a person would see it.
@@ -63,6 +63,18 @@ class AsWritten(Sandbox):
         statusbar._write("fix-api", "fable", "working", bar, self.cfg)
         self.assertTrue(self.screen(bar)[0].rstrip().endswith("fable orchestrates   " + bar),
                         self.screen(bar))
+
+    def test_c_a_seat_s_window_title_keeps_its_name_as_it_is(self):
+        # a seat made by hand on ak's server keeps whatever name it was given
+        self.assertEqual(orch.tmux_out("rename-session", "-t", "=fix-api:", "fix-%H")[0], 0)
+        statusbar._write("fix-%H", "fable", "working", "", self.cfg)
+        self.screen("fix-%H")
+        for _ in range(50):
+            title = self.view("display-message", "-p", "-t", "=view:", "#{pane_title}").strip()
+            if title == "fix-%H · working":
+                break
+            time.sleep(.1)
+        self.assertEqual(title, "fix-%H · working")
 
 
 if __name__ == "__main__":

@@ -79,7 +79,9 @@ def lines(name, model, colour, word=None, last=""):
     why = f"  {orch.tmux_text(last)}" if word != "working" and last else ""
     key, verb = (CLOSE_HINT if word == "done" else HINT).split("  ", 1)
     title = f"{name} · {word}" if word else name
-    return top, why, f"{key}#[fg=#{DIM}]  {verb} #[default]", orch.tmux_text(title)
+    # tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
+    return (top, why, f"{key}#[fg=#{DIM}]  {verb} #[default]",
+            orch.tmux_text(title).replace("%", "%%"))
 
 
 def dress(name, model):
