@@ -424,9 +424,9 @@ class Lander(LanderFixture, unittest.TestCase):
     def test_a_sharded_suite_holds_derived_turns_without_claiming_its_member(self):
         pieces = self.root / "pieces"
         suite = f'printf "%s\\n" "$AK_SHARD" >> "{pieces}" && {SUITE}'
-        directory = self.member(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        directory = self.member()
         original = record.read_state(directory)
-        self.advance()
+        self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
         (config.HOME / config.CONFIG_NAME).write_text("max_gates = 9\n")
 
         def check(cmds, cwd, log_path, *args, **kw):
