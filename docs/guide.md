@@ -44,7 +44,7 @@ window title is `<name> · <state>`. Agentkit's tmux config is `~/.agentkit/stat
 
 Every seat compacts alike, whatever its harness: 55 minutes after the last turn on Claude Code (its prompt cache lasts an
 hour), 30 on the others, with the context at or above 40,000 tokens, the harness's own compact command is typed once at a
-quiet prompt. Only a new turn resets that clock, never a key, click, pointer motion, focus, attach or resize. Claude's draft
+quiet prompt: never while the seat's own hooks say a turn is running or a question is up, or its record reads a question, however old the last turn's end. Only a new turn resets that clock, never a key, click, pointer motion, focus, attach or resize. Claude's draft
 is stashed (Ctrl+S) first and comes back after; with no stash key, a seat whose record reads a draft is not typed into.
 Workers never compact, nor does a harness with no compact command or no reported context size; `ak orch list --why` says why.
 
