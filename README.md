@@ -104,7 +104,7 @@ Claude question dialogs stay `needs you` even during an open turn or while a mes
 
 ## Never needed
 
-Choosing a project. Editing config. Merging. Cleaning up: a stopped session leaves nothing of itself behind, and a daily pass takes every checkout (including landing checkouts left by a crash), seat file and harness trust entry nothing uses any more. Restarting anything. Reading a manual. The whole help fits on one screen.
+Choosing a project. Editing config. Merging. Cleaning up: a stopped session leaves only its stop mark and locks until a daily pass takes them, and that pass takes every checkout (including landing checkouts left by a crash), seat file and harness trust entry nothing uses any more. Restarting anything. Reading a manual. The whole help fits on one screen.
 
 The collector also removes your `/tmp` entries after two days without changes and ended Claude sessions' scratch folders after one day. A repository's `TMPDIR` directly under `/var/tmp` is collected the same way; any other value is skipped. Dot entries, `tmux-*`, `systemd-private-*`, other users' files and paths held open or used as a working directory stay. Both modification and inode-change times count toward age. Claude's live process records protect its current conversations; a client without a matching record keeps all scratch. Hidden process handles are inspected read-only with the host's noninteractive `sudo`; if that inspection fails, `/tmp` cleanup waits. `ak run gc --dry-run` previews removals; automatic removals appear in `~/.agentkit/state/gc.log`.
 
