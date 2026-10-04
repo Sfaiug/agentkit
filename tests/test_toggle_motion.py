@@ -74,6 +74,11 @@ motion.glowing = held_glow
 
 class Screens(unittest.TestCase):
     def setUp(self):
+        # LIT is the 256-colour code: the child screens must not inherit a true-colour terminal
+        # from whoever runs the suite (COLORTERM, or tmux reporting RGB through TMUX).
+        self.enterContext(patch.dict(os.environ))
+        for name in ("COLORTERM", "TMUX", "TMUX_PANE"):
+            os.environ.pop(name, None)
         create = Screen
         self.enterContext(patch(__name__ + ".Screen", side_effect=lambda *args, child=CHILD,
                                **kwargs: create(*args, child=child.replace(
