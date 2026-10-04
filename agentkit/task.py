@@ -1,11 +1,11 @@
-"""The task file: front matter, title, `after:` lines, done-when commands and size."""
+"""The task file: front matter, title, done-when commands and size."""
 
 import re
 
 from . import config
 
-AFTER_KEY = "after"  # front matter `after:` names another task file in the same job
-# Retired time keys stay readable so the loop can warn about them in older tasks.
+# Retired keys stay readable so older run copies still parse: `after:` is refused at launch
+# (`launch_refusal`), the time keys draw a warning.
 TASK_KEYS = ("after", "base", "done_when_minutes", "files", "from", "merge", "repo",
              "rounds", "stall_minutes", "target", "turn_hours")
 TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re-scope
@@ -17,7 +17,7 @@ ONCE_MARKER = re.compile(r"#\s*once\s*$")
 def front_matter(path):
     """(pairs, body): each front-matter `key: value` in file order, and the text after it.
 
-    A key may repeat, so `after:` and `files:` keep every line; a `#` starts a comment.
+    A key may repeat, so `files:` keeps every line; a `#` starts a comment.
     Unknown keys, lines that are not `key: value` and missing closing lines are task errors.
     """
     text = path.read_text()
@@ -44,16 +44,6 @@ def parse_task(path):
     pairs, body = front_matter(path)
     title = next((l[2:].strip() for l in body.splitlines() if l.startswith("# ")), path.stem)
     return dict(pairs), body, title
-
-
-def task_afters(path):
-    """`after:` values from a task file's front matter, one per line, repeatable.
-
-    Each line names the basename or title of another task file in the same job;
-    a comma-separated line names several. Blank values are ignored.
-    """
-    return [part.strip() for key, value in front_matter(path)[0] if key == AFTER_KEY
-            for part in value.split(",") if part.strip()]
 
 
 def task_files(path):
@@ -141,6 +131,14 @@ def task_words(body):
 def task_size(body, cmds):
     """(words outside the checks block, numbered goal points, checks) for one task."""
     return task_words(body), task_points(body), len(cmds)
+
+
+def launch_refusal(meta):
+    """One sentence when a new task file cannot start as written, else None."""
+    if "after" in meta:
+        return ("`after:` is gone: tasks launched together are independent pieces; build work "
+                "that waits on another piece in your session, in order")
+    return rounds_refusal(meta.get("rounds"), "task rounds")
 
 
 def rounds_refusal(value, what):

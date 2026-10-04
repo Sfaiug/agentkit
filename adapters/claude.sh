@@ -145,8 +145,12 @@ interactive)
     echo "claude.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf -- '--append-system-prompt-file %q ' "$rb")
   # trust.py marks the session's directory trusted first, so the TUI opens on the prompt
-  # instead of the "do you trust this folder?" dialog (whose default is "No, exit")
-  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR python3 %q claude -- ' "$REPO/tools/trust.py"
+  # instead of the "do you trust this folder?" dialog (whose default is "No, exit").
+  # CLAUDE_CODE_DISABLE_AGENT_VIEW keeps the conversation in this seat: with Claude's
+  # background daemon on, `/background` moved a seat's conversation into a daemon process that
+  # carried whichever seat had started the daemon, so its hooks and `ak` commands spoke for
+  # that other seat and its resume reopened the conversation from before the move.
+  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 python3 %q claude -- ' "$REPO/tools/trust.py"
   # Seat preparation runs in the seat's actual cwd, after trust.py, and before the TUI:
   # bypass permissions and the answered auto-mode offer, on either login.
   printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"

@@ -34,6 +34,7 @@ class LanderFixture:
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "",
             "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            "AK_HOST_READINGS": json.dumps({"cpus": 16, "load": 0, "free_mb": 16000}),
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
         for name in ("HOME", "RUNS", "JOBS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
@@ -127,6 +128,24 @@ class Lander(LanderFixture, unittest.TestCase):
         with patch.object(land.time, "time", return_value=now + land.KEEP + 1):
             for tree in ("a", "b"):
                 self.assertIsNone(land.passed(self.turn, tree))
+
+    def assert_a_shared_tree_runs_each_tasks_own_checks(self):
+        head = self.member("head", once="true")
+        tail = self.member("tail", joined=2, once="test -f acceptance.txt")
+        self.advance()
+        land.check_line(self.turn)
+        land.check_line(self.turn)
+        tree = self.wait(head)["land"]
+        self.assertEqual(Path(self.wait(tail)["fix"]["log"]).name, f"lander-{tree}.log")
+        self.assertIn("test -f acceptance.txt", [cmd for cmds, _, _ in self.checks for cmd in cmds])
+        self.assert_cleaned()
+
+    def test_a_tree_checked_in_the_same_pass_still_runs_another_tasks_checks(self):
+        self.assert_a_shared_tree_runs_each_tasks_own_checks()
+
+    def test_a_tree_green_from_an_earlier_pass_still_runs_another_tasks_checks(self):
+        with patch.object(gate, "derived_heavy_limit", return_value=1):
+            self.assert_a_shared_tree_runs_each_tasks_own_checks()
 
     def test_join_order_one_check_and_only_the_parked_verdict_changes(self):
         later = self.member("a-later", 20)
@@ -326,12 +345,25 @@ class Lander(LanderFixture, unittest.TestCase):
     def test_one_pass_per_line(self):
         self.member()
         self.advance()
-        with self.turn.open("a") as lock:
+        with self.turn.with_suffix(".lander.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             land.check_line(self.turn)
         self.assertEqual(self.checks, [])
         self.wake.assert_not_called()
         land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.wake.assert_called_once()
+
+    def test_a_delivery_does_not_block_a_pass(self):
+        directory = self.member()
+        self.advance()
+        lp = SimpleNamespace(wt=self.repo, state={}, write=lambda: None)
+        with run.merge_lock(lp, "origin/main"):
+            land.check_line(self.turn)
+            self.assertIn("land", self.wait(directory))
+            with self.turn.open("a") as probe:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
         self.assertEqual(len(self.checks), 1)
         self.wake.assert_called_once()
 

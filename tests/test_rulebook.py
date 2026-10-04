@@ -26,8 +26,8 @@ MINIMUM = "Minimum change that solves the task completely; the best part is no p
 PHRASES = ("the best part is no part", "Less is more", "brutal elimination", "the least possible steps")
 RULES = (("Understand first", "unknown knowns, "),
          ("Understand first", "show options or a small prototype and let them react"),
-         ("Decide and delegate", "Three rounds is the budget: a task never sets `rounds`."),
-         ("Decide and delegate", "only when a default is wrong (`repo`, `from`, `after`)"),
+         ("Decide and delegate", "Three rounds is the budget; ak refuses more."),
+         ("Decide and delegate", "only when a default is wrong (`repo`, `from`)"),
          ("Decide and delegate", "never `done_when_minutes`"),
          ("Decide and delegate", "Runs already going are never stopped for a process change"),
          ("Decide and delegate", "`ak run stop <id> --keep` and a relaunch with `from: <branch>`, "

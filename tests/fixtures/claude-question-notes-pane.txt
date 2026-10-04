@@ -1,0 +1,45 @@
+
+ ▐▛███▛█   Claude Code v2.1.289
+▝▜██████▀  Haiku 4.5 · Claude Max
+ ▝▝   ▝▝   /…/fixture-workspace
+
+
+❯ Call your AskUserQuestion tool exactly once with one question "Which wording?" header "Wording" and two options, each with a "preview" field: 
+  option "Both lines" preview "line one", option "One line" preview "line two". Then stop.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Wording 
+
+Which wording?
+
+  1. Both lines                   ┌──────────────────────────────────────────┐
+❯ 2. One line                     │ line two                                 │
+                                  └──────────────────────────────────────────┘
+
+                                  Notes: keep it short
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · ctrl+g to edit in Vim · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

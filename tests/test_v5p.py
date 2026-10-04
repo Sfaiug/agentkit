@@ -69,7 +69,7 @@ class V5p(unittest.TestCase):
     def fake_tmux(self, panes):
         self.panes = list(panes)
 
-        def out(*args, socket=None, client=False):
+        def out(*args, socket=None, client=False, **_kw):
             if args[0] == "send-keys":
                 self.events.append(("send", args))
                 return 0, ""

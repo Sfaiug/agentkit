@@ -45,7 +45,8 @@ class SeatNameAsked(Sandbox):
             if entry == "menu":
                 name = menu.new_session(self.cfg, False)
             else:
-                self.assertEqual(orch.main([]), 0)
+                with patch.object(orch, "typed_here", return_value=True):
+                    self.assertEqual(orch.main([]), 0)
                 name = orch.attach.call_args.args[0] if orch.attach.called else None
         return name, out.getvalue()
 
@@ -323,7 +324,7 @@ class SeatNameAsked(Sandbox):
         self.start("menu", "\n\n\n")
         self.rules.clear()
         with patch.object(terminal, "readline", side_effect=AssertionError("unexpected question")), \
-                redirect_stdout(io.StringIO()):
+                patch.object(orch, "typed_here", return_value=True), redirect_stdout(io.StringIO()):
             self.assertEqual(orch.main(["new", "--model", "opus", "--workers", "astra"]), 0)
             self.assertTrue(orch.ensure(self.cfg, "acme", log=lambda _: None))
         for name in ("new", "acme"):

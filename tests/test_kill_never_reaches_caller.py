@@ -90,6 +90,12 @@ def carries(pid, run_id):
         return False
     return f"AGENTKIT_RUN={run_id}".encode() in env
 
+def sleeping(pid):
+    try:
+        return Path(f"/proc/{pid}/comm").read_text().strip() == "sleep"
+    except OSError:
+        return False
+
 run_id = os.environ["AGENTKIT_RUN"]
 chain = lineage(os.getpid())
 subprocess.Popen(
@@ -97,10 +103,12 @@ subprocess.Popen(
     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 deadline = time.monotonic() + 3
 raw, outside = [], []
+# `setsid` forks the sleeper and exits: wait for the sleeper itself, not the setsid
+# before its fork, or the sweep meets a marked process the spy never allowed.
 while time.monotonic() < deadline:
     raw = worker.marked_pids(run_id)
     outside = [pid for pid in raw if pid not in chain]
-    if outside:
+    if any(sleeping(pid) for pid in outside):
         break
     time.sleep(0.05)
 report = {

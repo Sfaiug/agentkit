@@ -80,8 +80,7 @@ class DeliveryWait(unittest.TestCase):
 
         with path.open("a") as holder:
             flock(holder, fcntl.LOCK_EX)
-            with patch.object(run, "wait_for_dependency", return_value=True), \
-                    patch.object(run, "pickup_new_code", return_value=False), \
+            with patch.object(run, "pickup_new_code", return_value=False), \
                     patch.object(run, "fetch", return_value=(0, "")), \
                     patch.object(run.fcntl, "flock", side_effect=observe_wait):
                 waiter = threading.Thread(target=land, daemon=True)

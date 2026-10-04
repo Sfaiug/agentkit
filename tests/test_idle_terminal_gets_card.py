@@ -27,7 +27,7 @@ class IdleTerminalGetsCard(Sandbox):
         self.stack.enter_context(patch.object(notify, "post", side_effect=self.post))
         self.stack.enter_context(patch.object(notify, "close_needs", side_effect=self.close))
 
-    def tmux(self, *args, socket=None):
+    def tmux(self, *args, socket=None, **_kw):
         self.assertEqual(socket, orch.seat_socket(self.seat))
         self.assertEqual(args[:2], ("list-clients", "-t"))
         target = args[2].removeprefix("=")

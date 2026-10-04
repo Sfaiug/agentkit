@@ -1,7 +1,7 @@
 """Several task files are one job (v5q): its receipt, its scheduler and each task's ladder.
 
-`ak run a.md b.md` writes the job's receipt and starts each task as an ordinary run once its
-`after:` tasks landed, waits out spent budget and logins, finishes a passed task's delivery or
+`ak run a.md b.md` writes the job's receipt and starts each task as an ordinary run, waits
+out spent budget and logins, finishes a passed task's delivery or
 reruns a failed one once, and hands the job's line back to the seat that launched it.  A run
 itself is `run`'s, called through the module so a test that patches the loop patches it here.
 """
@@ -22,10 +22,8 @@ JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at 
 JOB_TICK = 2              # seconds between scheduler passes over the job receipt
 OWNER_WORDS_BYTES = 64 * 1024  # spend the receipt's UTF-8 JSON budget on the newest words
 JOB_TERMINAL = ("merged", "passed", "failed", "blocked", "skipped", "stopped")
-# What a dependant cannot build on: `after:` skips behind either, because a task whose own
-# work never landed leaves the next one nothing to stand on -- a blocked one counts as failed
-# there exactly as the spec asks, while keeping its own word on the log and the status block.
-# A stopped one is the same: deliberately ended, so nothing to stand on.
+# A task whose work never landed: the job ends nonzero. A blocked or stopped one keeps its own
+# word on the log and the status block.
 JOB_UNDELIVERED = ("failed", "blocked", "stopped")
 _JOB_MUTE = threading.local()  # per-thread job quiet: announce/notify_recovery read it, never swap it
 
@@ -137,14 +135,6 @@ def job_scheduler_owns(run_id, state):
         return False  # an old receipt with no pid to check owns nothing live
 
 
-def job_resolve_after(raw, tasks, task_path):
-    """Match one `after:` value to another task file in the job, by basename or title."""
-    for cand in tasks:
-        if raw in (cand["name"], cand.get("stem"), cand.get("title")):
-            return cand["name"]
-    raise config.Error(f"{task_path}: after {raw!r} matches no other task file in the job")
-
-
 def job_make_id(first_title):
     stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
     base = f"{stamp}-{run.slugify(first_title)}"
@@ -225,16 +215,16 @@ def job_create(cfg, task_paths, opts, parallel):
         # start beside it regardless, the way a single run does
         cmds = taskfile.done_when(body, path)
         infos.append({"path": path, "meta": meta, "title": title, "stem": path.stem,
-                      "name": path.name, "cmds": cmds, "after_raw": taskfile.task_afters(path)})
+                      "name": path.name, "cmds": cmds})
     seen = {}
     for info in infos:
         if info["name"] in seen:
             raise config.Error(f"{info['path']}: another task file in the job is already called "
-                               f"{info['name']!r} ({seen[info['name']]}); the job keys tasks, "
-                               "threads and `after:` on that basename, so rename one")
+                               f"{info['name']!r} ({seen[info['name']]}); the job keys tasks "
+                               "and threads on that basename, so rename one")
         seen[info["name"]] = info["path"]
     for info in infos:
-        refusal = taskfile.rounds_refusal(info["meta"].get("rounds"), "task rounds")
+        refusal = taskfile.launch_refusal(info["meta"])
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
         run.repo_line(info["meta"], info["path"])
@@ -256,27 +246,6 @@ def job_create(cfg, task_paths, opts, parallel):
                     f"{info['path']}: this looks already under way: {first['id']} ({seat}, "
                     f"started {started}, \"{first['title']}\") shares {detail}; wait for "
                     "it, or add --anyway to start a second run")
-    for info in infos:
-        info["after"] = [job_resolve_after(dep, infos, info["path"]) for dep in info["after_raw"]]
-        if info["name"] in info["after"]:
-            raise config.Error(f"{info['path']}: a task cannot be after itself")
-    # a dependency cycle never starts: it would wait forever
-    visiting, done = set(), set()
-
-    def visit(name, chain):
-        if name in done:
-            return
-        if name in visiting:
-            raise config.Error(f"tasks are after one another in a circle: {' -> '.join([*chain, name])}")
-        visiting.add(name)
-        task = next(t for t in infos if t["name"] == name)
-        for dep in task["after"]:
-            visit(dep, [*chain, name])
-        visiting.discard(name)
-        done.add(name)
-
-    for info in infos:
-        visit(info["name"], [])
     seat = config.current_session()
     with notify.session_lock(seat) if seat else nullcontext() as held:
         seat = held or seat
@@ -290,8 +259,7 @@ def job_create(cfg, task_paths, opts, parallel):
                "opts": {key: opts.get(key) for key in ("--rounds", "--exec", "--review",
                                                        "--no-merge", "--no-worktree", "--anyway",
                                                        "--first")},
-               "tasks": [{"name": info["name"], "title": info["title"], "after": info["after"],
-                          "state": "queued" if not info["after"] else "waiting",
+               "tasks": [{"name": info["name"], "title": info["title"], "state": "queued",
                           "run_id": None, "executor": None, "reviewer": None,
                           "started_at": None, "finished_at": None, "task_file": str(info["path"])}
                          for info in infos]}
@@ -320,10 +288,9 @@ def job_next_executor(cfg, current, workers=None):
 
 def job_classify(run_state, cfg):
     """A finished run's job state: merged, passed (no merge was asked, or the target already
-    had the work), skipped (the dependency it was cut from never merged), blocked or failed.
+    had the work), blocked or failed.
 
-    `blocked` is a failure a dependant treats like any other -- see `JOB_UNDELIVERED` -- and
-    it keeps its own word because no resume, rerun or larger budget can move it: the task
+    `blocked` is a failure like any other -- see `JOB_UNDELIVERED` -- and it keeps its own word because no resume, rerun or larger budget can move it: the task
     itself is what was wrong, and only a new task written for it can go anywhere.
     A `stopped` run keeps its own word the same way: deliberately ended, nothing to retry.
     """
@@ -336,8 +303,6 @@ def job_classify(run_state, cfg):
     if run.review_pass(run_state, cfg):
         if run_state.get("merged"):
             return "merged"
-        if run_state.get("skipped_dep"):
-            return "skipped"    # cut from a dependency's passed branch that never merged
         if run_state.get("no_merge") or run_state.get("scratch") or run_state.get("on_target"):
             return "passed"
         if str(run_state.get("target") or "").lower() == "none":
@@ -350,13 +315,12 @@ def job_verdict_line(task, run_state=None):
     """The one per-task line for the job log and `ak run status`."""
     name = task["name"]
     if task["state"] == "skipped":
-        dep = (task.get("skipped_dep") or (run_state or {}).get("skipped_dep")
-               or (task.get("after") or ["?"])[0])
-        return f"{name}: skipped: {dep} did not merge"
+        # only receipts from before `after:` went have skipped tasks
+        return task.get("verdict_line") or f"{name}: skipped"
     if task["state"] == "stopped":
         return f"{name}: stopped"
     if task["state"] == "blocked":
-        why = " ".join(((run_state or {}).get("error") or "").split())
+        why = " ".join(((run_state or {}).get("error") or task.get("findings") or "").split())
         return f"{name}: BLOCKED: {why or 'the task cannot be completed as written'}"
     if task["state"] in ("merged", "passed"):
         rounds = len((run_state or {}).get("round_summaries") or [])
@@ -457,7 +421,7 @@ def deliver_job_handbacks(log):
 
 
 def job_block_line(job):
-    """`job <id>: 2 running, 1 waiting on v5j, 3 merged` for `ak run status`."""
+    """`job <id>: 2 running, 1 queued, 3 merged` for `ak run status`."""
     counts = {}
     for task in job["tasks"]:
         counts[task["state"]] = counts.get(task["state"], 0) + 1
@@ -466,17 +430,13 @@ def job_block_line(job):
         parts.append(f"{counts['running']} running")
     if counts.get("queued"):
         parts.append(f"{counts['queued']} queued")
-    for task in job["tasks"]:
-        if task["state"] == "waiting":
-            dep = (task.get("after") or ["?"])[0]
-            parts.append(f"1 waiting on {dep}")
     known = ("merged", "passed", "skipped", "failed", "blocked", "stopped")
     for state in known:
         if counts.get(state):
             parts.append(f"{counts[state]} {state}")
     # a task whose launcher is gone reads its run's own word (`job_now`): `2 interrupted`
     parts += [f"{count} {state}" for state, count in counts.items()
-              if state not in ("running", "queued", "waiting", *known)]
+              if state not in ("running", "queued", *known)]
     return f"job {job['job_id']}: {', '.join(parts) if parts else 'no tasks'}"
 
 
@@ -673,33 +633,62 @@ def job_wait_login(job_dir, job, task, log, lock, run_state, where):
     return True
 
 
-def job_passed_branch(cfg, job, task, dep):
-    """Where `task` starts before its one unmerged dependency `dep` lands, or None: it waits.
+class RefusedTask(config.Error):
+    """A task no fresh run may start as written: one from a receipt before `after:` went, which
+    would lack what it waited for, or one whose file now asks for what a launch refuses."""
 
-    A dependency whose review passed has only its landing left, which on a busy repository
-    takes hours.  Its reviewed tip is what the dependant is cut from when both work in one
-    repository; `wait_for_dependency` holds the dependant's own landing until `dep` merged.
+
+def job_block_refused(task, exc):
+    """Hand a task no fresh run may start back to its seat: blocked, why its findings."""
+    task.update(state="blocked", finished_at=time.time(), findings=str(exc),
+                verdict_line=f"{task['name']}: BLOCKED: {exc}")
+
+
+def job_legacy_refusal(task):
+    """Why a task from a receipt before `after:` went cannot get a fresh run, or ""."""
+    deps = task.get("after") or ([task["from_pass"].get("task")] if task.get("from_pass") else [])
+    return (f"`after:` is gone; launch {task['name']} on its own once "
+            f"{', '.join(map(str, deps))} merged") if deps else ""
+
+
+def job_end_legacy_run(cfg, task, run_dir):
+    """End a legacy task's kept run that still stands on its dependency, and the task with it.
+
+    Whatever state the run was saved in, it is ended the way `run.loop` ends one -- blocked,
+    with the branch to relaunch from -- before any resume, merge retry, budget or login wait
+    could act on it.  It is read and judged under its own lock, so a run another process has
+    since resumed or delivered is left as that process left it: merged, stopped and other
+    settled endings keep their word, and a run alive elsewhere or in its line is its owner's.
+    The ended state, or None.
     """
-    dep_task = job_task_by_name(job, dep) or {}
-    state = record.read_state(config.RUNS / dep_task["run_id"]) if dep_task.get("run_id") else None
-    if (not state or state.get("state") not in ("running", "waiting", "pass")
-            or state.get("no_merge") or not state.get("branch") or not run.review_pass(state, cfg)):
+    if not job_legacy_refusal(task):
         return None
-    try:
-        path = Path(task["task_file"])
-        meta = taskfile.parse_task(path)[0]
-        repo = None if meta.get("from") else run.task_repo(meta, path)
-    except (config.Error, OSError):
-        return None
-    if repo is None or str(repo) != state.get("repo"):
-        return None
-    return {"task": dep, "branch": state["branch"], "tip": state["review"]["head_sha"]}
+    with job_adopting(run_dir.name), record.recovery_lock(run_dir):
+        state = record.read_state(run_dir) or {}
+        why = run.stands_on_dependency(state)
+        if (not why or state.get("merged")
+                or state.get("state") in ("stopped", "blocked", "not_needed")
+                or record.process_active(state) or run.landing_line(state)):
+            return None
+        try:
+            ended = run.end_on_dependency(cfg, run_dir, state, run.logger(run_dir, True), why)
+        except (config.Error, OSError) as exc:
+            # its record says what it got to; the task still goes back with the run and its branch
+            ended = {**(record.read_state(run_dir) or state), "error": f"{why}; ending it: {exc}"}
+    task.update(state="blocked", finished_at=time.time(), findings=ended.get("error") or "")
+    task["verdict_line"] = job_verdict_line(task, ended)
+    return ended
 
 
 def job_start_task(cfg, job_dir, task, opts, log):
     """Allocate an ordinary run directory and launch it; the caller marks running first."""
+    if job_legacy_refusal(task):
+        raise RefusedTask(job_legacy_refusal(task))
     task_path = Path(task["task_file"])
-    _, _, title = taskfile.parse_task(task_path)
+    meta, _, title = taskfile.parse_task(task_path)
+    # the file as it reads now, which may have changed since the job began
+    if taskfile.launch_refusal(meta):
+        raise RefusedTask(taskfile.launch_refusal(meta))
     run_dir = job_allocate_run_dir(title)
     extra = task.get("starting_branch")
     text = task_path.read_text()
@@ -719,12 +708,6 @@ def job_start_task(cfg, job_dir, task, opts, log):
                 "the rerun will pick another reviewer")
             run_opts["--review"] = None
     run.prepare(run_dir, run_opts, run.logger(run_dir, True), cfg, job_id=job_dir.name, task_file=task_path)
-    if task.get("from_pass"):
-        # run.json is run.py's to write; a stop since preflight refuses the key as a save would
-        with record.record(run_dir) as state:
-            if state.stopped:
-                raise record.StopRequested(f"{run_dir.name} was stopped")
-            state["from_pass"] = task["from_pass"]
     log(f"{task['name']} start: {run_dir.name}")
     return run_dir, run_opts
 
@@ -856,7 +839,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         return
     if run_state.get("state") == "stopped":
         # Deliberately ended: no resume, no rerun, no budget wait. The task keeps
-        # the run's word, and `after:` tasks skip behind it like any undelivered one.
+        # the run's word.
         job_settle(cfg, job_dir, job, task, run_dir, run_state, log, lock)
         return
     if run_state.get("state") == "exhausted":
@@ -963,6 +946,12 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
                 save_job(job_dir, job)
             try:
                 run_dir2, run_opts2 = job_start_task(cfg, job_dir, task, job["opts"], log)
+            except RefusedTask as exc:
+                job_block_refused(task, exc)
+                with lock:
+                    save_job(job_dir, job)
+                log(task["verdict_line"])
+                return
             except (config.Error, OSError) as exc:
                 task.update(state="failed", finished_at=time.time(),
                             verdict_line=f"{task['name']}: FAIL: needs you ({exc})")
@@ -1015,7 +1004,7 @@ def job_fresh_worker(cfg, job_dir, job, task, run_dir, run_opts, lock, log):
     """A task's whole ladder -- initial drive, resume, rerun -- inside its own thread.
 
     The scheduler stays a scheduler while retries run for hours: it keeps starting queued
-    tasks, reaping finished ones and unblocking `after:` dependants.
+    tasks and reaping finished ones.
     """
     box = {}
     job_drive(cfg, run_dir, run_opts, box, job_scoped(job))
@@ -1042,9 +1031,15 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
     model and spend a launch on a wall every pass.  It goes to the ladder, which waits for
     it the way it waits for spent budget, and the tick resumes it when the login is back.
     """
+    run_state = {}
     try:
         with job_adopting(run_dir.name):
             run_state = run.reap(run_dir, record.read_state(run_dir) or {})
+        if job_end_legacy_run(cfg, task, run_dir):
+            with lock:
+                save_job(job_dir, job)
+            log(task["verdict_line"])
+            return
         if (run_state.get("state") == "queued" and run_state.get("slot_waiting") and
                 not record.process_active(run_state)) or run_state.get("state") in (
                 "interrupted", "exhausted", "stalled") or (
@@ -1059,19 +1054,30 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
             # `reap` declined it (inside its grace) or it is parked: pace the next look at
             # the once-a-minute rate and keep the run, so adopt hands back instead of spinning
             task["retry_after"] = time.time() + JOB_PICKER_INTERVAL
-            task["state"] = "queued" if not task.get("after") else "waiting"
+            task["state"] = "queued"
             with lock:
                 save_job(job_dir, job)
             return
         job_ladder(cfg, job_dir, job, task, run_dir, run_state,
                    0 if job_classify(run_state, cfg) in ("merged", "passed") else 1, log, lock)
     except config.Error as exc:
+        current = record.read_state(run_dir) or {}
+        if ((current.get("state"), current.get("merged")) != (run_state.get("state"),
+                                                              run_state.get("merged"))
+                and (current.get("merged") or current.get("state") in
+                     ("pass", "fail", "blocked", "stopped", "not_needed"))):
+            # another process ended it after this one read it -- a resume or a delivery --
+            # so the resume was refused: that ending is the task's, never a fresh start
+            log(f"{task['name']}: ended elsewhere while adopted: {current.get('state')}")
+            job_ladder(cfg, job_dir, job, task, run_dir, current,
+                       0 if job_classify(current, cfg) in ("merged", "passed") else 1, log, lock)
+            return
         # the kept run refuses resume (e.g. a budget FAIL rerun from scratch is the ladder's
         # job, not this adoption's): clear it and let the scheduler start the task over with
         # its ladder flags intact
         log(f"{task['name']}: resume refused: {exc}")
         task["run_id"] = None
-        task["state"] = "queued" if not task.get("after") else "waiting"
+        task["state"] = "queued"
         with lock:
             save_job(job_dir, job)
     except (OSError, ValueError, KeyError, TypeError):
@@ -1167,7 +1173,7 @@ def job_gone_line(job_dir, job):
 
 
 def run_job_loop(cfg, job_dir, job, to_file=True):
-    """Start ready tasks at once up to `--parallel`, hold `after:` tasks, skip failed deps."""
+    """Start queued tasks at once up to `--parallel`, each an independent piece."""
     job_dir = Path(job_dir)
     log = job_logger(job_dir, to_file)
     lock = threading.Lock()
@@ -1190,6 +1196,12 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
         with lock:
             save_job(job_dir, job)
 
+    for task in job["tasks"]:
+        if task["state"] == "waiting":
+            # a receipt from before `after:` went: a kept run decides for itself (`run.loop`
+            # ends one still on its dependency); one without goes back to its seat below
+            task["state"] = "queued"
+            save()
     while True:
         for name, thread in list(threads.items()):
             if thread.is_alive():
@@ -1198,7 +1210,7 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             task = job_task_by_name(job, name)
             if task["state"] == "running":
                 # its worker died mid-flight with the run still open; requeue, run kept
-                task["state"] = "queued" if not task.get("after") else "waiting"
+                task["state"] = "queued"
                 save()
                 log(f"{name}: worker died; requeued")
         # running tasks with no thread own a run from before a kill: adopt it in a worker
@@ -1213,7 +1225,7 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             run_id = task.get("run_id")
             rundir = config.RUNS / run_id if run_id else None
             if rundir is None or not (rundir / "run.json").exists():
-                task["state"] = "queued" if not task.get("after") else "waiting"
+                task["state"] = "queued"
                 task["run_id"] = None
                 save()
                 continue
@@ -1230,33 +1242,24 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
                                       daemon=True)
             threads[task["name"]] = thread
             thread.start()
-        # waiting tasks whose dependencies settled move to queued or skipped
+        # a legacy task is settled before any slot, retry, budget or login wait unless its
+        # kept run already stands on the target: no fresh run can give it what it waited for,
+        # so one without a run goes back to its seat, and a kept run still on its dependency
+        # is ended here (`job_end_legacy_run`)
         for task in job["tasks"]:
-            if task["state"] != "waiting":
+            kept = task.get("run_id")
+            if (task["state"] != "queued" or task["name"] in threads
+                    or task.get("retry_after", 0) > time.time() or not job_legacy_refusal(task)):
                 continue
-            states = {dep: (job_task_by_name(job, dep) or {}).get("state") for dep in task["after"]}
-            if any(state in (*JOB_UNDELIVERED, "skipped") for state in states.values()):
-                bad = next(dep for dep in task["after"]
-                           if (job_task_by_name(job, dep) or {}).get("state")
-                           in (*JOB_UNDELIVERED, "skipped"))
-                task.update(state="skipped", finished_at=time.time(), skipped_dep=bad,
-                            verdict_line=f"{task['name']}: skipped: {bad} did not merge")
-                save()
-                log(task["verdict_line"])
-            elif states and all(state in ("merged", "passed") for state in states.values()):
-                task["state"] = "queued"
-                task.pop("from_pass", None)
-                save()
-            else:
-                unmerged = [dep for dep, state in states.items() if state not in ("merged", "passed")]
-                start = job_passed_branch(cfg, job, task, unmerged[0]) if len(unmerged) == 1 else None
-                if start:
-                    task.update(state="queued", from_pass=start)
-                    save()
-                    log(f"{task['name']}: starts from {start['task']}'s passed branch "
-                        f"({start['tip'][:12]}); lands after it merges")
+            kept_state = record.read_state(config.RUNS / kept) if kept else None
+            if not kept_state:
+                job_block_refused(task, job_legacy_refusal(task))
+            elif not job_end_legacy_run(cfg, task, config.RUNS / kept):
+                continue
+            save()
+            log(task["verdict_line"])
         running = sum(1 for task in job["tasks"] if task["state"] == "running")
-        # queued tasks with no brake start at once; dependencies and provider budgets only
+        # queued tasks with no brake start at once; provider budgets only
         for task in job["tasks"]:
             if task["state"] != "queued" or task["name"] in threads:
                 continue
@@ -1319,6 +1322,11 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             save()
             try:
                 run_dir, run_opts = job_start_task(cfg, job_dir, task, opts, log)
+            except RefusedTask as exc:
+                job_block_refused(task, exc)
+                save()
+                log(task["verdict_line"])
+                continue
             except record.StopRequested:
                 # A stop landed during preflight: the receipt already says so, so
                 # the task keeps the run's word and nothing is launched to carry on.
@@ -1517,19 +1525,8 @@ def cmd_job_resume(argv):
     # tasks that never started are re-derived here; unstarted tasks start under the same
     # rules as a fresh job.
     for task in job["tasks"]:
-        if task["state"] in JOB_TERMINAL or task["state"] == "running":
+        if task["state"] in (*JOB_TERMINAL, "running", "waiting"):
             continue
-        task["state"] = "queued" if not task.get("after") else "waiting"
-    # dependencies that have since settled decide waiting before the first tick
-    for task in job["tasks"]:
-        if task["state"] != "waiting":
-            continue
-        states = {dep: (job_task_by_name(job, dep) or {}).get("state") for dep in task["after"]}
-        if any(state in (*JOB_UNDELIVERED, "skipped") for state in states.values()):
-            bad = next(dep for dep in task["after"]
-                       if (job_task_by_name(job, dep) or {}).get("state")
-                       in (*JOB_UNDELIVERED, "skipped"))
-            task.update(state="skipped", finished_at=time.time(), skipped_dep=bad,
-                        verdict_line=f"{task['name']}: skipped: {bad} did not merge")
+        task["state"] = "queued"
     save_job(job_dir, job)
     return run_job_loop(cfg, job_dir, job, to_file=to_file)

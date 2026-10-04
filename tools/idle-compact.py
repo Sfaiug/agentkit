@@ -340,13 +340,38 @@ def at_prompt(lines, built):
     return bool(lines) and bool(built["composer"].search(lines[-1])) and not busy(lines, built)
 
 
-def drafted(seat):
-    """Does that seat's record, the one every screen reads it by, say its composer holds a draft?"""
+def seat_record(seat):
+    """That seat's record, the one every screen reads it by, under the name it goes by now."""
+    if not seat:
+        return {}
     try:
-        record = json.loads(config.seat_state_path(seat).read_text(encoding="utf-8"))
+        record = json.loads(config.seat_state_path(config.resolve_session(seat)).read_text(
+            encoding="utf-8"))
     except (OSError, ValueError, config.Error):
-        return False
-    return isinstance(record, dict) and record.get("state") == "draft"
+        return {}
+    return record if isinstance(record, dict) else {}
+
+
+def drafted(seat):
+    """Does that seat's record say its composer holds a draft?"""
+    return seat_record(seat).get("state") == "draft"
+
+
+def at_rest(seat, harness):
+    """Is that seat at a quiet prompt by its own hooks and record: no turn running, no question?
+
+    The turn-end stamp alone counts from the last turn that ended: a turn that began since and
+    runs past the idle minutes, or a question it put up, is nothing it can see, and a question
+    dialog sits silent -- `/compact` and its return were typed into one, which answered the
+    owner's question with its first option.  A seat no name is known for has nothing to read.
+    """
+    if not seat:
+        return True
+    try:
+        hooked = watch.hook_state(harness, watch.hook_facts(config.resolve_session(seat)))[0]
+    except (OSError, ValueError, config.Error):
+        hooked = None
+    return hooked not in ("working", "asking") and seat_record(seat).get("state") != "asking"
 
 
 def append_log(path, wrapper_pid, message):
@@ -381,8 +406,12 @@ def record_compaction(harness, context_tokens, when):
         tmp.unlink(missing_ok=True)
 
 
-def type_compaction(master_fd, built, log):
-    """Keep pty-injected commands under the same lock and receipt as tmux typing."""
+def type_compaction(master_fd, built, log, ready=lambda seat: True):
+    """Keep pty-injected commands under the same lock and receipt as tmux typing.
+
+    `ready` is asked again under that lock, with the name the seat goes by now: a question
+    or a turn that came up while another sender held it is still nothing to type into.
+    """
     def send(_text):
         # A draft set aside first comes back once the command is sent.
         stash = [built["stash"]] if built["stash"] else []
@@ -397,7 +426,7 @@ def type_compaction(master_fd, built, log):
         return send("") == (0, "")
     line = b"".join(built["command"]).decode("utf-8").rstrip("\r\n")
     with notify.session_lock(seat) as name:
-        return watch._send_line({"name": name}, line, log, send=send)
+        return ready(name) and watch._send_line({"name": name}, line, log, send=send)
 
 
 def exit_code(wait_status):
@@ -488,6 +517,11 @@ def run(options, command):
         idle = options.idle or (built or {}).get("idle") or 0.0
         quiet = min(QUIET_BEFORE_INJECT, idle)
 
+        def free_to_type(seat):
+            """Nothing of the owner's under the composer: no draft it cannot set aside, no turn
+            running, no question up -- asked before the typing lock and again under it."""
+            return (bool(built["stash"]) or not drafted(seat)) and at_rest(seat, options.harness)
+
         while master_open:
             now_mono = time.monotonic()
             timeout = max(0.0, next_poll_mono - now_mono)
@@ -575,7 +609,7 @@ def run(options, command):
                         ts > last_injected_ts
                         and now_wall - ts >= idle
                         and now_mono - last_output_mono >= quiet
-                        and (built["stash"] or not drafted(os.environ.get(config.SESSION_ENV)))
+                        and free_to_type(os.environ.get(config.SESSION_ENV))
                     ):
                         if context_tokens is None:
                             reader = CONTEXT_READERS.get(built["context"])
@@ -586,7 +620,7 @@ def run(options, command):
                                 context_tokens = None
                         if context_tokens is not None and context_tokens >= options.min_context:
                             if not type_compaction(master_fd, built, lambda message: append_log(
-                                    log_path, wrapper_pid, message)):
+                                    log_path, wrapper_pid, message), free_to_type):
                                 continue
                             last_injected_ts = ts
                             append_log(log_path, wrapper_pid,
