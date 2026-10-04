@@ -464,6 +464,8 @@ class RunStop(Sandbox):
                 self.assertEqual(task["state"], "merged")
 
     def test_a_kept_run_taken_on_elsewhere_while_adopted_stays_the_tasks(self):
+        # a receipt naming a line starts its lander: none may run from this suite
+        self.stack.enter_context(patch.object(land, "start_line"))
         for moved in ({"state": "running", "pid": 999999991},
                       {"state": "queued", "slot_waiting": True, "pid": 999999991},
                       {"state": "waiting", "waiting_on": {"line": ".merge-acme.lock",
