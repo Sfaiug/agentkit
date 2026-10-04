@@ -248,6 +248,24 @@ class Lander(LanderFixture, unittest.TestCase):
         self.wake.assert_called_once()
         self.assert_cleaned()
 
+    def test_a_repaired_member_keeps_its_place(self):
+        # At the back it would wait a lap while landings change the file it was fixed in.
+        head = self.member("head")
+        tail = self.member("tail", joined=2)
+        log = head / "lander.log"
+        log.write_text("CONFLICT (content): Merge conflict in ARCHITECTURE.md\n")
+        with record.record(head) as state:
+            state["state"] = "running"
+            state["waiting_on"]["fix"] = {"line": "rebase of origin/main failed", "log": str(log)}
+        state = record.read_state(head)
+        lp = SimpleNamespace(state=state, wt=self.repo, run_dir=head, log=lambda _: None,
+                             write=lambda: record.save_state(head, state))
+        with patch.object(run, "integrate", return_value=True), \
+                patch.object(run, "fix_final_check", return_value=True):
+            self.assertFalse(run.land_from_line(lp, "origin/main", lambda: True))
+        self.assertEqual(self.wait(head), {"line": self.turn.name, "joined": 1})
+        self.assertEqual([d.name for d, _ in land.line(self.turn)], ["head", "tail"])
+
     def test_the_same_integration_tree_skips_the_suite_on_the_members_landing(self):
         for method in ("squash", "rebase", "merge"):
             with self.subTest(method=method):

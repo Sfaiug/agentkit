@@ -140,7 +140,7 @@ class LanderLifecycle(unittest.TestCase):
         lp = run.Loop.__new__(run.Loop)
         lp.state, lp.write = state, lambda: record.save_state(directory, lp.state)
         with patch.object(run, "turn_path", return_value=self.turn):
-            self.assertFalse(run.rejoin_line(lp, "origin/main", "fixed", back=True))
+            self.assertFalse(run.rejoin_line(lp, "origin/main", "fixed"))
         self.assertNotIn("fix", record.read_state(directory)["waiting_on"])
         with record.record(directory) as state:
             state.update(state="pass", merged=True)

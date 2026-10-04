@@ -5397,12 +5397,12 @@ def release_line(run_dir, log):
     landing.start_line(config.RUNS / state["waiting_on"]["line"], log)
 
 
-def rejoin_line(lp, upstream, reason, *, back=False):
-    """A changed target keeps its place; repaired work rejoins at its priority group's back."""
+def rejoin_line(lp, upstream, reason):
+    """A rejoining run keeps its place, repaired work included: checked again soon, it meets
+    the target it was fixed against, not one moved by every landing a lap at the back takes."""
     wait = lp.state["waiting_on"]
     lp.state.update(state="waiting", error=reason, merge_failed=False, merge_note=reason,
-                    waiting_on={"line": turn_path(lp, upstream).name,
-                                "joined": time.time() if back else wait["joined"]})
+                    waiting_on={"line": turn_path(lp, upstream).name, "joined": wait["joined"]})
     lp.state.pop("recovery_pending", None)
     lp.write()
     return False
@@ -5484,7 +5484,7 @@ def land_from_line(lp, upstream, deliver):
             lp.state.pop("waiting_on", None)
             lp.write()
             return False
-    return rejoin_line(lp, upstream, "landing fixes passed review", back=True)
+    return rejoin_line(lp, upstream, "landing fixes passed review")
 
 
 def land(lp, upstream, verify, deliver, execv=None):
