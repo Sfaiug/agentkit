@@ -322,6 +322,33 @@ class Seat(unittest.TestCase):
                                   AGENTKIT_SESSION="seat")
         self.assertEqual(self.typed(events), "", events)
 
+    def said(self, seat, event, kind="", state=None):
+        """That seat's own hooks last said this, and its record reads `state` where given."""
+        directory = self.root / ".agentkit/state"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"hook-{seat}.json").write_text(json.dumps(
+            {"session": seat, "event": event, "kind": kind, "text": "", "at": time.time()}))
+        if state:
+            (directory / f"seat-{seat}.json").write_text(json.dumps(
+                {"session": seat, "state": state, "evidence": "Which schema should acme use?"}))
+
+    def test_a_turn_running_past_the_idle_minutes_or_a_question_up_is_never_typed_into(self):
+        """The turn-end stamp is old, the screen silent: a dialog waiting, or a long tool call."""
+        for event, kind, state in (("UserPromptSubmit", "", None),
+                                   ("Notification", "permission_prompt", None),
+                                   ("Stop", "", "asking")):
+            with self.subTest(event=event, state=state):
+                self.said("seat", event, kind, state)
+                _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_LIFE=6,
+                                          AGENTKIT_SESSION="seat")
+                self.assertEqual(self.typed(events), "", events)
+
+    def test_a_seat_whose_hooks_say_its_turn_ended_still_compacts(self):
+        self.said("seat", "Stop")
+        _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_STOP_ON="/compact", FAKE_LIFE=15,
+                                  AGENTKIT_SESSION="seat")
+        self.assert_compacted(events, manifest_command("claude"))
+
     # --- (f) the half of it that lives in the hook --------------------------
 
     def test_v5e_f_the_hook_stamps_time_tokens_and_pid_and_never_a_zero(self):

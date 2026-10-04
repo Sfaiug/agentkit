@@ -340,13 +340,36 @@ def at_prompt(lines, built):
     return bool(lines) and bool(built["composer"].search(lines[-1])) and not busy(lines, built)
 
 
-def drafted(seat):
-    """Does that seat's record, the one every screen reads it by, say its composer holds a draft?"""
+def seat_record(seat):
+    """That seat's record, the one every screen reads it by, under the name it goes by now."""
     try:
-        record = json.loads(config.seat_state_path(seat).read_text(encoding="utf-8"))
+        record = json.loads(config.seat_state_path(config.resolve_session(seat)).read_text(
+            encoding="utf-8"))
     except (OSError, ValueError, config.Error):
-        return False
-    return isinstance(record, dict) and record.get("state") == "draft"
+        return {}
+    return record if isinstance(record, dict) else {}
+
+
+def drafted(seat):
+    """Does that seat's record say its composer holds a draft?"""
+    return seat_record(seat).get("state") == "draft"
+
+
+def at_rest(seat, harness):
+    """Is that seat at a quiet prompt by its own hooks and record: no turn running, no question?
+
+    The turn-end stamp alone counts from the last turn that ended: a turn that began since and
+    runs past the idle minutes, or a question it put up, is nothing it can see, and a question
+    dialog sits silent -- `/compact` and its return were typed into one, which answered the
+    owner's question with its first option.  A seat no name is known for has nothing to read.
+    """
+    if not seat:
+        return True
+    try:
+        hooked = watch.hook_state(harness, watch.hook_facts(config.resolve_session(seat)))[0]
+    except (OSError, ValueError, config.Error):
+        hooked = None
+    return hooked not in ("working", "asking") and seat_record(seat).get("state") != "asking"
 
 
 def append_log(path, wrapper_pid, message):
@@ -576,6 +599,7 @@ def run(options, command):
                         and now_wall - ts >= idle
                         and now_mono - last_output_mono >= quiet
                         and (built["stash"] or not drafted(os.environ.get(config.SESSION_ENV)))
+                        and at_rest(os.environ.get(config.SESSION_ENV), options.harness)
                     ):
                         if context_tokens is None:
                             reader = CONTEXT_READERS.get(built["context"])
