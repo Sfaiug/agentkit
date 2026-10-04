@@ -1146,9 +1146,9 @@ def content_lines(harness, tail):
 def ruled_composer(chrome, rows):
     """(prompt row, closing rule row) of the composer a ruled harness draws, else (None, None).
 
-    Its box: the bottom-most prompt row right under a rule of the harness's chrome -- bare, or
-    with the seat's name in it -- closed by the first row under it drawn in that rule's own
-    glyph, at least as long as its run before any name.  Every row between is the composer's,
+    Its box: the bottom-most prompt row right under a rule of the harness's chrome -- bare, with
+    the seat's name in it, or between corners -- closed by the first row under it drawn in that
+    rule's own glyph, at least as long as its run before any name, between corners or none.  Every row between is the composer's,
     a wrapped or multi-line draft's even where one reads like a rule (`---`), and a user's
     status line under the box is never it, even where it starts with a prompt mark.  The box's
     rules and prompt row start at the pane's left edge, and a draft's rows under its prompt row
@@ -1160,10 +1160,10 @@ def ruled_composer(chrome, rows):
     cells = [strip_sgr(row).rstrip() for row in rows]
     for at in range(len(cells) - 1, 0, -1):
         top = cells[at - 1]
-        run = re.match(r"([─━═])\1*", top)
+        run = re.match(r"[╭┌]?(([─━═])\2*)", top)
         if not (run and re.match(r"(?:│\s*)?[❯›⟩]", cells[at]) and chrome_line(chrome, top)):
             continue
-        closing = re.compile(f"{run.group(1)}{{{len(run.group(0))},}}")
+        closing = re.compile(f"[╰└]?{run.group(2)}{{{len(run.group(1))},}}[╯┘]?")
         end = next((row for row in range(at + 1, len(cells)) if closing.fullmatch(cells[row])),
                    None)
         if end is not None:
