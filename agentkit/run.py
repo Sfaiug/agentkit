@@ -5606,8 +5606,14 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         wt = Path(state.get("worktree") or "")
         if prior and not state.get("scratch") and state.get("worktree") and wt.is_dir():
             # the relaunch starts from the kept branch: an interrupted executor's uncommitted
-            # edits go onto it before the ending's cleanup takes the checkout, and a checkout
-            # still holding work no commit took ends in an error, which keeps it
+            # edits go onto it before the ending's cleanup takes the checkout.  A checkout off
+            # that branch -- a rebase or merge stopped part way -- or still holding work no
+            # commit took ends in an error, which keeps it
+            branch = state.get("branch")
+            if (git(wt, "symbolic-ref", "--quiet", "HEAD", check=False) != f"refs/heads/{branch}"
+                    or in_progress(wt, "rebase") or in_progress(wt, "merge")):
+                raise config.Error(f"{on_dependency}; its checkout {wt} stopped part way off "
+                                   f"{branch} (a rebase or merge), so it is kept with that work")
             commit_leftovers(wt, log, set())
             if any(not leftover_junk(path) for path in dirty_paths(wt)):
                 raise config.Error(f"{on_dependency}; its uncommitted work could not be "

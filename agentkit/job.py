@@ -1192,21 +1192,38 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
                                       daemon=True)
             threads[task["name"]] = thread
             thread.start()
-        # a legacy task goes back to its seat before any slot, retry or budget wait unless its
-        # kept run already stands on the target: no fresh run, and no resume of one still on
-        # its dependency, can give it what it waited for
+        # a legacy task is settled before any slot, retry or budget wait unless its kept run
+        # already stands on the target: no fresh run can give it what it waited for, so one
+        # without a run goes back to its seat, and a kept run still on its dependency is
+        # adopted now, where its own guard ends it blocked with the branch to relaunch from
         for task in job["tasks"]:
             kept = task.get("run_id")
-            if task["state"] != "queued" or not job_legacy_refusal(task):
+            if (task["state"] != "queued" or task["name"] in threads
+                    or task.get("retry_after", 0) > time.time() or not job_legacy_refusal(task)):
                 continue
-            kept_state = record.read_state(config.RUNS / kept) if kept else None
-            # an ending that settles without a resume keeps its own word: stopped stays stopped
-            settles = kept_state and (kept_state.get("merged") or kept_state.get("state")
-                                      in ("stopped", "blocked", "not_needed"))
-            if not kept_state or (run.stands_on_dependency(kept_state) and not settles):
+            kept_dir = config.RUNS / kept if kept else None
+            kept_state = record.read_state(kept_dir) if kept_dir else None
+            if not kept_state:
                 job_block_legacy(task, job_legacy_refusal(task))
                 save()
                 log(task["verdict_line"])
+                continue
+            # an ending that settles without a resume keeps its own word: stopped stays stopped
+            settles = (kept_state.get("merged") or kept_state.get("state")
+                       in ("stopped", "blocked", "not_needed"))
+            if not run.stands_on_dependency(kept_state) or settles:
+                continue
+            if record.process_active(kept_state):
+                task["retry_after"] = time.time() + JOB_PICKER_INTERVAL
+                save()
+                continue
+            task["state"] = "running"
+            save()
+            thread = threading.Thread(target=job_adopt_worker,
+                                      args=(cfg, job_dir, job, task, kept_dir, lock, log),
+                                      daemon=True)
+            threads[task["name"]] = thread
+            thread.start()
         running = sum(1 for task in job["tasks"] if task["state"] == "running")
         # queued tasks with no brake start at once; provider budgets only
         for task in job["tasks"]:

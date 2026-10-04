@@ -154,6 +154,42 @@ class AfterGone(unittest.TestCase):
         self.assertEqual(git("show", "ak/beta:base.txt"), "edited")
         self.assertEqual(git("show", "ak/beta:new.txt"), "new")
 
+    def test_a_rebase_stopped_part_way_keeps_its_checkout(self):
+        repo = self.root / "repo"
+        git = lambda *args, cwd=repo, check=True: subprocess.run(
+            ["git", "-C", str(cwd), "-c", "user.name=acme", "-c", "user.email=acme@localhost",
+             *args], check=check, capture_output=True, text=True).stdout.strip()
+        repo.mkdir()
+        git("init", "-q", "-b", "main")
+        (repo / "file.txt").write_text("base\n")
+        git("add", ".")
+        git("commit", "-qm", "base")
+        git("checkout", "-qb", "ak/alpha")
+        (repo / "file.txt").write_text("dependency\n")
+        git("commit", "-qam", "dependency")
+        tip = git("rev-parse", "HEAD")
+        wt = self.root / "wt-beta"
+        git("worktree", "add", "-q", "-b", "ak/beta", str(wt))
+        (wt / "file.txt").write_text("own work\n")
+        git("commit", "-qam", "own work", cwd=wt)
+        git("checkout", "-q", "main")
+        (repo / "file.txt").write_text("later target\n")
+        git("commit", "-qam", "later target")
+        # the old integration's rebase stopped on a conflict, and a fixer was part way through
+        git("rebase", "--onto", "main", tip, cwd=wt, check=False)
+        (wt / "file.txt").write_text("fixer resolution\n")
+        (wt / "fixer.txt").write_text("fixer work\n")
+        run_dir, state = self.saved("20261004-0705-beta", state="interrupted", verdict=None,
+                                    merge_failed=False, scratch=False, repo=str(repo),
+                                    worktree=str(wt), base_sha=tip,
+                                    from_pass={"task": "alpha.md", "tip": tip})
+        with patch.object(run, "settle_run", side_effect=AssertionError("cleaned up")), \
+                self.assertRaisesRegex(config.Error, "stopped part way off ak/beta .* is kept"):
+            run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
+                     lambda _: None, prior=state)
+        self.assertEqual((wt / "fixer.txt").read_text(), "fixer work\n")
+        self.assertEqual(git("show", "ak/beta:file.txt"), "own work")
+
     def test_work_no_commit_could_take_keeps_its_checkout(self):
         wt = self.root / "wt-gamma"
         wt.mkdir()
