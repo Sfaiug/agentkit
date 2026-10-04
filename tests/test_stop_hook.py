@@ -25,7 +25,8 @@ from agentkit import config, host, job as jobs, menu, notify, orch, watch
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "stop-seat"
-REASON = ("You stopped without asking the user a question, declaring done with ak notify done, "
+REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
+          "declaring done with ak notify done, "
           "or waiting on a run. Continue: decide the next step and do it.")
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 STOOD = 300     # longer than watch.STALL_WAIT: how long a tick lets a screen stand
@@ -144,19 +145,14 @@ class StopHook(unittest.TestCase):
 
     # --- the three endings a turn is allowed --------------------------------
 
-    def test_a_question_in_the_last_paragraph_allows_the_stop(self):
-        self.assertEqual(self.stop("I found two options.\n\nWhich one do you want?"), "")
-        # ... and one buried above the last paragraph is not the question the user was asked
+    def test_a_question_in_prose_is_sent_back_to_the_question_prompt(self):
+        self.assertIn("question prompt", self.blocked(self.stop(
+            "I found two options.\n\nWhich one do you want?"))["reason"])
+        # ... and so is one with more prose after it
         self.assertEqual(self.blocked(self.stop("Which one?\n\nI will go with the first."))
                          ["decision"], "block")
 
     def test_a_question_that_asks_only_leave_to_go_on_is_sent_back_on_claude(self):
-        """"Here is my recommendation, let me know if I should continue", with the mark on it.
-
-        On Claude Code, whose Stop hands over `background_tasks`.  A harness that does not has
-        its questions judged as they always were: the last case here, and Codex's further down.
-        The last sentence is taken whole, and only a bare request for leave is sent back.
-        """
         for asked in ("Shall I continue?", "Should I proceed?", "Shall I go ahead?",
                       "Want me to continue?", "Let me know if I should continue?",
                       "OK to proceed?", "Would you like me to keep going?",
@@ -166,27 +162,10 @@ class StopHook(unittest.TestCase):
                       "The parser is fixed. Should we proceed?"):
             with self.subTest(asked=asked):
                 self.latch(self.turn)
-                self.assertEqual(self.blocked(self.stop(f"{RECOMMENDATION}\n\n{asked}",
-                                                        background_tasks=[]))["reason"], REASON)
-        # any other question is one the user has to answer: one that asks for something or
-        # offers a choice before or after asking leave, beside it, or instead of it
-        for asked in ("Can you send the missing schema; shall I continue once I have it?",
-                      "Want me to fix the parser or review the deployment configuration?",
-                      "Which schema should it read? Shall I continue?",
-                      "Which schema should it read? Shall I continue with the parser meanwhile?",
-                      "Shall I continue with docs/guide.md?", "Shall I continue or not?",
-                      "Which of the two should I merge first?",
-                      "Which database do you want me to use?",
-                      "**Next step:** which schema should it read?",
-                      "Should I proceed with SQLite or PostgreSQL?",
-                      "Which one do you want, or shall I pick the first?"):
-            with self.subTest(asked=asked):
-                self.latch(self.turn)
-                self.assertEqual(self.stop(f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]),
-                                 "")
-        # ... and a harness with no background work to tell is judged as it always was
-        self.latch(self.turn)
-        self.assertEqual(self.stop(f"{RECOMMENDATION}\n\nShall I continue?"), "")
+                for _ in range(2):
+                    self.assertEqual(self.blocked(self.stop(
+                        f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]))["reason"], REASON)
+                self.assertEqual(self.stop(f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]), "")
 
     def test_a_needs_or_done_recorded_this_turn_allows_the_stop(self):
         for kind in ("needs", "done"):
@@ -384,15 +363,18 @@ class StopHook(unittest.TestCase):
         self.assertEqual(self.blocked(self.stop(said=None, last_assistant_message=said))
                          ["reason"], REASON)
         self.latch(self.turn)
-        self.assertEqual(self.stop(said=None, last_assistant_message=said + "\n\nShall I?"), "")
+        self.assertIn("ak notify needs", self.blocked(self.stop(
+            said=None, last_assistant_message=said + "\n\nShall I?"))["reason"])
 
     # --- the other shape the same hook is handed ----------------------------
 
     def test_codex_hands_the_message_itself_and_a_sidechain_is_not_it(self):
-        self.assertEqual(self.stop(said=None, last_assistant_message="Shall I go on?"), "")
+        self.assertIn("ak notify needs", self.blocked(self.stop(
+            said=None, last_assistant_message="Shall I go on?"))["reason"])
         self.assertEqual(self.blocked(self.stop(said=None, last_assistant_message="Done that."))
                          ["reason"], REASON)
         # a sub agent's question below this seat's own last word is not this seat's question
+        self.latch(self.turn)
         payload = {"transcript_path": str(self.transcript(RECOMMENDATION, sidechain="Which?"))}
         self.assertEqual(self.blocked(self.stop(said=None, **payload))["reason"], REASON)
 
@@ -493,8 +475,13 @@ class StopNudge(unittest.TestCase):
 
     def test_a_question_a_done_or_an_unfinished_run_holds_it_back(self):
         runs = [(Path("/runs/one"), {"launched_session": SEAT, "state": "running"})]
+
+        def asked():
+            self.pane = self.showing("Shall I merge it?")
+            notify.record(SEAT, "needs", "Shall I merge it?")
+
         for label, prepare in (
-                ("a question", lambda: setattr(self, "pane", self.showing("Shall I merge it?"))),
+                ("a question asked with ak notify needs", asked),
                 ("a done", lambda: notify.record(SEAT, "done", "shipped")),
                 ("a run", lambda: self.records.extend(runs))):
             with self.subTest(case=label):
@@ -532,13 +519,10 @@ class StopNudge(unittest.TestCase):
                 self.stopped(RECOMMENDATION)
                 self.assertEqual([call.args[1] for call in self.typed.call_args_list], ["continue"])
 
-    def test_a_question_over_two_lines_is_one_and_a_decision_under_one_is_not(self):
-        """pane_tail keeps no blank line, so the rule reads the pane and not its tail."""
+    def test_a_question_mark_on_the_screen_asks_nobody(self):
+        """Only `ak notify needs` alerts the owner from a harness with no question prompt."""
         self.stopped("Which branch do you want?\nmain or release.")
-        self.typed.assert_not_called()
-        # the same words with the seat's own answer under them are not a question for the user
-        self.stopped("Which one?\n\nI will go with the first.")
-        self.assertEqual(self.typed.call_count, 1)
+        self.assertEqual([call.args[1] for call in self.typed.call_args_list], ["continue"])
 
     # --- a turn nobody watched running is still a turn ----------------------
 

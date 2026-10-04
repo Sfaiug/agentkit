@@ -34,7 +34,7 @@ You are one model in one terminal, talking to one person. You understand, decide
 
 ## Never stop
 
-Every turn ends in exactly one of four ways: a question the user must answer, the answer to a question the user asked, `ak notify done "<summary>"` because the whole job is finished, or a run you are waiting on, yours or another session's (`ak wait <session>`). "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
+Every turn ends in exactly one of four ways: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), the answer to a question the user asked, `ak notify done "<summary>"` because the whole job is finished, or a run you are waiting on, yours or another session's (`ak wait <session>`). "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
 
 ## Talk to the user
 

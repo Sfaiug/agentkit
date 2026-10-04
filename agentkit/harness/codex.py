@@ -98,24 +98,28 @@ def transcript(record, cwd, conversation):
     return path if isinstance(path, str) and path else None
 
 
+def prompt(entry):
+    """The owner's words one rollout line holds, or None for anything else."""
+    payload = entry.get("payload")
+    # Response items also contain rules and environment text with the user role.
+    # The completed UserMessage item keeps the original prompt exactly once.
+    if (entry.get("type") != "event_msg" or not isinstance(payload, dict)
+            or payload.get("type") != "item_completed"):
+        return None
+    item = payload.get("item")
+    if not isinstance(item, dict) or item.get("type") != "UserMessage":
+        return None
+    content = item.get("content")
+    if not isinstance(content, list):
+        return None
+    return "\n".join(part["text"] for part in content if isinstance(part, dict)
+                     and part.get("type") == "text" and isinstance(part.get("text"), str)) or None
+
+
 def user_messages(record, cwd, conversation):
     from . import entries, user_message
     for entry in entries(transcript(record, cwd, conversation)):
-        payload = entry.get("payload")
-        # Response items also contain rules and environment text with the user role.
-        # The completed UserMessage item keeps the original prompt exactly once.
-        if (entry.get("type") != "event_msg" or not isinstance(payload, dict)
-                or payload.get("type") != "item_completed"):
-            continue
-        item = payload.get("item")
-        if not isinstance(item, dict) or item.get("type") != "UserMessage":
-            continue
-        content = item.get("content")
-        if not isinstance(content, list):
-            continue
-        text = "\n".join(part["text"] for part in content if isinstance(part, dict)
-                         and part.get("type") == "text" and isinstance(part.get("text"), str))
-        kept = user_message(entry.get("timestamp"), text)
+        kept = user_message(entry.get("timestamp"), prompt(entry))
         if kept:
             yield kept
 

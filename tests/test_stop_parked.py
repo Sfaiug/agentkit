@@ -24,7 +24,8 @@ HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT, OTHER = "park-seat", "other-seat"
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 SPENT = "three rounds spent: split or re-scope the task"
-REASON = ("You stopped without asking the user a question, declaring done with ak notify done, "
+REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
+          "declaring done with ak notify done, "
           "or waiting on a run. Continue: decide the next step and do it.")
 
 
@@ -47,12 +48,16 @@ class StopParked(unittest.TestCase):
         record = {"session": SEAT, "turn": turn, "blocks": 0 if blocks is None else blocks}
         (self.state / f"stop-{SEAT}.json").write_text(json.dumps(record) + "\n")
 
-    def transcript(self, said):
+    def transcript(self, said, question=False):
         """A Claude Code transcript whose last assistant message is `said`."""
         path = self.home / "transcript.jsonl"
         lines = [{"type": "user", "message": {"role": "user", "content": "go"}},
                  {"type": "assistant", "isSidechain": False,
                   "message": {"role": "assistant", "content": [{"type": "text", "text": said}]}}]
+        if question:
+            lines.insert(1, {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "question", "name": "AskUserQuestion", "input": {"questions": [
+                    {"question": said}]}}]}})
         path.write_text("".join(json.dumps(line) + "\n" for line in lines))
         return path
 
@@ -168,9 +173,10 @@ class StopParked(unittest.TestCase):
 
     def test_a_question_ends_the_turn_parked_run_or_not(self):
         asked = "I found two options.\n\nWhich one do you want?"
-        self.assertEqual(self.stop(asked), "")
+        payload = {"transcript_path": str(self.transcript(asked, question=True))}
+        self.assertEqual(self.stop(asked, **payload), "")
         self.parked_exhausted()
-        self.assertEqual(self.stop(asked), "")
+        self.assertEqual(self.stop(asked, **payload), "")
 
     def test_needs_background_and_the_third_stop_stand_past_a_parked_run(self):
         self.parked_exhausted()
