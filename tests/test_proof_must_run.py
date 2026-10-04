@@ -75,14 +75,14 @@ class ProofMustRun(unittest.TestCase):
         self.assertIn("[exit 1]", self.lp.findings)
 
     def test_a_missing_or_unexecutable_shell_is_a_note_and_restores_the_checkout(self):
-        limited = worker.limited
+        boxed = worker.boxed
         for error in (FileNotFoundError("missing shell"), PermissionError("unexecutable shell")):
             with self.subTest(error=error):
                 def cannot_start(command, *args, **kwargs):
                     if command == ["bash", "-c", self.fails]:
                         raise error
-                    return limited(command, *args, **kwargs)
-                with patch.object(worker, "limited", side_effect=cannot_start):
+                    return boxed(command, *args, **kwargs)
+                with patch.object(worker, "boxed", side_effect=cannot_start):
                     self.assertEqual(self.review(proof.finding("api.py:1", "no shell", self.fails)), "PASS")
                 self.assertEqual(self.lp.state["followups"], [])
                 self.assertIn(str(error), self.lp.state["notes"][0])
