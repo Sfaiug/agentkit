@@ -2286,12 +2286,14 @@ def _send_enter(session, log):
     return True
 
 
-def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None):
+def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None, ref=None):
     """Type one literal line; the caller waits KEY_GAP before sending its Enter.
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
     A pty sender supplies `send(text)`; both transports share the same typing receipt.
+    `ref` names what the line was typed for, in the receipt, where one line can be typed for
+    two things.
     """
     name = session["name"]
     record = config.session_records().get(name, {})
@@ -2300,6 +2302,8 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None
     conversation = plugin.conversation(record, cwd)
     sent = {"at": time.time(), "text": text, "source": source, "harness": plugin.name,
             "conversation": conversation, "after": len(plugin.user_messages(record, cwd, conversation))}
+    if ref is not None:
+        sent["ref"] = ref
     config.STATE.mkdir(parents=True, exist_ok=True)
     with config.seat_file("input", name).open("a+", encoding="utf-8") as fh:
         before = fh.tell()
@@ -2317,7 +2321,8 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None
 
 
 def type_checked(session, text, log, harness=None, guard=nullcontext,
-                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak"):
+                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak",
+                 ref=None):
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Text, a KEY_GAP pause, then Enter; within SENT_WAIT the typed text has to be gone
@@ -2330,6 +2335,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
+    `ref` goes into the typing receipt (`_send_line`).
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -2360,7 +2366,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
         if veto(held if held is not None else name):
             return False
         if not pending:
-            if not _send_line(seat, text, log, typed, source=source):
+            if not _send_line(seat, text, log, typed, source=source, ref=ref):
                 return False
             time.sleep(KEY_GAP)
         if not _send_enter(seat, log):
@@ -2594,7 +2600,7 @@ def typing_mark(session, text):
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
-                   source="ak", stale=lambda held: False):
+                   source="ak", stale=lambda held: False, ref=None):
     """One line into a seat, and only while its harness sits at its own prompt.
 
     The prompt is tested twice: once here, and once more inside the send lock, because two
@@ -2609,7 +2615,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     send lock, past any dialog -- and gone from there, the seat has it.  A reopened seat is a
     new one, with an empty composer, and matches no mark.  `stale` is asked under the send lock
     too, with the name the seat goes by then, before every key: a line that has stopped being
-    this seat's to have is typed no further.
+    this seat's to have is typed no further.  `ref` goes into the typing receipt.
     """
     mark = typing_mark(session, text)
     if typed == mark:
@@ -2640,7 +2646,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
 
     return type_checked(session, text, log, None,
                         guard=lambda: notify.session_lock(session["name"]), veto=veto,
-                        typed=lambda: receipt(mark), source=source)
+                        typed=lambda: receipt(mark), source=source, ref=ref)
 
 
 # --- a seat whose process died under its runs ------------------------------

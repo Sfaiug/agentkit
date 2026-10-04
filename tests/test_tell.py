@@ -292,6 +292,15 @@ class Tell(Seats):
         self.assertIn(f"{SEAT} was closed and opened again; nothing was sent", err)
         self.assertEqual(self.typed, [])
 
+    def test_told_is_said_of_this_calls_own_message_only(self):
+        """A quiet seat takes the older message first: this one still waits, and says so."""
+        self.free = False
+        self.tell(SEAT, "First.")
+        self.free = True
+        code, out, _ = self.tell(SEAT, "Second.")
+        self.assertEqual(self.typed, [self.header() + "First."])
+        self.assertEqual((code, out), (0, f"{SEAT}: busy; ak types this at its next quiet prompt"))
+
     def test_what_cannot_be_told_is_refused_in_one_line(self):
         watch.seat_write("acme-closed", stopped_at=1)
         config.save_session(self.cfg, "acme-closed", "opus", ["astra"], {"cwd": str(self.root)})
@@ -323,6 +332,7 @@ class TyperDied(Seats):
         self.opened(1.0)
         self.idle = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
         self.pane, self.taken, self.killed_after_text = self.idle, [], False
+        self.killed_before_text = False
         record = config.session_records()[SEAT]
         self.transcript = claude.transcript_path(record, record["conversation"])
         self.transcript.parent.mkdir(parents=True)
@@ -334,24 +344,31 @@ class TyperDied(Seats):
                 patcher.start()
                 self.addCleanup(patcher.stop)
 
+    EMPTY = "❯\u00a0\n"           # the composer's prompt row with nothing in it
+
     def render(self, *args, **kwargs):
+        if "-l" in args and self.killed_before_text:
+            self.killed_before_text = False
+            raise KeyboardInterrupt("killed before its keys reached tmux")
         self.tmux(*args, **kwargs)
         if "-l" in args:
-            self.pane = self.idle.replace("❯\u00a0\n", "❯ " + args[-1] + "\n")
+            self.pane = self.idle.replace(self.EMPTY, "❯ " + args[-1] + "\n")
             if self.killed_after_text:
                 self.killed_after_text = False
                 raise KeyboardInterrupt("killed right after the text went in")
         elif args[-1] == "Enter" and self.pane != self.idle:
             self.taken.append(self.typed[-1])
-            with self.transcript.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(prompt(NOW + len(self.taken), self.taken[-1])) + "\n")
+            if self.transcript:
+                with self.transcript.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(prompt(NOW + len(self.taken), self.taken[-1])) + "\n")
             self.pane = self.idle
         return 0, ""
 
-    def died(self, step=None):
-        """`ak tell` killed in that step of watch's, else right after its text went in; its
-        claim left behind, its process gone."""
-        self.killed_after_text = step is None
+    def died(self, step=None, before_text=False):
+        """`ak tell` killed in that step of watch's, else right before or after its text went
+        in; its claim left behind, its process gone."""
+        self.killed_after_text = step is None and not before_text
+        self.killed_before_text = before_text
         killed = KeyboardInterrupt("killed")
         with (patch.object(watch, step, side_effect=killed) if step else nullcontext()), \
                 self.assertRaises(KeyboardInterrupt):
@@ -376,12 +393,58 @@ class TyperDied(Seats):
         self.assertEqual((len(self.taken), len(self.typed)), (1, 1))
         self.assertEqual(self.waiting(), [])
 
+    def test_two_messages_with_the_same_line_both_go_in(self):
+        """The same words twice within a minute: two messages, each typed once."""
+        self.pane = self.idle.replace(self.EMPTY, "❯ The owner's own words\n")
+        self.tell(SEAT, "Still working?")
+        self.tell(SEAT, "Still working?")
+        self.pane = self.idle
+        for _ in range(3):
+            tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.taken, [self.header() + "Still working?"] * 2)
+        self.assertEqual(self.waiting(), [])
+
     def test_a_line_lost_from_its_composer_is_typed_again(self):
         self.died()
         self.pane = self.idle                          # the composer's text gone, never sent
         tell.deliver(self.cfg, lambda _: None)
         tell.deliver(self.cfg, lambda _: None)
         self.assertEqual(self.taken, [self.header() + "Parser merged."])
+        self.assertEqual(self.waiting(), [])
+
+
+class TyperDiedNoConversation(TyperDied):
+    """The same deaths on a seat whose harness keeps no conversation ak reads."""
+
+    EMPTY = "❯\n"
+
+    def setUp(self):
+        super().setUp()
+        config.update_session(SEAT, orchestrator="spark")
+        self.assertFalse(orch.seat_plugin(config.session_records()[SEAT]).keeps_messages)
+        self.idle = (REPO / "tests/fixtures/muse-prompt-pane.txt").read_text(encoding="utf-8")
+        self.pane, self.transcript = self.idle, None
+
+    def test_a_line_killed_before_its_keys_is_typed_again(self):
+        self.died(before_text=True)
+        self.assertEqual((self.typed, len(self.receipts())), ([], 1))
+        for _ in range(3):
+            tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.taken, [self.header() + "Parser merged."])
+        self.assertEqual(self.waiting(), [])
+
+    def test_a_line_that_went_in_is_never_typed_again_even_in_a_restored_tmux(self):
+        self.died("_wait_sent")                       # after its Enter
+        self.seat = dict(self.seat, created=11)
+        tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual((len(self.taken), len(self.typed)), (1, 1))
+        self.assertEqual(self.waiting(), [])
+
+    def test_a_line_lost_from_its_composer_is_typed_again(self):
+        """Its keys went in, and with no conversation to read, the gone line counts as taken."""
+        self.died()
+        self.pane = self.idle
+        tell.deliver(self.cfg, lambda _: None)
         self.assertEqual(self.waiting(), [])
 
 
