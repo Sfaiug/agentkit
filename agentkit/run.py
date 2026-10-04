@@ -3908,6 +3908,22 @@ def note(lp, reason, failed=False):
     return False
 
 
+def stands_on_dependency(lp):
+    """Refuse a record from before `after:` went whose branch still stands on a dependency.
+
+    Its reviewed diff left the dependency's passed commits out, so landing it would deliver
+    them unreviewed, and replaying it after the dependency's squash conflicts.  It stops
+    before landing, its branch kept, saying how to go on.
+    """
+    after = lp.state.get("from_pass")
+    if not isinstance(after, dict) or lp.base_sha != after.get("tip"):
+        return False
+    note(lp, f"this branch stands on {after.get('task')}'s passed work, which `after:` no "
+             f"longer waits for; once that has merged, relaunch with "
+             f"`from: {lp.state.get('branch')}`", failed=True)
+    return True
+
+
 def park_waiting(lp, reason, ref, sha=None):
     """Park the run `waiting` on the next merge to `ref`, with the reason.
 
@@ -5436,6 +5452,8 @@ def land(lp, upstream, verify, deliver, execv=None):
 
     Only delivery holds the repository lock; checks and fixers run outside it.
     """
+    if stands_on_dependency(lp):
+        return False
     if (lp.state.get("waiting_on") or {}).get("line"):
         return land_from_line(lp, upstream, deliver)
     pickup_new_code(lp, execv=execv)
@@ -5537,6 +5555,8 @@ def merge(lp):
         return note(lp, f"this run works directly on {branch}, which is the branch it would merge "
                         "into, so there is no PR to open", failed=True)
 
+    if stands_on_dependency(lp):
+        return False
     upstream_repo, permission = rights(lp)
     if upstream_repo and permission not in PUSH_RIGHTS:
         return land(lp, upstream, lambda: integrate(lp, upstream) and final_check(lp, upstream),
@@ -10781,7 +10801,7 @@ def cmd_merge(argv):
             if info is None:
                 log(f"no delivery PR: {stopped_on}; delivering again from integration")
                 merge(lp)
-            else:
+            elif not stands_on_dependency(lp):
                 upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
                 upstream_repo, permission = rights(lp)
 

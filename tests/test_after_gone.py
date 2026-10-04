@@ -10,8 +10,9 @@ from pathlib import Path
 import runpy
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -78,6 +79,21 @@ class AfterGone(unittest.TestCase):
         meta, _, title = task.parse_task(self.write("after: base.md\n", "fix-api.md"))
         self.assertEqual((meta["after"], title), ("base.md", "fix-api.md"))
         self.assertIn("`after:` is gone", task.launch_refusal(meta))
+
+    def test_a_saved_run_standing_on_a_dependency_never_lands(self):
+        # a record from before `after:` went: its branch was cut from a dependency's passed tip
+        lp = SimpleNamespace(base_sha="tip", log=Mock(), write=Mock(),
+                             state={"branch": "ak/beta", "from_pass": {"task": "alpha.md",
+                                                                       "tip": "tip"}})
+        verify, deliver = Mock(return_value=True), Mock(return_value=True)
+        self.assertFalse(run.land(lp, "origin/main", verify, deliver))
+        verify.assert_not_called()
+        deliver.assert_not_called()
+        self.assertTrue(lp.state["merge_failed"])
+        self.assertIn("relaunch with `from: ak/beta`", lp.state["merge_note"])
+        # once integrated onto the target it stands on its own commits and lands as usual
+        lp.base_sha = "target"
+        self.assertFalse(run.stands_on_dependency(lp))
 
 
 if __name__ == "__main__":
