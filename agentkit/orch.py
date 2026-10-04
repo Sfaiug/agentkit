@@ -2756,8 +2756,9 @@ def cmd_stop(argv):
     and local branch go with it. The run directories stay: their results are collected
     by age. Its Discord card is closed as `Answered`, the way a gone seat's is, and the
     seat's `<kind>-<name>.*` state files go, then the stop mark is written
-    back into the seat file so a hand-back still knows the owner ended it; the locks that
-    writing it takes again go last, and the daily collector takes the mark a day later.
+    back into the seat file so a hand-back still knows the owner ended it -- all of it under
+    the seat's own typing lock, so a line being typed into it finishes first; the locks go
+    last, and the daily collector takes the mark a day later.
     A card Discord would not take the edit for stays, for the tick to close.
     Browser tabs the seat or its runs opened close; a tab with no recorded opener is left
     to the idle rule.
@@ -2804,24 +2805,29 @@ def cmd_stop(argv):
             run_mod.release_session(name)
             if record:
                 seat_plugin(record).forget(record)
-            for path in session_owned_files(name):
-                if path == config.card_path(name):
-                    continue      # one Discord did not take the edit for: the tick closes it
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError as exc:
-                    print(f"WARN could not remove {path.name}: {exc}", file=sys.stderr)
-            if session:
-                rc, out = tmux_out("kill-session", "-t", f"={name}", socket=seat_socket(session))
-                if rc != 0:
-                    raise config.Error(f"could not stop the session {name}: {out}")
-            # the owner ended this seat: a run of its that finishes later, or is still going,
-            # brings it back through neither run.announce nor the tick, until a seat is
-            # launched under the name again.  The hand-back reads `closed_by_owner` for the
-            # same decision, and a pause script that ends a seat writes the same mark through
-            # `mark_owner_closed`.
-            watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
-                             usage_wait=None, usage_refusal=None)
+            # Every line ak types into a seat goes in under its own lock, the one a rename takes:
+            # a line under way finishes into this seat before it closes, and one waiting finds it
+            # closed.  Its lock files go last, below, so whoever waits waits on this very lock.
+            with notify.session_lock(name):
+                for path in session_owned_files(name):
+                    if path == config.card_path(name) or path.suffix == ".lock":
+                        continue  # a card Discord did not take the edit for: the tick closes it
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError as exc:
+                        print(f"WARN could not remove {path.name}: {exc}", file=sys.stderr)
+                if session:
+                    rc, out = tmux_out("kill-session", "-t", f"={name}",
+                                       socket=seat_socket(session))
+                    if rc != 0:
+                        raise config.Error(f"could not stop the session {name}: {out}")
+                # the owner ended this seat: a run of its that finishes later, or is still
+                # going, brings it back through neither run.announce nor the tick, until a seat
+                # is launched under the name again.  The hand-back reads `closed_by_owner` for
+                # the same decision, and a pause script that ends a seat writes the same mark
+                # through `mark_owner_closed`.
+                watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
+                                 usage_wait=None, usage_refusal=None)
         watch.forget(name)   # a new seat with this name must not inherit the old stop latch
         drop_aliases(name)
         # The mark and the latch above took the seat's and its notices' locks again, and a
