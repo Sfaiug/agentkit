@@ -54,6 +54,8 @@ class Sandbox(unittest.TestCase):
                                  "NO_COLOR": "1", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                                  # this HOME's OpenCode config, never the caller's: mimo is payg
                                  "OPENCODE_CONFIG_DIR": str(self.root / ".config/opencode")}))
+        # the owner's commands, never those of the seat the suite happens to be started in
+        os.environ.pop(config.SESSION_ENV, None)
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[]))
