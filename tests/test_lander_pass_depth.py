@@ -311,6 +311,25 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.assertTrue(all("land" not in self.wait(member) for member in members[1:]))
         self.assert_cleaned()
 
+    def test_a_pinned_turn_count_bounds_the_checks_in_a_pass(self):
+        members = self.members()
+        self.capacity.return_value = 3
+        with patch.object(config, "max_gates", return_value=1):
+            land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.assertIn("land", self.wait(members[0]))
+        self.assert_cleaned()
+
+    def test_a_sharded_suite_takes_every_turn_so_a_pass_checks_one_stack(self):
+        members = [self.member(f"member-{n}", joined=n, **{f"member-{n}.txt": f"{n}\n"})
+                   for n in range(1, 4)]
+        self.advance(**{"AGENTS.md": "---\ntests: test -f base.txt  # AK_SHARD\n---\n"})
+        self.capacity.return_value = 3
+        land.check_line(self.turn)
+        self.assertEqual(self.checked_members(), {frozenset({"member-1.txt"})})
+        self.assertIn("land", self.wait(members[0]))
+        self.assert_cleaned()
+
     def test_a_green_member_leaves_the_line_after_landing_or_stopping(self):
         members = self.members()
         land.check_line(self.turn)

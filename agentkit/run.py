@@ -5414,7 +5414,7 @@ def rejoin_line(lp, upstream, reason, *, back=False):
 def land_from_line(lp, upstream, deliver):
     """Consume the lander's verdict in this run; only delivery holds the plain merge flock."""
     wait = lp.state["waiting_on"]
-    if "land" in wait and "fix" not in wait:
+    if landing.green_delivery(wait):
         turn = turn_path(lp, upstream)
         try:
             with merge_lock(lp, upstream):
@@ -7438,7 +7438,7 @@ def slot_order(state):
     # A green member only needs delivery before the target moves.
     wait = state.get("waiting_on") or {}
     return (not (state.get("first") or "land" in wait or "fix" in wait),
-            "land" not in wait,
+            not landing.green_delivery(wait),
             state.get("queued_at") or state.get("started_at") or 0,
             state.get("run_id") or "")
 
@@ -8811,14 +8811,8 @@ def parked_line(state, run_id=None, now=None):
     name = run_id or state.get("run_id") or "?"
     line = landing_line(state)
     if line:
-        joined = state["waiting_on"]["joined"]
-        place = 1
-        for directory in run_record.run_dirs():
-            member = run_record.read_state(directory) or {}
-            if (landing_line(member) == line
-                    and (not member.get("first"), member["waiting_on"]["joined"], directory.name)
-                    < (not state.get("first"), joined, name)):
-                place += 1
+        ahead = [directory.name for directory, _ in landing.line(config.RUNS / line)]
+        place = ahead.index(name) + 1 if name in ahead else len(ahead) + 1
         suffix = ("th" if 10 <= place % 100 <= 20 else
                   {1: "st", 2: "nd", 3: "rd"}.get(place % 10, "th"))
         target = (state.get("target") or state.get("base") or "main").removeprefix("origin/")

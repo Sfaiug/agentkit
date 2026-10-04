@@ -68,5 +68,61 @@ class FirstInLine(LanderFixture, unittest.TestCase):
         self.assertEqual([directory for directory, _ in land.line(self.turn)],
                          [green, first, ordinary])
 
+    def passed_behind_a_green_head(self):
+        head = self.member("head", joined=1, **{"head.txt": "head\n"})
+        self.advance()
+        land.check_line(self.turn)
+        repair = self.member("repair", joined=2, **{"repair.txt": "repair\n"})
+        with record.record(repair) as state:
+            state["first"] = True
+        tail = self.member("tail", joined=3, **{"tail.txt": "tail\n"})
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(head))
+        self.assertIn("land", self.wait(repair))
+        return head, repair, tail
+
+    def test_a_first_member_passed_behind_a_green_delivery_stays_behind_it(self):
+        passed = list(self.passed_behind_a_green_head())
+        self.assertEqual([directory for directory, _ in land.line(self.turn)], passed)
+
+    def test_two_green_deliveries_leave_the_next_pass_to_the_member_behind_them(self):
+        head, repair, tail = self.passed_behind_a_green_head()
+        for member in (head, repair):
+            with record.record(member) as state:
+                state.update(state="running", pid=5678)
+        with patch.object(record, "process_active",
+                          side_effect=lambda state: state.get("pid") == 5678):
+            land.check_line(self.turn)
+        self.assertIn("land", self.wait(tail))
+
+    def test_an_earlier_member_passed_behind_a_green_first_member_stays_behind_it(self):
+        ordinary = self.member("ordinary", joined=1, **{"ordinary.txt": "ordinary\n"})
+        first = self.member("repair", joined=2, **{"repair.txt": "repair\n"})
+        with record.record(first) as state:
+            state["first"] = True
+        self.advance()
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(first))
+        with record.record(first) as state:
+            state.update(state="running", pid=5678)
+        with patch.object(record, "process_active",
+                          side_effect=lambda state: state.get("pid") == 5678):
+            land.check_line(self.turn)
+            self.assertIn("land", self.wait(ordinary))
+            self.assertEqual([directory for directory, _ in land.line(self.turn)],
+                             [first, ordinary])
+
+    def test_status_counts_a_green_delivery_ahead_of_a_first_member(self):
+        head = self.member("head", joined=1)
+        self.advance()
+        land.check_line(self.turn)
+        repair = self.member("repair", joined=2)
+        with record.record(repair) as state:
+            state["first"] = True
+        self.assertEqual([directory for directory, _ in land.line(self.turn)], [head, repair])
+        self.assertEqual(run.parked_line(record.read_state(repair)),
+                         "waiting · 2nd in line to land on main")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

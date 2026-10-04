@@ -100,6 +100,17 @@ class WokenMemberAdmission(unittest.TestCase):
         self.assertFalse(self.claim(fix))
         self.assertTrue(self.claim(fix))
 
+    def test_a_failed_pr_check_keeping_its_land_verdict_waits_behind_a_green_delivery(self):
+        self.receipt("holder", 1, word="running")
+        failed = self.receipt("failed-pr-check", 10, "land")
+        with record.record(failed) as state:
+            state["waiting_on"]["fix"] = {"line": "required checks failed: suite", "log": "pr.log"}
+        green = self.receipt("green", 20, "land")
+        self.assertLess(run.slot_order(record.read_state(green)),
+                        run.slot_order(record.read_state(failed)))
+        self.assertFalse(self.claim(green))
+        self.assertTrue(self.claim(green))
+
     def test_memory_gates_still_hold_both_verdicts(self):
         for verdict in ("land", "fix"):
             with self.subTest(verdict=verdict), patch.dict(os.environ, {"AK_MAX_LOAD": "8"}):

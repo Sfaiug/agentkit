@@ -59,8 +59,8 @@ def note(turn, trees, leader, *, red=None, red_stacks=None):
 
 
 def line(turn):
-    """Members including green deliveries that continue themselves: green deliveries first,
-    then first runs, each group in join order."""
+    """Members including green deliveries that continue themselves: green deliveries in the
+    order the lander passed them, then first runs, then the rest, each in join order."""
     from . import run
     members = []
     for directory in record.run_dirs():
@@ -68,20 +68,26 @@ def line(turn):
         wait = state.get("waiting_on")
         if (isinstance(wait, dict) and not state.get("merged")
                 and (state.get("state") == "waiting"
-                     or (_green(wait)
+                     or (green_delivery(wait)
                          and state.get("state") not in run.ENDED
                          and run.followup_open(state)
                          and (record.process_active(state) or run.tick_resumes(state))))
                 and wait.get("line") == turn.name
                 and type(wait.get("joined")) in (int, float)):
             members.append((directory, state))
-    return sorted(members, key=lambda member: (not _green(member[1]["waiting_on"]),
-                                              not member[1].get("first"),
-                                              member[1]["waiting_on"]["joined"],
-                                              member[0].name))
+    return sorted(members, key=_place)
 
 
-def _green(wait):
+def _place(member):
+    """Each green tree contains the deliveries passed before it, so they keep that order."""
+    directory, state = member
+    wait = state["waiting_on"]
+    if green_delivery(wait):
+        return False, wait.get("passed", wait["joined"]), wait["joined"], directory.name
+    return True, not state.get("first"), wait["joined"], directory.name
+
+
+def green_delivery(wait):
     """A green delivery stays ahead: the stacks behind it are the ones that can land."""
     return "land" in wait and "fix" not in wait
 
@@ -251,7 +257,13 @@ def check_line(turn, log=lambda _: None):
                             return False
                     for member, answer in sorted(fresh.items(), key=lambda item: "land" in item[1]):
                         with record.record(member) as current:
-                            current["waiting_on"] = {**current["waiting_on"], **answer}
+                            wait = current["waiting_on"]
+                            if "land" in answer:
+                                # A re-sent verdict keeps its place among green deliveries.
+                                answer = {**answer, "passed": wait["passed"] if (
+                                    wait.get("land") == answer["land"] and "passed" in wait)
+                                    else time.time()}
+                            current["waiting_on"] = {**wait, **answer}
                         # Later answers still compare against this pass's own writes.
                         snapshots[member]["waiting_on"] = dict(current["waiting_on"])
                     sent.update(fresh)
@@ -351,7 +363,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
     upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
     config.WT.mkdir(parents=True, exist_ok=True)
     pending, verdicts = list(members), {}
-    remaining = max(1, gate.derived_heavy_limit())
+    remaining = None
     while pending:
         with ExitStack() as opened:
             top, stacks = tip, []
@@ -380,6 +392,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 stacks.append((member, saved, scratch, tree))
             if not stacks:
                 break
+            if remaining is None:
+                remaining = gate.whole_checks_that_fit(run.declared_suite(stacks[0][2], upstream))
             green, red = _trees(turn)[1], _trees(turn, "red_stacks")[1]
             # The first stack has no green prefix to attribute a cached failure to.
             # Retry its own check after a kill or flake; later evidence survives a crash.
