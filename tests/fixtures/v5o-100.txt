@@ -7,7 +7,7 @@ agentkit                                                                        
   Muse     ██████░░░░░░   50% left
   Gemini   —  no reading yet
   Grok     —  no reading yet
-  ChatGPT  ████████░░░░   69% left
+  ChatGPT  ████████░░░░   69% left · 2 resets in hand
 
 your projects · 2 need you
 
