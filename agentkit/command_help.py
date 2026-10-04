@@ -94,7 +94,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
        ak orch list [--why] | ak orch why NAME
        ak orch stop NAME | ak orch rename [--auto] [OLD] NEW
        ak orch project [SEAT] CHECKOUT | ak orch solo SESSION on|off""",
-             "Start or attach to a named orchestrator session; --dry-run prints the launch plan.",
+             "Start or attach to a named orchestrator session; a new one opens only from a terminal.\n"
+             "--dry-run prints the launch plan.",
              "ak orch parser-fix"),
     "orch list": ("usage: ak orch list [--why]",
                   "List orchestrator sessions and their selections;\n"

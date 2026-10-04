@@ -1507,6 +1507,12 @@ export AGENTKIT_TMUX_SOCKET=agentkit-test
 export TMUX_TMPDIR="$WORK/tmux"
 mkdir -p -- "$TMUX_TMPDIR"
 tm()  { env -u TMUX tmux -L agentkit-test "$@"; }        # the seats
+# A new seat opens only where a person types (`orch.typed_here`): `typed ANSWERS CMD...` runs CMD
+# with a terminal on stdin that has ANSWERS typed into it; its stdout and stderr stay the caller's.
+typed() { python3 -c 'import os, subprocess, sys
+typist, stdin = os.openpty()
+os.write(typist, sys.argv[1].encode())
+sys.exit(subprocess.run(sys.argv[2:], stdin=stdin).returncode)' "$@"; }
 tmj() { env -u TMUX tmux -L agentkit-test-jobs "$@"; }   # the jobs: updates
 # the default server, which under $TMUX_TMPDIR above is this suite's too: it stands in for the
 # one a user's seats were on before agentkit had a server of its own
@@ -2396,7 +2402,7 @@ elif [ -n "$SEATWHY" ]; then
 else
 SEAT=$(newrepo seat)
 tm kill-session -t =smoke-astra 2>/dev/null    # a seat a previous, interrupted smoke left
-printf '\n' | ( cd "$SEAT" && ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
+( cd "$SEAT" && typed $'\n' ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
 SEATRC=$?
 PANE=""
 for _ in $(seq 1 30); do
@@ -4031,7 +4037,8 @@ fi
 exit 0
 SH
 chmod +x "$NAD/claude.sh"
-akn() { HOME="$NH" AGENTKIT_ADAPTER_DIR="$NAD" ak "$@"; }
+NENV=(env HOME="$NH" AGENTKIT_ADAPTER_DIR="$NAD")
+akn() { "${NENV[@]}" ak "$@"; }
 NAME=0
 for seat in my-big-task resume-seat by-hand pair-one pair-two nopin-seat; do
   tm kill-session -t "=$seat" 2>/dev/null
@@ -4074,7 +4081,7 @@ grep -q '^not-a-seat ' "$WORK/name-list3.log" && NAME=1
 # id, hands it to the harness as one to open (`interactive ... <id> new`) and writes it into the
 # record before the seat starts.  Nothing goes looking for one afterwards, so a transcript that
 # turns up in that directory later belongs to whoever wrote it and the seat keeps its own.
-printf '\n\n\n' | ( cd "$NSEAT" && akn orch resume-seat ) >"$WORK/name-resume-new.log" 2>&1 || NAME=1
+( cd "$NSEAT" && typed $'\n\n\n' "${NENV[@]}" ak orch resume-seat ) >"$WORK/name-resume-new.log" 2>&1 || NAME=1
 CONV=$(jq -r '.conversation // ""' "$NH/.agentkit/state/session-resume-seat.json" 2>/dev/null)
 case "$CONV" in [0-9a-f]*-*-*-*-*) ;; *) NAME=1; CONV="not-a-conversation" ;; esac
 # and it says where that id came from, because only one the launcher handed over is an id
@@ -4103,8 +4110,8 @@ jq -e --arg c "$CONV" '.conversation == $c' "$NH/.agentkit/state/session-resume-
 # confused for the other, and each comes back on the conversation it was launched with
 NPAIR="$NH/code/name-pair"; mkdir -p -- "$NPAIR"
 git init -q -b main -- "$NPAIR"
-printf '\n' | ( cd "$NPAIR" && akn orch pair-one --model fable --workers opus ) >"$WORK/name-pair1.log" 2>&1 &
-printf '\n' | ( cd "$NPAIR" && akn orch pair-two --model fable --workers opus ) >"$WORK/name-pair2.log" 2>&1 &
+( cd "$NPAIR" && typed $'\n' "${NENV[@]}" ak orch pair-one --model fable --workers opus ) >"$WORK/name-pair1.log" 2>&1 &
+( cd "$NPAIR" && typed $'\n' "${NENV[@]}" ak orch pair-two --model fable --workers opus ) >"$WORK/name-pair2.log" 2>&1 &
 wait
 P1=$(jq -r '.conversation // ""' "$NH/.agentkit/state/session-pair-one.json" 2>/dev/null)
 P2=$(jq -r '.conversation // ""' "$NH/.agentkit/state/session-pair-two.json" 2>/dev/null)
@@ -4147,8 +4154,9 @@ echo 'sleep 600'
 SH
 chmod +x "$NAD3/claude.sh"
 cp "$NAD/codex.sh" "$NAD/muse.sh" "$NAD3/"   # only the seat's harness is fake here, not the meters
-akp() { HOME="$NH" AGENTKIT_ADAPTER_DIR="$NAD3" ak "$@"; }
-printf '\n' | ( cd "$NNOPIN" && akp orch nopin-seat --model fable --workers opus ) \
+PENV=(env HOME="$NH" AGENTKIT_ADAPTER_DIR="$NAD3")
+akp() { "${PENV[@]}" ak "$@"; }
+( cd "$NNOPIN" && typed $'\n' "${PENV[@]}" ak orch nopin-seat --model fable --workers opus ) \
   >"$WORK/name-nopin.log" 2>&1 || NAME=1
 jq -e '.resumable == false and (has("conversation") | not)' \
   "$NH/.agentkit/state/session-nopin-seat.json" >/dev/null 2>&1 || NAME=1
@@ -4256,7 +4264,7 @@ akn orch stop lost-seat >/dev/null 2>&1 || NAME=1
 # ever configured it: the seat has to survive that too, so the options go into the server before
 # the seat does
 tm set -g remain-on-exit off >/dev/null 2>&1
-printf '\n\n\n' | ( cd "$NSEAT" && akn orch fast-exit ) >"$WORK/name-fast.log" 2>&1 || NAME=1
+( cd "$NSEAT" && typed $'\n\n\n' "${NENV[@]}" ak orch fast-exit ) >"$WORK/name-fast.log" 2>&1 || NAME=1
 sleep 1
 tm has-session -t =fast-exit 2>/dev/null || NAME=1
 [ "$(tm display-message -p -t '=fast-exit:' '#{?pane_dead,dead,alive}' 2>/dev/null)" = dead ] || NAME=1
@@ -4267,7 +4275,7 @@ tmd has-session -t =legacy-renamed 2>/dev/null || NAME=1
 tmd has-session -t =legacy-seat 2>/dev/null && NAME=1
 tm has-session -t =legacy-renamed 2>/dev/null && NAME=1     # never on the toolkit's own server
 # (h5) and the name it used to have is not free: the orchestrator in there still answers to it
-printf '\n' | akn orch legacy-seat >"$WORK/name-alias-orch.log" 2>&1; [ "$?" = 2 ] || NAME=1
+typed $'\n' "${NENV[@]}" ak orch legacy-seat >"$WORK/name-alias-orch.log" 2>&1; [ "$?" = 2 ] || NAME=1
 grep -q "used to be called" "$WORK/name-alias-orch.log" || NAME=1
 jq -e '.renamed == "legacy-renamed"' "$NH/.agentkit/state/session-legacy-seat.json" \
   >/dev/null 2>&1 || NAME=1
@@ -4275,7 +4283,7 @@ jq -e '.renamed == "legacy-renamed"' "$NH/.agentkit/state/session-legacy-seat.js
 # it used to be called is free again for `ak orch`, which makes a seat under it
 akn orch stop legacy-renamed >"$WORK/name-legacy-stop.log" 2>&1 || NAME=1
 [ -e "$NH/.agentkit/state/session-legacy-seat.json" ] && NAME=1
-printf '\n' | ( cd "$NSEAT" && akn orch legacy-seat --model fable --workers opus ) \
+( cd "$NSEAT" && typed $'\n' "${NENV[@]}" ak orch legacy-seat --model fable --workers opus ) \
   >"$WORK/name-alias-free.log" 2>&1 || NAME=1
 jq -e --arg d "$NSEAT" '.cwd == $d and .repo == $d' \
   "$NH/.agentkit/state/session-legacy-seat.json" >/dev/null 2>&1 || NAME=1

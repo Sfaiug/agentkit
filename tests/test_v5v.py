@@ -73,6 +73,7 @@ class Picker(NewSession):
         cwd.mkdir()
         with patch.object(orch, "maintenance"), patch.object(orch, "attach", return_value=0), \
                 patch.object(orch, "launch"), patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
+                patch.object(orch, "typed_here", return_value=True), \
                 patch.object(Path, "cwd", return_value=cwd), self.answers(["", "", "all"]), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(orch.main([]), 0)

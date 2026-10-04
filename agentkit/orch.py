@@ -1551,6 +1551,11 @@ def session_name(raw):
     return re.sub(r"-+", "-", name).strip("-")[:NAME_CAP].strip("-")
 
 
+def typed_here():
+    """A person is at this command's keyboard: agents run `ak` with no terminal on stdin."""
+    return sys.stdin.isatty()
+
+
 def seat_cwd():
     """Where a seat opened from the menu runs: ~/code, which is where the checkouts go."""
     config.CODE.mkdir(parents=True, exist_ok=True)
@@ -3704,6 +3709,12 @@ def main(argv):
             # launched with where it was given one, and fresh where it was not.
             # Naming a model or a worker list is the one way to ask for a new seat by that name.
             return resume(cfg, name, dry_run=dry_run)
+    if not dry_run and not typed_here():
+        # An agent's guessed `ak orch help` or `ak orch roles` once opened a real seat, which
+        # sat in the owner's list as "needs you": only a person opens a seat.
+        seat = f"no seat named {name}" if name else "no seat name given"
+        raise config.Error(f"{seat}; a new seat opens only from a terminal (the menu's n, or "
+                           f"`ak orch NAME` typed there)\n{USAGE}")
     if forced is not None and forced_workers is None:
         # Reject invalid flags before asking any interactive question.
         providers = usage.collect(cfg)
