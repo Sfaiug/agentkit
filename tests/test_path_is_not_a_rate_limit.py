@@ -29,6 +29,10 @@ PATHS = (
     "/tmp/acme:429",
     "agentkit/run.py:429:7",
     'File "/tmp/acme/run.py", line 429, in main',
+    "20261004-0726-run.log.429",
+    "20261004-0726-run.log-429",
+    "20261004-0726-run.log.503",
+    "20261004-0726-run.log-529",
 )
 REFUSALS = {
     "claude": "API Error:429",

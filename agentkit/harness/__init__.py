@@ -90,11 +90,11 @@ def says(text, word):
     # `", line 429`), and ak's run and job ids (a date-time stamp, then words) join numbers
     # with punctuation too. A match stands unless every number in it sits inside one:
     # `HTTP/1.1 429`, `HTTP-503` and `Error-429` are still the status.
-    ignored = [span.span() for span in re.finditer(
-        r'''(?:[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*|'''
-        r'''\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*\b)(?::\d+)*|(?<=", )line \d+|'''
-        r'''\b\d{8}-\d{4,6}(?:-[\w.]+)+''', text)
-        ] if re.search(r"[\d#]", word) else []
+    # Each kind is found on its own and every span counts, so one never cuts another short.
+    ignored = [span.span() for kind in (
+        r'''(?:[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*)(?::\d+)*''',
+        r"\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*\b(?::\d+)*", r"\b\d{8}-\d{4,6}(?:-[\w.]+)+",
+        r'(?<=", )line \d+') for span in re.finditer(kind, text)] if re.search(r"[\d#]", word) else []
 
     def stands(match):
         numbers = [(match.start() + number.start(), match.start() + number.end())
