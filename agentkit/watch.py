@@ -1010,28 +1010,46 @@ def strip_sgr(text):
     return SGR_ALL.sub("", text)
 
 
-def has_dim(line):
-    """Does that raw `-e` line carry a faint (SGR 2) span: a suggestion, never a draft.
+def _sgr_codes(params):
+    """The plain attribute codes of one SGR sequence's parameters; a bare `m` is a reset.
 
     Extended colours ride along as parameter runs -- `38;5;n`, `38;2;r;g;b` and
     their background `48` twins -- and the `2` inside one names a colour, never
-    faint. Only a bare 2, outside those runs, counts.
+    faint.
     """
-    for found in SGR_SEQ.finditer(line):
-        params = found.group(1).split(";") if found.group(1) else []
-        i = 0
-        while i < len(params):
-            if params[i] in ("38", "48") and i + 1 < len(params):
-                if params[i + 1] == "5":
-                    i += 3
-                    continue
-                if params[i + 1] == "2":
-                    i += 5
-                    continue
-            if params[i].isdigit() and int(params[i]) == 2:
-                return True
-            i += 1
-    return False
+    params = params.split(";") if params else ["0"]
+    i = 0
+    while i < len(params):
+        if params[i] in ("38", "48") and i + 1 < len(params) and params[i + 1] in ("5", "2"):
+            i += 3 if params[i + 1] == "5" else 5
+            continue
+        if params[i].isdigit():
+            yield int(params[i])
+        i += 1
+
+
+def has_dim(line):
+    """Does that raw `-e` line carry a faint (SGR 2) span: a suggestion, never a draft."""
+    return any(2 in _sgr_codes(found.group(1)) for found in SGR_SEQ.finditer(line))
+
+
+def dim_rows(raws):
+    """For each raw `-e` row, whether faint text is drawn in it.
+
+    tmux writes an attribute once, where it starts, and carries it on to the rows under it
+    until something ends it: a faint suggestion wrapped onto more rows has its SGR 2 on the
+    first alone.  So faint is carried from row to row, as `in_colour` carries a colour.
+    """
+    faint, dims = False, []
+    for raw in raws:
+        dim, at = has_dim(raw), 0
+        for found in SGR_SEQ.finditer(raw):
+            dim = dim or (faint and bool(strip_sgr(raw[at:found.start()]).strip()))
+            for code in _sgr_codes(found.group(1)):
+                faint = True if code == 2 else False if code in (0, 22) else faint
+            at = found.end()
+        dims.append(dim or (faint and bool(raw[at:].strip())))
+    return dims
 
 
 def in_colour(text):
@@ -1091,6 +1109,22 @@ def pane_tail(text):
     return "\n".join(lines[-PANE_LINES:])
 
 
+def screen_tail(harness, pane):
+    """The tail that harness's screen is read from: `pane_tail`, reaching up to the top rule of
+    a ruled composer's box that a long draft pushed above it, found over the whole pane."""
+    lines = [line.rstrip() for line in pane.splitlines() if strip_sgr(line).strip()]
+    try:
+        chrome = screen(harness)
+    except config.Error:
+        chrome = {"ruled": False}
+    start = len(lines) - PANE_LINES
+    if chrome["ruled"] and start > 0:
+        at = ruled_composer(chrome, [strip_sgr(line).strip() for line in lines])[0]
+        if at is not None:
+            start = min(start, at - 1)
+    return "\n".join(lines[max(0, start):])
+
+
 def _plain_lines(tail):
     """Stripped plain lines; `-e` attributes never make a blank line non-empty."""
     return [strip_sgr(line).strip() for line in tail.splitlines() if strip_sgr(line).strip()]
@@ -1111,18 +1145,24 @@ def content_lines(harness, tail):
 def ruled_composer(chrome, rows):
     """(prompt row, closing rule row) of the composer a ruled harness draws, else (None, None).
 
-    It is the bottom-most prompt row whose first chrome row under it is a bare rule, so a
-    user's status line under that rule is never the composer, even where it starts with a
-    prompt mark.
+    Its box: the bottom-most prompt row right under a rule of the harness's chrome -- bare, or
+    with the seat's name in it -- closed by the first row under it drawn in that rule's own
+    glyph, at least as long as its run before any name.  Every row between is the composer's,
+    a wrapped or multi-line draft's even where one reads like a rule (`---`), and a user's
+    status line under the box is never it, even where it starts with a prompt mark.
     """
     if not chrome["ruled"]:
         return None, None
-    for at in range(len(rows) - 1, -1, -1):
-        if re.match(r"(?:│\s*)?[❯›⟩]", rows[at]):
-            end = next((row for row in range(at + 1, len(rows))
-                        if chrome_line(chrome, rows[row])), len(rows))
-            if end < len(rows) and re.fullmatch(RULE, rows[end].strip()):
-                return at, end
+    for at in range(len(rows) - 1, 0, -1):
+        top = rows[at - 1].strip()
+        run = re.match(r"([─━═])\1*", top)
+        if not (run and re.match(r"(?:│\s*)?[❯›⟩]", rows[at]) and chrome_line(chrome, top)):
+            continue
+        closing = re.compile(f"{run.group(1)}{{{len(run.group(0))},}}")
+        end = next((row for row in range(at + 1, len(rows))
+                    if closing.fullmatch(rows[row].strip())), None)
+        if end is not None:
+            return at, end
     return None, None
 
 
@@ -1403,7 +1443,19 @@ def screen_state(harness, tail):
             prompt = r"(?:│\s*)?[❯›⟩]"
             marked = [index for index in range(len(region) - 1, -1, -1)
                       if re.match(prompt, region[index])]
-            if rule["chrome"]:
+            end = None
+            if rule["chrome"] and chrome["ruled"]:
+                # Its composer is the box `ruled_composer` finds over the whole tail, every row
+                # between its own rules, under the footer at the pane's bottom -- or, with none
+                # drawn, a prompt row right on that bottom.
+                region, raws = lines, raw_lines
+                at, end = ruled_composer(chrome, lines)
+                if at is not None and not chrome_line(chrome, lines[-1]):
+                    at = None
+                elif at is None and re.match(prompt, lines[-1]):
+                    at, end = len(lines) - 1, len(lines)
+                marked = [] if at is None else [at]
+            elif rule["chrome"]:
                 # The composer's own rule sits right under it and the footer at the bottom;
                 # what the harness draws between them, a user's status line, is not the draft
                 # even where it starts with a prompt mark, over a line that reads like chrome:
@@ -1420,8 +1472,13 @@ def screen_state(harness, tail):
             at = next(iter(marked), None)
             if at is None:
                 continue
+            end = at + 1 if end is None else end
             if rule["id"] == "prompt.draft":
-                draft = _draft_text(raws[at], region[at], chrome["composer"])
+                dims = dim_rows(raws)
+                draft = " ".join(part for part in [
+                    _draft_text(raws[at], region[at], chrome["composer"]),
+                    *(row for dim, row in zip(dims[at + 1:end], region[at + 1:end])
+                      if not dim)] if part)
                 if draft:
                     return rule["state"], rule["id"], draft[:160]
             elif _suggestion_line(raws[at], region[at]):
@@ -1585,8 +1642,8 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         pane = pane_text(session)
     at = time.time() if now is None else now
     try:
-        found = classify(harness, pane_tail(pane), hook_facts(name), previous.get("opened_at"),
-                         previous, at)
+        found = classify(harness, screen_tail(harness, pane), hook_facts(name),
+                         previous.get("opened_at"), previous, at)
     except config.Error as exc:
         # a manifest somebody is in the middle of writing is not a reason for a blank menu
         print(f"WARN cannot read what {name} is doing: {exc}", file=sys.stderr)
@@ -2213,7 +2270,7 @@ def _decided_state(name, harness, pane):
         return None
     try:
         previous = seat_read(name)
-        found = classify(harness, pane_tail(pane), hook_facts(name),
+        found = classify(harness, screen_tail(harness, pane), hook_facts(name),
                          previous.get("opened_at"), previous, time.time())
     except (config.Error, OSError):
         return None
@@ -2421,7 +2478,8 @@ def composer_draft(harness, pane):
     rule closes is one -- a user's status line under the rule never is, whatever its mark.
     """
     chrome = screen(harness)
-    raws, rows = _screen_rows(harness, pane_tail(pane))
+    # the whole pane: a long line wraps over more rows than the tail holds
+    raws, rows = _screen_rows(harness, pane)
     if chrome["draft"]:
         # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
         # block of them, and finding none reads as empty.
@@ -2432,19 +2490,22 @@ def composer_draft(harness, pane):
                     len(rows))
 
     marked = [at for at in range(len(rows) - 1, -1, -1) if re.match(r"(?:│\s*)?[❯›⟩]", rows[at])]
-    if chrome["ruled"]:
-        # A pane's bottom row stands in where no composer has its own rule under it.
-        closed = ruled_composer(chrome, rows)[0]
-        marked = [closed] if closed is not None else [at for at in marked if at + 1 == len(rows)]
     at = next(iter(marked), None)
+    stop = None if at is None else end(at)
+    if chrome["ruled"]:
+        # Its box between its own rules; a pane's bottom row stands in where none is drawn.
+        at, stop = ruled_composer(chrome, rows)
+        if at is None and marked and marked[0] + 1 == len(rows):
+            at, stop = marked[0], len(rows)
     if at is None:
         return None
     boxed = rows[at].startswith("│") and rows[at].endswith("│")
     # A boxed composer's edges are chrome, including on continuation rows.
     parts = [_draft_text(raws[at], rows[at][:-1].rstrip() if boxed else rows[at],
                          chrome["composer"])]
-    for raw, plain in zip(raws[at + 1:end(at)], rows[at + 1:end(at)]):
-        if not has_dim(raw):
+    dims = dim_rows(raws)
+    for dim, plain in zip(dims[at + 1:stop], rows[at + 1:stop]):
+        if not dim:
             if boxed and plain.startswith("│") and plain.endswith("│"):
                 plain = plain[1:-1].strip()
             parts.append(plain)
