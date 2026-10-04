@@ -349,13 +349,13 @@ def _stack_member(repo, state, top, upstream, opened):
     return scratch, text
 
 
-def _landing_checks(directory, state, scratch, upstream):
+def _landing_checks(directory, state, scratch, tip):
     """The member's own landing checks on `scratch`: its `# once` commands and the suite."""
     from . import run, task
     _, body, _ = task.parse_task(directory / "task.md")
-    # A review PR owes the suite declared on this stack, never an earlier head's suite too.
+    # A review PR owes the target's suite, never an earlier head's suite too.
     cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
-    return tuple(task.group_commands(run.with_suite(cmds, scratch, upstream))[1])
+    return tuple(task.group_commands(run.with_suite(cmds, scratch, ref=tip))[1])
 
 
 def _check_tree(directory, state, scratch, tree, checks, log):
@@ -399,11 +399,11 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
                 stacks.append((member, saved, scratch, tree,
-                               _landing_checks(member, saved, scratch, upstream)))
+                               _landing_checks(member, saved, scratch, tip)))
             if not stacks:
                 break
             if remaining is None:
-                remaining = gate.whole_checks_that_fit(run.declared_suite(stacks[0][2], upstream))
+                remaining = gate.whole_checks_that_fit(run.declared_suite(stacks[0][2], ref=tip))
             green, red = _trees(turn)[1], _trees(turn, "red_stacks")[1]
             # The first stack has no green prefix to attribute a cached failure to.
             # Retry its own check after a kill or flake; later evidence survives a crash.
@@ -448,7 +448,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             and not saved.get("repair") and not passed(turn, target_tree)):
                         run.git(scratch, "reset", "--hard", tip)
                         run.git(scratch, "clean", "-fdx")
-                        suite = run.declared_suite(scratch)
+                        suite = run.declared_suite(scratch, ref=tip)
                         if suite:
                             ok, probe = _check(member, saved, scratch, [suite],
                                                member / "target-probe.log", log)
