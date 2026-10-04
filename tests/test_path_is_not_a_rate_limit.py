@@ -1,4 +1,4 @@
-"""Paths and run ids never park a provider, hide its login, or excuse a failed adapter."""
+"""Paths, line references and run ids never park a provider, hide its login, or excuse a failed adapter."""
 
 from contextlib import ExitStack, redirect_stdout
 import io
@@ -26,6 +26,9 @@ PATHS = (
     "log-429.txt",
     r"C:\tmp\acme-429\log.txt",
     r"\\acme\429\log.txt",
+    "/tmp/acme:429",
+    "agentkit/run.py:429:7",
+    'File "/tmp/acme/run.py", line 429, in main',
 )
 REFUSALS = {
     "claude": "API Error:429",

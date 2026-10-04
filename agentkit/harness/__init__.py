@@ -86,12 +86,14 @@ def says(text, word):
         + re.escape(part).replace(r"\#", r"\d").replace(r"\~", r"[\W_]{0,3}")
         + (r"(?!\w)(?!\.\d)" if re.search(r"[\w#]$", part) else "")
         for part in parts)
-    # Paths, file names and ak's run and job ids (a date-time stamp, then words) join
-    # numbers with punctuation too. A match stands unless every number in it sits inside
-    # one: `HTTP/1.1 429`, `HTTP-503` and `Error-429` are still the status.
+    # Paths and file names with their line references (`run.py:429:7`, a traceback's
+    # `", line 429`), and ak's run and job ids (a date-time stamp, then words) join numbers
+    # with punctuation too. A match stands unless every number in it sits inside one:
+    # `HTTP/1.1 429`, `HTTP-503` and `Error-429` are still the status.
     ignored = [span.span() for span in re.finditer(
-        r'''[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*|'''
-        r'''\b\d{8}-\d{4,6}(?:-[\w.]+)+|\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*\b''', text)
+        r'''(?:[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*|'''
+        r'''\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*\b)(?::\d+)*|(?<=", )line \d+|'''
+        r'''\b\d{8}-\d{4,6}(?:-[\w.]+)+''', text)
         ] if re.search(r"[\d#]", word) else []
 
     def stands(match):
