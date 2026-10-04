@@ -1,4 +1,5 @@
-"""A task file naming `after:` is refused at launch, alone or in a job, before any receipt.
+"""A task file naming `after:`, or with a heredoc in done-when, is refused at launch, alone or
+in a job, before any receipt.
 
 Offline: the bin/ak entry point with a temporary HOME and launch effects mocked out.
 """
@@ -75,10 +76,19 @@ class AfterGone(unittest.TestCase):
         self.assertIn(f"{second}: `after:` is gone", err)
         self.assert_nothing_started()
 
+    def test_a_task_whose_done_when_opens_a_heredoc_is_refused(self):
+        path = self.root / "check.md"
+        path.write_text("---\nrepo: none\n---\n# check\n\n## Done when\n```bash\n"
+                        "python3 - <<'PY'\nprint(1)\nPY\n```\n")
+        code, err = self.launch(path)
+        self.assertEqual(code, 2, err)
+        self.assertIn("opens a heredoc", err)
+        self.assert_nothing_started()
+
     def test_an_old_run_copy_with_after_still_parses(self):
         meta, _, title = task.parse_task(self.write("after: base.md\n", "fix-api.md"))
         self.assertEqual((meta["after"], title), ("base.md", "fix-api.md"))
-        self.assertIn("`after:` is gone", task.launch_refusal(meta))
+        self.assertIn("`after:` is gone", task.launch_refusal(meta, []))
 
     def saved(self, name, **extra):
         """A record from before `after:` went: cut from a dependency's passed tip."""

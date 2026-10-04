@@ -77,7 +77,7 @@ A command that fails runs once more at once, within the same ceiling, and passes
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt whole, regardless of file size; their size never stops a run.
 Every prompt also carries the whole body of the repository's `AGENTS.md` as on the base commit, front matter removed. A round that changes `AGENTS.md` fails its checks if the file, as a checkout holds it (line-end conversion included), is then past the most a harness reads of it on its own: the smallest `[instructions] read_limit` an adapter declares (Codex reads 32 KiB). Leaving the file alone passes this check even when it is already larger. A worker's harness loads no instruction file of its own where it has a switch for that; its adapter's manifest says in one line what no switch reaches.
 
-One behaviour per task; size never refuses one. A launch is refused when `rounds` is more than three, whatever `--anyway` says;
+One behaviour per task; size never refuses one. A launch is refused when `rounds` is more than three, or a done-when line opens a heredoc (each line runs as a command of its own; `<<` in quotes and `<<<` pass), whatever `--anyway` says;
 and when a run under way in the same repository names the same test file (glob patterns do not count; a general check -- one three other jobs there ran without naming it in their titles -- counts only when both titles name it) or shares four title words, which `--anyway` starts
 regardless. Runs have no count cap and wait FIFO while free memory is under the larger of 3 GB and 20% of RAM, ak's own
 slice CPU pressure is above 40%, or the nearest limited cgroup is past 75% of its `memory.high` outside reclaimable

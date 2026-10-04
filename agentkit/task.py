@@ -12,6 +12,8 @@ TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
 FENCE = re.compile(r"```(?:bash|sh)?\n(.*?)```", re.S)
 ONCE_MARKER = re.compile(r"#\s*once\s*$")
+QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+HEREDOC = re.compile(r"(?<!<)<<(?!<)")
 
 
 def front_matter(path):
@@ -133,11 +135,20 @@ def task_size(body, cmds):
     return task_words(body), task_points(body), len(cmds)
 
 
-def launch_refusal(meta):
-    """One sentence when a new task file cannot start as written, else None."""
+def launch_refusal(meta, cmds):
+    """One sentence when a new task file cannot start as written, else None.
+
+    A heredoc never works in done-when: each line runs as a command of its own, so the
+    opening line reads an empty script and its body lines run as commands.  `<<` inside
+    quotes is no heredoc, and `<<<` is a one-line here-string.
+    """
     if "after" in meta:
         return ("`after:` is gone: tasks launched together are independent pieces; build work "
                 "that waits on another piece in your session, in order")
+    heredoc = next((cmd for cmd in cmds if HEREDOC.search(QUOTED.sub("", cmd))), None)
+    if heredoc:
+        return (f"done-when line {heredoc!r} opens a heredoc, but each line runs as a command of "
+                "its own: put the script in a file the change adds, or on one line")
     return rounds_refusal(meta.get("rounds"), "task rounds")
 
 
