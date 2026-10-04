@@ -2425,7 +2425,8 @@ def composer_draft(harness, pane):
     rule closes is one -- a user's status line under the rule never is, whatever its mark.
     """
     chrome = screen(harness)
-    raws, rows = _screen_rows(harness, pane_tail(pane))
+    # the whole pane: a long line wraps over more rows than the tail holds
+    raws, rows = _screen_rows(harness, pane)
     if chrome["draft"]:
         # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
         # block of them, and finding none reads as empty.
@@ -2608,8 +2609,11 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             if (stale(held) or not pane.strip() or owner_question(notify.last(held))
                     or _decided_state(held, harness, pane) == "asking"):
                 return False    # nothing to read, or the screen is somebody else's: next pass
-            if not _holds_text(pane, text):
-                return True
+            held_text = composer_draft(harness, pane)
+            if held_text == "":
+                return True     # gone from its composer: the seat has it
+            if held_text != re.sub(r"\s+", "", text):
+                return False    # other text there, the owner's edit too, or none read: not sent
             _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not at_prompt(session, cfg=cfg):

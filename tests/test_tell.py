@@ -241,17 +241,15 @@ class Tell(Seats):
         self.assertEqual(self.waiting(), [])
 
 
-class TyperDied(Seats):
-    """The tick typing a message dies at some key: the next tick finishes it, once.
-
-    A real pane: the composer shows what is typed, Enter takes it into the conversation."""
+class Typing(Seats):
+    """A real pane for the receiver: its composer shows what is typed, Enter takes it."""
 
     def setUp(self):
         super().setUp()
         self.opened(1.0)
         self.idle = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
         self.pane, self.taken, self.killed_after_text = self.idle, [], False
-        self.killed_before_text = False
+        self.killed_before_text, self.keys = False, []
         record = config.session_records()[SEAT]
         self.transcript = claude.transcript_path(record, record["conversation"])
         self.transcript.parent.mkdir(parents=True)
@@ -264,14 +262,25 @@ class TyperDied(Seats):
                 self.addCleanup(patcher.stop)
 
     EMPTY = "❯\u00a0\n"           # the composer's prompt row with nothing in it
+    WIDTH = 60                    # the composer wraps a long line onto rows of this width
+
+    def composed(self, text):
+        """The empty pane with that text in its composer, wrapped as the harness wraps it."""
+        rows = [text[at:at + self.WIDTH] for at in range(0, len(text), self.WIDTH)] or [""]
+        return self.idle.replace(self.EMPTY, "❯ " + "\n  ".join(rows) + "\n")
+
+    def echoed(self, text):
+        """The pane once the harness took that line: its composer empty again."""
+        return self.idle
 
     def render(self, *args, **kwargs):
+        self.keys.append(args)
         if "-l" in args and self.killed_before_text:
             self.killed_before_text = False
             raise KeyboardInterrupt("killed before its keys reached tmux")
         self.tmux(*args, **kwargs)
         if "-l" in args:
-            self.pane = self.idle.replace(self.EMPTY, "❯ " + args[-1] + "\n")
+            self.pane = self.composed(args[-1])
             if self.killed_after_text:
                 self.killed_after_text = False
                 raise KeyboardInterrupt("killed right after the text went in")
@@ -280,7 +289,7 @@ class TyperDied(Seats):
             if self.transcript:
                 with self.transcript.open("a", encoding="utf-8") as fh:
                     fh.write(json.dumps(prompt(NOW + len(self.taken), self.taken[-1])) + "\n")
-            self.pane = self.idle
+            self.pane = self.echoed(self.taken[-1])
         return 0, ""
 
     def died(self, step=None, before_text=False):
@@ -293,6 +302,13 @@ class TyperDied(Seats):
         with (patch.object(watch, step, side_effect=killed) if step else nullcontext()), \
                 self.assertRaises(KeyboardInterrupt):
             tell.deliver(self.cfg, lambda _: None)
+
+    def enters(self):
+        return [args for args in self.keys if args[-1] == "Enter"]
+
+
+class TyperDied(Typing):
+    """The tick typing a message dies at some key: the next tick finishes it, once."""
 
     def test_a_line_typed_without_its_enter_gets_its_enter_once(self):
         self.died()
@@ -311,6 +327,15 @@ class TyperDied(Seats):
         self.assertEqual((len(self.taken), len(self.typed)), (1, 1))
         self.assertEqual(self.waiting(), [])
 
+    def test_a_line_that_went_in_is_read_where_it_went_after_the_seat_changes_harness(self):
+        if self.transcript is None:
+            self.skipTest("no conversation to read")
+        self.died("_wait_sent")                       # after its Enter, into this conversation
+        config.update_session(SEAT, orchestrator="grok")
+        tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual((len(self.taken), len(self.typed)), (1, 1))
+        self.assertEqual(self.waiting(), [])
+
     def test_two_messages_with_the_same_line_both_go_in(self):
         """The same words twice within a minute: two messages, each typed once."""
         self.pane = self.idle.replace(self.EMPTY, "❯ The owner's own words\n")
@@ -321,6 +346,30 @@ class TyperDied(Seats):
             tell.deliver(self.cfg, lambda _: None)
         self.assertEqual(self.taken, [self.header() + "Still working?"] * 2)
         self.assertEqual(self.waiting(), [])
+
+
+    def test_a_long_line_wrapped_over_many_rows_gets_its_enter_once(self):
+        text = "Parser merged; " + "leave parser.py and its tests alone until then. " * 12
+        self.assertEqual(self.tell(SEAT, text)[0], 0)
+        self.killed_after_text = True
+        with self.assertRaises(KeyboardInterrupt):
+            tell.deliver(self.cfg, lambda _: None)
+        self.assertGreater(len(self.pane.splitlines()) - len(self.idle.splitlines()), 8)
+        for _ in range(3):
+            tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.taken, [self.header() + " ".join(text.split())])
+        self.assertEqual(len(self.typed), 1)
+        self.assertEqual(self.waiting(), [])
+
+    def test_text_the_owner_added_to_the_line_is_never_sent_with_it(self):
+        self.died()
+        self.pane = self.composed(self.typed[-1] + " and also check the docs")
+        before = len(self.enters())
+        for _ in range(3):
+            tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(len(self.enters()), before)
+        self.assertEqual((self.taken, len(self.typed)), ([], 1))
+        self.assertEqual(len(self.waiting()), 1)
 
     def test_a_line_lost_from_its_composer_is_typed_again(self):
         self.died()
@@ -363,6 +412,39 @@ class TyperDiedNoConversation(TyperDied):
         self.died()
         self.pane = self.idle
         tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(self.waiting(), [])
+
+
+
+class TyperDiedEchoAbove(Typing):
+    """Antigravity draws the line it took right above its empty composer, and keeps no
+    conversation ak reads."""
+
+    EMPTY = "\n>\n"
+
+    def setUp(self):
+        super().setUp()
+        self.transcript = None
+        config.update_session(SEAT, orchestrator="gemini")
+        self.assertEqual(orch.seat_plugin(config.session_records()[SEAT]).name, "antigravity")
+        self.idle = (REPO / "tests/fixtures/antigravity-prompt-pane.txt").read_text(encoding="utf-8")
+        self.assertEqual(self.idle.count(self.EMPTY), 1)
+        self.pane = self.idle
+
+    def composed(self, text):
+        return self.idle.replace(self.EMPTY, "\n> " + text + "\n")
+
+    def echoed(self, text):
+        return self.idle.replace("> Say hello in one short sentence.", "> " + text)
+
+    def test_a_line_taken_and_echoed_above_its_composer_settles(self):
+        self.died("_wait_sent")                       # after its Enter, echoed above
+        self.assertIn("> " + self.typed[-1], self.pane)
+        before = len(self.enters())
+        for _ in range(3):
+            tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual(len(self.enters()), before)
+        self.assertEqual((len(self.taken), len(self.typed)), (1, 1))
         self.assertEqual(self.waiting(), [])
 
 

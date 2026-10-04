@@ -95,21 +95,21 @@ def typed_in(name, message):
 
 
 def reached(name, sent):
-    """Did the line that receipt typed reach the seat's conversation?  None where ak cannot read
-    one there."""
+    """Did the line that receipt typed reach the conversation it was typed into?  Read by the
+    harness the receipt names, whatever the seat runs now; None where ak cannot read one there.
+    A prompt the owner sent with the line in it took the line too."""
     record = config.session_records().get(name) or {}
-    plugin = orch.seat_plugin(record)
+    plugin = orch.harness_plugin(sent["harness"]) if sent.get("harness") else orch.seat_plugin(record)
     if not plugin.keeps_messages or not sent.get("conversation"):
         return None
     messages = plugin.user_messages(record, record.get("cwd"), sent["conversation"])
-    return any(message["text"] == sent["text"] for message in messages[sent.get("after", 0):])
+    return any(sent["text"] in message["text"] for message in messages[sent.get("after", 0):])
 
 
 def in_composer(name, session, line):
-    """Does that seat's composer hold the line now -- its keys landed, whatever came after?"""
+    """Does that seat's composer hold the line, and only it, now?  Its keys landed."""
     plugin = orch.seat_plugin(config.session_records().get(name) or {})
-    held = watch.composer_draft(plugin.name, watch.pane_text(session)) or ""
-    return re.sub(r"\s+", "", line) in held
+    return watch.composer_draft(plugin.name, watch.pane_text(session)) == re.sub(r"\s+", "", line)
 
 
 def refusal(name, seat):
