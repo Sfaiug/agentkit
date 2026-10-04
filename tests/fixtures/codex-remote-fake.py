@@ -20,6 +20,15 @@ args = sys.argv[1:]
 home = Path.home()
 repo = Path(os.environ['FAKE_CODEX_REPO'])
 ch = Path(os.environ.get('CODEX_HOME', home / '.codex'))
+
+
+def publish(name, data):
+    # Tests read a receipt as soon as it exists, so it appears with all its JSON.
+    part = ch / (name + '.tmp')
+    part.write_text(json.dumps(data))
+    part.replace(ch / (name + '.json'))
+
+
 if args == ['--help']:
     print('old CLI' if os.environ.get('FAKE_UNSUPPORTED') else '--dangerously-bypass-hook-trust')
     sys.exit(0)
@@ -31,7 +40,7 @@ if args[:1] == ['app-server']:
     assert '--remote-control' in args
     path = args[args.index('--listen') + 1].removeprefix('unix://')
     data = {'argv': args, 'env': dict(os.environ), 'cwd': os.getcwd(), 'pid': os.getpid()}
-    (ch / 'fake-server.json').write_text(json.dumps(data))
+    publish('fake-server', data)
     identity = ch / 'installation_id'
     if not identity.exists():
         identity.write_text('acme-' + uuid.uuid4().hex)
@@ -145,10 +154,7 @@ else:
             client.call('thread/resume', {'threadId': args[args.index('resume') + 1]})
         else:
             client.call('thread/start', {})
-        # Tests treat the receipt's existence as readiness, so publish complete JSON.
-        ready = ch / 'fake-tui.tmp'
-        ready.write_text(json.dumps({'argv': args, 'pid': os.getpid()}))
-        ready.replace(ch / 'fake-tui.json')
+        publish('fake-tui', {'argv': args, 'pid': os.getpid()})
         while os.environ.get('FAKE_HOLD'):
             time.sleep(.05)
     finally:

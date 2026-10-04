@@ -137,8 +137,24 @@ def start_line(turn, log=lambda _: None):
 
 
 def _repair(turn, directory, state, tree, red, log):
-    """Keep the probe before launch: a crash can reuse its repair receipt without a suite."""
-    from . import run
+    """Keep the probe before launch: a crash can reuse its repair receipt without a suite.
+
+    A PR's own seat is its fixer, as for its review findings: a PR never gets a repair run,
+    and is handed the red target as its own landing finding -- its next head is checked on
+    its own merits, so one that repairs the target lands (see `check_line`).
+    """
+    from . import run, watch
+    if state.get("review_pr"):
+        path = directory / "target-red.log"
+        path.write_text(red["probe"]["text"] + "\n")
+        with record.recovery_lock(directory):
+            if record.read_state(directory) != state or record.process_active(state):
+                return None
+            with record.record(directory) as current:
+                current["waiting_on"] = {**current["waiting_on"], "fix": {
+                    "line": red["probe"]["text"].splitlines()[0], "log": str(path)}}
+        watch.launch_resume(directory.name, log)
+        return None
     try:
         name = run.start_followups(state, directory, log, repair=red["probe"])
     except record.StopRequested:
@@ -188,7 +204,8 @@ def check_line(turn, log=lambda _: None):
             tip, target_tree = target
             red = _trees(turn, "red")[1].get(target_tree)
             name = None
-            if red and not passed(turn, target_tree):
+            # a PR waits on no repair: its own tree is checked, and lands if it mends the target
+            if red and not passed(turn, target_tree) and not state.get("review_pr"):
                 name = red.get("run")
                 repair = record.read_state(config.RUNS / name) if name else None
                 if repair is None:
@@ -333,12 +350,13 @@ def _stack_member(repo, state, top, upstream, opened):
     return scratch, text
 
 
-def _landing_checks(directory, scratch, upstream):
+def _landing_checks(directory, state, scratch, upstream):
     """The member's own landing checks on `scratch`: its `# once` commands and the suite."""
     from . import run, task
     _, body, _ = task.parse_task(directory / "task.md")
-    return tuple(task.group_commands(run.with_suite(
-        task.done_when(body, directory / "task.md"), scratch, upstream))[1])
+    # A review PR owes the suite declared on this stack, never an earlier head's suite too.
+    cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
+    return tuple(task.group_commands(run.with_suite(cmds, scratch, upstream))[1])
 
 
 def _check_tree(directory, state, scratch, tree, checks, log):
@@ -382,7 +400,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
                 stacks.append((member, saved, scratch, tree,
-                               _landing_checks(member, scratch, upstream)))
+                               _landing_checks(member, saved, scratch, upstream)))
             if not stacks:
                 break
             if remaining is None:
