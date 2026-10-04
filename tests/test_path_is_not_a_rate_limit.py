@@ -33,6 +33,8 @@ PATHS = (
     "20261004-0726-run.log-429",
     "20261004-0726-run.log.503",
     "20261004-0726-run.log-529",
+    "run.log.429",
+    "run.log-429",
 )
 REFUSALS = {
     "claude": "API Error:429",
