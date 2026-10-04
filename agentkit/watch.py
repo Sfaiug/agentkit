@@ -1473,6 +1473,10 @@ def classify(harness, tail, fact, opened_at, previous, now):
         # not rewritten on every draw.
         state, source, why, evidence, began = "at_prompt", "", "none", \
             "no hook fact and no screen rule matched", None
+    if state == "at_prompt" and composer_draft(harness, tail):
+        # a draft taller than the draft rule's window: the composer read whole still holds it
+        state, source, why, evidence, began = "draft", "screen", "composer", \
+            "the composer holds text above the draft rule's window", None
     if source and began is None:
         kept = previous.get("began") if previous.get("state") == state else None
         if isinstance(kept, (int, float)) and not isinstance(kept, bool):
