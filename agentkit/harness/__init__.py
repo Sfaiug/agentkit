@@ -72,7 +72,7 @@ _LOADED = {}
 
 def says(text, word):
     """Does `text` say `word` on its own: never inside a longer word, nor its digits inside a
-    longer number -- a request id, a byte count, a duration?
+    longer number, a file path or a run id?
 
     A `#` in a word is any one digit, a `~` up to three characters that are neither letters
     nor digits, or none (`status~5##` is `"status": 503` too), and `…` joins parts that each
@@ -81,12 +81,23 @@ def says(text, word):
     parts = [part.strip() for part in word.split("…")]
     if not all(parts):
         return False
+    ignored = []
+    if re.search(r"[\d#]", word):
+        # Paths and ids join numbers with punctuation too. Keep adjacent status fields and
+        # refusal text: stripping a whole JSON record or line would hide a real refusal.
+        ignored = list(re.finditer(
+            r'''(?P<quote>["'`])(?:[^\s"'`{}<>,:;|]*/|[A-Za-z]:\\|\\\\)'''
+            r'''[^"'`{}<>,:;|]*(?P=quote)|[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|'''
+            r'''(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*|\b\w+(?:[-.]\w+)+\b''',
+            text))
     pattern = ".{0,80}".join(
         (r"(?<!\w)(?<!\d\.)" if re.match(r"[\w#]", part) else "")
         + re.escape(part).replace(r"\#", r"\d").replace(r"\~", r"[\W_]{0,3}")
         + (r"(?!\w)(?!\.\d)" if re.search(r"[\w#]$", part) else "")
         for part in parts)
-    return re.search(pattern, text, re.I) is not None
+    return any(not any(path.start() < match.end() and match.start() < path.end()
+                       for path in ignored)
+               for match in re.finditer(pattern, text, re.I))
 
 
 def limited(text):

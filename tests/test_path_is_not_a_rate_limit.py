@@ -22,6 +22,7 @@ PATHS = (
     "acme-429/log.txt",
     "/tmp/429",
     "/tmp/acme(429)/run.log",
+    '"/tmp/acme 429 run/log.txt"',
     "20261004-0726-review-pr-acme-429",
     "log-429.txt",
     r"C:\tmp\acme-429\log.txt",
@@ -83,9 +84,11 @@ class PathIsNotARateLimit(unittest.TestCase):
                     self.assertEqual(harness.load(name).failure(said)[0], harness.LIMITED)
                     self.assertIsNotNone(run.ran_dry(1, said, name))
         for said in ("HTTP/1.1 429 Too Many Requests", "429.",
-                     json.dumps({"error": "429\nTry again later", "path": PATHS[0]})):
+                     json.dumps({"error": "429\nTry again later", "path": PATHS[0]}),
+                     json.dumps({"status": 429, "path": PATHS[0]})):
             with self.subTest(said=said):
                 self.assertTrue(harness.limited(said))
+        self.assertFalse(harness.says(f"HTTP {PATHS[0]} 503", "HTTP~5##"))
 
     def test_a_worker_naming_a_path_is_not_parked(self):
         for name in REFUSALS:
