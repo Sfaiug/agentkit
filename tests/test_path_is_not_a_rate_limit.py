@@ -90,6 +90,17 @@ class PathIsNotARateLimit(unittest.TestCase):
                 self.assertTrue(harness.limited(said))
         self.assertFalse(harness.says(f"HTTP {PATHS[0]} 503", "HTTP~5##"))
 
+    def test_a_status_joined_by_a_hyphen_is_still_the_status(self):
+        for said, word in (("HTTP-503", "HTTP~5##"), ("status-503", "status~5##"),
+                           ("API Error-503", "API Error~5##"), ("API Error-429", "429")):
+            with self.subTest(said=said):
+                self.assertTrue(harness.says(said, word))
+        for name in REFUSALS:
+            for said in ("HTTP-503", "status-503"):
+                with self.subTest(name=name, said=said):
+                    self.assertIn(harness.load(name).failure(said)[0],
+                                  (harness.REFUSAL, harness.OUTAGE))
+
     def test_a_worker_naming_a_path_is_not_parked(self):
         for name in REFUSALS:
             self.cfg["models"]["acme"]["harness"] = name

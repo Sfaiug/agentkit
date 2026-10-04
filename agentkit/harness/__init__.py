@@ -83,12 +83,15 @@ def says(text, word):
         return False
     ignored = []
     if re.search(r"[\d#]", word):
-        # Paths and ids join numbers with punctuation too. Keep adjacent status fields and
-        # refusal text: stripping a whole JSON record or line would hide a real refusal.
+        # Paths, file names and ak's run and job ids (a date-time stamp, then words) join
+        # numbers with punctuation too; `HTTP-503` or `Error-429` is still the status. Keep
+        # adjacent status fields and refusal text: stripping a whole JSON record or line
+        # would hide a real refusal.
         ignored = list(re.finditer(
             r'''(?P<quote>["'`])(?:[^\s"'`{}<>,:;|]*/|[A-Za-z]:\\|\\\\)'''
             r'''[^"'`{}<>,:;|]*(?P=quote)|[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|'''
-            r'''(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*|\b\w+(?:[-.]\w+)+\b''',
+            r'''(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*|'''
+            r'''\b\d{8}-\d{4,6}(?:-[\w.]+)+|\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*\b''',
             text))
     pattern = ".{0,80}".join(
         (r"(?<!\w)(?<!\d\.)" if re.match(r"[\w#]", part) else "")
