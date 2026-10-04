@@ -1,4 +1,4 @@
-"""History, estimates, and the small integrations that consume them."""
+"""History, and the small integrations that consume it."""
 
 import io
 import json
@@ -78,26 +78,6 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(next(row for row in rows if row["run_id"] == "last"), history.get("last"))
         self.assertEqual(history.path().read_bytes(), before)
 
-    def test_time_estimate_needs_five_runs(self):
-        now = time.time()
-        for n, seconds in enumerate((10, 20, 30, 40)):
-            history.start_run(str(n), repo="project", started_at=now - seconds)
-            history.add_seconds(str(n), "executor", seconds)
-            history.finish_run(str(n), started_at=now - seconds, finished_at=now)
-        self.assertIsNone(history.estimate_seconds("project"))
-        history.start_run("four", repo="project", started_at=now - 60)
-        history.add_seconds("four", "executor", 60)
-        history.finish_run("four", started_at=now - 60, finished_at=now)
-        self.assertEqual(history.estimate_seconds("project"), 30)
-
-    def test_time_estimate_uses_median(self):
-        now = time.time()
-        for n, seconds in enumerate((10, 20, 30, 40, 100)):
-            history.start_run(str(n), repo="project", started_at=now - seconds)
-            history.add_seconds(str(n), "executor", seconds)
-            history.finish_run(str(n), started_at=now - seconds, finished_at=now)
-        self.assertEqual(history.estimate_seconds("project"), 30)
-
     def test_suite_runs_are_never_recorded_and_old_ones_never_counted(self):
         # a suite's clone, a repository under some HOME's .agentkit/tmp -- named once the
         # launch's row exists -- and a run launched under the suites' notify sink: no row
@@ -116,26 +96,11 @@ class HistoryTests(unittest.TestCase):
                            "VALUES (?,?,?,?,?,?,?,?,?)",
                            (f"old{n}", "agentkit-smoke", "opus", 1, "pass", "PASS", now - 5,
                             now, 5))
-        self.assertIsNone(history.estimate_seconds("project"))
-        self.assertIsNone(history.estimate_seconds("agentkit-smoke"))
         self.assertIsNone(history.size_summary("agentkit-smoke"))
         self.assertEqual(history.finished_repos(), [])
         self.assertEqual(history.ended_runs(now - 1, now), [])
 
-    def test_estimate_and_speed_are_active_time_of_runs_not_stopped(self):
-        now = time.time()
-        for n in range(5):
-            # a day on the clock each, parked most of it: fifteen minutes of steps
-            history.start_run(f"r{n}", repo="ATOLL", executor="opus", started_at=now - 86400)
-            history.add_seconds(f"r{n}", "executor", 600)
-            history.add_seconds(f"r{n}", "done-when", 300)
-            history.finish_run(f"r{n}", started_at=now - 86400, finished_at=now,
-                               final_state="pass", verdict="PASS")
-        history.start_run("stopped", repo="ATOLL", executor="opus", started_at=now - 350000)
-        history.add_seconds("stopped", "executor", 90000)
-        history.finish_run("stopped", started_at=now - 350000, finished_at=now,
-                           final_state="stopped", verdict="STOPPED")
-        self.assertEqual(history.estimate_seconds("ATOLL"), 900)
+    def test_steps_count_active_time_only(self):
         # a step closed when its run parked stays closed: the stop days later adds nothing
         history.start_run("parked", repo="ATOLL", started_at=0)
         history.open_step("parked", "executor", 100)
@@ -233,18 +198,17 @@ class HistoryTests(unittest.TestCase):
                             state.upper(), 0, None if state == "running" else 86400, worked,
                             checked, 4096 if state == "stopped" else 100))
 
+        with closing(sqlite3.connect(history.path())) as db:   # the columns it was written with
+            columns = ",".join(row[1] for row in db.execute("PRAGMA table_info(runs)"))
+
         def written():
             with closing(sqlite3.connect(history.path())) as db:
-                columns = ",".join(history._index())
                 return db.execute(f"SELECT {columns} FROM runs WHERE run_id != 'new' "
                                   "ORDER BY run_id").fetchall()
 
         before = written()
         with patch.object(config, "RUNS", runs):
-            # a few rows whose time includes waits move a median a rank or two, no further
-            self.assertEqual(history.estimate_seconds("ATOLL"), 900)
             # suite and stopped rows stay, and no statistic reads them
-            self.assertEqual(history.estimate_seconds("repo-retry"), 900)
             self.assertIsNone(history.size_summary("Dropped"))
             self.assertEqual(history.finished_repos(), ["ATOLL"])
             history.start_run("new", repo="/x/ATOLL", started_at=1)

@@ -106,7 +106,6 @@ class NewsMotion(Sandbox):
                 (menu, "run_records", list),
                 (menu, "seat_row_state", row_state),
                 (menu, "seat_progress", lambda name: self.tasks.get(name, (0, 0))),
-                (menu, "seat_estimate", lambda *args, **kwargs: None),
                 (orch, "job_notices", lambda: [self.notices.pop()] if self.notices else []),
                 (menu.Live, "probe", lambda self, now=None: False),
                 (menu.Live, "watch", watch),

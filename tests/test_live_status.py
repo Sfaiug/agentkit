@@ -3,8 +3,8 @@
 A hook event has the seat looked at again at once, off the harness's path, and the word goes to
 the seat's record and its bar through the one writer; an open menu draws again within two
 seconds of a record's word moving, off an mtime and never a pane capture.  The bar names who
-orchestrates, tmux cuts it on each client, and an estimate reads in minutes, hours or days on
-the row and nowhere on the bar.  Offline: a fake tmux (a callable in-process, a script on PATH for the hook's own
+orchestrates, tmux cuts it on each client, and neither the row nor the bar says when the work
+will finish.  Offline: a fake tmux (a callable in-process, a script on PATH for the hook's own
 process), fake captures and a throwaway HOME; no tmux server is ever started.
 """
 
@@ -27,7 +27,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, menu, orch, statusbar, terminal, watch  # noqa: E402
+from agentkit import config, history, menu, orch, statusbar, terminal, watch  # noqa: E402
 
 # The hook's own process asks tmux through PATH, so this stands in for the server: one marked
 # seat on the suite's socket, which lives at /fake/agentkit-test, whose pane is %7, a capture as
@@ -506,31 +506,19 @@ class LiveStatus(unittest.TestCase):
         self.assertEqual(drawn(statusbar.lines("herdr", "opus", "#D97757", "done", "shipped")[1]),
                          "  shipped")
 
-    # --- estimates read in human units --------------------------------------------
+    # --- no estimate of when the work will finish -------------------------------------
 
-    def test_an_estimate_reads_in_minutes_hours_or_days(self):
-        session = {"repo": self.repo}
-        # seconds a task, tasks done of all -- and what is left of the plan reads
-        for seconds, done, total, text in ((900, 5, 8, "~45m left"),
-                                           (3600, 3, 8, "~5h left"),
-                                           (34500, 3, 8, "~48h left"),    # under two days
-                                           (34560, 3, 8, "~2d left"),     # two days
-                                           (775800, 4, 8, "~36d left")):  # was ~51720m left
-            with self.subTest(text=text), \
-                    patch.object(menu.history, "estimate_seconds", return_value=seconds), \
-                    patch.dict(menu._ESTIMATES, clear=True):    # each figure its own history's
-                self.assertEqual(menu.seat_estimate("herdr", session=session,
-                                                    job=(done, total, "")), text)
-        # in the row, and never on the bar: the owner took estimates off it
+    def test_no_row_and_no_bar_says_when_the_work_will_finish(self):
+        # the owner took estimates off every screen: the tasks bar and its count are progress
         self.plan(3, 8)
         self.hook("UserPromptSubmit")
-        with patch.object(menu.history, "estimate_seconds", return_value=3600), \
-                patch.dict(menu._ESTIMATES, clear=True):
-            _, row = self.row()
-        self.assertIn(f"tasks {terminal.progress_bar(3, 8)} · ~5h left", row)
-        self.assertIn(f"tasks {terminal.progress_bar(3, 8)}", self.options[statusbar.TOP])
-        self.assertNotIn("left", self.options[statusbar.TOP])
-
+        _, row = self.row()
+        bar = f"tasks {terminal.progress_bar(3, 8)}"
+        self.assertTrue(terminal.plain(row).rstrip().endswith(bar), row)
+        self.assertTrue(drawn(self.options[statusbar.TOP]).endswith(bar))
+        for module, name in ((menu, "seat_estimate"), (menu, "ESTIMATE_EVERY"),
+                             (history, "estimate_seconds")):
+            self.assertFalse(hasattr(module, name), name)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

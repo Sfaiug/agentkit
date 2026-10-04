@@ -71,7 +71,6 @@ class OpensAtOnce(Sandbox):
                 (orch, "listing", listing),
                 (menu, "run_records", list),
                 (menu, "seat_row_state", row_state),
-                (menu.history, "estimate_seconds", lambda repo: 600),
                 (menu, "seat_progress", lambda name: (1, 3)),
                 (orch, "job_notices", lambda: []),
                 (orch, "maintenance", maintenance),
@@ -86,7 +85,6 @@ class OpensAtOnce(Sandbox):
                 (terminal, "sense", lambda: None),
                 (terminal, "width", lambda *args: 90)):
             self.stack.enter_context(patch.object(target, name, fake))
-        self.stack.enter_context(patch.dict(menu._ESTIMATES, clear=True))
         self.addCleanup(self.settle)   # before the fakes go: every thread left behind has ended
 
     def settle(self):

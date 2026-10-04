@@ -149,7 +149,6 @@ NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Gro
          "google": "Gemini", "mimo": "MiMo"}
 TICK = 10.0              # the longest the main screen waits for a key before drawing itself again
 STIR = 1.0               # ... and how often it looks for a seat's word or the meters having moved
-ESTIMATE_EVERY = 60      # how long a repo's estimate is kept before its history is asked again
 # What the `—` says, from the error the last probe left; the first match wins.  No pattern here
 # guesses at a login: `token`, `401` and `login` turn up in lines a logged-in seat produces too,
 # and the one party that can say is the harness's `auth` verb, which the probe asks and records.
@@ -736,43 +735,6 @@ def seat_progress(name):
     return (job[0], job[1]) if job else (0, 0)
 
 
-_ESTIMATES = {}          # repo -> (when its history was asked, what it answered)
-_ESTIMATES_LOCK = threading.Lock()
-
-
-def seat_estimate(seat_name, session=None, job=None):
-    """Return the remaining-plan estimate a seat's row carries; its status bar carries none.
-
-    In the unit it reads in at a glance: minutes under an hour, hours under two days, else
-    days -- `~45m left`, `~5h left`, `~36d left`.  A repo's history is asked once every
-    ESTIMATE_EVERY seconds at most, whoever is drawing: the query reads records per row.
-    """
-    if session is None:
-        try:
-            session = orch.find(seat_name) or {}
-        except (config.Error, OSError, ValueError):
-            session = {}
-    job = job_for_seat(seat_name) if job is None else job
-    if not job or len(job) != 3 or not isinstance(job[1], int) or job[1] <= 0:
-        return None
-    done, total = job[0] or 0, job[1]
-    if done >= total or not session.get("repo"):
-        return None
-    with _ESTIMATES_LOCK:
-        asked, seconds = _ESTIMATES.get(session["repo"], (None, None))
-        if asked is None or time.monotonic() - asked >= ESTIMATE_EVERY:
-            asked, seconds = time.monotonic(), history.estimate_seconds(session["repo"])
-            _ESTIMATES[session["repo"]] = asked, seconds
-    if seconds is None:
-        return None
-    minutes = max(0, round(seconds * (total - done) / 300) * 5)
-    if minutes < 60:
-        return f"~{minutes}m left"
-    if minutes < 2 * 24 * 60:
-        return f"~{round(minutes / 60)}h left"
-    return f"~{round(minutes / (24 * 60))}d left"
-
-
 def silent_for_run(run_dir, state, now=None):
     """`2h` when a running run has had no write for more than an hour, else None.
 
@@ -891,14 +853,13 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     orchestrator = selection["orchestrator"] if selection else "-"
     done, total = seat_progress(name)
     bar = (done, total) if total > 0 else None
-    estimate = seat_estimate(name, session=session, job=(done, total, ""))
     word = found["word"]
     reason = found["reason"] or ""
     sentence = "" if word == "working" and not reason.startswith("waiting · ") else reason
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "solo": bool(selection and selection.get("solo")),
-            "sentence": sentence, "bar": bar, "estimate": estimate,
+            "sentence": sentence, "bar": bar,
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
 
@@ -988,21 +949,20 @@ def _styled_cell(plain_text, width, kind=None, right=False):
     return space + styled if right else styled + space
 
 
-def last_column(word, reason, done, total, estimate=None, narrow=False):
+def last_column(word, reason, done, total, narrow=False):
     """The one last column of a seat's row, and of its status bar.
 
     For `needs you` and `done` the reason from the state function; for `working`
     its place in the landing line, else `tasks ` plus the bar plus ` <done>/<total>`
     when `seat_progress` finds a plan or an unfinished job, else empty -- never `N running`.
-    The bar shortens to 4 cells on a
-    narrow screen, and carries the remaining-plan estimate where history knows one.
+    The bar shortens to 4 cells on a narrow screen.  No estimate of when the work will
+    finish: the bar and its count are a seat's progress.
     The row and the bar read this one function, so the two can never disagree.
     """
     if word != "working" or (reason or "").startswith("waiting · "):
         return terminal.plain(reason or "")
     if total > 0:
-        text = terminal.progress_bar(done, total, narrow=narrow)
-        return f"tasks {text} · {estimate}" if estimate else f"tasks {text}"
+        return f"tasks {terminal.progress_bar(done, total, narrow=narrow)}"
     return ""
 
 
@@ -1011,13 +971,12 @@ def _last_text(info, narrow=False):
 
     For `needs you` and `done` the reason from the state function; for `working`
     its place in the landing line, else `tasks ` plus the bar plus ` <done>/<total>`
-    when `seat_progress` finds a plan or an unfinished job, else empty. The bar shortens to 4 cells on a
-    narrow screen, and carries the remaining-plan estimate where history knows one.
+    when `seat_progress` finds a plan or an unfinished job, else empty. The bar shortens to 4
+    cells on a narrow screen.
     """
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
-    text = last_column(info.get("word"), info.get("sentence"), done, total,
-                       info.get("estimate"), narrow)
+    text = last_column(info.get("word"), info.get("sentence"), done, total, narrow)
     return " · ".join(part for part in ("solo" if info.get("solo") else "", text) if part)
 
 
