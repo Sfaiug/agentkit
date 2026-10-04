@@ -343,6 +343,27 @@ class Seat(unittest.TestCase):
                                           AGENTKIT_SESSION="seat")
                 self.assertEqual(self.typed(events), "", events)
 
+    def test_what_comes_up_while_another_sender_holds_the_typing_lock_is_never_typed_into(self):
+        """Ready when it decides, then a question, a turn or a dialog on the record comes up while
+        it waits for the seat's lock: asked again under the lock, it types nothing."""
+        for event, kind, state in (("UserPromptSubmit", "", None),
+                                   ("Notification", "permission_prompt", None),
+                                   ("Stop", "", "asking")):
+            with self.subTest(event=event, state=state):
+                self.said("seat", "Stop")
+                (self.root / ".agentkit/state/seat-seat.json").unlink(missing_ok=True)
+                held = open(self.root / ".agentkit/state/notify-seat.lock", "a")
+                self.addCleanup(held.close)       # released even where the step never ran
+                fcntl.flock(held, fcntl.LOCK_EX)
+
+                def change(test, proc, master, held=held, event=event, kind=kind, state=state):
+                    test.said("seat", event, kind, state)
+                    held.close()
+
+                _, events = self.run_seat(script=[(4.5, change)], FAKE_TOKENS=40000,
+                                          FAKE_LIFE=9, AGENTKIT_SESSION="seat")
+                self.assertEqual(self.typed(events), "", events)
+
     def test_a_seat_whose_hooks_say_its_turn_ended_still_compacts(self):
         self.said("seat", "Stop")
         _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_STOP_ON="/compact", FAKE_LIFE=15,
