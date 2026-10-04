@@ -88,13 +88,18 @@ class ThreeStates(Sandbox):
             said += done.stdout
         return said
 
-    def transcript(self, said):
+    def transcript(self, said, question=False):
         """A Claude Code transcript whose last assistant message is `said`."""
         path = self.root / "transcript.jsonl"
-        path.write_text("".join(json.dumps(line) + "\n" for line in (
+        lines = [
             {"type": "user", "message": {"role": "user", "content": "go"}},
             {"type": "assistant", "isSidechain": False,
-             "message": {"role": "assistant", "content": [{"type": "text", "text": said}]}})))
+             "message": {"role": "assistant", "content": [{"type": "text", "text": said}]}}]
+        if question:
+            lines.insert(1, {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "question", "name": "AskUserQuestion", "input": {"questions": [
+                    {"question": said}]}}]}})
+        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
         return str(path)
 
     def receipt(self, name, owner="atoll", **extra):
@@ -492,6 +497,7 @@ class ThreeStates(Sandbox):
         payload = json.loads((REPO / "tests/fixtures/claude-stop-background.json").read_text())
         payload["transcript_path"] = self.transcript(payload.pop("last_assistant_message"))
         self.hooks("UserPromptSubmit", "seat-state.sh")
+        self.assertIn('"block"', self.hooks("Stop", *STOP, **payload))
         self.assertEqual(self.hooks("Stop", *STOP, **payload), "")
         self.assertEqual(self.decide()["word"], "working")
         # a minute on, Claude says its prompt is idle, background work or not: it is not idle
@@ -501,12 +507,14 @@ class ThreeStates(Sandbox):
         # ... until it reports back: the notification starts a turn, which asks him something
         self.hooks("UserPromptSubmit", "seat-state.sh")
         payload.update(background_tasks=[],
-                       transcript_path=self.transcript("Which of the two schemas should it read?"))
+                       transcript_path=self.transcript("Which of the two schemas should it read?",
+                                                       question=True))
         self.assertEqual(self.hooks("Stop", *STOP, **payload), "")
         self.assertEqual(self.decide()["word"], "needs you")
 
     def test_r_a_stop_the_stop_hook_sent_back_is_working_and_the_third_is_his(self):
-        self.hooks("UserPromptSubmit", "seat-state.sh")
+        # a run's report opened the turn, so no owner's request may be what it answered
+        self.hooks("UserPromptSubmit", "seat-state.sh", prompt="<task-notification>acme run ended</task-notification>")
         stop = {"transcript_path": self.transcript("Here is my recommendation. Let me know if "
                                                    "I should continue."), "background_tasks": []}
         # the two run side by side, either first: between them the row is the turn it was in
@@ -529,7 +537,7 @@ class ThreeStates(Sandbox):
         self.assertEqual(self.decide()["word"], "working")
         # a choice only he can make still ends the turn, and is his
         asked = self.transcript("The parser is fixed.\n\nShould I proceed with SQLite or "
-                                "PostgreSQL?")
+                                "PostgreSQL?", question=True)
         self.assertEqual(self.hooks("Stop", *STOP, transcript_path=asked, background_tasks=[],
                                     stop_hook_active=True), "")
         self.assertEqual(self.decide()["word"], "needs you")

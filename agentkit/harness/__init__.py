@@ -14,6 +14,7 @@ No module outside this package names a harness: the core asks
 `harness.load(config.model(cfg, m)["harness"]).<hook>(...)` and takes the answer.
 """
 
+import functools
 import importlib
 import json
 import math
@@ -163,6 +164,23 @@ def user_message(at, text):
     if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
         return None
     return {"at": at, "text": text}
+
+
+def prompt(entry):
+    """The owner's words one transcript line holds, or None for bookkeeping, injected rules,
+    a tool result or anything else: whichever harness wrote it says so in its module's
+    `prompt`, and no two write the same shape."""
+    for read in _prompt_readers():
+        said = read(entry)
+        if said is not None:
+            return said
+    return None
+
+
+@functools.cache
+def _prompt_readers():
+    modules = (_module(path.stem) for path in sorted(Path(__file__).resolve().parent.glob("*.py")))
+    return tuple(module.prompt for module in modules if hasattr(module, "prompt"))
 
 
 def _module(name):

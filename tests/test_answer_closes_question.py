@@ -3,6 +3,7 @@
 Offline: real hook input, fake tmux and card delivery, and a temporary HOME.
 """
 
+from datetime import datetime
 import json
 import os
 import subprocess
@@ -140,7 +141,7 @@ class AnswerClosesQuestion(Sandbox):
 
     def prompt(self, **payload):
         self.hook("UserPromptSubmit", **(payload or {"prompt": "Use the second schema."}))
-        return json.loads(config.stop_path(SEAT).read_text())["turn"]
+        return json.loads(config.stop_path(self.seat["name"]).read_text())["turn"]
 
     def handback(self):
         return watch.type_at_prompt(self.seat, HANDBACK, lambda _: None, cfg=self.cfg)
@@ -205,6 +206,47 @@ class AnswerClosesQuestion(Sandbox):
         self.notice()
         self.prompt(message="Use the second schema.")
         self.assert_answered()
+
+    def test_a_line_ak_typed_once_does_not_mask_the_owner_typing_it_again(self):
+        """Each typing receipt counts once: the owner's own `continue` later is still his,
+        after a rename too, and in a seat relaunched under its new name."""
+        for relay, renamed, relaunched in ((False, False, False), (True, False, False),
+                                           (False, True, False), (False, True, True)):
+            with self.subTest(relayed=relay, renamed=renamed, relaunched=relaunched):
+                self.doCleanups()
+                self.setUp()
+                receipt = config.seat_file("input", SEAT)
+                # the hook reads the real clock; this sandbox's time.time() is a fixed fake
+                receipt.write_text(json.dumps({"at": datetime.now().timestamp(),
+                                               "text": "continue", "source": "ak"}) + "\n")
+                typed = self.prompt(prompt="continue")
+                self.assertFalse(json.loads(config.stop_path(SEAT).read_text())["owner"])
+                # a stop sent back rewrites the latch and keeps the receipt it consumed
+                self.assertIn('"block"', self.hook("Stop", script="orchestrator-stop.sh",
+                                                   last_assistant_message="Noted.",
+                                                   background_tasks=[]))
+                self.assertIn("typed_at", json.loads(config.stop_path(SEAT).read_text()))
+                if renamed:
+                    # the rename moves the latch with the receipt it consumed
+                    config.rename_session(SEAT, "fix-schema")
+                    self.seat = dict(self.seat, name="fix-schema")
+                self.notice(time=typed)
+                if relay:
+                    with receipt.open("a") as out:
+                        out.write(json.dumps({"at": datetime.now().timestamp(),
+                                              "text": "continue", "source": "owner"}) + "\n")
+                self.prompt(prompt="continue", env={"AGENTKIT_SESSION": self.seat["name"]}
+                            if relaunched else None)
+                self.assertTrue(json.loads(config.stop_path(self.seat["name"]).read_text())
+                                ["owner"])
+                self.assertFalse(watch.owner_question(notify.last(self.seat["name"])))
+
+    def test_a_long_report_ak_typed_is_still_ak_s(self):
+        report = "run 20260101-0900-parser finished FAIL: " + "x" * 72_000 + " Decide the next step."
+        config.seat_file("input", SEAT).write_text(json.dumps(
+            {"at": datetime.now().timestamp(), "text": report, "source": "ak"}) + "\n")
+        self.prompt(prompt=report)
+        self.assertFalse(json.loads(config.stop_path(SEAT).read_text())["owner"])
 
     def test_owner_prompt_closes_a_card_no_notice_asked(self):
         # The screen alone said needs you and its card went out: no notice holds the answer.
@@ -300,14 +342,14 @@ class AnswerClosesQuestion(Sandbox):
                 self.assertTrue(output, "background results still require the seat to act")
                 self.assertEqual(json.loads(output)["decision"], "block")
 
-    def test_task_notification_question_keeps_its_plain_reply_ending(self):
+    def test_task_notification_question_is_not_the_owner_asking(self):
         for field in ("prompt", "message"):
             with self.subTest(field=field):
                 self.prompt(**{field: "<task-notification>Which acme schema failed?\n"
                                "</task-notification>"})
                 output = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
                                    last_assistant_message="Acme's second schema failed.")
-                self.assertEqual(output, "")
+                self.assertEqual(json.loads(output)["decision"], "block")
 
     def test_no_prompt_leaves_it_open(self):
         self.notice()

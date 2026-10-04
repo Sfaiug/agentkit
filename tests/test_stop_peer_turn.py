@@ -23,8 +23,12 @@ sys.path.insert(0, str(REPO))
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "peer-seat"
-REASON = ("You stopped without asking the user a question, declaring done with ak notify done, "
+REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
+          "declaring done with ak notify done, "
           "or waiting on a run. Continue: decide the next step and do it.")
+NUDGE = ("The user's prompt did not end on a question. If it asked for work, continue: decide "
+         "the next step and do it. If it asked you to find something out and your reply "
+         "answers it, stop again; an answer is never ak notify done.")
 ACK = "Noted -- nothing new on my side."      # the seat acknowledges the message and stops
 PEER_PROMPT = ('<cross-session-message from="acme-fix-api" to="peer-seat">'
                "Finished the parser; over to you.</cross-session-message>")
@@ -105,15 +109,23 @@ class StopPeerTurn(unittest.TestCase):
         self.assertEqual(self.stop(), "")
 
     def test_an_owner_opened_turn_with_the_same_standing_done_is_held_as_today(self):
-        """The owner, or a run's notice typed into the seat, answers the done: it tells nothing."""
-        for opened in ("merge the parser now",
-                       "run 20260101-0900-parser finished: PASS"):   # typed in, not wrapped
+        """The owner, or a run's notice typed into the seat, answers the done: it tells nothing.
+
+        The owner's instruction gets the one nudge an answer may stand after; the run's
+        notice, which ak typed and recorded as its own, is held as every report is."""
+        report = "run 20260101-0900-parser finished: PASS. Decide the next step."
+        for opened, reason in (("merge the parser now", NUDGE), (report, REASON)):
             with self.subTest(opened=opened):
                 self.setUp()
+                (self.state / f"input-{SEAT}.jsonl").write_text(json.dumps(
+                    {"at": time.time(), "text": report, "source": "ak"}) + "\n")
                 self.notified("done", self.done_at)
                 latch = self.prompt(opened)
                 self.assertFalse(latch["peer"])
-                self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+                self.assertEqual(latch["owner"], reason == NUDGE)
+                self.assertEqual(self.blocked(self.stop())["reason"], reason)
+                if reason == REASON:
+                    self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_a_peer_opened_turn_whose_last_done_was_dropped_is_held(self):
         self.notified("done", self.done_at, seen=True)    # `ak notify` dropped it

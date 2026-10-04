@@ -3,10 +3,9 @@
 Offline and deterministic: hooks/seat-state.sh opens the turn and
 hooks/orchestrator-stop.sh judges its end, both run as their harness runs them --
 the hook's own JSON on stdin -- against fake records and a throwaway HOME, never
-a real seat or ~/.agentkit.  A sentence of the opening prompt ending in `?` (the
-mark followed by whitespace or the end, so a URL's `?` is none) lets a plain
-answer stand, unless a run sits parked undecided or another session's message
-opened the turn.
+a real seat or ~/.agentkit. Only the last sentence of the opening prompt ending in `?` lets a plain
+answer stand at once; the owner's other prompts get one nudge first. A run parked
+undecided still holds it, and another session's message or a run's report opens no answer.
 """
 
 import json
@@ -26,8 +25,12 @@ from agentkit import config, watch
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "answer-seat"
-REASON = ("You stopped without asking the user a question, declaring done with ak notify done, "
+REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
+          "declaring done with ak notify done, "
           "or waiting on a run. Continue: decide the next step and do it.")
+NUDGE = ("The user's prompt did not end on a question. If it asked for work, continue: decide "
+         "the next step and do it. If it asked you to find something out and your reply "
+         "answers it, stop again; an answer is never ak notify done.")
 ANSWER = "The parser reads the schema at startup and caches it."
 SPENT = "three rounds spent: split or re-scope the task"
 
@@ -106,7 +109,7 @@ class StopAnswer(unittest.TestCase):
 
     def test_a_plain_answer_ends_a_turn_the_owner_opened_with_a_question(self):
         for opened in ("Which parser does it use?",
-                       "Which parser does it use? Please explain."):
+                       "Please explain. Which parser does it use?\n"):
             with self.subTest(opened=opened):
                 self.setUp()
                 latch = self.prompt(opened)
@@ -115,10 +118,35 @@ class StopAnswer(unittest.TestCase):
                 self.assertEqual(self.stop(), "")
                 self.assertEqual(self.latch()["blocks"], 0)
 
-    def test_a_prompt_with_no_question_is_judged_as_today(self):
-        latch = self.prompt("Merge the parser now")
-        self.assertFalse(latch["asked"])
+    def test_an_owners_instruction_gets_one_nudge_then_its_answer_stands(self):
+        for opened in ("Merge the parser now", "Check the parser and find out which schema it reads"):
+            with self.subTest(opened=opened):
+                self.setUp()
+                latch = self.prompt(opened)
+                self.assertEqual((latch["asked"], latch["owner"]), (False, True))
+                payload = {"transcript_path": str(self.transcript(ANSWER)),
+                           "background_tasks": []}
+                self.assertEqual(self.blocked(self.stop(said=None, **payload))["reason"], NUDGE)
+                self.assertEqual(self.stop(said=None, stop_hook_active=True, **payload), "")
+                self.stop(said=None, hook=SEAT_STATE, stop_hook_active=True, **payload)
+                self.assertEqual(self.latch()["blocks"], 1)
+                self.assertEqual(self.read_as(), ("at_prompt", "Stop"))
+
+    def test_a_runs_report_is_judged_as_today(self):
+        latch = self.prompt("<task-notification>acme run ended</task-notification>")
+        self.assertEqual((latch["asked"], latch["owner"]), (False, False))
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+        self.assertEqual(self.stop(), "")
+
+    def test_an_earlier_question_does_not_exempt_a_final_instruction(self):
+        for opened in ("Which parser does it use? Please explain.",
+                       "Should it read JSON?\n\nBuild the parser.",
+                       "The old prompt was: which schema? Now fix it."):
+            with self.subTest(opened=opened):
+                self.setUp()
+                self.assertFalse(self.prompt(opened)["asked"])
+                self.assertEqual(self.blocked(self.stop())["reason"], NUDGE)
 
     def test_a_urls_question_mark_is_no_question(self):
         for opened in ("See docs/guide.md?foo for the schema",
@@ -127,7 +155,7 @@ class StopAnswer(unittest.TestCase):
                 self.setUp()
                 latch = self.prompt(opened)
                 self.assertFalse(latch["asked"])
-                self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+                self.assertEqual(self.blocked(self.stop())["reason"], NUDGE)
 
     def test_an_answer_stands_on_claude_with_no_held_notice(self):
         self.prompt("Which parser does it use?")
@@ -158,7 +186,7 @@ class StopAnswer(unittest.TestCase):
                 "Which parser should I use?\n</cross-session-message>")
         latch = self.prompt(peer)
         self.assertTrue(latch["peer"])
-        self.assertTrue(latch["asked"])    # only the peer exclusion keeps it held
+        self.assertFalse(latch["asked"])    # the message wrapper is not an owner's question
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
 

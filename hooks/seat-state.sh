@@ -46,7 +46,7 @@ watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None,
 }
 
 seat_state() {
-  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner
+  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner peer latch
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
@@ -113,37 +113,79 @@ seat_state() {
   # A prompt another session's message opened -- Claude Code wraps it in
   # <cross-session-message> -- keeps the seat's standing done: the seat only
   # acknowledged the message, so its done from before the turn still tells.
-  # A prompt that asks something -- a sentence ending in `?`, the mark followed by
-  # whitespace or the end so a URL's `?` is none -- is ended by its answer.  The
-  # latch says which kind of prompt opened the turn.
+  # Only a prompt whose last sentence is a question is ended by its answer at once; a
+  # question quoted before an instruction does not turn that instruction into one, and
+  # the owner's other prompts get one nudge before an answer stands. The latch says which
+  # kind of prompt opened the turn.
   peer=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
                | any(contains("<cross-session-message"))' \
       <<<"$payload" >/dev/null 2>&1; then
     peer=true
   fi
-  asked=false
-  if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(test("\\?([[:space:]]|$)"))' \
-      <<<"$payload" >/dev/null 2>&1; then
-    asked=true
+  # Messages, slash commands and the line ak typed last -- a run's hand-back, a nudge, each
+  # counted once -- do not make the owner ask or answer anything; a reply ak relayed is
+  # still the owner's.  The owner asked when the prompt ends on a question mark.  The latch
+  # keeps the keys of the prompts since the owner's last one that were not the owner's, so
+  # hooks/orchestrator-stop.sh reads none of them as the answer to a question still open.
+  # The latch follows a rename as the seat's other files do, so a seat relaunched under its
+  # new name reads the same one.
+  latch="$dir/stop-$row.json"
+  owner=$(/usr/bin/env python3 -c '
+import hashlib, json, os, sys
+from pathlib import Path
+payload = json.loads(sys.stdin.read())
+receipts, latch, seat, peer, now = Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], \
+    sys.argv[5] == "true", float(sys.argv[6])
+said = [v.strip() for v in (payload.get("prompt"), payload.get("message")) if isinstance(v, str)]
+try:
+    previous = json.loads(latch.read_text())
+except (OSError, ValueError):
+    previous = {}
+previous = previous if isinstance(previous, dict) else {}
+owner = not peer and not any("<task-notification" in v or v.startswith("/") for v in said)
+typed = previous.get("typed_at")
+others = previous.get("others")
+others = [key for key in others if isinstance(key, str)] if isinstance(others, list) else []
+try:
+    with receipts.open("rb") as fh:
+        size, window = fh.seek(0, os.SEEK_END), 65536
+        while True:     # the newest receipt whole, however long a report it carries
+            fh.seek(max(0, size - window))
+            lines = fh.read().rstrip(b"\n").split(b"\n")
+            if len(lines) > 1 or window >= size:
+                break
+            window *= 4
+        last = json.loads(lines[-1])
+except (OSError, ValueError, IndexError):
+    last = {}
+at = last.get("at") if isinstance(last, dict) else None
+if (owner and last.get("source") == "ak" and isinstance(at, (int, float)) and at != typed
+        and at <= now and str(last.get("text") or "").strip() in said):
+    owner, typed = False, at
+# until the owner speaks again, however many arrive: one key per prompt, whichever field held it
+others = [] if owner else others + [hashlib.sha256(v.encode()).hexdigest() for v in dict.fromkeys(said)]
+record = {"session": seat, "turn": now, "blocks": 0, "peer": peer,
+          "asked": owner and any(v.endswith("?") for v in said), "owner": owner,
+          "typed_at": typed, "others": others}
+tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
+tmp.write_text(json.dumps(record) + "\n")
+tmp.replace(latch)
+print("true" if owner else "false")
+' "${BASH_SOURCE[0]}" "$dir/input-$row.jsonl" "$latch" "$seat" "$peer" "$ts" \
+    <<<"$payload" 2>/dev/null) || owner=''
+  if [[ -z $owner ]]; then
+    # the reading above failed: the turn still starts, judged as the owner's
+    owner=true
+    tmp="$latch.tmp.$$"
+    "$jq" -n --arg session "$seat" --argjson turn "$ts" --argjson peer "$peer" \
+      '{session: $session, turn: $turn, blocks: 0, peer: $peer, asked: false, owner: true}' \
+      >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
+    /bin/mv -f -- "$tmp" "$latch" || /bin/rm -f -- "$tmp"
   fi
-  tmp="$dir/stop-$seat.json.tmp.$$"
-  "$jq" -n --arg session "$seat" --argjson turn "$ts" --argjson peer "$peer" \
-    --argjson asked "$asked" \
-    '{session: $session, turn: $turn, blocks: 0, peer: $peer, asked: $asked}' \
-    >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
-  /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question, once the background look checks its pane.
   # The launch name still resolves after a rename; messages and slash commands answer nothing.
   # Background reports keep the normal stop rules, so they must not set the peer latch.
-  owner=true
-  if [[ $peer = true ]] ||
-    "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(contains("<task-notification") or test("^[[:space:]]*/"))' \
-      <<<"$payload" >/dev/null 2>&1; then
-    owner=false
-  fi
   if [[ $owner = true ]]; then
     look "$seat" "" "$ts"
   else
