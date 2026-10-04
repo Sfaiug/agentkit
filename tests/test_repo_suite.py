@@ -17,7 +17,7 @@ from agentkit import gate as check_gate, config, gc, host, run, worker
 SUITE = 'test -f AGENTS.md && printf "piece %s\\n" "${AK_SHARD:-all}"'
 
 
-class RepoSuite(unittest.TestCase):
+class RepoSuiteFixture:
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-repo-suite-", dir=REPO)
         self.addCleanup(tmp.cleanup)
@@ -106,6 +106,8 @@ class RepoSuite(unittest.TestCase):
     def finals(self):
         return [cmds for name, cmds in self.gates if name == "final-check.log"]
 
+
+class RepoSuite(RepoSuiteFixture, unittest.TestCase):
     def test_declared_suite_runs_at_landing(self):
         self.commit(f"---\nusers: none\ntests: {SUITE}\n---\n# acme\n")
         state = self.launch("declared", ["true"])
