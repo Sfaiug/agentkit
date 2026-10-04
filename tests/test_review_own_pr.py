@@ -119,6 +119,7 @@ class OwnPr(unittest.TestCase):
             patch.object(run, "restore_review_checkout", return_value=None),
             patch.object(run, "launcher_world", side_effect=lambda *a, **k: nullcontext(False)),
             patch.object(run, "fetch", return_value=(0, "")),
+            patch.object(run, "commit_identity", return_value={"head_sha": HEAD, "tree_sha": "c" * 40}),
         ]
 
     def posting_gh(self, events, merges=None):
@@ -157,11 +158,10 @@ class OwnPr(unittest.TestCase):
         self.assertEqual(state["own_orchestrator"], "opus")
         self.assertEqual(events, ["COMMENT"])
 
-    def test_own_pr_pass_merges_under_repository_lock_without_inbox(self):
+    def test_own_pr_pass_joins_the_line_without_inbox(self):
         run_dir = self.launch_dir("20260927-0002-own-merge")
         opts = {"--review": None, "--review-pr": URL}
         merges, turns, inbox, events = [], [], [], []
-        real_merge = run.MERGE_METHODS["squash"]
 
         def turn(lp, upstream):
             turns.append(upstream)
@@ -181,19 +181,16 @@ class OwnPr(unittest.TestCase):
                 side_effect=lambda *a, **k: inbox.append(a) or 0))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
-        self.assertEqual(state["state"], "pass")
-        self.assertTrue(state["merged"])
+        self.assertEqual(state["state"], "waiting")
+        self.assertFalse(state["merged"])
         self.assertEqual(inbox, [])
         self.assertEqual(events, ["COMMENT"])
-        self.assertEqual(len(merges), 1, merges)
-        self.assertEqual(merges[0][:2], ["pr", "merge"])
-        self.assertIn(real_merge, merges[0])
-        self.assertIn("--match-head-commit", merges[0])
-        self.assertIn(HEAD, merges[0])
-        self.assertEqual(turns, ["origin/main"])
+        self.assertEqual(merges, [])
+        self.assertEqual(turns, [])
+        self.assertIn("line", state["waiting_on"])
         self.assertNotIn("pending_inbox", state)
 
-    def test_own_pr_pass_with_moved_head_never_merges(self):
+    def test_own_pr_pass_leaves_head_verification_to_delivery(self):
         run_dir = self.launch_dir("20260927-0003-own-moved")
         opts = {"--review": None, "--review-pr": URL}
         merges, inbox, events = [], [], []
@@ -212,22 +209,22 @@ class OwnPr(unittest.TestCase):
                 side_effect=lambda *a, **k: inbox.append(a) or 0))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
-        self.assertEqual(state["state"], "pass")
+        self.assertEqual(state["state"], "waiting")
         self.assertFalse(state["merged"])
         self.assertEqual([a for a in merges if a[:2] == ["pr", "merge"]], [])
         self.assertEqual(inbox, [])
-        self.assertIn("not merged", state["merge_note"])
-        self.assertIn("head changed", state["merge_note"])
-        self.assertTrue(state["merge_failed"])
+        self.assertEqual(state["head_sha"], HEAD)
+        self.assertIn("line", state["waiting_on"])
+        self.assertFalse(state.get("merge_failed"))
 
-    def test_own_pr_pass_with_failed_checks_is_an_unfinished_merge(self):
+    def test_own_pr_pass_defers_required_checks_to_delivery(self):
         run_dir = self.launch_dir("20260927-0008-own-checks-fail")
         opts = {"--review": None, "--review-pr": URL}
         merges, inbox, events = [], [], []
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="PASS"):
                 mocks.enter_context(m)
-            mocks.enter_context(patch.object(
+            checks = mocks.enter_context(patch.object(
                 run, "checks", return_value=(False, "required checks failed: gate")))
             mocks.enter_context(patch.object(
                 run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
@@ -238,12 +235,12 @@ class OwnPr(unittest.TestCase):
                 side_effect=lambda *a, **k: inbox.append(a) or 0))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
-        self.assertEqual(state["state"], "pass")
+        self.assertEqual(state["state"], "waiting")
         self.assertFalse(state["merged"])
         self.assertEqual([a for a in merges if a[:2] == ["pr", "merge"]], [])
         self.assertEqual(inbox, [])
-        self.assertTrue(state["merge_failed"])
-        self.assertIn("required checks failed", state["merge_note"])
+        checks.assert_not_called()
+        self.assertIn("line", state["waiting_on"])
 
     def test_closed_own_pr_ends_fail_with_findings_and_no_merge(self):
         run_dir = self.launch_dir("20260927-0004-own-fail")

@@ -332,12 +332,13 @@ def _stack_member(repo, state, top, upstream, opened):
     return scratch, text
 
 
-def _landing_checks(directory, scratch, upstream):
+def _landing_checks(directory, state, scratch, upstream):
     """The member's own landing checks on `scratch`: its `# once` commands and the suite."""
     from . import run, task
     _, body, _ = task.parse_task(directory / "task.md")
-    return tuple(task.group_commands(run.with_suite(
-        task.done_when(body, directory / "task.md"), scratch, upstream))[1])
+    # A review PR owes the suite declared on this stack, never an earlier head's suite too.
+    cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
+    return tuple(task.group_commands(run.with_suite(cmds, scratch, upstream))[1])
 
 
 def _check_tree(directory, state, scratch, tree, checks, log):
@@ -381,7 +382,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
                 stacks.append((member, saved, scratch, tree,
-                               _landing_checks(member, scratch, upstream)))
+                               _landing_checks(member, saved, scratch, upstream)))
             if not stacks:
                 break
             if remaining is None:

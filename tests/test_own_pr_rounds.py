@@ -18,6 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
+from fixtures.landing import landing
 from agentkit import host, config, gc, menu, orch, run, watch, worker
 from agentkit import record
 
@@ -76,8 +77,10 @@ class OwnPrRounds(unittest.TestCase):
                                                 name, return_value=value))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=lambda *_: dict(self.pr)))
-        self.stack.enter_context(patch.object(run, "gh_json", side_effect=lambda *a, **k: (dict(self.pr), "")))
+        self.stack.enter_context(patch.object(run, "gh_json", side_effect=self.gh_json))
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                                             landing(lp, deliver=deliver)))
         self.stack.enter_context(patch.object(run, "merge_lock", side_effect=lambda *a, **k: nullcontext()))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         clock = self.stack.enter_context(patch.object(run, "time", wraps=time))
@@ -100,6 +103,12 @@ class OwnPrRounds(unittest.TestCase):
         if args[0] == "api":
             self.events.append(args[args.index("-f") + 3])
         return 0, ""
+
+    def gh_json(self, _cwd, *args, **_kw):
+        if args[:2] == ("api", "repos/acme/widget/pulls/7"):
+            return {"state": self.pr["state"].lower(), "merged": self.pr["state"] == "MERGED",
+                    "head": {"sha": self.pr["headRefOid"]}, "base": {"ref": "main"}}, ""
+        return dict(self.pr), ""
 
     def tell(self, seat, line, *args, **_kw):
         self.notices.append(line)

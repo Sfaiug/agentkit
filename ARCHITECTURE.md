@@ -22,16 +22,16 @@
 ## agentkit/
 
 - `run.py`: staffing, review, landing, hand-back, failures, slots, worktrees and delivery locks.
-  Passed writable workers park in the line and exit; foreground callers and jobs follow
-  records. Forks keep `land`; review-PR merges use the plain flock. API: `main`, `going`,
+  Passed writable workers and automatic review-PR merges park in the line and exit;
+  foreground callers and jobs follow records. Forks keep `land`. API: `main`, `going`,
   `pick_models`; for watch, job, gc, orch, menu, notify, usage, worker and a hook.
 - `gate.py`: check commands and host-wide heavy-suite turns; `run_done_when`, turn/env
   helpers and wait notes. For run and tests. Leaks: run's `run_child_env`, `memory_cap_note`,
   `dirty_paths`, `OUT_CAP`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member
-  leaves to fix itself. Record changes and the tick start fresh passes in the runs
-  slice. Run consumes verdicts and rejoins after fixes or a changed target.
+  leaves to fix itself or hand the failure to its PR's seat. Record changes and the tick
+  start fresh passes in the runs slice. Run consumes verdicts and rejoins after fixes or a changed target.
 - `record.py`: run.json, stop-safe writes, recovery locks, defaults, folders, writer id.
   API: `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
   `writing`. For run, gate, job, menu, orch, watch, gc, retention, history and worker.

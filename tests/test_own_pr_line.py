@@ -1,0 +1,306 @@
+"""Own PRs share the landing line: independently green changes cannot land a red stack.
+
+Offline: real Git and the declared fixture suite, fake GitHub, reviewers and seats.
+"""
+
+from contextlib import nullcontext, redirect_stdout
+import io
+import sys
+from pathlib import Path
+import unittest
+from unittest.mock import patch
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from agentkit import config, gc, land, record, run, watch, worker
+from fixtures.hand_in import submitting
+from test_lander import LanderFixture
+
+SUITE = "test ! -f first.txt || test ! -f second.txt"
+
+
+class OwnPrLine(LanderFixture, unittest.TestCase):
+    def setUp(self):
+        turn, do_merge = worker.turn, run.do_merge
+        super().setUp()
+        self.stack.enter_context(patch.object(worker, "turn", side_effect=turn))
+        self.stack.enter_context(patch.object(run, "do_merge", side_effect=do_merge))
+        self.stack.enter_context(redirect_stdout(io.StringIO()))
+        self.cfg = config.load()
+        config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"])
+        (self.repo / "AGENTS.md").write_text(f"---\nusers: none\ntests: {SUITE}\n---\n")
+        self.commit("suite for the combined changes")
+        run.git(self.repo, "push", "origin", "main")
+        self.base = run.git(self.repo, "rev-parse", "HEAD")
+        self.prs, self.reviews, self.merges, self.notices = {}, [], [], []
+        for name, value in (("viewer_login", "owner"), ("checkout_for", self.repo),
+                            ("collect_usage", {}), ("ready_order", ["astra"]),
+                            ("post_review", True), ("checks", (True, ""))):
+            self.stack.enter_context(patch.object(run, name, return_value=value))
+        self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
+        self.stack.enter_context(patch.object(run, "pr_view", side_effect=self.view))
+        self.stack.enter_context(patch.object(run, "gh_json", side_effect=self.gh_json))
+        self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
+        self.stack.enter_context(patch.object(run, "launcher_world", side_effect=lambda *_: nullcontext(True)))
+        self.stack.enter_context(patch.object(watch, "type_at_prompt", side_effect=self.tell))
+        self.stack.enter_context(patch.object(run.orch, "find", return_value={"name": "fix-api"}))
+        fetch = run.fetch
+
+        def local_fetch(repo, remote, *args, **kw):
+            return (0, "") if any(arg.startswith("pull/") for arg in args) else fetch(repo, remote, *args, **kw)
+
+        self.stack.enter_context(patch.object(run, "fetch", side_effect=local_fetch))
+
+    def tell(self, _seat, text, *_args, **_kw):
+        self.notices.append(text)
+        return True
+
+    def check(self, cmds, cwd, log_path, *args, **kw):
+        self.checks.append((list(cmds), str(cwd), str(log_path)))
+        return self.gate_run(cmds, cwd, log_path, *args, **kw)
+
+    def reviewer(self, _cfg, _name, body, _wt, out, *_args, **_kw):
+        self.reviews.append(body)
+        out.mkdir(parents=True, exist_ok=True)
+        text = "VERDICT: PASS\n## Findings\n- none\n"
+        (out / "final.md").write_text(text)
+        return 0, text, "fixture-review", False
+
+    def view(self, url):
+        pr = self.prs[url]
+        return {"state": pr["state"], "headRefOid": pr["head"], "baseRefName": "main",
+                "author": "owner", "title": "Mend the fence", "body": "Fix the fence"}
+
+    def gh_json(self, _cwd, *args, **_kw):
+        if "graphql" in args:
+            return "Mend the fence", ""
+        url = next((url for url in self.prs if url in args), None)
+        if url:
+            return self.view(url), ""
+        number = args[1].rsplit("/", 1)[-1]
+        pr = self.prs[f"https://github.com/acme/widget/pull/{number}"]
+        return {"state": pr["state"].lower(), "merged": pr["state"] == "MERGED",
+                "head": {"sha": pr["head"], "ref": pr["branch"],
+                         "repo": {"clone_url": str(self.remote)}},
+                "base": {"ref": "main"}}, ""
+
+    def gh(self, _cwd, *args, **_kw):
+        self.assertEqual(args[:2], ("pr", "merge"))
+        url = args[2]
+        pr = self.prs[url]
+        pinned = args[args.index("--match-head-commit") + 1]
+        remote_head = run.git(self.remote, "rev-parse", pr["branch"])
+        if remote_head != pinned:
+            return 1, "head changed"
+        tree = run.git(self.repo, "rev-parse", f"{pinned}^{{tree}}")
+        self.assertIsNotNone(land.passed(self.turn, tree), "merged an untested tree")
+        run.git(self.repo, "fetch", "origin", "main")
+        run.git(self.repo, "checkout", "main")
+        run.git(self.repo, "reset", "--hard", "origin/main")
+        run.git(self.repo, "merge", "--squash", pinned)
+        self.assertEqual(run.git(self.repo, "write-tree"), tree)
+        self.commit("land the tested tree")
+        run.git(self.repo, "push", "origin", "main")
+        pr.update(state="MERGED", head=pinned)
+        self.merges.append((url, pinned, tree))
+        return 0, ""
+
+    def own_pr(self, name, number):
+        branch = f"feature/{name}"
+        run.git(self.repo, "checkout", "-b", branch, self.base)
+        (self.repo / f"{name}.txt").write_text(name + "\n")
+        self.commit(name)
+        run.git(self.repo, "push", "origin", branch)
+        url = f"https://github.com/acme/widget/pull/{number}"
+        self.prs[url] = dict(branch=branch, head=run.git(self.repo, "rev-parse", "HEAD"), state="OPEN")
+        directory = config.RUNS / name
+        directory.mkdir()
+        (directory / "log.txt").touch()
+        with patch.dict(run.os.environ, {config.SESSION_ENV: "fix-api"}):
+            run.capture_launch(directory, {"--review-pr": url})
+        return directory, url
+
+    def review(self, directory, url):
+        return run.review_pr(self.cfg, directory, url, {"--review": None, "--review-pr": url}, lambda _: None)
+
+    def push_fix(self, url, rename=False):
+        pr = self.prs[url]
+        run.git(self.repo, "checkout", pr["branch"])
+        if rename:
+            run.git(self.repo, "mv", "second.txt", "repaired.txt")
+        else:
+            (self.repo / "fix.txt").write_text("new seat push\n")
+        self.commit("the seat's fix")
+        run.git(self.repo, "push", "origin", pr["branch"])
+        pr["head"] = run.git(self.repo, "rev-parse", "HEAD")
+
+    def test_review_round_starts_no_suite(self):
+        directory, url = self.own_pr("first", 1)
+        with patch.object(run, "gh", return_value=(0, "")):
+            state = self.review(directory, url)
+        self.assertEqual(self.checks, [], "a review round ran the landing suite")
+        self.assertEqual(state["state"], "waiting")
+        self.assertIsNone(state["review"]["done_when"])
+        self.assertNotIn("final_check", state)
+        self.assertIn("runs once at landing", self.reviews[0])
+        self.assertEqual(self.merges, [])
+
+    def test_two_changes_that_pass_alone_never_both_merge(self):
+        first, first_url = self.own_pr("first", 1)
+        second, second_url = self.own_pr("second", 2)
+        for directory, url in ((first, first_url), (second, second_url)):
+            state = self.review(directory, url)
+            wt = Path(state["worktree"])
+            self.assertFalse((wt / "first.txt").exists() and (wt / "second.txt").exists())
+            self.assertEqual(state["state"], "waiting")
+            self.assertEqual(state["waiting_on"]["line"], self.turn.name)
+        self.advance()
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(first))
+        self.assertIn("fix", self.wait(second))
+        self.assertEqual(len(self.checks), 2)
+        passed = self.review(first, first_url)
+        self.assertTrue(passed["merged"])
+        self.assertEqual(len(self.checks), 2, "delivery repeated the suite")
+        self.assertEqual(len(self.reviews), 2, "delivery repeated the review")
+        self.assertEqual(self.merges[0][1], run.git(Path(passed["worktree"]), "rev-parse", "HEAD"))
+        self.assertNotEqual(self.merges[0][1], passed["round_summaries"][0]["head_sha"])
+        with patch.object(run, "wait_for_own_pr", return_value=False):
+            failed = self.review(second, second_url)
+        self.assertEqual(failed["verdict"], "FAIL")
+        self.assertEqual(failed["own_pr_wait"], self.prs[second_url]["head"])
+        self.assertIn(SUITE, failed["findings"])
+        run.tell_own_pr_round(self.cfg, second, failed, lambda _: None)
+        self.assertTrue(self.notices)
+        self.assertIn("Fix the findings and push", self.notices[-1])
+        self.assertEqual(len(self.merges), 1)
+        self.assertFalse(record.read_state(second)["merged"])
+        self.assertFalse(list(config.WT.glob("land-*")))
+
+    def test_a_red_tree_goes_back_to_its_seat_and_the_push_is_checked(self):
+        directory, url = self.own_pr("second", 1)
+        self.review(directory, url)
+        self.advance(**{"first.txt": "first\n"})
+        land.check_line(self.turn)
+        self.assertIn("fix", self.wait(directory))
+        checks = len(self.checks)
+
+        def push(seconds):
+            if seconds != run.SLOT_POLL:
+                return
+            self.assertTrue(self.notices, "the seat received no landing failure")
+            self.assertIn("final check failed at landing", self.notices[-1])
+            self.push_fix(url, rename=True)
+
+        with patch.object(run.time, "sleep", side_effect=push):
+            state = self.review(directory, url)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(len(state["round_summaries"]), 2)
+        self.assertIn("Landing failed", self.reviews[-1])
+        self.assertEqual(len(self.checks), checks, "the seat's next review ran a suite")
+        land.check_line(self.turn)
+        state = self.review(directory, url)
+        self.assertTrue(state["merged"])
+        self.assertEqual(len(self.checks), checks + 1)
+        self.assertEqual(len(self.reviews), 2)
+
+    def test_a_changed_target_keeps_its_place_and_checks_the_new_tree(self):
+        directory, url = self.own_pr("first", 1)
+        state = self.review(directory, url)
+        joined = state["waiting_on"]["joined"]
+        land.check_line(self.turn)
+        self.advance(**{"later.txt": "later\n"})
+        state = self.review(directory, url)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["waiting_on"]["joined"], joined)
+        self.assertNotIn("land", state["waiting_on"])
+        self.assertEqual(self.merges, [])
+        land.check_line(self.turn)
+        self.assertTrue(self.review(directory, url)["merged"])
+        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(len(self.reviews), 1)
+
+    def test_a_seats_new_head_is_reviewed_instead_of_overwritten(self):
+        directory, url = self.own_pr("first", 1)
+        self.review(directory, url)
+        self.advance()
+        land.check_line(self.turn)
+        self.push_fix(url)
+        newest = self.prs[url]["head"]
+        state = self.review(directory, url)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["head_sha"], newest)
+        self.assertEqual(run.git(self.remote, "rev-parse", self.prs[url]["branch"]), newest)
+        self.assertEqual(len(self.reviews), 2)
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(self.merges, [])
+
+    def test_a_seat_push_racing_the_tested_push_is_protected_by_the_lease(self):
+        directory, url = self.own_pr("first", 1)
+        self.review(directory, url)
+        self.advance()
+        land.check_line(self.turn)
+        git_out = run.git_out
+
+        def race(cwd, *args, **kw):
+            if args[0] == "push" and Path(cwd) != self.repo:
+                self.push_fix(url)
+            return git_out(cwd, *args, **kw)
+
+        with patch.object(run, "git_out", side_effect=race):
+            with self.assertRaisesRegex(config.Error, "pushing the tested PR head failed"):
+                self.review(directory, url)
+        self.assertEqual(run.git(self.remote, "rev-parse", self.prs[url]["branch"]), self.prs[url]["head"])
+        self.assertEqual(self.merges, [])
+        self.assertEqual(len(self.checks), 1)
+
+    def test_a_push_that_outlives_its_receipt_resumes_without_another_suite(self):
+        directory, url = self.own_pr("first", 1)
+        self.review(directory, url)
+        self.advance()
+        land.check_line(self.turn)
+        git_out = run.git_out
+
+        def killed(cwd, *args, **kw):
+            answer = git_out(cwd, *args, **kw)
+            if args[0] == "push":
+                self.prs[url]["head"] = run.git(self.remote, "rev-parse", self.prs[url]["branch"])
+                raise InterruptedError("the push completed before the run died")
+            return answer
+
+        with patch.object(run, "git_out", side_effect=killed):
+            with self.assertRaises(InterruptedError):
+                self.review(directory, url)
+        self.assertTrue(self.review(directory, url)["merged"])
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(len(self.reviews), 1)
+
+    def test_a_failed_required_check_returns_to_the_prs_seat(self):
+        directory, url = self.own_pr("first", 1)
+        self.review(directory, url)
+        land.check_line(self.turn)
+        with patch.object(run, "checks", return_value=(False, "required checks failed: fence")), \
+                patch.object(run, "wait_for_own_pr", return_value=False):
+            state = self.review(directory, url)
+        self.assertEqual(state["verdict"], "FAIL")
+        self.assertIn("required checks failed: fence", state["findings"])
+        self.assertIn("own_pr_wait", state)
+        self.assertEqual(self.merges, [])
+        self.assertEqual(len(self.checks), 1)
+
+    def test_a_delivery_refusal_records_an_ending(self):
+        directory, url = self.own_pr("first", 1)
+        self.review(directory, url)
+        land.check_line(self.turn)
+        with patch.object(run, "checks", return_value=(False, "cannot read required checks")):
+            state = self.review(directory, url)
+        self.assertEqual(state["state"], "pass")
+        self.assertTrue(state["merge_failed"])
+        self.assertIsNotNone(state["finished_at"])
+        self.assertNotIn("waiting_on", state)
+        self.assertEqual(self.merges, [])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

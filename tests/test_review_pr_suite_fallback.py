@@ -1,4 +1,4 @@
-"""A reviewed PR whose own branch declares no `tests:` runs its target branch's suite.
+"""A reviewed PR whose own branch declares no `tests:` defers its target branch's suite.
 
 Offline: a temporary acme repository whose `origin/main` declares the suite and whose PR
 head does not; GitHub, the reviewer and the merge checks are fakes.
@@ -91,12 +91,12 @@ class ReviewPrSuiteFallback(unittest.TestCase):
         self.assertEqual(state["state"], "pass", self.logs)
         return (directory / "task.md").read_text()
 
-    def test_pr_without_tests_runs_the_target_suite(self):
+    def test_pr_without_tests_defers_the_target_suite(self):
         target = self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
         head = self.commit("# acme\n\nNo front matter here.\n")
         task = self.review(target, head)
-        self.assertEqual(self.gates, [[SUITE]], self.logs)
-        self.assertIn(f"```bash\n{SUITE}\n```", task)
+        self.assertEqual(self.gates, [], self.logs)
+        self.assertIn(f"```bash\n{SUITE}  # once\n```", task)
 
     def test_neither_declaring_runs_nothing_and_says_so(self):
         target = self.commit("# acme\n")

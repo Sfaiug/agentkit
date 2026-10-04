@@ -5462,6 +5462,8 @@ def land_from_line(lp, upstream, deliver):
     if "fix" not in wait:
         return rejoin_line(lp, upstream, "waiting for the lander")
     failure = wait["fix"]
+    if lp.state.get("review_pr"):
+        return fail_pr_landing(lp, failure)
     if not wait.get("fixing"):
         lp.state["landing_reds"] = lp.state.get("landing_reds", 0) + 1
         lp.state["waiting_on"] = {**wait, "fixing": True}
@@ -11582,54 +11584,67 @@ def post_review(lp, url, verdict):
     return rc == 0
 
 
-def merge_own_pr(lp, url, head):
-    """Merge the seat's own PR at its reviewed head, under the repository delivery lock.
+def fail_pr_landing(lp, failure):
+    """The PR's writer fixes a red landing tree, just as it fixes review findings."""
+    text = saved_findings(lp.run_dir, lp.state) + "\n\n## Landing failed\n" + Path(failure["log"]).read_text()
+    path = lp.run_dir / "landing-findings.md"
+    path.write_text(text)
+    lp.findings = text
+    lp.state.update(verdict="FAIL", findings=text[-8000:], findings_file=str(path),
+                    final_check={"outcome": "failed", "where": "landing", "line": failure["line"]})
+    lp.state["review"] = {**lp.state["review"], "verdict": "FAIL", "overridden": failure["line"]}
+    lp.state.pop("waiting_on", None)
+    if lp.state.get("own_pr") and lp.rnd < lp.rounds:
+        lp.state.update(state="running", finished_at=None, own_pr_wait=lp.state["head_sha"])
+    else:
+        lp.state.update(state="fail", finished_at=time.time())
+    lp.write()
+    return False
 
-    The checks are green and the head is the reviewed one; the merge is pinned
-    to that commit, so a head that moved since refuses rather than merging
-    unreviewed code. Without the recorded writer there is no independence to
-    enforce, so there is no automatic merge. A merge that stopped but went
-    through server-side, or one somebody else landed between the checks and the
-    lock, still counts as merged.  GitHub answering with a 5xx of its own is asked
-    again, three times with a growing wait, as `do_merge` does.
-    """
-    if not lp.state.get("own_orchestrator"):
+
+def merge_own_pr(lp, url, head):
+    """Join the same line as task runs; deliver only the lander's tested PR tree."""
+    if lp.state.get("own_pr") and not lp.state.get("own_orchestrator"):
         return note(lp, "no recorded writer for this PR; refusing the automatic merge",
                     failed=True)
     upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
-    method = lp.state.get("merge_method") or "squash"
-    lp.state["delivery_sha"] = head
-    lp.write()
-    with merge_lock(lp, upstream):
-        for attempt in range(1, MERGE_RETRIES + 2):
-            body = merge_body(lp, head, url)
-            rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method],
-                         "--delete-branch", "--match-head-commit", head, *body)
-            if rc == 0:
-                lp.state["merged"] = True
-                lp.write()
-                lp.log(f"--- merge: merged own {url} with --{method} at {head[:12]}, "
-                       "remote branch deleted")
-                return True
-            src, current = gh(lp.run_dir, "pr", "view", url, "--json", "state",
-                              "-q", ".state")
-            if not stopped(src, current) and src == 0 and current.strip() == "MERGED":
-                lp.state["merged"] = True
-                lp.write()
-                lp.log(f"--- merge: own {url} already merged at {head[:12]}")
-                return True
-            if (stopped(rc, out) or stopped(src, current) or attempt > MERGE_RETRIES
-                    or not GITHUB_5XX.search(out or "")):
-                break
-            delay = transient_delay(attempt)
-            lp.log(f"WARN GitHub failed the merge call; retrying in {delay}s "
-                   f"({attempt}/{MERGE_RETRIES})")
-            time.sleep(delay)
-        if stopped(rc, out):
-            return note(lp, f"gh pr merge --{method} stopped: "
-                            f"{(out or '').strip()[-400:]}", failed=True)
-        return note(lp, f"gh pr merge --{method} failed; the PR is open at {url}: "
-                        f"{(out or '')[-400:]}", failed=True)
+
+    def deliver():
+        pr = urlsplit(url)
+        owner, repo, _, number = pr.path.strip("/").split("/")
+        api = ("api",) if pr.netloc == "github.com" else ("api", "--hostname", pr.netloc)
+        current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
+        if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
+            raise config.Error(f"cannot verify the PR before delivery: {why}")
+        remote = current["head"]
+        expected = (head, lp.state.get("delivery_sha"))
+        if current.get("merged") and remote["sha"] in expected:
+            lp.state["merged"] = True
+            lp.write()
+            return True
+        if (current.get("state") != "open" or remote["sha"] not in expected
+                or (current.get("base") or {}).get("ref") != upstream.removeprefix("origin/")):
+            path = lp.run_dir / "pr-changed.log"
+            path.write_text("The PR head or target changed, or the PR closed, since review.\n")
+            lp.state["review_stale"] = True
+            return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)})
+        pinned = git(lp.wt, "rev-parse", "HEAD")
+        # Keep the intended push before calling Git: a killed push may have gone through.
+        lp.state["delivery_sha"] = pinned
+        lp.write()
+        if remote["sha"] != pinned:
+            branch, source = remote.get("ref"), (remote.get("repo") or {}).get("clone_url")
+            if not branch or not source:
+                raise config.Error("cannot locate the PR branch to push its tested tree")
+            rc, out = git_out(lp.wt, "push", f"--force-with-lease=refs/heads/{branch}:{remote['sha']}",
+                              "--", source, f"HEAD:refs/heads/{branch}")
+            if rc:
+                raise config.Error(f"pushing the tested PR head failed: {out[-400:]}")
+        lp.state["head_sha"] = pinned
+        lp.write()
+        return wait_checks(lp, url) and do_merge(lp, url, upstream)
+
+    return join_line(lp, upstream, deliver)
 
 
 def own_pr_wait_note(state):
@@ -11699,8 +11714,22 @@ def review_pr(cfg, run_dir, url, opts, log):
             if not wait_for_own_pr(cfg, run_dir, url, state, log):
                 return state
         summaries = state.get("round_summaries") or []
-        if (state.get("own_pr") and state.get("own_pr_round_pending") and summaries
-                and summaries[-1]["round"] == state["own_pr_round_pending"]):
+        if (state.get("waiting_on") or {}).get("line"):
+            _, body, _ = taskfile.parse_task(run_dir / "task.md")
+            cmds = taskfile.done_when(body, run_dir / "task.md")
+            state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)
+            run_record.save_state(run_dir, state)
+            lp = Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body,
+                      cmds, body, [])
+            merge_own_pr(lp, url, state["head_sha"])
+            if state.get("state") != "waiting" and not state.get("own_pr_wait"):
+                state.pop("waiting_on", None)
+                state.update(state="pass" if state["verdict"] == "PASS" else "fail",
+                             finished_at=time.time())
+            lp.write()
+            write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
+        elif (state.get("merged") or (state.get("own_pr") and state.get("own_pr_round_pending") and summaries
+                and summaries[-1]["round"] == state["own_pr_round_pending"])):
             # A durable verdict still owes its post and delivery, even in round three.
             _, body, _ = taskfile.parse_task(run_dir / "task.md")
             cmds = taskfile.done_when(body, run_dir / "task.md")
@@ -11748,10 +11777,12 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     n_rounds = taskfile.TASK_MAX_ROUNDS if is_own else 1
     if is_own and len(summaries) >= n_rounds:
         raise config.Error("three review rounds spent; split or re-scope the PR")
-    advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale"))
+    advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
+                                   or prior.get("own_pr_wait"))
                      and prior.get("head_sha") != info["headRefOid"])
     if prior.get("worktree") and (
-            git(prior["worktree"], "rev-parse", "HEAD") != prior.get("head_sha")
+            git(prior["worktree"], "rev-parse", "HEAD") != ((prior.get("review") or {}).get("head_sha")
+                                                         or prior.get("head_sha"))
             or (prior.get("head_sha") != info["headRefOid"] and not advancing)):
         raise config.Error("the PR head or review checkout changed; existing work is kept for inspection")
     previous = saved_findings(run_dir, prior) if is_own else ""
@@ -11782,7 +11813,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     else:
         wt, branch = make_worktree(repo, run_dir.name, f"pr-{number}", head)
     tests = declared_suite(wt, base)
-    cmds = [tests] if tests else []
+    cmds = [f"{tests}  # once"] if tests else []
     title = f"Review PR #{number}: {info['title']}"
     if is_own:
         wrote = (f"The {session_at_launch} seat's orchestrator {orchestrator} wrote this diff; "
@@ -11792,7 +11823,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     body = (f"# {title}\n\n## Goal\nJudge {url} by {info['author']} against this repository: "
             f"its AGENTS.md, README, tests and conventions, and the intent the PR states. {wrote}\n\n"
             f"## The PR says\n{(info.get('body') or '(no description)').strip()}\n\n"
-            "## Done when\n```bash\n" + (tests or "true   # AGENTS.md declares no tests:") + "\n```\n")
+            "## Done when\n```bash\n" + (cmds[0] if cmds else "true   # AGENTS.md declares no tests:") + "\n```\n")
     (run_dir / "task.md").write_text(f"---\nrepo: {repo}\nrounds: {n_rounds}\n---\n{body}")
     state = stamp_origin({**(run_record.read_state(run_dir) or {}), "run_id": run_dir.name,
              "title": title, "task": str(run_dir / "task.md"),
@@ -11870,18 +11901,10 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     lp.rnd += 1
     lp.round_dir.mkdir(parents=True, exist_ok=True)
     state.pop("final_check", None)
-    if cmds:
-        clean = git_out(wt, "diff", "--quiet", "HEAD")[0] == 0
-        ok, dw_log = verify_work(lp)
-        evidence = (suite_evidence(lp, cmds, lp.validation)
-                    if clean and git_out(wt, "diff", "--quiet", "HEAD")[0] == 0 else {})
-        if is_own and ok and evidence:
-            state["final_check"] = {"outcome": "passed", "sha": lp.validation["head_sha"],
-                                    "where": "round", "round": 1, **evidence}
-        log(f"tests ({tests}): {'passed' if ok else 'FAILED'}")
-    else:
-        ok, dw_log = None, "(AGENTS.md declares no `tests:` command; nothing was run)"
-        log("tests: AGENTS.md declares none")
+    ok = None
+    dw_log = ("(the repository suite runs once at landing; nothing was run in this review round)"
+              if tests else "(AGENTS.md declares no `tests:` command; nothing was run)")
+    log(dw_log)
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
@@ -11927,29 +11950,33 @@ def settle_pr_round(lp, url, info):
         log(f"ERROR {state['error']}")
         return state
     if verdict == "PASS" and posted and not state.get("merged"):
+        if is_own:
+            state.pop("own_pr_round_pending", None)
+            merge_own_pr(lp, url, head)
+            if state.get("state") != "waiting" and not state.get("own_pr_wait"):
+                state.pop("waiting_on", None)
+                state.update(state="pass" if state["verdict"] == "PASS" else "fail",
+                             finished_at=time.time())
+            lp.write()
+            write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
+            return state
         green, why = checks(lp, url)
         current, _ = gh_json(run_dir, "pr", "view", url, "--json", "headRefOid,state")
         if (green and isinstance(current, dict) and current.get("headRefOid") == head
                 and current.get("state") == "OPEN"):
-            if is_own:
-                merge_own_pr(lp, url, head)
+            question = f"PR #{number} by {info['author']}: {info['title']}. Merge? yes/no"
+            pending = {"question": question, "url": url, "sha": head, "asked": False}
+            if watch.ask_inbox(cfg, question, url, head, log,
+                               typed=lambda: pending.update(asked=True)) == 0:
+                state["merge_note"] = f"offered to the {watch.inbox()} session at {head[:12]}"
             else:
-                question = f"PR #{number} by {info['author']}: {info['title']}. Merge? yes/no"
-                pending = {"question": question, "url": url, "sha": head, "asked": False}
-                if watch.ask_inbox(cfg, question, url, head, log,
-                                   typed=lambda: pending.update(asked=True)) == 0:
-                    state["merge_note"] = f"offered to the {watch.inbox()} session at {head[:12]}"
-                else:
-                    state["merge_note"] = "merge question requires retry"
-                    state["pending_inbox"] = pending
+                state["merge_note"] = "merge question requires retry"
+                state["pending_inbox"] = pending
         else:
             if green:
                 why = "the PR head changed, closed, or could not be verified after the checks"
-            if is_own:
-                note(lp, f"not merged: {why}", failed=True)
-            else:
-                state["merge_note"] = f"not offered for merge: {why}"
-                log(f"WARN {state['merge_note']}")
+            state["merge_note"] = f"not offered for merge: {why}"
+            log(f"WARN {state['merge_note']}")
     # An obsolete verdict still supplies the next round's findings. The push wait
     # observes the moved head or closure immediately, including after a post retry.
     if is_own and (verdict == "FAIL" or not posted) and lp.rnd < lp.rounds:

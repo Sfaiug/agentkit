@@ -830,14 +830,21 @@ class MergeStep(unittest.TestCase):
         merges = []
 
         def fake_gh(cwd, *args, **kwargs):
+            if args[:2] == ("api", "repos/fixture/repo/pulls/7"):
+                return 0, json.dumps({"state": "open", "head": {"sha": lp.state["delivery_sha"]},
+                                      "base": {"ref": "main"}})
             if args[:2] == ("pr", "merge"):
                 merges.append(args)
                 return (1, GITHUB_504) if len(merges) == 1 else (0, "merged")
             if args[:2] == ("pr", "view"):
-                return 0, "OPEN"
+                return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
+                                      "baseRefName": "main", "mergeable": "MERGEABLE"})
             raise AssertionError(args)
 
         with patch.object(run, "gh", side_effect=fake_gh), \
+                patch.object(run, "checks", return_value=(True, "")), \
+                patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                             landing(lp, deliver=deliver)), \
                 patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
                 patch.object(run.time, "sleep") as slept:
             self.assertTrue(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
@@ -881,6 +888,9 @@ class MergeStep(unittest.TestCase):
                 merges = []
 
                 def fake_gh(cwd, *args, **kwargs):
+                    if args[:2] == ("api", "repos/fixture/repo/pulls/7"):
+                        return 0, json.dumps({"state": "open", "head": {"sha": lp.state["delivery_sha"]},
+                                              "base": {"ref": "main"}})
                     if args[:2] == ("pr", "merge"):
                         merges.append(args)
                         return 1, GITHUB_504
@@ -889,13 +899,17 @@ class MergeStep(unittest.TestCase):
                     raise AssertionError(args)
 
                 with patch.object(run, "gh", side_effect=fake_gh), \
+                        patch.object(run, "checks", return_value=(True, "")), \
+                        patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                                     landing(lp, deliver=deliver)), \
                         patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
                         patch.object(run.time, "sleep"):
-                    self.assertFalse(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
+                    with self.assertRaises(run.Stopped):
+                        run.merge_own_pr(lp, URL, lp.state["delivery_sha"])
                 self.assertEqual(len(merges), 1)
                 state = record.read_state(run_dir)
                 self.assertFalse(state["merged"])
-                self.assertTrue(state["merge_failed"])
+                self.assertIn("line", state["waiting_on"])
 
 
 if __name__ == "__main__":
