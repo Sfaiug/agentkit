@@ -1434,13 +1434,13 @@ def screen_state(harness, tail):
             continue
         region = lines[-rule["lines"]:]
         if rule["above"]:
-            # the line right above the composer's box: what the harness last said, nothing older
-            boxed = [index for index in range(len(region) - 2, 1, -1)
-                     if re.match(r"(?:│\s*)?[❯›⟩]", region[index])
-                     and re.fullmatch(RULE, region[index + 1])
-                     and re.fullmatch(RULE, region[index - 1])]
-            if boxed and rule["above"].search(region[boxed[0] - 2]):
-                return rule["state"], rule["id"], region[boxed[0] - 2][:160]
+            # the line right above the composer's box, over its top rule, bare or with the
+            # seat's name in it: what the harness last said, nothing older
+            at = ruled_composer(chrome, region)[0]
+            if (at is not None and at >= 2 and re.match(RULE, region[at - 1])
+                    and chrome_line(chrome, region[at - 1])
+                    and rule["above"].search(region[at - 2])):
+                return rule["state"], rule["id"], region[at - 2][:160]
             continue
         low = "\n".join(region).lower()
         if ((rule["all"] and not all(mark in low for mark in rule["all"]))

@@ -55,6 +55,15 @@ class InterruptedTurn(Sandbox):
         self.assertEqual(self.looked(RUNNING, fact), ("working", False))
         self.assertEqual(self.looked(INTERRUPTED, fact), ("needs you", True))
 
+    def test_a_named_seat_reads_its_interrupt_too(self):
+        """A renamed seat's name sits in the composer's top rule (adapters/claude.toml)."""
+        fact = self.prompt("Run the acme tests.")
+        rows = INTERRUPTED.splitlines()
+        top = max(at for at, row in enumerate(rows) if row.startswith("❯")) - 1
+        self.assertRegex(rows[top], "^─+$")
+        rows[top] = "─" * 140 + f" {SEAT} ─"
+        self.assertEqual(self.looked("\n".join(rows) + "\n", fact), ("needs you", True))
+
     def test_the_next_prompt_after_an_interrupt_is_a_turn_running(self):
         """Its echo pushes the notice away from the composer: that turn is not the one that ended."""
         self.prompt("Run the acme tests.")
