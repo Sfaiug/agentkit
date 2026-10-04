@@ -55,7 +55,7 @@ class OwnPrRounds(unittest.TestCase):
         self.git("checkout", "-qb", "fix-api")
         self.heads = []
         for n in range(1, 5):
-            (self.repo / "fence.txt").write_text(f"fix {n}\n")
+            (self.repo / "fence.txt").write_text(f"fix {n}\n" * (5000 if n > 1 else 1))
             self.git("commit", "-qam", f"Fix {n}")
             self.heads.append(self.git("rev-parse", "HEAD"))
         self.pr = {"state": "OPEN", "title": "Mend the fence", "author": "owner",
@@ -78,7 +78,7 @@ class OwnPrRounds(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=lambda *_: dict(self.pr)))
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=lambda *a, **k: (dict(self.pr), "")))
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
-        self.stack.enter_context(patch.object(run, "merge_turn", side_effect=lambda *a, **k: nullcontext()))
+        self.stack.enter_context(patch.object(run, "merge_lock", side_effect=lambda *a, **k: nullcontext()))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         clock = self.stack.enter_context(patch.object(run, "time", wraps=time))
         clock.sleep.side_effect = self.push

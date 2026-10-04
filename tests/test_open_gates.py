@@ -517,7 +517,7 @@ ak() { printf '%s\\n' "$ROW"; }
         # counted as passed, and the suite fails, because it made no real call at all.
         start = SMOKE.index('model_unavailable()')
         helpers = SMOKE[start:SMOKE.index('U="$WORK/usage.json"', start)]
-        check = SMOKE[SMOKE.index('# --- 3:'):SMOKE.index('# --- 4:')]
+        check = SMOKE[SMOKE.index('# --- 3:'):SMOKE.index('# --- 3a:')]
         with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             binaries = Path(tmp) / 'bin'
             binaries.mkdir()
@@ -529,9 +529,8 @@ ak() { printf '%s\\n' "$ROW"; }
                                          'AGENTKIT_ADAPTER_DIR': ''},
                                     text=True, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        for line in ('3a/3b opus (claude): claude', '3a/3b astra (codex): codex',
-                     '3a/3b spark (muse): muse', '3c grok (grokbuild): grok',
-                     '3c gemini (antigravity): agy', '3c mimo (opencode): opencode'):
+        for line in ('3 claude: claude', '3 codex: codex', '3 muse: muse',
+                     '3 grokbuild: grok', '3 antigravity: agy', '3 opencode: opencode'):
             self.assertIn(f'NOT CHECKED  {line} is not installed', result.stdout)
         self.assertIn('FAIL  3: no harness here is installed with its login', result.stdout)
         self.assertIn('0 passed, 1 failed, 0 skipped', result.stdout)

@@ -231,7 +231,7 @@ class Scoreboard(unittest.TestCase):
                 self.assertIn("Scoreboard", text)
                 self.assertIn("last 7 days", text)
                 self.assertIn("7 days before", text)
-                self.assertIn("PR size ceiling: 300 changed lines (starting value)", text)
+                self.assertNotIn("ceiling", text)
         self.assertEqual(board.call_count, 2)
 
 

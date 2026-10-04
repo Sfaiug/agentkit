@@ -143,8 +143,7 @@ class FixRunHandsIn(unittest.TestCase):
             with patch.object(run, "review_records", side_effect=record.StopRequested("fixture host ended")):
                 code, state = self.drive(child)
             self.assertEqual(code, 1)
-            code = run.drive(self.cfg, child, state["launch_opts"], self.logs.append, prior=state)
-            state = record.read_state(child)
+            code, state = self.drive(child, prior=state)
             calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
             self.assertEqual(sum(call["role"] == "executor" for call in calls), 1)
         else:

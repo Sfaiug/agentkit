@@ -280,12 +280,16 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         (self.root / "release").touch()
         cap = self.cap(check)
         os.utime(self.finish(new) / "exit", (cap, cap))           # it said so only at its cap
+        (self.root / "release").unlink()                        # the retry must wait too
         said = self.tick(now=cap + 1)                             # red from when it is seen
         self.assertEqual(said[-2:], ["  [stopped before it finished]", f"handed agentkit's "
                                      f"failed tests/live.sh at {new[:12]} back to fix"])
         self.assertEqual((self.head(), update.live_target()), (self.first, ""))
         self.assertEqual(self.tick(now=cap + 1 + watch.RETRY_BACKOFF[0] - 1), [])
-        self.assertEqual(len(self.tick(now=cap + 1 + watch.RETRY_BACKOFF[0])), 1)
+        self.assertEqual(self.tick(now=cap + 1 + watch.RETRY_BACKOFF[0]), [
+            f"checking agentkit at {new[:12]} with tests/live.sh before it goes live"])
+        (self.root / "release").touch()
+        self.finish(new)
 
     def test_a_check_whose_runner_died_is_red_and_tried_again_on_the_backoff(self):
         new = self.merge("second", live=HOLD)
@@ -387,7 +391,21 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
                                   f"{new[:12]}:")
 
     def test_with_no_proc_a_check_past_its_cap_is_ended_by_its_own_runner(self):
-        self.enterContext(patch.object(update, "SMOKE_CAP", 3))
+        # Expire the real runner's wait only after its held script and the tick are observed.
+        # A three-second real cap can run out before a loaded host reaches either assertion.
+        # Pin its clock so the hook can reject a missing or incorrect remaining timeout.
+        self.enterContext(patch.object(update, "LIVE_RUN", update.LIVE_RUN.replace(
+            "try:\n    signal.signal(signal.SIGTERM", '''time.time = lambda: float(cap) - 1
+wait = script.wait
+def expired(timeout=None):
+    assert timeout == 1, timeout
+    script.wait = wait
+    while not os.path.exists(os.path.join(os.environ["HOME"], "expire")):
+        time.sleep(.01)
+    return wait(0)
+script.wait = expired
+try:
+    signal.signal(signal.SIGTERM''', 1)))
         self.enterContext(patch.object(worker, "MARK_KILL_GRACE", 1))
         new = self.merge("second", live=HOLD)
         self.tick()
@@ -401,6 +419,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
 
         self.assertEqual(tick(now=self.cap(check)), [])           # its runner still ending it
         self.assertEqual([commit for commit, _ in self.checks()], [new])
+        (self.root / "expire").touch()
         self.assertEqual((self.finish(new) / "exit").read_text(), "124\n")
         self.assertEqual(tick(now=self.cap(check) + worker.MARK_KILL_GRACE), [
             f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
@@ -409,7 +428,6 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
             f"checking agentkit at {third[:12]} with tests/live.sh before it goes live"])
 
     def test_children_its_script_left_forking_end_before_its_exit_code(self):
-        self.enterContext(patch.object(update, "SMOKE_CAP", 10))  # a runner that waits ends red
         self.merge("second", live=CHAIN)
         self.tick()
         check = self.checks()[0][1]

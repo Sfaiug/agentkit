@@ -905,8 +905,8 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
 
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
     `done`. The last column is the reason for `needs you` and `done`, and for `working`
-    the tasks bar from `seat_progress` -- its plan, else its unfinished jobs -- else
-    empty -- never two state words on one row. Every seat `orch.listing` offers gets
+    its place in the landing line, else the tasks bar from `seat_progress` -- its plan,
+    else its unfinished jobs -- else empty. Every seat `orch.listing` offers gets
     a row: the ones tmux holds, and the ones only their record does -- a seat whose tmux
     instance is gone keeps its row and its number opens the conversation where it stopped.
     Seats with nothing to resume into never reach `found`. `jobs_cache` and `run_numbers`
@@ -926,7 +926,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     estimate = seat_estimate(name, session=session, job=(done, total, ""))
     word = found["word"]
     reason = found["reason"] or ""
-    sentence = "" if word == "working" else reason
+    sentence = "" if word == "working" and not reason.startswith("waiting · ") else reason
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "solo": bool(selection and selection.get("solo")),
@@ -1024,13 +1024,13 @@ def last_column(word, reason, done, total, estimate=None, narrow=False):
     """The one last column of a seat's row, and of its status bar.
 
     For `needs you` and `done` the reason from the state function; for `working`
-    `tasks ` plus the bar plus ` <done>/<total>` when `seat_progress` finds a plan or
-    an unfinished job, else empty -- never `N running`. The bar shortens to 4 cells on a
+    its place in the landing line, else `tasks ` plus the bar plus ` <done>/<total>`
+    when `seat_progress` finds a plan or an unfinished job, else empty -- never `N running`.
+    The bar shortens to 4 cells on a
     narrow screen, and carries the remaining-plan estimate where history knows one.
     The row and the bar read this one function, so the two can never disagree.
-    Never two state words on one row.
     """
-    if word != "working":
+    if word != "working" or (reason or "").startswith("waiting · "):
         return terminal.plain(reason or "")
     if total > 0:
         text = terminal.progress_bar(done, total, narrow=narrow)
@@ -1042,10 +1042,9 @@ def _last_text(info, narrow=False):
     """The row's one last column: reason, tasks bar, or empty.
 
     For `needs you` and `done` the reason from the state function; for `working`
-    `tasks ` plus the bar plus ` <done>/<total>` when `seat_progress` finds a plan or
-    an unfinished job, else empty. The bar shortens to 4 cells on a
+    its place in the landing line, else `tasks ` plus the bar plus ` <done>/<total>`
+    when `seat_progress` finds a plan or an unfinished job, else empty. The bar shortens to 4 cells on a
     narrow screen, and carries the remaining-plan estimate where history knows one.
-    Never two state words on one row.
     """
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)

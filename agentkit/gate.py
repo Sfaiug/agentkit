@@ -1,13 +1,18 @@
 """Check commands and the host-wide heavy-suite turn."""
 
 import fcntl
+import hashlib
+import json
+import math
 import os
 import re
+import shlex
 import subprocess
 import tempfile
 import threading
 import time
 from contextlib import ExitStack, contextmanager, nullcontext
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import config, history, host, orch, run, watch, worker
@@ -17,8 +22,8 @@ _GATE_HELD = threading.local()     # the gate turn this thread holds now, if any
 
 
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
-HEAVY_CPUS = 0.7      # one heavy suite's measured cost: ~0.7 core and ~0.4 GB, its own
-HEAVY_MEM_MB = 410    # Postgres, port and temp dir, so twice the headroom fits twice the suites
+HEAVY_CPUS = 0.7      # initial measured estimates; a repository's pieces may cost more
+HEAVY_MEM_MB = 410
 SUITE_BUSY = 75       # sysexits' EX_TEMPFAIL: a heavy suite's own host-wide lock is another copy's
 
 
@@ -111,7 +116,7 @@ def mark_gate_wait(run_dir, of):
 
     `of` is the repository the waiter checks, kept on the mark from the
     per-repository turns; the note and the rank are host-wide and ignore it.  With
-    this process's pid, as the merge turn's mark is, and the wait's start, so a
+    this process's pid and the wait's start, so a
     freed turn goes to the waiter that has waited longest.  A landing run's mark
     says so; the start of its first landing wait lives beside the record, where
     whole-record saves cannot wipe it (see `_first_landing_wait`): that start is
@@ -191,22 +196,27 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False):
 
 
 class _GateHold:
-    """One held gate turn: the open slot files and the one this thread locked.
+    """Held turns: the open slot files and those this thread locked.
 
     The hold owns its files rather than the frame that waited for them, so a fixer
     or a reviewer lets it go from inside the frame that took it.  Releasing unlocks
     the slot and closes the files, as leaving the frame would have.
     """
 
-    def __init__(self, files, slot):
-        self.files, self.slot = files, slot
+    def __init__(self, files, slots, context=None):
+        self.files, self.slots, self.context = files, slots, context
+
+    def alone(self):
+        for slot in self.slots[1:]:
+            fcntl.flock(slot, fcntl.LOCK_UN)
+        self.slots = self.slots[:1]
 
     def release(self):
         try:
-            if self.slot is not None:
-                fcntl.flock(self.slot, fcntl.LOCK_UN)
+            for slot in self.slots:
+                fcntl.flock(slot, fcntl.LOCK_UN)
         finally:
-            self.slot = None
+            self.slots = []
             held = getattr(_GATE_HELD, "count", 0)
             if held:
                 _GATE_HELD.count = held - 1
@@ -214,7 +224,7 @@ class _GateHold:
 
 
 def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
-                        job_mem_mb=HEAVY_MEM_MB):
+                        job_mem_mb=HEAVY_MEM_MB, *, unit=False):
     """Running suites plus how many more the live headroom fits; at least one.
 
     The slice's idle cores over one suite's 0.7, and its free memory over 0.4 GB,
@@ -225,7 +235,8 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     no slice answers, the host's idle cores and free memory stand in.  An
     unreadable gate fails open to the other resource, and to one suite where
     neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, for jobs
-    other than a heavy suite.
+    other than a heavy suite. With `unit`, pieces also fit the caller's soft
+    limit and the remaining room under every enclosing hard memory cap.
     """
     if running is None:
         running = _heavy_running()
@@ -249,11 +260,19 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     if slice_used is not None and slice_high is not None:
         mem_free = slice_high - slice_used
     else:
-        unit = host._unit_memory(readings)
-        if unit is not None:
-            mem_free = unit[1] - unit[0]
+        own = host._unit_memory(readings)
+        if own is not None:
+            mem_free = own[1] - own[0]
         else:
             mem_free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
+    if unit:
+        own = host._unit_memory(readings)
+        if own is not None:
+            room = own[1] - own[0]
+            mem_free = min(mem_free, room) if mem_free is not None else room
+        room = host._reading(readings, "unit_memory_max_headroom_mb")
+        if room is not None:
+            mem_free = min(mem_free, room) if mem_free is not None else room
     candidates = []
     if cpu_free is not None:
         candidates.append(int(cpu_free / job_cpus))
@@ -264,15 +283,19 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     return max(1, running + max(0, min(candidates)))
 
 
-def _acquire_gate_turn(run_dir, log_path, log):
+def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     """Wait for and hold one host-wide heavy-suite turn; None when no turn is taken."""
-    record = run_record.read_state(run_dir) or {} if run_dir else {}
+    record = context if context is not None else (run_record.read_state(run_dir) or {}
+                                                if run_dir else {})
     repo = record.get("repo")
     is_landing = bool(record.get("landing"))
-    landing_since = _first_landing_wait(run_dir) if run_dir else None
-    self_id = run_dir.name if run_dir else None
+    landing_since = _first_landing_wait(run_dir) if run_dir else record.get("since")
+    self_id = run_dir.name if run_dir else record.get("run_id")
     if not repo or os.environ.get("AK_MAX_RUNS") == "0":
         return None
+    pieces = names_shard(command or "")
+    _, job_cpus, job_mem_mb = suite_cost(command, cwd or repo, run_dir) if pieces else (
+        None, HEAVY_CPUS, HEAVY_MEM_MB)
     said_bad = []
     config.RUNS.mkdir(parents=True, exist_ok=True)
     files = ExitStack()
@@ -280,7 +303,7 @@ def _acquire_gate_turn(run_dir, log_path, log):
         slots = []
         def admit():
             try:
-                pinned = config.max_gates()
+                pinned = None if pieces else config.max_gates()
             except config.Error as exc:
                 if log is not None and not said_bad:
                     said_bad.append(True)
@@ -299,31 +322,39 @@ def _acquire_gate_turn(run_dir, log_path, log):
                     held += 1
                     continue
                 temp.append(fh)
-            new_limit = pinned if pinned is not None else derived_heavy_limit(readings, held)
+            new_limit = pinned if pinned is not None else derived_heavy_limit(
+                readings, held, job_cpus, job_mem_mb, unit=pieces)
             while len(slots) < new_limit:
                 slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
-            candidate = take_slot(slots[:new_limit]) if held < new_limit else None
+            candidates = []
+            if held < new_limit:
+                wanted = new_limit - held if pieces else 1
+                for fh in slots[:new_limit]:
+                    if take_slot([fh]) is not None:
+                        candidates.append(fh)
+                    if len(candidates) == wanted:
+                        break
             for fh in temp:
-                if fh is not candidate:
+                if fh not in candidates:
                     fcntl.flock(fh, fcntl.LOCK_UN)
-            return candidate, new_limit, held
+            return candidates, new_limit, held
         slot, limit, held = admit()
         if not limit:
             files.close()
             return None
         me_since = landing_since if is_landing and landing_since is not None else time.time()
-        if slot is None or _gate_waiter_before(repo, self_id, me_since, is_landing):
-            if slot is not None:
-                fcntl.flock(slot, fcntl.LOCK_UN)
-                slot = None
+        if not slot or _gate_waiter_before(repo, self_id, me_since, is_landing):
+            for fh in slot:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+            slot = []
             began = time.monotonic()
             said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
             if log is not None:
                 log(f"done-when: {said}")
-            waited_since = mark_gate_wait(run_dir, repo)
+            waited_since = mark_gate_wait(run_dir, repo) if run_dir else None
             if waited_since is None:
                 waited_since = me_since if is_landing else time.time()
-            step = history.close_step(run_dir.name)     # the wait is no step's work
+            step = history.close_step(run_dir.name) if run_dir else None
             uncapped = False
             try:
                 while True:
@@ -335,16 +366,19 @@ def _acquire_gate_turn(run_dir, log_path, log):
                         uncapped = True
                         break
                     said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
-                    if slot is None:
+                    if not slot:
                         continue
                     if _gate_waiter_before(repo, self_id, waited_since, is_landing):
-                        fcntl.flock(slot, fcntl.LOCK_UN)
-                        slot = None
+                        for fh in slot:
+                            fcntl.flock(fh, fcntl.LOCK_UN)
+                        slot = []
                         continue
                     break
             finally:
-                mark_gate_wait(run_dir, None)
-            history.open_step(run_dir.name, step)
+                if run_dir:
+                    mark_gate_wait(run_dir, None)
+            if run_dir:
+                history.open_step(run_dir.name, step)
             if uncapped:
                 files.close()
                 return None
@@ -356,11 +390,11 @@ def _acquire_gate_turn(run_dir, log_path, log):
         raise
     held = getattr(_GATE_HELD, "count", 0)
     _GATE_HELD.count = held + 1
-    return _GateHold(files, slot)
+    return _GateHold(files, slot, context)
 
 
 @contextmanager
-def gate_turn(run_dir, log_path, log):
+def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     """One host-wide heavy-suite turn, held for as long as the list runs.
 
     Only the heavy suite -- the `# once` line, the repository's `tests:` suite --
@@ -371,12 +405,15 @@ def gate_turn(run_dir, log_path, log):
     counting running suites once; an explicit
     `max_gates` pins the count instead.  A turn is a flock on one of the host's
     slot files, which the kernel lets go of when its holder dies, so a killed
-    suite never blocks the next.  A waiting suite rewrites its own log every poll,
+    suite never blocks the next.  With no `run_dir`, a read-only `context` lets a checker
+    take a turn without marking or changing any member's record or history.
+    A waiting suite rewrites its own log every poll,
     so the stall ladder reads the wait as life, and says so on its record for `ak
     run status`; the ceiling starts once the turn is its own, and a stop lands
     while it waits as it does mid-list.  A run without a repository, a direct
-    caller with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0`
-    all take no turn.  The limit is re-read on every poll, so a changed pin or a
+    caller with no record or context and the test suites' `AK_MAX_RUNS=0` take no turn;
+    `max_gates = 0` also leaves ordinary suites uncapped. The limit is re-read on every poll,
+    so a changed pin or a
     changed headroom reaches runs already queued.  A freed turn goes to the waiter
     that has waited longest among the highest rank, a landing run before any round
     check, whether `--first` or not: a suite takes a free turn only when no waiter
@@ -386,11 +423,13 @@ def gate_turn(run_dir, log_path, log):
     typo would fail the next suite of every running run -- means a derived count,
     and a log line naming the problem.
     A check running while this thread already holds a turn takes no second one.
+    A command naming AK_SHARD reserves all the pieces live headroom fits, each a turn,
+    using its repository's measured cost when available; this count is always derived.
     """
     if getattr(_GATE_HELD, "hold", None) is not None:
         yield
         return
-    hold = _acquire_gate_turn(run_dir, log_path, log)
+    hold = _acquire_gate_turn(run_dir, log_path, log, command, cwd, context=context)
     if hold is None:
         yield
         return
@@ -413,12 +452,13 @@ def suite_env():
     """
     env = run.run_child_env()
     env.pop("AK_HEAVY_TURN", None)
+    env.pop("AK_SHARD", None)
     if getattr(_GATE_HELD, "hold", None) is not None:
         env["AK_HEAVY_TURN"] = "1"
     return env
 
 
-def busy_turn(run_dir, log_path, log):
+def busy_turn(run_dir, log_path, log, command=None, cwd=None):
     """A heavy suite said busy: give its turn back for a poll, then queue for one again.
 
     Its own lock is another copy's, and every other suite on the host can use the turn
@@ -436,7 +476,8 @@ def busy_turn(run_dir, log_path, log):
         return 0.0
     kept = log_path.read_bytes()
     began = time.monotonic()
-    _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log)
+    _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log, command, cwd,
+                                      context=hold.context)
     log_path.write_bytes(kept)
     return time.monotonic() - began
 
@@ -449,6 +490,298 @@ def flaky_key(line):
     return re.sub(r"(?<![\w.])/[^\s'\"`<>]+|"
                   r"\b(?:0x[0-9a-f]+|[0-9a-f]{8,}(?:-[0-9a-f]+)*)\b|"
                   r"\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", "<varying>", line, flags=re.I)
+
+
+def names_shard(command):
+    return re.search(r"\bAK_SHARD\b", command) is not None
+
+
+def suite_cost(command, cwd, run_dir):
+    """A repository and suite's measured scheduling cost, or the initial estimate."""
+    state = run_record.read_state(run_dir) or {} if run_dir else {}
+    repo = Path(state.get("repo") or run.main_checkout(cwd)).resolve()
+    key = hashlib.sha256(f"{repo}\n{command}".encode()).hexdigest()
+    path = config.STATE / f"suite-{key}.json"
+    try:
+        cost = read_suite_cost(path)
+        cpu, mem = cost["cpus"], cost["mem_mb"]
+        if all(type(value) in (int, float) and math.isfinite(value) and value > 0
+               for value in (cpu, mem)):
+            return path, max(HEAVY_CPUS, cpu), max(HEAVY_MEM_MB, mem)
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    return path, HEAVY_CPUS, HEAVY_MEM_MB
+
+
+def read_suite_cost(path):
+    try:
+        cost = json.loads(path.read_text())
+        return cost if isinstance(cost, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_suite_cost(path, updates):
+    """Called under the lifecycle lock so measurements keep the split-run receipt."""
+    cost = read_suite_cost(path)
+    cost.update(updates)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, mode="w", delete=False) as saved:
+        json.dump(cost, saved)
+    Path(saved.name).replace(path)
+
+
+def check_suite_pieces():
+    """The split run checks its branch's declaration, never the target's fallback."""
+    command = run.declared(Path.cwd(), "tests")
+    if not command or not names_shard(command):
+        raise SystemExit("The branch's tests: line must name AK_SHARD")
+    env = suite_env()
+    pieces = [subprocess.Popen(["bash", "-c", command],
+                              env={**env, "AK_SHARD": f"{index}/3"})
+              for index in range(1, 4)]
+    codes = [piece.wait() for piece in pieces]
+    raise SystemExit(int(any(codes)))
+
+
+def split_suite_run(lp, command):
+    """Only a whole suite measured by this run can start its repository's split run."""
+    if not command or names_shard(command):
+        return
+    path, _, _ = suite_cost(command, lp.wt, lp.run_dir)
+    cost = read_suite_cost(path)
+    seconds = cost.get("wall_seconds", 0)
+    if (cost.get("run_id") != lp.state.get("run_id")
+            or type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds <= 120):
+        return
+    check = "python3 -c " + shlex.quote(
+        f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r}); "
+        "from agentkit.gate import check_suite_pieces; check_suite_pieces()")
+    text = (f"The repository's `tests:` suite ran whole for {seconds:g} seconds:\n"
+            f"```bash\n{command}\n```\n\n"
+            "Make the `tests:` line run only its `AK_SHARD=k/N` share (1-based), and "
+            "everything when unset. Use the test runner's own sharding where it has one: "
+            "jest, vitest and playwright take `--shard=k/N`; pytest can select by a "
+            "conftest option. Otherwise split the test file list by position. Pieces share "
+            "no temp dir, port, database or other file; together they run every test exactly "
+            "once. Keep the check below: it reads this branch's own `tests:` line and runs "
+            "pieces 1/3, 2/3 and 3/3 at the same time.\n")
+    try:
+        run.start_followups(lp.state, lp.run_dir, lp.log, lp.cfg,
+                            split={"command": command, "text": text, "check": check,
+                                   "cost": str(path)})
+    except (config.Error, OSError, run_record.StopRequested) as exc:
+        lp.log(f"WARN could not start the suite split: {exc}")
+
+
+class _SuiteMeasure:
+    """Wall time works everywhere; only this run's cgroup can attribute CPU and memory."""
+
+    def __init__(self, run_dir):
+        state = run_record.read_state(run_dir) or {} if run_dir else {}
+        self.run_id = state.get("run_id")
+        relative = host.process_cgroup() if state.get("scope") else None
+        self.group = (host.cgroup_path(relative) if relative and
+                      Path(relative).name in run._scope_units(state["scope"]) else None)
+        self.cpu = host._slice_cpu_stat(self.group) or {}
+        reading = host._scope_readings(self.group) if self.group is not None else None
+        self.baseline = reading[1] if reading else None
+        self.peak = self.baseline
+        self.lock = threading.Lock()
+        self.started = time.monotonic()
+
+    def sample(self):
+        if self.baseline is not None:
+            reading = host._scope_readings(self.group)
+            if reading:
+                with self.lock:
+                    self.peak = max(self.peak, reading[1])
+
+    def save(self, path, pieces):
+        cpu = (host._slice_cpu_stat(self.group) or {}).get("usage_usec")
+        first = self.cpu.get("usage_usec")
+        elapsed = time.monotonic() - self.started
+        if elapsed <= 0:
+            return
+        cost = {"wall_seconds": elapsed, "run_id": self.run_id}
+        if cpu is not None and first is not None and self.baseline is not None:
+            cost.update(cpus=max(HEAVY_CPUS, (cpu - first) / (elapsed * 1e6 * pieces)),
+                        mem_mb=max(HEAVY_MEM_MB, (self.peak - self.baseline) / (1024**2 * pieces)))
+        try:
+            with watch.state_lock():
+                previous = read_suite_cost(path)
+                # A fast retry must not erase the slow whole attempt that earned a split.
+                seconds = previous.get("wall_seconds", 0)
+                if (previous.get("run_id") == self.run_id and type(seconds) in (int, float)
+                        and math.isfinite(seconds)):
+                    cost["wall_seconds"] = max(elapsed, seconds)
+                write_suite_cost(path, cost)
+        except OSError:
+            pass    # a missing measurement keeps the initial estimate
+
+
+def flaky_record(command, failed, rerun, log_path, run_dir, log):
+    """Keep the whole failure, even when its distinguishing lines precede the output cap."""
+    with tempfile.NamedTemporaryFile(dir=run_dir or log_path.parent,
+                                     prefix=f"{log_path.stem}-failed-",
+                                     suffix=".log", delete=False) as saved:
+        saved.write(failed)
+    lines = [line for line in failed.decode("utf-8", errors="replace").splitlines()
+             if line.strip()]
+    reran = {flaky_key(line) for line in rerun.decode("utf-8", errors="replace").splitlines()}
+    diff = [line for line in lines if flaky_key(line) not in reran][:20]
+    note = f"flaky: {command} failed, then passed on its re-run"
+    if log is not None:
+        log(f"done-when: {note}")
+    return "\n".join([note, f"failed output: {Path(saved.name).resolve()}", *diff])
+
+
+def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
+              on_wait=None, measure=False, **kwargs):
+    """One command, or all its opted-in pieces, with failed pieces retried alone.
+
+    Callers keep one command and one outcome. Each piece has its own silence window;
+    all attempts share the command's ceiling, and live output identifies its piece.
+    """
+    env = suite_env()
+    if not names_shard(command):
+        path = suite_cost(command, cwd, run_dir)[0] if measure else None
+        measured = _SuiteMeasure(run_dir) if measure else None
+        aborting = kwargs.pop("abort", None)
+        def abort():
+            if measured:
+                measured.sample()
+            return aborting() if aborting else False
+        result = worker.limited(["bash", "-c", command], limit, cwd=str(cwd),
+                                activity=activity, output=output, env=env, abort=abort, **kwargs)
+        if measured and not result[2] and result[0] != SUITE_BUSY:
+            measured.save(path, 1)
+        return result
+    with gate_turn(run_dir, activity, log, command, cwd):
+        hold = getattr(_GATE_HELD, "hold", None)
+        path, cpu, mem = suite_cost(command, cwd, run_dir)
+        count = len(hold.slots) if hold else derived_heavy_limit(
+            running=0, job_cpus=cpu, job_mem_mb=mem, unit=True)
+        env = suite_env()    # the piece threads do not inherit this thread's held turn
+        deadline = time.monotonic() + limit
+        cancel, writing = threading.Event(), threading.Lock()
+        last_shard = None
+        measure = _SuiteMeasure(run_dir)
+        timeout = kwargs.pop("on_timeout", None)
+
+        with ExitStack() as files:
+            results = []
+            def attempt(shard):
+                run_record.stop_check(run_dir)
+                piece = files.enter_context(tempfile.NamedTemporaryFile(
+                    dir=activity.parent, prefix=f"{activity.stem}-piece-", suffix=".log"))
+                header = f"--- AK_SHARD={shard} ---\n".encode()
+
+                class Output:
+                    def __init__(self):
+                        self.pending = b""
+
+                    def emit(self, data):
+                        nonlocal last_shard
+                        output.write((header if last_shard != shard else b"") + data)
+                        output.flush()
+                        last_shard = shard
+
+                    def write(self, data):
+                        with writing:
+                            piece.write(data)
+                            piece.flush()
+                            # A sibling can take the live log only between whole lines.
+                            self.pending += data
+                            lines, newline, self.pending = self.pending.rpartition(b"\n")
+                            if newline:
+                                self.emit(lines + newline)
+
+                    def flush(self):
+                        piece.flush()
+
+                    def finish(self):
+                        with writing:
+                            if self.pending:
+                                self.emit(self.pending + b"\n")
+                                self.pending = b""
+
+                def stopped(why, pid):
+                    if why != "abort":
+                        cancel.set()
+                        if timeout is not None:
+                            timeout(why, pid)
+
+                def abort():
+                    measure.sample()
+                    return cancel.is_set()
+
+                # The watchdog reads this piece's file, so a chatty sibling cannot hide silence.
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    cancel.set()
+                    return worker.TIMEOUT, piece, True
+                stream = Output()
+                try:
+                    code, _, killed = worker.limited(
+                        ["bash", "-c", command], left,
+                        cwd=str(cwd), activity=Path(piece.name),
+                        output=stream, env={**env, "AK_SHARD": shard}, abort=abort,
+                        on_timeout=stopped, **kwargs)
+                finally:
+                    stream.finish()
+                return code, piece, killed
+
+            with ThreadPoolExecutor(max_workers=count) as pool:
+                try:
+                    futures = [pool.submit(attempt, f"{index}/{count}")
+                               for index in range(1, count + 1)]
+                    results = [future.result() for future in futures]
+                except BaseException:
+                    cancel.set()
+                    raise
+            if not any(killed or code == SUITE_BUSY for code, _, killed in results):
+                measure.save(path, count)
+            hold = getattr(_GATE_HELD, "hold", None)
+            if hold is not None:
+                hold.alone()
+            chunks, red, flakes = [], [], []
+            for index, (code, piece, killed) in enumerate(results, 1):
+                shard = f"{index}/{count}"
+                failed = None
+                while code and not killed and not cancel.is_set():
+                    if code == SUITE_BUSY:
+                        queued = busy_turn(run_dir, activity, log, command, cwd)
+                        deadline += queued
+                        if on_wait is not None:
+                            on_wait(queued)
+                        hold = getattr(_GATE_HELD, "hold", None)
+                        if hold is not None:
+                            hold.alone()
+                        env = suite_env()
+                    elif failed is None:
+                        piece.seek(0)
+                        failed = piece.read()
+                    else:
+                        break
+                    code, piece, killed = attempt(shard)
+                if failed is not None and code == 0:
+                    piece.seek(0)
+                    flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
+                                               piece.read(), activity, run_dir, log))
+                results[index - 1] = code, piece, killed
+                piece.seek(0, os.SEEK_END)
+                size = piece.tell()
+                piece.seek(max(0, size - run.OUT_CAP))
+                text = piece.read().decode("utf-8", errors="replace").rstrip()
+                # Existing failure diagnostics read the last output; leave a red piece last.
+                (red if code else chunks).append(f"--- AK_SHARD={shard} ---\n"
+                    f"[{'killed at the limit' if killed else f'exit {code}'}]\n{text}".rstrip())
+            text = "\n\n".join(chunks + red + flakes)
+            output.write(("\n" + text + "\n").encode())
+            output.flush()
+            return next((code for code, _, _ in results if code), 0), text, any(
+                killed for _, _, killed in results)
 
 
 def _running_commands(pid):
@@ -534,8 +867,12 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         reason.append(why)
         running.extend(_running_commands(pid))
 
-    with gate_turn(run_dir, log_path, log) if heavy else nullcontext():
+    suite = next((cmd for cmd in cmds if names_shard(cmd)), None)
+    with gate_turn(run_dir, log_path, log, suite, cwd) if heavy or suite else nullcontext():
         deadline = time.monotonic() + limit
+        def waited(seconds):
+            nonlocal deadline
+            deadline += seconds
         log_path.write_text("")
         for cmd in cmds:
             first = None        # the output of a first run that failed, while its re-run decides
@@ -550,16 +887,19 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     progress.write(f"$ {cmd}\n".encode())
                     progress.flush()
                     offset = progress.tell()
-                    code, _, killed = worker.limited(
-                        ["bash", "-c", cmd], left, silence=silence, activity=log_path,
+                    code, piece_text, killed = run_suite(
+                        cmd, left, silence=silence, activity=log_path,
                         on_timeout=stopped, cwd=str(cwd), output=progress,
-                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=suite_env())
+                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                        run_dir=run_dir, log=log, on_wait=waited, measure=heavy)
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     run.memory_cap_note(run_dir, log)
                 with log_path.open("rb") as progress:
                     progress.seek(max(offset, log_path.stat().st_size - run.OUT_CAP))
                     out = progress.read().decode("utf-8", errors="replace")
+                if names_shard(cmd):
+                    out = piece_text
                 if heavy and code == SUITE_BUSY and not killed:
                     if log is not None and not busy:
                         log(f"done-when: busy: {cmd} exited {SUITE_BUSY}; it runs again "
@@ -567,7 +907,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     busy = True
                     deadline += busy_turn(run_dir, log_path, log)
                     continue
-                if code == 0 or killed or first is not None:
+                if code == 0 or killed or first is not None or names_shard(cmd):
                     break
                 first = out
                 first_span = (offset, end)
@@ -578,7 +918,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 break
             ok &= code == 0
             chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
-                          f"{out[-run.OUT_CAP:]}".rstrip())
+                          f"{out if names_shard(cmd) else out[-run.OUT_CAP:]}".rstrip())
             if first is not None and code == 0:
                 # blank lines dropped: a record is what lies between two, and these are one
                 # both runs read whole from the gate log: the capped `out` starts mid-output
@@ -589,24 +929,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     failed = progress.read(first_span[1] - first_span[0])
                     progress.seek(offset)
                     rerun = progress.read(end - offset)
-                # The gate log is replaced below and can be reused by later checks;
-                # each flake needs a file of its own that a follow-up can still read.
-                with tempfile.NamedTemporaryFile(dir=run_dir or log_path.parent,
-                                                 prefix=f"{log_path.stem}-failed-",
-                                                 suffix=".log", delete=False) as saved:
-                    saved.write(failed)
-                failed_path = Path(saved.name).resolve()
-                lines = [line for line in failed.decode("utf-8", errors="replace").splitlines()
-                         if line.strip()]
-                # the failure is what the failed run said that its passing re-run did not:
-                # a tally and a passing tail both repeat, so the last lines alone name neither
-                reran = {flaky_key(line) for line in
-                         rerun.decode("utf-8", errors="replace").splitlines()}
-                diff = [line for line in lines if flaky_key(line) not in reran][:20]
-                chunks.append("\n".join([f"flaky: {cmd} failed, then passed on its re-run",
-                                         f"failed output: {failed_path}", *diff]))
-                if log is not None:
-                    log(f"done-when: flaky: {cmd} failed, then passed on its re-run")
+                chunks.append(flaky_record(cmd, failed, rerun, log_path, run_dir, log))
             if killed:
                 spent, kept = cmd, out
                 break
@@ -617,7 +940,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             last = tail[-1] if tail else "(no output)"
             if len(last) > 160:
                 last = last[:159] + "…"
-            cause = (f"{silence / 60:g} min of silence" if reason == ["silence"] else
+            cause = (f"{silence / 60:g} min of silence" if reason and reason[0] == "silence" else
                      f"{limit / 3600:g}h ceiling")
             stopped_line = f"done-when: stopped after {cause}: {spent} (last output: {last})"
             stopped_line += "".join(f"; still running: {command}" for command in running)

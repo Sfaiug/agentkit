@@ -16,6 +16,8 @@ No module outside this package names a harness: the core asks
 
 import importlib
 import json
+import math
+from datetime import datetime
 from pathlib import Path
 import re
 
@@ -38,7 +40,8 @@ USAGE = {"capture": False, "strips_timestamp": False, "reset": False, "none": Fa
 # `[stall]`: the words no one harness owns, read for every harness beside its manifest's own:
 # HTTP's, the shell's, a command line's, a login's and a model name's, which any harness may
 # pass on.  An outage's status code counts only beside HTTP, a status or an API error.
-STALL = {"refusals": ("API Error", "529", "unexpected status"),
+STALL = {"quotas": ("402", "billing_error", "payment required"),
+         "refusals": ("API Error", "529", "unexpected status"),
          "outages": ("overloaded", "at capacity", "Internal server error", "Bad Gateway",
                      "Gateway Timeout", "Service unavailable", "The service is busy",
                      "idle timeout", "Can't reach the API server", "HTTP~5##", "status~5##",
@@ -113,6 +116,38 @@ def last_entry(path, pick):
                     return entry
             end = start
     return None
+
+
+def entries(path):
+    """Complete JSON objects in a growing record; an unfinished last line can wait."""
+    if not path:
+        return
+    try:
+        with open(path, "rb") as fh:
+            for line in fh:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(entry, dict):
+                    yield entry
+    except FileNotFoundError:
+        return
+
+
+def user_message(at, text):
+    """Keep the recorded text and time, never inventing either for a notice."""
+    if not isinstance(text, str) or not text:
+        return None
+    if isinstance(at, str):
+        try:
+            stamp = datetime.fromisoformat(at)
+            at = stamp.timestamp() if stamp.tzinfo else None
+        except ValueError:
+            return None
+    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+        return None
+    return {"at": at, "text": text}
 
 
 def _module(name):
@@ -324,6 +359,30 @@ class Harness:
         """
         hook = self._hook("transcript")
         return hook(record, cwd, conversation) if hook else None
+
+    def user_messages(self, record, cwd, conversation, *, seat=None):
+        """Owner messages, oldest first, as {at: Unix seconds, text: original words}.
+
+        The plugin rejects its own synthetic input. The seat's typing receipts remove
+        ak's input once each, leaving relayed owner replies and identical later prompts.
+        """
+        hook = self._hook("user_messages")
+        if not hook:
+            return []
+        messages = sorted(hook(record, cwd, conversation), key=lambda message: message["at"])
+        matched, excluded = set(), set()
+        if seat:
+            for sent in entries(config.seat_file("input", config.resolve_session(seat))):
+                if sent.get("harness") != self.name or sent.get("conversation") != conversation:
+                    continue
+                for index, message in enumerate(messages):
+                    if (index not in matched and index >= sent.get("after", len(messages))
+                            and message["text"] == sent.get("text")):
+                        matched.add(index)
+                        if sent.get("source") != "owner":
+                            excluded.add(index)
+                        break
+        return [message for index, message in enumerate(messages) if index not in excluded]
 
     def error(self, record, cwd, conversation):
         """The error the harness recorded as that conversation's last event: the text it showed.

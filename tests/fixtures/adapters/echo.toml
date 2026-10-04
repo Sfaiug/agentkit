@@ -4,6 +4,10 @@
 # echo.py, so every Python hook is the default one.
 version = 1
 
+[check]
+model = "echo-1"
+effort = "low"
+
 # `ak update` reads its version off a command that always answers, upgrades it with one that
 # always succeeds, and has no versioned reinstall to put it back -- so the plan says it cannot,
 # in these words, and takes no snapshot either.

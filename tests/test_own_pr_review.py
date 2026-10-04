@@ -1,13 +1,12 @@
-"""Own PRs fit a ceiling learned from this host's merged work; inbox PRs run freely.
+"""A seat's own PR is reviewed whatever its size, and its size is recorded; inbox PRs run freely.
 
 Offline: local git fixtures, a temporary HOME, and fake GitHub and reviewer calls.
 """
 
-from contextlib import ExitStack, closing, redirect_stdout
+from contextlib import ExitStack, redirect_stdout
 import io
 import os
 from pathlib import Path
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -22,9 +21,9 @@ from agentkit import record
 URL = "https://github.com/acme/widget/pull/7"
 
 
-class PrCeiling(unittest.TestCase):
+class OwnPrReview(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-pr-ceiling-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-own-pr-review-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -33,7 +32,8 @@ class PrCeiling(unittest.TestCase):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AGENTKIT_SESSION": "fix-api",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AK_NOTIFY_SINK": "",
+            "AGENTKIT_SESSION": "fix-api",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "NO_COLOR": "1"}))
         config.ensure_dirs()
         self.cfg = config.load()
@@ -111,34 +111,20 @@ class PrCeiling(unittest.TestCase):
                 state = reviewed(directory)
         return state, reviewer, usage, inbox
 
-    def fabricated(self, small=100, large=200, count=50):
-        for n in range(count):
-            history.start_run(str(n), repo="other-project", started_at=1)
-            history.finish_run(str(n), final_state="pass", verdict="PASS", finished_at=2,
-                               changed_lines=small if n < 30 else large,
-                               rounds_used=1 if n < 30 else 2)
-
-    def test_over_ceiling_refuses_before_any_model_runs(self):
-        self.change(301)
-        for background in (False, True):
-            with self.subTest(background=background):
-                with self.assertRaisesRegex(config.Error, r"301.*300.*split"):
-                    self.review(background=background)
-                self.usage.assert_not_called()
-                self.reviewer.assert_not_called()
-
-    def test_under_and_at_ceiling_run_and_generated_lines_do_not_count(self):
-        self.change(299)
+    def test_an_own_pr_of_any_size_is_reviewed(self):
+        self.change(5000)
         (self.repo / "output.generated").write_text("generated\n" * 1000)
         self.commit()
         for background in (False, True):
             with self.subTest(background=background):
                 state, reviewer, usage, _ = self.review(background=background)
                 self.assertEqual(state["state"], "pass")
+                self.assertTrue(state["own_pr"])
+                self.assertTrue(state["merged"])
                 reviewer.assert_called_once()
                 self.assertEqual(usage.call_count, 2 if background else 1)
-        self.change(300)
-        self.assertEqual(self.review()[0]["state"], "pass")
+                run.history_finish(state)
+                self.assertEqual(history.get(state["run_id"])["changed_lines"], 5000)
 
     def test_another_authors_pr_and_a_review_without_a_seat_run(self):
         self.change(1000)
@@ -192,30 +178,6 @@ class PrCeiling(unittest.TestCase):
             self.assertEqual(history.get(state["run_id"])["changed_lines"], 40)
         self.assertEqual(index.read_bytes(), before)
 
-    def test_ceiling_moves_with_host_history_and_requires_fifty_sized_merges(self):
-        self.fabricated(count=49)
-        self.assertEqual(history.pr_ceiling(), (300, "starting value"))
-        history.start_run("49", repo="acme")
-        history.finish_run("49", final_state="pass", verdict="PASS", finished_at=2,
-                           changed_lines=200, rounds_used=2)
-        self.assertEqual(history.pr_ceiling(), (100, "history"))
-        self.change(150)
-        with self.assertRaisesRegex(config.Error, r"150.*100.*split"):
-            self.review()
-        with closing(sqlite3.connect(history.path())) as db, db:
-            db.execute("UPDATE runs SET changed_lines=changed_lines+400")
-        self.assertEqual(history.pr_ceiling(), (500, "history"))
-        self.assertEqual(self.review()[0]["state"], "pass")
-
-    def test_half_passing_is_not_a_drop_and_the_smallest_ceiling_can_be_zero(self):
-        self.fabricated()
-        with closing(sqlite3.connect(history.path())) as db, db:
-            db.execute("UPDATE runs SET rounds_used=1 WHERE CAST(run_id AS INTEGER) BETWEEN 30 AND 39")
-        self.assertEqual(history.pr_ceiling(), (None, "history"))
-        with closing(sqlite3.connect(history.path())) as db, db:
-            db.execute("UPDATE runs SET rounds_used=2")
-        self.assertEqual(history.pr_ceiling(), (0, "history"))
-
     def test_merged_size_counts_additions_and_deletions_and_survives_collection(self):
         self.change(5)
         (self.repo / "old.txt").unlink()
@@ -239,14 +201,10 @@ class PrCeiling(unittest.TestCase):
         self.assertTrue(record.read_state(directory)["merged"])
         self.assertEqual(history.get("unmerged")["changed_lines"], 6)
 
-    def test_history_status_shows_ceiling_and_source(self):
+    def test_history_status_names_no_size_ceiling(self):
         with redirect_stdout(io.StringIO()) as out, patch.object(run, "host_status_line"):
             run.cmd_status(["--history"])
-        self.assertIn("PR size ceiling: 300 changed lines (starting value)", out.getvalue())
-        self.fabricated()
-        with redirect_stdout(io.StringIO()) as out, patch.object(run, "host_status_line"):
-            run.cmd_status(["--history"])
-        self.assertIn("PR size ceiling: 100 changed lines (history)", out.getvalue())
+        self.assertNotIn("ceiling", out.getvalue())
 
 
 if __name__ == "__main__":

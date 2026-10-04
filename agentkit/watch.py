@@ -1974,7 +1974,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         starts = [s.get("started_at") for _, s in going
                   if isinstance(s.get("started_at"), (int, float))
                   and not isinstance(s.get("started_at"), bool)]
-        return {"word": "working", "reason": " · ".join(parts),
+        reason = (run_mod.parked_line(newest[1]) if run_mod.landing_line(newest[1])
+                  else " · ".join(parts))
+        return {"word": "working", "reason": reason,
                 "since": min(starts) if starts else None}
     # 2a. ... or it ended its turn on `ak wait`, and the session it named is working
     wait = waiting_on(name, records, at, cfg) if waits else None
@@ -2278,23 +2280,38 @@ def _send_enter(session, log):
     return True
 
 
-def _send_line(session, text, log, typed=lambda: None):
+def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None):
     """Type one literal line; the caller waits KEY_GAP before sending its Enter.
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
+    `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
+    A pty sender supplies `send(text)`; both transports share the same typing receipt.
     """
     name = session["name"]
-    rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", "-l", text,
-                            socket=orch.seat_socket(session))
-    if rc != 0:
-        log(f"WARN could not type into the {name} seat: {out[-200:]}")
-        return False
+    record = config.session_records().get(name, {})
+    plugin = orch.seat_plugin(record)
+    cwd = record.get("cwd")
+    conversation = plugin.conversation(record, cwd)
+    sent = {"at": time.time(), "text": text, "source": source, "harness": plugin.name,
+            "conversation": conversation, "after": len(plugin.user_messages(record, cwd, conversation))}
+    config.STATE.mkdir(parents=True, exist_ok=True)
+    with config.seat_file("input", name).open("a+", encoding="utf-8") as fh:
+        before = fh.tell()
+        # A restart between text and Enter must still know whose line is in the composer.
+        fh.write(json.dumps(sent, ensure_ascii=False) + "\n")
+        fh.flush()
+        rc, out = (send(text) if send else orch.tmux_out(
+            "send-keys", "-t", f"={name}:", "-l", text, socket=orch.seat_socket(session)))
+        if rc != 0:
+            fh.truncate(before)
+            log(f"WARN could not type into the {name} seat: {out[-200:]}")
+            return False
     typed()
     return True
 
 
 def type_checked(session, text, log, harness=None, guard=nullcontext,
-                 veto=lambda name: False, typed=lambda: None, pending=False):
+                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak"):
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Text, a KEY_GAP pause, then Enter; within SENT_WAIT the typed text has to be gone
@@ -2337,7 +2354,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
         if veto(held if held is not None else name):
             return False
         if not pending:
-            if not _send_line(seat, text, log, typed):
+            if not _send_line(seat, text, log, typed, source=source):
                 return False
             time.sleep(KEY_GAP)
         if not _send_enter(seat, log):
@@ -2355,7 +2372,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     return False
 
 
-def type_into(session, text, log, stale=lambda held: False):
+def type_into(session, text, log, stale=lambda held: False, *, source="ak"):
     """One line and Enter into a seat, the way the inbox is asked its question.
 
     `stale` is asked beside the owner's question, under the same lock and with the name the
@@ -2363,7 +2380,8 @@ def type_into(session, text, log, stale=lambda held: False):
     """
     return type_checked(session, text, log, None,
                         guard=lambda: notify.session_lock(session["name"]),
-                        veto=lambda held: owner_question(notify.last(held)) or stale(held))
+                        veto=lambda held: owner_question(notify.last(held)) or stale(held),
+                        source=source)
 
 
 def title_record(name):
@@ -2564,7 +2582,7 @@ def at_prompt(session, cfg=None):
     return found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
 
 
-def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None):
+def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *, source="ak"):
     """One line into a seat, and only while its harness sits at its own prompt.
 
     The prompt is tested twice: once here, and once more inside the send lock, because two
@@ -2608,7 +2626,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
 
     return type_checked(session, text, log, None,
                         guard=lambda: notify.session_lock(session["name"]), veto=veto,
-                        typed=lambda: receipt(mark))
+                        typed=lambda: receipt(mark), source=source)
 
 
 # --- a seat whose process died under its runs ------------------------------
@@ -3529,15 +3547,15 @@ def stall_clock(run_dir, state):
     A transient wait is the loop's own -- up to an hour at a time, on a provider that is down,
     writing nothing -- so the clock starts where that wait ends (`run.transient_wait`).  Only
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
-    its silence is its own.  A live loop waiting for its repository's merge turn
-    (`run.merge_turn`), to take back its lent turn, or for its dependency to merge
-    (`run.wait_for_dependency`), or for its seat to push PR fixes, is silent for as long as that takes,
+    its silence is its own. A live loop waiting for its dependency to merge, its seat to
+    push PR fixes or another delivery's repository lock is silent for as long as that takes,
     so its clock starts now, every tick, until the wait is over.
     """
     from . import run as run_mod
-    if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state)
-            or run_mod.own_pr_wait_note(state)
-            or run_mod.merge_retaking(state))
+    delivery_wait = state.get("delivery_wait")
+    if ((run_mod.dep_wait_note(state) or run_mod.own_pr_wait_note(state)
+         or (delivery_wait and delivery_wait == state.get("pid")
+             and state.get("state") == "running"))
             and run_record.process_active(state)):
         return time.time()
     wait = state.get("transient_wait")
@@ -3781,6 +3799,8 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
         receipt = run_record.read_state(run_dir)
         if receipt is None:
             log(f"WARN could not {verb} {run_id}: run.json cannot be read")
+            return False
+        if receipt.get("state") == "stopped":
             return False
         unit = f"agentkit-run-{run_id}"
         if (receipt.get("scope") and str(receipt["scope"]) != "none"
@@ -4678,17 +4698,27 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
     regardless of its task budget: conflict rounds spend no task round.
     Every wait must still pass admission before a fetch or resume: waits left by
     an older tick do not keep permission after a telling, a lost seat or a day.
+    A landing-line member belongs to the lander, so this pass leaves it alone.
     A dry run names what it would park and resume, and fetches nothing: a fetch
     moves the very refs it reports on.  A job's run is its job's: the tick's pass
     leaves it, and the job's own ladder passes it as `run` to resume its wait.
     """
-    from . import run as run_mod
+    from . import land, run as run_mod
     now = time.time() if now is None else now
+    lines = set()
     for run_dir in [run] if run else run_record.run_dirs():
         try:
             state = run_record.read_state(run_dir)
             if not state or state.get("state") not in ("fail", "waiting"):
                 continue
+            if name := run_mod.landing_line(state):
+                if name not in lines:
+                    lines.add(name)
+                    if dry_run:
+                        log(f"would start lander for {name}")
+                    else:
+                        land.start_line(config.RUNS / name, log)
+                continue    # saved verdicts also retry a wake that never started
             if state.get("job_id") and not run:
                 continue
             if state.get("state") == "fail" and not run_mod.parkable_conflict(
@@ -4705,6 +4735,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                         continue
                     with run_record.record(run_dir) as state:
                         if (state.get("state") != "waiting"
+                                or run_mod.landing_line(state)
                                 or not run_mod.tick_admission(state, now=now)):
                             continue
                         wt = state.get("worktree")
@@ -4730,6 +4761,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                     continue  # origin did not answer; the waiter keeps waiting, silently
                 with run_record.record(run_dir) as state:
                     if (state.get("state") != "waiting"
+                            or run_mod.landing_line(state)
                             or not run_mod.tick_admission(state, now=now)):
                         continue
                     waiting_on = state.get("waiting_on") or {}

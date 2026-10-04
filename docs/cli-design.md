@@ -82,7 +82,8 @@ the seat asked, `waiting for you`, the done summary's first line -- and for
 `working` the tasks bar (`tasks ██░░░ 2/5`) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
 from (the newest wins), else from its unfinished jobs' tasks, else empty --
-never `N running`. No row ever names a run: an ended run is its orchestrator's
+except for a run recorded in the line to land: its seat shows `waiting · 3rd in line to land on main`.
+Never `N running`. No row ever names a run: an ended run is its orchestrator's
 business.
 
 ## Keys

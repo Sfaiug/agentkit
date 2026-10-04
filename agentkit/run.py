@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (command_help, config, gate, gc, hand_in, history, host, job as jobs,
+from . import (box, command_help, config, gate, gc, hand_in, history, host, job as jobs,
                land as landing, notify, orch, record as run_record, retention,
                task as taskfile, update, usage, watch, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
@@ -141,8 +141,7 @@ except ValueError:
 _RUN_CONTEXT = threading.local()  # job threads export their own depth and slot owner
 _DELIVERY_HELD = threading.local()   # the delivery locks this thread is already inside
 _PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
-_PICKUP_HELD = threading.local()   # merge turns this thread holds now
-_MERGE_HELD = threading.local()    # the merge turn this thread holds now, if any
+_PICKUP_HELD = threading.local()   # delivery locks this thread holds or waits for
 STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is on the way; reap
                                 # leaves the record alone until then, and the resume adopts it
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
@@ -1280,8 +1279,8 @@ def harness_said(out_dir, text, harness, failures_only=False):
 def ran_dry(code, said, harness, refusal=False):
     """The harness's own word for a spent provider window in this exit, or None.
 
-    Its words and not ours: they come from `[stall] quotas` in adapters/<harness>.toml, the
-    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`);
+    They come from the harness package's shared `[stall] quotas` beside the adapter's own,
+    read off a seat's screen the same way, each a whole word (`Harness.failure`);
     a LIMITED one parks a worker's account as a SPENT one does.
     A non-zero exit is as required here as it is for `transient`, because a worker that exited
     0 said what it meant to say.  The scoped terminal refusal path may pass ``refusal`` for an
@@ -1365,8 +1364,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     A turn killed for emitting no event for `limit` seconds is one of those retries: nothing
     judged it, so it is retried on the same session rather than scored, with the same waits.
 
-    Each turn's own process marker finds and ends its leftovers, without ending the suite or
-    the loop's helpers. A turn that left processes or reports background work is unfinished:
+    Each turn's box ends its leftovers, without ending the suite or the loop's helpers.
+    A turn that left processes or reports background work is unfinished:
     the same session is called once more, with no backoff, to run it in the
     foreground and report -- the same round, and not one of the transient waits.  That
     turn gets artifacts of its own (`<role>-retry-foreground`, beside the transient retries'
@@ -1820,147 +1819,15 @@ def main_checkout(repo):
     return (Path(repo) / common).resolve().parent if common else Path(repo)
 
 
-class _MergeHold:
-    """One held merge turn: the open lock file and the record it marks while reserved.
-
-    The hold owns its file rather than the frame that waited for it: a reserved lap
-    holds one turn across its rebase, its checks and its merge, and lets it go before
-    a fixer or a reviewer starts, from inside the frame that took it.  Releasing closes
-    the file, as leaving the frame would have, and takes the holding mark off the record.
-    Only a reserved lap's verify lets go early; a delivery never does, so `releasable`
-    is true until the lap's check has passed.
-    """
-
-    def __init__(self, lock, lp, reserved):
-        self.lock, self.lp, self.reserved = lock, lp, reserved
-        self.releasable = reserved
-        self._released = False
-        self.reservation = None
-        self.lent = False
-        self.weighed = None        # (unit, weight before) while `raise_cpu_weight` holds it
-
-    def lend(self):
-        """Keep the rebased branch's files reserved while other files can land."""
-        # A suite covers the whole target tree: a borrower would invalidate its check.
-        if (not self.reserved or not self.releasable or self.lent
-                or getattr(self.lp, "once", ())):
-            return
-        try:
-            files = merge_turn_files(self.lp.wt, self.lp.base_sha)
-        except Stopped:
-            return                 # a diff that stops says nothing; keep the exclusive turn
-        if files is None:
-            return                 # unknown files still need the exclusive turn
-        path = Path(self.lock.name)
-        if merge_turn_blocker(path, files):
-            # Integration can rename a branch's paths. If those now overlap another
-            # reservation, this lap checks unheld and takes a fresh turn afterwards.
-            self.release()
-            return
-        self.reservation = path.with_suffix(
-            f".{os.getpid()}.{threading.get_ident()}.hold").open("w+")
-        fcntl.flock(self.reservation, fcntl.LOCK_EX)
-        json.dump(sorted(files), self.reservation)
-        self.reservation.flush()
-        self.lent = True
-        fcntl.flock(self.lock, fcntl.LOCK_UN)
-
-    def release(self):
-        if self._released:
-            return
-        self._released = True
-        try:
-            # Publish the saved place before another waiter can take the freed flock.
-            if self.reserved:
-                try:
-                    self.lp.state.pop("merge_hold", None)
-                    self.lp.write()
-                except (OSError, run_record.StopRequested):
-                    try:
-                        self.lp.state.pop("merge_hold", None)
-                    except Exception:
-                        pass
-        finally:
-            try:
-                try:
-                    if self.reservation is not None:
-                        path = Path(self.reservation.name)
-                        self.reservation.close()
-                        path.unlink(missing_ok=True)
-                finally:
-                    if self.lock is not None:
-                        try:
-                            self.lock.close()
-                        except (OSError, ValueError):
-                            pass
-            finally:
-                self.lock = None
-                if self.weighed is not None:
-                    orch.set_cpu_weight(*self.weighed)
-                held = getattr(_PICKUP_HELD, "count", 0)
-                if held:
-                    _PICKUP_HELD.count = held - 1
-                if getattr(_MERGE_HELD, "hold", None) is self:
-                    _MERGE_HELD.hold = None
-
-
-def raise_cpu_weight(lp):
-    """Weigh this run's scope above every other run's while it holds its merge turn.
-
-    Every passed run of the repository waits behind the holder, so its final check is the
-    repository's serial path; at the scope's own weight it would share the CPU evenly with
-    work that will wait hours to merge.  The raise outweighs the other scopes in the runs
-    slice together by the slice's cores and one, so that all of them share less than one
-    core while the check is busy, and stops at the kernel's top weight.  Another
-    repository's holder counts at a run's own weight, so two landings at once share alike
-    rather than the later one outweighing the earlier.  It is among the runs slice's own
-    children, so the seats beside that slice keep their weight over every run.  (unit,
-    weight before) to put back, or None where nothing was raised: no scope, no cgroup, no
-    other run, or a manager that refused.
-    """
-    scope_dir = run_scope_dir(lp.state.get("scope"))
-    weights = host.cpu_weights(scope_dir) if scope_dir is not None else None
-    if not weights or not weights[1]:
-        return None
-    own = weights[0]
-    others = sum(min(weight, own) for weight in weights[1])
-    cores = host._slice_cpu_quota(orch.slice_cgroup()) or host.cpu_count()
-    raised = min(host.CPU_WEIGHT_MAX, int(others * (cores + 1)))
-    if raised <= own or not orch.set_cpu_weight(scope_dir.name, raised):
-        return None
-    lp.log(f"--- merge: CPU weight {raised} while holding the merge turn, "
-           f"{others} for every other run together")
-    return scope_dir.name, own
-
-
-def drop_reserved_turn():
-    """Let a reserved lap's verify turn go before slow work that cannot land.
-
-    The red-target probe re-runs the failing command after the lap has already failed,
-    and a fixer or reviewer follows that: the lap cannot land this pass, so holding the
-    merge turn through any of them only blocks the landers queued behind.  The gate turn
-    stays held for the probe, which is still this lap's own work.  A delivery keeps its
-    turn, here as under `released_gate_turn`.
-    """
-    hold = getattr(_MERGE_HELD, "hold", None)
-    if hold is not None and getattr(hold, "releasable", False):
-        _MERGE_HELD.hold = None
-        hold.release()
-
-
 @contextmanager
 def released_gate_turn():
     """Let this thread's held gate turn go while slow work runs.
 
     A rebase conflict, a failing check and a re-review all end in a fixer or a reviewer,
-    and a model turn held through them lands nothing for the runs queued behind.  The lap
-    goes again after the fix, as it does today; whoever needs the turn next takes it fresh,
-    which is also what a check does when no turn is held at all.  A reserved lap's verify
-    lets its merge turn go with it, for the same reason, and the next lap takes it again;
-    a delivery keeps its turn through any retry.
+    and a model turn held through them lands nothing for the runs queued behind.  The
+    check takes a fresh turn after the fix.
     """
     gate.release_turn()
-    drop_reserved_turn()
     yield
 
 
@@ -3155,15 +3022,20 @@ def repair_open(state, tip):
         and not state.get("merged") and state.get("repair_tip") == tip)
 
 
-def open_followup(state, text, repair=None, tip=None):
+def open_followup(state, text, repair=None, tip=None, split=None):
     """The open run already fixing `text`, or None.
 
     A follow-up is the same site in the same repository from the same seat.  A `repair` is
     the same repository, target and command from any seat, open at the target's `tip`: the
-    target is everybody's.
+    target is everybody's. A suite split holds its line forever, and its repository while open.
     """
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
+        if split:
+            if (other.get("repo") == state.get("repo") and other.get("split_suite")
+                    and (other["split_suite"] == split or followup_open(other))):
+                return directory.name
+            continue
         if (other.get("run_id") != state.get("run_id") and other.get("followup")
                 and other.get("repo") == state.get("repo")
                 and other.get("repair") == repair
@@ -3175,7 +3047,7 @@ def open_followup(state, text, repair=None, tip=None):
     return None
 
 
-def start_followups(state, run_dir, log, cfg=None, repair=None):
+def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     """A merge starts ordinary runs, once, under the same lock that closes the seat.
 
     The receipt is the duplicate guard even while admission waits. There is no collector
@@ -3188,14 +3060,16 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
     is an open repair of the same repository, target and command instead of a receipt.
     Returns the repair's run, started, already open, or left queued by a launch that
     raised, or None when none is.
+    A slow suite's `split` starts the same way, with ak's task and check. Its cost record
+    keeps the receipt even after run retention, whatever the run's ending.
     """
     session = launched_session(state)
-    if (not (repair or state.get("merged") and state.get("followups")) or not session
+    if (not (repair or split or state.get("merged") and state.get("followups")) or not session
             or not state.get("repo") or state.get("scratch")
             or (state.get("review_pr") and not state.get("own_pr"))):
         return None
     with watch.state_lock():
-        if not repair:
+        if not (repair or split):
             current = run_record.read_state(run_dir) or state
             if "followup_runs" in current:
                 state["followup_runs"] = current["followup_runs"]
@@ -3209,15 +3083,22 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
             return None
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
+        if split:
+            previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
+            if previous:
+                return previous
         key = repair and {"target": target, "command": repair["command"]}
-        for item in [repair["text"]] if repair else state["followups"]:
+        request = repair or split
+        for item in [request["text"]] if request else state["followups"]:
             source = {**state, "repo": str(repo)}
-            opened = open_followup(source, item, key, repair and repair["sha"])
-            if opened and repair:
+            opened = open_followup(source, item, key, repair and repair["sha"],
+                                   split and split["command"])
+            if opened and request:
                 return opened
             if opened:
                 continue
-            title = (f"Make {target} pass `{repair['command']}` again" if repair
+            title = ("Split the slow test suite" if split else
+                     f"Make {target} pass `{repair['command']}` again" if repair
                      else "Fix " + item.splitlines()[0])
             if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
                 title = title[:255] + "…"
@@ -3232,7 +3113,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                 check = shlex.quote(str(directory / "regression.sh"))
                 task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
                         f"# {title}\n\n{item}\n\n")
-                if repair:
+                if split:
+                    task += f"## Done when\n```bash\n{split['check']}\n```\n"
+                elif repair:
                     task += (
                         "First fetch the target branch and run the command on its tip. If it "
                         'passes there now, run `ak hand-in not-needed "<why>"`, '
@@ -3268,6 +3151,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                                                    "place": followup_place(item)},
                                        **({"repair": key, "repair_tip": repair["sha"]}
                                           if repair else {}),
+                                       **({"split_suite": split["command"]} if split else {}),
                                        "launched_session": session, "repo": str(repo),
                                        **{role: list(lists[role]) for role in ("workers", "reviewers")
                                           if isinstance(lists.get(role), list) and lists[role]},
@@ -3275,7 +3159,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                                           if state.get("notify_sink") else {})})
                 opts = {"--rounds": None, "--exec": None, "--review": None,
                         "--review-pr": None, "--no-worktree": False, "--no-merge": False,
-                        "--bg": True, **({"--first": True} if repair else {})}
+                        "--bg": True, **({"--first": True} if request else {})}
+                if split:
+                    gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
                 prepare(directory, opts, logger(directory, True), cfg)
                 spawn_bg(directory, [str(directory / "task.md")])
             except run_record.StopRequested as exc:
@@ -3283,13 +3169,15 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                 return None
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
+                if split:
+                    return directory.name
                 if repair:
                     # a launch that raised can leave its receipt queued for a slot, and the
                     # tick starts that: it is the repair all the same
                     return directory.name if repair_open(run_record.read_state(directory) or {},
                                                          repair["sha"]) else None
                 continue
-            if repair:
+            if request:
                 return directory.name
             try:
                 state["followup_runs"].append(directory.name)
@@ -3359,6 +3247,8 @@ def failing_checks(dw_log):
     """
     found, failing = [], None
     for record in (dw_log or "").split("\n\n"):
+        if record.startswith("flaky: "):
+            continue
         match = re.match(r"\$ ([^\n]*)\n\[([^\]\n]*)\]", record)
         if match:
             # a marker counts only at the start of a record, as `done_when_counts` reads it;
@@ -3389,6 +3279,8 @@ def first_failure(dw_log):
     """
     failing, named, last, note = None, None, None, None
     for record in (dw_log or "").split("\n\n"):
+        if record.startswith("flaky: "):
+            continue
         match = re.match(r"\$ ([^\n]*)\n\[([^\]\n]*)\]", record)
         if match:
             if failing is not None:
@@ -3905,6 +3797,8 @@ def rounds(lp, execv=None):
     invalidate_saved_pass(lp.state, lp.cfg, lp.log)
     lp.rounds = lp.state["rounds"]
     lp.save()
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return     # the lander's verdict resumes delivery, never a task round
     pending = lp.state.get("review_pending")
     if (pending and "record" not in pending and pending.get("round") == lp.rnd + 1
             and pending.get("reason", "").startswith("Re-review after the ")):
@@ -4021,6 +3915,11 @@ def park_waiting(lp, reason, ref, sha=None):
     (`repair_open`).
     """
     note(lp, reason, failed=False)
+    waiting_on = dict(lp.state.get("waiting_on") or {})
+    if waiting_on.get("line"):
+        lp.state.update(state="waiting", error=reason)
+        lp.write()
+        return False
     waiting_on = {"ref": ref}
     if sha:
         waiting_on["sha"] = sha
@@ -4100,9 +3999,6 @@ def set_base(lp, tip):
     """The branch now carries the pinned tip, so that is what its diff is against from here on."""
     lp.state["base_sha"] = git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
     lp.write()
-    hold = getattr(_MERGE_HELD, "hold", None)
-    if hold is not None:
-        hold.lend()
 
 
 def on_pass(lp):
@@ -4195,6 +4091,8 @@ def fix_after_failed_review(lp, upstream, how):
     none at all; a done-when that failed it comes with its output, so a PASS the gate
     overrode is fixed on what the gate said.
     """
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return False
     what = f"the {how} of {upstream}"
     while lp.rnd < lp.rounds:
         fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
@@ -4213,6 +4111,24 @@ def fix_after_failed_review(lp, upstream, how):
         if review(lp, summary, ok, dw_log, f"Re-review after fixes for {what}.") == "PASS":
             return True
     return False
+
+
+def landing_fixer(lp, text, name):
+    """Give any landing fixer the line's red output and remember its completed turn."""
+    wait = lp.state.get("waiting_on") or {}
+    failure = wait.get("fix") if wait.get("line") else None
+    if failure and name != "final-fixer":
+        # An unrelated conflict or light check must not hide the lander's failure.
+        output = Path(failure["log"]).read_text(errors="replace")
+        text += (f"\n\n## The final check failed. Fix the root cause as well.\n```\n"
+                 f"{output[-OUT_CAP:]}\n```")
+    summary = execute(lp, "fixer", text, name)
+    if failure:
+        # Save the actual fixer with its summary before a check or review can stop.
+        lp.state["waiting_on"]["fixed"] = True
+        lp.state["review_pending"]["summary"] = summary
+        lp.save()
+    return summary
 
 
 def resolve_conflicts(lp, upstream, out, how, tip=None):
@@ -4250,7 +4166,7 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
         lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
                f"fixer {lp.executor} ({how} conflict)")
         try:
-            summary = execute(lp, "fixer", text, f"{how}-fixer")
+            summary = landing_fixer(lp, text, f"{how}-fixer")
         except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired) as exc:
             pending = lp.state.get("review_pending")
             if isinstance(exc, (Exhausted, Killed, worker.LoginExpired)) and pending:
@@ -4343,212 +4259,115 @@ def target_disjoint_from_branch(wt, base, head_before, tip):
 
 
 def integrate(lp, upstream):
-    """Fetch origin and bring the branch up to date with it, resolving conflicts if there are any.
+    """Integrate one pinned target tip, resolving conflicts and rechecking changed work.
 
-    A rebase, unless `how_to_integrate` says this branch's history has to survive the trip.
-    A landing with a suite holds the merge turn through its checks and delivery.
-    The tip is resolved once per lap and every check after it uses that pinned commit,
-    never the moving branch name again. Without a suite, a lap re-checking under a
-    lent reserved hold skips the second fetch: borrowers may have landed disjoint
-    moves during its check, and `land` carries those over under the delivery turn
-    without another re-check. Otherwise, when origin moved while the lap landed, the lap goes
-    round again, at most three laps; a move still unlanded after the third parks the run
-    `waiting`, as a conflict does, and never ends it FAIL.  A re-check red on the target's
-    tip and green on the old base parks without a fixer round (only the tip is probed
-    when those commits are the same).  A branch left
-    with no diff is False too, a PASS noted as already on the target, so no caller
-    pushes it.  A commit whose checks pass here is marked on the loop, so the final
-    check runs only what has not run on it yet, once.
+    A rebase, unless `how_to_integrate` says this branch's history has to survive.
+    Checks use the pinned commit; delivery detects later target changes. A re-check
+    red on the target and green on the old base parks without a fixer round.
+    A branch with no diff ends PASS as already on the target.
 
-    A fetch, merge or rebase that stops -- out of time, or refused its prompt -- is not a
-    conflict and never reaches `resolve_conflicts`: `git_out` raises Stopped, the worktree
-    goes back on the branch head, and the stop propagates, so the run ends retryable with
-    its remedy instead of spending a round on it.
+    A stopped fetch, merge or rebase propagates after aborting integration, so the
+    run stays retryable rather than spending a conflict round on a tool failure.
     """
-    for lap in (1, 2, 3):
-        # --prune: a merged PR's branch, deleted on origin, otherwise leaves its tracking ref
-        # behind, and push's lease holds a later run that reuses the name to that dead head
-        rc, out = fetch(lp.wt, "origin", "--prune")
-        if rc != 0:
-            return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
-        if not git(lp.wt, "rev-parse", "--verify", "--quiet", f"{upstream}^{{commit}}",
-                   check=False):
-            return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
-                        failed=True)
-        tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
-        # a branch cut from a dependency's passed branch replays only its own commits: the
-        # dependency most often lands squashed, its commits on the target under other names
-        onto = ("--onto", tip, lp.base_sha) if on_pass(lp) else (tip,)
-        how = "rebase" if on_pass(lp) else how_to_integrate(lp)
-        try:
-            pre_identity = commit_identity(lp.wt)
-        except Stopped:
-            raise
-        except config.Error:
-            pre_identity = None
-        saved = dict(lp.state["review"]) if isinstance(lp.state.get("review"), dict) else None
-        saved_verdict = lp.state.get("verdict")
-        try:
-            was_pass = review_pass(lp.state, lp.cfg)
-        except Stopped:
-            raise
-        except Exception:
-            was_pass = False
-        old_head = pre_identity["head_sha"] if pre_identity else None
-        landing_review = (lp.state.get("review_pending") or {}).get("record") is False
-        # Persist invalidation before git rewrites HEAD: interruption must not leave a saved PASS.
-        if not integrated(lp.wt, tip):
-            if landing_review:
-                lp.state.update(verdict=None, review=None)
-                lp.save()
-            else:
-                pending_review(lp, f"Re-review after the {how} of {upstream}.")
-        try:
-            if how == "merge":
-                lp.log(f"--- merge: merging {upstream} ({tip[:12]}) into {lp.state['branch']}")
-                # check 19 in tests/smoke.sh pins the bare line below; the SHA line above
-                # records the pinned tip this lap integrated.
-                lp.log(f"--- merge: merging {upstream} into {lp.state['branch']}")
-                rc, out = git_out(lp.wt, "merge", "--no-edit", tip)
-            else:
-                lp.log(f"--- merge: rebasing {lp.state['branch']} onto {upstream} ({tip[:12]})")
-                rc, out = git_out(lp.wt, "rebase", *onto)
-        except Stopped:
-            abort_stopped_integration(lp, how)
-            raise
-        if rc != 0:
-            with released_gate_turn():
-                resolved = resolve_conflicts(lp, upstream, out, how, tip)
-            if not resolved:
-                return False
-            # the conflict round re-tested this commit and the review passed on it
-            lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
+    # --prune: a merged PR's branch, deleted on origin, otherwise leaves its tracking ref
+    # behind, and push's lease holds a later run that reuses the name to that dead head
+    rc, out = fetch(lp.wt, "origin", "--prune")
+    if rc != 0:
+        return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
+    if not git(lp.wt, "rev-parse", "--verify", "--quiet", f"{upstream}^{{commit}}",
+               check=False):
+        return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
+                    failed=True)
+    tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
+    # a branch cut from a dependency's passed branch replays only its own commits: the
+    # dependency most often lands squashed, its commits on the target under other names
+    onto = ("--onto", tip, lp.base_sha) if on_pass(lp) else (tip,)
+    how = "rebase" if on_pass(lp) else how_to_integrate(lp)
+    try:
+        pre_identity = commit_identity(lp.wt)
+    except Stopped:
+        raise
+    except config.Error:
+        pre_identity = None
+    saved = dict(lp.state["review"]) if isinstance(lp.state.get("review"), dict) else None
+    saved_verdict = lp.state.get("verdict")
+    try:
+        was_pass = review_pass(lp.state, lp.cfg)
+    except Stopped:
+        raise
+    except Exception:
+        was_pass = False
+    old_head = pre_identity["head_sha"] if pre_identity else None
+    landing_review = (lp.state.get("review_pending") or {}).get("record") is False
+    # Persist invalidation before git rewrites HEAD: interruption must not leave a saved PASS.
+    if not integrated(lp.wt, tip):
+        if landing_review:
+            lp.state.update(verdict=None, review=None)
+            lp.save()
         else:
-            old_base = lp.state.get("base_sha")
-            set_base(lp, tip)
-            if current_review(lp) and not landing_review:
-                lp.log("--- merge: unchanged commit; reusing done-when and review evidence")
-            else:
-                # a passed review survives a clean integration whatever it leaves, an empty
-                # diff included: the done-when runs again on the new commit, and only its
-                # failure or a commit it changed sends the work back to the reviewer --
-                # unless the target moved only outside the branch's files, which lands on
-                # the round's checks without re-running them
-                carried = lp.state.get("final_check")
-                carried_here = (isinstance(carried, dict)
-                                and carried.get("outcome") == "passed"
-                                and carried.get("sha") == old_head)
-                if (not landing_review and was_pass and saved is not None and pre_identity is not None
-                        and saved.get("head_sha") == pre_identity.get("head_sha")
-                        and saved.get("tree_sha") == pre_identity.get("tree_sha")
-                        and not on_pass(lp) and old_base and old_head and carried_here
-                        and target_disjoint_from_branch(lp.wt, old_base, old_head, tip)):
-                    new_identity = commit_identity(lp.wt)
-                    lp.log(f"--- merge: clean {how} of {upstream}; target moved outside "
-                           "this branch's files, reusing done-when and review evidence")
-                    lp.state["review"] = {**saved, "head_sha": new_identity["head_sha"],
-                                          "tree_sha": new_identity["tree_sha"],
-                                          "passed_head_sha": passed_review_head(lp.state),
-                                          "rebased_from": old_head,
-                                          "patch_id": patch_id(lp.wt, tip)}
-                    lp.state["verdict"] = saved_verdict
-                    lp.state.pop("review_pending", None)
-                    lp.save()
-                    lp.lap_every_sha = new_identity["head_sha"]
-                elif (landing_review or (was_pass and saved is not None and pre_identity is not None
-                        and saved.get("head_sha") == pre_identity.get("head_sha")
-                        and saved.get("tree_sha") == pre_identity.get("tree_sha"))):
-                    try:
-                        post_identity = commit_identity(lp.wt)
-                    except Stopped:
-                        raise
-                    except config.Error:
-                        post_identity = None
-                    if post_identity is None:
-                        if not lp.state.get("review_pending"):
-                            pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                        with released_gate_turn():
-                            passed = (resume_review(lp) == "PASS"
-                                      or fix_after_failed_review(lp, upstream, how))
-                        if not passed:
-                            return note(lp, f"done-when or review after the {how} of {upstream} "
-                                            "did not pass")
-                        lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
-                    else:
-                        pending = lp.state.get("review_pending")
-                        pending_round = pending["round"] if pending else lp.rnd
-                        old_rnd = lp.rnd
-                        lp.rnd = pending_round
-                        lp.round_dir.mkdir(parents=True, exist_ok=True)
-                        ok, dw_log = verify_work(lp)
-                        lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
-                        if ok:
-                            new_identity = commit_identity(lp.wt)
-                            if new_identity != post_identity or landing_review:
-                                if not lp.state.get("review_pending"):
-                                    pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                                with released_gate_turn():
-                                    passed = (resume_review(lp, verified=(ok, dw_log)) == "PASS"
-                                              or fix_after_failed_review(lp, upstream, how))
-                                if not passed:
-                                    return note(lp, f"done-when or review after the {how} of {upstream} "
-                                                    "did not pass")
-                                lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
-                            else:
-                                lp.log(f"--- merge: clean {how} of {upstream}; "
-                                       "done-when passed again, review kept")
-                                lp.state["review"] = {**saved, "head_sha": new_identity["head_sha"],
-                                                      "tree_sha": new_identity["tree_sha"],
-                                                      "passed_head_sha": passed_review_head(lp.state),
-                                                      "rebased_from": old_head,
-                                                      "patch_id": patch_id(lp.wt, tip)}
-                                lp.state["verdict"] = saved_verdict
-                                record_flakes(lp.state, dw_log)
-                                lp.state.pop("review_pending", None)
-                                lp.save()
-                                lp.rnd = old_rnd
-                                lp.lap_every_sha = new_identity["head_sha"]
-                        else:
-                            # The target moved under work that already passed: fix the
-                            # gate before reviewing it, without spending task rounds.
-                            lp.rnd = old_rnd
-                            reason = f"Re-review after the {how} of {upstream}."
-                            lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
-                                                          "reason": reason, "record": False,
-                                                          "passed_head_sha": passed_review_head(lp.state)}
-                            lp.save()
-                            drop_reserved_turn()    # the lap failed; the probe runs unheld
-                            for attempt in range(CONFLICT_ROUNDS + 1):
-                                said = target_fails(lp, upstream, dw_log)
-                                if said:
-                                    return park_waiting(
-                                        lp, f"{upstream} itself fails: {said}", upstream, tip)
-                                if attempt == CONFLICT_ROUNDS:
-                                    return park_waiting(
-                                        lp, f"done-when after the {how} still fails after "
-                                            f"{CONFLICT_ROUNDS} fixer rounds: {first_failure(dw_log)}",
-                                        upstream, tip)
-                                lp.log(f"--- merge: re-run round {attempt + 1}/{CONFLICT_ROUNDS}: "
-                                       f"fixer {lp.executor} (done-when after the {how})")
-                                fix = (f"{lp.context}\n\n## The done-when commands failed. "
-                                       f"Fix the root cause.\n```\n{dw_log[-OUT_CAP:]}\n```")
-                                with released_gate_turn():
-                                    summary = execute(lp, "fixer", fix, "rerun-fixer")
-                                    lp.state["review_pending"]["summary"] = summary
-                                    lp.save()
-                                    lp.round_dir.mkdir(parents=True, exist_ok=True)
-                                    ok, dw_log = verify_work(lp)
-                                    lp.log(f"done-when after the fix: {'all passed' if ok else 'FAILED'}")
-                                    if ok:
-                                        passed = (review(lp, summary, ok, dw_log, reason,
-                                                         record=False) == "PASS"
-                                                  or fix_after_failed_review(lp, upstream, how))
-                                        if not passed:
-                                            return note(lp, f"done-when or review after the {how} "
-                                                            f"of {upstream} did not pass")
-                                        break
-                            lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
-                else:
+            pending_review(lp, f"Re-review after the {how} of {upstream}.")
+    try:
+        if how == "merge":
+            lp.log(f"--- merge: merging {upstream} ({tip[:12]}) into {lp.state['branch']}")
+            # check 19 in tests/smoke.sh pins the bare line below; the SHA line above
+            # records the pinned tip being integrated.
+            lp.log(f"--- merge: merging {upstream} into {lp.state['branch']}")
+            rc, out = git_out(lp.wt, "merge", "--no-edit", tip)
+        else:
+            lp.log(f"--- merge: rebasing {lp.state['branch']} onto {upstream} ({tip[:12]})")
+            rc, out = git_out(lp.wt, "rebase", *onto)
+    except Stopped:
+        abort_stopped_integration(lp, how)
+        raise
+    if rc != 0:
+        with released_gate_turn():
+            resolved = resolve_conflicts(lp, upstream, out, how, tip)
+        if not resolved:
+            return False
+        # the conflict round re-tested this commit and the review passed on it
+        lp.checked_every_sha = git(lp.wt, "rev-parse", "HEAD")
+    else:
+        old_base = lp.state.get("base_sha")
+        set_base(lp, tip)
+        if current_review(lp) and not landing_review:
+            lp.log("--- merge: unchanged commit; reusing done-when and review evidence")
+        else:
+            # a passed review survives a clean integration whatever it leaves, an empty
+            # diff included: the done-when runs again on the new commit, and only its
+            # failure or a commit it changed sends the work back to the reviewer --
+            # unless the target moved only outside the branch's files, which lands on
+            # the round's checks without re-running them
+            carried = lp.state.get("final_check")
+            carried_here = (isinstance(carried, dict)
+                            and carried.get("outcome") == "passed"
+                            and carried.get("sha") == old_head)
+            if (not landing_review and was_pass and saved is not None and pre_identity is not None
+                    and saved.get("head_sha") == pre_identity.get("head_sha")
+                    and saved.get("tree_sha") == pre_identity.get("tree_sha")
+                    and not on_pass(lp) and old_base and old_head and carried_here
+                    and target_disjoint_from_branch(lp.wt, old_base, old_head, tip)):
+                new_identity = commit_identity(lp.wt)
+                lp.log(f"--- merge: clean {how} of {upstream}; target moved outside "
+                       "this branch's files, reusing done-when and review evidence")
+                lp.state["review"] = {**saved, "head_sha": new_identity["head_sha"],
+                                      "tree_sha": new_identity["tree_sha"],
+                                      "passed_head_sha": passed_review_head(lp.state),
+                                      "rebased_from": old_head,
+                                      "patch_id": patch_id(lp.wt, tip)}
+                lp.state["verdict"] = saved_verdict
+                lp.state.pop("review_pending", None)
+                lp.save()
+                lp.checked_every_sha = new_identity["head_sha"]
+            elif (landing_review or (was_pass and saved is not None and pre_identity is not None
+                    and saved.get("head_sha") == pre_identity.get("head_sha")
+                    and saved.get("tree_sha") == pre_identity.get("tree_sha"))):
+                try:
+                    post_identity = commit_identity(lp.wt)
+                except Stopped:
+                    raise
+                except config.Error:
+                    post_identity = None
+                if post_identity is None:
                     if not lp.state.get("review_pending"):
                         pending_review(lp, f"Re-review after the {how} of {upstream}.")
                     with released_gate_turn():
@@ -4557,34 +4376,95 @@ def integrate(lp, upstream):
                     if not passed:
                         return note(lp, f"done-when or review after the {how} of {upstream} "
                                         "did not pass")
-                    lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
-        hold = getattr(_MERGE_HELD, "hold", None)
-        if hold is not None and hold.lent:
-            # A borrower may have landed during the check. Let `land` fetch under
-            # the delivery turn and carry these checks over that disjoint move.
-            new_tip = tip
-        else:
-            rc, out = fetch(lp.wt, "origin", "--prune")
-            if rc != 0:
-                return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
-            new_tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False)
-        if not new_tip:
-            return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
-                        failed=True)
-        if integrated(lp.wt, new_tip):
-            if git_out(lp.wt, "diff", "--quiet", new_tip, "HEAD")[0] == 0:
-                # the target already carries every line of the branch, however it got there:
-                # nothing is left to push, and the job counts the run as passed
-                lp.state["on_target"] = True
-                return note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
-            return True
-        if lap == 3:
-            # the world moving, like a conflict: parked on the tip this lap landed, which
-            # origin is already past, so the tick's next pass retries it
-            return park_waiting(lp, f"{upstream} moved three times during integration",
-                                upstream, tip)
-        lp.log(f"--- merge: {upstream} moved to {new_tip[:12]} while the fix ran; rebasing again")
-    return False
+                    lp.checked_every_sha = git(lp.wt, "rev-parse", "HEAD")
+                else:
+                    pending = lp.state.get("review_pending")
+                    pending_round = pending["round"] if pending else lp.rnd
+                    old_rnd = lp.rnd
+                    lp.rnd = pending_round
+                    lp.round_dir.mkdir(parents=True, exist_ok=True)
+                    ok, dw_log = verify_work(lp)
+                    lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
+                    if ok:
+                        new_identity = commit_identity(lp.wt)
+                        if new_identity != post_identity or landing_review:
+                            if not lp.state.get("review_pending"):
+                                pending_review(lp, f"Re-review after the {how} of {upstream}.")
+                            with released_gate_turn():
+                                passed = (resume_review(lp, verified=(ok, dw_log)) == "PASS"
+                                          or fix_after_failed_review(lp, upstream, how))
+                            if not passed:
+                                return note(lp, f"done-when or review after the {how} of {upstream} "
+                                                "did not pass")
+                            lp.checked_every_sha = git(lp.wt, "rev-parse", "HEAD")
+                        else:
+                            lp.log(f"--- merge: clean {how} of {upstream}; "
+                                   "done-when passed again, review kept")
+                            lp.state["review"] = {**saved, "head_sha": new_identity["head_sha"],
+                                                  "tree_sha": new_identity["tree_sha"],
+                                                  "passed_head_sha": passed_review_head(lp.state),
+                                                  "rebased_from": old_head,
+                                                  "patch_id": patch_id(lp.wt, tip)}
+                            lp.state["verdict"] = saved_verdict
+                            record_flakes(lp.state, dw_log)
+                            lp.state.pop("review_pending", None)
+                            lp.save()
+                            lp.rnd = old_rnd
+                            lp.checked_every_sha = new_identity["head_sha"]
+                    else:
+                        # The target moved under work that already passed: fix the
+                        # gate before reviewing it, without spending task rounds.
+                        lp.rnd = old_rnd
+                        reason = f"Re-review after the {how} of {upstream}."
+                        lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
+                                                      "reason": reason, "record": False,
+                                                      "passed_head_sha": passed_review_head(lp.state)}
+                        lp.save()
+                        for attempt in range(CONFLICT_ROUNDS + 1):
+                            said = target_fails(lp, upstream, dw_log)
+                            if said:
+                                return park_waiting(
+                                    lp, f"{upstream} itself fails: {said}", upstream, tip)
+                            if attempt == CONFLICT_ROUNDS:
+                                return park_waiting(
+                                    lp, f"done-when after the {how} still fails after "
+                                        f"{CONFLICT_ROUNDS} fixer rounds: {first_failure(dw_log)}",
+                                    upstream, tip)
+                            lp.log(f"--- merge: re-run round {attempt + 1}/{CONFLICT_ROUNDS}: "
+                                   f"fixer {lp.executor} (done-when after the {how})")
+                            fix = (f"{lp.context}\n\n## The done-when commands failed. "
+                                   f"Fix the root cause.\n```\n{dw_log[-OUT_CAP:]}\n```")
+                            with released_gate_turn():
+                                summary = landing_fixer(lp, fix, "rerun-fixer")
+                                lp.state["review_pending"]["summary"] = summary
+                                lp.save()
+                                lp.round_dir.mkdir(parents=True, exist_ok=True)
+                                ok, dw_log = verify_work(lp)
+                                lp.log(f"done-when after the fix: {'all passed' if ok else 'FAILED'}")
+                                if ok:
+                                    passed = (review(lp, summary, ok, dw_log, reason,
+                                                     record=False) == "PASS"
+                                              or fix_after_failed_review(lp, upstream, how))
+                                    if not passed:
+                                        return note(lp, f"done-when or review after the {how} "
+                                                        f"of {upstream} did not pass")
+                                    break
+                        lp.checked_every_sha = git(lp.wt, "rev-parse", "HEAD")
+            else:
+                if not lp.state.get("review_pending"):
+                    pending_review(lp, f"Re-review after the {how} of {upstream}.")
+                with released_gate_turn():
+                    passed = (resume_review(lp) == "PASS"
+                              or fix_after_failed_review(lp, upstream, how))
+                if not passed:
+                    return note(lp, f"done-when or review after the {how} of {upstream} "
+                                    "did not pass")
+                lp.checked_every_sha = git(lp.wt, "rev-parse", "HEAD")
+    if (not (lp.state.get("waiting_on") or {}).get("line")
+            and git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0):
+        lp.state["on_target"] = True
+        return note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
+    return True
 
 
 def push(lp):
@@ -4793,6 +4673,7 @@ def checks(lp, url):
                     states[name] = []  # a same-named check from another app cannot satisfy it
         except (KeyError, TypeError, ValueError) as exc:
             return False, f"cannot read required check runs: {exc}"
+        latest_status = {}
         if any(None in apps for apps in required.values()):
             data, why = gh_json(lp.run_dir, *api, "--paginate",
                                 f"repos/{owner}/{repo}/commits/{head}/statuses?per_page=100",
@@ -4815,7 +4696,14 @@ def checks(lp, url):
         failed = sorted(name for name, buckets in states.items()
                         if any(bucket in ("fail", "cancel") for bucket in buckets))
         if failed:
-            return False, f"required checks failed: {', '.join(failed)}"
+            why = f"required checks failed: {', '.join(failed)}"
+            if (lp.state.get("waiting_on") or {}).get("line"):
+                # Keep the check's output and details URL for the landing fixer.
+                why += "\n\n" + json.dumps({
+                    "check_runs": [check for check in latest.values() if check["name"] in failed],
+                    "statuses": [status for name, status in latest_status.items() if name in failed]},
+                    indent=2)
+            return False, why
         missing = sorted(name for name, buckets in states.items() if not buckets)
         pending = sorted(name for name, buckets in states.items()
                          if any(bucket not in ("pass", "skipping") for bucket in buckets))
@@ -4837,6 +4725,13 @@ def wait_checks(lp, url):
     green, why = checks(lp, url)
     if green:
         return True
+    wait = lp.state.get("waiting_on") or {}
+    if wait.get("line") and why.startswith("required checks failed:"):
+        path = lp.run_dir / "pr-checks.log"
+        path.write_text(f"{why}\nPR: {url}\n")
+        lp.state["waiting_on"] = {**wait, "fix": {"line": why.splitlines()[0], "log": str(path)}}
+        lp.write()
+        return False
     return note(lp, f"{why}; the PR is open at {url}", failed=True)
 
 
@@ -4976,6 +4871,10 @@ def do_merge(lp, url, upstream):
             if lp.state["review"].get("head_sha") != lp.state["delivery_sha"]:
                 return note(lp, "the delivery SHA is not the tested and reviewed commit", failed=True)
             if ready:
+                if (lp.state.get("waiting_on") or {}).get("line"):
+                    fetch(lp.wt, "origin", "--prune", check=True)
+                    if not integrated(lp.wt, upstream):
+                        return rejoin_line(lp, upstream, "the PR's target moved")
                 body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
                              "--match-head-commit", lp.state["delivery_sha"], *body)
@@ -5025,7 +4924,10 @@ def do_merge(lp, url, upstream):
             # A moving target can change both the patch and its checks. Reuse the same
             # integration path as a BEHIND retry before authorizing the new head.
             head = lp.state["delivery_sha"]
-            if not integrate(lp, upstream):
+            if (lp.state.get("waiting_on") or {}).get("line"):
+                if not integrated(lp.wt, upstream):
+                    return rejoin_line(lp, upstream, "the PR's target moved")
+            elif not integrate(lp, upstream):
                 return False
             if git(lp.wt, "rev-parse", "HEAD") != head:
                 if not final_check(lp, upstream) or not push(lp) or not wait_checks(lp, url):
@@ -5074,6 +4976,8 @@ def do_merge(lp, url, upstream):
         if attempt == 2 or why not in ("BEHIND", "DIRTY"):
             break
         lp.log(f"WARN the PR is {why}; taking {upstream} in once more and retrying the merge")
+        if (lp.state.get("waiting_on") or {}).get("line"):
+            return rejoin_line(lp, upstream, f"the PR is {why}")
         # the retry pushes a new head, so its checks are a new run: wait them out again rather
         # than merging on the strength of the ones that passed for the commit just replaced --
         # and its `# once` commands too, which have only ever run on that commit
@@ -5223,6 +5127,8 @@ def target_fails(lp, upstream, dw_log):
     clean.  A probe of a `# once` command takes a heavy-suite turn; any other probe runs
     light, as the check it repeats did.
     """
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return ""     # a line member fixes its own red, without assigning it to another run
     failed = failing_checks(dw_log)
     if not failed:
         return ""
@@ -5257,17 +5163,18 @@ def target_fails(lp, upstream, dw_log):
             if rc != 0:
                 return None
             lp.log(f"--- merge: `{cmd}` failed; probing it once on {where} ({sha[:12]})")
-            with gate.gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
+            with gate.gate_turn(lp.run_dir, probe_log, lp.log, cmd, lp.wt) if heavy_probe else nullcontext():
                 began = time.monotonic()    # from the turn, not the wait
                 while True:
                     with probe_log.open("ab") as progress:
                         progress.write(f"$ {cmd} (on {where} {sha})\n".encode())
                         progress.flush()
                         start = progress.tell()
-                        code, _, killed = worker.limited(
-                            ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
+                        code, _, killed = gate.run_suite(
+                            cmd, lp.done_when_limit, silence=lp.turn_limit,
                             activity=probe_log, output=progress, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=gate.suite_env())
+                            stdin=subprocess.DEVNULL, cwd=str(lp.wt), run_dir=lp.run_dir,
+                            log=lp.log)
                     # busy is no answer: the turn goes back until the suite runs
                     if (not heavy_probe or code != gate.SUITE_BUSY or killed
                             or time.monotonic() - began > lp.done_when_limit):
@@ -5319,14 +5226,35 @@ def target_fails(lp, upstream, dw_log):
     return first_failure(f"$ {cmd}\n[exit {code}]\n{output}")
 
 
+def fix_final_check(lp, upstream, text):
+    """Repair failing landing output and re-review, without recording a task round."""
+    fix = (f"{lp.context}\n\n## The final check failed. Fix the root cause.\n```\n"
+           f"{text[-OUT_CAP:]}\n```")
+    lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
+                                  "reason": "Re-review after the final check.",
+                                  "passed_head_sha": passed_review_head(lp.state),
+                                  "record": False}
+    lp.save()
+    with released_gate_turn():
+        summary = landing_fixer(lp, fix, "final-fixer")
+        lp.state["review_pending"]["summary"] = summary
+        lp.save()
+        ok, dw_log = verify_work(lp)
+        lp.log(f"done-when after the final check: {'all passed' if ok else 'FAILED'}")
+        if (review(lp, summary, ok, dw_log, "Re-review after the final check.", record=False)
+                != "PASS" and not fix_after_failed_review(lp, upstream, "final check")):
+            return note(lp, "done-when or review after the final check did not pass")
+    return True
+
+
 def final_check(lp, upstream):
     """Run every-commands plus once-commands on the commit about to be pushed.
 
     True when the commit may be pushed.  The declared suite runs only here, at
     landing, and a passed landing check on this same commit is reused on resume.
-    Without a `# once` line there is nothing to do.  When the lap's integration
+    Without a `# once` line there is nothing to do.  When integration
     already ran the every-commands on this commit and they passed, only the
-    once-commands run here: each command runs once per commit per lap.  The
+    once-commands run here: each command runs once on that commit.  The
     every-commands run light, without a turn; only the once-commands take a
     heavy-suite turn.  The run is pinned the way `verify_work` pins one: the
     commit and tree are recorded, and a checkout that changes during the check
@@ -5344,8 +5272,6 @@ def final_check(lp, upstream):
     A command red on the target's tip and green on the old base parks without a
     fixer round.  When those commits are the same, only the tip is probed.
     """
-    if not lp.once:
-        return True
     try:
         now = git(lp.wt, "rev-parse", "HEAD")
     except (Stopped, config.Error):
@@ -5363,17 +5289,23 @@ def final_check(lp, upstream):
     fixed = 0       # the fixer rounds this run has spent on these commands here
     while True:
         sha = git(lp.wt, "rev-parse", "HEAD")
-        if getattr(lp, "lap_every_sha", None) == sha:
-            # the lap already ran the task checks on this commit and they passed;
+        suite = declared_suite(lp.wt, lp.target)
+        # A rebase or fixer can change the declaration loaded into lp.once. Rebuild
+        # it from the task so only the inherited suite is replaced, including for probes.
+        task = lp.run_dir / "task.md"
+        if task.is_file():
+            _, body, _ = taskfile.parse_task(task)
+            _, lp.once = taskfile.done_when_groups(body, task)
+        if suite and suite not in lp.once:
+            lp.once.append(suite)
+        if not lp.once:
+            return True
+        if getattr(lp, "checked_every_sha", None) == sha:
+            # integration already ran the task checks on this commit and they passed;
             # running them again would check nothing new
             cmds_every, cmds_once = [], list(lp.once)
         else:
             cmds_every, cmds_once = list(lp.every), list(lp.once)
-        suite, shared = declared_suite(lp.wt, lp.target), None
-        if suite and suite in cmds_once:
-            shared = suite_shared(lp, upstream, sha, suite, together=not fixed)
-            if shared:
-                cmds_once.remove(suite)
         lp.log(f"--- merge: final check: {len(cmds_every) + len(cmds_once)} commands "
                f"({len(lp.once)} once) on {sha[:12]}")
         identity = commit_identity(lp.wt)
@@ -5390,6 +5322,7 @@ def final_check(lp, upstream):
         ok_once, text_once = gate.run_done_when(
             cmds_once, lp.wt, log_path, lp.artifacts, max(0, left), lp.log,
             silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True) if cmds_once else (True, "")
+        gate.split_suite_run(lp, suite)
         ok = ok_every and ok_once
         text = "\n\n".join(part.strip() for part in (text_every, text_once) if part.strip())
         if (not clean or commit_identity(lp.wt) != identity
@@ -5413,10 +5346,6 @@ def final_check(lp, upstream):
         if ok:
             lp.log("final check: all passed")
             evidence = suite_evidence(lp, cmds_once, identity)
-            if shared:      # the suite ran on the batch's top tree: evidence for that tree only
-                evidence = ({"suite": suite, "tree_sha": shared["tested"]}
-                            if shared["tested"] == identity.get("tree_sha") else {})
-                evidence["together"] = shared["leader"]
             lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing",
                                        **evidence}
             if current_review(lp):
@@ -5429,7 +5358,6 @@ def final_check(lp, upstream):
         lp.state["final_check"] = {"outcome": "failed", "sha": sha, "where": "landing",
                                    "line": failing}
         lp.write()
-        drop_reserved_turn()    # the lap failed; the probe runs unheld
         said = target_fails(lp, upstream, text)
         if said:
             return park_waiting(
@@ -5443,110 +5371,152 @@ def final_check(lp, upstream):
         fixed += 1
         lp.log(f"--- merge: final check round {fixed}/{CONFLICT_ROUNDS}: "
                f"fixer {lp.executor} (final check)")
-        fix = (f"{lp.context}\n\n## The final check failed. Fix the root cause.\n```\n"
-               f"{text[-OUT_CAP:]}\n```")
-        # as after a conflict, and before the turn: whatever cuts this round off -- the
-        # fixer's turn, the check or the review after it -- resumes as this round's review,
-        # never as a task round, and never as a run with its budget spent and nothing pending
-        lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
-                                      "reason": "Re-review after the final check.",
+        if not fix_final_check(lp, upstream, text) or not integrate(lp, upstream):
+            return False
+
+
+def join_line(lp, upstream, deliver):
+    """Leave a passed run's place on disk; a fresh process consumes the lander's verdict."""
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return land_from_line(lp, upstream, deliver)
+    require_review_pass(lp)
+    lp.state.update(state="waiting", waiting_on={"line": turn_path(lp, upstream).name,
+                                               "joined": time.time()},
+                    error="waiting for the lander", finished_at=None)
+    lp.state.pop("recovery_pending", None)
+    lp.write()
+    return False
+
+
+def release_line(run_dir, log):
+    """Finish this attempt's cleanup before the lander can wake a new record owner."""
+    with run_record.recovery_lock(run_dir):
+        state = run_record.read_state(run_dir) or {}
+        if (state.get("state") != "waiting" or state.get("pid") != os.getpid()
+                or not (state.get("waiting_on") or {}).get("line")):
+            return
+        stop_run_tree(state, log)
+        state.update(pid=None, process_identity=None)
+        run_record.save_state(run_dir, state)
+    landing.start_line(config.RUNS / state["waiting_on"]["line"], log)
+
+
+def rejoin_line(lp, upstream, reason, *, back=False):
+    """A changed target keeps the place; repaired work queues behind the other members."""
+    wait = lp.state["waiting_on"]
+    lp.state.update(state="waiting", error=reason, merge_failed=False, merge_note=reason,
+                    waiting_on={"line": turn_path(lp, upstream).name,
+                                "joined": time.time() if back else wait["joined"]})
+    lp.state.pop("recovery_pending", None)
+    lp.write()
+    return False
+
+
+def land_from_line(lp, upstream, deliver):
+    """Consume the lander's verdict in this run; only delivery holds the plain merge flock."""
+    wait = lp.state["waiting_on"]
+    if "land" in wait and "fix" not in wait:
+        turn = turn_path(lp, upstream)
+        try:
+            with merge_lock(lp, upstream):
+                fetch(lp.wt, "origin", "--prune", check=True)
+                tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
+                how = "rebase" if on_pass(lp) else how_to_integrate(lp)
+                args = (("merge", "--no-edit", tip) if how == "merge" else
+                        ("rebase", "--onto", tip, lp.base_sha) if on_pass(lp) else
+                        ("rebase", tip))
+                saved = dict(lp.state["review"])
+                try:
+                    code, _ = git_out(lp.wt, *args)
+                except Stopped:
+                    abort_stopped_integration(lp, how)
+                    raise
+                if code:
+                    abort_integration(lp, how)
+                    return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
+                set_base(lp, tip)
+                identity = commit_identity(lp.wt)
+                lp.state["review"] = {**saved, **identity,
                                       "passed_head_sha": passed_review_head(lp.state),
-                                      "record": False}
-        lp.save()
-        with released_gate_turn():
-            summary = execute(lp, "fixer", fix, "final-fixer")
-            lp.state["review_pending"]["summary"] = summary
-            lp.save()
-            ok, dw_log = verify_work(lp)
-            lp.log(f"done-when after the final check: {'all passed' if ok else 'FAILED'}")
-            # This gate is not the one a fixer was asked to fix, and it has nothing to compare
-            # against: the last per-round gate passed, which is how the run reached the merge at
-            # all.  Recording it would only overwrite the rounds' own history with a merge
-            # pipeline's answer.  What this fixer was asked about is judged where it belongs, by
-            # the once-gate at the top of the next pass -- and the reviewer reads the rest.
-            if (review(lp, summary, ok, dw_log, "Re-review after the final check.",
-                       record=False) != "PASS"
-                    and not fix_after_failed_review(lp, upstream, "final check")):
-                # the budget is spent on reviews that failed the work: a review FAIL like the
-                # rounds' own, with its findings -- a wait would only end in the same one
-                return note(lp, "done-when or review after the final check did not pass")
-            if not integrate(lp, upstream):
-                return False
+                                      "rebased_from": saved["head_sha"]}
+                lp.write()
+                if identity["tree_sha"] != wait["land"]:
+                    return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
+                if git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
+                    lp.state.update(on_target=True)
+                    lp.state.pop("waiting_on", None)
+                    lp.state.pop("landing_reds", None)
+                    return note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
+                lp.state["final_check"] = {"outcome": "passed", "where": "landing",
+                                           "sha": identity["head_sha"],
+                                           "tree_sha": identity["tree_sha"],
+                                           "suite": declared_suite(lp.wt, lp.target)}
+                lp.write()
+                result = deliver()
+                if "fix" not in lp.state.get("waiting_on", {}):
+                    if result:
+                        lp.state.pop("waiting_on", None)
+                        lp.state.pop("landing_reds", None)
+                        lp.write()
+                    return result
+        finally:
+            # Departures and changed-target rejoins were written under this flock.
+            landing.start_line(turn, lp.log)
+        wait = lp.state["waiting_on"]
+    if "fix" not in wait:
+        return rejoin_line(lp, upstream, "waiting for the lander")
+    failure = wait["fix"]
+    if not wait.get("fixing"):
+        lp.state["landing_reds"] = lp.state.get("landing_reds", 0) + 1
+        lp.state["waiting_on"] = {**wait, "fixing": True}
+        lp.write()
+    if lp.state["landing_reds"] > CONFLICT_ROUNDS:
+        lp.state.pop("waiting_on", None)
+        return note(lp, f"landing failed four times: {failure['line']}; see {failure['log']}",
+                    failed=True)
+    if not integrate(lp, upstream):
+        if lp.state.get("merge_failed"):
+            raise config.Error(lp.state["merge_note"])
+        lp.state["state"] = "running"
+        if not lp.state.get("review_pending") or resume_review(lp) != "PASS":
+            lp.state.pop("waiting_on", None)
+            lp.write()
+            return False
+    if not lp.state["waiting_on"].get("fixed"):
+        text = Path(failure["log"]).read_text(errors="replace")
+        if not fix_final_check(lp, upstream, text):
+            lp.state.pop("waiting_on", None)
+            lp.write()
+            return False
+    return rejoin_line(lp, upstream, "landing fixes passed review", back=True)
 
 
 def land(lp, upstream, verify, deliver, execv=None):
-    """Verify and deliver on the target tip, holding the merge turn through any suite.
+    """Consume a line verdict, or verify once before taking the delivery lock.
 
-    Each lap fetches and brings the branch onto the target's tip, then checks
-    exactly that commit; only the heavy suite takes a heavy turn, light checks run free.
-    `verify` is the rebase, the done-when and final check re-runs, and every
-    conflict fixer, final-check fixer and re-review they need. A lap with a suite
-    reserves the merge turn before integration and keeps it through the suite and
-    delivery, so borrowers cannot invalidate its check. Without once-commands,
-    the first lap verifies outside the turn and takes it for a fetch and `deliver`
-    -- the push, the PR, its required checks and the merge. A target still on the
-    commit the branch was verified on lands. An external move during the suite
-    needs verification of the new commit. Without once-commands,
-    a disjoint move lands on the task checks; a docs overlap runs the done-when again
-    (`disjoint_move`).  Any other move verifies again holding the turn, from before its
-    rebase through its merge. Without a suite it lends the delivery turn to branches
-    changing other files, so the lap lands when its check passes; a third such lap parks
-    the run `waiting`, as a target moving under three integrations does.  A
-    reserved turn is let go before any fixer or reviewer starts, and when the run
-    stops; every retake keeps this landing's first merge rank, even through a pickup.
-    A branch cut from a dependency's passed
-    branch first waits for that dependency to merge (`wait_for_dependency`).  A
-    pickup mid-landing resumes its lap count, so the three laps bound the run across
-    the move.  While the run is inside this landing its heavy waits rank ahead of
-    every round check's, every lap counting from the start of the landing's first
-    wait, so a run ready to land finishes instead of queuing behind another round.
+    A branch cut from a dependency's passed branch waits for it to merge first.
+    Only delivery holds the repository lock; checks and fixers run outside it.
     """
     if not wait_for_dependency(lp):
         return False
-    first_lap = lp.state.pop("land_lap", 1)
-    if not lp.state.get("landing"):
-        lp.state.pop("merge_rank", None)
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return land_from_line(lp, upstream, deliver)
+    pickup_new_code(lp, execv=execv)
+    gate.clear_landing_wait(lp.run_dir)
     lp.state["landing"] = True
-    if first_lap == 1:
-        # A fresh landing counts from its own first wait: a marker a crash left
-        # behind belongs to a landing that never finished.  A pickup resume keeps
-        # its marker with its lap count.
-        gate.clear_landing_wait(lp.run_dir)
     lp.write()
     try:
-        for lap in range(first_lap, 4):
-            pickup_new_code(lp, execv=execv, extra={"land_lap": lap})
-            reserved = bool(lp.once) or lap > 1
-            # the merge turn first: the final check can wait for a heavy turn while
-            # holding it, so the reverse order could deadlock two landers
-            with merge_turn(lp, upstream, reserve=True) if reserved else nullcontext():
-                if not verify():
-                    return False
-                held = getattr(_MERGE_HELD, "hold", None)
-                if held is not None:
-                    held.releasable = False   # the check passed; the merge keeps the turn
-                verified = lp.base_sha
-                with merge_turn(lp, upstream):
-                    rc, out = fetch(lp.wt, "origin", "--prune")
-                    if rc != 0:
-                        return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
-                    tip = git(lp.wt, "rev-parse", "--verify", "--quiet",
-                              f"{upstream}^{{commit}}", check=False)
-                    if not tip:
-                        return note(lp, f"{upstream} does not exist on origin; nothing to merge "
-                                        "into", failed=True)
-                    if tip == verified or disjoint_move(lp, upstream, verified, tip):
-                        return deliver()
-            if lap < 3:
-                lp.log(f"--- merge: {upstream} moved to {tip[:12]}; "
-                       "verifying again holding the merge turn")
-        # parked on the tip the last lap verified, which origin is already past, so the tick's
-        # next pass retries it
-        return park_waiting(lp, f"{upstream} moved three times while this run verified",
-                            upstream, verified)
+        if not verify():
+            return False
+        with merge_lock(lp, upstream):
+            fetch(lp.wt, "origin", "--prune", check=True)
+            tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
+            if tip != lp.base_sha:
+                return park_waiting(lp, f"{upstream} changed since verification",
+                                    upstream, lp.base_sha)
+            return deliver()
     finally:
         lp.state.pop("landing", None)
-        lp.state.pop("merge_rank", None)
         gate.clear_landing_wait(lp.run_dir)
         try:
             lp.write()
@@ -5554,364 +5524,34 @@ def land(lp, upstream, verify, deliver, execv=None):
             pass            # the landing is over however the record ends
 
 
-def disjoint_move(lp, upstream, verified, tip):
-    """Bring the branch from `verified` onto `tip` under the turn, when no check can tell.
-
-    True when `tip` only adds commits to `verified` and they touch none of the files this
-    branch changes: the branch is rebased onto it (merged, where `how_to_integrate` says so)
-    and the review of the verified commit is carried onto the new one, as a clean
-    integration keeps its review.  Files both sides changed may only be markdown docs outside
-    `tests/`: the done-when runs again on the new commit first.  A run with once-commands
-    needs its suite on the new commit instead.  False, the branch back where it was, for
-    anything else.
-    """
-    if git_out(lp.wt, "merge-base", "--is-ancestor", verified, tip)[0] != 0:
-        return False
-    # A suite checks the whole commit; a target move needs another landing check.
-    if lp.once:
-        return False
-    # read as the merge turn reads them: a quoted or trimmed path is not the file it names
-    ours, theirs = merge_turn_files(lp.wt, verified), merge_turn_files(lp.wt, verified, tip)
-    if ours is None or theirs is None:
-        return False
-    shared = sorted(ours & theirs)
-    if not all(path.endswith(".md") and "tests" not in path.split("/") for path in shared):
-        return False
-    how = how_to_integrate(lp)
-    old_head = git(lp.wt, "rev-parse", "HEAD")
-    kept = {"review": lp.state["review"], "verdict": lp.state["verdict"]}
-    # as in `integrate`: the PASS is withdrawn before git rewrites HEAD, so an interruption
-    # cannot leave one saved on a commit nothing checked
-    pending_review(lp, f"Re-review after the {how} of {upstream}.")
-    try:
-        rc, _ = git_out(lp.wt, *(("merge", "--no-edit", tip) if how == "merge"
-                                 else ("rebase", tip)))
-    except Stopped:
-        abort_stopped_integration(lp, how)
-        raise
-    if rc != 0:
-        git_out(lp.wt, how, "--abort")
-    else:
-        set_base(lp, tip)
-        if not shared:
-            moved = git(lp.wt, "rev-list", "--count", f"{verified}..{tip}")
-            lp.log(f"--- merge: {upstream} moved {moved} commits, none touching this branch's "
-                   "files; landing on the verified checks")
-        elif git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
-            rc = 1      # the target already carries the work: the reserved lap says so
-        else:
-            lp.log(f"--- merge: {upstream} moved, overlapping this branch only in docs "
-                   f"({', '.join(shared)}); landing after the done-when")
-            dw_path = lp.run_dir / f"round-{lp.state['review_pending']['round']}" / "donewhen.log"
-            dw_path.parent.mkdir(parents=True, exist_ok=True)
-            identity = commit_identity(lp.wt)
-            ok, dw_log = gate.run_done_when(lp.every, lp.wt, dw_path, lp.artifacts,
-                                            lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                                            run_dir=lp.run_dir)
-            # pinned as `verify_work` pins, but committing no leftovers: what lands is the
-            # rebased commit the review is carried onto, and untracked files stay untracked
-            ok = (ok and commit_identity(lp.wt) == identity
-                  and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0)
-            lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
-            if ok:
-                record_flakes(lp.state, dw_log)
-            else:
-                rc = 1
-        if rc == 0:
-            landed = commit_identity(lp.wt)
-            kept["review"] = {**kept["review"], **landed,
-                              "passed_head_sha": passed_review_head(lp.state),
-                              "rebased_from": old_head, "patch_id": patch_id(lp.wt, tip)}
-        else:
-            # back on the verified commit: the reserved lap checks again and fixes it
-            git(lp.wt, "reset", "--hard", old_head)
-            lp.state["base_sha"] = verified
-    lp.state.update(kept)
-    lp.state.pop("review_pending", None)
-    lp.save()
-    return rc == 0
-
-
 @contextmanager
-def merge_turn(lp, upstream, reserve=False):
-    """This host's one run at a time landing on `upstream`, from its last fetch to the merge.
-
-    Passed runs of one repository that land together undo each other: each pushes a branch
-    verified on a target the other's merge has just moved.  So the runs of one origin and
-    target branch take turns. A lap with a suite, or after a lost lap, reserves the
-    turn from before its rebase through its merge. A suite needs the exclusive turn
-    through delivery. Without a suite, a reserved lap lends the delivery flock after
-    its rebase, keeping a flock on its file list instead. Disjoint branches can then
-    deliver one at a time; overlapping
-    branches wait for the reservation without blocking delivery. The kernel releases
-    both flocks when their holder dies. A run waiting says so on its record, and host
-    admission does not count it as a running worker meanwhile; a reserved lap marks its
-    own hold to land. A reserved lap takes its lent delivery turn back before its fetch
-    and merge, keeping its reservation until it finishes. While it waits behind a
-    borrower it keeps that holding mark and its slot; a separate retake mark tells only
-    the silence watch the wait is no stall, and the wait counts as no step's work.
-    The kernel wakes every waiter of a flock and any one may win, so a free turn goes
-    by the waiters' queue instead: a `--first` run before the rest, then the earliest
-    to enter by the host's monotonic clock, which no clock adjustment moves back.  A
-    waiter holds a flock on a place named by its rank and listing its files; one that
-    wins the turn behind a live place ranked before its own lets the turn go and waits
-    for that place.  A place whose files a live reservation blocks holds nobody back,
-    so disjoint branches still land during a reserved lap's re-check, and its waiter
-    keeps its rank for when the reservation ends; parking swaps the place for a new one,
-    waking whoever waited on the old.  The kernel lets a dead waiter's place go.  A
-    reserved lap taking its lent turn back queues for nobody. A landing saves its
-    rank with this boot in the run record and keeps it until it ends. Between laps,
-    including an exec's gap, that live record keeps later waiters behind it.
-    """
-    current = getattr(_MERGE_HELD, "hold", None)
-    if current is not None and not current.lent:
-        yield
-        return
+def merge_lock(lp, upstream):
+    """Serialize deliveries to one repository and target; the kernel releases a dead holder."""
     config.RUNS.mkdir(parents=True, exist_ok=True)
-    what = f"{Path(lp.state.get('repo') or lp.wt).name} {upstream.removeprefix('origin/')}"
-    path = turn_path(lp, upstream)
-    joined = time.monotonic_ns()
-    rank = f"{0 if lp.state.get('first') else 1}{joined:020d}"
-    if lp.state.get("landing"):
-        boot = (host.process_identity(os.getpid()) or {}).get("boot")
-        saved = lp.state.get("merge_rank")
-        if (boot and isinstance(saved, dict) and saved.get("boot") == boot
-                and saved.get("of") == path.name
-                and isinstance(saved.get("rank"), str)
-                and re.fullmatch(r"[01][0-9]{20}", saved["rank"])
-                and isinstance(saved.get("joined"), int)):
-            rank, joined = saved["rank"], saved["joined"]
-        else:
-            lp.state["merge_rank"] = {"of": path.name, "boot": boot,
-                                      "rank": rank, "joined": joined}
-            lp.write()
-    lock = current.lock if current is not None else path.open("a")
-    place = files = None
-    waited = False
-    retaking = False
-
-    def leave(old):
-        if old is not None:
-            old[0].unlink(missing_ok=True)
-            old[1].close()
-
-    def queue(renew=False):
-        nonlocal place
-        if current is None and (place is None or renew):
-            old, place = place, merge_turn_queue(path, rank, files, joined=joined)
-            leave(old)
-
-    def waiting(at=None):
-        nonlocal waited, step, retaking, retake_step
-        if current is not None:
-            if retaking:
-                return
-            # a delivery holds the lock through required checks of up to an hour, with
-            # no child process of the holder's own running: without its own mark the
-            # silence watch would read the holder's wait as a stall and resume it.
-            retaking = True
-            retake_step = history.close_step(lp.state.get("run_id"), at, log=lp.log)
-            lp.state["merge_retake"] = {"pid": os.getpid(), "of": what}
-            lp.write()
-            lp.log(f"--- merge: taking back the merge turn of {what}; "
-                   "a borrower is landing on it")
-            return
-        if waited:
-            return
-        waited = True
-        # closed before the save, which can block on the record's lock: the sampler would
-        # count that wait as the step's, and no later close takes it back
-        step = history.close_step(lp.state.get("run_id"), at, log=lp.log)
-        lp.state["merge_turn"] = {"pid": os.getpid(), "of": what}
-        lp.write()
-        lp.log(f"--- merge: waiting for the merge turn of {what}; another run is landing on it")
-
-    step = None
-    retake_step = None
+    held = getattr(_PICKUP_HELD, "count", 0)
+    _PICKUP_HELD.count = held + 1
     try:
-        try:
-            files = merge_turn_files(lp.wt, upstream)
-            while True:
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    # the wait began when the turn was found taken, but the place is
-                    # published first: the record's save can block, and others would pass
-                    taken = time.time()
-                    queue()
-                    waiting(taken)
-                    fcntl.flock(lock, fcntl.LOCK_EX)
-                blocker = merge_turn_blocker(
-                    path, files, current.reservation.name if current is not None else None)
-                if blocker is not None:
-                    queue(renew=True)
-                elif current is None:
-                    blocker = merge_turn_ahead(path, rank, joined=joined)
-                    if blocker is not None:
-                        queue()
-                if blocker is None:
-                    break
-                fcntl.flock(lock, fcntl.LOCK_UN)
-                waiting()
-                if blocker.name == "run.json":
-                    # A record survives exec; its writer holds no flock across the move.
-                    time.sleep(0.05)
-                    continue
-                try:
-                    with blocker.open() as other:
-                        fcntl.flock(other, fcntl.LOCK_EX)
-                except FileNotFoundError:
-                    pass           # the holder finished between the probe and the wait
-        finally:
-            leave(place)
-            if waited:
-                lp.state.pop("merge_turn", None)
-            if retaking:
-                lp.state.pop("merge_retake", None)
-            if waited or retaking:
-                lp.write()
-        if waited:
-            history.open_step(lp.state.get("run_id"), step, log=lp.log)
-            lp.log(f"--- merge: took the merge turn of {what}")
-        if retaking:
-            history.open_step(lp.state.get("run_id"), retake_step, log=lp.log)
-            lp.log(f"--- merge: took back the merge turn of {what}")
-        if current is not None:
-            current.lent = False
-            yield
-            return
-        held = getattr(_PICKUP_HELD, "count", 0)
-        _PICKUP_HELD.count = held + 1
-        try:
-            if reserve:
-                lp.state["merge_hold"] = {"pid": os.getpid(), "of": what}
-                lp.write()
-                lp.log(f"--- merge: holding the merge turn of {what} to land")
-        except BaseException:
-            _PICKUP_HELD.count = held
-            raise
-        hold = _MergeHold(lock, lp, reserve)
-        lock = None             # the hold owns the file from here
-        _MERGE_HELD.hold = hold
-        try:
-            hold.weighed = raise_cpu_weight(lp)
-            yield
-        finally:
-            if getattr(_MERGE_HELD, "hold", None) is hold:
-                hold.release()
-    finally:
-        if lock is not None and current is None:
+        with turn_path(lp, upstream).open("a") as lock:
             try:
-                lock.close()
-            except (OSError, ValueError):
-                pass
-
-
-def merge_turn_files(wt, upstream, head="HEAD"):
-    """The paths `head` changed since its merge base with `upstream`; None means unknown.
-
-    Both sides of a rename count."""
-    base = git(wt, "merge-base", upstream, head, check=False)
-    if not base:
-        return None
-    # `git()` strips whitespace; NUL-delimited paths can start with it, or contain
-    # newlines. Read stdout intact so those are still the same files in every clone.
-    code, out, err = tool_run(["git", "-C", str(wt), "diff", "--no-renames",
-                               "--name-only", "-z", base, head])
-    if stopped(code, err):
-        raise Stopped(f"git diff stopped in {wt}: {err.strip()}")
-    return set(out.split("\0")) - {""} if code == 0 else None
-
-
-def merge_turn_blocker(path, files, own=None):
-    """A live overlapping reservation, probed only while holding delivery's flock."""
-    for reserved in path.parent.glob(f"{path.stem}.*.hold"):
-        if str(reserved) == own:
-            continue
-        try:
-            with reserved.open() as probe:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                # Another delivery can spend an hour on PR checks; its waiter is not stalled.
+                lp.state["delivery_wait"] = os.getpid()
                 try:
-                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    try:
-                        theirs = json.load(probe)
-                    except (ValueError, OSError):
-                        return reserved
-                    if (files is None or not isinstance(theirs, list)
-                            or not all(isinstance(name, str) for name in theirs)
-                            or files.intersection(theirs)):
-                        return reserved
-                else:
-                    reserved.unlink(missing_ok=True)   # a dead holder's record is no hold
-        except FileNotFoundError:
-            pass
-    return None
-
-
-def merge_turn_queue(path, rank, files, joined=None):
-    """(name, file): a place in the queue for `path`'s turn, flocked before it is named.
-
-    A probe reads an unlocked place as its dead waiter's and removes it, so the place
-    is locked and its files written under another name first.  Its name sorts in rank
-    order, and is new on every queueing, so no probe of an old place removes a new one.
-    """
-    joined = time.monotonic_ns() if joined is None else joined
-    name = path.with_name(f"{path.stem}.{rank}-{joined:020d}-{os.getpid()}-{threading.get_ident()}"
-                          f"-{time.monotonic_ns()}.wait")
-    fresh = name.with_suffix(".new")
-    place = fresh.open("w")
-    fcntl.flock(place, fcntl.LOCK_EX)
-    json.dump(None if files is None else sorted(files), place)
-    place.flush()
-    fresh.rename(name)
-    return name, place
-
-
-def merge_turn_ahead(path, rank, joined=None):
-    """A live waiter's place ranked before `rank` that no reservation blocks; else None.
-
-    Probed only while holding delivery's flock, as reservations are.
-    """
-    joined = time.monotonic_ns() if joined is None else joined
-    mine = f"{path.stem}.{rank}-{joined:020d}-"
-    for place in sorted(path.parent.glob(f"{path.stem}.*.wait")):
-        if place.name >= mine:
-            break
-        try:
-            with place.open() as probe:
-                try:
-                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    try:
-                        theirs = set(json.load(probe))
-                    except (TypeError, ValueError):
-                        theirs = None           # unknown files wait for any reservation
-                    if merge_turn_blocker(path, theirs) is None:
-                        return place
-                    continue
-                place.unlink(missing_ok=True)      # a dead waiter's place is no place
-        except FileNotFoundError:
-            pass
-    boot = (host.process_identity(os.getpid()) or {}).get("boot")
-    for directory in run_record.run_dirs() if boot else ():
-        state = run_record.read_state(directory) or {}
-        saved = state.get("merge_rank")
-        if (state.get("state") != "running" or not state.get("landing")
-                or state.get("merge_turn") or state.get("merge_hold")
-                or not isinstance(saved, dict) or saved.get("boot") != boot
-                or saved.get("of") != path.name or not isinstance(saved.get("rank"), str)
-                or not isinstance(saved.get("joined"), int)):
-            continue
-        if (f"{path.stem}.{saved['rank']}-{saved['joined']:020d}-" < mine
-                and run_record.process_active(state)):
-            return directory / "run.json"
-    return None
+                    lp.write()
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                finally:
+                    lp.state.pop("delivery_wait", None)
+                    lp.write()
+            yield
+    finally:
+        _PICKUP_HELD.count = held
 
 
 def turn_path(lp, upstream):
-    """The lock file of the merge turn `lp`'s repository lands on at `upstream`."""
+    """The delivery lock for `lp`'s repository and target."""
     url = git(lp.wt, "remote", "get-url", "origin", check=False) or str(lp.state.get("repo"))
-    return merge_turn_lock(url, upstream)
+    return merge_lock_path(url, upstream)
 
 
 def remote_key(url):
@@ -5928,57 +5568,14 @@ def remote_key(url):
     return f"{host}/{path.strip('/').removesuffix('.git')}".lower() if host else url
 
 
-def merge_turn_lock(url, upstream):
-    """The lock file of one repository's merge turn at `upstream`, however a clone spells it.
-
-    One repository is one turn (`remote_key`).  The name is a digest of it and the branch,
-    so no two repositories share a turn by spelling alike.
-    """
+def merge_lock_path(url, upstream):
+    """The delivery lock for one repository and target, however a clone spells it."""
     digest = hashlib.sha256(f"{remote_key(url)}\n{upstream}".encode()).hexdigest()
     return config.RUNS / f".merge-{digest}.lock"
 
 
-def merge_turn_note(state):
-    """`waiting for the merge turn of <repo> <branch>` while a run waits in `merge_turn`, else "".
-
-    The mark names the process that waits, so one a kill left on the record, or a resume
-    carried forward to a new process, says nothing.
-    """
-    turn = state.get("merge_turn")
-    if (state.get("state") != "running" or not isinstance(turn, dict)
-            or turn.get("pid") != state.get("pid")):
-        return ""
-    return f"waiting for the merge turn of {turn.get('of')}"
-
-
-def merge_hold_note(state):
-    """`holding the merge turn of <repo> <branch> to land` while a reserved lap holds it, else "".
-
-    A hold of its own, not a wait: the run is working through its check and merge, so it
-    keeps its slot and its silence watch, unlike a waiter that only sits there.
-    """
-    hold = state.get("merge_hold")
-    if (state.get("state") != "running" or not isinstance(hold, dict)
-            or hold.get("pid") != state.get("pid")):
-        return ""
-    return f"holding the merge turn of {hold.get('of')} to land"
-
-
-def merge_retaking(state):
-    """Whether a reserved lap waits to take its lent turn back, for the silence watch only.
-
-    The run is silent while a borrower lands, so its stall clock restarts each tick like
-    any other wait.  The status line stays `holding ... to land` and the run keeps its
-    slot: only `watch.stall_clock` reads this mark.  Like every wait mark it names the
-    process that waits, so one a kill left behind says nothing.
-    """
-    retake = state.get("merge_retake")
-    return (state.get("state") == "running" and isinstance(retake, dict)
-            and retake.get("pid") == state.get("pid"))
-
-
 def merge(lp):
-    """A passed run finishes the job: integrate, final check, push, PR, checks, merge.
+    """A passed writable run joins the line; a wake delivers its checked tree, a fork its PR.
 
     Never a model's call.
 
@@ -5986,7 +5583,8 @@ def merge(lp):
     which is only where the run's branch was cut from.  They are the same branch unless the
     task said otherwise.
     """
-    require_review_pass(lp)
+    if not (lp.state.get("waiting_on") or {}).get("line"):
+        require_review_pass(lp)
     lp.state.update(merged=False, merge_failed=False, merge_note=None, on_target=False)
     lp.step("merge")
     branch = lp.state["branch"]
@@ -6002,20 +5600,23 @@ def merge(lp):
         return note(lp, f"this run works directly on {branch}, which is the branch it would merge "
                         "into, so there is no PR to open", failed=True)
 
+    if not wait_for_dependency(lp):
+        return False
+    upstream_repo, permission = rights(lp)
+    if upstream_repo and permission not in PUSH_RIGHTS:
+        return land(lp, upstream, lambda: integrate(lp, upstream) and final_check(lp, upstream),
+                    lambda: fork_and_pr(lp, target_branch, upstream_repo, permission))
+
     def deliver():
         require_review_pass(lp)
         lp.step("merge")        # integration may have spent rounds of its own on the way here
-        upstream_repo, permission = rights(lp)
-        if upstream_repo and permission not in PUSH_RIGHTS:
-            return fork_and_pr(lp, target_branch, upstream_repo, permission)
         if not push(lp):
             return False
         url = open_pr(lp, target_branch)
         if not url or not wait_checks(lp, url):
             return False
         return do_merge(lp, url, upstream)
-    return land(lp, upstream, lambda: integrate(lp, upstream) and final_check(lp, upstream),
-                deliver)
+    return join_line(lp, upstream, deliver)
 
 
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
@@ -6053,7 +5654,11 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                              "reported": False, "task_words": sized_words,
                              "task_points": sized_points, "task_checks": sized_checks}))
         history_start(run_record.read_state(run_dir) or receipt, log)
-        repo = task_repo(meta, task_path)
+        # Detached starts and unstarted resumes may no longer stand in the launch checkout.
+        if "repo" in receipt:
+            repo = Path(receipt["repo"]) if receipt["repo"] else None
+        else:
+            repo = task_repo(meta, task_path)  # receipts from before preflight saved it
         scratch = repo is None
         raw_rounds = opts["--rounds"] or meta.get("rounds") or 3
         try:
@@ -6361,7 +5966,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     lp.every, lp.once = every, once
     try:
         rounds(lp)
-        if review_pass(state, cfg) and not state.get("no_merge"):
+        if (not state.get("no_merge")
+                and (review_pass(state, cfg) or (state.get("waiting_on") or {}).get("line"))):
             try:
                 merge(lp)
             except config.Error as exc:
@@ -6414,7 +6020,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     state.pop("error_retries", None)
     for key in ("waiting_for", "login_resume_at", "login_back_at"):
         state.pop(key, None)
-    state["finished_at"] = time.time()
+    state["finished_at"] = (None if state.get("state") == "waiting"
+                            and (state.get("waiting_on") or {}).get("line") else time.time())
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
     settle_run(state, run_dir, log)
@@ -6503,13 +6110,6 @@ def diff_lines(repo, base, head="HEAD"):
             total += sum(lines for (_, lines), attr in zip(changes, attrs)
                          if attr.lower() not in ("set", "true"))
     return total
-
-
-def refuse_pr_size(repo, base, head):
-    size = diff_lines(repo, base, head)
-    ceiling, _ = history.pr_ceiling()
-    if ceiling is not None and size > ceiling:
-        raise config.Error(f"PR has {size} changed lines, over the {ceiling}-line ceiling; split it.")
 
 
 def history_finish(state, log=None):
@@ -6785,49 +6385,6 @@ def retry_command(state):
             or state.get("review_pr") or not state.get("repo")):
         return None
     return f"ak run merge {state['run_id']}"
-
-
-def suite_shared(lp, upstream, sha, suite, together=True):
-    """The batch whose suite already passed on `sha`'s tree (landing.passed), else None.
-
-    Holding the merge turn, a run with no such batch first checks the passed runs waiting
-    behind it together with itself, in one run of `suite` (landing.together): a pass records
-    every stacked tree, its own first; a failure is split until the passing prefix is
-    recorded, and a run outside it checks itself alone.
-    """
-    turn, tree = turn_path(lp, upstream), git(lp.wt, "rev-parse", f"{sha}^{{tree}}")
-    shared = landing.passed(turn, tree)
-    if shared:
-        if shared["leader"] != lp.state.get("run_id"):
-            lp.log(f"final check: the suite already passed on this tree with "
-                   f"{shared['leader']}; not running it again")
-        return shared
-    if not together or getattr(_MERGE_HELD, "hold", None) is None:
-        return None
-
-    def suite_run(cwd):
-        identity = commit_identity(cwd)
-        clean = git_out(cwd, "diff", "--quiet", "HEAD")[0] == 0
-        log_path = lp.run_dir / "final-check-together.log"
-        ok, text = gate.run_done_when([suite], cwd, log_path, lp.artifacts,
-                                     lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                                     run_dir=lp.run_dir, heavy=True)
-        if (not clean or commit_identity(cwd) != identity
-                or git_out(cwd, "diff", "--quiet", "HEAD")[0] != 0):
-            ok = False
-            text += "\n\nCheckout changed during the shared suite; it does not verify the pinned commit."
-        log_path.write_text(f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}")
-        return ok, text
-
-    ok, members, _ = landing.together(lp.wt, sha, upstream, turn, lp.state.get("run_id"),
-                                   suite_run, lp.log)
-    if not members:
-        return None
-    shared = landing.passed(turn, tree)
-    lp.log("final check: the suite on the runs landing together: "
-           + ("all passed" if ok else "FAILED; this run passed in the split" if shared
-              else "FAILED; checking this run alone"))
-    return shared
 
 
 def final_check_line(state, cmds):
@@ -7812,17 +7369,17 @@ def installed_head():
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
-def pickup_new_code(lp, execv=None, current=None, extra=None):
+def pickup_new_code(lp, execv=None, current=None):
     """Replace this process with the installed agentkit when it has moved, at a safe boundary.
 
-    Before a round and before a landing lap's verify the run holds no gate turn, no merge
-    turn and no child, so a process driving this one run replaces itself with `ak run resume
+    Before a round and before landing verification the run holds no gate turn, no delivery
+    lock and no child, so a process driving this one run replaces itself with `ak run resume
     <id>` and the resume continues in place on the new code: the pid, the scope and the slot
     stay the same, and a saved PASS is kept as a resume keeps it.  A job's threads share one
     process, and a delivery retry must stay one, so neither ever moves; any turn held or
     waited for, any child still marked, or a version that cannot be read means no move, never
-    a failed run.  `execv`, `current` and `extra` are the injected exec, installed version
-    and marker fields the tests use.
+    a failed run. `execv` and `current` are the injected exec and installed version
+    the tests use.
     """
     global _PICKUP_START
     if threading.current_thread() is not threading.main_thread():
@@ -7846,7 +7403,7 @@ def pickup_new_code(lp, execv=None, current=None, extra=None):
     if now == start:
         return False
     try:
-        if gate.gate_turn_note(lp.state) or merge_turn_note(lp.state):
+        if gate.gate_turn_note(lp.state):
             return False
     except Exception:
         return False
@@ -7859,7 +7416,7 @@ def pickup_new_code(lp, execv=None, current=None, extra=None):
     if children:
         return False
     try:
-        lp.state["pickup"] = {"pid": os.getpid(), "from": start, "to": now, **(extra or {})}
+        lp.state["pickup"] = {"pid": os.getpid(), "from": start, "to": now}
         lp.write()
     except run_record.StopRequested:
         raise
@@ -7994,17 +7551,13 @@ def host_status_line():
 
 
 def slot_counts(state):
-    """Live slot owners, and top-level receipts ahead of this one (including dead waiters).
-
-    A run waiting for its merge turn owns no slot while it waits: it only sits there.
-    """
+    """Live slot owners, and top-level receipts ahead of this one (including dead waiters)."""
     running, ahead = 0, 0
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
         if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
             continue
-        if (other.get("state") == "running" and run_record.process_active(other)
-                and not merge_turn_note(other)):
+        if other.get("state") == "running" and run_record.process_active(other):
             running += 1
         elif (other.get("state") == "queued" and other.get("slot_waiting") and
               slot_order(other) < slot_order(state)):
@@ -8025,7 +7578,6 @@ def frozen_runs(state):
         if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
             continue
         if (other.get("state") == "running" and run_record.process_active(other)
-                and not merge_turn_note(other)
                 and host.frozen_cgroup(other.get("pid"))):
             frozen += 1
     return frozen
@@ -8222,9 +7774,11 @@ def needs_recovery(state):
 
     A resume leaves `recovery_pending` on the record it starts from, so an attempt that ends
     `blocked` would otherwise be offered for recovery it is refused -- see `cmd_resume`.
-    A `stopped` run is a deliberate end, never an accident to offer back.
+    A `stopped` run is a deliberate end, never an accident to offer back. Line
+    members belong to the lander even if an earlier attempt left a recovery mark.
     """
-    return (state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
+    return (not landing_line(state) and
+            state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
             (state.get("state") in ("interrupted", "exhausted", "stalled", "waiting_login") or
              bool(state.get("recovery_pending"))))
 
@@ -8371,7 +7925,7 @@ def memory_cap_line(mb):
     return f"killed: memory cap {shown} GB"
 
 
-def run_scope_limits(ceiling_mb=None):
+def run_scope_limits(ceiling_mb=None, *, cap_mb=None):
     """(cap in MiB, systemd properties) for one run scope.
 
     CPU and I/O weight stay below the seats' 100, and the memory cap is applied
@@ -8381,9 +7935,10 @@ def run_scope_limits(ceiling_mb=None):
     loop, its harness session and its worktree go on, and `memory_cap_note` says
     so.  The properties are what `systemd-run -p` takes; the cap is what the
     receipt records, so the reason can still name the number after the process
-    that knew it is gone.
+    that knew it is gone. A lander supplies its recorded suite need as `cap_mb`
+    while keeping the same scope properties.
     """
-    cap = memory_cap_mb(ceiling_mb)
+    cap = memory_cap_mb(ceiling_mb) if cap_mb is None else cap_mb
     return cap, ("-p", "CPUWeight=40", "-p", "IOWeight=40",
                  "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M",
                  *(("-p", "OOMPolicy=continue") if orch.scope_oom_policy() else ()))
@@ -9155,11 +8710,14 @@ def going(state, now=None):
 
     The GOING states -- queued, running, waiting, exhausted, stalled,
     waiting_login -- which resume themselves or are already running, plus an
-    error the tick will retry. Errors and merge waits also need current admission:
+    error the tick will retry. Errors and waits on a target ref need current admission:
     an old stamp cannot keep a seat working after its retry stopped being allowed,
     and an exhausted run keeps one working only while the tick can resume it
-    (`exhausted_wait`): one that waits on nobody is his, not going.
+    (`exhausted_wait`): one that waits on nobody is his, not going. Line members
+    stay going until the lander ends them.
     """
+    if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
+        return True  # the line is unfinished work, not an ending with timed recovery
     if state.get("state") in ("error", "waiting") and not tick_admission(state, now=now):
         return False
     if state.get("state") == "exhausted":
@@ -9193,10 +8751,13 @@ CONFLICT_NOTE = re.compile(r"conflict|did not finish the (?:rebase|merge)", re.I
 def tick_admission(state, now=None):
     """Why the tick may take up this ending, or nothing if it belongs to a person.
 
-    A telling or acknowledgement settles the ending for good. Only an untold
+    Line members belong to the lander until they end, however long they wait.
+    A telling or acknowledgement settles an ending for good. Only an untold
     ending under a day old, from a session that still exists, is the tick's.
     Following the launch name also keeps a renamed seat's runs with that seat.
     """
+    if landing_line(state):
+        return "in line to land"
     if any(state.get(key) for key in (
             "handed_back", "recovery_notified", "recovery_acknowledged_at")):
         return ""
@@ -9260,13 +8821,19 @@ def upstream_sha(wt, ref):
     return sha
 
 
+def landing_line(state):
+    """The repository lock named by a waiting line member."""
+    return (state.get("waiting_on") or {}).get("line") if state.get("state") == "waiting" else None
+
+
 def parked_line(state, run_id=None, now=None):
     """The dim line under a parked run's status row: its state as such, and when.
 
     An error with a scheduled retry names its hour (`error · retry 14:32`, or
     `retry due` once the hour has passed and the tick just has not fired yet); a
-    `waiting` run names the merge it waits for; an `exhausted` run off a dead
-    reviewer names the reviewer it waits for.  A quota run already says its
+    `waiting` run names its place in the landing line or the merge it waits for;
+    an `exhausted` run off a dead reviewer names the reviewer it waits for.
+    A quota run already says its
     window on the waiting line, and a stalled one its stall lines, so neither
     says anything here. An admitted ending also names the conditions that let
     the tick take it up. Anything parked with no scheduled resume says who it
@@ -9274,6 +8841,19 @@ def parked_line(state, run_id=None, now=None):
     """
     now = time.time() if now is None else now
     name = run_id or state.get("run_id") or "?"
+    line = landing_line(state)
+    if line:
+        joined = state["waiting_on"]["joined"]
+        place = 1
+        for directory in run_record.run_dirs():
+            member = run_record.read_state(directory) or {}
+            if (landing_line(member) == line
+                    and (member["waiting_on"]["joined"], directory.name) < (joined, name)):
+                place += 1
+        suffix = ("th" if 10 <= place % 100 <= 20 else
+                  {1: "st", 2: "nd", 3: "rd"}.get(place % 10, "th"))
+        target = (state.get("target") or state.get("base") or "main").removeprefix("origin/")
+        return f"waiting · {place}{suffix} in line to land on {target}"
     word = state.get("state")
     admission = tick_admission(state, now=now) if word in ("error", "waiting") else ""
     admitted = f" · {admission}" if admission else ""
@@ -9841,16 +9421,12 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
     lines.extend(death_lines(state))
     if state.get("state") == "queued":
         lines.append(f"  {slot_note(state)}")
-    elif merge_turn_note(state):
-        lines.append(f"  {merge_turn_note(state)}")
     elif dep_wait_note(state):
         lines.append(f"  {dep_wait_note(state)}")
     elif own_pr_wait_note(state):
         lines.append(f"  {own_pr_wait_note(state)}")
     elif gate.gate_turn_note(state):
         lines.append(f"  {gate.gate_turn_note(state)}")
-    if merge_hold_note(state):
-        lines.append(f"  {merge_hold_note(state)}")
     if needs_recovery(state):
         reason = recovery_reason(state)
         wait = waiting(state, providers=providers, cfg=cfg)
@@ -10100,18 +9676,16 @@ def cmd_status(argv):
                 from . import terminal as _terminal
                 line += f"  {_terminal.styled(waiting, 'dim')}"
             print(line)
-            if state.get("state") == "queued":
+            if landing_line(state):
+                print(f"  {parked_line(state, d.name)}")
+            elif state.get("state") == "queued":
                 print(f"  {slot_note(state)}")
-            elif merge_turn_note(state):
-                print(f"  {merge_turn_note(state)}")
             elif dep_wait_note(state):
                 print(f"  {dep_wait_note(state)}")
             elif own_pr_wait_note(state):
                 print(f"  {own_pr_wait_note(state)}")
             elif gate.gate_turn_note(state):
                 print(f"  {gate.gate_turn_note(state)}")
-            if merge_hold_note(state):
-                print(f"  {merge_hold_note(state)}")
             if state.get("first"):
                 print("  first")
             living, ended = alive_line(state), stop_note(state)
@@ -10172,8 +9746,6 @@ def cmd_status(argv):
                 parked = parked_line(state, directory.name)
                 if state.get("state") == "queued":
                     print(f"  {slot_note(state)}")
-                elif merge_turn_note(state):
-                    print(f"  {merge_turn_note(state)}")
                 elif dep_wait_note(state):
                     print(f"  {dep_wait_note(state)}")
                 elif own_pr_wait_note(state):
@@ -10187,8 +9759,6 @@ def cmd_status(argv):
                     print("  " + terminal.styled(handback_waiting(state), "dim"))
                 elif parked:
                     print("  " + terminal.styled(parked, "dim"))
-                if merge_hold_note(state):
-                    print(f"  {merge_hold_note(state)}")
                 if state.get("first"):
                     print("  first")
                 living, ended = alive_line(state), stop_note(state)
@@ -10200,11 +9770,7 @@ def cmd_status(argv):
     if not wanted:
         print(f"{hidden} older run(s) hidden; ak run status --history [--json] shows full history")
     if show_history and not wanted and not machine:
-        from . import terminal
         print("\n".join(scoreboard_lines()))
-        ceiling, source = history.pr_ceiling()
-        value = f"{ceiling} changed lines" if ceiling is not None else "none"
-        print("\n".join(terminal.wrap(f"PR size ceiling: {value} ({source})", terminal.content_width())))
         for repo in history.finished_repos():
             line = size_summary_line(repo)
             if line:
@@ -10880,7 +10446,23 @@ def note_in(path):
     return note
 
 
+def log_is_stdout(run_dir):
+    """Detached wakes already write the log; following it would feed it back into itself."""
+    try:
+        return os.path.samefile(run_dir / "log.txt", sys.stdout.fileno())
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def foreground_cli(run_dir):
+    return (not getattr(jobs._JOB_MUTE, "depth", 0)
+            and threading.current_thread() is threading.main_thread()
+            and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()
+            and not log_is_stdout(run_dir))
+
+
 def logger(run_dir, to_file):
+    to_file = to_file and not log_is_stdout(run_dir)
     def log(message):
         line = f"[{datetime.now():%H:%M:%S}] {message}"
         print(line, flush=True)
@@ -11130,6 +10712,7 @@ def preflight(run_dir, opts, log):
         # inherits when it names none, or the one a relative `repo:` means.
         checkout = task_project(repo if meta.get("repo") else None, state.get("task_file"))
         run_record.save_state(run_dir, {**(run_record.read_state(run_dir) or {}),
+                             "repo": str(repo) if repo else None, "scratch": repo is None,
                              "no_merge": bool(opts["--no-merge"]) or repo is None,
                              "project": str(checkout) if checkout else None})
         join_session_project(state.get("launched_session"))
@@ -11253,6 +10836,7 @@ def cmd_merge(argv):
     if (state.get("review_pr") or state.get("scratch")
             or not (state.get("pr") or state.get("merge_failed"))):
         raise config.Error(f"{argv[0]}: no delivery PR to merge")
+    box.check()
     cfg = config.load()
     if not review_pass(state, cfg):
         raise config.Error(f"{argv[0]}: merge requires a successful reviewer allowed by the model policy; "
@@ -11308,19 +10892,25 @@ def cmd_merge(argv):
                                 "resume the run to obtain review")
             if state.get("repo"):
                 os.environ.update(config.repo_env(Path(state["repo"])))
-            upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
             if info is None:
                 log(f"no delivery PR: {stopped_on}; delivering again from integration")
                 merge(lp)
-            else:
-                # the delivered head was final-checked and pushed already; only a new one owes it
-                land(lp, upstream,
-                     lambda: (integrate(lp, upstream)
-                              and (git(lp.wt, "rev-parse", "HEAD") == head
-                                   or final_check(lp, upstream))),
-                     lambda: ((git(lp.wt, "rev-parse", "HEAD") == head or push(lp))
-                              and wait_checks(lp, state["pr"])
-                              and do_merge(lp, state["pr"], upstream)))
+            elif wait_for_dependency(lp):
+                upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+                upstream_repo, permission = rights(lp)
+
+                def deliver():
+                    return ((git(lp.wt, "rev-parse", "HEAD") == head or push(lp))
+                            and wait_checks(lp, state["pr"])
+                            and do_merge(lp, state["pr"], upstream))
+
+                if upstream_repo and permission not in PUSH_RIGHTS:
+                    verify = lambda: (integrate(lp, upstream)
+                                      and (git(lp.wt, "rev-parse", "HEAD") == head
+                                           or final_check(lp, upstream)))
+                    land(lp, upstream, verify, deliver)
+                else:
+                    join_line(lp, upstream, deliver)
     except worker.LoginExpired as expired:
         # a conflict fixer's turn during delivery can hit an expired login like any other:
         # a retry would park it anyway, and letting it escape here would leave the receipt
@@ -11362,9 +10952,15 @@ def cmd_merge(argv):
         sampler.stop()
         sampler.join(timeout=2)
         history.close_step(run_dir.name, log=log)
-    state["finished_at"] = time.time()
+    state["finished_at"] = (None if state.get("state") == "waiting"
+                            and (state.get("waiting_on") or {}).get("line") else time.time())
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
+    if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
+        follow = foreground_cli(run_dir)
+        offset = (run_dir / "log.txt").stat().st_size if follow else 0
+        release_line(run_dir, note_in(run_dir / "log.txt") if follow else log)
+        return follow_run(run_dir, cfg, offset) if follow else 0
     result = finish(state, run_dir, log, cfg)
     stop_run_tree(state, log)
     return result
@@ -11420,10 +11016,14 @@ def resume_run(argv):
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
     if state is None:
         raise config.Error(f"no resumable run: {argv[0]} (looked in {config.RUNS})")
+    box.check()
     # spawn_bg has already handed this queued receipt to this particular child. Ordinary
     # invocations must never adopt another process's launch, even with an inherited variable.
     with run_record.recovery_lock(run_dir):
         state = run_record.read_state(run_dir)
+    # The lander's verdict authorizes the member to take back its own record.
+    if landing_line(state) and not any(key in state["waiting_on"] for key in ("land", "fix")):
+        raise config.Error(f"{argv[0]} is in line to land; only the lander moves it")
     child = (os.environ.get(config.RUN_DIR_ENV) == str(run_dir) and
              state.get("state") == "queued" and state.get("resume_from") and
              state.get("pid") == os.getpid() and run_record.process_active(state))
@@ -11446,8 +11046,6 @@ def resume_run(argv):
             if n_rounds < (state.get("rounds") or 0):
                 raise config.Error("--rounds cannot reduce the saved round budget")
             state["rounds"] = n_rounds
-        if "land_lap" in pickup:
-            state["land_lap"] = pickup["land_lap"]
         state.pop("pickup", None)
         state.setdefault("merge_method", "squash")
         state.setdefault("target", state.get("base"))
@@ -11623,6 +11221,11 @@ def resume_run(argv):
             opts["--rounds"] = str(n_rounds)
     if background:
         return spawn_bg(run_dir, ["resume", *requested], expected=expected)
+    if (not child and not state.get("no_merge") and not state.get("scratch")
+            and not state.get("review_pr") and foreground_cli(run_dir)):
+        offset = (run_dir / "log.txt").stat().st_size
+        spawn_bg(run_dir, ["resume", *requested], expected=expected)
+        return follow_run(run_dir, cfg, offset)
     with slot_lock(), run_record.recovery_lock(run_dir):
         if run_record.read_state(run_dir) != expected:
             raise config.Error("the run changed while choosing recovery; select it again")
@@ -11638,7 +11241,8 @@ def resume_run(argv):
         for key in ("waiting_for", "login_resume_at", "login_back_at"):
             state.pop(key, None)
         # the wait this resume answers is over too: main moved, or a hand hurried it
-        state.pop("waiting_on", None)
+        if not (state.get("waiting_on") or {}).get("line"):
+            state.pop("waiting_on", None)
         state.pop("waiting_resume_at", None)
         state.setdefault("run_depth", run_depth())
         if not queued_resume:
@@ -11792,9 +11396,29 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
             settled = None  # the stop landed before the loop saved anything
         if isinstance(settled, dict):
             settle_run(settled, run_dir, log)
+    if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
+        release_line(run_dir, log)
+        return 0
     result = finish(state, run_dir, log, cfg)
     stop_run_tree(run_record.read_state(run_dir) or state, log)
     return result
+
+
+def follow_run(run_dir, cfg, offset=0):
+    """A foreground terminal follows the record and log, outside the worker's scope."""
+    with (run_dir / "log.txt").open() as output:
+        output.seek(offset)
+        def show():
+            print(output.read(), end="", flush=True)
+
+        state = jobs.job_await(run_dir, poll=show)
+        show()
+    if state.get("state") == "error":
+        return 2
+    if state.get("state") == "not_needed":
+        return 0
+    return 0 if (state.get("state") == "pass" and review_pass(state, cfg)
+                 and not state.get("merge_failed")) else 1
 
 
 # --- a PR reviewed alone: the reviewer only ------------------------------------
@@ -11988,14 +11612,14 @@ def post_review(lp, url, verdict):
 
 
 def merge_own_pr(lp, url, head):
-    """Merge the seat's own PR at its reviewed head, through the merge turn.
+    """Merge the seat's own PR at its reviewed head, under the repository delivery lock.
 
     The checks are green and the head is the reviewed one; the merge is pinned
     to that commit, so a head that moved since refuses rather than merging
     unreviewed code. Without the recorded writer there is no independence to
     enforce, so there is no automatic merge. A merge that stopped but went
     through server-side, or one somebody else landed between the checks and the
-    turn, still counts as merged.  GitHub answering with a 5xx of its own is asked
+    lock, still counts as merged.  GitHub answering with a 5xx of its own is asked
     again, three times with a growing wait, as `do_merge` does.
     """
     if not lp.state.get("own_orchestrator"):
@@ -12005,7 +11629,7 @@ def merge_own_pr(lp, url, head):
     method = lp.state.get("merge_method") or "squash"
     lp.state["delivery_sha"] = head
     lp.write()
-    with merge_turn(lp, upstream):
+    with merge_lock(lp, upstream):
         for attempt in range(1, MERGE_RETRIES + 2):
             body = merge_body(lp, head, url)
             rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method],
@@ -12180,8 +11804,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     fetch(repo, "origin", f"pull/{number}/head", base, check=True)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     base_sha = git(repo, "merge-base", f"origin/{base}", head)
-    if is_own:
-        refuse_pr_size(repo, base_sha, head)
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
         if advancing:
@@ -12428,9 +12050,9 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
     def ours(directory, state, run_meta):
         """Whether a run works in the task's repository.
 
-        `repo` only reaches run.json once the run builds its worktree, so a queued
-        receipt -- and a running run still that early -- is matched through the repo
-        its own task names; without one there is nothing to compare.
+        Old receipts have no `repo` until the run builds its worktree, so those
+        are matched through the repo their own task names; without one there is
+        nothing to compare.
         """
         try:
             if state.get("repo"):
@@ -12530,7 +12152,7 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
 
 def review_pr_main(cfg, opts, flags, argv, resumed):
     url = opts["--review-pr"]
-    owner, name, number = PR_PARTS.match(url).groups()
+    _, name, number = PR_PARTS.match(url).groups()
     if resumed:
         run_dir = Path(resumed)
     else:
@@ -12552,13 +12174,6 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         if flags["--bg"]:
             try:
                 receipt = run_record.read_state(run_dir) or {}
-                # Usage probes can spend model calls: check own PR size before the pick.
-                if receipt.get("own_pr"):
-                    info = pr_view(url)
-                    repo = checkout_for(f"{owner}/{name}", logger(run_dir, True))
-                    base, head = info["baseRefName"], info["headRefOid"]
-                    fetch(repo, "origin", f"pull/{number}/head", base, check=True)
-                    refuse_pr_size(repo, git(repo, "merge-base", f"origin/{base}", head), head)
                 reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
                                                reviewers=receipt.get("reviewers"))
             except config.Error as exc:
@@ -12601,6 +12216,11 @@ def reviewer_transport_dead(error):
 
 def main(argv):
     if command_help.show("run", argv):
+        return 0
+    if argv[:1] == ["--lander"]:
+        if len(argv) != 2 or Path(argv[1]).name != argv[1] or not argv[1].startswith(".merge-"):
+            raise config.Error("usage: ak run --lander LINE")
+        landing.check_line(config.RUNS / argv[1], print)
         return 0
     if argv[:1] == ["status"]:
         return cmd_status(argv[1:])
@@ -12664,6 +12284,7 @@ def main(argv):
             raise config.Error(f"--parallel must be a positive integer (got {opts['--parallel']!r})")
         parallel = int(opts["--parallel"])
     opts.update(flags)
+    box.check()
     cfg = config.load()
     if not opts["--review-pr"]:
         selection = config.active_session(cfg)
@@ -12706,15 +12327,11 @@ def main(argv):
             raise config.Error(f"no such task file: {task_path}")
         meta, body, title = taskfile.parse_task(task_path)
         # reject malformed commands before allocating a run directory, as well as a task
-        # bigger than one behaviour or over the round budget, or whose `repo:` names no home
-        # here, which nothing waives, and a job that looks already under way in the same
-        # repository -- unless --anyway says to start regardless.  A run's own child launch
-        # never runs the already-under-way check.
+        # over the round budget or whose `repo:` names no home here, which nothing waives,
+        # and a job that looks already under way in the same repository -- unless --anyway
+        # says to start regardless.  A run's own child launch never runs the
+        # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.task_size_refusal(body, cmds)
-        if refusal:
-            print(f"ak run: {refusal}; split it into one behaviour per task", file=sys.stderr)
-            return 2
         refusal = taskfile.rounds_refusal(meta.get("rounds"), "task rounds")
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
@@ -12768,6 +12385,10 @@ def main(argv):
                                   self_review=same_model(cfg, executor, reviewer)))
             return rc
 
+    if not resumed and not opts["--no-merge"] and foreground_cli(run_dir):
+        offset = (run_dir / "log.txt").stat().st_size
+        spawn_bg(run_dir, argv)
+        return follow_run(run_dir, cfg, offset)
     log = logger(run_dir, not resumed)
     log(f"run {run_dir.name}: {task_path}")
     if not resumed:

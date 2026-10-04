@@ -446,37 +446,6 @@ def finished_repos():
         return []
 
 
-def pr_ceiling():
-    """Smallest size whose larger merged runs passed first round less than half the time.
-
-    Only merged runs receive changed_lines; unknown sizes and suite work teach nothing.
-    With fifty sized merges, no such drop means history imposes no ceiling.
-    """
-    _ensure_migrated()
-    try:
-        with _LOCK:
-            connection = _connect(readonly=True)
-            try:
-                rows = connection.execute(
-                    "SELECT changed_lines, COUNT(*), SUM(rounds_used=1) FROM runs "
-                    "WHERE changed_lines >= 0 AND finished_at IS NOT NULL AND rounds_used > 0 "
-                    f"AND {REAL_WORK} GROUP BY changed_lines ORDER BY changed_lines").fetchall()
-            finally:
-                connection.close()
-    except (OSError, sqlite3.Error, TypeError, ValueError):
-        rows = []
-    count, passed = sum(row[1] for row in rows), sum(row[2] for row in rows)
-    if count < 50:
-        return 300, "starting value"
-    if rows[0][0] != 0:
-        rows.insert(0, (0, 0, 0))
-    for size, total, first in rows:
-        count, passed = count - total, passed - first
-        if count and passed * 2 < count:
-            return size, "history"
-    return None, "history"
-
-
 def size_summary(repo, limit=SUMMARY_TASKS):
     """Median rounds for a repository's last finished tasks, overall and for big ones.
 

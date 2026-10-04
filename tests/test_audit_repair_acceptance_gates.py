@@ -17,6 +17,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import tomllib
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -214,19 +215,52 @@ finish
                 self.assertIn('MISSING', result.stderr)
                 self.assertFalse((self.root / 'answer').exists())
 
+    def test_live_claude_stream_assertion_fails_the_gate(self):
+        self.assertTrue("# --- 3a: Claude streaming" in SMOKE,
+                        "the independent live Claude stream check is missing")
+        stream = between(SMOKE, "# --- 3a:", "# --- 4:")
+        helpers = between(SMOKE, "spent_until()", "# The shared contract check")
+        self.script("python3", f'''if [ "$1" = "$REPO/tests/check_claude_stream.py" ]; then
+  echo "$CHECKER_RC" >>"$WORK/stream-calls"
+  exit "$CHECKER_RC"
+fi
+exec {shlex.quote(sys.executable)} "$@"
+''')
+        for code in (0, 1):
+            with self.subTest(checker_exit=code):
+                result = self.shell(helpers + '''
+spent_until() { :; }
+skip_unavailable() { return 1; }
+''' + stream + "\nfinish", env={"CHECKER_RC": str(code)})
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                self.assertIn(f"{'FAIL' if code else 'PASS'}  3a Claude streaming", result.stdout)
+        self.assertEqual((self.root / "stream-calls").read_text().splitlines(), ["0", "1"])
+
     def test_skipped_harness_browser_and_failed_run_prerequisite(self):
-        skipped = between(SMOKE, "skip_spent()", "printf 'Create a file")
-        loop = between(SMOKE, 'HARNESSES=("opus claude"', '# --- 4:')
+        skipped = between(SMOKE, "skip_spent()", "# The shared contract check")
+        loop = between(SMOKE, '# --- 3:', '# --- 3a:')
+        manifests = list((REPO / "adapters").glob("*.toml"))
+        for path in manifests:
+            shutil.copy2(path, self.adapters)
+            manifest = tomllib.loads(path.read_text())
+            self.script(manifest["update"]["version"][0], 'exit 97\n')
+            adapter = self.adapters / f"{path.stem}.sh"
+            adapter.write_text('#!/bin/bash\necho "fixture: logged in"\n')
+            adapter.chmod(0o755)
+        snapshot = {"providers": {p: {"exhausted_until": 9999999999}
+                    for p in config.load()["providers"]}}
+        (self.root / 'spent.json').write_text(json.dumps(snapshot))
         browser = between(SMOKE, '# 31d/31e: real calls', '\nfi\n\n# --- 32:')
         prerequisite = between(SMOKE, '# --- 4d:', '\nfi\n\n# --- 5:').rsplit('\nfi', 1)[0] + '\nfi\n'
-        result = self.shell('spent_until() { echo "provider tomorrow"; }\n' + skipped + loop
+        result = self.shell('ak() { cat "$WORK/spent.json"; }\n' + loop
+                            + 'spent_until() { echo "provider tomorrow"; }\n' + skipped
                             + 'skip_spent 4/4b/4c/4d opus astra\n'
                             + 'python3() { return 1; }  # fake unavailable browser probe\n' + browser
                             + '\nRC=1 RUNDIR=""\n' + prerequisite + '\nfinish',
                             env={"AGENTKIT_ACCEPTANCE_REQUIRED": "1"})
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         # 31d/31e: no shared browser is a host's absence, counted as passed; the rest are not.
-        self.assertIn('2 passed, 0 failed, 14 skipped', result.stdout)
+        self.assertIn(f'2 passed, 0 failed, {len(manifests) + 5} skipped', result.stdout)
         self.assertIn('4d no dead orchestrator seat: prerequisite', result.stdout)
         self.assertIn('acceptance: INCOMPLETE', result.stdout)
         self.assertNotIn('PASS ', result.stdout)

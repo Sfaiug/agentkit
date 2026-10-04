@@ -18,6 +18,25 @@
 # Where the match may come before the end, the output is captured first and grep reads a string.
 set -uo pipefail
 REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+if [ $# = 0 ] && [ -n "${AK_SHARD:-}" ]; then
+  SMOKE_BODY=$(python3 "$REPO/tests/suite_shares.py" "$REPO/tests/smoke.sh") || exit $?
+  eval "$SMOKE_BODY"
+  exit $?
+fi
+# --- shared setup ----------------------------------------------------------
+if [ "${AK_SHARD:-1/1}" != 1/1 ]; then
+  # Short paths fit tmux sockets even when the checkout's path does not. No credentials,
+  # probe files, retention siblings or Python caches are shared by pieces.
+  SMOKE_SHARD_HOME=$(mktemp -d "/tmp/ak-test-share.XXXXXX") || exit 1
+  export HOME="$SMOKE_SHARD_HOME" TMPDIR="$SMOKE_SHARD_HOME/tmp" \
+    PYTHONPYCACHEPREFIX="$SMOKE_SHARD_HOME/pycache"
+  mkdir -p -- "$TMPDIR"
+  unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME CODEX_HOME \
+    CLAUDE_CONFIG_DIR GROK_HOME OPENCODE_CONFIG_DIR OPENCODE_CONFIG GH_CONFIG_DIR \
+    AK_PARENT_RUN AK_RUN_LOG
+  export AK_RUN_DEPTH=0
+  trap 'rm -rf -- "$SMOKE_SHARD_HOME"' EXIT
+fi
 export PATH="$REPO/bin:$PATH"
 # The suite is nobody's worker and nobody's seat.  A session that executes tasks exports
 # AK_RUN_ROLE=worker, which makes every `ak notify` below suppress itself (checks 17, 21, 22,
@@ -1401,7 +1420,7 @@ if [ "${AGENTKIT_SMOKE_OFFLINE:-0}" = 1 ]; then
   # the loop never commits and sweeps if this suite is killed. tmux canonicalizes
   # TMUX_TMPDIR, so use an explicit short socket path for its isolated pane fixtures.
   SMOKE_TMP=$(mktemp -d "$REPO/.ak-test-smoke.XXXXXX") || exit 1
-  trap 'rm -rf -- "$SMOKE_TMP"' EXIT
+  trap 'rm -rf -- "$SMOKE_TMP"; [ -z "${SMOKE_SHARD_HOME:-}" ] || rm -rf -- "$SMOKE_SHARD_HOME"' EXIT
   export TMPDIR="$SMOKE_TMP"
   if [ -d "/proc/$$/cwd" ]; then
     export TMPDIR="/proc/$$/cwd/${SMOKE_TMP##*/}"
@@ -1423,15 +1442,25 @@ SH
     export PATH="$SMOKE_TOOLS:$PATH"
   fi
   OFFLINE_RC=0
+# --- offline_slots: run queue ---------------------------------------------
   slot_queue_check || OFFLINE_RC=1
+# --- offline_usage: provider meters ---------------------------------------
   usage_fresh_check || OFFLINE_RC=1
+# --- offline_session: notices ---------------------------------------------
   session_state_check || OFFLINE_RC=1
+# --- offline_seat: seat states --------------------------------------------
   seat_state_check || OFFLINE_RC=1
+# --- offline_projects: project menu ---------------------------------------
   python3 "$REPO/tests/test_v4z.py" || OFFLINE_RC=1
+# --- offline_desktop: desktop notices -------------------------------------
   python3 "$REPO/tests/test_v5a.py" || OFFLINE_RC=1
+# --- offline_notify: notification rules -----------------------------------
   python3 "$REPO/tests/test_notify_rule.py" || OFFLINE_RC=1
+# --- offline_sink: notification sink --------------------------------------
   python3 "$REPO/tests/test_notify_smoke.py" || OFFLINE_RC=1
+# --- offline_codex: adapter model argument --------------------------------
   codex_model_flag_check || OFFLINE_RC=1
+# --- offline_files: offline regressions -----------------------------------
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_dead_code.py test_boundaries.py test_architecture.py test_docs.py \
               test_audit_phone_menu_recovery_layout.py test_choose_click.py test_note_screen.py \
               test_audit_retry_required_notifications.py test_solo_switch.py \
@@ -1442,6 +1471,7 @@ SH
       *) python3 "$REPO/tests/$test" || OFFLINE_RC=1 ;;
     esac
   done
+# --- shared offline result ---------------------------------------------
   exit "$OFFLINE_RC"
 fi
 WORK="$HOME/.agentkit/tmp/smoke-$(date +%Y%m%d-%H%M%S)"
@@ -1461,6 +1491,7 @@ trap 'SMOKE_RC=$?
       [ ! -d "$WORK/home" ] || smoke_sync_logins || SMOKE_RC=1
       HOME="$SMOKE_CALLER_HOME" PYTHONPATH="$REPO" python3 -m agentkit.retention settle "$WORK" "$SMOKE_RC" || :
       [ -z "${SMOKE_LOCK_PID:-}" ] || kill "$SMOKE_LOCK_PID" 2>/dev/null
+      [ -z "${SMOKE_SHARD_HOME:-}" ] || rm -rf -- "$SMOKE_SHARD_HOME"
       exit "$SMOKE_RC"' EXIT
 # --- the suite's own tmux server, and nobody else's -------------------------
 # Every tmux command here runs against a throwaway server: a socket of its own, in a socket
@@ -1499,26 +1530,31 @@ newrepo() {
   printf '%s' "$d"
 }
 echo "workdir: $WORK"
+# --- 44: desktop notices --------------------------------------------------
 if python3 "$REPO/tests/test_v5a.py"; then
   ok "44 desktop notices and boot recovery: named offline checks a-f"
 else
   no "44 desktop notices and boot recovery"
 fi
+# --- 43: project menus ----------------------------------------------------
 if python3 "$REPO/tests/test_v4z.py"; then
   ok "43 project menus: named checks a-h, fixed rendering state and isolated tmux"
 else
   no "43 project menus"
 fi
+# --- pointer: menu navigation ---------------------------------------------
 if python3 "$REPO/tests/test_hover.py"; then
   ok "pointer highlights and keyboard navigation (offline)"
 else
   no "pointer highlights and keyboard navigation"
 fi
+# --- notes: menu confirmations --------------------------------------------
 if python3 "$REPO/tests/test_note_screen.py"; then
   ok "menu notes wait for back, including popup rename confirmations (offline)"
 else
   no "menu notes"
 fi
+# --- 41: provider meters --------------------------------------------------
 # 41 reads no live meter -- its probes are mocked inside usage_fresh_check -- so a
 # throttled provider cannot fail it and it takes no meter-unavailable skip.
 if usage_fresh_check; then
@@ -1697,6 +1733,7 @@ PY_RETRY_CLOCK
     echo "rc=$?" ) >"$WORK/$1.log" 2>&1 &
 }
 # the executor's round has no spare pair to hand to, so it retries its own session twice
+# --- retry_start: start check 9 in the background -------------------------
 retrylaunch retry-exec flaky pass '["opus", "astra"]'
 retrylaunch retry-review work dead    # reviewer never comes back -> fall back to another provider
 
@@ -1705,41 +1742,21 @@ retrylaunch retry-review work dead    # reviewer never comes back -> fall back t
 # tests/live.sh starts before a host takes new code and when a harness upgrades; the landing
 # suite reaches nothing beyond loopback.  Offline twins run in both modes: 19 the delivery
 # path, 41 and 8a-8g the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
+# --- shared live guard -----------------------------------------------------
 if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 1: usage --------------------------------------------------------------
 model_unavailable() {   # missing binary/login, or nothing; a broken saved login exits 1
-  PYTHONPATH="$REPO" python3 - "$@" <<'PY'
-import json, os, re, shutil, sys
-from agentkit import config, worker
-harness = config.model(config.load(), sys.argv[1])["harness"]
-manifest = config.manifest(harness)
-binary = manifest.get("update", {}).get("version", [harness])[0]
-if not shutil.which(binary):
-    print(f"{binary} is not installed")
-else:
-    authenticated, why = worker.auth_ok(harness, seat="seat" in sys.argv[2:])
-    if authenticated is False:
-        print(why)
-        # Only an explicitly absent credential justifies skipping. An existing but
-        # empty, unreadable, malformed or expired credential must still fail the gate.
-        # OpenCode's settings file that parses and holds no apiKey anywhere is no login; one
-        # that is empty or no longer parses may have held one, and an apiKey the adapter did
-        # not take (blank, or not a string) is a broken one.
-        missing = re.match(r"^\S+: no (OAuth credentials in |provider key in )?(.+?)"
-                           r"(?: and no CLAUDE_CODE_OAUTH_TOKEN| and none saved)?; run ", why)
-        settings, keys = False, set()
-        if missing and missing[1] == "provider key in ":
-            try:
-                with open(missing[2]) as fh:
-                    settings = isinstance(json.load(fh, object_hook=lambda o: keys.update(o) or o),
-                                          dict) and "apiKey" not in keys
-            except (OSError, ValueError):
-                pass
-        token = manifest.get("worker_token", {}).get("file")
-        if (not missing or (os.path.lexists(missing[2]) and not settings)
-                or (token and os.path.lexists(config.SECRETS / token))):
-            sys.exit(1)
-PY
+  PYTHONPATH="$REPO" python3 - "$@" <<'PYTHON'
+import sys
+from agentkit import config
+sys.path.insert(0, str(config.REPO / "tests"))
+from check_harness_contract import unavailable
+why, broken = unavailable(config.model(config.load(), sys.argv[1])["harness"],
+                          seat="seat" in sys.argv[2:])
+if why:
+    print(why)
+sys.exit(int(broken))
+PYTHON
 }
 skip_unavailable() {   # skip_unavailable <check labels> <required models...>
   local checks=$1 model why
@@ -1881,67 +1898,18 @@ else
 fi
 fi
 
-# --- 3: one real tiny call on every harness --------------------------------
-# A model whose subscription window is spent refuses every call until it resets, and `ak
-# usage` says so before one is made: that model is skipped by name, with the moment it comes
-# back, the way 31d/31e skip a shared browser that is not up.  A spent week is the one thing
-# this check can neither prove nor fix -- it is the provider announcing it, not a guess here.
-# Every harness here with its login makes a real call, since `ak update` upgrades each one
-# and this is its gate: Claude, Codex and Muse write a file and resume the session (3a/3b);
-# the rest make the smallest turn they allow (3c): the cheapest model their catalog lists
-# at its lowest effort, asked for a fixed word that needs no tool, through the adapter with
-# the flags a worker's turn gets, since those are what an upgrade breaks.  The adapter's own
-# verdict judges it: exit 0 and the word in final.md, which holds the model's text alone.
-# A failed call refused for quota skips even when its last meter was below 100%; a warning
-# the turn recovered from passes, and every other failed or incomplete turn fails.
-# A missing harness or login is reported as not checked: never a pass, and never a skip
-# that holds the gate.  Broken saved logins still fail.  One harness installed with its
-# login is what the suite needs, and with none here it fails rather than skipping everything.
+# --- 3: every installed harness proves the same plug-in contract -----------
 ak usage --json >"$WORK/usage-real.json" 2>/dev/null || : >"$WORK/usage-real.json"
 spent_until() {   # spent_until <model>: "<provider> <when it comes back>", or nothing
-  PYTHONPATH="$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" python3 - "$1" "$WORK/usage-real.json" <<'PY'
-import json, os, pathlib, sys, time
-from agentkit import config, usage
-cfg, model = config.load(), sys.argv[1]
-provider = config.model(cfg, model)["provider"]
-def providers_of(path):
-    try:
-        providers = json.loads(pathlib.Path(path).read_text())["providers"]
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
-    record = providers.get(provider) if isinstance(providers, dict) else None
-    # Both reads judge the usual login the sandbox borrows; another subscription's
-    # room (or refusal) says nothing about this one.
-    if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
-        record = record["accounts"].get(config.DEFAULT_ACCOUNT)
-        providers[provider] = record if isinstance(record, dict) else {}
-    return providers if isinstance(providers, dict) else None
-def spent(providers):
-    return providers is not None and usage.model_exhausted(cfg, model, providers)[0]
-providers = providers_of(sys.argv[2])
-if not spent(providers):
-    sandbox = providers.get(provider) if isinstance(providers, dict) else None
-    if isinstance(sandbox, dict) and sandbox.get("meters"):
-        sys.exit(0)  # this read measured the borrowed login; its room stands
-    # The sandbox shares the host's probe cadence but not its answers: where the host
-    # asked inside the cadence, this read is empty and knows nothing. Only then does
-    # the host's own cache stand in -- the same account's spent-knowledge, read only,
-    # its meters past their reset dropped as a live read drops them, so a stale week
-    # never parks a call.
-    host = os.path.join(os.environ["SMOKE_CALLER_HOME"], ".agentkit/state/usage.json")
-    providers = providers_of(host)
-    record = providers.get(provider) if isinstance(providers, dict) else None
-    if isinstance(record, dict):
-        providers[provider] = usage._without_past(record, time.time(), "the host cache")
-    if not spent(providers):
-        sys.exit(0)  # unknown usage cannot justify skipping a real call
-meters, _ = usage._gating_meters(cfg, model, providers)
-ends = max((m["resets_at"] for m in meters if m.get("exhausted")
-            and isinstance(m.get("resets_at"), (int, float))),
-           default=providers.get(config.model(cfg, model)["provider"], {}).get("exhausted_until"))
-when = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(ends)) if ends else "unknown"
-print(config.model(cfg, model)["provider"], when)
-PY
+  PYTHONPATH="$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" python3 - "$1" "$WORK/usage-real.json" <<'PYTHON'
+import os, sys
+from agentkit import config
+sys.path.insert(0, str(config.REPO / "tests"))
+from check_harness_contract import spent_until
+why = spent_until(config.load(), sys.argv[1], sys.argv[2], os.environ["SMOKE_CALLER_HOME"])
+if why:
+    print(why)
+PYTHON
 }
 skip_spent() {   # skip_spent <check labels> <required models...>
   local checks=$1 model spent
@@ -1959,125 +1927,58 @@ skip_spent() {   # skip_spent <check labels> <required models...>
 skip_refused() {   # skip_refused <check labels> <model> <exit> <out-dir or MCP log>
   local checks=$1 model=$2 rc=$3 out=$4 why
   [ "$rc" != 0 ] || return 1
-  # A provider's refusal is newer than its meter. Keep that fact in this suite's
-  # snapshot so its later checks skip too, without another probe or a host write.
-  why=$(PYTHONPATH="$REPO" python3 - "$model" "$rc" "$out" "$WORK/usage-real.json" <<'PY'
-import json, pathlib, sys, time
-from agentkit import config, run, usage, record
-cfg = config.load()
-entry = config.model(cfg, sys.argv[1])
-out, snapshot = map(pathlib.Path, sys.argv[3:])
-text = run.tail(out / "final.md" if out.is_dir() else out)
-said = text if not run.answered(text) else ""
-if out.is_dir():
-    # Terminal errors count; earlier warnings and the work's own output do not.
-    said += "\n" + run.harness_said(out, text, entry["harness"], failures_only=True)
-    if not text.strip():
-        said += "\n" + run.harness_said(out, text, entry["harness"])
-word = run.ran_dry(int(sys.argv[2]), said, entry["harness"])
-if not word:
+  why=$(PYTHONPATH="$REPO" python3 - "$model" "$rc" "$out" "$WORK/usage-real.json" <<'PYTHON'
+import sys
+from agentkit import config
+sys.path.insert(0, str(config.REPO / "tests"))
+from check_harness_contract import refused
+why = refused(config.load(), sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4])
+if not why:
     sys.exit(1)
-try:
-    providers = json.loads(snapshot.read_text())["providers"]
-except (OSError, ValueError, KeyError, TypeError):
-    providers = {}
-providers = providers if isinstance(providers, dict) else {}
-record = providers.get(entry["provider"])
-if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
-    record = record["accounts"].get(config.DEFAULT_ACCOUNT)
-record = record if isinstance(record, dict) else {}
-now, until = time.time(), run.try_again_at(said)
-if until is None or until <= now:
-    until = usage._next_window(record, now) or now + usage.DRY_FOR
-providers[entry["provider"]] = {**{k: v for k, v in record.items() if k not in usage.MARK},
-                                "exhausted_until": until}
-snapshot.write_text(json.dumps({"providers": providers}))
-print(text.strip() or word)
-PY
+print(why)
+PYTHON
   ) || return 1
   skip_spent_checks "$checks" "required model $model was refused: $why"
 }
-printf 'Create a file hello.txt containing exactly: hello\nThen run %s hand-in done.\nThen reply with only the word DONE.\n' "$REPO/bin/ak" \
-  >"$WORK/p-make.txt"
-printf 'What file did you just create? Answer with the filename only.\n' >"$WORK/p-ask.txt"
-WORD=PONG
-printf 'Reply with only the word %s.\n' "$WORD" >"$WORK/p-word.txt"
-HARNESSES=("opus claude" "astra codex" "spark muse" "grok grokbuild grok-4.7-build-fast low"
-           "gemini antigravity gemini-3.8-flash low" "mimo opencode mimo/mimo-v2.6-flash none")
-ABSENT=0
-for pair in "${HARNESSES[@]}"; do
-  set -- $pair; M=$1 H=$2; shift 2
-  CHECKS=3a/3b; [ $# = 0 ] || CHECKS=3c
-  SPENT=$(spent_until "$M")
-  if [ -n "$SPENT" ]; then
-    skip_spent_checks "$CHECKS" "$M ($H): the ${SPENT%% *} subscription window is spent until"\
-         "${SPENT#* }, so every call would be a 429"
-    continue
-  fi
-  if ! WHY=$(model_unavailable "$M"); then
-    no "$CHECKS: required model $M login check failed: $WHY"
-    continue
-  fi
-  if [ -n "$WHY" ]; then
-    printf 'NOT CHECKED  %s %s (%s): %s\n' "$CHECKS" "$M" "$H" "$WHY"
-    ABSENT=$((ABSENT + 1))
-    continue
-  fi
-  R=$(newrepo "real-$M")
-  if [ $# = 2 ]; then
-    A="${AGENTKIT_ADAPTER_DIR:-$REPO/adapters}/$H.sh"
-    # In the environment worker.auth_ok asked for the login in, as a worker's turn gets it:
-    # a caller's AGENTKIT_ACCOUNT would turn the turn to a login this sandbox never borrowed.
-    PYTHONPATH="$REPO" python3 -c 'import os, sys; from agentkit import config
-os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
-      "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M" >"$WORK/$M.log" 2>&1
-    CALLRC=$?
-    if skip_refused 3c "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
-    if [ "$CALLRC" = 0 ] && grep -qiwF "$WORD" "$WORK/o-$M/final.md" 2>/dev/null; then
-      ok_call "3c $M ($H): $1 at $2 replied $WORD"
-    else
-      no "3c $M ($H): $1 at $2 did not reply $WORD: final.md = $(head -c 120 "$WORK/o-$M/final.md" 2>/dev/null)"
-      diagnose "$CALLRC" "$WORK/$M.log" "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M"
-      diagnose "$CALLRC" "$WORK/o-$M/stderr.log" "$H"
-    fi
-    continue
-  fi
-  if [ "$H" = claude ]; then
-    python3 "$REPO/tests/check_claude_stream.py" "$WORK/o-$M" \
-      ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M" >"$WORK/$M.log" 2>&1
+# The shared contract check also runs on its own, optionally naming one harness.
+: >"$WORK/harness-counts"
+python3 "$REPO/tests/check_harness_contract.py" --snapshot "$WORK/usage-real.json" \
+  --counts "$WORK/harness-counts"
+if read -r CONTRACT_PASS CONTRACT_FAIL CONTRACT_SKIP CONTRACT_CALL <"$WORK/harness-counts"; then
+  NPASS=$((NPASS + CONTRACT_PASS)) NFAIL=$((NFAIL + CONTRACT_FAIL))
+  NSPENT=$((NSPENT + CONTRACT_SKIP)) NCALL=$((NCALL + CONTRACT_CALL))
+else
+  no "3: harness contract check returned no counts"
+fi
+
+# --- 3a: Claude streaming stays visible before the result -----------------
+# A buffered stream would make long worker turns look silent to the watchdog.
+if skip_spent 3a opus; then
+  :
+else
+  R="$WORK/claude-stream-workspace"; mkdir -p -- "$R"
+  PYTHONPATH="$REPO" python3 "$REPO/tests/check_claude_stream.py" "$WORK/o-claude-stream" \
+    python3 -c 'import sys
+from unittest.mock import patch
+from agentkit import config, worker
+cfg = config.load()
+entry = config.model(cfg, "opus")
+entry.update(config.manifest(entry["harness"])["check"])
+with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}):
+    code, *_ = worker.turn(cfg, "opus",
+        "Say STREAM_READY, then run pwd, then reply DONE. Do not edit files.\n",
+        sys.argv[1], sys.argv[2], role="executor-scratch")
+sys.exit(code)' "$R" "$WORK/o-claude-stream" >"$WORK/claude-stream.log" 2>&1
+  STREAMRC=$?
+  if skip_refused 3a opus "$STREAMRC" "$WORK/o-claude-stream"; then
+    :
+  elif [ "$STREAMRC" = 0 ]; then
+    ok_call "3a Claude streaming: events were visible before the successful result; final.md and session_id match it"
   else
-    ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M" >"$WORK/$M.log" 2>&1
+    no "3a Claude streaming"
+    diagnose "$STREAMRC" "$WORK/claude-stream.log" python3 "$REPO/tests/check_claude_stream.py"
   fi
-  CALLRC=$?
-  if skip_refused 3a/3b "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
-  if [ "$CALLRC" = 0 ] && grep -qxF hello "$R/hello.txt" 2>/dev/null && [ -s "$WORK/o-$M/final.md" ] &&
-     PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import hand_in
-review = hand_in.read(sys.argv[1])
-assert review is not None and review.done' "$WORK/o-$M/hand-in.jsonl"; then
-    ok_call "3a $M ($H): wrote hello.txt, final.md non-empty, handed in a checked record"
-  else
-    no "3a $M ($H): hello.txt=$([ -f "$R/hello.txt" ] && echo yes || echo no)"
-    diagnose "$CALLRC" "$WORK/$M.log" ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M"
-    diagnose "$CALLRC" "$WORK/o-$M/stderr.log" "$H"
-  fi
-  SID=$(cat "$WORK/o-$M/session_id" 2>/dev/null)
-  if [ -n "$SID" ]; then
-    ak worker "$M" "$WORK/p-ask.txt" --workspace "$R" --out "$WORK/o-$M-2" --session "$SID" \
-      >"$WORK/$M-2.log" 2>&1
-    RESUMERC=$?
-    if skip_refused 3b "$M" "$RESUMERC" "$WORK/o-$M-2"; then continue; fi
-    if [ "$RESUMERC" = 0 ] && grep -qi 'hello\.txt' "$WORK/o-$M-2/final.md" 2>/dev/null; then
-      ok_call "3b $M ($H): resumed session $SID recalled hello.txt"
-    else
-      no "3b $M ($H) resume: final.md = $(head -c 120 "$WORK/o-$M-2/final.md" 2>/dev/null)"
-      diagnose "$RESUMERC" "$WORK/$M-2.log" ak worker "$M" "$WORK/p-ask.txt" --workspace "$R" --out "$WORK/o-$M-2" --session "$SID"
-    fi
-  else
-    no "3b $M ($H) resume: adapter recorded no session_id"
-  fi
-done
-[ "$ABSENT" -lt "${#HARNESSES[@]}" ] ||
-  no "3: no harness here is installed with its login; the suite needs one"
+fi
 
 # --- 4: ak run end to end, into a real GitHub repo -------------------------
 # The whole pipeline, not just the loop: a task file that names neither `repo:` nor `base:`,
@@ -2248,6 +2149,7 @@ else
   no "5 ak notify --check exited $NRC with no webhook configured; expected 2"
   sed 's/^/      /' "$WORK/notify.log" | head -3
 fi
+# --- shared live guard -----------------------------------------------------
 fi
 
 # --- 5b: --check exit codes, offline -----------------------------------------
@@ -2312,6 +2214,7 @@ else
   sed 's/^/      /' "$NGH/guard.log" "$WORK/guard-nosink.log" | head -8
 fi
 
+# --- shared live guard -----------------------------------------------------
 if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6: orch selection -----------------------------------------------------
 # The pick stands on check 1's meters; when the provider throttled those probes the pick
@@ -2405,6 +2308,7 @@ grep -q 'muse --yolo --provider meta --model muse-spark' "$WORK/orch-spark.log" 
 grep -q 'idle-compact.py -- claude ' "$WORK/orch-fable.log" || ORCH2=1
 [ "$ORCH2" = 0 ] && ok "6b ak orch: astra prints a codex command with its model, spark a muse one, fable a claude one" \
                  || no "6b ak orch per-harness command: $(tail -1 "$WORK/orch-astra.log")"
+# --- shared live guard -----------------------------------------------------
 fi
 
 # --- 6c: each seat applies its own models, a dry run records none (offline) --
@@ -2477,6 +2381,7 @@ else
   no "6c session picker"; sed 's/^/      /' "$WORK/session-pick.log" | head -8
 fi
 
+# --- shared live guard -----------------------------------------------------
 if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6d: a named seat, really started --------------------------------------
 # Not a dry run: `ak orch <name>` creates the tmux session, the harness's own TUI paints in it,
@@ -2547,6 +2452,7 @@ else
   tm kill-session -t =smoke-astra 2>/dev/null
 fi
 fi
+# --- shared live guard -----------------------------------------------------
 fi
 
 # --- 6e: a subscription Codex is given no model of ours (offline) ----------
@@ -3623,13 +3529,13 @@ else
 fi
 
 # --- 19: base is where the run starts, target is where it ships (offline) ---
-# The whole merge pipeline against a bare repo standing in for origin and a fake `gh` that only
+# A passed run lands through the shared line fixture against a bare repo standing in for origin and a fake `gh` that only
 # records what it was called with. The run is cut from `feature` and targets `main`, which has
 # moved on since -- the shape that got rebased onto its own base and failed. Two things have to
 # hold: the PR is opened `--base main`, and because the executor left a merge commit on the
 # branch, `origin/main` comes in through `git merge` rather than a rebase that would replay the
-# side branch and flatten it. The clean merge keeps the passed review: the done-when runs again
-# on the integrated commit, and nothing reviews it a second time.
+# side branch and flatten it. The clean merge keeps the passed review, and delivery must
+# match the lander's tested tree.
 THOME="$WORK/home-target"; TAD="$WORK/ad-target"; TBIN="$WORK/bin-target"
 GHLOG="$WORK/gh-args.log"
 mkdir -p -- "$THOME" "$TAD" "$TBIN"
@@ -3680,10 +3586,36 @@ test -f retry.txt
 \`\`\`
 MD
 HOME="$THOME" AGENTKIT_ADAPTER_DIR="$TAD" AGENTKIT_DISCORD_WEBHOOK=off PATH="$TBIN:$PATH" \
-  ak run "$WORK/task-target.md" --rounds 2 --exec opus --review astra >"$WORK/target.log" 2>&1
+  "$REPO/bin/ak" run "$WORK/task-target.md" --rounds 2 --exec opus --review astra --no-merge >"$WORK/target.log" 2>&1
 TRC=$?
 TRUNID=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/target.log" | head -1)
 TJSON="$THOME/.agentkit/runs/$TRUNID/run.json"
+if [ "$TRC" = 0 ]; then
+  HOME="$THOME" AGENTKIT_ADAPTER_DIR="$TAD" AGENTKIT_DISCORD_WEBHOOK=off PATH="$TBIN:$PATH" \
+    PYTHONPATH="$REPO/tests:$REPO" python3 - "$TJSON" >>"$WORK/target.log" 2>&1 <<'PY19'
+import sys
+from pathlib import Path
+from agentkit import config, record, run, task
+from fixtures.landing import landing
+
+folder = Path(sys.argv[1]).parent
+state = record.read_state(folder)
+state.update(no_merge=False, state="running", finished_at=None)
+run.clear_delivery(state)
+record.save_state(folder, state)
+_, body, _ = task.parse_task(folder / "task.md")
+commands = run.with_suite(task.done_when(body, folder / "task.md"), state["worktree"])
+log = run.logger(folder, True)
+loop = run.Loop(config.load(), folder, state, {}, log, Path(state["worktree"]),
+                body, commands, body, [])
+assert landing(loop), loop.state
+loop.state.update(state="pass")
+record.save_state(folder, loop.state)
+run.write_result(folder, loop.state, commands, log, loop.cfg)
+assert run.finish(loop.state, folder, log, loop.cfg) == 0
+PY19
+  TRC=$?
+fi
 TWT=$(jq -r '.worktree // empty' "$TJSON" 2>/dev/null)
 TBR=$(jq -r '.branch // empty' "$TJSON" 2>/dev/null)
 TG=0
@@ -3693,13 +3625,13 @@ TG=0
 [ "$(jq -r '.target // empty' "$TJSON" 2>/dev/null)" = main ] || TG=1
 [ "$(jq -r '.merged // empty' "$TJSON" 2>/dev/null)" = true ] || TG=1
 grep -q "^pr create --base main --head ${TBR:-?} " "$GHLOG" || TG=1
-grep -q -- "--- merge: merging origin/main into ${TBR:-?}\$" "$WORK/target.log" || TG=1
 TSHA=$(jq -r '.review.head_sha // empty' "$TJSON" 2>/dev/null)
 if [ -n "$TWT" ] && [ -n "$TSHA" ]; then
   # the side merge is still in the delivered history, so the branch was merged
   # into and not replayed onto origin; the checkout itself went with the merge
   grep -qx 'Merge side-1' <<<"$(git -C "$TR" log --format=%s "$TSHA")" || TG=1
   git -C "$TR" merge-base --is-ancestor origin/main "$TSHA" || TG=1
+  [ "$(git -C "$TR" rev-parse "$TSHA^{tree}")" = "$(jq -r '.final_check.tree_sha // empty' "$TJSON")" ] || TG=1
   [ "$TSHA" = "$(jq -r '.delivery_sha // empty' "$TJSON")" ] || TG=1  # reviewed == delivered tip
   [ ! -e "$TWT" ] || TG=1
   git -C "$TR" rev-parse --verify --quiet "refs/heads/${TBR:-?}" >/dev/null 2>&1 && TG=1
@@ -5666,39 +5598,47 @@ else
 fi
 
 # --- result ----------------------------------------------------------------
+# --- 51: task parsing -----------------------------------------------------
 if { python3 "$REPO/tests/test_task_file.py" && python3 "$REPO/tests/test_task_size.py" &&
      python3 "$REPO/tests/test_unknown_front_matter_key.py"; } >"$WORK/task-file.log" 2>&1; then
-  ok "51 task files: parsing, size and unknown keys refused before receipts"
+  ok "51 task files: size accepted; round budgets and unknown keys refused before receipts"
 else
   no "51 task files"; tail -30 "$WORK/task-file.log"
 fi
+# --- 50: task file scope --------------------------------------------------
 if python3 "$REPO/tests/test_files_scope.py" >"$WORK/files-scope.log" 2>&1; then
   ok "50 task files scope: branch paths, leftovers, rebase, fixer and PASS override"
 else
   no "50 task files scope"; tail -30 "$WORK/files-scope.log"
 fi
+# --- turn_cleanup: worker process cleanup ---------------------------------
 if python3 "$REPO/tests/test_turn_leftover_processes.py" >"$WORK/turn-processes.log" 2>&1; then
   ok "worker turns stop their leftover processes on every harness and ask once to finish in the foreground"
 else
   no "worker turn process cleanup"; tail -30 "$WORK/turn-processes.log"
 fi
+# --- 40: login watchdog ---------------------------------------------------
 if python3 "$REPO/tests/test_auth_watch.py" >"$WORK/auth-watch.log" 2>&1; then
   ok "40 auth watchdog: immediate needs-login, one alert per episode, no auth nudge, recovery and unknown stuck escalation"
 else
   no "40 auth watchdog"; cat "$WORK/auth-watch.log"
 fi
+# --- 48: end of turn ------------------------------------------------------
 if python3 "$REPO/tests/test_stop_hook.py" >"$WORK/stop-hook.log" 2>&1; then
   ok "48 the end of a turn: a question, a done or a run to wait on allows the stop, anything else is blocked with the rule it broke, twice per turn and never for a worker; a harness with no blocking hook has the same test typed at its prompt once"
 else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
-{ python3 "$REPO/tests/test_dead_code.py" && python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 definitions have callers, knowledge stays home, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 dead code, boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
+# --- 49: repository boundaries and docs -----------------------------------
+{ python3 "$REPO/tests/test_dead_code.py" && python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 definitions have callers, knowledge stays home, ARCHITECTURE.md maps every module and harness with at most 400 characters per module, and the docs match the interface" || { no "49 dead code, boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
+# --- 49a: landed suite evidence -------------------------------------------
 if { python3 "$REPO/tests/test_repo_suite.py" &&
      python3 "$REPO/tests/test_merge_trailer.py"; } >"$WORK/merge-trailer.log" 2>&1; then
   ok "49a repository suites run once and landed commits name the checked tree"
 else
   no "49a repository suites and merge trailer"; tail -30 "$WORK/merge-trailer.log"
 fi
+# --- fix_runs: regression proofs ------------------------------------------
 if { python3 "$REPO/tests/test_hand_in.py" && python3 "$REPO/tests/test_regression_fails_before.py" &&
      python3 "$REPO/tests/test_probe_resume.py" &&
      python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
@@ -5709,44 +5649,52 @@ if { python3 "$REPO/tests/test_hand_in.py" && python3 "$REPO/tests/test_regressi
 else
   no "50 fix runs and regression on base"; tail -30 "$WORK/regression-base.log"
 fi
+# --- 42: seat states ------------------------------------------------------
 if seat_state_check >"$WORK/seat-state.log" 2>&1; then
   ok "42 seat states: a session is working, needs you or done -- (a) a turn-ended hook fact reads 'needs you', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
 else
   no "42 seat states"; tail -30 "$WORK/seat-state.log"
 fi
+# --- 36: babysitter regressions -------------------------------------------
 if { lifecycle_check v4l &&
      python3 "$REPO/tests/test_quota_words_bounded.py"; } >"$WORK/v4l.log" 2>&1; then
   ok "36 exact stall timing, attach races, quota windows, real Claude stream and narrow runs"
 else
   no "36 v4l regressions"; tail -30 "$WORK/v4l.log"
 fi
+# --- 3d: borrowed logins --------------------------------------------------
 if python3 "$REPO/tests/test_smoke_judges_the_borrowed_login.py" >"$WORK/borrowed-login.log" 2>&1; then
   ok "3d real calls judge the borrowed login: sandbox and host cache skip its spent subscription, and its room permits a call"
 else
   no "3d borrowed login"; tail -30 "$WORK/borrowed-login.log"
 fi
+# --- 4e: target locks -----------------------------------------------------
 if { python3 "$REPO/tests/test_smoke_target_pool.py" &&
      python3 "$REPO/tests/test_smoke_lock_scope.py"; } >"$WORK/smoke-targets.log" 2>&1; then
   ok "4e smoke targets: two suites take two, the next is made below the bound read at each try, the bound waits, a failed listing makes none, a killed holder frees its own"
 else
   no "4e smoke targets"; tail -30 "$WORK/smoke-targets.log"
 fi
+# --- 37: terminal regressions ---------------------------------------------
 if { python3 "$REPO/tests/test_v4n.py" &&
      python3 "$REPO/tests/test_choose_click.py"; } >"$WORK/v4n.log" 2>&1; then
   ok "37 readable menus at 40/80/100 columns, chooser Enter clicks, run reporting, Codex resume and launch/cache edges"
 else
   no "37 v4n regressions"; tail -30 "$WORK/v4n.log"
 fi
+# --- 38: Mac file bridge --------------------------------------------------
 if python3 "$REPO/tests/test_macbridge.py" >"$WORK/macbridge.log" 2>&1; then
   ok "38 Mac files: local paths, queue/serve/inbox, timeout/missing, singleton SSH and LaunchAgent"
 else
   no "38 Mac file bridge"; tail -30 "$WORK/macbridge.log"
 fi
+# --- 45: notification rules -----------------------------------------------
 if python3 "$REPO/tests/test_notify_rule.py" >"$WORK/notify-rule.log" 2>&1; then
   ok "45 what Discord hears: a PR of ours goes to its seat or its run and never to Discord, the hourly alerts only while the seat is working, auth and the inbox question still ask, workers stay silent, a done per job, the test sink outranks the webhook, and the card names its seat"
 else
   no "45 the Discord rule"; tail -30 "$WORK/notify-rule.log"
 fi
+# --- 39: usage screen -----------------------------------------------------
 if python3 "$REPO/tests/test_v4r.py" >"$WORK/v4r.log" 2>&1; then
   ok "39 usage left at 40/100 columns: Claude 21% · resets Sun 00:00 · Fable 47%, ChatGPT 69%, Muse spent; the notes give way on a phone; project counts fold run details, all lines fit"
 else
@@ -6040,12 +5988,14 @@ else
   done
 fi
 
+# --- 47: run queue --------------------------------------------------------
 if slot_queue_check >"$WORK/v5am.log" 2>&1; then
   ok "47 max_runs=1: ak run status says waiting for a slot · limit full (1 running) · 0 ahead for the queued fake run, which starts when the first ends; depth-1 tests share the parent slot"
 else
   no "47 host run queue"; cat "$WORK/v5am.log"
 fi
 
+# --- shared result ---------------------------------------------
 echo "coverage: offline fixtures, plus the live mode's harness/GitHub/browser checks labeled above"
 echo "NOT EXERCISED: clean-host installation or interactive logins (separate certification)"
 finish

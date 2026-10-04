@@ -12,9 +12,9 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import gate as check_gate, config, gc, run, worker
+from agentkit import gate as check_gate, config, gc, host, run, worker
 
-SUITE = "test -f AGENTS.md"
+SUITE = 'test -f AGENTS.md && printf "piece %s\\n" "${AK_SHARD:-all}"'
 
 
 class RepoSuite(unittest.TestCase):
@@ -41,6 +41,15 @@ class RepoSuite(unittest.TestCase):
         self.opts = {"--rounds": None, "--exec": None, "--review": None,
                      "--no-worktree": False, "--no-merge": False}
         self.logs, self.gates = [], []
+        self.pieces = []
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
+            "cpus": 4, "load": 0, "free_mb": 820}))
+        limited = worker.limited
+        def command(cmd, limit, **kw):
+            if cmd == ["bash", "-c", SUITE]:
+                self.pieces.append(kw["env"].get("AK_SHARD"))
+            return limited(cmd, limit, **kw)
+        self.stack.enter_context(patch.object(worker, "limited", side_effect=command))
         for module, name, value in ((gc, "disk_pressure", False), (run, "launch_session", None),
                                     (run, "collect_usage", {}), (run, "pick_models", ("opus", "astra"))):
             self.stack.enter_context(patch.object(module, name, return_value=value))
@@ -80,7 +89,7 @@ class RepoSuite(unittest.TestCase):
         (out_dir / "final.md").write_text(text)
         return 0, text, "fixture-session", False
 
-    def launch(self, name, checks, front="base: main\n", from_branch=""):
+    def launch(self, name, checks, front="base: main\n", from_branch="", expected="pass"):
         directory = config.RUNS / name
         directory.mkdir()
         task = directory / "task.md"
@@ -88,7 +97,7 @@ class RepoSuite(unittest.TestCase):
                         "## Goal\nShip it.\n\n## Done when\n```bash\n"
                         + "\n".join(checks) + "\n```\n")
         state = run.loop(self.cfg, directory, task, self.opts, self.logs.append)
-        self.assertEqual(state["state"], "pass", self.logs)
+        self.assertEqual(state["state"], expected, self.logs)
         return state
 
     def rounds(self):
@@ -104,8 +113,58 @@ class RepoSuite(unittest.TestCase):
         self.assertTrue(all(SUITE not in cmds for cmds in self.rounds()), self.gates)
         self.assertNotIn("once.log", [name for name, _ in self.gates])
         self.assertEqual(self.finals(), [["true"], [SUITE]], self.gates)
+        self.assertCountEqual(self.pieces, ["1/2", "2/2"])
         self.assertEqual(state["final_check"]["outcome"], "passed")
         self.assertEqual(state["final_check"]["where"], "landing")
+
+    def test_rebased_landing_replaces_the_loaded_suite(self):
+        task_once = "test -d ."
+        for mode in ("landing", "probe"):
+            with self.subTest(mode=mode):
+                old_suite = f"echo old suite {mode}"
+                self.gates.clear()
+                self.pieces.clear()
+                self.commit(f"---\ntests: {old_suite}\n---\n# acme\n")
+                base = self.git("rev-parse", "HEAD")
+                self.git("update-ref", "refs/remotes/origin/main", base)
+                suite = SUITE + (" && test ! -f broken.txt" if mode == "probe" else "")
+
+                def rebased_check(lp):
+                    self.assertEqual(lp.every, ["true"])
+                    self.assertEqual(lp.once, [task_once, old_suite])
+                    (lp.wt / "work.txt").write_text("work\n")
+                    run.git(lp.wt, "add", "work.txt")
+                    run.git(lp.wt, "commit", "-q", "-m", "work")
+                    before = run.git(lp.wt, "rev-parse", "HEAD")
+                    if mode == "probe":
+                        (self.repo / "broken.txt").write_text("broken\n")
+                        self.git("add", "broken.txt")
+                    self.commit(f"---\ntests: {suite}\n---\n# acme\n")
+                    tip = self.git("rev-parse", "HEAD")
+                    self.git("update-ref", "refs/remotes/origin/main", tip)
+                    run.git(lp.wt, "rebase", "origin/main")
+                    self.assertNotEqual(run.git(lp.wt, "rev-parse", "HEAD"), before)
+                    self.assertEqual(run.declared_suite(lp.wt, lp.target), suite)
+                    self.assertEqual(run.final_check(lp, "origin/main"), mode != "probe")
+                    self.assertEqual(lp.every, ["true"])
+                    self.assertEqual(lp.once, [task_once, suite])
+
+                with patch.object(run, "merge", side_effect=rebased_check), \
+                        patch.object(run, "start_followups", return_value=None):
+                    state = self.launch(f"rebased-{mode}", ["true", f"{task_once}  # once"],
+                                        expected="waiting" if mode == "probe" else "pass")
+                self.assertEqual(self.finals(), [["true"], [task_once, suite]], self.gates)
+                ran = [cmd for _, cmds in self.gates for cmd in cmds]
+                self.assertNotIn(old_suite, ran)
+                self.assertEqual(ran.count(suite), 1)
+                if mode == "probe":
+                    text = (config.RUNS / "rebased-probe" / "target-probe.log").read_text()
+                    self.assertIn(f"$ {suite} (on origin/main ", text)
+                    self.assertIn("--- AK_SHARD=2/2 ---", text)
+                    self.assertNotIn(old_suite, text)
+                else:
+                    self.assertCountEqual(self.pieces, ["1/2", "2/2"])
+                    self.assertEqual(state["final_check"]["outcome"], "passed")
 
     def test_done_when_line_identical_to_the_suite_runs_once(self):
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")

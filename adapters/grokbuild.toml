@@ -5,6 +5,10 @@
 # A worker turn still loads AGENTS.md, a top-level CLAUDE.md and ~/.grok/AGENTS.md: grok 1.0.40 has no switch for them.
 version = 1
 
+[check]
+model = "grok-4.7-build-fast"
+effort = "low"
+
 # `ak update` reads the version off the TUI, upgrades it with the TUI's own command, and
 # puts a bad build back with the versioned reinstall -- so the plan takes no snapshot.
 # `latest` is its own check on its own channel, which names the installed release first.
@@ -130,12 +134,11 @@ terminal = "result"
 signatures = ["You've hit the rate limit", "Rate limited", "quota exceeded",
   "Service unavailable", "The service is busy"]
 refusals = ["rate limit", "Rate limited", "quota exceeded", "too many requests", "429",
-  "402", "Payment Required", "usage balance exhausted", "Service unavailable",
+  "usage balance exhausted", "Service unavailable",
   "The service is busy",
   "500", "502", "503", "504", "Internal server error", "overloaded", "529", "at capacity"]
 quotas = ["rate limit", "Rate limited", "quota exceeded", "too many requests", "429",
-  "402", "Payment Required", "usage balance exhausted", "usage limit",
-  "insufficient_quota", "insufficient quota", "payment required"]
+  "usage balance exhausted", "usage limit", "insufficient_quota", "insufficient quota"]
 
 # Its login screen, in its own words: the session token in ~/.grok/auth.json went stale.
 [auth]

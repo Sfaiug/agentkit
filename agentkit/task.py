@@ -8,9 +8,6 @@ AFTER_KEY = "after"  # front matter `after:` names another task file in the same
 # Retired time keys stay readable so the loop can warn about them in older tasks.
 TASK_KEYS = ("after", "base", "done_when_minutes", "files", "from", "merge", "repo",
              "rounds", "stall_minutes", "target", "turn_hours")
-TASK_MAX_POINTS = 3      # numbered points in ## Goal: more is more than one behaviour
-TASK_MAX_WORDS = 500     # words outside the checks block: past this, split the task
-TASK_MAX_CHECKS = 6      # done-when commands: past this, split the task
 TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re-scope
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
 FENCE = re.compile(r"```(?:bash|sh)?\n(.*?)```", re.S)
@@ -144,24 +141,6 @@ def task_words(body):
 def task_size(body, cmds):
     """(words outside the checks block, numbered goal points, checks) for one task."""
     return task_words(body), task_points(body), len(cmds)
-
-
-def task_size_refusal(body, cmds):
-    """One sentence when the task is bigger than one behaviour, else None.
-
-    Points first, then words, then checks: the first rule the task breaks is the one
-    named, with its count, so the refusal is one sentence however far over it is.
-    """
-    points = task_points(body)
-    if points > TASK_MAX_POINTS:
-        return f"task has {points} numbered goal points (at most {TASK_MAX_POINTS})"
-    words = task_words(body)
-    if words > TASK_MAX_WORDS:
-        return (f"task body has {words} words outside the checks block "
-                f"(at most {TASK_MAX_WORDS})")
-    if len(cmds) > TASK_MAX_CHECKS:
-        return f"task has {len(cmds)} checks (at most {TASK_MAX_CHECKS})"
-    return None
 
 
 def rounds_refusal(value, what):

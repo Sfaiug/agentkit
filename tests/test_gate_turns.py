@@ -133,7 +133,7 @@ class GateTurns(unittest.TestCase):
         self.assertEqual(second.logs[0], f"done-when: {WAITING}")
         self.assertRegex(second.logs[1], r"^done-when: took a heavy suite turn after \d+s$")
         self.assertTrue(second.result[0], second.result[1])
-        self.assertNotIn("waiting", second.result[1])
+        self.assertNotIn("waiting for a heavy suite turn", second.result[1])
         self.assertEqual(suite_gate.gate_turn_note(run_record.read_state(second.run_dir)), "")
 
     def test_gates_of_different_repositories_share_heavy_turns_host_wide(self):

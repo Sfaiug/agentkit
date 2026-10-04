@@ -121,9 +121,6 @@ class MergePipeline(Fixture):
         self.assertEqual((state["state"], state["waiting_on"]),
                          ("waiting", {"ref": "origin/main", "sha": "abc"}))
 
-    def test_the_merge_turns_release(self):
-        self.lp.state["merge_hold"] = {"pid": 1, "of": "acme main"}
-        self.assertNotIn("merge_hold", self.survives(run._MergeHold(None, self.lp, True).release))
 
     def test_a_final_check(self):
         self.lp.once, self.lp.every = ["true"], []
@@ -135,13 +132,10 @@ class MergePipeline(Fixture):
             state = self.survives(lambda: self.assertTrue(run.final_check(self.lp, "origin/main")))
         self.assertEqual(state["final_check"]["outcome"], "passed")
 
-    def test_a_stop_still_ends_a_pipeline_save_and_a_release_still_lets_go(self):
+    def test_a_stop_still_ends_a_pipeline_save(self):
         record.save_state(self.run_dir, {**record.read_state(self.run_dir), "state": "stopped"})
         with self.assertRaises(record.StopRequested):
             run.note(self.lp, "the PR is closed")
-        self.lp.state["merge_hold"] = {"pid": 1, "of": "acme main"}
-        run._MergeHold(None, self.lp, True).release()     # its fallback, not a raise
-        self.assertNotIn("merge_hold", self.lp.state)
         self.assertEqual(record.read_state(self.run_dir)["state"], "stopped")
 
 
@@ -312,6 +306,20 @@ class Tick(Fixture):
                 self.tick(state, run_pass, self.another_writer)
                 self.assertNotEqual((self.run_dir / "run.json").read_bytes(), self.between)
                 self.assertTrue(record.read_state(self.run_dir)["handback_pending"])
+
+    def test_waiting_pass_leaves_a_member_that_joined_after_its_first_read(self):
+        path = self.run_dir / "run.json"
+
+        def joined():
+            state = json.loads(path.read_text())
+            state["waiting_on"] = {"line": run.merge_lock_path(
+                "https://github.com/acme/widget.git", "origin/main").name, "joined": self.NOW}
+            path.write_text(json.dumps(state))
+
+        logs = self.tick({"state": "waiting", "worktree": str(self.root / "gone")},
+                         lambda log: watch.resume_waiting(log=log, now=self.NOW), joined)
+        self.assertEqual(path.read_bytes(), self.between)
+        self.assertEqual(logs, [])
 
     def test_a_launch_leaves_a_record_it_cannot_read_as_it_is_and_says_so(self):
         # unreadable after the start: the child owns the run now, so the launch stands
