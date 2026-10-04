@@ -557,10 +557,10 @@ def continue_turns(cfg, log, accounts=False):
 # a pane that is not showing one. Auth expiry asks for login immediately without typing.
 # An unchanged terminal failure with no known signature asks for inspection after an hour.
 # Ordinary output and idle prompts are not evidence of a blocked session.
-# A quota waits for its provider: OpenAI's is put
-# to the usage-limit reset policy that already exists, and known windows are waited out even
-# past an hour. Otherwise an hour of the same is the end of it: the user is asked once, by menu
-# number, and nothing is typed into that seat again until they open it and it makes progress.
+# A quota waits for its provider, a usage-limit reset held or not -- only the owner spends
+# one -- and known windows are waited out even past an hour. Otherwise an hour of the same is
+# the end of it: the user is asked once, by menu number, and nothing is typed into that seat
+# again until they open it and it makes progress.
 
 # Everything a harness shows on its screen is its adapter's, in adapters/<harness>.toml beside
 # adapters/<harness>.sh: the words it uses for a stall, a quota and an expired login, what its
@@ -648,12 +648,6 @@ def auth_expiry(harness):
     if not isinstance(block, dict):
         return (None, None, ())
     return (block.get("title"), block.get("remedy"), _words(harness, "auth", "signatures"))
-
-
-def reset_policy(harness):
-    """Does this harness's provider hand out usage-limit resets its adapter can spend?"""
-    block = config.manifest(harness).get("quota")
-    return bool(isinstance(block, dict) and block.get("reset_policy"))
 
 
 def _stamp(value):
@@ -2840,27 +2834,6 @@ def window_ends(cfg, provider, name):
     return max(ends, default=None)
 
 
-def spend_reset(cfg, provider, name, log):
-    """Put the subscription that seat stalled on to the usage-limit reset policy now, whatever
-    its due clock says.
-
-    The policy is `ak usage`'s own and its caps are its own too -- 90% of the week gone, and at
-    most one reset a day -- so a seat that stalls again an hour later costs nothing here.  The
-    adapter is asked at most once a minute like everywhere else, and the snapshot stays: deleting
-    it would cost every other provider its reading.  The seat's own subscription is the one
-    asked, the usual login included: a credit spent on another leaves the stalled week as spent.
-    """
-    try:
-        spent, left = usage.replenish(cfg, provider, depleted=False,
-                                      account=seat_subscription(cfg, provider, name))
-    except config.Error as exc:
-        log(f"WARN could not read the {provider} meters: {exc}")
-        return
-    if spent:
-        log(f"{provider}: usage-limit reset applied ({left:.0f} left)")
-    return spent
-
-
 def done_holds(name, live, notice, began, said, dry_run):
     """Does that `done` speak for the turn the seat is stopped on, or for an earlier one?
 
@@ -3012,12 +2985,6 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     home = record.get("home_account") or config.DEFAULT_ACCOUNT
     model = record["orchestrator"]
     waiting = live.get("usage_wait")
-    # Reading the meters can itself spend a reset. Keep that receipt so the old
-    # refusal cannot park the capacity it just restored -- one naming this subscription,
-    # because another's credit, or one a receipt cannot say whose, restores nothing here.
-    mine = current if accounts else config.DEFAULT_ACCOUNT
-    reset_path = usage._reset_file(provider, mine)
-    reset_before = usage._reset_applied_at(reset_path, mine)
     from . import run
     try:
         prov = (run._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
@@ -3061,7 +3028,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if refusal and not waiting and not spent(current):
         if observed.get("line") != line:
             if not dry_run:
-                seat_write(name, usage_refusal={"line": line, "at": now, "reset_at": reset_before})
+                seat_write(name, usage_refusal={"line": line, "at": now})
             return True
         if now - observed["at"] < STALL_WAIT:
             return True
@@ -3098,22 +3065,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if dry_run:
         log(f"would recover {name} on a {provider} account with room, or wait for its reset")
         return True
-    refilled = False
-    if refusal and not waiting and reset_policy(harness) and (until is None or until > now):
-        applied = usage._reset_applied_at(reset_path, mine)
-        refilled = applied is not None and applied != observed.get("reset_at", reset_before)
-        if refilled:
-            log(f"{provider}: usage-limit reset applied")
-        else:
-            refilled = spend_reset(cfg, provider, name, log) is True
-        if refilled:
-            fresh = usage.collect(cfg).get(provider) or {}
-            readings = (fresh.get("accounts") or {}) if accounts else {current: fresh}
     owned = orch.resumable(record)
     eligible = {a: readings[a] for a in (accounts or [current]) if a in readings
                 and not spent(a) and (owned or a == current)
-                and (a != current or waiting or not refusal or refilled)}
-    # Keep the existing login when it has refilled, or on its credits when no window takes
+                and (a != current or waiting or not refusal)}
+    # Keep the existing login when it has room again, or on its credits when no window takes
     # the seat. Probe only possible moves, in order, before the owner-action check: a slow
     # adapter must not undo a stop or typing.
     order = sorted(orch.account_order(cfg, model, eligible, home),
@@ -3128,7 +3084,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                 or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
                 or pane_text(current_seat) != pane):
             return True
-        if refusal and not waiting and not spent(current) and not refilled:
+        if refusal and not waiting and not spent(current):
             # The host may have slept through the deadline. Never replace that old
             # refusal with a new shared-cache park; retry it once in the existing pane.
             if until is not None and until <= now:
@@ -3456,8 +3412,6 @@ def health(cfg, state, dry_run, log):
             # Read meters only for a possible nudge. A known window is already a decision:
             # wait on the persisted deadline, then resume once, without flushing usage every tick.
             if quota and not dry_run and ends is None and not throttled:
-                if reset_policy(harness):
-                    spend_reset(cfg, provider, name, log)
                 ends = window_ends(cfg, provider, name)
                 if ends and ends > now:
                     entry["resets_at"] = ends
@@ -3507,9 +3461,7 @@ def health(cfg, state, dry_run, log):
                         now - entry.get("nudged_at", 0) < NUDGE_EVERY):
                     continue
                 if dry_run:
-                    note = ("" if not quota else
-                            f" after the {provider} usage-limit reset policy" if reset_policy(harness)
-                            else f" once the {provider} window has passed")
+                    note = f" once the {provider} window has passed" if quota else ""
                     log(f"would resume {name}, stalled on {mark}, with {keys!r}{note}")
                 elif type_into(session, keys, log):
                     entry["nudged_at"] = time.time()

@@ -14,8 +14,7 @@ seat_env = ["AGENTKIT_CODEX_RECEIPT", "AGENTKIT_CODEX_CAPTURE"]
 
 # How `ak update` moves this harness: npm installs a named version, so a failed upgrade goes
 # back by command.  `[usage] reset` says this adapter speaks `reset-status` and `reset`, which is
-# what lets a nearly spent week be read again as a fresh one; `[quota] reset_policy` below is the
-# same fact for the babysitter, which consults the policy before it types into a stalled seat.
+# what lets the owner spend a usage-limit reset by hand and read a fresh week back.
 # `latest` is the release the tick upgrades it to in the background.
 [update]
 version = ["codex", "--version"]
@@ -142,11 +141,6 @@ error_marks = ["■ ", "• stream error: "]
 [resume]
 when = 'goal stalled|goal mode|/goal'
 key = "/goal resume"
-
-# A ChatGPT subscription hands out usage-limit resets, and adapters/codex.sh can spend one, so
-# a spent window goes to that policy before the seat is ever typed into.
-[quota]
-reset_policy = true
 
 [auth]
 title = "Codex"

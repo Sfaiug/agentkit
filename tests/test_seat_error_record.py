@@ -182,7 +182,6 @@ class SeatErrorRecord(unittest.TestCase):
                 (provider, kw.get("until")))))
         self.stack.enter_context(patch.object(watch.notify, "shaped", return_value=0))
         self.auth = self.stack.enter_context(patch.object(watch, "record_auth"))
-        self.reset = self.stack.enter_context(patch.object(watch, "spend_reset"))
         self.window = self.stack.enter_context(
             patch.object(watch, "window_ends", side_effect=lambda *_: self.now + 7200))
 
@@ -195,7 +194,7 @@ class SeatErrorRecord(unittest.TestCase):
         self.harness, self.pane = harness, pane
         self.typed.clear()
         self.marked.clear()
-        for mock in (self.auth, self.reset, self.window):
+        for mock in (self.auth, self.window):
             mock.reset_mock()
         lines = "".join(json.dumps(entry) + "\n" for entry in entries)
         if harness == "claude":
@@ -262,10 +261,9 @@ class SeatErrorRecord(unittest.TestCase):
                     self.assertTrue(self.auth.call_args.kwargs["fresh"])
                     self.assertEqual((self.typed, entry.get("signature")), ([], None))
                 else:
-                    # an outage is typed at, and waits on no window and spends no reset
+                    # an outage is typed at, and waits on no window
                     self.assertEqual(entry["signature"], word)
                     self.assertEqual(self.typed, [watch.keystroke(harness, self.pane)])
-                    self.reset.assert_not_called()
                     self.window.assert_not_called()
         # while a spent window the tick reads waits on it, never typing
         name = self.record("codex", failed("codex", *CASES[4][1:4]), "❯")
@@ -301,7 +299,6 @@ class SeatErrorRecord(unittest.TestCase):
                 self.assertEqual(self.health(name), {})
                 self.assertEqual(self.typed, [])
                 self.auth.assert_not_called()
-                self.reset.assert_not_called()
                 self.window.assert_not_called()
 
     def test_a_goal_stalled_on_a_recorded_error_is_resumed_by_its_own_command(self):
