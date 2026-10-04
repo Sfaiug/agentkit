@@ -65,10 +65,12 @@ class TaskFile(unittest.TestCase):
         self.assertIsNone(task.rounds_refusal("many", "--rounds"))
 
     def test_a_heredoc_in_done_when_is_refused(self):
-        for cmd in ("python3 - <<'PY'", "cat <<EOF > out", "bash <<-END"):
+        for cmd in ("python3 - <<'PY'", "cat <<EOF > out", "bash <<-END", "x=$(cat << EOF"):
             with self.subTest(cmd):
                 self.assertIn("opens a heredoc", task.launch_refusal({}, ["true", cmd]))
-        for cmd in ("grep -q x <<< \"$out\"", "grep -q '<<EOF' notes.md", 'echo "a<<b"'):
+        for cmd in ("grep -q x <<< \"$out\"", "grep -q '<<EOF' notes.md", 'echo "a<<b"',
+                    "test $((1 << 3)) -eq 8", "(( (1 << 3) == 8 ))", "true # <<EOF is an example",
+                    "printf '%s\\n' $'escaped \\'<<literal'", "python3 -m pytest -q  # once"):
             with self.subTest(cmd):
                 self.assertIsNone(task.launch_refusal({}, [cmd]))
 

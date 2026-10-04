@@ -919,7 +919,11 @@ sys.exit(1)
             def poll(self):
                 return None          # ... and a launched child is a running one
 
+        real_popen = stdlib_subprocess.Popen
+
         def fake_popen(argv, **kwargs):
+            if argv[:2] == ["bash", "-n"]:
+                return real_popen(argv, **kwargs)   # the launch parses each done-when line
             spawned["argv"] = argv
             spawned["env"] = kwargs.get("env")
             spawned["stdout"] = kwargs.get("stdout")

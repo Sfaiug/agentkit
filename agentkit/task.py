@@ -1,6 +1,8 @@
 """The task file: front matter, title, done-when commands and size."""
 
+import os
 import re
+import subprocess
 
 from . import config
 
@@ -12,8 +14,6 @@ TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
 FENCE = re.compile(r"```(?:bash|sh)?\n(.*?)```", re.S)
 ONCE_MARKER = re.compile(r"#\s*once\s*$")
-QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
-HEREDOC = re.compile(r"(?<!<)<<(?!<)")
 
 
 def front_matter(path):
@@ -139,17 +139,32 @@ def launch_refusal(meta, cmds):
     """One sentence when a new task file cannot start as written, else None.
 
     A heredoc never works in done-when: each line runs as a command of its own, so the
-    opening line reads an empty script and its body lines run as commands.  `<<` inside
-    quotes is no heredoc, and `<<<` is a one-line here-string.
+    opening line reads an empty script and its body lines run as commands.
     """
     if "after" in meta:
         return ("`after:` is gone: tasks launched together are independent pieces; build work "
                 "that waits on another piece in your session, in order")
-    heredoc = next((cmd for cmd in cmds if HEREDOC.search(QUOTED.sub("", cmd))), None)
+    heredoc = next((cmd for cmd in cmds if opens_heredoc(cmd)), None)
     if heredoc:
         return (f"done-when line {heredoc!r} opens a heredoc, but each line runs as a command of "
                 "its own: put the script in a file the change adds, or on one line")
     return rounds_refusal(meta.get("rounds"), "task rounds")
+
+
+def opens_heredoc(command):
+    """Whether bash, reading `command` as a whole script, meets a heredoc it never closes.
+
+    Bash's own parser answers (`bash -n` runs nothing), so a shift in arithmetic, a comment,
+    any quoting and a `<<<` here-string are no heredoc, exactly as when the line runs.
+    """
+    env = {**os.environ, "LC_ALL": "C"}
+    env.pop("BASH_ENV", None)
+    try:
+        said = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True,
+                              env=env, timeout=30).stderr
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "here-document at line" in said
 
 
 def rounds_refusal(value, what):
