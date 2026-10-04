@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, orch, record, run, worker
+from agentkit import config, job, orch, record, run, worker
 
 
 class BeforeModel(Exception):
@@ -171,6 +171,36 @@ class RepoFromLaunchDir(Sandbox):
                 self.assertTrue(state["scratch"])
                 self.assertTrue(state["no_merge"])
                 self.assertIsNone(state["branch"])
+
+    def folder_task(self):
+        config.CODE.mkdir(parents=True, exist_ok=True)
+        self.task = config.HOME / "tasks" / "acme" / "fix-api.md"
+        self.task.parent.mkdir(parents=True)
+        self.task.write_text("# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
+        self.stack.enter_context(patch.object(orch, "checkouts", return_value=[self.acme, self.other]))
+
+    def assert_folder_repo(self, directory):
+        state = record.read_state(directory)
+        self.assertEqual(state["task_file"], str(self.task))
+        self.assertEqual(state["repo"], str(self.acme))
+        self.assertFalse(state["scratch"])
+        self.assertFalse(state["no_merge"])
+
+    def test_foreground_and_background_launches_from_a_folder_of_checkouts(self):
+        self.folder_task()
+        for background in (False, True):
+            with self.subTest(background=background):
+                directory = self.launch(background, config.CODE)
+                self.pending = None
+                self.assert_folder_repo(directory)
+
+    def test_a_job_task_launched_from_a_folder_of_checkouts(self):
+        self.folder_task()
+        with chdir(config.CODE), redirect_stdout(io.StringIO()):
+            directory, _ = job.job_start_task(self.cfg, config.JOBS / "fix-api",
+                                             {"name": "fix-api", "task_file": str(self.task)},
+                                             {}, lambda _: None)
+        self.assert_folder_repo(directory)
 
 
 if __name__ == "__main__":
