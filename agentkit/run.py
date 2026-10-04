@@ -39,7 +39,6 @@ from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
 GITHUB_BODY_CAP = 60_000         # below GitHub's 65,536-character body limit, including UTF-8
-RULES_CAP = 8 * 1024
 # A transient answer is what a person answers by typing `continue`: the same worker session
 # again, after 1, 5, 15, 30 and 60 minutes, then hourly, indefinitely.  The run stays
 # `running` throughout, so its session reads `working`, and never ends in `error` for one.
@@ -128,7 +127,7 @@ BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
 # their say: none is a command's output, and reading one as such would make a failure that
 # never moved look new every round.  See `run_done_when`, `verify_work` and `final_check`.
 LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |outside files: "
-                       r"|AGENTS\.md body )")
+                       r"|AGENTS\.md is )")
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
@@ -2723,15 +2722,16 @@ def files_scope(lp):
 
 
 def rules_cap(lp):
-    """Refuse an oversized rules body only when this branch changes the file."""
-    if lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
-                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
+    """Refuse an AGENTS.md past what a harness reads of it, only when this branch changes it."""
+    ceiling = config.instruction_ceiling()
+    if not ceiling or lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
+                                            f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
-    text = git(lp.wt, "show", "HEAD:AGENTS.md", check=False)
-    front = FRONT.match(text)
-    size = len((text[front.end():] if front else text).strip().encode("utf-8"))
-    return (f"AGENTS.md body is {size} bytes, past its {RULES_CAP}-byte cap: tighten it."
-            if size > RULES_CAP else "")
+    limit, harness = ceiling
+    code, out, _ = tool_run(["git", "-C", str(lp.wt), "cat-file", "-s", "HEAD:AGENTS.md"])
+    size = int(out) if code == 0 and out.strip().isdigit() else 0
+    return (f"AGENTS.md is {size} bytes, past the {limit} bytes {harness} reads of it: "
+            "tighten it." if size > limit else "")
 
 
 def regression_fails_before(lp):

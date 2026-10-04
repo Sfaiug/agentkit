@@ -1097,19 +1097,42 @@ def seat_env_names():
     manifests because nothing here knows one harness from another, let alone what it calls its
     own variables; the manifests themselves are cached by mtime.
     """
+    names = set()
+    for _, data in manifests():
+        block = data.get("launch")
+        if isinstance(block, dict):
+            names.update(n for n in block.get("seat_env") or [] if isinstance(n, str))
+    return names
+
+
+def manifests():
+    """Every adapter manifest, as (harness, manifest), from the same places `manifest` reads."""
     override = os.environ.get(ADAPTER_DIR_ENV)
     roots = [Path(override).expanduser(), REPO / "adapters"] if override else [REPO / "adapters"]
-    names = set()
     for root in roots:
         try:
             paths = sorted(root.glob("*.toml"))
         except OSError:
             continue
         for path in paths:
-            block = manifest(path.stem).get("launch")
-            if isinstance(block, dict):
-                names.update(n for n in block.get("seat_env") or [] if isinstance(n, str))
-    return names
+            yield path.stem, manifest(path.stem)
+
+
+def instruction_ceiling():
+    """The most of a project's AGENTS.md every harness reads on its own, and whose limit it is.
+
+    `[instructions] read_limit` in adapters/<h>.toml is how many bytes that harness reads of
+    the file before it drops the rest unannounced.  The smallest wins: a project's file has to
+    reach every harness whole, ak's prompts and a harness opened in the checkout alike.  None
+    when no manifest declares one, and then nothing limits the file's size.
+    """
+    limits = []
+    for harness, data in manifests():
+        block = data.get("instructions")
+        limit = block.get("read_limit") if isinstance(block, dict) else None
+        if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
+            limits.append((limit, harness))
+    return min(limits) if limits else None
 
 
 def seat_state_path(name):
