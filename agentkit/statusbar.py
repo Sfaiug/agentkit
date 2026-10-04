@@ -120,12 +120,13 @@ def redress(session, answer, cfg=None):
 
 
 def _write(name, model, word=None, last="", cfg=None):
-    """Set the bar on that seat's own session, never the server's: a seat gone mid-draw, or a
-    draw under test, fails its `set-option` quietly."""
+    """Set the bar on that seat's own session, never the server's or another seat's: a seat gone
+    mid-draw, or a draw under test, fails its `set-option` quietly.  `={name}:` is that session
+    alone: tmux reads a plain name as the start of any session's, so a gone `new-1` would write
+    `new-10`'s bar, and it refuses `=name` without the colon as a target."""
     cfg = config.load() if cfg is None else cfg
     top, why, key, title = lines(name, model, company(cfg, model), word, last)
     # the title last, so whoever sees it has the whole bar to read
     for option, value in (*LAYOUT, (TOP, top), (WHY, why), (KEY, key),
                           ("set-titles-string", title)):
-        # set-option takes the session name plain: it is the one target that rejects `=name`
-        orch.tmux_out("set-option", "-t", name, option, value, socket=orch.socket_name())
+        orch.tmux_out("set-option", "-t", f"={name}:", option, value, socket=orch.socket_name())
