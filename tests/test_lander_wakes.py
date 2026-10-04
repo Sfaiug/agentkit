@@ -334,7 +334,8 @@ class LanderWakes(Sandbox):
             with patch.object(run.time, "time", return_value=10000 + red):
                 self.assertEqual(run.cmd_resume([self.directory.name]), 0 if red < 4 else 1)
             state = record.read_state(self.directory)
-            self.assertEqual(state["landing_reds"], red)
+            # The ending spends the count: a resume of the failed run counts its reds afresh.
+            self.assertEqual(state.get("landing_reds"), red if red < 4 else None)
             self.assert_rounds(state)
             if red < 4:
                 self.assertEqual(state["state"], "waiting")
