@@ -30,6 +30,9 @@ class QuestionCameDown(Sandbox):
     def setUp(self):
         super().setUp()
         config.save_session(self.cfg, SEAT, "opus", ["astra"], {"cwd": str(self.root)})
+        home = self.root / ".agentkit"
+        home.mkdir()
+        (home / "state").symlink_to(config.STATE)
 
     def hook(self, event, script="seat-state.sh", **payload):
         """One hook call the way the harness makes it; the seat's record as it stands after."""

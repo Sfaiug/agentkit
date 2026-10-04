@@ -52,7 +52,7 @@ at_prompt = "hooks"
 # A prompt submitted is a turn in flight; a turn ended is the prompt again.  The kinds are
 # the Notification types grok names: idle_prompt about a minute after the session settles
 # (captured), permission_prompt when its permission UI waits (documented).  task_complete
-# and the StopCancelled/StopFailure rounds name no entry, so the screen decides those.
+# and the StopCancelled/StopFailure rounds name no entry, so they leave the last hook fact alone.
 [[hooks.event]]
 name = "UserPromptSubmit"
 state = "working"

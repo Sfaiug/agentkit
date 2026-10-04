@@ -324,6 +324,7 @@ of hooks and screen decides each live fact), `[screen]` and `[[rule]]` (the comp
 bottom of the pane), `[stall]` (its own words for a spent quota, a refusal, an outage and a harness that never ran, beside the ones no harness owns), `[resume]`, `[quota]`, `[auth]`
 (title, remedy, signatures), `[compact]` (the keys, the signal, where context is read, the idle minutes, the stash key), `[effort]` (its vocabulary),
 `[catalog]` (models, efforts) and `[worker_token]` where it mints one. Then add `[providers.<name>]`.
+An event with no state in `[[hooks.event]]` leaves the seat's last hook fact alone; a passive notice cannot end or reopen a turn.
 `$AGENTKIT_ADAPTER_DIR` points at another adapter directory, which is how the offline suites run the loop with no model
 behind it. Behaviour that needs Python goes in `agentkit/harness/<h>.py` behind one interface where every hook has a default (`tokens` reads `events.jsonl`; Muse's are in its session store).
 
