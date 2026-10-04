@@ -67,18 +67,16 @@ class TaskFile(unittest.TestCase):
         self.assertIsNone(task.rounds_refusal("many", "--rounds"))
 
     def test_a_heredoc_in_done_when_is_refused(self):
-        # what bash meets when it runs the line, substitutions included
+        # what bash's own parser meets in the line
         for cmd in ("python3 - <<'PY'", "cat <<EOF > out", "bash <<-END", "x=$(cat << EOF",
-                    "test \"`python3 - <<'PY'`\" = ''", "true `cat <<'EOF'`",
-                    "echo $(echo `cat <<E`)", "echo $(( `cat <<E` + 1 ))",
-                    "echo `echo \\`cat <<E\\``", "echo \"${x:-`cat <<E`}\"", "cat <(cat <<E)"):
+                    "echo \"$(cat <<E)\"", "cat <(cat <<E)", "true; cat<<E"):
             with self.subTest(cmd):
                 self.assertIn("opens a heredoc", task.launch_refusal({}, ["true", cmd]))
         for cmd in ("grep -q x <<< \"$out\"", "grep -q '<<EOF' notes.md", 'echo "a<<b"',
                     "test $((1 << 3)) -eq 8", "(( (1 << 3) == 8 ))", "true # <<EOF is an example",
                     "printf '%s\\n' $'escaped \\'<<literal'", "python3 -m pytest -q  # once",
-                    "true # `cat <<EOF`", "grep -q '`cat <<EOF`' notes.md", "echo \\`cat <<<x",
-                    "echo `echo $((1 << 2))`", "echo \"`echo '<<'`\"", "echo \"a<(cat <<E\""):
+                    "test $((1<(2 << 3))) -eq 1", "(true)# `cat <<EOF`",
+                    "x=literal; test \"${x#'`cat <<EOF`'}\" = literal"):
             with self.subTest(cmd):
                 self.assertIsNone(task.launch_refusal({}, [cmd]))
 
@@ -91,12 +89,6 @@ class TaskFile(unittest.TestCase):
                 with self.subTest(cmd):
                     self.assertIsNone(task.launch_refusal({}, [cmd]))
             self.assertIn("opens a heredoc", task.launch_refusal({}, ["cat <<EOF"]))
-
-    def test_substitutions_are_read_as_bash_reads_them(self):
-        # each body is parsed on its own: bash leaves backquoted ones (and, before 5.2, all)
-        self.assertEqual(task.substitutions("echo \"$(echo \"`cat <<E`\")\" `a \\`b\\`` '`c`'"),
-                         ['echo "`cat <<E`"', "a `b`"])
-        self.assertEqual(task.substitutions("echo $(( `x` << $(y) )) # `z`"), ["x", "y"])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
