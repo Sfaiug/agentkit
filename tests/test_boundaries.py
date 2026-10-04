@@ -137,8 +137,11 @@ def outside(rule):
 
 class Boundaries(unittest.TestCase):
     def test_no_max_rises_above_origin_main(self):
-        proc = subprocess.run(["git", "-C", str(REPO), "show",
-                               "origin/main:tests/test_boundaries.py"],
+        # against where this change started: a commit main has since moved past (as the host's
+        # live check tests) is not raising the maxima main lowered after it
+        base = subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
+                              capture_output=True, text=True).stdout.strip() or "origin/main"
+        proc = subprocess.run(["git", "-C", str(REPO), "show", f"{base}:tests/test_boundaries.py"],
                               capture_output=True, text=True)
         if proc.returncode:
             print("origin/main:tests/test_boundaries.py is not readable; skipping max comparison")
@@ -154,8 +157,9 @@ class Boundaries(unittest.TestCase):
                 with self.subTest(rule["name"]):
                     self.assertLessEqual(
                         rule["max"], maxima[rule["name"]],
-                        f"{rule['name']}: max {rule['max']} exceeds origin/main max "
-                        f"{maxima[rule['name']]}; a max only goes down")
+                        f"{rule['name']}: max {rule['max']} exceeds the max "
+                        f"{maxima[rule['name']]} where this change left origin/main; a max only "
+                        "goes down")
 
     def test_no_count_rises_above_its_max(self):
         for rule in RULES:
