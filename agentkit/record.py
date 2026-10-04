@@ -210,6 +210,9 @@ def stop_check(run_dir):
     if run_dir is None:
         return
     try:
+        # A stop refuses a run with no receipt, so there is no stop to race.
+        if not (Path(run_dir) / "run.json").exists():
+            return
         with recovery_lock(run_dir):
             try:
                 stopped = (json.loads((Path(run_dir) / "run.json").read_text())
