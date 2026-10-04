@@ -16,6 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
+from fixtures.landing import landing
 from agentkit import gate, config, gc, run
 from agentkit import record
 
@@ -75,6 +76,9 @@ class MergeTrailer(unittest.TestCase):
         return ok, text
 
     def gh(self, cwd, *args, **_kw):
+        if args[0] == "api" and "repos/acme/widget/pulls/7" in args:
+            return 0, json.dumps({"state": "open", "head": {"sha": self.git("rev-parse", "HEAD")},
+                                  "base": {"ref": "main"}})
         if args[0] == "api" and "graphql" in args:
             query = next(arg for arg in args if arg.startswith("query="))
             self.assertIn("viewerMergeBodyText(mergeType:$method)", query)
@@ -144,7 +148,11 @@ class MergeTrailer(unittest.TestCase):
                 self.assertTrue(run.push(lp))
         if own:
             lp.state["own_orchestrator"] = "opus"
-            self.assertTrue(run.merge_own_pr(lp, url, lp.state["delivery_sha"]))
+            with patch.object(run, "fetch", return_value=(0, "")), \
+                    patch.object(run, "checks", return_value=(True, "")), \
+                    patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                                 landing(lp, deliver=deliver)):
+                self.assertTrue(run.merge_own_pr(lp, url, lp.state["delivery_sha"]))
         else:
             self.assertTrue(run.do_merge(lp, url, "origin/main"))
         return self.git("log", "-1", "--format=%B")
@@ -193,7 +201,7 @@ class MergeTrailer(unittest.TestCase):
                 reads = []
 
                 def gh(cwd, *args, **_kw):
-                    if args[0] == "api":
+                    if args[0] == "api" and "graphql" in args:
                         reads.append(args)
                         self.assertEqual(args[:4], ("api", "--hostname", "ghe.acme.test", "graphql"))
                     return self.gh(cwd, *args, **_kw)
@@ -276,7 +284,7 @@ class MergeTrailer(unittest.TestCase):
         checked = self.git("rev-parse", "HEAD^{tree}")
         self.assertIn(f"Suite-Passed-Tree: {checked}", self.land(lp))
 
-    def review_pr(self, suite, own=True):
+    def review_pr(self, suite, own=True, verdict="PASS"):
         lp = self.loop(suite=suite)
         head, tree = self.git("rev-parse", "HEAD"), self.git("rev-parse", "HEAD^{tree}")
         lp.state.update(head_sha=head, own_pr=own, own_orchestrator="opus" if own else None)
@@ -300,8 +308,11 @@ class MergeTrailer(unittest.TestCase):
                 mocks.enter_context(patch.object(run, name, return_value=value))
             mocks.enter_context(patch.object(gc, "disk_pressure", return_value=False))
             mocks.enter_context(patch.object(run, "gh_json", side_effect=gh_json))
+            mocks.enter_context(patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                                             landing(lp, deliver=deliver)))
             mocks.enter_context(patch.object(run, "call_retrying", side_effect=submitting((
-                0, "VERDICT: PASS\n## Findings\n- none", "fixture-session", False))))
+                0, ("## Findings\n- work.txt:1 - wrong edge case - a broken result\n" if verdict == "FAIL"
+                    else "## Findings\n- none\n") + f"VERDICT: {verdict}", "fixture-session", False))))
             # One round: a failed own-PR review now waits for the seat to push fixes.
             state = run.review_pr_round(self.cfg, self.directory, URL,
                                         {"--review": "astra"}, lambda line: None)
@@ -323,21 +334,25 @@ class MergeTrailer(unittest.TestCase):
 
     def test_own_pr_suite_on_dirty_files_does_not_certify_the_commit(self):
         state, _ = self.review_pr("printf 'changed\\n' > work.txt")
-        self.assertTrue(state["merged"])
-        self.assertNotIn("Suite-Passed-Tree:", self.git("log", "-1", "--format=%B"))
+        self.assertFalse(state["merged"])
+        self.assertEqual(state["verdict"], "FAIL")
+        self.assertEqual(state["final_check"]["outcome"], "failed")
+        self.assertEqual(self.calls, [])
 
-    def test_failed_pr_reviews_do_not_name_a_nonexistent_once_log(self):
+    def test_failed_pr_reviews_name_no_nonexistent_log(self):
+        # an own PR's suite waits for its landing; somebody else's runs in its review
         for own in (True, False):
             with self.subTest(own=own):
-                state, _ = self.review_pr("false", own=own)
+                state, _ = self.review_pr("false", own=own, verdict="FAIL")
                 self.assertEqual(state["state"], "running" if own else "fail")
                 self.assertFalse(state["merged"])
                 self.assertNotIn("final_check", state)
                 self.assertNotIn("once.log", run.handback_line(state, self.directory, self.cfg))
-                self.assertTrue((self.directory / "round-1/donewhen.log").exists())
+                self.assertEqual((self.directory / "round-1/donewhen.log").exists(), not own)
                 self.assertFalse((self.directory / "round-1/once.log").exists())
                 result = (self.directory / "result.md").read_text()
-                self.assertIn("final check: none (no once-commands)", result)
+                self.assertIn("final check: not run" if own
+                              else "final check: none (no once-commands)", result)
 
 
 if __name__ == "__main__":
