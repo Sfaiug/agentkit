@@ -128,6 +128,33 @@ if 'kill-session' in sys.argv:
         (home / 'fake-server.json').unlink()
         (home / 'fake-monitor-closed').unlink(missing_ok=True)
 
+    def test_ready_file_is_published_after_writing_json(self):
+        # Hold the fake between opening its receipt and writing its contents.
+        self.fake('codex', '''from pathlib import Path
+import time
+write_text = Path.write_text
+def paused_write(path, text, *args, **kwargs):
+    if not path.name.startswith('fake-tui.'):
+        return write_text(path, text, *args, **kwargs)
+    with path.open('w') as output:
+        gate = Path.home() / 'release-tui-write'
+        gate.with_suffix('.waiting').touch()
+        while not gate.exists():
+            time.sleep(.05)
+        return output.write(text)
+Path.write_text = paused_write
+''' + FAKE)
+        proc, home, _ = self.start(ready=False)
+        gate = self.root / 'release-tui-write'
+        try:
+            self.wait_for(lambda: gate.with_suffix('.waiting').exists())
+            self.assertFalse((home / 'fake-tui.json').exists(),
+                             'readiness must not expose unfinished JSON')
+        finally:
+            gate.touch()
+        self.wait_for(lambda: (home / 'fake-tui.json').exists())
+        self.stop(proc, home)
+
     def test_server_owns_hooks_rulebook_environment_and_tui_connection(self):
         proc, home, receipt = self.start()
         server = json.loads((home / 'fake-server.json').read_text())
