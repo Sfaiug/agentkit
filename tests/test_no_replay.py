@@ -65,7 +65,7 @@ class NoReplay(Sandbox):
                              "conversation": "thread-seat", "id_source": orch.LAUNCHER})
 
     def send(self, session, text, log, harness=None, guard=nullcontext,
-             veto=lambda _name: False, typed=lambda: None, pending=False):
+             veto=lambda _name: False, typed=lambda: None, pending=False, **_kw):
         with guard() as held:
             if veto(held if held is not None else session["name"]):
                 return False

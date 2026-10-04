@@ -365,6 +365,24 @@ class Seat(unittest.TestCase):
         self.assertEqual(written["context_tokens"], 40000)
         self.assertGreater(written["last_compact_at"], time.time() - 60)
 
+    def test_compaction_records_its_typed_line_before_it_reaches_the_pty(self):
+        state = self.root / ".agentkit/state"
+        state.mkdir(parents=True)
+        (state / "session-seat.json").write_text(json.dumps({"orchestrator": "opus",
+            "workers": ["astra"], "cwd": str(self.root), "conversation": "thread",
+            "id_source": "launcher"}))
+        _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_STOP_ON="/compact", FAKE_LIFE=15,
+                                  AGENTKIT_SESSION="seat")
+        self.assert_compacted(events, manifest_command("claude"))
+        receipts = [json.loads(line) for line in (state / "input-seat.jsonl").read_text().splitlines()]
+        self.assertEqual(len(receipts), 1)
+        receipt = receipts[0]
+        self.assertEqual((receipt["text"], receipt["source"], receipt["harness"], receipt["conversation"]),
+                         ("/compact", "ak", "claude", "thread"))
+        typed_at = next(event["at"] for event in events
+                        if event["event"] == "typed" and "/compact" in event["data"])
+        self.assertLessEqual(receipt["at"], typed_at)
+
     # --- (h) and (i) the same rule, on the other two harnesses --------------
 
     def test_v5e_h_a_codex_like_seat_compacts_on_its_own_command(self):

@@ -11,15 +11,16 @@ import os
 import sys
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import config, host, notify, orch, retention, run, task as taskfile, watch
+from . import box, config, host, notify, orch, retention, run, task as taskfile, watch
 from . import record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
 JOB_TICK = 2              # seconds between scheduler passes over the job receipt
+OWNER_WORDS_BYTES = 64 * 1024  # spend the receipt's UTF-8 JSON budget on the newest words
 JOB_TERMINAL = ("merged", "passed", "failed", "blocked", "skipped", "stopped")
 # What a dependant cannot build on: `after:` skips behind either, because a task whose own
 # work never landed leaves the next one nothing to stand on -- a blocked one counts as failed
@@ -75,7 +76,7 @@ def job_fingerprint(job_dir):
 def save_job(job_dir, job):
     path = Path(job_dir) / "job.json"
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(job, indent=2))
+    tmp.write_text(json.dumps(job, indent=2, ensure_ascii=False))
     tmp.replace(path)
 
 
@@ -155,6 +156,57 @@ def job_make_id(first_title):
     return job_dir
 
 
+def cap_owner_words(messages):
+    """Keep the newest words, including the tail of a prompt larger than the receipt budget."""
+    kept, size = [], 2       # the list's brackets
+    for message in reversed(messages):
+        room = OWNER_WORDS_BYTES - size - (2 if kept else 0)
+
+        def bytes_for(text):
+            return len(json.dumps({**message, "text": text}, ensure_ascii=False).encode("utf-8"))
+
+        text = message["text"]
+        if bytes_for(text) > room:
+            low, high = 0, len(text)
+            while low < high:
+                middle = (low + high + 1) // 2
+                if bytes_for(text[-middle:]) <= room:
+                    low = middle
+                else:
+                    high = middle - 1
+            if low:
+                kept.append({**message, "text": text[-low:]})
+            break
+        kept.append(message)
+        size += bytes_for(text) + (2 if len(kept) > 1 else 0)
+    return list(reversed(kept))
+
+
+def owner_words(seat):
+    """Snapshot the seat's record and return its next launch cursor beside the new words."""
+    record = config.session_records().get(seat, {})
+    plugin = orch.seat_plugin(record)
+    cwd = record.get("cwd")
+    conversation = plugin.conversation(record, cwd)
+    messages = plugin.user_messages(record, cwd, conversation, seat=seat)
+    previous = record.get("owner_words_cursor") or {}
+    # Receipts cover pre-upgrade jobs and a restart between the job and seat writes;
+    # the seat keeps the cursor after retention removes those receipts.
+    for prior in read_jobs():
+        if (isinstance(prior, dict) and isinstance(prior.get("seat"), str)
+                and config.resolve_session(prior["seat"]) == seat
+                and isinstance(prior.get("started_at"), (int, float))
+                and prior["started_at"] > previous.get("at", 0)):
+            previous = prior.get("owner_words_cursor") or {"at": prior["started_at"]}
+    if (previous.get("harness"), previous.get("conversation")) == (plugin.name, conversation):
+        fresh = messages[previous.get("count", 0):]
+    else:
+        fresh = [message for message in messages if not previous or message["at"] > previous["at"]]
+    cursor = {"harness": plugin.name, "conversation": conversation,
+              "count": len(messages), "at": time.time()}
+    return cap_owner_words(fresh), cursor
+
+
 def job_create(cfg, task_paths, opts, parallel):
     """Build the job receipt before the first run starts; every change after saves it again."""
     if opts.get("--no-worktree"):
@@ -226,20 +278,26 @@ def job_create(cfg, task_paths, opts, parallel):
     for info in infos:
         visit(info["name"], [])
     seat = config.current_session()
-    job_dir = job_make_id(infos[0]["title"])
-    job_dir.mkdir(parents=True)
-    (job_dir / "log.txt").touch()
-    job = {"job_id": job_dir.name, "seat": seat, "started_at": time.time(), "finished_at": None,
-           "parallel": parallel, "executor_history": [], **record.process_owner(), "cwd": os.getcwd(),
-           "opts": {key: opts.get(key) for key in ("--rounds", "--exec", "--review",
-                                                   "--no-merge", "--no-worktree", "--anyway",
-                                                   "--first")},
-           "tasks": [{"name": info["name"], "title": info["title"], "after": info["after"],
-                      "state": "queued" if not info["after"] else "waiting",
-                      "run_id": None, "executor": None, "reviewer": None,
-                      "started_at": None, "finished_at": None, "task_file": str(info["path"])}
-                     for info in infos]}
-    save_job(job_dir, job)
+    with notify.session_lock(seat) if seat else nullcontext() as held:
+        seat = held or seat
+        words, cursor = owner_words(seat) if seat else ([], {"at": time.time()})
+        job_dir = job_make_id(infos[0]["title"])
+        job_dir.mkdir(parents=True)
+        (job_dir / "log.txt").touch()
+        job = {"job_id": job_dir.name, "seat": seat, "started_at": cursor["at"], "finished_at": None,
+               "owner_words": words, "owner_words_cursor": cursor,
+               "parallel": parallel, "executor_history": [], **record.process_owner(), "cwd": os.getcwd(),
+               "opts": {key: opts.get(key) for key in ("--rounds", "--exec", "--review",
+                                                       "--no-merge", "--no-worktree", "--anyway",
+                                                       "--first")},
+               "tasks": [{"name": info["name"], "title": info["title"], "after": info["after"],
+                          "state": "queued" if not info["after"] else "waiting",
+                          "run_id": None, "executor": None, "reviewer": None,
+                          "started_at": None, "finished_at": None, "task_file": str(info["path"])}
+                         for info in infos]}
+        save_job(job_dir, job)
+        if seat:
+            config.update_session(seat, owner_words_cursor=cursor)
     return job_dir, job
 
 
@@ -688,7 +746,7 @@ def job_scoped(job):
             cgroup.rstrip("/").rsplit("/", 1)[-1] in (f"{scope}.scope", f"{scope}.service"))
 
 
-def job_await(run_dir):
+def job_await(run_dir, poll=lambda: None):
     """Follow a task's run in its own scope until the job's ladder can take it up.
 
     It is a lone run in everything but its voice, so it goes on as one does: while its
@@ -697,11 +755,14 @@ def job_await(run_dir):
     its ending, a wait for budget or a login, or what the tick left for a person.
     """
     while True:
+        poll()
         state = record.read_state(run_dir) or {}
         if not record.process_active(state):
             with job_adopting(run_dir.name):
                 state = run.reap(run_dir, state)
             if not (state.get("state") in ("queued", "running")
+                    or (state.get("state") == "waiting"
+                        and (state.get("waiting_on") or {}).get("line"))
                     or (state.get("state") == "interrupted" and state.get("deaths")
                         and run.tick_resumes(state))):
                 return state
@@ -780,6 +841,9 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     more rounds, and one its reviews failed is not rerun either: it goes back to the seat
     with its findings, as a single run does, to be split or re-scoped.
     """
+    if (run_state.get("state") == "waiting"
+            and (run_state.get("waiting_on") or {}).get("line")):
+        run_state = job_await(run_dir)
     task["executor"] = run_state.get("executor") or task.get("executor")
     task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
     log(job_exit_line(task, run_dir, run_state, rc))
@@ -833,6 +897,11 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             else:
                 with job_muted():
                     mrc = run.cmd_merge([run_dir.name])
+                waiting = record.read_state(run_dir) or {}
+                if (waiting.get("state") == "waiting"
+                        and (waiting.get("waiting_on") or {}).get("line")):
+                    settled = job_await(run_dir)
+                    mrc = 0 if job_classify(settled, cfg) in ("merged", "passed") else 1
         except config.Error as exc:
             mrc = 2
             log(f"{task['name']}: merge refused: {exc}")
@@ -1421,6 +1490,7 @@ def cmd_job_resume(argv):
         job = read_job(job_dir)
     if not job or not isinstance(job.get("tasks"), list):
         raise config.Error(f"no resumable job: {argv[0]} (looked in {config.JOBS})")
+    box.check()
     try:
         launcher_alive = not job.get("finished_at") and bool(record.process_active(job))
     except (TypeError, ValueError, AttributeError, OSError):

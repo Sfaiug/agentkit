@@ -48,7 +48,9 @@ class Silence(unittest.TestCase):
         self.addCleanup(patch.stopall)
         # a worker running this file carries its own run's marker, and a silent turn below
         # ends every process marked with the run it inherits
-        patch.dict(os.environ, {"AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0"}).start()
+        patch.dict(os.environ, {"HOME": str(self.root), "AGENTKIT_RUN": "",
+                                "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+                                "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}).start()
         patch.object(run, "dirty_paths", return_value=[]).start()
         patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -415,9 +417,12 @@ class Silence(unittest.TestCase):
             "if n == 0:\n"
             " with (out / 'tool-output.log').open('w') as output:\n"
             "  child = subprocess.Popen([sys.executable, '-u', '-c', "
-            "\"import time\\nwhile True:\\n print('working', flush=True); time.sleep(.05)\"], "
+            "\"import fcntl, sys, time\\n"
+            "lock = open(sys.argv[1], 'w')\\n"
+            "fcntl.flock(lock, fcntl.LOCK_EX)\\n"
+            "while True:\\n print('working', flush=True); time.sleep(.05)\", "
+            "str(out / 'child.lock')], "
             "stdout=output)\n"
-            "  (out / 'child.pid').write_text(str(child.pid))\n"
             "  child.wait()\n"
             "else:\n"
             " (out / 'final.md').write_text('## Summary\\nFinished')\n")
@@ -432,7 +437,9 @@ class Silence(unittest.TestCase):
                 self.assertEqual((code, dead), (0, False))
                 self.assertIn("Finished", text)
                 self.assertGreater((out / "tool-output.log").stat().st_size, 0)
-                self.assertTrue(watch._gone(int((out / "child.pid").read_text())))
+                # The child's lock proves its death across PID namespaces.
+                with (out / "child.lock").open() as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def test_status_why_prints_recorded_limits(self):
         directory = self.root / "runs" / "fixture"

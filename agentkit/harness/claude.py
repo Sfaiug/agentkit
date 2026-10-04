@@ -36,6 +36,49 @@ def transcript(record, cwd, conversation):
     return str(path) if path.exists() else None
 
 
+def user_messages(record, cwd, conversation):
+    from . import entries, user_message
+    for entry in entries(transcript(record, cwd, conversation)):
+        if any(entry.get(key) for key in (
+                "isMeta", "isCompactSummary", "isSidechain", "isVisibleInTranscriptOnly")):
+            continue
+        if entry.get("type") == "attachment":
+            attachment = entry.get("attachment")
+            if not isinstance(attachment, dict) or attachment.get("type") != "queued_command":
+                continue
+            origin = attachment.get("origin")
+            if (not isinstance(origin, dict) or origin.get("kind") != "human"
+                    or attachment.get("commandMode", "prompt") != "prompt"):
+                continue
+            content = attachment.get("prompt")
+        elif entry.get("type") == "user":
+            origin = entry.get("origin")
+            if isinstance(origin, dict) and origin.get("kind") not in (None, "human"):
+                continue
+            message = entry.get("message")
+            if not isinstance(message, dict) or message.get("role") != "user":
+                continue
+            content = message.get("content")
+        else:
+            continue
+        if isinstance(content, list):
+            if any(isinstance(part, dict) and part.get("type") == "tool_result"
+                   for part in content):
+                continue
+            content = "\n".join(part["text"] for part in content if isinstance(part, dict)
+                                and part.get("type") == "text" and isinstance(part.get("text"), str))
+        # Claude renders command results and interrupts as unmarked user entries.
+        # These protocol frames are bookkeeping even when isMeta is absent.
+        if entry.get("type") == "user" and isinstance(content, str) and (
+                content.startswith(("<command-name>", "<local-command-stdout>",
+                    "<local-command-stderr>", "<local-command-caveat>", "<task-notification>"))
+                or content in ("[Request interrupted by user]", "[Request interrupted by user for tool use]")):
+            continue
+        kept = user_message(entry.get("timestamp"), content)
+        if kept:
+            yield kept
+
+
 def error(record, cwd, conversation):
     """The API error Claude Code recorded as that conversation's last message, or None.
 

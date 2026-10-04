@@ -338,14 +338,20 @@ def connected(cmd, home, alive):
                    + json.dumps(os.environ["CODEX_SQLITE_HOME"])]
     proc = tui = None
     try:
+        # The home's lock excludes the old server. Its interrupted backfill's
+        # running lease would otherwise outlast Codex's own startup wait.
+        for database in home.glob("state_*.sqlite"):
+            with closing(sqlite3.connect(database)) as db, db:
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name = ?",
+                              ("backfill_state",)).fetchone():
+                    db.execute("UPDATE backfill_state SET status = 'pending' WHERE status = 'running'")
         with (home / "server.log").open("w") as log:
             proc = subprocess.Popen(server, env=env, stdin=subprocess.DEVNULL,
                                     stdout=log, stderr=log, start_new_session=True)
-            deadline = time.monotonic() + 15
             while not path.exists():
                 if not alive():
                     return 0
-                if proc.poll() is not None or time.monotonic() > deadline:
+                if proc.poll() is not None:
                     raise config.Error(f"Codex seat server did not start; see {home / 'server.log'}")
                 time.sleep(.05)
             # --remote is global and must precede the resume subcommand.

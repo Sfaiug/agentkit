@@ -3,9 +3,10 @@
 Offline: local Git, invented GitHub replies and workers, and an isolated HOME.
 """
 
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stdout
 import copy
 import fcntl
+import io
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, land, record, run, usage, watch
+from agentkit import config, gate, gc, land, record, run, usage, watch, worker
 from fixtures.hand_in import submitting
 from test_merge_step import conflict, make_loop, make_repos, resolve, squashed_dependency
 from test_v4n import Sandbox
@@ -57,7 +58,6 @@ class LanderWakes(Sandbox):
         self.stack.enter_context(patch.object(run, "rights", return_value=("acme/widget", "WRITE")))
         self.stack.enter_context(patch.object(run, "checks", side_effect=lambda *a: self.check_result))
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
-        self.stack.enter_context(patch.object(run, "merge_turn", side_effect=AssertionError("queue lock")))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
         self.stack.enter_context(patch.object(run, "launcher_world", return_value=nullcontext(True)))
         self.stack.enter_context(patch.object(run, "place_here", return_value=None))
@@ -225,9 +225,18 @@ class LanderWakes(Sandbox):
         self.commit(self.owner, "another target move")
         run.git(self.owner, "push", "origin", "main")
         commands = copy.deepcopy(self.commands)
-        self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+        log = self.directory / "log.txt"
+        with log.open("a") as output:
+            output.write("MARKER\n")
+        with patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run", "resume", self.directory.name]), \
+                patch.object(run, "spawn_bg", side_effect=AssertionError("second worker")), \
+                patch.object(run, "follow_run", side_effect=AssertionError("follower")), \
+                log.open("a") as output, redirect_stdout(output):
+            self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
+        self.assertIsNone(state["pid"])
+        self.assertEqual(log.read_text().count("MARKER"), 1)
         self.assertEqual(state["waiting_on"], {"line": self.turn.name, "joined": wait["joined"]})
         self.assertEqual(self.commands, commands)
         self.assertEqual(self.events, [])
@@ -235,6 +244,21 @@ class LanderWakes(Sandbox):
         self.assert_rounds(state)
         land.check_line(self.turn)
         self.assertEqual(run.cmd_resume([self.directory.name]), 0)
+
+    def test_foreground_follow_keeps_a_landing_fixers_quota_or_login_failure(self):
+        self.park(broken=True)
+        parked = record.read_state(self.directory)
+        for failure, word in ((run.Exhausted("provider spent during the landing fixer"), "exhausted"),
+                              (worker.LoginExpired("claude", "sign in again"), "waiting_login")):
+            with self.subTest(state=word):
+                record.save_state(self.directory, copy.deepcopy(parked))
+                with patch.object(run, "execute", side_effect=failure), redirect_stdout(io.StringIO()):
+                    result = run.cmd_resume([self.directory.name])
+                saved = record.read_state(self.directory)
+                self.assertEqual((result, saved["state"]), (1, word))
+                self.assertTrue(run.review_pass(saved, self.lp.cfg))
+                with patch.object(run.jobs, "job_await", return_value=saved), redirect_stdout(io.StringIO()):
+                    self.assertEqual(run.follow_run(self.directory, self.lp.cfg), result)
 
     def test_red_repairs_outside_the_lock_and_rejoins_at_the_back(self):
         wait = self.park(broken=True)
@@ -244,7 +268,7 @@ class LanderWakes(Sandbox):
         original = {**record.read_state(self.directory), "run_id": other.name,
                     "waiting_on": {"line": self.turn.name, "joined": 20}}
         record.save_state(other, original)
-        self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+        self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
         self.assertGreater(state["waiting_on"]["joined"], 20)
@@ -272,7 +296,7 @@ class LanderWakes(Sandbox):
     def test_required_pr_check_failure_is_red(self):
         self.check_result = (False, "required checks failed: unit")
         self.park()
-        self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+        self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["pr"], URL)
@@ -294,7 +318,7 @@ class LanderWakes(Sandbox):
                 "status": "completed", "conclusion": "failure", "output": {"text": output}}]}]])
         with patch.object(run, "checks", side_effect=self.real_checks), \
                 patch.object(run, "gh_json", side_effect=lambda *a, **kw: (next(replies), "")):
-            self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+            self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         self.assertIn(output, self.fixer_inputs[0])
         self.assertIn(output, (self.directory / "pr-checks.log").read_text())
         self.assert_rounds(record.read_state(self.directory))
@@ -311,7 +335,7 @@ class LanderWakes(Sandbox):
             return True, ""
 
         with patch.object(run, "checks", side_effect=checks):
-            self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+            self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["waiting_on"], {"line": self.turn.name, "joined": wait["joined"]})
@@ -327,7 +351,7 @@ class LanderWakes(Sandbox):
         for red in range(1, 5):
             last_log = record.read_state(self.directory)["waiting_on"]["fix"]["log"]
             with patch.object(run.time, "time", return_value=10000 + red):
-                self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+                self.assertEqual(run.cmd_resume([self.directory.name]), 0 if red < 4 else 1)
             state = record.read_state(self.directory)
             self.assertEqual(state["landing_reds"], red)
             self.assert_rounds(state)
@@ -345,7 +369,7 @@ class LanderWakes(Sandbox):
         conflict(self.owner, self.wt)
         wait = self.park(method)
         self.assertIn("fix", wait)
-        self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+        self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
         how = "merge" if method == "merge" else "rebase"
@@ -378,7 +402,7 @@ class LanderWakes(Sandbox):
             return summary
 
         with patch.object(run, "execute", side_effect=fixer):
-            self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+            self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["landing_reds"], 1)
@@ -412,7 +436,7 @@ class LanderWakes(Sandbox):
 
         with patch.object(gate, "run_done_when", side_effect=stopped_once):
             self.assertEqual(run.cmd_resume([self.directory.name]), 1)
-        self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+        self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["landing_reds"], 1)
@@ -435,7 +459,7 @@ class LanderWakes(Sandbox):
             self.assertEqual(saved["state"], "exhausted")
             self.assertEqual(saved["landing_reds"], 1)
             self.assertIs(saved["review_pending"]["record"], False)
-            self.assertEqual(run.cmd_resume([self.directory.name]), 1)
+            self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["landing_reds"], 1)

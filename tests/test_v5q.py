@@ -855,7 +855,7 @@ sys.exit(1)
 
         def join(argv):
             current = record.read_state(config.RUNS / argv[0])
-            current.update(state="waiting", waiting_on={"line": run.merge_turn_lock(
+            current.update(state="waiting", waiting_on={"line": run.merge_lock_path(
                 "https://github.com/acme/widget.git", "origin/main").name, "joined": 100})
             record.save_state(run_dir, current)
             return 0
@@ -968,7 +968,9 @@ sys.exit(1)
                 Path(marker).write_text(str(FakeChild.pid))
             return FakeChild()
 
-        with patch.object(stdlib_subprocess, "Popen", side_effect=fake_popen), \
+        # The fake launcher assumes a ready box; it cannot answer the host's probes.
+        with patch.object(run.box, "check", return_value=None), \
+                patch.object(stdlib_subprocess, "Popen", side_effect=fake_popen), \
                 patch.object(orch, "user_manager", return_value=False), \
                 patch.object(orch, "scope_oom_policy", return_value=False):
             out = io.StringIO()
