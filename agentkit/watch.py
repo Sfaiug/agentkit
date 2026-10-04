@@ -1010,28 +1010,46 @@ def strip_sgr(text):
     return SGR_ALL.sub("", text)
 
 
-def has_dim(line):
-    """Does that raw `-e` line carry a faint (SGR 2) span: a suggestion, never a draft.
+def _sgr_codes(params):
+    """The plain attribute codes of one SGR sequence's parameters; a bare `m` is a reset.
 
     Extended colours ride along as parameter runs -- `38;5;n`, `38;2;r;g;b` and
     their background `48` twins -- and the `2` inside one names a colour, never
-    faint. Only a bare 2, outside those runs, counts.
+    faint.
     """
-    for found in SGR_SEQ.finditer(line):
-        params = found.group(1).split(";") if found.group(1) else []
-        i = 0
-        while i < len(params):
-            if params[i] in ("38", "48") and i + 1 < len(params):
-                if params[i + 1] == "5":
-                    i += 3
-                    continue
-                if params[i + 1] == "2":
-                    i += 5
-                    continue
-            if params[i].isdigit() and int(params[i]) == 2:
-                return True
-            i += 1
-    return False
+    params = params.split(";") if params else ["0"]
+    i = 0
+    while i < len(params):
+        if params[i] in ("38", "48") and i + 1 < len(params) and params[i + 1] in ("5", "2"):
+            i += 3 if params[i + 1] == "5" else 5
+            continue
+        if params[i].isdigit():
+            yield int(params[i])
+        i += 1
+
+
+def has_dim(line):
+    """Does that raw `-e` line carry a faint (SGR 2) span: a suggestion, never a draft."""
+    return any(2 in _sgr_codes(found.group(1)) for found in SGR_SEQ.finditer(line))
+
+
+def dim_rows(raws):
+    """For each raw `-e` row, whether faint text is drawn in it.
+
+    tmux writes an attribute once, where it starts, and carries it on to the rows under it
+    until something ends it: a faint suggestion wrapped onto more rows has its SGR 2 on the
+    first alone.  So faint is carried from row to row, as `in_colour` carries a colour.
+    """
+    faint, dims = False, []
+    for raw in raws:
+        dim, at = has_dim(raw), 0
+        for found in SGR_SEQ.finditer(raw):
+            dim = dim or (faint and bool(strip_sgr(raw[at:found.start()]).strip()))
+            for code in _sgr_codes(found.group(1)):
+                faint = True if code == 2 else False if code in (0, 22) else faint
+            at = found.end()
+        dims.append(dim or (faint and bool(raw[at:].strip())))
+    return dims
 
 
 def in_colour(text):
@@ -1456,10 +1474,11 @@ def screen_state(harness, tail):
                 continue
             end = at + 1 if end is None else end
             if rule["id"] == "prompt.draft":
+                dims = dim_rows(raws)
                 draft = " ".join(part for part in [
                     _draft_text(raws[at], region[at], chrome["composer"]),
-                    *(row for raw, row in zip(raws[at + 1:end], region[at + 1:end])
-                      if not has_dim(raw))] if part)
+                    *(row for dim, row in zip(dims[at + 1:end], region[at + 1:end])
+                      if not dim)] if part)
                 if draft:
                     return rule["state"], rule["id"], draft[:160]
             elif _suggestion_line(raws[at], region[at]):
@@ -2475,14 +2494,19 @@ def composer_draft(harness, pane):
         at, stop = ruled_composer(chrome, rows)
         if at is None and marked and marked[0] + 1 == len(rows):
             at, stop = marked[0], len(rows)
+        if at is None and chrome["composer"] and any(
+                re.match(r"(?:│\s*)?[>❯›⟩]", row) and chrome["composer"].fullmatch(row)
+                for row in rows[-PANE_LINES:]):
+            return ""   # an empty composer its manifest names, drawn another way (a box)
     if at is None:
         return None
     boxed = rows[at].startswith("│") and rows[at].endswith("│")
     # A boxed composer's edges are chrome, including on continuation rows.
     parts = [_draft_text(raws[at], rows[at][:-1].rstrip() if boxed else rows[at],
                          chrome["composer"])]
-    for raw, plain in zip(raws[at + 1:stop], rows[at + 1:stop]):
-        if not has_dim(raw):
+    dims = dim_rows(raws)
+    for dim, plain in zip(dims[at + 1:stop], rows[at + 1:stop]):
+        if not dim:
             if boxed and plain.startswith("│") and plain.endswith("│"):
                 plain = plain[1:-1].strip()
             parts.append(plain)

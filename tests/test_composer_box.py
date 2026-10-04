@@ -86,6 +86,23 @@ class ComposerBox(Sandbox):
         self.assertIsNone(watch.composer_draft("claude", pane))
         self.assertEqual(self.looked(pane)[1:], (False, []))
 
+    def test_a_faint_suggestion_wrapped_over_rows_is_no_draft(self):
+        """tmux writes SGR 2 once, on the first row; the second row carries it unwritten."""
+        rows = drafted("\x1b[0;2mTry fixing the acme login redirect and running all of its"
+                       "\n  tests again").splitlines()
+        at = next(at for at, row in enumerate(rows) if row.endswith("tests again"))
+        rows[at + 1] = "\x1b[0m" + rows[at + 1]          # the reset comes on the closing rule
+        pane = "\n".join(rows) + "\n"
+        self.assertNotEqual(watch.screen_state("claude", watch.pane_tail(pane))[0], "draft")
+        self.assertEqual(watch.composer_draft("claude", pane), "")
+        self.assertEqual(self.looked(pane)[1:2], (True,))
+
+    def test_an_older_boxed_composer_holding_its_placeholder_is_free(self):
+        pane = ('⎿ Done.\n╭──────────────────╮\n│ > Try "fix tests" │\n╰──────────────────╯\n'
+                '⏵⏵ bypass permissions on (shift+tab to cycle)   ◯ 92% context left\n')
+        self.assertEqual(watch.composer_draft("claude", pane), "")
+        self.assertEqual(self.looked(pane)[1], True)
+
     def test_an_empty_composer_is_still_free(self):
         self.assertEqual(watch.composer_draft("claude", PROMPT), "")
         self.assertEqual(self.looked(PROMPT)[1:], (True, [
