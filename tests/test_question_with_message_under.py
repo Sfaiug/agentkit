@@ -17,6 +17,7 @@ DIALOG, MESSAGE = QUESTION.rstrip().rsplit("\n", 1)
 PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8")
 DRAFT = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8")
 PREVIEW = (FIX / "claude-question-preview-pane.txt").read_text(encoding="utf-8")
+NOTES = (FIX / "claude-question-notes-pane.txt").read_text(encoding="utf-8")
 
 
 class QuestionWithMessageUnder(Sandbox):
@@ -62,17 +63,18 @@ class QuestionWithMessageUnder(Sandbox):
                         self.assertEqual(live["authority"], "screen")
 
     def test_question_with_previews_is_asking_whatever_its_hooks_last_said(self):
-        """Claude 2.1.289 adds `n to add notes` to a question whose options have previews.
+        """Claude 2.1.289 adds `n to add notes` to a question whose options have previews, and
+        `ctrl+g to edit in <editor>` beside it while a note is open.
 
         Nothing types into it, however the hooks last read: an Enter there picks an answer.
         """
-        for fact in ({}, {"event": "Notification", "kind": "permission_prompt", "at": NOW - 60},
+        for pane, fact in ((pane, fact) for pane in (PREVIEW, NOTES) for fact in ({}, {"event": "Notification", "kind": "permission_prompt", "at": NOW - 60},
                      {"event": "Notification", "kind": "idle_prompt", "at": NOW - 5},
-                     {"event": "Stop", "kind": "", "at": NOW - 5}):
-            with self.subTest(fact=fact.get("kind", fact.get("event", "none"))):
-                live = self.classify(PREVIEW, fact)
+                     {"event": "Stop", "kind": "", "at": NOW - 5})):
+            with self.subTest(note=pane is NOTES, fact=fact.get("kind", fact.get("event", "none"))):
+                live = self.classify(pane, fact)
                 self.assertEqual(live["state"], "asking")
-                with patch.object(watch, "pane_text", return_value=PREVIEW), \
+                with patch.object(watch, "pane_text", return_value=pane), \
                         patch.object(watch, "live_state", return_value=live):
                     self.assertFalse(watch.at_prompt({"name": SEAT}, cfg=self.cfg))
                 found = watch.session_state(

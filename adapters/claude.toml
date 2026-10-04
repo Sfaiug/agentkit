@@ -107,14 +107,15 @@ all = ["❯ ", "enter to confirm", "esc to cancel"]
 newest = '(?i)enter to confirm'
 
 # AskUserQuestion's controls remain newest after queued messages are removed. One
-# question navigates with ↑/↓, two or more with Tab/Arrow keys; hints sit between those
-# and the cancel: a focused "Type something" adds `ctrl+g to edit in <editor>`, options
-# with previews add `n to add notes` (2.1.289), and a new one must not hide the question.
+# question navigates with ↑/↓, two or more with Tab/Arrow keys; hints follow before the
+# cancel: a focused "Type something" or an open note adds `ctrl+g to edit in <editor>`,
+# options with previews add `n to add notes` (2.1.289).  So the line's start decides: a
+# hint the next release adds must not hide the question.
 [[rule]]
 id = "asking.question"
 state = "asking"
 lines = 1
-newest = '^Enter to select · (?:↑/↓|Tab/Arrow keys) to navigate(?: · [^·]+)* · Esc to cancel$'
+newest = '^Enter to select · (?:↑/↓|Tab/Arrow keys) to navigate\b'
 
 # Claude's permission prompt has no capture here -- it needs a tool call, which needs a model --
 # so its Notification hook is its authority and no screen rule guesses at its shape.
