@@ -183,6 +183,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 0)
         self.assertEqual(len(self.lp.state["followups"]), 3)
         self.assertIn("proof on base", self.lp.state["followups"][0])
+        self.assertEqual(list(self.lp.state["followup_checks"].values()), [self.fails, self.fails, own])
         self.assertTrue(any(call.args[0] == ["bash", "-c", own] for call in limited.call_args_list))
         self.assertIn("Dropped follow-up", self.lp.state["notes"][0])
 

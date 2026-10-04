@@ -59,6 +59,12 @@ class HandIn(unittest.TestCase):
             (("finding", "api.py:1", "what", "why", "--run", " "), "evidence"),
             (("finding", "api.py:1", "", "why", "--quote", "first line"), "what"),
             (("follow-up", "api.py:1", "what", "why", "--quote", "first line"), "--before"),
+            (("follow-up", "api.py:1", "what", "why", "--run", "false\nfalse", "--before", "base abc"),
+             "one shell command"),
+            (("follow-up", "api.py:1", "what", "why", "--run", "echo `false`; exit 1",
+              "--before", "base abc"), "one shell command"),
+            (("follow-up", "api.py:1", "what", "why", "--run", f"cd {self.workspace.resolve()}; exit 1",
+              "--before", "base abc"), "one shell command"),
             (("done", "extra"), "done"),
         ]
         for args, message in cases:

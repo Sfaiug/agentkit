@@ -414,20 +414,26 @@ def still_done(name, proven):
                            f"first: {left[0]}; run `ak notify done` again")
 
 
-def add(name, what, check=None):
+def add(name, what, check=None, repo=None, proven=False):
+    """Append an open line to the seat's plan.  A review follow-up names the run's project as
+    `repo`, and is `proven`: its check already failed on the reviewed work, so it is not run
+    again before the line is written."""
     what = " ".join(what.split())
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")
-    repo = project_of(name)
+    repo = Path(repo) if repo else project_of(name)
+    found = None
     if check is not None:
         check = check.strip()
         if len(check.splitlines()) != 1 or "`" in check:
             raise config.Error("a check is one shell command without backticks or line breaks")
-        failing, found = fails_on_main(repo, check)
-        if not failing:
-            raise config.Error(f"this check already passes on {repo.name}'s default branch, so "
-                               "it proves nothing; write one that fails until the work is done")
-    where = named(repo, found if check is not None else None)
+        if not proven:
+            failing, found = fails_on_main(repo, check)
+            if not failing:
+                raise config.Error(f"this check already passes on {repo.name}'s default "
+                                   "branch, so it proves nothing; write one that fails until "
+                                   "the work is done")
+    where = named(repo, found)
     if "·" in where:
         raise config.Error(f"{where}: a project a line names holds no `·`")
     stamp = time.strftime("%Y-%m-%d %H:%M")
