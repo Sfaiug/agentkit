@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 from . import box, command_help, config, hand_in, record
+from .harness import load as harness_plugin
 
 # A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
 # the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
@@ -657,13 +658,17 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     # the loop's stderr and never reached the turn's diagnostics.  It is kept apart while the
     # harness writes that file, and added to the end of it once the turn is over.
     own = out_dir / "adapter-stderr.log"
-    with box.command(cmd, turn_env, out_dir, cwd=workspace) as (cmd, turn_env, spawn), \
+    paths = config.manifest(entry["harness"]).get("worker", {})
+    with box.command(cmd, turn_env, out_dir, cwd=workspace,
+                     state=paths.get("state", ()), logins=paths.get("logins", ())) as (cmd, turn_env, spawn), \
             own.open("wb") as err:
         code, _, killed = limited(cmd, None, silence=limit, activity=out_dir / "events.jsonl",
                                   abort=lambda: watching(out_dir),
                                   env=turn_env, stderr=err, **spawn)
     if not killed:
         code = box.returncode(out_dir, code)
+    harness_plugin(entry["harness"]).record_turn(out_dir, config.STATE,
+                                                turn_env.get(config.ACCOUNT_ENV, ""))
     try:
         said = own.read_bytes()
         own.unlink()

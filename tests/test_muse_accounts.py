@@ -132,6 +132,7 @@ class MuseAccounts(unittest.TestCase):
         proc = self.adapter("run", "muse-spark-1.3-contributor", "xhigh", str(self.work),
                             str(prompt), str(out), *([session] if session else []),
                             account=account, **env)
+        muse.record_turn(out, config.STATE, account)
         return proc, (out / "session_id").read_text()
 
     def calls(self):

@@ -157,6 +157,20 @@ def scripted(body):
             "if len(sys.argv) > 6 and sys.argv[1] == 'run' else None)\n" + body)
 
 
+def stateful(adapter, directory, harnesses=()):
+    """Fake adapters keep their plans and call logs as their declared harness state."""
+    adapter = Path(adapter)
+    names = harnesses or ([adapter.stem] if adapter.suffix == ".sh" else [])
+    for name in names:
+        target = adapter.parent / f"{name}.toml"
+        source = target if target.exists() else REPO / "adapters" / target.name
+        text = source.read_text() if source.exists() else "version = 1\n"
+        text = re.sub(r"(?ms)^\[worker\]\n.*?(?=^\[|\Z)", "", text)
+        target.unlink(missing_ok=True)
+        target.write_text(text.rstrip() + "\n\n[worker]\nstate = " +
+                          json.dumps([str(directory)]) + "\n")
+
+
 def smoke(out, workspace):
     """A fake smoke worker still crosses the same checker as a real harness."""
     env = {**os.environ, hand_in.ENV: hand_in.start(out, workspace, role="executor")}

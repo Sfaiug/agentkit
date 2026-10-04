@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import stateful  # noqa: E402
 from agentkit import config, run, usage  # noqa: E402
 
 # The bearer token out of the `-H @file` header, and the answer from `resp-<token>`: the
@@ -108,6 +109,7 @@ class Accounts(unittest.TestCase):
         script(bin / "security", "#!/usr/bin/env bash\nexit 1\n")
         script(adapters / "other.sh", FAKE_OTHER)
         (adapters / "claude.sh").symlink_to(REPO / "adapters/claude.sh")
+        stateful(adapters / "claude.sh", root, ("claude", "other"))
         home = root / ".agentkit"
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)

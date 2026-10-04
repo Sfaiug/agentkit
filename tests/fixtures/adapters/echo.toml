@@ -8,6 +8,9 @@ version = 1
 model = "echo-1"
 effort = "low"
 
+[worker]
+state = []
+
 # `ak update` reads its version off a command that always answers, upgrades it with one that
 # always succeeds, and has no versioned reinstall to put it back -- so the plan says it cannot,
 # in these words, and takes no snapshot either.

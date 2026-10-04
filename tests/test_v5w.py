@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted
+from fixtures.hand_in import scripted, stateful
 from agentkit import host, config, notify, run, worker
 from agentkit import record
 
@@ -150,6 +150,7 @@ sys.exit(1)
     def script(self, path, body):
         path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
+        stateful(path, self.root)
 
     def exec_plan(self, *steps):
         (self.root / "exec_plan.json").write_text(json.dumps(list(steps)))

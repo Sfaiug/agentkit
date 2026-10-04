@@ -462,6 +462,12 @@ class Harness:
 
     # --- what one headless turn spent ----------------------------------------
 
+    def record_turn(self, out, state_dir, account):
+        """Import this harness's reports after the box closes, without exposing ak's records."""
+        hook = self._hook("record_turn")
+        if hook:
+            hook(Path(out), state_dir, account)
+
     def tokens(self, out):
         """The tokens the turn written to `out` spent, or None where this harness said nothing.
 

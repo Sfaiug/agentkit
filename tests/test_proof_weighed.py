@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, hand_in, run, worker
-from fixtures.hand_in import findings_section, scripted
+from fixtures.hand_in import findings_section, scripted, stateful
 
 
 def finding(site, what, command=None, quote=None, kind="finding", before="base already has this defect"):
@@ -92,6 +92,8 @@ out = pathlib.Path(sys.argv[6])
 '''
         adapter.write_text(f"#!{sys.executable}\n{scripted(body)}")
         adapter.chmod(0o755)
+        stateful(adapter, self.root, {m["harness"] for m in self.cfg["models"].values()})
+        self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(self.root)}))
         self.stack.enter_context(patch.object(config, "adapter", return_value=adapter))
         state = {"run_id": "proof-fixture", "title": "Weigh evidence", "state": "running",
                  "base": "main", "base_sha": self.base, "branch": "ak/fix-api", "rounds": 3,

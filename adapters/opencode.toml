@@ -9,6 +9,13 @@ version = 1
 model = "mimo/mimo-v2.6-flash"
 effort = "none"
 
+[worker]
+state = ["~/.config/opencode", "$XDG_CONFIG_HOME/opencode", "$OPENCODE_CONFIG_DIR",
+         "~/.local/share/opencode", "$XDG_DATA_HOME/opencode", "$OPENCODE_DB/..",
+         "~/.local/state/opencode", "$XDG_STATE_HOME/opencode",
+         "~/.cache/opencode", "$XDG_CACHE_HOME/opencode"]
+logins = ["~/.local/share/opencode/auth.json", "$XDG_DATA_HOME/opencode/auth.json", "$OPENCODE_CONFIG"]
+
 # How `ak update` moves this harness: `opencode upgrade [version]` installs the latest release
 # or the named one, so a failed upgrade goes back by command and needs no snapshot.  The
 # binary's own upgrade keeps it on the channel it came from: a 2.x install is never moved

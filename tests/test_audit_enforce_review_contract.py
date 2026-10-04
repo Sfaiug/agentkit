@@ -13,7 +13,7 @@ from unittest.mock import call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted
+from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
 from agentkit import host, config, run, usage
 from agentkit import record
@@ -111,6 +111,7 @@ sys.exit(row["code"])
     def script(self, path, body):
         path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
+        stateful(path, self.root)
 
     def available(self, *providers):
         self.providers = {p: {"resets": 0, "meters": [

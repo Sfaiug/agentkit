@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted
+from fixtures.hand_in import scripted, stateful
 from agentkit import gate, host, config, gc, menu, notify, orch, run, terminal, usage, watch
 from agentkit import record
 
@@ -100,6 +100,7 @@ class Sandbox(unittest.TestCase):
             path = self.adapters / f"{harness}.sh"
             path.write_text(f"#!{sys.executable}\n{scripted(ADAPTER)}")
             path.chmod(0o755)
+            stateful(path, self.root)
         # the seat lookup, without a tmux server: only SEAT is up
         self.live = {SEAT}
         self.stack.enter_context(patch.object(orch, "watching",

@@ -342,8 +342,11 @@ class OneRulebook(unittest.TestCase):
                 binary = self.binary(harness)
                 for role in worker.PREAMBLES:
                     out = self.home / f"out-{harness}-{role}"
+                    self.seen = out / "seen"
+                    self.seen.mkdir(parents=True)
                     code, _, _, _ = worker.call(cfg, f"probe-{harness}",
-                                                "Do the thing.", self.ws, out, role)
+                                                "Do the thing.", self.ws, out, role,
+                                                env={"FAKE_SEEN": str(self.seen)})
                     self.assertEqual(code, 0, harness)
                     prompt = (out / "prompt.md").read_bytes()
                     self.assertEqual(

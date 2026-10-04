@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted, smoke
+from fixtures.hand_in import scripted, smoke, stateful
 from agentkit import config, notify, orch, run, watch
 from agentkit import record
 
@@ -68,6 +68,7 @@ class ResumeMidturn(unittest.TestCase):
             path = adapters / f"{harness}.sh"
             path.write_text(script)
             path.chmod(0o755)
+            stateful(path, self.root)
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root),
             "AGENTKIT_ADAPTER_DIR": str(adapters),
