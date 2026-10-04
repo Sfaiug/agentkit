@@ -3,11 +3,12 @@
 Replay panes with invented names, fake runs and a temporary HOME; no real seats or hooks.
 """
 
+import json
 import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import watch
+from agentkit import config, watch
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -74,9 +75,14 @@ class QuestionWithMessageUnder(Sandbox):
             with self.subTest(note=pane is NOTES, fact=fact.get("kind", fact.get("event", "none"))):
                 live = self.classify(pane, fact)
                 self.assertEqual(live["state"], "asking")
-                with patch.object(watch, "pane_text", return_value=pane), \
-                        patch.object(watch, "live_state", return_value=live):
+                # a real Claude seat whose own hooks last said `fact`, read the way the tick
+                # reads it: only the screen is this test's
+                config.save_session(self.cfg, SEAT, "opus", ["astra"], {"cwd": str(self.root)})
+                config.hook_facts_path(SEAT).write_text(json.dumps({"session": SEAT, **fact}))
+                with patch.object(watch, "pane_text", return_value=pane) as read:
                     self.assertFalse(watch.at_prompt({"name": SEAT}, cfg=self.cfg))
+                self.assertTrue(read.called, "at_prompt never read the screen")
+                self.assertEqual(watch.seat_read(SEAT)["state"], "asking")
                 found = watch.session_state(
                     SEAT, NOW, session={"name": SEAT, "attached": False}, cfg=self.cfg,
                     records=[], live=live, harness="claude", auth_out={}, gh_out={},
