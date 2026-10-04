@@ -1,0 +1,44 @@
+
+ ▐▛███▛█   Claude Code v2.1.289
+▝▜██████▀  Haiku 4.5 · Claude Max
+ ▝▝   ▝▝   /…/fixture-workspace
+
+
+❯ Run the shell command sleep 60 in the foreground and wait for it.
+
+  Ran 1 shell command 
+  ⎿  Interrupted · What should Claude do instead?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  acme@host:/…/fixture-workspace | Haiku 4.5 | …
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

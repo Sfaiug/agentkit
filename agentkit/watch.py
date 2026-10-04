@@ -588,7 +588,9 @@ def _rule(entry, path):
     return {"id": str(entry.get("id") or entry["state"]), "state": entry["state"],
             "lines": max(1, int(entry.get("lines", 8))), "all": marks("all"),
             "any": marks("any"), "none": marks("none"),
-            "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer"))}
+            "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer")),
+            "above": _pattern(entry.get("above_composer"), path),
+            "ends_turn": bool(entry.get("ends_turn"))}
 
 
 def screen(harness):
@@ -1431,6 +1433,15 @@ def screen_state(harness, tail):
                 return rule["state"], rule["id"], region[at][:160]
             continue
         region = lines[-rule["lines"]:]
+        if rule["above"]:
+            # the line right above the composer's box: what the harness last said, nothing older
+            boxed = [index for index in range(len(region) - 2, 1, -1)
+                     if re.match(r"(?:│\s*)?[❯›⟩]", region[index])
+                     and re.fullmatch(RULE, region[index + 1])
+                     and re.fullmatch(RULE, region[index - 1])]
+            if boxed and rule["above"].search(region[boxed[0] - 2]):
+                return rule["state"], rule["id"], region[boxed[0] - 2][:160]
+            continue
         low = "\n".join(region).lower()
         if ((rule["all"] and not all(mark in low for mark in rule["all"]))
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
@@ -1466,6 +1477,10 @@ def classify(harness, tail, fact, opened_at, previous, now):
     seen, rule, line = screen_state(harness, tail)
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
+    if hooked == "working" and any(entry["id"] == rule and entry["ends_turn"]
+                                   for entry in screen(harness)["rules"]):
+        # the turn ended with no Stop -- an interrupt -- and the screen positively says so
+        hooked, spoken = "at_prompt", line
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
     elif seen:
