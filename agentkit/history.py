@@ -4,7 +4,6 @@ import json
 import math
 import os
 import sqlite3
-import subprocess
 import threading
 import time
 from pathlib import Path
@@ -479,88 +478,20 @@ def size_summary(repo, limit=SUMMARY_TASKS):
             median(over_points) if over_points else None)
 
 
-def scoreboard(now=None):
-    """Two weeks of ended work, newest first, and the installed ak's committed size.
-
-    Shares use all ended runs; merge time and token medians use merged runs only.
-    Changed lines survive run cleanup as evidence of a merge; older, unsized merges
-    need their run record. Missing token measurements never become free work.
-    """
-    now = time.time() if now is None else now
-    week = 7 * 86400
-
-    def git(*args):
-        try:
-            result = subprocess.run(["git", "-C", str(config.REPO), *args],
-                                    capture_output=True, timeout=10)
-            if result.returncode == 0 or (args[0] == "grep" and result.returncode == 1):
-                return result.stdout
-        except (OSError, subprocess.SubprocessError):
-            pass
-        return None
-
-    common = git("rev-parse", "--git-common-dir")
-    own_names = {config.REPO.name}
-    if common:
-        own_names.add((config.REPO / os.fsdecode(common).strip()).resolve().parent.name)
+def ended_runs(since, until):
+    """Real runs with a finish date in the inclusive range, read as plain mappings."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             connection.row_factory = sqlite3.Row
             try:
-                rows = [dict(row) for row in connection.execute(
+                return [dict(row) for row in connection.execute(
                     "SELECT * FROM runs WHERE finished_at >= ? AND finished_at <= ? "
-                    "AND final_state IN ('pass','fail','error','blocked','exhausted') "
-                    f"AND {REAL_WORK}", (now - 2 * week, now))]
+                    f"AND {REAL_WORK}", (since, until))]
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
-        rows = []
-
-    board = {"products": [], "ak": []}
-    for end in (now, now - week):
-        ended = [row for row in rows if end - week <= row["finished_at"] and
-                 (row["finished_at"] <= end if end == now else row["finished_at"] < end)]
-        total_tokens = sum((row.get(role + "_tokens") or 0)
-                           for row in ended for role in ("executor", "reviewer"))
-        for label in board:
-            group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
-            if not group:
-                board[label].append(None)
-                continue
-            merged = [row for row in group if row.get("changed_lines") is not None or
-                      (record.read_state(config.RUNS / row["run_id"]) or {}).get("merged")]
-            hours = [(row["finished_at"] - row["started_at"]) / 3600 for row in merged
-                     if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]]
-            tokens = [row["executor_tokens"] + row["reviewer_tokens"] for row in merged
-                      if row.get("executor_tokens") is not None and row.get("reviewer_tokens") is not None]
-            stats = {"runs": len(group), "merged": len(merged),
-                     "first_round": sum(row["rounds_used"] == 1 for row in merged) / len(group),
-                     "unmerged": sum(row["final_state"] in ("fail", "error", "blocked", "exhausted")
-                                     for row in group if row not in merged) / len(group),
-                     "hours": median(hours) if hours else None,
-                     "tokens": median(tokens) if tokens else None}
-            if label == "ak":
-                spent = sum((row.get(role + "_tokens") or 0)
-                            for row in group for role in ("executor", "reviewer"))
-                stats["token_share"] = spent / total_tokens if total_tokens else None
-            board[label].append(stats)
-
-    def size(ref):
-        if not ref:
-            return None
-        code = git("grep", "-I", "-h", "--no-color", "-e", "^", ref, "--",
-                   "agentkit/", "bin/", "hooks/", "adapters/", "tools/", "install.sh")
-        readme = git("show", f"{ref}:README.md")
-        if code is None and readme is None:
-            return None
-        return {"code_lines": code.count(b"\n") if code is not None else None,
-                "readme_words": len(readme.decode("utf-8", "replace").split()) if readme is not None else None}
-
-    before = git("rev-list", "--first-parent", "-1",
-                 "--before=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - week)), "HEAD")
-    board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
-    return board
+        return []
 
 
 def event_tokens(path):
