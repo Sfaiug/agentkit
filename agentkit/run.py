@@ -2728,8 +2728,8 @@ def rules_cap(lp):
                                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
     limit, harness = ceiling
-    code, out, _ = tool_run(["git", "-C", str(lp.wt), "cat-file", "-s", "HEAD:AGENTS.md"])
-    size = int(out) if code == 0 and out.strip().isdigit() else 0
+    out = git(lp.wt, "cat-file", "-s", "HEAD:AGENTS.md", check=False)   # "" once it is deleted
+    size = int(out) if out.isdigit() else 0
     return (f"AGENTS.md is {size} bytes, past the {limit} bytes {harness} reads of it: "
             "tighten it." if size > limit else "")
 

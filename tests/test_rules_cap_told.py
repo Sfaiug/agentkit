@@ -196,6 +196,18 @@ class RulesCapTold(unittest.TestCase):
         self.assertTrue(ok, text)
         self.assertNotIn("AGENTS.md is", text)
 
+    def test_a_size_read_that_never_answered_stops_the_check(self):
+        # a timed-out read is no deleted file: the oversized file must not pass as 0 bytes
+        lp = self.loop()
+        self.commit_rules("x" * (LIMIT + 1))
+        real = run.tool_run
+
+        def timing_out(argv, **kwargs):
+            return (None, "", "timed out") if "cat-file" in argv else real(argv, **kwargs)
+
+        with patch.object(run, "tool_run", side_effect=timing_out), self.assertRaises(run.Stopped):
+            run.rules_cap(lp)
+
     def test_removed_oversized_rules_pass_checks(self):
         self.commit_rules("x" * (LIMIT + 1))
         lp = self.loop()
