@@ -3908,20 +3908,19 @@ def note(lp, reason, failed=False):
     return False
 
 
-def stands_on_dependency(lp):
-    """Refuse a record from before `after:` went whose branch still stands on a dependency.
+def stands_on_dependency(state):
+    """Why a record from before `after:` went cannot go on, or "" when it can.
 
-    Its reviewed diff left the dependency's passed commits out, so landing it would deliver
-    them unreviewed, and replaying it after the dependency's squash conflicts.  It stops
-    before landing, its branch kept, saying how to go on.
+    Its branch was to be cut from, or still stands on, a dependency's passed tip: the
+    reviewed diff leaves that dependency's commits out, so landing would deliver them
+    unreviewed, and replaying them after the dependency's squash conflicts.  Once
+    integrated onto the target the branch stands on its own commits and goes on.
     """
-    after = lp.state.get("from_pass")
-    if not isinstance(after, dict) or lp.base_sha != after.get("tip"):
-        return False
-    note(lp, f"this branch stands on {after.get('task')}'s passed work, which `after:` no "
-             f"longer waits for; once that has merged, relaunch with "
-             f"`from: {lp.state.get('branch')}`", failed=True)
-    return True
+    after = state.get("from_pass")
+    if not isinstance(after, dict) or state.get("base_sha") not in (None, after.get("tip")):
+        return ""
+    return (f"this branch stands on {after.get('task')}'s passed work, which `after:` no longer "
+            f"waits for; once that has merged, relaunch with `from: {state.get('branch')}`")
 
 
 def park_waiting(lp, reason, ref, sha=None):
@@ -5452,8 +5451,6 @@ def land(lp, upstream, verify, deliver, execv=None):
 
     Only delivery holds the repository lock; checks and fixers run outside it.
     """
-    if stands_on_dependency(lp):
-        return False
     if (lp.state.get("waiting_on") or {}).get("line"):
         return land_from_line(lp, upstream, deliver)
     pickup_new_code(lp, execv=execv)
@@ -5555,8 +5552,6 @@ def merge(lp):
         return note(lp, f"this run works directly on {branch}, which is the branch it would merge "
                         "into, so there is no PR to open", failed=True)
 
-    if stands_on_dependency(lp):
-        return False
     upstream_repo, permission = rights(lp)
     if upstream_repo and permission not in PUSH_RIGHTS:
         return land(lp, upstream, lambda: integrate(lp, upstream) and final_check(lp, upstream),
@@ -5574,6 +5569,20 @@ def merge(lp):
     return join_line(lp, upstream, deliver)
 
 
+def finish_blocked(run_dir, state, exc, log, cfg):
+    """The task cannot be done as written: a final state of its own, because there is no
+    verdict on work here and nothing a resume could spend.  The orchestrator that wrote
+    the task hears why and writes a new one."""
+    log(f"BLOCKED {exc}")
+    state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
+                  "blocked": exc.section, "finished_at": time.time()})
+    state.pop("quota_dry", None)
+    run_record.save_state(run_dir, state)
+    record_result(run_dir, state, log, cfg)
+    settle_run(state, run_dir, log)
+    return state
+
+
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
     receipt = run_record.read_state(run_dir) or {}
     # a --bg parent's pick, consumed here: one launch, one pick, whichever process prints it
@@ -5584,6 +5593,13 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     ignore_time_keys(run_dir, meta, log)
     cmds = taskfile.done_when(body, task_path)
     sized_words, sized_points, sized_checks = taskfile.task_size(body, cmds)
+    on_dependency = stands_on_dependency(prior or receipt)
+    if on_dependency:
+        # before any checkout, pick or round: nothing here can stand on what it was cut from
+        state = stamp_origin({**(prior or receipt), "run_id": run_dir.name, "title": title,
+                              "task": str(task_path)})
+        return finish_blocked(run_dir, state, Blocked(on_dependency, f"## Blocked\n\n{on_dependency}"),
+                              log, cfg)
     if gc.disk_pressure():
         gc.gc(log)     # before this run adds a worktree of its own
     if prior:
@@ -5944,17 +5960,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         settle_run(state, run_dir, log)
         return state
     except Blocked as exc:
-        # The task cannot be done as written: a final state of its own, because there is no
-        # verdict on work here and nothing a resume could spend.  The orchestrator that wrote
-        # the task hears why and writes a new one.
-        log(f"BLOCKED {exc}")
-        state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
-                      "blocked": exc.section, "finished_at": time.time()})
-        state.pop("quota_dry", None)
-        run_record.save_state(run_dir, state)
-        write_result(run_dir, state, cmds, log, cfg)
-        settle_run(state, run_dir, log)
-        return state
+        return finish_blocked(run_dir, state, exc, log, cfg)
 
     # a parked run is no ending at all: `waiting` is the tick's, and its reason stands
     if state.get("state") != "waiting":
@@ -10739,6 +10745,8 @@ def cmd_merge(argv):
         state.pop("quota_dry", None)
     if not state or state.get("verdict") != "PASS" or state.get("state") != "pass":
         raise config.Error(f"{argv[0]}: merge requires a finished PASS")
+    if stands_on_dependency(state):
+        raise config.Error(f"{argv[0]}: {stands_on_dependency(state)}")
     if (state.get("review_pr") or state.get("scratch")
             or not (state.get("pr") or state.get("merge_failed"))):
         raise config.Error(f"{argv[0]}: no delivery PR to merge")
@@ -10801,7 +10809,7 @@ def cmd_merge(argv):
             if info is None:
                 log(f"no delivery PR: {stopped_on}; delivering again from integration")
                 merge(lp)
-            elif not stands_on_dependency(lp):
+            else:
                 upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
                 upstream_repo, permission = rights(lp)
 

@@ -10,13 +10,12 @@ from pathlib import Path
 import runpy
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job, run, task
+from agentkit import config, job, record, run, task
 
 AK_MAIN = runpy.run_path(str(REPO / "bin/ak"))["main"]
 
@@ -80,21 +79,62 @@ class AfterGone(unittest.TestCase):
         self.assertEqual((meta["after"], title), ("base.md", "fix-api.md"))
         self.assertIn("`after:` is gone", task.launch_refusal(meta))
 
-    def test_a_saved_run_standing_on_a_dependency_never_lands(self):
-        # a record from before `after:` went: its branch was cut from a dependency's passed tip
-        lp = SimpleNamespace(base_sha="tip", log=Mock(), write=Mock(),
-                             state={"branch": "ak/beta", "from_pass": {"task": "alpha.md",
-                                                                       "tip": "tip"}})
-        verify, deliver = Mock(return_value=True), Mock(return_value=True)
-        self.assertFalse(run.land(lp, "origin/main", verify, deliver))
-        verify.assert_not_called()
-        deliver.assert_not_called()
-        self.assertTrue(lp.state["merge_failed"])
-        self.assertIn("relaunch with `from: ak/beta`", lp.state["merge_note"])
-        # once integrated onto the target it stands on its own commits and lands as usual
-        lp.base_sha = "target"
-        self.assertFalse(run.stands_on_dependency(lp))
+    def saved(self, name, **extra):
+        """A record from before `after:` went: cut from a dependency's passed tip."""
+        run_dir = config.RUNS / name
+        run_dir.mkdir(parents=True)
+        (run_dir / "task.md").write_text("# Beta\n\n## Done when\n```bash\ntrue\n```\n")
+        (wt := self.root / f"wt-{name}").mkdir()
+        state = {"run_id": name, "title": "Beta", "state": "pass", "verdict": "PASS",
+                 "rounds": 3, "round_summaries": [], "repo": None, "scratch": True,
+                 "executor": "fixture", "reviewer": "fixture", "findings": "", "pr": None,
+                 "merged": False, "merge_note": None, "no_merge": False, "reported": False,
+                 "worktree": str(wt), "branch": "ak/beta", "base": "main", "target": "main",
+                 "base_sha": "tip", "from_pass": {"task": "alpha.md", "tip": "tip"},
+                 "merge_failed": True, "stalls": [], **extra}
+        record.save_state(run_dir, state)
+        return run_dir, state
 
+    def test_which_saved_records_stand_on_a_dependency(self):
+        after = {"task": "alpha.md", "tip": "tip"}
+        for state, stands in (({"from_pass": after}, True),                     # never started
+                              ({"from_pass": after, "base_sha": "tip"}, True),  # still on it
+                              ({"from_pass": after, "base_sha": "main"}, False),  # integrated
+                              ({"base_sha": "tip"}, False)):
+            with self.subTest(state=state):
+                self.assertEqual(bool(run.stands_on_dependency(state)), stands)
+
+    def test_a_delivery_retry_refuses_a_branch_standing_on_a_dependency(self):
+        run_dir, _ = self.saved("20261004-0700-beta")
+        with self.assertRaisesRegex(config.Error, "relaunch with `from: ak/beta`"):
+            run.cmd_merge([run_dir.name])
+
+    def test_a_resume_ends_blocked_before_any_round(self):
+        run_dir, state = self.saved("20261004-0701-beta", state="running", verdict=None,
+                                    merge_failed=False)
+        with patch.object(run, "collect_usage", side_effect=AssertionError("a model pick")), \
+                patch.object(run, "rounds", side_effect=AssertionError("a round ran")), \
+                patch.object(run, "integrate", side_effect=AssertionError("integrated")), \
+                patch.object(run, "settle_run"):
+            ended = run.loop({}, run_dir, run_dir / "task.md",
+                             {"--exec": None, "--review": None, "--rounds": None,
+                              "--no-worktree": False}, lambda _: None, prior=state)
+        self.assertEqual(ended["state"], "blocked")
+        self.assertIn("relaunch with `from: ak/beta`", ended["error"])
+        self.assertEqual(record.read_state(run_dir)["state"], "blocked")
+        self.assertIn("relaunch with `from: ak/beta`", (run_dir / "result.md").read_text())
+
+    def test_an_unstarted_run_ends_blocked_before_its_checkout(self):
+        run_dir = config.RUNS / "20261004-0702-beta"
+        run_dir.mkdir(parents=True)
+        (run_dir / "task.md").write_text("# Beta\n\n## Done when\n```bash\ntrue\n```\n")
+        record.save_state(run_dir, {"run_id": run_dir.name,
+                                    "from_pass": {"task": "alpha.md", "tip": "tip"}})
+        with patch.object(run, "make_worktree", side_effect=AssertionError("a checkout")), \
+                patch.object(run, "settle_run"):
+            ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
+                             lambda _: None)
+        self.assertEqual(ended["state"], "blocked")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

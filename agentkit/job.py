@@ -1122,7 +1122,7 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             save_job(job_dir, job)
 
     for task in job["tasks"]:
-        if task["state"] == "waiting":
+        if task["state"] == "waiting" or (task["state"] == "queued" and task.get("from_pass")):
             # a receipt from before `after:` went: its order is the seat's to keep now
             task.update(state="skipped", finished_at=time.time(),
                         verdict_line=f"{task['name']}: skipped: `after:` is gone; launch it "

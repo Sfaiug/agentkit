@@ -231,7 +231,9 @@ class RunStop(Sandbox):
                    {"name": "a.md", "title": "A", "state": "stopped",
                     "run_id": "gone", "verdict_line": "a.md: stopped"},
                    {"name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
-                    "run_id": None}]}
+                    "run_id": None},
+                   {"name": "c.md", "title": "C", "after": ["a.md"], "state": "queued",
+                    "run_id": None, "from_pass": {"task": "a.md", "tip": "tip"}}]}
         jobs.save_job(job_dir, job)
         out = io.StringIO()
         with redirect_stdout(out):
@@ -239,8 +241,10 @@ class RunStop(Sandbox):
         self.assertEqual(rc, 1)
         kept = jobs.read_job(job_dir)
         waiting = next(task for task in kept["tasks"] if task["name"] == "b.md")
-        self.assertEqual(waiting["state"], "skipped")
-        self.assertIn("`after:` is gone", waiting["verdict_line"])
+        cut = next(task for task in kept["tasks"] if task["name"] == "c.md")
+        for task in (waiting, cut):
+            self.assertEqual(task["state"], "skipped")
+            self.assertIn("`after:` is gone", task["verdict_line"])
 
     def test_x_stops_the_sessions_runs_first(self):
         seat = "atoll-fix"

@@ -1,7 +1,6 @@
 """The tick resumes only what is its own: never a job's run.
 
-A job settles its own task's `error` and conflict FAIL -- skips its `after:` dependants or
-reruns it elsewhere -- so the tick's `resume_errored` and `resume_waiting` leave such a run
+A job settles its own task's `error` and conflict FAIL -- it reruns it elsewhere -- so the tick's `resume_errored` and `resume_waiting` leave such a run
 to its job, which resumes its own merge wait.
 Offline: run records in a temporary HOME, a fake resume, a stubbed upstream sha.
 """
