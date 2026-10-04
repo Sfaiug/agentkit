@@ -549,12 +549,14 @@ def repo_line(meta, task_path):
 
 
 def task_repo(meta, task_path):
-    """`repo:` if the task names one, else the git repository the `ak run` was invoked from.
+    """`repo:` if the task names one, else the git repository the `ak run` was invoked from,
+    else the checkout its task folder is named for.
 
-    A task file that names no repo is the common case: the orchestrator writes it while sitting
-    in the repo it is about.  None means there is no repository in this job at all -- `repo:
-    none`, or nothing to inherit because the `ak run` was not launched from a checkout -- and
-    the run works in a scratch workspace instead.
+    A task file that names no repo is the common case: the orchestrator writes it under
+    ~/.agentkit/tasks/<project>/, and launches it from that checkout or from a folder of
+    checkouts such as ~/code.  None means there is no repository in this job at all -- `repo:
+    none`, or a launch outside any checkout of a task filed under none -- and the run works in
+    a scratch workspace instead.
     """
     if meta.get("repo"):
         if meta["repo"].lower() == "none":
@@ -569,7 +571,8 @@ def task_repo(meta, task_path):
         # or the work asked for in a checkout would quietly run in a scratch workspace instead
         raise Stopped(f"git rev-parse --show-toplevel failed: {err.strip()}")
     if code != 0:
-        return None
+        checkout = task_project(None, str(task_path))
+        return checkout.resolve() if checkout else None
     return Path(out.strip()).resolve()
 
 
