@@ -633,8 +633,22 @@ def job_wait_login(job_dir, job, task, log, lock, run_state, where):
     return True
 
 
+class LegacyTask(config.Error):
+    """A task from a receipt before `after:` went: a fresh run would lack what it waited for."""
+
+
+def job_block_legacy(task, exc):
+    """Hand a never-built legacy task back to its seat: blocked, the relaunch its findings."""
+    task.update(state="blocked", finished_at=time.time(), findings=str(exc),
+                verdict_line=f"{task['name']}: BLOCKED: {exc}")
+
+
 def job_start_task(cfg, job_dir, task, opts, log):
     """Allocate an ordinary run directory and launch it; the caller marks running first."""
+    deps = task.get("after") or ([task["from_pass"].get("task")] if task.get("from_pass") else [])
+    if deps:
+        raise LegacyTask(f"`after:` is gone; launch {task['name']} on its own once "
+                         f"{', '.join(map(str, deps))} merged")
     task_path = Path(task["task_file"])
     _, _, title = taskfile.parse_task(task_path)
     run_dir = job_allocate_run_dir(title)
@@ -894,6 +908,12 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
                 save_job(job_dir, job)
             try:
                 run_dir2, run_opts2 = job_start_task(cfg, job_dir, task, job["opts"], log)
+            except LegacyTask as exc:
+                job_block_legacy(task, exc)
+                with lock:
+                    save_job(job_dir, job)
+                log(task["verdict_line"])
+                return
             except (config.Error, OSError) as exc:
                 task.update(state="failed", finished_at=time.time(),
                             verdict_line=f"{task['name']}: FAIL: needs you ({exc})")
@@ -1122,16 +1142,11 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             save_job(job_dir, job)
 
     for task in job["tasks"]:
-        if task["state"] == "waiting" or (task["state"] == "queued" and task.get("from_pass")):
-            # a receipt from before `after:` went: never built, so it goes back to the seat,
-            # whose order to keep it is now
-            deps = task.get("after") or [(task.get("from_pass") or {}).get("task") or "?"]
-            why = (f"`after:` is gone; launch {task['name']} on its own once "
-                   f"{', '.join(deps)} merged")
-            task.update(state="blocked", finished_at=time.time(), findings=why,
-                        verdict_line=f"{task['name']}: BLOCKED: {why}")
+        if task["state"] == "waiting":
+            # a receipt from before `after:` went: a kept run decides for itself (`run.loop`
+            # ends one still on its dependency), and a fresh one is refused (`job_start_task`)
+            task["state"] = "queued"
             save()
-            log(task["verdict_line"])
     while True:
         for name, thread in list(threads.items()):
             if thread.is_alive():
@@ -1236,6 +1251,11 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             save()
             try:
                 run_dir, run_opts = job_start_task(cfg, job_dir, task, opts, log)
+            except LegacyTask as exc:
+                job_block_legacy(task, exc)
+                save()
+                log(task["verdict_line"])
+                continue
             except record.StopRequested:
                 # A stop landed during preflight: the receipt already says so, so
                 # the task keeps the run's word and nothing is launched to carry on.

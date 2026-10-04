@@ -268,6 +268,53 @@ class RunStop(Sandbox):
         self.assertIn("1 task(s) need you", line)
         self.assertIn("launch b.md on its own once a.md merged", line)
 
+    def old_job(self, name, *tasks):
+        job_dir = config.JOBS / name
+        job_dir.mkdir(parents=True)
+        (job_dir / "log.txt").touch()
+        job = {"job_id": job_dir.name, "seat": None, "started_at": time.time(),
+               "finished_at": None, "parallel": None, **record.process_owner(), "opts": {},
+               "tasks": [{"name": "a.md", "title": "A", "state": "merged", "run_id": "gone",
+                          "verdict_line": "a.md: PASS, merged"}, *tasks]}
+        jobs.save_job(job_dir, job)
+        return job_dir, job
+
+    def test_an_old_task_with_a_kept_run_is_adopted_never_blocked(self):
+        legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
+        for state in ("waiting", "queued"):
+            with self.subTest(state=state):
+                kept = self.running(f"20260101-0900-kept-{state}", owner=None, state="pass",
+                                    verdict="PASS", merged=True, pid=None)
+                job_dir, job = self.old_job(f"20260101-090000-kept-{state}", {
+                    "name": "b.md", "title": "B", "after": ["a.md"], "state": state,
+                    "run_id": kept.name, "from_pass": legacy})
+
+                def adopt(cfg, job_dir, receipt, task, run_dir, lock, log):
+                    task.update(state="merged", finished_at=time.time(),
+                                verdict_line="b.md: PASS, merged")
+                    with lock:
+                        jobs.save_job(job_dir, receipt)
+
+                with patch.object(jobs, "job_adopt_worker", side_effect=adopt) as adopted, \
+                        patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                        redirect_stdout(io.StringIO()):
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                self.assertEqual(rc, 0)
+                self.assertEqual(adopted.call_args.args[4], kept)
+                self.assertEqual(jobs.read_job(job_dir)["tasks"][1]["state"], "merged")
+
+    def test_an_old_task_left_running_without_its_run_gets_no_fresh_one(self):
+        job_dir, job = self.old_job("20260101-090000-no-run", {
+            "name": "b.md", "title": "B", "after": ["a.md"], "state": "running",
+            "run_id": None, "from_pass": {"task": "a.md", "branch": "ak/a", "tip": "tip"}})
+        with patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                redirect_stdout(io.StringIO()):
+            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+        self.assertEqual(rc, 1)
+        task = jobs.read_job(job_dir)["tasks"][1]
+        self.assertEqual(task["state"], "blocked")
+        self.assertIn("launch b.md on its own once a.md merged", task["findings"])
+
     def test_x_stops_the_sessions_runs_first(self):
         seat = "atoll-fix"
         mine = self.running("20260101-0900-stop-mine", owner=seat)
