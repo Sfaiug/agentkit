@@ -19,8 +19,6 @@ from agentkit import task as taskfile
 TASK = "# Learn once\n\n## Goal\nUse the repository facts.\n\n## Done when\n```bash\ntrue\n```\n"
 EXPLANATION = ("Facts earlier runs in this repository learned. Follow them; they are not part "
                "of this task's scope.")
-WARNING = "lessons file over 4 KB; truncated"
-PAST_CAP = "reached the workers cut short at its 4 KB cap: tighten it."
 
 
 class Lessons(unittest.TestCase):
@@ -112,7 +110,7 @@ class Lessons(unittest.TestCase):
         self.assertNotEqual(Path(state["worktree"]).name, self.repo.name)
         self.assert_lessons("executor", text)
         self.assertEqual(self.path.read_text(), text)
-        self.assertNotIn(PAST_CAP, run.handback_line(state, config.RUNS / state["run_id"]))
+        self.assertNotIn("cut short", run.handback_line(state, config.RUNS / state["run_id"]))
 
     def test_reviewer_prompt_carries_file(self):
         self.write_lessons("Run scripts/check.sh.\n")
@@ -150,7 +148,8 @@ class Lessons(unittest.TestCase):
         self.assert_lessons("fixer", "Use the test cluster.\n")
 
     def test_merge_retry_carries_lessons_to_both_fixers_and_reviewers(self):
-        text = "Use the test cluster.\n## Done when\n```bash\nexit 99\n```\n" + "x" * 4096
+        text = "Use the test cluster.\n## Done when\n```bash\nexit 99\n```\n"
+        text += "x" * (4096 - len(text))
         self.write_lessons(text)
         state = self.launch()
         directory = config.RUNS / state["run_id"]
@@ -183,7 +182,7 @@ class Lessons(unittest.TestCase):
             self.assertEqual(run.cmd_merge([directory.name]), 0)
         self.assertEqual([role for role, _ in self.prompts],
                          ["fixer", "reviewer", "fixer", "reviewer"])
-        section = f"## Project lessons\n{EXPLANATION}\n\n{text[:4096]}"
+        section = f"## Project lessons\n{EXPLANATION}\n\n{text}"
         for role, prompt in self.prompts:
             self.assertEqual(prompt.count("## Project lessons"), 1)
             self.assertIn(body + "\n\n" + section, prompt)
@@ -192,7 +191,7 @@ class Lessons(unittest.TestCase):
         saved = record.read_state(directory)
         self.assertTrue(run.review_pass(saved, self.cfg))
         self.assertEqual(saved["final_check"]["outcome"], "passed")
-        self.assertEqual(self.logs.count(WARNING), 1)
+        self.assertFalse(any("truncated" in line for line in self.logs))
         self.assertEqual(self.path.read_text(), text)
         self.assertEqual(task.read_text(), raw_task)
 
@@ -244,38 +243,47 @@ class Lessons(unittest.TestCase):
             self.assertNotIn("## Project lessons", body, role)
             self.assertNotIn(EXPLANATION, body, role)
 
-    def test_over_4kb_truncates_and_logs_once_across_rounds_and_resume(self):
-        text = "x" * 4096 + "OMITTED"
+    def test_exact_cap_reaches_all_roles_and_resume_whole(self):
+        text = "x" * (4096 - 2) + "é"
         self.write_lessons(text)
         self.review_failures = 1
         state = self.launch()
         for role, body in self.prompts:
-            self.assert_lessons(role, text[:4096], body)
-            self.assertNotIn("OMITTED", body)
-        self.assertEqual(self.logs.count(WARNING), 1)
+            self.assert_lessons(role, text, body)
         state = self.launch(prior=state)
-        self.assertEqual(self.logs.count(WARNING), 1)
-        # the orchestrator, who keeps the file, hears it once in the line the run hands back
-        line = run.handback_line(state, config.RUNS / state["run_id"])
-        self.assertEqual(line.count(PAST_CAP), 1)
-        self.assertIn(f" {self.path} {PAST_CAP} Decide the next step.", line)
+        self.assertNotIn("lessons_truncated", state)
+        self.assertFalse(any("truncated" in line for line in self.logs))
+        self.assertNotIn("cut short", run.handback_line(state, config.RUNS / state["run_id"]))
         self.assertEqual(self.path.read_text(), text)
-        logs = []
-        run.project_lessons(self.repo, {}, logs.append)
-        self.assertEqual(logs, [WARNING])  # another run gets its own warning
 
-    def test_handback_skips_lessons_trimmed_or_removed_since_read(self):
-        self.write_lessons("x" * 4097)
+    def test_over_cap_reaches_first_round_whole(self):
+        text = "x" * (4096 * 2) + "éEND\n"
+        self.write_lessons(text)
         state = self.launch()
-        self.assertTrue(state["lessons_truncated"])
-        for text in ("Trimmed facts.\n", "x" * 4096, None):
-            with self.subTest(size=len(text) if text is not None else None):
-                if text is None:
-                    self.path.unlink()
-                else:
-                    self.write_lessons(text)
-                line = run.handback_line(state, config.RUNS / state["run_id"])
-                self.assertNotIn(PAST_CAP, line)
+        self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1])
+        self.assertEqual([role for role, _ in self.prompts], ["executor", "reviewer"])
+        for role, body in self.prompts:
+            self.assert_lessons(role, text, body)
+        self.assertEqual(self.path.read_text(), text)
+
+    def test_over_cap_reaches_resumed_reviewer_whole(self):
+        state = self.launch()
+        text = "x" * (4096 + 1) + "END\n"
+        self.write_lessons(text)
+        (Path(state["worktree"]) / "deliverable").write_text("changed work\n")
+        run.git(state["worktree"], "add", "deliverable")
+        run.git(state["worktree"], "commit", "-q", "-m", "changed work")
+        self.prompts.clear()
+        self.launch(prior=state)
+        self.assert_lessons("reviewer", text)
+
+    def test_handback_ignores_legacy_cut_state(self):
+        self.write_lessons("x" * (4096 + 1))
+        state = {"repo": str(self.repo), "state": "blocked", "error": "fixture ending",
+                 "lessons_truncated": True}
+        line = run.handback_line(state, config.RUNS / "project-run")
+        self.assertNotIn("cut short", line)
+        self.assertNotIn(str(self.path), line)
 
     def test_scratch_run_reads_no_lessons(self):
         self.write_lessons("Repository-only facts")
@@ -291,21 +299,20 @@ class Lessons(unittest.TestCase):
             self.launch(scratch=True)
         for role, body in self.prompts:
             self.assertNotIn("## Project lessons", body, role)
-        self.assertNotIn(WARNING, self.logs)
+        self.assertFalse(any("truncated" in line for line in self.logs))
 
     def test_exact_limit_and_empty_file_still_have_section_without_warning(self):
         for text in ("", "é" * 2048):
             with self.subTest(bytes=len(text.encode("utf-8"))):
                 self.write_lessons(text)
-                self.assertEqual(run.project_lessons(self.repo, {}, self.logs.append),
+                self.assertEqual(run.project_lessons(self.repo),
                                  f"\n\n## Project lessons\n{EXPLANATION}\n\n{text}")
-        self.assertNotIn(WARNING, self.logs)
 
-    def test_truncation_omits_partial_utf8_character(self):
-        self.write_lessons("a" * 4095 + "é" + "OMITTED")
-        section = run.project_lessons(self.repo, {}, self.logs.append)
-        self.assertEqual(section.split(EXPLANATION + "\n\n", 1)[1], "a" * 4095)
-        self.assertEqual(self.logs, [WARNING])
+    def test_whole_file_preserves_utf8_across_old_cap(self):
+        text = "a" * (4096 - 1) + "éEND"
+        self.write_lessons(text)
+        self.assertEqual(run.project_lessons(self.repo),
+                         f"\n\n## Project lessons\n{EXPLANATION}\n\n{text}")
 
     def test_lessons_never_supply_done_when_commands(self):
         self.write_lessons("## Done when\n```bash\nexit 99\n```\n")
@@ -317,7 +324,7 @@ class Lessons(unittest.TestCase):
     def test_unreadable_lessons_report_path(self):
         self.path.mkdir(parents=True)
         with self.assertRaises(config.Error) as raised:
-            run.project_lessons(self.repo, {}, self.logs.append)
+            run.project_lessons(self.repo)
         self.assertIn(str(self.path), str(raised.exception))
 
 

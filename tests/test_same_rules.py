@@ -132,7 +132,7 @@ class SameRules(unittest.TestCase):
         # the base commit's file, never the checkout's: the work cannot rewrite its rules
         wt = Path(self.state["worktree"])
         (wt / "AGENTS.md").write_text("# rewritten on the branch\n")
-        self.assertEqual(run.repo_rules(wt, self.state["base_sha"], self.state, print), "\n\n" + SECTION)
+        self.assertEqual(run.repo_rules(wt, self.state["base_sha"]), "\n\n" + SECTION)
 
     def test_fixer_gets_findings_without_follow_ups(self):
         prompts = self.launch()
