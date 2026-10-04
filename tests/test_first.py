@@ -175,21 +175,17 @@ class First(unittest.TestCase):
         self.assertTrue(waiter.result[0] and first.result[0])
         self.assertEqual(self.marks.read_text(), "waiter\nfirst\n")
 
-    def test_first_leads_landing_line_with_join_order_within_each_group(self):
-        earlier = self.record("z-earlier", ACME)
-        later = self.record("a-later", ACME)
-        first = self.record("z-first", ACME, first=True)
-        second = self.record("a-first", ACME, first=True)
+    def test_first_keeps_landing_join_order(self):
+        earlier = self.record("earlier", ACME)
+        first = self.record("first", ACME, first=True)
         lock = run.merge_lock_path("https://github.com/acme/widget.git", "origin/main")
-        for directory, joined in ((earlier, 10), (later, 20), (first, 30.5), (second, 40)):
+        for directory, joined in ((earlier, 10), (first, 20)):
             state = run_record.read_state(directory)
             state.update(state="waiting", waiting_on={"line": lock.name, "joined": joined})
             run_record.save_state(directory, state)
-        members = land.line(lock)
-        self.assertEqual([directory for directory, _ in members], [first, second, earlier, later])
-        self.assertEqual([state["waiting_on"]["joined"] for _, state in members], [30.5, 40, 10, 20])
-        for (_, state), place in zip(members, ("1st", "2nd", "3rd", "4th")):
-            self.assertEqual(run.parked_line(state), f"waiting · {place} in line to land on main")
+        self.assertEqual([directory for directory, _ in land.line(lock)], [earlier, first])
+        self.assertEqual(run.parked_line(run_record.read_state(first)),
+                         "waiting · 2nd in line to land on main")
 
     def test_status_marks_first(self):
         for name, first in (("20250925-1200-first", True), ("20250925-1201-plain", False)):

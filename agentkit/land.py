@@ -59,8 +59,8 @@ def note(turn, trees, leader, *, red=None, red_stacks=None):
 
 
 def line(turn):
-    """Members including green deliveries that continue themselves: green deliveries in the
-    order the lander passed them, then first runs, then the rest, each in join order."""
+    """Members including green deliveries that continue themselves: green deliveries first,
+    then the rest, each group in join order."""
     from . import run
     members = []
     for directory in record.run_dirs():
@@ -75,16 +75,9 @@ def line(turn):
                 and wait.get("line") == turn.name
                 and type(wait.get("joined")) in (int, float)):
             members.append((directory, state))
-    return sorted(members, key=_place)
-
-
-def _place(member):
-    """Each green tree contains the deliveries passed before it, so they keep that order."""
-    directory, state = member
-    wait = state["waiting_on"]
-    if green_delivery(wait):
-        return False, wait.get("passed", wait["joined"]), wait["joined"], directory.name
-    return True, not state.get("first"), wait["joined"], directory.name
+    return sorted(members, key=lambda member: (not green_delivery(member[1]["waiting_on"]),
+                                              member[1]["waiting_on"]["joined"],
+                                              member[0].name))
 
 
 def green_delivery(wait):
@@ -257,13 +250,7 @@ def check_line(turn, log=lambda _: None):
                             return False
                     for member, answer in sorted(fresh.items(), key=lambda item: "land" in item[1]):
                         with record.record(member) as current:
-                            wait = current["waiting_on"]
-                            if "land" in answer:
-                                # A re-sent verdict keeps its place among green deliveries.
-                                answer = {**answer, "passed": wait["passed"] if (
-                                    wait.get("land") == answer["land"] and "passed" in wait)
-                                    else time.time()}
-                            current["waiting_on"] = {**wait, **answer}
+                            current["waiting_on"] = {**current["waiting_on"], **answer}
                         # Later answers still compare against this pass's own writes.
                         snapshots[member]["waiting_on"] = dict(current["waiting_on"])
                     sent.update(fresh)

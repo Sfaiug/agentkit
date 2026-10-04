@@ -351,6 +351,35 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.assertEqual([call.args[0] for call in self.wake.call_args_list], [head.name])
         self.assert_cleaned()
 
+    def test_a_green_delivery_stays_ahead_of_earlier_waiting_members(self):
+        earlier = self.member("earlier", joined=5, **{"earlier.txt": "earlier\n"})
+        green = self.member("green", joined=30, **{"green.txt": "green\n"})
+        with record.record(green) as state:
+            state["waiting_on"] = {**state["waiting_on"], "land": "tree"}
+        self.assertEqual([directory for directory, _ in land.line(self.turn)], [green, earlier])
+        self.assertEqual(run.parked_line(record.read_state(earlier)),
+                         "waiting · 2nd in line to land on main")
+
+    def test_two_green_deliveries_leave_the_next_pass_to_the_member_behind_them(self):
+        head = self.member("head", joined=1, **{"head.txt": "head\n"})
+        self.advance()
+        land.check_line(self.turn)
+        second = self.member("second", joined=2, **{"second.txt": "second\n"})
+        tail = self.member("tail", joined=3, **{"tail.txt": "tail\n"})
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(head))
+        self.assertIn("land", self.wait(second))
+        for member in (head, second):
+            with record.record(member) as state:
+                state.update(state="running", pid=5678)
+        with patch.object(record, "process_active",
+                          side_effect=lambda state: state.get("pid") == 5678):
+            self.assertEqual([directory for directory, _ in land.line(self.turn)],
+                             [head, second, tail])
+            land.check_line(self.turn)
+        self.assertIn("land", self.wait(tail))
+        self.assert_cleaned()
+
     def test_a_green_member_leaves_the_line_after_landing_or_stopping(self):
         members = self.members()
         land.check_line(self.turn)

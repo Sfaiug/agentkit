@@ -215,10 +215,9 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                             and "client.txt" not in self.stacked_files(tree)
                             for tree in land._trees(self.turn)[1]))
         self.assertEqual(self.wait(later), originals[later]["waiting_on"])
-        for directory, keys in ((first, ("land", "passed")), (red, ("fix",))):
+        for directory, key in ((first, "land"), (red, "fix")):
             current = record.read_state(directory)
-            for key in keys:
-                current["waiting_on"].pop(key)
+            current["waiting_on"].pop(key)
             self.assertEqual(current, originals[directory])
         self.assert_cleaned()
 
