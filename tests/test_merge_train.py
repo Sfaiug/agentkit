@@ -437,9 +437,10 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             run.git(self.repo, "checkout", loops[later].state["branch"])
 
         run.git(self.repo, "checkout", loops[later].state["branch"])
-        with patch.object(run.time, "sleep", side_effect=wait_for_first) as poll:
+        with patch.object(run, "time", wraps=run.time) as clock:
+            clock.sleep.side_effect = wait_for_first
             self.assertTrue(run.land_from_line(loops[later], "origin/main", lambda: deliver(later)))
-        poll.assert_called_once_with(run.SLOT_POLL)
+        clock.sleep.assert_called_once_with(run.SLOT_POLL)
         self.assertEqual(merged, [first, later])
         self.assertEqual(len(self.checks), 2)
         self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), waits[later]["land"])
