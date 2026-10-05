@@ -1,4 +1,4 @@
-"""Workers get whole base rules; changing an oversized rules body fails the round."""
+"""Workers get whole base rules; growing AGENTS.md past what a harness reads fails the round."""
 
 from contextlib import ExitStack
 import os
@@ -14,6 +14,8 @@ sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import config, gc, record, run, worker
 
+LIMIT = 64          # the test harness's read limit, far below any real one
+OLD_CUT = 8 * 1024  # where workers' rules used to be cut
 TASK = "# Acme rules\n\n## Goal\nUse the repository rules.\n\n## Done when\n```bash\ntrue\n```\n"
 
 
@@ -30,6 +32,10 @@ class RulesCapTold(unittest.TestCase):
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", config.SESSION_ENV: "",
             config.RUN_DIR_ENV: "", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
+        adapters = self.root / "adapters"
+        adapters.mkdir()
+        (adapters / "acme.toml").write_text(f"[instructions]\nread_limit = {LIMIT}\n")
+        stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
         config.ensure_dirs()
         self.cfg = config.load()
         self.repo = self.root / "acme"
@@ -96,7 +102,7 @@ class RulesCapTold(unittest.TestCase):
         return lp
 
     def test_workers_get_whole_base_rules_across_rounds_and_resume(self):
-        body = "x" * run.RULES_CAP + "éLAST RULE"
+        body = "x" * OLD_CUT + "éLAST RULE"
         self.commit_rules("---\nusers: none\n---\n" + body)
         self.review_failures = 1
         state, directory = self.launch()
@@ -115,7 +121,7 @@ class RulesCapTold(unittest.TestCase):
         self.assertNotIn("cut short", run.handback_line(state, directory, self.cfg))
 
     def test_handback_ignores_legacy_cut_state_for_both_files(self):
-        self.commit_rules("x" * (run.RULES_CAP + 1))
+        self.commit_rules("x" * (OLD_CUT + 1))
         state = {"repo": str(self.repo), "state": "blocked", "error": "acme ending",
                  "rules_truncated": True, "lessons_truncated": True}
         lessons = config.HOME / "lessons" / "acme.md"
@@ -128,10 +134,9 @@ class RulesCapTold(unittest.TestCase):
 
     def test_added_oversized_body_fails_checks_and_resume_in_any_repo(self):
         lp = self.loop()
-        self.path.write_text("é" * (run.RULES_CAP // 2) + "x")
+        self.path.write_text("é" * (LIMIT // 2) + "x")
         ok, text = run.verify_work(lp)
-        failure = (f"AGENTS.md body is {run.RULES_CAP + 1} bytes, past its "
-                   f"{run.RULES_CAP}-byte cap: tighten it.")
+        failure = f"AGENTS.md is {LIMIT + 1} bytes, past the {LIMIT} bytes acme reads of it: tighten it."
         self.assertFalse(ok, text)
         self.assertIn("[exit 0]", text)
         self.assertEqual(text.splitlines()[-1], failure)
@@ -141,35 +146,97 @@ class RulesCapTold(unittest.TestCase):
         lp.state["step"] = "reviewer"
         self.assertEqual(run.settled_gate(lp), (False, text))
 
-    def test_front_matter_change_must_leave_existing_body_within_cap(self):
-        body = "x" * (run.RULES_CAP + 1)
+    def test_front_matter_change_must_leave_an_oversized_file_within_the_ceiling(self):
+        body = "x" * LIMIT
         self.commit_rules("---\nusers: none\n---\n" + body)
         lp = self.loop()
-        self.path.write_text("---\nusers: all\n---\n" + body)
+        changed = "---\nusers: all\n---\n" + body
+        self.path.write_text(changed)
         ok, text = run.verify_work(lp)
         self.assertFalse(ok, text)
-        self.assertIn(f"AGENTS.md body is {len(body)} bytes", text)
+        self.assertIn(f"AGENTS.md is {len(changed)} bytes", text)
 
-    def test_cap_counts_only_body_bytes_and_accepts_exact_limit(self):
+    def test_ceiling_counts_the_whole_file_and_accepts_the_exact_limit(self):
         lp = self.loop()
-        body = "é" * (run.RULES_CAP // 2)
-        self.path.write_text("---\nnotes: " + "x" * run.RULES_CAP + "\n---\n\n" + body + "\n")
+        front = "---\nnotes: x\n---\n"
+        accents = (LIMIT - len(front)) // 2
+        exact = front + "é" * accents + "x" * (LIMIT - len(front) - 2 * accents)
+        self.assertEqual(len(exact.encode("utf-8")), LIMIT)
+        self.path.write_text(exact, encoding="utf-8")
         ok, text = run.verify_work(lp)
         self.assertTrue(ok, text)
-        section = run.repo_rules(self.repo, self.git("rev-parse", "HEAD"))
-        self.assertIn(body, section)
-        self.assertNotIn("notes:", section)
+        self.path.write_text(exact + "x", encoding="utf-8")
+        ok, text = run.verify_work(lp)
+        self.assertFalse(ok, text)
+        self.assertIn(f"AGENTS.md is {LIMIT + 1} bytes", text)
 
-    def test_untouched_oversized_base_body_passes_checks(self):
-        self.commit_rules("x" * (run.RULES_CAP + 1))
+    def test_no_harness_limit_means_no_ceiling(self):
+        lp = self.loop()
+        self.path.write_text("x" * OLD_CUT * 4)
+        with patch.object(config, "manifests", return_value=iter([("acme", {})])):
+            ok, text = run.verify_work(lp)
+        self.assertTrue(ok, text)
+
+    def test_the_smallest_declared_read_limit_wins(self):
+        found = [("big", {"instructions": {"read_limit": 4096}}), ("none", {}),
+                 ("odd", {"instructions": {"read_limit": True}}),
+                 ("zero", {"instructions": {"read_limit": 0}}),
+                 ("small", {"instructions": {"read_limit": 512}})]
+        with patch.object(config, "manifests", return_value=iter(found)):
+            self.assertEqual(config.instruction_ceiling(), (512, "small"))
+        # the shipped adapters: Codex's own reader is the smallest today
+        with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: ""}):
+            self.assertEqual(config.instruction_ceiling(), (32768, "codex"))
+
+    def test_untouched_oversized_base_file_passes_checks(self):
+        self.commit_rules("x" * (LIMIT + 1))
         lp = self.loop()
         (self.repo / "deliverable").write_text("acme\n")
         ok, text = run.verify_work(lp)
         self.assertTrue(ok, text)
-        self.assertNotIn("AGENTS.md body", text)
+        self.assertNotIn("AGENTS.md is", text)
+
+    def test_a_size_read_that_never_answered_stops_the_check(self):
+        # a timed-out read is no deleted file: the oversized file must not pass as 0 bytes
+        lp = self.loop()
+        self.commit_rules("x" * (LIMIT + 1))
+        real = subprocess.run
+
+        def timing_out(argv, **kwargs):
+            if "cat-file" in argv:
+                raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
+            return real(argv, **kwargs)
+
+        with patch.object(run.subprocess, "run", side_effect=timing_out), \
+                self.assertRaises(run.Stopped):
+            run.rules_cap(lp)
+
+    def test_the_size_is_the_file_as_checked_out(self):
+        # with CRLF line ends on checkout, a blob at the limit is past it where a harness reads it
+        (self.repo / ".gitattributes").write_text("AGENTS.md text eol=crlf\n")
+        self.git("add", ".gitattributes")
+        self.git("commit", "-q", "-m", "attributes")
+        lp = self.loop()
+        self.commit_rules("x\n" * (LIMIT // 2))
+        self.assertEqual(self.git("cat-file", "-s", "HEAD:AGENTS.md"), str(LIMIT))
+        self.assertIn(f"AGENTS.md is {LIMIT // 2 * 3} bytes", run.rules_cap(lp))
+
+    def test_a_read_that_fails_fails_the_check(self):
+        # only a deleted file counts as nothing: a smudge filter that fails leaves the size unknown
+        (self.repo / ".gitattributes").write_text("AGENTS.md filter=broken\n")
+        for key, value in (("smudge", "false"), ("clean", "cat"), ("required", "true")):
+            self.git("config", f"filter.broken.{key}", value)
+        self.git("add", ".gitattributes")
+        self.git("commit", "-q", "-m", "attributes")
+        lp = self.loop()
+        self.commit_rules("x" * (LIMIT + 1))
+        failure = run.rules_cap(lp)
+        self.assertTrue(failure.startswith("AGENTS.md could not be read as a checkout holds it"),
+                        failure)
+        self.assertTrue(run.LOOP_NOTE.match(failure))
 
     def test_removed_oversized_rules_pass_checks(self):
-        self.commit_rules("x" * (run.RULES_CAP + 1))
+        self.commit_rules("x" * (LIMIT + 1))
         lp = self.loop()
         self.path.unlink()
         ok, text = run.verify_work(lp)
@@ -178,10 +245,10 @@ class RulesCapTold(unittest.TestCase):
     def test_cap_note_preserves_a_failing_commands_output(self):
         cmd = "echo 'acme check failed'; false"
         lp = self.loop(cmds=(cmd,))
-        self.path.write_text("x" * (run.RULES_CAP + 1))
+        self.path.write_text("x" * (LIMIT + 1))
         ok, text = run.verify_work(lp)
         self.assertFalse(ok, text)
-        self.assertIn("AGENTS.md body", text)
+        self.assertIn("AGENTS.md is", text)
         self.assertEqual(run.failing_checks(text), [[cmd, "acme check failed"]])
         self.assertEqual(run.first_failure(text), f"`{cmd}` — acme check failed")
 
@@ -193,7 +260,7 @@ class RulesCapTold(unittest.TestCase):
         def execute(lp, role, text, name, **_kw):
             lp.round_dir.mkdir(exist_ok=True)
             if role == "executor":
-                self.path.write_text("x" * (run.RULES_CAP + 1))
+                self.path.write_text("x" * (LIMIT + 1))
             else:
                 fixes.append(text)
             return "## Summary\nAcme work."
@@ -202,15 +269,15 @@ class RulesCapTold(unittest.TestCase):
                 patch.object(run, "pickup_new_code", return_value=False):
             run.rounds(lp)
         self.assertEqual(len(fixes), 1)
-        self.assertIn(f"AGENTS.md body is {run.RULES_CAP + 1} bytes", fixes[0])
+        self.assertIn(f"AGENTS.md is {LIMIT + 1} bytes", fixes[0])
         self.assertEqual(lp.state["verdict"], "FAIL")
         self.assertFalse(lp.state["review"]["done_when"])
         self.assertIn("overridden", lp.state["review"])
 
     def test_whole_rules_preserve_utf8_across_the_old_cut(self):
-        ref = self.commit_rules("a" * (run.RULES_CAP - 1) + "éOMITTED")
+        ref = self.commit_rules("a" * (OLD_CUT - 1) + "éOMITTED")
         section = run.repo_rules(self.repo, ref)
-        self.assertTrue(section.endswith("a" * (run.RULES_CAP - 1) + "éOMITTED\n"))
+        self.assertTrue(section.endswith("a" * (OLD_CUT - 1) + "éOMITTED\n"))
 
     def test_missing_or_empty_rules_add_nothing(self):
         for text in ("", "---\nusers: none\n---\n"):
