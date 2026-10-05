@@ -32,7 +32,6 @@ import shlex
 import shutil
 import signal
 import socket
-import stat
 import struct
 import subprocess
 import sys
@@ -1387,18 +1386,13 @@ def listed():
     return {path: path for path in found}
 
 
-GIT_DIRS = {}   # path: (the stamps of every entry git went through, what git answered)
-
-
 def git_dirs(path):
     """(the repository's common git directory, whether `path` is a worktree added from
     another checkout) of the checkout at `path`, or None when it is none.
 
-    A plain `.git` directory with no `commondir` is a repository's own checkout; anything
-    else -- a `.git` file, a link, a worktree's git directory -- git itself is asked about,
-    so every layout and path it accepts reads the same here.  The answer is kept while every
-    entry on the way to `.git`, to the git directory and to its `commondir` -- each
-    directory and link on those paths, and the files themselves -- stays as it was.
+    A plain `.git` directory with no `commondir` is a repository's own checkout; for anything
+    else -- a `.git` file, a link, a worktree's git directory -- git itself is asked, looking
+    no higher than `path`, so every layout and path it accepts reads the same here.
     """
     dot = Path(path) / ".git"
     try:
@@ -1408,59 +1402,23 @@ def git_dirs(path):
             return dot.resolve(), False
     except OSError:
         return None
-    kept = GIT_DIRS.get(str(path))
-    if kept and all(entry_stamp(entry) == seen for entry, seen in kept[0]):
-        return kept[1]
-    before = [(entry, entry_stamp(entry)) for entry in trail(dot)]
     env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
     env["GIT_CEILING_DIRECTORIES"] = os.fsdecode(os.path.dirname(os.path.abspath(path)))
-    found = []
-    for flag in ("--git-dir", "--git-common-dir"):
+    def ask(*flags):
         try:
             proc = subprocess.run(["git", "-C", str(path), "rev-parse", "--path-format=absolute",
-                                   flag], capture_output=True, env=env, timeout=30)
+                                   *flags], capture_output=True, env=env, timeout=30)
         except (OSError, subprocess.TimeoutExpired):
             return None
-        if proc.returncode:
-            return None
-        found.append(Path(os.fsdecode(proc.stdout.removesuffix(b"\n"))))
-    answer = found[1].resolve(), found[0].resolve() != found[1].resolve()
-    if all(entry_stamp(entry) == seen for entry, seen in before):    # nothing moved while git read
-        GIT_DIRS[str(path)] = before + [(entry, entry_stamp(entry))
-                                        for entry in trail(found[0] / "commondir")], answer
-    return answer
-
-
-def trail(path):
-    """Every entry the system passes through to reach `path`: each directory on the way and
-    each link, followed to the entries its target goes through."""
-    seen, done, todo = [], Path("/"), list(Path(os.path.abspath(path)).parts[1:])
-    while todo and len(seen) < 1000:
-        part = todo.pop(0)
-        if part == "..":
-            done = done.parent
-            continue
-        current = done / part
-        seen.append(current)
-        if current.is_symlink():
-            target = Path(os.readlink(current))
-            todo = [*target.parts[1:], *todo] if target.is_absolute() else [*target.parts, *todo]
-            done = Path("/") if target.is_absolute() else done
-        else:
-            done = current
-    return seen
-
-
-def entry_stamp(path):
-    """What changes when the entry at `path` is replaced, removed or retargeted, and for a
-    file also when it is written: never what happens inside a directory."""
-    try:
-        info = os.lstat(path)
-    except OSError:
+        return None if proc.returncode else proc.stdout.removesuffix(b"\n").split(b"\n")
+    lines = ask("--git-dir", "--git-common-dir")
+    if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
+        lines = [b"\n".join(answer) if answer is not None else None
+                 for answer in (ask("--git-dir"), ask("--git-common-dir"))]
+    if lines is None or None in lines:
         return None
-    if stat.S_ISDIR(info.st_mode):
-        return info.st_dev, info.st_ino
-    return info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+    gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
+    return common, gitdir != common
 
 
 def checkout_of(repo):

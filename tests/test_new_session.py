@@ -221,10 +221,10 @@ class NewSession(Sandbox):
 
     def test_a_worktree_is_its_checkout_whatever_the_git_layout(self):
         # A checkout keeping its git directory elsewhere, under a name git takes byte for byte
-        # (a trailing space, a carriage return, a byte that is no UTF-8), and a worktree whose
-        # `.git` names its git directory by a relative path: git reads them all, and so does
-        # the menu.
-        elsewhere = self.root / os.fsdecode(b"else\xff\rwhere.git ")
+        # (a trailing space, a newline, a carriage return, a byte that is no UTF-8), and a
+        # worktree whose `.git` names its git directory by a relative path: git reads them
+        # all, and so does the menu.
+        elsewhere = self.root / os.fsdecode(b"else\xff\r\nwhere.git ")
         main = config.CODE / "acme"
         subprocess.run(["git", "init", "-q", "-b", "main", "--separate-git-dir", str(elsewhere),
                         str(main)], check=True)
