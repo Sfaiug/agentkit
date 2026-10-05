@@ -281,7 +281,7 @@ class TurnMeters(unittest.TestCase):
         self.assertEqual(usage.account(self.cfg, "anthropic")[0], "acme-second")
         lines = []
 
-        def turn(cfg, model, body, workspace, out_dir, role, session, env=None, limit=None):
+        def turn(cfg, model, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             (Path(out_dir) / "events.jsonl").write_text(
                 json.dumps(self.event(0.04, 0.13)) + "\n"

@@ -38,7 +38,7 @@ if role != "reviewer":
         (out / "before.log").write_bytes(before.stderr)
         (wt / "broken.py").write_text("def first(items):\n    return items[0] if items else None\n")
         subprocess.run([sys.executable, str(test)], cwd=wt, check=True)
-        (out.parents[1] / "regression.sh").write_text("python3 test_empty.py\n")
+        (out.parents[1] / "regression/regression.sh").write_text("python3 test_empty.py\n")
         subprocess.run(["git", "add", "."], cwd=wt, check=True)
         subprocess.run(["git", "commit", "-qm", "Handle empty input"], cwd=wt, check=True)
     elif row["kind"] == "done":

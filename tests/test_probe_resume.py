@@ -104,7 +104,8 @@ class ProbeResume(unittest.TestCase):
         (self.wt / "local-note").write_text("pre-existing untracked file\n")
         self.directory = self.root / "run"
         (self.directory / "round-1").mkdir(parents=True)
-        (self.directory / "regression.sh").write_text("PYTHONPATH=. python3 tests/check.py\n")
+        (self.directory / run.REGRESSION.parent).mkdir()
+        (self.directory / run.REGRESSION).write_text("PYTHONPATH=. python3 tests/check.py\n")
         record.save_state(self.directory, {
             "run_id": "probe-test", "state": "running", "step": "done-when", "base": "main",
             "base_sha": self.base, "branch": "ak/fix-api", "rounds": 3,
