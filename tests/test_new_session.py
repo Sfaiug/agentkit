@@ -281,6 +281,26 @@ class NewSession(Sandbox):
         self.assertNotIn(linked, orch.checkouts())
         self.assertEqual(orch.checkout_of(str(linked)), main)
 
+    def test_only_a_path_with_its_own_git_is_a_checkout(self):
+        # A home under git: neither a worktree's subdirectory nor an unversioned ~/agentkit is
+        # a checkout, and a worktree in ~/code of the home's repository stays its own project.
+        def git(where, *args):
+            subprocess.run(["git", "-C", str(where), "-c", "user.name=Fixture", "-c",
+                            "user.email=fixture@localhost", *args], check=True, capture_output=True)
+        main = self.checkout("acme")
+        linked = config.CODE / ".acme-fix"
+        git(main, "worktree", "add", "-q", "-b", "fix", str(linked))
+        (linked / "app").mkdir()
+        git(Path.home(), "init", "-q", "-b", "main")
+        git(Path.home(), "commit", "-q", "--allow-empty", "-m", "home")
+        (Path.home() / "agentkit").mkdir()
+        homework = config.CODE / "homework"
+        git(Path.home(), "worktree", "add", "-q", "-b", "homework", str(homework))
+        self.assertIsNone(orch.checkout_of(str(linked / "app")))
+        self.assertEqual(orch.cwd_project(linked / "app"), main)
+        self.assertIn(homework, orch.checkouts())
+        self.assertEqual(orch.checkout_of(str(homework)), homework)
+
     def test_a_worktree_of_a_second_agentkit_clone_is_agentkit(self):
         own = self.checkout("agentkit", Path.home())
         for layout in ([], ["--separate-git-dir", str(self.root / "clone.git")]):

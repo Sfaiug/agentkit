@@ -1402,6 +1402,8 @@ def git_dirs(path):
     """
     dot = Path(path) / ".git"
     try:
+        if not os.path.lexists(dot):        # no checkout here, whatever encloses it
+            return None
         if dot.is_dir() and not dot.is_symlink() and not (dot / "commondir").exists():
             return dot.resolve(), False
     except OSError:
@@ -1411,6 +1413,7 @@ def git_dirs(path):
         return kept[1]
     before = [(entry, entry_stamp(entry)) for entry in trail(dot)]
     env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+    env["GIT_CEILING_DIRECTORIES"] = os.fsdecode(os.path.dirname(os.path.abspath(path)))
     found = []
     for flag in ("--git-dir", "--git-common-dir"):
         try:
