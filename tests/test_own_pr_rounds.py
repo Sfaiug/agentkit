@@ -169,6 +169,70 @@ class OwnPrRounds(unittest.TestCase):
         self.assertEqual(len(self.merges), 1)
         self.assertEqual(self.merges[0][-1], self.heads[1])
 
+    def test_a_push_moves_the_next_round_onto_the_installed_agentkit(self):
+        moves = []
+
+        def execv(_python, argv):
+            moves.append(argv[2:])
+            raise SystemExit(0)      # the resumed process reviews the pushed head
+
+        push = self.push
+
+        def rename_then_push(seconds):
+            push(seconds)
+            with record.record(self.run_dir) as current:     # the seat renamed meanwhile
+                current["launched_session"] = "mend-api"
+
+        run.time.sleep.side_effect = rename_then_push
+        self.addCleanup(setattr, run, "_PICKUP_START", run._PICKUP_START)
+        run._PICKUP_START = "aaa1111"           # merged while the seat was fixing
+        with patch.object(run, "installed_head", return_value="bbb2222"), \
+                patch.object(run.os, "execv", side_effect=execv), self.assertRaises(SystemExit):
+            self.review(["FAIL", "PASS"])
+        self.assertEqual(moves, [["run", "resume", self.run_dir.name]])
+        self.assertEqual(len(self.prompts), 1)
+        state = record.read_state(self.run_dir)
+        self.assertEqual(state["pickup"]["to"], "bbb2222")
+        self.assertEqual(state["own_pr_wait"], self.heads[0])   # still owed its next round
+        self.assertEqual(state["launched_session"], "mend-api")
+
+    def moved_reviews(self, told):
+        """The reviewers of two rounds whose process, told `told`, moves onto new code between
+        them; its launch named opus."""
+        reviewers = []
+
+        def review(cfg, name, *args, **kwargs):
+            reviewers.append(name)
+            return self.reviewer(cfg, name, *args, **kwargs)
+
+        def execv(_python, argv):
+            run._PICKUP_START = "bbb2222"        # what the resumed process starts on
+            raise SystemExit(run.resume_run(argv[4:]))
+
+        with record.record(self.run_dir) as current:
+            current["launch_opts"] = {"--review": "opus", "--review-pr": URL}
+        self.verdicts = ["FAIL", "PASS"]
+        self.addCleanup(setattr, run, "_PICKUP_START", run._PICKUP_START)
+        run._PICKUP_START = "aaa1111"
+        with patch.object(run, "installed_head", return_value="bbb2222"), \
+                patch.object(run, "ready_order", return_value=["astra", "opus"]), \
+                patch.object(run.os, "execv", side_effect=execv), \
+                patch.object(run, "drive", side_effect=lambda *a, job, **k: job()), \
+                patch.object(run.box, "check"), \
+                patch.object(worker, "call", side_effect=submitting(review)), \
+                self.assertRaises(SystemExit):
+            run.review_pr(self.cfg, self.run_dir, URL, {"--review": told, "--review-pr": URL},
+                          lambda _: None)
+        self.assertTrue(record.read_state(self.run_dir)["merged"])
+        return reviewers
+
+    def test_the_reviewer_its_process_was_told_reviews_on_after_the_move(self):
+        self.assertEqual(self.moved_reviews("opus"), ["opus", "opus"])
+
+    def test_a_resumed_review_that_was_told_no_reviewer_still_picks_after_the_move(self):
+        # a crash resume drops the launch's --review; the move keeps that, not the launch's
+        self.assertEqual(self.moved_reviews(None), ["astra", "astra"])
+
     def test_three_fails_end_with_the_last_findings(self):
         state = self.review(["FAIL", "FAIL", "FAIL"])
         self.assertEqual(state["state"], "fail")
