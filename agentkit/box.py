@@ -27,8 +27,6 @@ PROCESSES = "box-processes.json"
 # The supervisor runs from the text this module was loaded from: the file on disk can change
 # under a running launcher, when a probe checks out another revision of ak's own checkout.
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
-# How every box starts: a turn's, and the one each question to Git is asked in.
-BWRAP = ("bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent", "--new-session")
 
 
 def _links(root):
@@ -60,37 +58,14 @@ def _links(root):
     return found
 
 
-def _masks(places):
-    """Bubblewrap's options that show each place as empty."""
-    # Mount the real target too: a sandbox HOME often links the account's login.
-    targets = set()
-    for path in places:
-        try:
-            targets.add(path.resolve(strict=True))
-        except PermissionError:
-            raise
-        except (OSError, RuntimeError):
-            # Missing, looping or under a file: nothing to hide there.
-            continue
-    folders = {path for path in targets if path.is_dir()}
-    masks = []
-    for path in sorted(targets):
-        # Inside a hidden folder it is gone already, and no mount point can be made there.
-        if any(parent in folders for parent in path.parents):
-            continue
-        masks.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
-                     ["--dev-bind", "/dev/null", str(path)])
-    return masks
+def _git(args, env, cwd, **kwargs):
+    """Ask ak's own Git: the one found from where ak runs, which its loop commits and pushes with.
 
-
-def _git(args, env, cwd, masks, **kwargs):
-    """Ask Git from behind the masks, where it can write nothing.
-
-    The `git` first on the command's PATH may be the project's own, and a store Git has yet
-    to name is still readable while it answers."""
-    return subprocess.run([*BWRAP, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", *masks,
-                           "--", "git", *args],
-                          cwd=cwd, env={**env, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"},
+    Its answers decide what a box hides and what it opens for writing, and the command's PATH
+    and directory may name the project's own `git`."""
+    # Absolute, or a find relative to where ak runs would be looked up again in `cwd`.
+    return subprocess.run([os.path.abspath(shutil.which("git") or "git"), *args], cwd=cwd,
+                          env={**env, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"},
                           capture_output=True, text=True, timeout=10, **kwargs)
 
 
@@ -123,8 +98,7 @@ def _credentials(env, cwd, agent=None):
         places.add(Path(os.getcwd(), agent))
     # A named credential store is just as readable as the default one. Ask Git so
     # includes and repository-local settings use its own precedence and quoting.
-    result = _git(["config", "--get-regexp", r"^credential(\..*)?\.helper$"], env, cwd,
-                  _masks(places))
+    result = _git(["config", "--get-regexp", r"^credential(\..*)?\.helper$"], env, cwd)
     for line in result.stdout.splitlines():
         try:
             helper = line.split(None, 1)[1]
@@ -161,7 +135,7 @@ def _paths(names, env, cwd):
         yield path if path.is_absolute() else Path(cwd or os.getcwd()) / path
 
 
-def _walls(cmd, clean, cwd, out_dir, state, places, logins, masks):
+def _walls(cmd, clean, cwd, out_dir, state, places, logins):
     """Make all but the turn's own places read-only; return where its scratch mounts go."""
     cmd.extend(["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"])
     # A read-only bind disables devices too. Restore the nodes, leaving their
@@ -204,7 +178,7 @@ def _walls(cmd, clean, cwd, out_dir, state, places, logins, masks):
             git_env = {key: value for key, value in clean.items()
                        if key not in ("GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE")}
             result = _git(["rev-parse", "--absolute-git-dir", "--git-common-dir"], git_env,
-                          workspace, masks, check=True)
+                          workspace, check=True)
             writable.update((workspace / path).resolve() for path in result.stdout.splitlines())
     if out_dir is not None:
         writable.add(Path(out_dir).resolve())
@@ -226,8 +200,23 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     suite, which writes where that project says, like a log in /tmp.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
+    cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
+           "--new-session"]
+    if walls:
+        at = _walls(cmd, clean, cwd, out_dir, state, places, logins)
+    else:
+        cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
+    # Mount the real target too: a sandbox HOME often links the account's login.
+    targets = set()
     try:
-        masks = _masks(_credentials(clean, cwd, env.get("SSH_AUTH_SOCK")))
+        for path in _credentials(clean, cwd, env.get("SSH_AUTH_SOCK")):
+            try:
+                targets.add(path.resolve(strict=True))
+            except PermissionError:
+                raise
+            except (OSError, RuntimeError):
+                # Missing, looping or under a file: nothing to hide there.
+                continue
     except PermissionError as exc:
         # The command could open a closed directory it owns, so what it holds stays unknown.
         from . import config
@@ -236,12 +225,13 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                       if path == real or not os.access(path, os.R_OK | os.X_OK))
         raise config.Error(f"{closed} is closed to you, so the worker box cannot see what it must "
                            f"hide there; run `chmod u+rx {shlex.quote(str(closed))}`") from None
-    cmd = [*BWRAP]
-    if walls:
-        at = _walls(cmd, clean, cwd, out_dir, state, places, logins, masks)
-    else:
-        cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
-    cmd.extend(masks)
+    folders = {path for path in targets if path.is_dir()}
+    for path in sorted(targets):
+        # Inside a hidden folder it is gone already, and no mount point can be made there.
+        if any(parent in folders for parent in path.parents):
+            continue
+        cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
+                   ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
         yield [*cmd, "--", *argv], clean, {}
         return
