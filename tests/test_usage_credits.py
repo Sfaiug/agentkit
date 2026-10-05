@@ -243,6 +243,7 @@ class Picks(unittest.TestCase):
             out, spots, clock = io.StringIO(), {}, Clock()
             out.isatty = lambda: True
             with patch("sys.stdout", out), patch.object(terminal, "_POINTER", pointer), \
+                    patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}), \
                     patch.object(terminal, "colour_depth", return_value=24), \
                     patch.object(terminal, "width", lambda *args: 100), \
                     patch.object(terminal, "height", lambda *args: 40):
