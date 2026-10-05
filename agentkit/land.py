@@ -71,7 +71,7 @@ def line(turn):
         if (isinstance(wait, dict) and not state.get("merged")
                 and (state.get("state") == "waiting"
                      or (green_delivery(wait)
-                         and state.get("state") not in run.ENDED
+                         and state.get("state") not in record.ENDED
                          and run.followup_open(state)
                          and (record.process_active(state) or run.tick_resumes(state))))
                 and wait.get("line") == turn.name
@@ -264,7 +264,7 @@ def check_line(turn, log=lambda _: None):
                             same = (current and review.get("verdict") == "PASS"
                                     and run.passed_review_head(current) == run.passed_review_head(saved)
                                     and ((current.get("waiting_on") == saved["waiting_on"]
-                                          and current.get("state") not in run.ENDED
+                                          and current.get("state") not in record.ENDED
                                           and (current.get("state") == "waiting"
                                                or (run.followup_open(current)
                                                    and (record.process_active(current) or run.tick_resumes(current))))

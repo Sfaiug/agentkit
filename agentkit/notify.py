@@ -42,6 +42,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from . import command_help, config, retention
+from . import record as run_record
 
 FILE_CAP = 8 * 1024 * 1024
 UA = "agentkit/1 (+https://github.com)"
@@ -826,7 +827,7 @@ def failed_declaration(notice, mine, index=None):
     from . import run as run_mod    # here, not at the top: the loop imports this module
     stamp = notice.get("time", 0)
     return [directory.name for directory, state in mine
-            if state.get("state") in ("fail", "error", "blocked")
+            if state.get("state") in run_record.FAILED
             and (directory.name in notice.get("runs", []) or
                  (isinstance(state.get("finished_at"), (int, float))
                   and state["finished_at"] >= stamp))

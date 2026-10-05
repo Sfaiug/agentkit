@@ -43,9 +43,10 @@
   worktree, keyed by its tree, and wakes parked members to land; only a red member
   leaves to fix itself or hand the failure to its PR's seat. Record changes and the tick
   start fresh passes in the runs slice. Run consumes verdicts and rejoins after fixes or a changed target.
-- `record.py`: run.json, stop-safe writes, recovery locks, defaults, folders, writer id.
-  `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
-  `writing`. For run, gate, job, menu, orch, watch, gc, retention, history and worker.
+- `record.py`: run.json, stop-safe writes, recovery locks, defaults, folders, writer id,
+  and the state words' groups (`ACTIVE`, `FAILED`, `ENDED`, `GOING`). `read_state`,
+  `save_state`, `record`, `stop_check`, `process_active`, `writing`. For run, gate, job,
+  menu, orch, watch, gc, retention, history and worker.
 - `gc.py`: plans/schedules cleanup of seats, stamps, temps, worktrees, runs and jobs.
   Harness `tmp_rule` owns temps and live sessions; retention deletes.
   `cmd_gc` for bin/ak, run, menu, watch and retention.

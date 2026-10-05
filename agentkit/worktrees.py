@@ -42,7 +42,7 @@ def pid_gone(state):
 
 def provably_final(state):
     """A run whose state is final and whose loop is gone. Nothing here is still using the tree."""
-    return isinstance(state, dict) and state.get("state") in run.ENDED and pid_gone(state)
+    return isinstance(state, dict) and state.get("state") in run_record.ENDED and pid_gone(state)
 
 
 def disposable_workspace(directory, state):
@@ -124,7 +124,7 @@ def _drop_told(state, log, run_dir=None):
     if state.get("merged") or state.get("state") == "not_needed":
         drop_checkout(state, log, keep_branch=False)
         return
-    if state.get("state") in ("fail", "error", "blocked", "stopped"):
+    if state.get("state") in (*run_record.FAILED, "stopped"):
         if resume_holds_tree(state, run_dir) or state.get("checkout_kept"):
             return
         drop_checkout(state, log)
