@@ -47,6 +47,7 @@ class RulesCapTold(unittest.TestCase):
         self.path = self.repo / "AGENTS.md"
         self.logs, self.prompts = [], []
         self.review_failures = 0
+        self.review_extra = ""
         for module, name, value in (
                 (gc, "disk_pressure", False), (run, "launch_session", None),
                 (run, "collect_usage", {}), (run, "pick_models", ("opus", "astra")),
@@ -72,7 +73,7 @@ class RulesCapTold(unittest.TestCase):
             verdict = "FAIL" if self.review_failures else "PASS"
             self.review_failures = max(0, self.review_failures - 1)
             finding = "deliverable:1 - acme defect - breaks callers" if verdict == "FAIL" else "none"
-            text = f"VERDICT: {verdict}\n## Findings\n- {finding}\n"
+            text = f"VERDICT: {verdict}\n## Findings\n- {finding}\n{self.review_extra}"
         else:
             text = "## Summary\nAcme work.\n"
         (workspace / "deliverable").write_text("acme\n")
@@ -216,6 +217,46 @@ class RulesCapTold(unittest.TestCase):
         self.commit_rules("x\n" * (LIMIT // 2))
         self.assertEqual(self.git("cat-file", "-s", "HEAD:AGENTS.md"), str(LIMIT))
         self.assertIn(f"AGENTS.md is {LIMIT // 2 * 3} bytes", run.rules_cap(lp))
+
+    def test_a_pr_review_with_no_suite_checks_agents_md_and_says_why(self):
+        # own PRs run no suite in review, nor do others' PRs with no `tests:`; a PASS merges
+        self.commit_rules("Acme rules.\n")
+        self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
+        self.commit_rules("x" * (LIMIT + 1))
+        head = self.git("rev-parse", "HEAD")
+        info = {"state": "OPEN", "headRefOid": head, "baseRefName": "main",
+                "title": "Grow the rules", "author": "fixture", "body": "Fixture PR description"}
+        opts = {"--rounds": None, "--exec": None, "--review": None, "--no-worktree": False,
+                "--no-merge": True}
+        published = []
+
+        def github(run_dir, *args):
+            published.append(Path(args[-1].removeprefix("body=@")).read_text())
+            return 0, ""
+
+        # a long report: its kept tail no longer reaches the top
+        self.review_extra = "## Follow-ups\n- acme.py:1 - " + "acme detail " * 1000 + "\n"
+        for own in (False, True):
+            with self.subTest(own=own), \
+                    patch.object(run, "own_pr_orchestrator", return_value=(own, "opus" if own else None)), \
+                    patch.object(run, "pr_view", return_value=info), \
+                    patch.object(run, "checkout_for", return_value=self.repo), \
+                    patch.object(run, "fetch", return_value=(0, "")), \
+                    patch.object(run, "gh", side_effect=github), \
+                    patch.object(run, "checks", return_value=(True, "")), \
+                    patch.object(run.watch, "ask_inbox", return_value=0), \
+                    patch.object(run, "merge_own_pr", side_effect=AssertionError("merged")), \
+                    patch.object(run, "wait_for_own_pr", return_value=False), \
+                    patch.object(run, "gh_json", return_value=(info, "")):
+                directory = config.RUNS / f"pr-review-{own}"
+                directory.mkdir()
+                state = run.review_pr(self.cfg, directory, "https://github.com/acme/rules/pull/1",
+                                      opts, self.logs.append)
+                why = f"AGENTS.md is {LIMIT + 1} bytes"
+                self.assertEqual(state["verdict"], "FAIL")
+                self.assertIn(why, published[-1])
+                self.assertIn(why, (directory / "result.md").read_text())
+                self.assertIn(why, run.handback_reason(state))
 
     def test_a_read_that_fails_fails_the_check(self):
         # only a deleted file counts as nothing: a smudge filter that fails leaves the size unknown

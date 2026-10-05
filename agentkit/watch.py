@@ -1881,8 +1881,9 @@ def announce_state(session, cfg=None, look=False, **facts):
     written; the bar itself is set every time, because publishing is the whole of it -- a set
     that failed, a seat that was closed and a seat given the same name again all come right on
     the next screen rather than waiting for the word to change.  The bar is the row's own
-    values, written through the one writer; the desktop notice is the card's own, sent where
-    the card is queued, never here.
+    values, written through the one writer, and a changed word reaches every other seat's bar
+    at once, since each counts this one; the desktop notice is the card's own, sent where the
+    card is queued, never here.
 
     All of it happens under `announcing`, and `look` has the seat's screen and hooks read
     there too (`look_at`), so the record and the bar always carry the same word, and it is
@@ -1899,6 +1900,8 @@ def announce_state(session, cfg=None, look=False, **facts):
             seat_write(name, word=answer["word"], reason=answer["reason"],
                        word_since=answer["since"])
         statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
+        if previous.get("word") != answer["word"]:
+            statusbar.retell(session)
     return answer
 
 
@@ -4594,8 +4597,9 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                             f"{wt or '(none)'} is gone; leaving it for an explicit resume")
                     continue
                 saved = state.get("executor")
-                # a PR review runs no executor: its reviewer is all it waits for
-                if transport or state.get("review_pr"):
+                # a PR review runs no executor, and a run whose review is pending has its
+                # executor's work done: its reviewer is all either waits for
+                if transport or state.get("review_pr") or state.get("review_pending"):
                     if (transport and isinstance(last, (int, float)) and not isinstance(last, bool)
                             and 0 <= now - last < run_mod.ERROR_RETRY_CAP):
                         continue  # re-resumed within the hour: a dead reviewer gets an
@@ -5824,6 +5828,135 @@ def doctor(argv):
     return 0
 
 
+# What a pass of the tick may raise and leave the rest of the tick to run: the pass says so in
+# one WARN line, and the next pass starts as if nothing had happened.
+PASS_ERRORS = (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError)
+
+
+def offer_endings(log):
+    """Detect lost loops even when no phone opens the menu and GitHub is unavailable."""
+    from . import run
+    for run_dir in run_record.run_dirs():
+        try:
+            receipt = run_record.read_state(run_dir)
+            if receipt:
+                receipt = run.reap(run_dir, receipt)
+                if receipt.get("state") in run.ENDED:
+                    # Every ending nobody has heard is offered again here, not only one a flag
+                    # was left on: a hand-back the run could not type goes in at the next quiet
+                    # prompt, and so does the ending of an attempt that was reaped without one.
+                    # `announce` decides again which path it is, so a seat that died since gets
+                    # the orphan one.
+                    if run.owes_ending(receipt):
+                        run.announce(receipt, run_dir, log)
+                    # A question the seat never took is typed again before the user hears it;
+                    # one it took whose ping failed is only pinged, and so is one kept before
+                    # `asked` was, whose typing nobody knows the end of.
+                    question = receipt.get("pending_inbox")
+                    if question and ask_inbox(
+                            config.load(), question["question"], question["url"],
+                            question["sha"], log, asked=question.get("asked", True),
+                            typed=lambda: run.mark_delivery(
+                                run_dir, receipt, pending_inbox={**question, "asked": True})
+                            ) == 0:
+                        # struck off the record as it stands, never off this copy of it: the
+                        # run's own loop can have handed the ending back while the question was
+                        # going out, and a whole save from here would put that back to
+                        # undelivered and say it a second time
+                        run.mark_delivery(run_dir, receipt, pending_inbox=None)
+        except PASS_ERRORS as exc:
+            log(f"WARN cannot check run {run_dir.name}: {exc}")
+
+
+def local_passes(state, dry_run, log):
+    """The tick's passes that owe GitHub nothing, in the order they run.
+
+    Each is (what its WARN line says when it raises, the pass, whether a dry run runs it too).
+    A dry run runs only the passes it can tell `dry_run`, and reads usage off the cache as it
+    stands: reading that file probes nothing, and a dry run changes nothing.
+    """
+    from . import job as jobs, run, tell
+    providers = {}
+
+    def read_usage():
+        # Of the snapshot, not of the adapters: a provider is asked at most once per
+        # usage.PROBE_EVERY, a minute, so with no menu open this tick is what keeps the
+        # readings current. Muse's adapter keeps its paid probe on its own longer interval,
+        # and this read never spends a reset. The read itself is handed on, never a copy:
+        # a `usage.Readings` is what tells `readiness` to check each harness can run.
+        nonlocal providers
+        providers = (run._cached_providers() if dry_run
+                     else usage.collect(config.load(), refresh=True))
+
+    return (
+        ("the notification retry did not run",
+         lambda: notify.retry_pending(dry_run=dry_run, log=log), True),
+        ("the boot resume pass did not run",
+         lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
+        ("the mid-turn continue pass did not run",
+         lambda: continue_turns(config.load(), log), False),
+        # the seats first, and never behind GitHub: a stalled seat is the one thing on this tick
+        # that nothing else will ever get to, and a gh that is down is no reason to leave it stuck
+        ("the session health pass did not run",
+         lambda: health(config.load(), state, dry_run, log), True),
+        ("the mid-turn continue pass did not run",
+         lambda: continue_turns(config.load(), log, accounts=True), False),
+        # A dead loop is resumed before the stall ladder and before reap, so the same tick
+        # continues it and reap does not turn it into an interruption ...
+        ("the dead-loop pass did not run",
+         lambda: resume_dead_loops(config.load(), dry_run, log), True),
+        # ... and a job whose launcher died is relaunched, so its waiting tasks start too.
+        ("the dead-job pass did not run", lambda: resume_dead_jobs(dry_run, log), True),
+        # Silent runs are recovered from outside the loop, whatever it is doing: nothing new
+        # has to be started.
+        ("the stall pass did not run", lambda: recover_runs(config.load(), dry_run, log), True),
+        ("the tick's watch.json was not saved", lambda: save_state(state), False),
+        ("the usage refresh did not finish", read_usage, True),
+        # An exhausted run waits for a provider window and resumes itself when one refills, on
+        # the usage just read; a run parked on an expired login, the moment that harness's
+        # `auth` verb passes again; a run in error, on the loop's transient ladder, hourly at
+        # most; one waiting on a rebase conflict, after the next merge to main. All silently,
+        # never waiting on the run.
+        ("the exhausted-resume pass did not run",
+         lambda: resume_exhausted(config.load(), providers, dry_run=dry_run, log=log), True),
+        ("the login-resume pass did not run",
+         lambda: resume_waiting_login(dry_run=dry_run, log=log), True),
+        ("the error-retry pass did not run", lambda: resume_errored(dry_run=dry_run, log=log), True),
+        ("the waiting-resume pass did not run",
+         lambda: resume_waiting(dry_run=dry_run, log=log), True),
+        # History is never replayed: endings older than an hour are marked here, in one line
+        # with the count, before any of them is offered again.
+        ("the pre-existing sweep did not run", lambda: sweep_preexisting(log), False),
+        ("the ending pass did not run", lambda: offer_endings(log), False),
+        # A job that finished while its seat was mid-turn hands its line back at the next quiet
+        # prompt, the way one of its runs does; a seat whose `ak wait` names a session that has
+        # stopped is told so, which ends the wait; and what another seat sent one with `ak tell`
+        # is typed into it, oldest first.
+        ("a finished job was not handed back", lambda: jobs.deliver_job_handbacks(log), False),
+        ("the wait pass did not run", lambda: tell_waits(config.load(), log), False),
+        ("the message pass did not run", lambda: tell.deliver(config.load(), log), False),
+        # Cards are derived from every session's current three-state word, including seats
+        # whose panes were not available to the health pass.
+        ("the card transition pass did not run", lambda: notify.tick_cards(log=log), False),
+        # A seat that died under its running runs comes back, after its endings were announced
+        # to it.
+        ("the seat revival pass did not run", lambda: revive_seats(config.load(), log), False),
+        # Expensive collection runs detached; malformed retention metadata cannot stop a tick.
+        ("retention pass did not finish", lambda: gc.schedule_gc(log), False),
+        ("retention pass did not finish", orch.stamp, False),
+        ("retention pass did not finish", lambda: orch.sweep(log), False),
+        # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
+        # refused connection and nothing else.
+        ("browser tidy did not finish", lambda: browser.tidy(log), False),
+        # Merged agentkit goes live after every local pass, so as little of this tick's old
+        # code as can be is left to run over new files; GitHub imports nothing new.
+        ("agentkit did not go live", lambda: update.go_live(log), False),
+        # ... and then every harness: a newer release is upgraded by a child started on that
+        # new code, gated and put back where a gate fails, and no tick waits on it.
+        ("the harness upgrade pass did not run", lambda: update.keep_current(log), False),
+    )
+
+
 def main(argv):
     if command_help.show("watch", argv):
         return 0
@@ -5850,193 +5983,13 @@ def main(argv):
     # one reading of the process table for the whole tick: every seat it looks at is told
     # from a watcher loop by the same `ps`
     with held if held is not None else nullcontext(), orch.one_reading():
-        notify.retry_pending(dry_run=dry_run, log=log)
-        resume_after_boot(config.load(), dry_run=dry_run, log=log)
-        if not dry_run:
-            try:
-                continue_turns(config.load(), log)
-            except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-                log(f"WARN the mid-turn continue pass did not run: {exc}")
         state = load_state()
-        # the seats first, and never behind GitHub: a stalled seat is the one thing on this tick
-        # that nothing else will ever get to, and a gh that is down is no reason to leave it stuck
-        try:
-            health(config.load(), state, dry_run, log)
-        except (config.Error, OSError) as exc:
-            log(f"WARN the session health pass did not run: {exc}")
-        if not dry_run:
-            try:
-                continue_turns(config.load(), log, accounts=True)
-            except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-                log(f"WARN the mid-turn continue pass did not run: {exc}")
-        # A dead loop is resumed before the stall ladder and before reap, so the same
-        # tick continues it and reap does not turn it into an interruption.
-        try:
-            resume_dead_loops(config.load(), dry_run, log)
-        except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-            log(f"WARN the dead-loop pass did not run: {exc}")
-        # ... and a job whose launcher died is relaunched, so its waiting tasks start too.
-        try:
-            resume_dead_jobs(dry_run, log)
-        except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-            log(f"WARN the dead-job pass did not run: {exc}")
-        # Silent runs are recovered from outside the loop, whatever it is doing, before GitHub:
-        # a gh that is down is no reason to leave work stuck, and nothing new has to be started.
-        try:
-            recover_runs(config.load(), dry_run, log)
-        except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-            log(f"WARN the stall pass did not run: {exc}")
-        if dry_run:
-            # A dry run names the resumes a real tick would start, off the cache as it
-            # stands: reading that file probes nothing, and a dry run changes nothing.
-            try:
-                from . import run
-                resume_exhausted(config.load(), run._cached_providers(), dry_run=True, log=log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the exhausted-resume pass did not run: {exc}")
-            try:
-                resume_waiting_login(dry_run=True, log=log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the login-resume pass did not run: {exc}")
-            try:
-                resume_errored(dry_run=True, log=log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the error-retry pass did not run: {exc}")
-            try:
-                resume_waiting(dry_run=True, log=log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the waiting-resume pass did not run: {exc}")
-        if not dry_run:
-            save_state(state)
-            # Refresh the menu even with no seats or working GitHub login. Muse's adapter keeps
-            # its paid probe on its own longer interval; this read never spends a reset. The
-            # refresh is of the snapshot and not of the adapters: a provider is asked at most
-            # once per usage.PROBE_EVERY, a minute, so with no menu open this tick is what
-            # keeps the readings current.
-            try:
-                providers = usage.collect(config.load(), refresh=True)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                providers = {}
-                log(f"WARN the usage refresh did not finish: {exc}")
-            # An exhausted run waits for a provider window, and resumes itself when one
-            # refills: silently, on the usage just read, never waiting on the run.
-            try:
-                resume_exhausted(config.load(), providers, log=log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the exhausted-resume pass did not run: {exc}")
-            # ... and a run parked on an expired login resumes itself the same way the moment
-            # that harness's `auth` verb passes again: silently, never waiting on the run.
-            try:
-                resume_waiting_login(log=log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the login-resume pass did not run: {exc}")
-            # ... and a run in error retries itself on the loop's transient ladder, hourly
-            # at most and silently, while a run parked waiting on a rebase conflict
-            # resumes itself after the next merge to main.
-            try:
-                resume_errored(log=log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the error-retry pass did not run: {exc}")
-            try:
-                resume_waiting(log=log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the waiting-resume pass did not run: {exc}")
-            # History is never replayed: endings older than an hour are marked here, in
-            # one line with the count, before any of them is offered again.
-            try:
-                sweep_preexisting(log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the pre-existing sweep did not run: {exc}")
-            # Detect lost loops even when no phone opens the menu and GitHub is unavailable.
-            from . import job as jobs, run
-            for run_dir in run_record.run_dirs():
+        for what, step, also_dry in local_passes(state, dry_run, log):
+            if also_dry or not dry_run:
                 try:
-                    receipt = run_record.read_state(run_dir)
-                    if receipt:
-                        receipt = run.reap(run_dir, receipt)
-                        if receipt.get("state") in run.ENDED:
-                            # Every ending nobody has heard is offered again here, not only
-                            # one a flag was left on: a hand-back the run could not type goes
-                            # in at the next quiet prompt, and so does the ending of an
-                            # attempt that was reaped without one.  `announce` decides again
-                            # which path it is, so a seat that died since gets the orphan one.
-                            if run.owes_ending(receipt):
-                                run.announce(receipt, run_dir, log)
-                            # A question the seat never took is typed again before the user
-                            # hears it; one it took whose ping failed is only pinged, and so is
-                            # one kept before `asked` was, whose typing nobody knows the end of.
-                            question = receipt.get("pending_inbox")
-                            if question and ask_inbox(
-                                    config.load(), question["question"], question["url"],
-                                    question["sha"], log, asked=question.get("asked", True),
-                                    typed=lambda: run.mark_delivery(
-                                        run_dir, receipt, pending_inbox={**question, "asked": True})
-                                    ) == 0:
-                                # struck off the record as it stands, never off this copy of
-                                # it: the run's own loop can have handed the ending back while
-                                # the question was going out, and a whole save from here would
-                                # put that back to undelivered and say it a second time
-                                run.mark_delivery(run_dir, receipt, pending_inbox=None)
-                except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                    log(f"WARN cannot check run {run_dir.name}: {exc}")
-            # A job that finished while its seat was mid-turn hands its line back at the next
-            # quiet prompt, the way one of its runs does.
-            try:
-                jobs.deliver_job_handbacks(log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN a finished job was not handed back: {exc}")
-            # ... and a seat whose `ak wait` names a session that has stopped is told so, at
-            # its next quiet prompt, which ends the wait.
-            try:
-                tell_waits(config.load(), log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the wait pass did not run: {exc}")
-            # ... and what another seat sent one with `ak tell` is typed into it, at its next
-            # quiet prompt, oldest first.
-            try:
-                from . import tell
-                tell.deliver(config.load(), log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the message pass did not run: {exc}")
-            # Cards are derived from every session's current three-state word, including
-            # seats whose panes were not available to the health pass.
-            try:
-                notify.tick_cards(log=log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the card transition pass did not run: {exc}")
-            # A seat that died under its running runs comes back, after its endings were announced
-            # to it: not in a dry run, where the listing may not normalize records.
-            try:
-                revive_seats(config.load(), log)
-            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                log(f"WARN the seat revival pass did not run: {exc}")
-            # Local maintenance is independent of GitHub, after notification retry and health.
-            # Expensive collection runs detached; malformed retention metadata cannot stop a tick.
-            for action in (gc.schedule_gc, lambda log: orch.stamp(), orch.sweep):
-                try:
-                    action(log)
-                except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
-                    log(f"WARN retention pass did not finish: {exc}")
-        # The shared browser's idle tabs are reaped once per tick, after the health pass and
-        # never in --dry-run.  Before GitHub, because it owes GitHub nothing: a machine with no
-        # browser on CDP costs one refused connection and nothing else.
-        if not dry_run:
-            try:
-                browser.tidy(log)
-            except (config.Error, OSError, ValueError) as exc:
-                log(f"WARN browser tidy did not finish: {exc}")
-            # Merged agentkit goes live after every local pass, so as little of this tick's old
-            # code as can be is left to run over new files; GitHub imports nothing new.
-            try:
-                update.go_live(log)
-            except (config.Error, OSError, ValueError) as exc:
-                log(f"WARN agentkit did not go live: {exc}")
-            # ... and then every harness: a newer release is upgraded by a child started on that
-            # new code, gated and put back where a gate fails, and no tick waits on it.
-            try:
-                update.keep_current(log)
-            except (config.Error, OSError, ValueError, TypeError) as exc:
-                log(f"WARN the harness upgrade pass did not run: {exc}")
+                    step()
+                except PASS_ERRORS as exc:
+                    log(f"WARN {what}: {exc}")
         user, why = gh_json(config.RUNS, "api", "user")
         me = user.get("login") if isinstance(user, dict) else None
         if not isinstance(me, str) or not me:

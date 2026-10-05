@@ -938,7 +938,8 @@ class RanDry(Exception):
         self.name, self.mark, self.code, self.text = name, mark, code, text
         self.session, self.until = session, until
         self.message, self.quota = message, quota
-        self.why = "ran dry" if quota else "refused"
+        # and what a role parks with when no one else can take it: a window waits for its refill
+        self.why, self.ending = ("ran dry", QuotaDry) if quota else ("refused", Exhausted)
         self.detail = f"refused: {message}"
 
     def remember(self, state):
@@ -2955,6 +2956,17 @@ def record_findings(lp, out, text, submitted=None):
     lp.state["review_records"] = submitted.records
 
 
+def overridden_section(state):
+    """Why the loop failed what the reviewer passed, to lead wherever that review is shown.
+
+    It lives in the round's review record, never in the reviewer's text, whose kept tail
+    a long report would push it out of.
+    """
+    review = state.get("review")
+    why = review.get("overridden") if isinstance(review, dict) else None
+    return f"## Overridden to FAIL\n{why}\n\n" if why else ""
+
+
 def saved_findings(run_dir, state):
     """The last reviewer's whole text, for the fixer that has to work through it.
 
@@ -3094,7 +3106,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             return None
         cfg = report_config(cfg)
         record = config.session_records().get(config.resolve_session(session), {})
-        if record.get("solo") or record.get("workers") == []:
+        if record.get("workers") == []:
             return None
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
@@ -3618,7 +3630,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # The round is read off `dir`, which is what free_dir writes through.
     rd = lp.dir("reviewer").parent
     name = open_review(rd)[0] or "reviewer"
-    def fall_back(reason, out, allow_self=True):
+    def fall_back(reason, out, allow_self=True, ending=Exhausted):
         """The path a dry, twice-silent or twice-transient reviewer takes: next spare, else Exhausted."""
         # Recheck at the point of fallback, including spares from saved/legacy callers, and
         # against the meters as they read now: a spare whose own provider has run dry is none.
@@ -3642,7 +3654,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         else:
             offered = spares
         if not offered:
-            raise Exhausted(f"reviewer {lp.reviewer} {reason} and no eligible reviewer is left "
+            raise ending(f"reviewer {lp.reviewer} {reason} and no eligible reviewer is left "
                             f"to review; waiting for review. See {out}*/stderr.log")
         lp.reviewer, lp.review_sid = offered.pop(0), None
         lp.spares = [n for n in spares if n != lp.reviewer]
@@ -3670,7 +3682,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.review_sid = None
             note = {"at": time.time(), "role": "reviewer", "restarted": True}
             lp.state["resume_notice"] = note
-        why = "died on API/transport errors"
+        why, ending = "died on API/transport errors", Exhausted
         model = lp.reviewer     # a fallback below moves on from it before its tokens are read
         reviewed = config.model(lp.cfg, model)
         review_harness, review_model = reviewed["harness"], reviewed["model"]
@@ -3712,6 +3724,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             # takes the same road out: the spares, checked against the executor and config.
             dry.remember(lp.state)
             code, text, lp.review_sid, dead, why = dry.code, dry.text, dry.session, True, dry.detail
+            ending = dry.ending
         finally:
             history_role_tokens(lp.state.get("run_id"), "reviewer", out, lp.log, lp.cfg, model)
         if code != 0:
@@ -3720,7 +3733,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         if dead:
             record_findings(lp, out, text)
             lp.save()
-            name = fall_back(why, out)
+            name = fall_back(why, out, ending=ending)
             continue
         submitted = review_records(out, text)
         if submitted is not None and submitted.done:
@@ -3802,7 +3815,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.log(f"WARN {overridden}; overriding to FAIL")
     if ok is False and verdict == "PASS":
         verdict = "FAIL"
-        overridden = "the reviewer said PASS while done-when is failing"
+        # the check that failed, by name: the reviewer's text says PASS, and it is what is read
+        checks = [line for line in (dw_log or "").splitlines() if LOOP_NOTE.match(line)]
+        overridden = "; ".join(["the reviewer said PASS while done-when is failing", *checks])
         lp.log(f"WARN {overridden}; overriding to FAIL")
     if checkout_changed or (not lp.scratch and (
             commit_identity(lp.wt) != identity or (not lp.state.get("review_pr") and
@@ -6556,6 +6571,8 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
                   entry["summary"], ""]
     if state.get("error"):
         parts += ["## Why this run stopped", "", state["error"], ""]
+    if state["verdict"] != "PASS" and overridden_section(state):
+        parts += [overridden_section(state)]
     if state["verdict"] != "PASS" and state["findings"]:
         parts += ["## Reviewer findings", "", without_followups(state["findings"]), ""]
     if state.get("notes"):
@@ -8636,11 +8653,9 @@ def cmd_clean(argv):
     if wt == Path(repo):
         print(f"{argv[0]}: ran with --no-worktree; nothing to remove")
         return 0
-    worktrees.run_repo_cleanup(wt, run_dir)
-    code, out = git_out(repo, "worktree", "remove", "--force", str(wt))
-    if code != 0 and wt.exists():
-        raise config.Error(f"could not remove worktree {wt}: {out}")
-    git(repo, "worktree", "prune", check=False)
+    told = []
+    if not worktrees.stop_checkout(state, told.append, keep_branch=True):
+        raise config.Error(f"{argv[0]}: " + "; ".join(line.removeprefix("WARN ") for line in told))
     print(f"{argv[0]}: removed worktree {wt}; branch {state.get('branch', '?')} kept")
     return 0
 
@@ -10174,7 +10189,7 @@ def post_review(lp, url, verdict):
     path = lp.run_dir / "review.md"
     path.write_text(github_body(
         f"agentkit review of {head[:12]} by {lp.reviewer} (run {lp.run_dir.name})\n\n"
-        + lp.findings.strip() + "\n", lp.run_dir.name))
+        + overridden_section(lp.state) + lp.findings.strip() + "\n", lp.run_dir.name))
     how = "COMMENT" if verdict == "PASS" or lp.state.get("own_pr") else "REQUEST_CHANGES"
     owner, repo, number = PR_PARTS.match(url).groups()
     rc, out = gh(lp.run_dir, "api", f"repos/{owner}/{repo}/pulls/{number}/reviews",
@@ -10550,6 +10565,11 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         dw_log = ("(the repository suite runs once at landing; nothing was run in this review round)"
                   if tests else "(AGENTS.md declares no `tests:` command; nothing was run)")
         log(dw_log)
+        # no suite stands in for it, and a PASS on this head is what merges
+        failure = rules_cap(lp)
+        if failure:
+            ok, dw_log = False, f"{dw_log}\n\n{failure}"
+            log(failure)
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
@@ -10950,9 +10970,6 @@ def main(argv):
     # a --bg child carries on the receipt its launch prepared, with the executors it saved
     if not opts["--review-pr"] and not (queued_child and queued(Path(queued_child))):
         selection = config.active_session(cfg)
-        if selection and selection.get("solo"):
-            command = shlex.join(["ak", "orch", "solo", selection["name"], "off"])
-            raise config.Error(f"solo is on for {selection['name']!r}; turn it off with `{command}`.")
         if selection and selection.get("workers") == []:
             raise config.Error(f"{selection['name']} has no executor: build it in the session, "
                                "or add an executor on its models screen.")

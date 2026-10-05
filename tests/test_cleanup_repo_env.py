@@ -69,8 +69,7 @@ class CleanupRepoEnv(unittest.TestCase):
         paths = {
             "stop": lambda wt, run_dir, state: worktrees.stop_checkout(state, lambda message: None),
             "clean": lambda wt, run_dir, state: run.cmd_clean([state["run_id"]]),
-            "sweep": lambda wt, run_dir, state: gc.sweep_checkout(state, wt, lambda *a: None),
-            "gc": lambda wt, run_dir, state: worktrees.run_repo_cleanup(wt, run_dir),
+            "gc": lambda wt, run_dir, state: gc.drop_tree(state, wt, lambda *a: None),
         }
         for name, remove in paths.items():
             with self.subTest(path=name):

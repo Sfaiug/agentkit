@@ -214,7 +214,7 @@ class Wrapping(unittest.TestCase):
                         menu.config_add({}) if kind == "add" else matrix()
 
     def test_relighting_adds_and_clears_wrapped_lines_without_moving_the_rows_above(self):
-        lines = ["agentkit", "a rule", "  a row", "", "  s solo   esc back"]
+        lines = ["agentkit", "a rule", "  a row", "", "  c config   esc back"]
         spots = {3: ("row", []), **terminal.key_spots(lines[-1:], 5)}
         sentence = TIPS["n new"]
         out = io.StringIO()
@@ -234,7 +234,7 @@ class Wrapping(unittest.TestCase):
             self.assertNotIn("…", "\n".join(wrapped))
             terminal._POINTER = terminal.Key("point", "", 3, 5)
             terminal.relight()
-            self.assertEqual(explanation(played(out.getvalue()), 5), TIPS["s solo"])
+            self.assertEqual(explanation(played(out.getvalue()), 5), TIPS["c config"])
             terminal._POINTER = None
             terminal.relight()
             self.assertEqual([line for line in texts(played(out.getvalue())) if line],
@@ -302,7 +302,7 @@ class MainMenu(unittest.TestCase):
         child = menu_child(self)
         lines = child.frame()
         keys = lines[-1]
-        self.assertEqual(keys, "  ↑↓ move   ⏎ open   n new   x stop   c config   s solo   esc leave")
+        self.assertEqual(keys, "  ↑↓ move   ⏎ open   n new   x stop   c config   esc leave")
         seat = next(row for row, line in enumerate(lines, 1) if "fix-api" in line)
         heading = lines.index("acme") + 1
         usage = next(row for row, line in enumerate(lines, 1) if line.startswith("  Claude"))
@@ -314,7 +314,6 @@ class MainMenu(unittest.TestCase):
             ((3, heading), "  " + TIPS["project"].format(name="acme")),
             ((keys.index("n new") + 1, len(lines)), "  " + TIPS["n new"]),
             ((keys.index("c config") + 3, len(lines)), "  " + TIPS["c config"]),
-            ((keys.index("s solo") + 1, len(lines)), "  " + TIPS["s solo"]),
             ((keys.index("↑↓ move") + 1, len(lines)), "  " + TIPS["↑↓ move"]),
             ((5, usage), USAGE),
             ((5, unread), "  " + TIPS["unread"].format(name="MiMo", why="no reading yet"))]
@@ -327,7 +326,7 @@ class MainMenu(unittest.TestCase):
         first = played(child.text())
         explains(self, child, [(at(first, item), "  " + TIPS[item]) for item in
                                ("n start a session", "r rename this session",
-                                "x stop this session", "s solo")], keys_of(first))
+                                "x stop this session")], keys_of(first))
         child.leave()
 
     def test_a_usage_row_glints_then_ticks_at_the_pace_share_until_the_pointer_leaves(self):

@@ -138,7 +138,7 @@ RULES = [
      "flags": (),
      "pattern": r"run_repo_cleanup\(",
      "home": ("agentkit/worktrees.py",),
-     "max": 4},
+     "max": 0},
 ]
 
 

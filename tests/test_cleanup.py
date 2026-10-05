@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 import unittest
@@ -232,6 +233,35 @@ class Cleanup(Sandbox):
         worktrees.drop_checkout(current, lambda _message: None)
         self.assertEqual((owned / "keep").read_text(), "owner\n")
 
+    def test_clean_leaves_a_live_or_owned_checkout_and_says_why(self):
+        # `ak run clean` takes the same guarded way out as a stop: never a tree under a
+        # loop that may still be going, never anything under ~/code
+        directory, wt, _ = self.receipt("going", state="running", pid="scheduler")
+        with self.assertRaisesRegex(config.Error, "the run is still going"):
+            run.cmd_clean(["going"])
+        self.assertTrue(wt.is_dir())
+        owned = config.CODE / "proj"
+        owned.mkdir(parents=True)
+        (owned / "keep").write_text("owner\n")
+        directory, _, _ = self.receipt("owned", state="stopped")
+        state = run_record.read_state(directory)
+        state["worktree"] = str(owned)
+        run_record.save_state(directory, state)
+        with self.assertRaisesRegex(config.Error, "under"):
+            run.cmd_clean(["owned"])
+        self.assertEqual((owned / "keep").read_text(), "owner\n")
+
+    def test_a_checkout_git_no_longer_lists_still_goes(self):
+        # its registration pruned, or its repo cloned afresh: the tree is the run's own
+        # under ~/.agentkit/wt, so it goes as a directory, and nothing is reported left
+        directory, wt, branch = self.receipt("unlisted", state="stopped")
+        shutil.rmtree(self.repo / ".git" / "worktrees" / "unlisted")
+        told = []
+        self.assertTrue(worktrees.stop_checkout(run_record.read_state(directory), told.append))
+        self.assertFalse(wt.exists())
+        self.assertFalse(self.branch_exists(branch))
+        self.assertEqual(told, [])
+
     def test_repo_under_code_still_loses_worktree_and_branch(self):
         # Every real repo lives under ~/code; only the worktree being deleted
         # is guarded, never the repo git runs in.
@@ -337,6 +367,20 @@ class Cleanup(Sandbox):
         self.assertIn(f"kept; relaunch with from: {branch}", out.getvalue())
         self.assertTrue(wt.is_dir())
         self.assertTrue(self.branch_exists(branch))
+        self.assertTrue(run_record.read_state(directory)["stop_kept"])
+
+    def test_a_branch_git_keeps_is_reported_kept(self):
+        # a branch another checkout holds outlives `git branch -D`: the stop says kept and
+        # names the relaunch line, and the record agrees, so a later stop tries again
+        directory, wt, branch = self.receipt("held", state="running")
+        self.git(self.repo, "worktree", "add", "-q", str(self.root / "holder"), branch,
+                 "--force")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(run.cmd_stop(["held"]), 0)
+        self.assertFalse(wt.exists())
+        self.assertTrue(self.branch_exists(branch))
+        self.assertIn(f"kept; relaunch with from: {branch}", out.getvalue())
         self.assertTrue(run_record.read_state(directory)["stop_kept"])
 
     def test_changed_files_survive_the_removed_checkout(self):

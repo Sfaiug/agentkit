@@ -16,7 +16,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import menu, orch, statusbar
+from agentkit import menu, orch, statusbar, watch
 
 SAID = "## heading, a ## b, ### c, 50% at %H, #{session_name} and #[bold] end #"
 
@@ -82,6 +82,21 @@ class AsWritten(Sandbox):
             time.sleep(.1)
         self.assertEqual(title, "fix-%H · working")
 
+    def test_d_line_one_s_end_names_seats_and_no_session_made_by_hand(self):
+        # sessions made by hand under names no seat can have -- tmux reads the name it is given as
+        # a format, and keeps these -- are no seats: never named, never counted, so no cell of
+        # theirs can stand where tmux draws another's; the seat beside them is named as it is
+        for name in ("## web #{session_name} 50% %H", "z-\U0001F468\u200d\U0001F469-0",
+                     "web_2-api"):
+            self.assertEqual(orch.tmux_out("new-session", "-d", "-s", orch.tmux_text(name),
+                                           "sleep 600")[0], 0)
+            watch.seat_write(name, word="needs you", reason="", word_since=None)
+        statusbar._write("fix-api", "fable", "working", "", self.cfg)
+        said = "! web_2-api needs you"
+        line = self.screen(said)[0].rstrip()
+        self.assertTrue(line.endswith(said), line)
+        self.assertNotIn("##", line)
+        self.assertNotIn("z-", line)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
