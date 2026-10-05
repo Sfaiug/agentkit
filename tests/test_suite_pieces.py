@@ -40,6 +40,9 @@ class SuitePieces(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AK_HOST_READINGS": json.dumps(ROOM),
+            # the line's checker runs this at the top CPU weight, where a turn samples the real
+            # slice beside the injected readings: in no cgroup it samples none
+            "AK_CGROUP_FILE": str(self.root / "no-cgroup"),
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
         config.ensure_dirs()
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
