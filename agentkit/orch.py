@@ -1368,11 +1368,11 @@ def checkouts():
     found = ([path for path in config.CODE.iterdir() if path.is_dir() and (path / ".git").exists()]
              if config.CODE.is_dir() else [])
     own = update.agentkit_dir()
-    if (own / ".git").exists() and all(path.resolve() != own.resolve() for path in found):
-        found = [path for path in found if path.name != own.name] + [own]
-    mains = {path.resolve() for path in found}
+    mains = {path.resolve() for path in (*found, own)}
     found = [path for path in found
              if not ((added := added_from(path)) and added.resolve() in mains)]
+    if (own / ".git").exists() and all(path.resolve() != own.resolve() for path in found):
+        found = [path for path in found if path.name != own.name] + [own]
     return sorted(found, key=lambda path: path.name)
 
 
@@ -1409,14 +1409,19 @@ def checkout_of(repo):
         return None
     found = checkouts()
     for candidate in (path, added_from(path)):
-        for checkout in found if candidate else ():
+        if candidate is None:
+            continue
+        candidate = candidate.resolve()
+        for checkout in found:
             try:
-                if checkout.resolve() == candidate.resolve():
+                if checkout.resolve() == candidate:
                     return checkout
             except OSError:
                 continue
-    if path.parent == config.CODE.resolve():
-        return next((checkout for checkout in found if checkout.name == path.name), None)
+        if candidate.parent == config.CODE.resolve():
+            named = next((checkout for checkout in found if checkout.name == candidate.name), None)
+            if named:
+                return named
     return None
 
 

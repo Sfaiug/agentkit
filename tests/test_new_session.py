@@ -218,6 +218,15 @@ class NewSession(Sandbox):
         self.assertEqual(orch.cwd_project(linked / "app"), main)
         self.assertEqual(run.checkout_for("me/acme", print), main)
 
+    def test_a_worktree_of_a_second_agentkit_clone_is_agentkit(self):
+        own = self.checkout("agentkit", Path.home())
+        clone = self.checkout("agentkit")
+        linked = config.CODE / ".agentkit-fix"
+        subprocess.run(["git", "-C", str(clone), "worktree", "add", "-q", "-b", "fix", str(linked)],
+                       check=True)
+        self.assertNotIn(linked, orch.checkouts())
+        self.assertEqual(orch.checkout_of(str(linked)), own)
+
     def test_scratch_run_keeps_session_projectless(self):
         config.save_session(self.cfg, "seat", "fable", ["opus"], {"cwd": str(config.CODE), "repo": None})
         before = config.session_path("seat").read_bytes()
