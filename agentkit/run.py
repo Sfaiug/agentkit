@@ -3409,7 +3409,7 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
             progress.flush()
             start = progress.tell()
             try:
-                code, _, killed = worker.limited(
+                code, _, killed = worker.boxed(
                     ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
                     activity=log_path, output=progress, stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)

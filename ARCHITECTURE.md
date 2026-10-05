@@ -74,7 +74,7 @@
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,
   manifests, seat records, rename chain, `SEAT_FILES`, child env. Used by nearly everything.
 - `worker.py`: headless turns, preambles, review, adapters, silence, auth, cleanup.
-  `turn`, `call`, `kill_marked`, `auth_ok`.
+  `turn`, `call`, `boxed` checks, `kill_marked`, `auth_ok`.
   Used by run, gate, watch, usage, menu, harness. Leak: Claude shell timeout.
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye.
 - `box.py`: credential masks, PID teardown. `command`, `check`, `returncode`, `leftovers`;

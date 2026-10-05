@@ -20,9 +20,9 @@ import every_file
 from agentkit import run
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
-# real models, GitHub, Discord, live meters, the host's shared browser
+# Real models, GitHub, Discord, live meters, the shared browser and user systemd.
 OUTSIDE = {"1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d",
-           "31a", "31d", "31e"}
+           "6f", "6g", "31a", "31d", "31e"}
 # a check's verdict, or the labels a helper or a loop gives it: `ok "4b ...`, `skip_spent 4/4b`
 VERDICT = re.compile(r'\b(?:ok|no|skip)\s+"(\d+[a-z]?)[\s:]')
 LABELS = re.compile(r'\b(?:skip_checks|skip_unavailable|skip_spent|skip_refused|CHECKS=)\s*"?'
@@ -79,7 +79,7 @@ class LandingSuiteOffline(unittest.TestCase):
                 blocks[-1].append(number)
             else:
                 blocks.append([number])
-        self.assertEqual(len(blocks), 5)
+        self.assertEqual(len(blocks), 6)
         stub = 'ok() { echo "ran: $*"; }; no() { ok "$@"; }; skip() { ok "$@"; }\n'
         for block in blocks:
             text = "\n".join(lines[block[0]:block[-1] + 1])
@@ -91,6 +91,19 @@ class LandingSuiteOffline(unittest.TestCase):
                     proc = subprocess.run(["bash", "-c", "set -uo pipefail\n" + stub + text],
                                           env=env, capture_output=True, text=True, timeout=30)
                     self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, "", ""))
+
+    def test_real_memory_cap_probe_is_selected_only_in_live_mode(self):
+        import test_memory_cap
+        method = "check_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure"
+        loader = unittest.TestLoader()
+        self.assertNotIn(method, loader.getTestCaseNames(test_memory_cap.MemoryCap))
+        selected = loader.loadTestsFromName(f"MemoryCap.{method}", test_memory_cap)
+        self.assertEqual(selected.countTestCases(), 1)
+        calls = [number for number, line in enumerate(SMOKE.splitlines())
+                 if '"$REPO/tests/test_memory_cap.py"' in line]
+        self.assertEqual(len(calls), 1)
+        self.assertIn(calls[0], every_file.live_blocks(SMOKE))
+        self.assertIn(f"MemoryCap.{method}", SMOKE)
 
     def test_live_sh_starts_the_live_mode_and_keeps_its_verdict(self):
         live = self.root / "tests/live.sh"
