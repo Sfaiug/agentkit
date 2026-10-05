@@ -259,7 +259,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.saw("<created new astra opus,astra opus,astra>")
         screen.leave()
 
-    def test_a_worker_toggled_off_and_the_last_one_kept(self):
+    def test_all_workers_may_be_toggled_off(self):
         screen = Screen(self)
         screen.menu()
         screen.send(b"n")
@@ -269,10 +269,10 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(RIGHT + SPACE)             # Opus's executor mark
         screen.picker(lambda lines: marks(highlighted(lines)) == "●□■")
         mark = len(screen.text())
-        screen.send(DOWN + SPACE)              # Astra, the last executor, stays chosen
-        lines = screen.picker(lambda lines: "exec needs one model" in "\n".join(lines),
+        screen.send(DOWN + SPACE)              # Astra, the last executor, may go too
+        lines = screen.picker(lambda lines: marks(highlighted(lines)) == "○□■",
                               after=mark)
-        self.assertEqual(marks(highlighted(lines)), "○■■")
+        self.assertEqual(marks(next(line for line in lines if "opus" in line)), "●■■")
         # A click chooses Spark's executor mark even with the cursor in the orch column.
         screen.send(LEFT)
         row = next(number for number, line in enumerate(lines, 1) if "spark" in line)
@@ -281,7 +281,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.picker(lambda lines: "spark" in highlighted(lines)
                       and marks(highlighted(lines))[1] == "■")
         screen.send(ENTER)
-        screen.saw("<created new opus astra,spark opus,astra>")
+        screen.saw("<created new opus spark opus,astra>")
         screen.leave()
 
     def test_a_spent_model_reads_dim_and_is_not_preselected(self):
@@ -313,10 +313,11 @@ class NewSessionScreen(unittest.TestCase):
         self.assertEqual([row for row in lines if "●" in row or "■" in row], [])
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
         self.assertEqual(len([row for row in lines if "astra" in row and "spent" in row]), 1)
-        screen.send(ENTER + SPACE + ENTER)     # Fable orchestrates; executor column wants a choice
-        screen.send(SPACE + ENTER)             # Fable executes; reviewer column wants a choice
+        screen.send(ENTER + SPACE + ENTER)     # Fable orchestrates; reviewer column wants a choice
         screen.send(DOWN * 2 + SPACE + ENTER)  # Astra reviews
-        screen.saw("<created new fable fable astra>")
+        screen.saw("<created new fable  astra>")
+        self.assertEqual(json.loads((screen.home / ".agentkit/state/session-new.json")
+                                    .read_text())["workers"], [])
         screen.leave()
         self.assertEqual(screen.text().count("<created"), 1)
 

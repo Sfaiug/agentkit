@@ -262,7 +262,7 @@ UTF-8 key (`enter` is `⏎`):
 - a model, on `c` and `n`: `{name}: {model} through {harness}, at {effort} effort`
 - its id, on its own screen: `model id: what {harness} is asked to run, one its catalog lists`
 - `orch`: `orch: the model the session's orchestrator runs on, one only`
-- `exec`: `exec: a model the session's runs may execute with; one at least`
+- `exec`: `exec: a model that builds pieces beside the orchestrator; none, and it builds all`
 - `review`: `review: a model that may review the session's runs; one at least`
 - an effort: `effort: how hard {name} thinks, one of the efforts its harness takes for it`
 - a provider, or in `− remove` a subscription: `{name}: your subscription; its seats, runs and usage row use its login`
@@ -306,20 +306,20 @@ Example:
 `c` is a sub-screen in the same frame, headed `agentkit · config`. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
-accent, a row of label, harness (dim), then `orchestrator` (`●` on the highlighted
-session's, `○` dim elsewhere), `worker` (`■`/`□`) and `effort` (`‹ xhigh ›`),
+accent, a row of label, harness (dim), then `orch` (`●` on the highlighted
+session's, `○` dim elsewhere), `exec` and `review` (`■`/`□`) and `effort` (`‹ xhigh ›`),
 then its strength: a bar for each level that model offers, rising in height
 (`▂▃▅▆█` for five), filled up to its effort and the rest dim -- blank where
 nothing can dim them, and without UTF-8 a `|` for each filled one alone. A model
 with one effort shows its word alone, with no bars and no arrows. The columns
-are `orch` and `work` where the full words do not fit, then the harness gives
-way, then the bars, then the label. ↑/↓, k/j and the wheel move between rows,
-←/→ between all three columns; Enter or space on an effort steps it up through
+stay visible; the harness gives way, then the bars, then the label.
+↑/↓, k/j and the wheel move between rows,
+←/→ between all four columns; Enter or space on an effort steps it up through
 that model's own efforts (`config.efforts`), from the highest round to the
 lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
-drawn at once, the orchestrator only moves, and the last worker stays, saying
+drawn at once, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). Under the models `+ add a model`, `Providers` (the config's
 providers in their colours, then `+ add` and `− remove`, and `↻ spend a reset`
 while a subscription holds one, ←/→ choosing between them, ↓ landing on none
@@ -361,8 +361,9 @@ a spent model reads dim with `spent · resets <day HH:MM>`, on a line of its own
 where the row does not fit, and is never chosen for him. ↑/↓, k/j and the wheel move between
 models and scroll them on a short screen, the role headings kept visible; ←/→ choose the role.
 Space or a click chooses, Enter starts from anywhere -- or, with every model spent and a role
-still empty, takes the highlight to it -- Esc goes back, and each role group keeps its last
-model, its mark shaking (Motion). At the Name question, a taken
+still empty, takes the highlight to it -- Esc goes back, and reviewers keep their last
+model, its mark shaking (Motion). Executors may be left empty: the orchestrator builds
+everything, its own `exec` mark filled and dim on both `n` and `c`. At the Name question, a taken
 name asks again and Esc goes back. Enter leaves `new`, then `new-2`, unnamed until its
 orchestrator knows the job and gives it the shortest name, at most three words, with
 `ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints the current name and exits 0;
@@ -556,7 +557,7 @@ left to right, over 600 ms -- once for each step onto it (`motion.rising`,
 Every mark -- on `c`, on `n` and on a project's switches -- fills when set and
 empties when cleared over two frames, 80 ms in all: `□ ▣ ■`, `○ ◉ ●` and back,
 the new state saved at the key; without UTF-8 it lands at once. A change ak
-refuses -- the last executor or reviewer, a pair that is not allowed, a switch
+refuses -- the last reviewer, a pair that is not allowed, a switch
 the project refused -- nudges its mark a cell left, right, left and back over
 240 ms, the reason under the rows. A model, provider or subscription just added
 on `c` returns highlighted on a soft glow of the accent that fades into the

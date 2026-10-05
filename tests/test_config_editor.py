@@ -102,14 +102,14 @@ class Editor(unittest.TestCase):
         self.assertEqual(self.record()["workers"], ["opus", "fable"])
         self.assertEqual(self.path.read_bytes(), before)
 
-    def test_the_last_worker_cannot_go(self):
+    def test_the_last_worker_may_go_and_its_reviewer_stays(self):
         self.path.write_text(OWN)
         config.save_session(config.load(), "fix-api", "solo", ["solo"])
         before = self.path.read_bytes()
         _, screen = self.drive("right", "enter", session="fix-api")
-        self.assertIn("exec needs one model", screen)
+        self.assertNotIn("exec needs one model", screen)
         self.assertEqual(self.path.read_bytes(), before)
-        self.assertEqual(self.record()["workers"], ["solo"])
+        self.assertEqual((self.record()["workers"], self.record()["reviewers"]), ([], ["solo"]))
 
     def test_an_old_tiers_file_is_written_in_the_new_shape_by_the_first_save(self):
         self.path.write_text(OWN)

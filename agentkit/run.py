@@ -3078,7 +3078,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         if watch.seat_closed(session):
             return None
         cfg = report_config(cfg)
-        if config.session_records().get(config.resolve_session(session), {}).get("solo"):
+        record = config.session_records().get(config.resolve_session(session), {})
+        if record.get("solo") or record.get("workers") == []:
             return None
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
@@ -12083,11 +12084,18 @@ def main(argv):
     opts.update(flags)
     box.check()
     cfg = config.load()
-    if not opts["--review-pr"]:
+    queued_child = os.environ.get(config.RUN_DIR_ENV)
+    # a --bg child carries on the receipt its launch prepared, with the executors it saved
+    if not opts["--review-pr"] and not (queued_child and queued(Path(queued_child))):
         selection = config.active_session(cfg)
         if selection and selection.get("solo"):
             command = shlex.join(["ak", "orch", "solo", selection["name"], "off"])
             raise config.Error(f"solo is on for {selection['name']!r}; turn it off with `{command}`.")
+        if selection and selection.get("workers") == []:
+            raise config.Error(f"{selection['name']} has no executor: build it in the session, "
+                               "or add an executor on its models screen.")
+        if not selection and (cfg.get("defaults") or {}).get("workers") == []:
+            raise config.Error("defaults have no executor: start a session with an executor.")
     config.ensure_dirs()
     if not opts["--review-pr"] and len(positional) == 1 and parallel is not None:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "

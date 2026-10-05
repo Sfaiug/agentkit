@@ -37,7 +37,6 @@ class UnknownFrontMatterKey(unittest.TestCase):
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AGENTKIT_SESSION": "",
             "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": ""}))
-        stack.enter_context(patch.object(config, "load", return_value={}))
         stack.enter_context(patch.object(config, "current_session", return_value=None))
         self.prepare = stack.enter_context(patch.object(run, "prepare"))
         self.drive = stack.enter_context(patch.object(run, "drive", return_value=0))

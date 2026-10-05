@@ -2186,10 +2186,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
         lines.append(model_heading(provider))
         for name in (name for name in names if models[name]["provider"] == provider):
-            texts = ((marks[0] if selected["orchestrator"] == name else marks[1],
-                      marks[2] if name in selected["workers"] else marks[3],
-                      marks[2] if name in selected.get("reviewers", selected["workers"])
-                      else marks[3]) if selected else ()) + (efforts[name],)
+            texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
+            texts += (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""
             shown = model_label(name, label)
             kind = "reverse" if at == ("model", name) and column < 0 else "dim" if note else None
@@ -2201,7 +2199,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                                                             harness), "dim")
             for number, text, width in zip(range(4 - len(texts), 4), texts, widths):
                 kind = ("reverse" if at == ("model", name) and number == column else
-                        "dim" if note or text in (marks[1], marks[3]) else None)
+                        "dim" if note or text in (marks[1], marks[3]) or builds and number == 1
+                        else None)
                 line += "  " + (terminal.toggle(text, width, kind) if number < 3 else
                                 (terminal.styled(text, kind) if kind else text)
                                 + " " * (width - terminal.cells(text)))
@@ -2611,7 +2610,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     provider or a subscription was just added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
     On a screen too short for every row the part the highlight is on is shown, and what the
-    last key could not do -- the last worker, a switch, a save or a catalog that failed -- has
+    last key could not do -- the last reviewer, a switch, a save or a catalog that failed -- has
     lines of its own under it, whatever the height, until the next key; `note` is said so
     before the first.  With the pointer on a model, a mark, an effort or a provider's name the
     key line says what it is (config_tips); the worker token's date is said of its provider's,
@@ -3177,8 +3176,8 @@ def session_mark(cfg, name, selected, model, column, providers):
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
     under the same name, and a harness that is not installed or not logged in, or a meter
-    that is spent, is refused in one line with the seat as it was. Each role group keeps
-    one model, and a flip leaving no allowed executor/reviewer pair is refused. A run
+    that is spent, is refused in one line with the seat as it was. Reviewers keep one
+    model, executors may be empty, and a flip leaving no allowed pair is refused. A run
     launched afterwards reads the record as left here; one already going keeps the groups
     its receipt saved. A refusal or a save that fails leaves the record, and `selected`,
     alone. What to say under the rows, or "".
