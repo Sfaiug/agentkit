@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, run, worktrees  # noqa: E402
+from agentkit import config, orch, run, worktrees  # noqa: E402
 
 
 class RepoCleanup(unittest.TestCase):
@@ -147,14 +147,18 @@ class RepoCleanup(unittest.TestCase):
             time.sleep(.02)
         self.assertEqual(self.running(marker), [], "cleanup work outlived its line")
 
-    @unittest.skipUnless(sys.platform == "linux", "reads /proc")
-    def test_a_timed_out_cleanup_leaves_nothing_of_its_line_running(self):
-        # a child of the line's shell, one that ignores TERM, and one its TERM handler would
-        # start: all in the line's own process group, which goes whole on a KILL
+    @unittest.skipUnless(sys.platform == "linux" and orch.user_manager() and orch.can_scope(),
+                         "needs a user manager that can make this process a scope")
+    def test_a_timed_out_cleanup_in_its_scope_leaves_nothing_of_its_line_running(self):
+        # a child of the line's shell; one that ignores TERM; one its TERM handler would
+        # start; one under `timeout`, which makes its own process group; and one a subshell
+        # put in a session of its own: all in the line's scope, which goes whole
         for name, line in (
                 ("cleanup-child", "sleep {m} & wait"),
                 ("cleanup-deaf", "trap '' TERM; sleep {m} & wait"),
-                ("cleanup-handler", "trap 'sleep {m} & exit' TERM; sleep {m} & wait")):
+                ("cleanup-handler", "trap 'sleep {m} & exit' TERM; sleep {m} & wait"),
+                ("cleanup-wrapped", "timeout 30 bash -c 'sleep {m} & wait'; :"),
+                ("cleanup-detached", "(setsid sleep {m} &); sleep {m} & wait")):
             with self.subTest(line=line):
                 marker = self.marked()
                 wt, run_dir, state = self.make_run(
@@ -167,13 +171,15 @@ class RepoCleanup(unittest.TestCase):
                 [line] = self.cleanup_lines(run_dir)
                 self.assertIn("timed out", line)
 
-    @unittest.skipUnless(sys.platform == "linux", "reads /proc")
+    @unittest.skipUnless(sys.platform == "linux" and orch.user_manager() and orch.can_scope(),
+                         "needs a user manager that can make this process a scope")
     def test_a_ctrl_c_mid_cleanup_leaves_nothing_of_its_line_running(self):
         # `ak run stop` or `ak run clean` stopped with Ctrl+C while the line runs: the
         # terminal signals its whole foreground group, here a caller in a group of its own
         marker = self.marked()
         wt, run_dir, _state = self.make_run(
-            "cleanup-interrupted", f"---\ncleanup: sleep {marker} & wait\n---\n# acme\n")
+            "cleanup-interrupted",
+            f"---\ncleanup: trap '' INT; sleep {marker} & wait\n---\n# acme\n")
         caller = subprocess.Popen(
             [sys.executable, "-c",
              f"import sys; sys.path.insert(0, {str(REPO)!r})\n"
@@ -184,9 +190,29 @@ class RepoCleanup(unittest.TestCase):
         while len(self.running(marker)) < 2 and time.monotonic() < deadline:
             time.sleep(.02)
         os.killpg(caller.pid, signal.SIGINT)
-        self.assertNotEqual(caller.wait(timeout=30), 0)    # the interrupt went on up
+        self.assertNotEqual(caller.wait(timeout=60), 0)    # the interrupt went on up
         self.assert_none_left(marker)
 
+    @unittest.skipUnless(sys.platform == "linux", "reads /proc")
+    def test_without_a_scope_the_shell_goes_as_before(self):
+        # no user manager to make a scope, or a scope whose stop is refused: the shell goes
+        for name, scope in (("cleanup-unscoped", None), ("cleanup-unstoppable", False)):
+            with self.subTest(scope=scope):
+                marker = self.marked()
+                wt, run_dir, _state = self.make_run(
+                    name, f"---\ncleanup: sleep {marker}\n---\n# acme\n")
+                stops = []
+                with patch.object(worktrees, "CLEANUP_LIMIT", 1), \
+                        patch.object(orch, "user_manager", return_value=scope is not None), \
+                        patch.object(orch, "can_scope", return_value=True), \
+                        patch.object(orch, "in_slice",
+                                     lambda argv, unit, env=None, **_: (argv, env)), \
+                        patch.object(orch, "stop_scope", lambda unit: stops.append(unit) or scope):
+                    worktrees.run_repo_cleanup(wt, run_dir)
+                self.assert_none_left(marker)
+                self.assertEqual(len(stops), 0 if scope is None else 1)
+                [line] = self.cleanup_lines(run_dir)
+                self.assertIn("timed out", line)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

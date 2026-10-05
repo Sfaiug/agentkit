@@ -2,7 +2,6 @@
 
 import os
 import shutil
-import signal
 import subprocess
 from pathlib import Path
 
@@ -249,20 +248,24 @@ def run_repo_cleanup(wt, run_dir):
             try:
                 repo = (run_record.read_state(Path(run_dir)) or {}).get("repo")
                 env = {**os.environ, **(config.repo_env(repo) if repo else {})}
-                # its own session and process group: a Ctrl+C at the caller's terminal reaches
-                # the caller alone, and the line's whole group goes below, not only its shell
-                with subprocess.Popen(["bash", "-c", cmd], cwd=str(wt), stdout=fh,
-                                      stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                      start_new_session=True, env=env) as proc:
+                # Its own scope where the user manager can make one: a timeout or an
+                # interrupted caller then stops every process the line started, whatever group
+                # or session it made, at once. Signals reach the line as they reach the caller.
+                from . import orch
+                argv, unit = ["bash", "-c", cmd], None
+                if orch.user_manager() and orch.can_scope():
+                    unit = f"agentkit-cleanup-{Path(run_dir).name}-{os.getpid()}"
+                    argv, env = orch.in_slice(argv, unit, env=env,
+                                              properties=("-p", "KillSignal=SIGKILL",
+                                                          "-p", "CollectMode=inactive-or-failed"))
+                with subprocess.Popen(argv, cwd=str(wt), stdout=fh, stderr=subprocess.STDOUT,
+                                      stdin=subprocess.DEVNULL, env=env) as proc:
                     try:
                         proc.wait(timeout=CLEANUP_LIMIT)
                     except BaseException:
-                        # a timeout or an interrupted caller; a command that left the group for
-                        # one of its own (`timeout`, `setsid`, a daemon) is its own, as it was
-                        try:
-                            os.killpg(proc.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
+                        # without a scope, or one that would not stop, the shell, as before
+                        if not (unit and orch.stop_scope(unit)):
+                            proc.kill()
                         proc.wait()     # an interrupted wait leaves the reaping to no one
                         raise
             except subprocess.TimeoutExpired:
