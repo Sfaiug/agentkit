@@ -5488,8 +5488,9 @@ def land_from_line(lp, upstream, deliver):
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],
-                                           "tested": (landing.passed(turn, wait["land"]) or {}).get(
-                                               "tested", identity["tree_sha"]),
+                                           "tested": wait.get("tested") or (
+                                               landing.passed(turn, wait["land"]) or {}).get(
+                                                   "tested", identity["tree_sha"]),
                                            "suite": declared_suite(lp.wt, lp.target, ref=tip)}
                 lp.write()
                 result = deliver()

@@ -424,10 +424,13 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 ran = iter(entry.get("checks", ()))
                 return all(cmd in ran for cmd in checks)
 
+            def green_answer(tree, tested):
+                return {"land": tree} if tree == tested else {"land": tree, "tested": tested}
+
             answers = {}
             for _, _, _, tree, checks in stacks:
                 if tree in green and checked(green[tree], checks):
-                    answers[tree, checks] = {"land": tree}
+                    answers[tree, checks] = green_answer(tree, green[tree]["tested"])
                 elif red.get(tree, {}).get("checks") == list(checks):
                     answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log")}}
             batched = len({(tree, checks) for _, _, _, tree, checks in stacks
@@ -446,7 +449,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 note(turn, [stack[3] for stack in covered], directory.name,
                      checks=checks, tested=tested, at=at)
                 for _, _, _, tree, own in covered:
-                    answers[tree, own] = {"land": tree}
+                    answers[tree, own] = green_answer(tree, tested)
 
             if batched:
                 for index, (_, _, _, tree, checks) in enumerate(stacks):

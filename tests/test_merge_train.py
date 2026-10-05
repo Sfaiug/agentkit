@@ -47,7 +47,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                 self.assertNotIn("delivery_wait", record.read_state(directory))
                 self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), waits[directory]["land"])
                 checked = lp.state["final_check"]
-                self.assertEqual(checked["tested"], land.passed(self.turn, waits[directory]["land"])["tested"])
+                self.assertEqual(checked["tested"], waits[directory].get("tested", waits[directory]["land"]))
                 body = run.merge_body(lp, run.git(self.repo, "rev-parse", "HEAD"))
                 self.assertEqual(bool(body), checked["tested"] == waits[directory]["land"])
                 run.git(self.repo, "push", "origin", "HEAD:main")
@@ -94,6 +94,8 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             wait = self.wait(member)
             self.assertEqual(land.passed(self.turn, wait["land"])["tested"], deepest)
             self.assertEqual(wait["after"], {m.name: self.wait(m)["land"] for m in members[:index]})
+        # A delayed delivery keeps the real tested tree even after the cache expires.
+        self.turn.with_suffix(".green").unlink()
         self.assert_members_deliver_in_order(members)
         self.assertEqual(len(self.checks), 1)
         self.assertEqual(land.line(self.turn), [])
