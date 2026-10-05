@@ -2008,7 +2008,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
     # and a watcher's own alert about the seat waits for its prompt (rung 6).
     last = notify.last(name)
-    if not gone and last and last["kind"] == "needs" and not last.get("watcher"):
+    if not gone and owner_question(last):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time")}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
