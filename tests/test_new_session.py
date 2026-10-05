@@ -229,15 +229,21 @@ class NewSession(Sandbox):
         subprocess.run(["git", "-C", str(main), "-c", "user.name=Fixture", "-c",
                         "user.email=fixture@localhost", "commit", "-q", "--allow-empty", "-m", "x"],
                        check=True)
-        added, relative = config.CODE / ".acme-fix", config.CODE / ".acme-relative"
-        for linked, branch in ((added, "fix"), (relative, "relative")):
+        added, relative, linked_dir = (config.CODE / name for name in
+                                       (".acme-fix", ".acme-relative", ".acme-linked-dir"))
+        for linked, branch in ((added, "fix"), (relative, "relative"), (linked_dir, "dir")):
             subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", "-b", branch,
                             str(linked)], check=True)
         absolute = (relative / ".git").read_text().strip().removeprefix("gitdir: ")
         (relative / ".git").write_text("gitdir: " + os.path.relpath(absolute, relative) + "\n")
-        subprocess.run(["git", "-C", str(relative), "status", "-s"], check=True)
+        # A `.git` link to the worktree's own git directory: a directory, with its commondir.
+        absolute = (linked_dir / ".git").read_text().strip().removeprefix("gitdir: ")
+        (linked_dir / ".git").unlink()
+        (linked_dir / ".git").symlink_to(absolute)
+        for linked in (relative, linked_dir):
+            subprocess.run(["git", "-C", str(linked), "status", "-s"], check=True)
         self.assertIn(main, orch.checkouts())
-        for linked in (added, relative):
+        for linked in (added, relative, linked_dir):
             self.assertNotIn(linked, orch.checkouts())
             self.assertEqual(orch.checkout_of(str(linked)), main)
 

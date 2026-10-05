@@ -1386,19 +1386,20 @@ def git_dirs(path):
     """(the repository's common git directory, whether `path` is a worktree added from
     another checkout) of the checkout at `path`, or None when it is none.
 
-    Read the way git reads it: a `.git` directory, or a `.git` file naming the git directory,
-    absolute or relative, whose `commondir` names the repository it was added from.
+    Read the way git reads it: the git directory is `.git` itself, or the one a `.git` file
+    names, absolute or relative; a `commondir` in it names the repository it was added from.
     """
     dot = Path(path) / ".git"
-    if dot.is_dir():
-        return dot.resolve(), False
     try:
-        prefix, sep, value = dot.read_text().strip().partition(": ")
-        if prefix != "gitdir" or not sep:
-            return None
-        gitdir = (Path(path) / value).resolve()
+        if dot.is_dir():
+            gitdir = dot.resolve()
+        else:
+            prefix, sep, value = dot.read_text().strip().partition(": ")
+            if prefix != "gitdir" or not sep:
+                return None
+            gitdir = (Path(path) / value).resolve()
         if not (gitdir / "commondir").is_file():
-            return gitdir, False                 # its git directory kept elsewhere
+            return gitdir, False
         return (gitdir / (gitdir / "commondir").read_text().strip()).resolve(), True
     except (OSError, UnicodeDecodeError):
         return None
