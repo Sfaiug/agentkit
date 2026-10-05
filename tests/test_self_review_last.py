@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, menu, run, usage
+from agentkit import config, menu, run, status, usage
 from agentkit import record
 
 
@@ -318,12 +318,12 @@ class SelfReviewLast(unittest.TestCase):
         class Directory:
             name = "20260928-1200-fix-api"
 
-        _, groups = run.status_rows([(Directory(), state("acme-one", "acme-one"))], 120)
+        _, groups = status.status_rows([(Directory(), state("acme-one", "acme-one"))], 120)
         self.assertIn("acme-one/acme-one self-reviewed", "\n".join(groups[0]))
-        _, groups = run.status_rows([(Directory(), state("acme-one", "beta-one"))], 120)
+        _, groups = status.status_rows([(Directory(), state("acme-one", "beta-one"))], 120)
         self.assertNotIn("self-reviewed", "\n".join(groups[0]))
         self.cfg["models"]["acme-two"]["model"] = "acme-one"
-        _, groups = run.status_rows([(Directory(), state("acme-one", "acme-two"))], 120,
+        _, groups = status.status_rows([(Directory(), state("acme-one", "acme-two"))], 120,
                                     None, self.cfg)
         self.assertIn("acme-one/acme-two self-reviewed", "\n".join(groups[0]))
 

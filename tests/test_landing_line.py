@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 from test_v4n import Sandbox
-from agentkit import config, history, job as jobs, land, menu, record, run, watch
+from agentkit import config, history, job as jobs, land, menu, record, run, status, watch
 
 
 class LandingLine(Sandbox):
@@ -22,7 +22,7 @@ class LandingLine(Sandbox):
             "AK_RUN_ROLE": "orchestrator", "AGENTKIT_SESSION": ""}))
         self.line = run.merge_lock_path("https://github.com/acme/widget.git", "origin/main").name
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
-        self.stack.enter_context(patch.object(run, "alive_line", return_value=""))
+        self.stack.enter_context(patch.object(status, "alive_line", return_value=""))
         self.stack.enter_context(patch.object(run.time, "time", return_value=200000))
 
     def member(self, name="fix-api", joined=100, **extra):
@@ -90,15 +90,15 @@ class LandingLine(Sandbox):
         release = self.ended("other-target", state="waiting", target="origin/release", waiting_on={
             "line": run.merge_lock_path("https://github.com/acme/widget.git", "origin/release").name,
             "joined": 0})
-        self.assertEqual(run.parked_line(record.read_state(release)),
+        self.assertEqual(status.parked_line(record.read_state(release)),
                          "waiting · 1st in line to land on release")
         self.ended("already-landed", merged=True, waiting_on={"line": self.line, "joined": 0})
         self.ended("conflict", state="waiting", waiting_on={"ref": "origin/main", "sha": "0" * 40})
         for position in ("1st", "2nd", "3rd", "11th", "12th", "13th", "21st", "22nd", "23rd"):
             state = record.read_state(members[int(position[:-2]) - 1])
-            self.assertEqual(run.parked_line(state), f"waiting · {position} in line to land on main")
+            self.assertEqual(status.parked_line(state), f"waiting · {position} in line to land on main")
         record.save_state(members[1], {**record.read_state(members[1]), "state": "stopped"})
-        self.assertEqual(run.parked_line(record.read_state(members[2])),
+        self.assertEqual(status.parked_line(record.read_state(members[2])),
                          "waiting · 2nd in line to land on main")
 
     def test_status_and_menu_show_the_place_and_target(self):
@@ -110,7 +110,7 @@ class LandingLine(Sandbox):
         sentence = "waiting · 3rd in line to land on main"
         for flags in ([], ["--plain"], ["--why"]):
             with self.subTest(flags=flags), redirect_stdout(io.StringIO()) as out:
-                self.assertEqual(run.cmd_status([directory.name, *flags]), 0)
+                self.assertEqual(status.cmd_status([directory.name, *flags]), 0)
             self.assertIn(sentence, out.getvalue())
         session = {"name": "seat", "created": 1}
         answer = watch.session_state("seat", 200000, session=session, cfg=self.cfg,

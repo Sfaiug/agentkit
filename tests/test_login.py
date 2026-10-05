@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 SLEEP = time.sleep                  # the real one, kept where a fixture needs to wait
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import host, config, gc, job as jobs, menu, notify, orch, run, terminal, usage, watch, worker
+from agentkit import host, config, gc, job as jobs, menu, notify, orch, run, status, terminal, usage, watch, worker
 from agentkit import record
 
 # A fake harness, in the two shapes a turn can take: one that authenticates and answers, and
@@ -386,10 +386,10 @@ class Login(unittest.TestCase):
         self.assertEqual(terminal.state_text(menu.run_state_word(state)),
                          "\u25cb waiting for claude login")
         with redirect_stdout(io.StringIO()) as out:
-            run.cmd_status([])
+            status.cmd_status([])
         self.assertIn("\u25cb waiting for claude login", out.getvalue())
         with redirect_stdout(io.StringIO()) as plain:
-            run.cmd_status(["--plain"])
+            status.cmd_status(["--plain"])
         self.assertIn("waiting for claude login", plain.getvalue())
         self.assertNotIn("offers resume", out.getvalue())
 

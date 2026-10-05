@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
-from agentkit import host, config, run
+from agentkit import host, config, run, status
 from agentkit import record
 
 
@@ -339,7 +339,7 @@ class V5aa(unittest.TestCase):
             self.assertTrue(run.failed_in_integration(record.read_state(run_dir), run_dir))
             out = io.StringIO()
             with redirect_stdout(out):
-                self.assertEqual(run.cmd_status([run_dir.name]), 0)
+                self.assertEqual(status.cmd_status([run_dir.name]), 0)
             printed = out.getvalue()
             line = next(l for l in printed.splitlines() if "continue:" in l)
             self.assertEqual(line.strip(), f"continue: ak run resume {run_dir.name}")
@@ -445,7 +445,7 @@ class V5aa(unittest.TestCase):
                 "origin/main; resume to try again\n")
             out = io.StringIO()
             with redirect_stdout(out):
-                self.assertEqual(run.cmd_status([run_dir.name]), 0)
+                self.assertEqual(status.cmd_status([run_dir.name]), 0)
             self.assertIn(f"continue: ak run resume {run_dir.name} --rounds 3",
                           out.getvalue())
             URL = "https://github.com/fixture/repo/pull/1"

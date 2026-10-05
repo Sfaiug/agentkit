@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, run, usage  # noqa: E402
+from agentkit import config, history, run, status, usage  # noqa: E402
 from agentkit import record
 
 
@@ -278,7 +278,7 @@ class HistoryTests(unittest.TestCase):
         runs = self.home / "runs"
         runs.mkdir()
         with patch.object(config, "RUNS", runs), redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status(["--history"]), 0)
+            self.assertEqual(status.cmd_status(["--history"]), 0)
         self.assertIn("project: last 20 tasks: median 2 rounds · over 400 words: median 2 rounds · "
                       "over 3 points: median 2 rounds", out.getvalue())
         for role in ("orchestrator", "executor", "reviewer"):
@@ -358,7 +358,7 @@ class HistoryTests(unittest.TestCase):
             history.start_run("r1", repo="project", started_at=1)
             history.finish_run("r1", repo="project", started_at=1, finished_at=2,
                                final_state="pass", verdict="PASS")
-            self.assertEqual(run.cmd_status(["--json"]), 0)
+            self.assertEqual(status.cmd_status(["--json"]), 0)
         self.assertEqual(json.loads(out.getvalue())[0]["final_state"], "pass")
 
     def test_event_tokens_prefers_final_usage_and_ignores_content_numbers(self):

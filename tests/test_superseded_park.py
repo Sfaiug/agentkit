@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, run, watch
+from agentkit import config, menu, notify, orch, run, status, watch
 from agentkit import record
 
 WEEK = 604800
@@ -94,7 +94,7 @@ class SupersededPark(unittest.TestCase):
         self.assertTrue(run.settled(state, index))
         self.assertFalse(run.unfinished(state, index=index))
         self.assertFalse(menu.v5o_needs_look(state, index=index, now=self.now))
-        self.assertEqual(run.status_state_word(state, index), "done")
+        self.assertEqual(status.status_state_word(state, index), "done")
         # without the index supersession is not read, as with any other ending
         self.assertFalse(run.settled(state))
         self.assertTrue(run.unfinished(state))
@@ -110,7 +110,7 @@ class SupersededPark(unittest.TestCase):
         self.assertFalse(run.settled(state, index))
         self.assertTrue(run.unfinished(state, index=index))
         self.assertTrue(menu.v5o_needs_look(state, index=index, now=self.now))
-        self.assertEqual(run.status_state_word(state, index), "needs you")
+        self.assertEqual(status.status_state_word(state, index), "needs you")
 
     def test_exhausted_run_with_an_unmerged_from_relaunch_still_needs_you(self):
         parked = self.receipt("20260925-1257-parked", title="Fix the parser",
@@ -130,7 +130,7 @@ class SupersededPark(unittest.TestCase):
         self.assertFalse(run.settled(state, index))
         self.assertTrue(run.unfinished(state, index=index))
         self.assertTrue(menu.v5o_needs_look(state, index=index, now=self.now))
-        self.assertEqual(run.status_state_word(state, index), "needs you")
+        self.assertEqual(status.status_state_word(state, index), "needs you")
 
     def test_failed_run_with_a_merged_from_relaunch_does_not_block_notify_done(self):
         failed = self.receipt("20260925-1308-failed", title="Fix the parser",
@@ -183,8 +183,8 @@ class SupersededPark(unittest.TestCase):
         self.assertNotIn("error_retries", errored_state)
         self.assertFalse(run.going(errored_state))
         index = run.supersession_index(self.records())
-        self.assertEqual(run.status_state_word(quota_state, index), "done")
-        self.assertEqual(run.status_state_word(errored_state, index), "done")
+        self.assertEqual(status.status_state_word(quota_state, index), "done")
+        self.assertEqual(status.status_state_word(errored_state, index), "done")
         # ... and the seat's standing done is done, not working above it
         notify.record("seat", "done", "Shipped it", time=self.now)
         found = watch.session_state(

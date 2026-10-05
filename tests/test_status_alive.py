@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, run
+from agentkit import config, host, job as jobs, run, status
 from agentkit import record
 
 
@@ -128,7 +128,7 @@ class StatusAlive(Sandbox):
     def status(self, argv):
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status(list(argv)), 0)
+            self.assertEqual(status.cmd_status(list(argv)), 0)
         return out.getvalue()
 
     def test_live_run_shows_process_count_and_memory(self):
@@ -139,7 +139,7 @@ class StatusAlive(Sandbox):
         scope_dir.mkdir()
         (scope_dir / "cgroup.procs").write_text("999999991\n999999992\n999999993\n")
         (scope_dir / "memory.current").write_text("1288490189\n")
-        with patch.object(run, "run_scope_dir", return_value=scope_dir), \
+        with patch.object(status, "run_scope_dir", return_value=scope_dir), \
                 patch.object(record, "process_active", return_value=True):
             table = self.status([])
             alone = self.status([run_id])
@@ -151,11 +151,11 @@ class StatusAlive(Sandbox):
                  "scope": "none", "pid": 999999994}
         marked = [999999995, 999999996]
         fifty = lambda pid: 50 * 1024 * 1024
-        self.assertEqual(run.alive_line(state, _marker=lambda rid: marked,
+        self.assertEqual(status.alive_line(state, _marker=lambda rid: marked,
                                         _rss=fifty, _active=lambda s: False),
                          "2 processes · 100 MB")
         # ... plus the loop itself while it is still the run's own.
-        self.assertEqual(run.alive_line(state, _marker=lambda rid: marked,
+        self.assertEqual(status.alive_line(state, _marker=lambda rid: marked,
                                         _rss=fifty, _active=lambda s: True),
                          "3 processes · 150 MB")
 
@@ -188,8 +188,8 @@ class StatusAlive(Sandbox):
                                  process_identity=None,
                                  finished_at=time.time() - 10)
         state = record.read_state(directory)
-        self.assertEqual(run.alive_line(state), "")
-        self.assertEqual(run.stop_note(state), "")
+        self.assertEqual(status.alive_line(state), "")
+        self.assertEqual(status.stop_note(state), "")
         text = self.status([run_id])
         self.assertNotIn("processes", text)
         self.assertNotIn("process ·", text)

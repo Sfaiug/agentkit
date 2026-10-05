@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, host, config, run, watch, worker
+from agentkit import gate, host, config, run, status, watch, worker
 from agentkit import record
 from agentkit import task as taskfile
 from test_run_tree import wait_gone
@@ -459,7 +459,7 @@ class Silence(unittest.TestCase):
             with self.subTest(extra=extra):
                 out = io.StringIO()
                 with patch.object(config, "RUNS", directory.parent), redirect_stdout(out):
-                    self.assertEqual(run.cmd_status(["fixture", "--why", *extra]), 0)
+                    self.assertEqual(status.cmd_status(["fixture", "--why", *extra]), 0)
                 self.assertIn("silence_minutes=17, ceiling_hours=5", out.getvalue())
 
 

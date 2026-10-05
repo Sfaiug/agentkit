@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import finding_count, reported, scripted, stateful
-from agentkit import gate, host, config, notify, run, worker
+from agentkit import gate, host, config, notify, run, status, worker
 from agentkit import record
 
 
@@ -158,7 +158,7 @@ sys.exit(1)
     def status(self, *argv):
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status(list(argv)), 0)
+            self.assertEqual(status.cmd_status(list(argv)), 0)
         return out.getvalue()
 
     # --- (a) a shrinking last round buys nothing ----------------------------

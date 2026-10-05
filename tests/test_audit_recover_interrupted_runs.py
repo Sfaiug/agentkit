@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gc, job as jobs, menu, notify, orch, run, terminal, watch
+from agentkit import config, gc, job as jobs, menu, notify, orch, run, status, terminal, watch
 from agentkit import host, record as run_record
 
 
@@ -141,7 +141,7 @@ if role == "reviewer" and (root / "fail-review").exists():
     def screen(self, *answers):
         out = io.StringIO()
         with redirect_stdout(out):
-            run.cmd_status([])
+            status.cmd_status([])
         return out.getvalue()
 
     def scratch_receipt(self, name):
@@ -471,7 +471,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         job_dir = self.dead_job("20260923-2000-recover", tasks=tasks, cwd=str(launched))
         out = io.StringIO()
         with redirect_stdout(out):
-            run.cmd_status([job_dir.name])
+            status.cmd_status([job_dir.name])
         self.assertIn("launcher gone; the next tick relaunches it · session owner exists",
                       out.getvalue())
         said = []
@@ -579,7 +579,7 @@ if role == "reviewer" and (root / "fail-review").exists():
             self.assertEqual(jobs.read_job(job_dir)["pid"], 99999999, job_dir.name)
             out = io.StringIO()
             with redirect_stdout(out):
-                run.cmd_status([job_dir.name])
+                status.cmd_status([job_dir.name])
             self.assertIn(f"launcher gone; ak run resume {job_dir.name} to continue",
                           out.getvalue())
         self.assertEqual(len(said), 2)

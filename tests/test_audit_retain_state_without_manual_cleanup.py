@@ -24,7 +24,7 @@ REAL_TMUX = shutil.which("tmux")
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import gate, host, config, gc, menu, notify, orch, retention, run, update, watch
+from agentkit import gate, host, config, gc, menu, notify, orch, retention, run, status, update, watch
 from agentkit import record as run_record
 
 DAY = 86400
@@ -281,19 +281,19 @@ if not review:
         after = self.snapshot(config.HOME)
         self.assertEqual(gc.gc(lambda _: None), [])
         self.assertEqual(self.snapshot(config.HOME), after)
-        rows = json.loads(self.capture(run.cmd_status, ["--json"]))
+        rows = json.loads(self.capture(status.cmd_status, ["--json"]))
         self.assertEqual(rows[0]["run_id"], active.name)
         self.assertTrue({interrupted.name, unmerged.name}.issubset({s["run_id"] for s in rows}))
         self.assertNotIn(failed.name, {s["run_id"] for s in rows})
         self.assertNotIn(merged.name, {s["run_id"] for s in rows})
-        history = json.loads(self.capture(run.cmd_status, ["--history", "--json"]))
+        history = json.loads(self.capture(status.cmd_status, ["--history", "--json"]))
         self.assertIn(failed.name, {s["run_id"] for s in history})
         old = next(s for s in history if s["run_id"] == merged.name)
         self.assertEqual({k: old[k] for k in run_record.read_state(merged)}, run_record.read_state(merged))
         self.assertEqual(old["paths"]["result"], str(merged / "result.md"))
         self.assertFalse(old["paths"]["workspace_present"])
-        self.assertIn(str(merged / "result.md"), self.capture(run.cmd_status, [merged.name]))
-        self.assertIn("--history", self.capture(run.cmd_status, []))
+        self.assertIn(str(merged / "result.md"), self.capture(status.cmd_status, [merged.name]))
+        self.assertIn("--history", self.capture(status.cmd_status, []))
         # The compressed log still holds the diagnostics `ak run status` reads.
         self.assertEqual(gzip.decompress((merged / "log.txt.gz").read_bytes()), b"diagnostics\n" * 1000)
 
@@ -429,7 +429,7 @@ if not review:
         self.assertEqual(state["state"], "pass")
         work = Path(state["worktree"])
         # `ak run status` names the result; the menu no longer follows runs.
-        self.assertIn(str(directory / "result.md"), self.capture(run.cmd_status, [directory.name]))
+        self.assertIn(str(directory / "result.md"), self.capture(status.cmd_status, [directory.name]))
         # The scratch workspace is the delivery and outlives the run. A recent finished_at
         # keeps the run directory and it; ageing the directory's mtime is not the clock
         # that collects them. The run's own clock is, and they go together once its
@@ -504,7 +504,7 @@ if not review:
         with patch.object(config, "TMP", alias / "tmp"):
             directory, wt = self.receipt("view-without-registration", age=60)
             with redirect_stdout(io.StringIO()):
-                run.cmd_status([directory.name])
+                status.cmd_status([directory.name])
             self.assertEqual(list(config.TMP.glob("view-*.txt")), [])
             with patch.object(update, "fresh_unavailable", return_value=""), \
                     patch.object(update, "version", return_value="1.0.0"), \
@@ -747,16 +747,16 @@ if not review:
         for name in cases:
             self.assertEqual(config.session_path(name).exists(), name in ("recovery", "active"), name)
         self.assertEqual((self.snapshot(config.RUNS, False), self.snapshot(config.WT, False)), evidence)
-        rows = json.loads(self.capture(run.cmd_status, ["--json"]))
+        rows = json.loads(self.capture(status.cmd_status, ["--json"]))
         self.assertEqual(rows[0]["run_id"], "active")
         self.assertEqual({s["run_id"] for s in rows},
                          {"active", "recovery", "pending-delivery", "recent-failure"})
-        history = json.loads(self.capture(run.cmd_status, ["--history", "--json"]))
+        history = json.loads(self.capture(status.cmd_status, ["--history", "--json"]))
         self.assertEqual({s["run_id"] for s in history}, set(cases))
         for row in history:
             self.assertTrue(Path(row["paths"]["result"]).is_file())
             self.assertTrue(Path(row["paths"]["workspace"]).is_dir())
-        self.assertIn("failure", self.capture(run.cmd_status, ["failure"]))
+        self.assertIn("failure", self.capture(status.cmd_status, ["failure"]))
 
     def test_unread_questions_keep_dead_and_gone_seats_until_opened(self):
         for name in ("gone-question", "dead-question"):

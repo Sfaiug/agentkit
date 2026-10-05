@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, menu, notify, orch, run, watch
+from agentkit import host, config, menu, notify, orch, run, status, watch
 from agentkit import record
 
 TASK = """---
@@ -401,7 +401,7 @@ class V5X(unittest.TestCase):
             pid=parent.pid)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status([run_dir.name]), 0)
+            self.assertEqual(status.cmd_status([run_dir.name]), 0)
         self.assertIn("stalled 2× (done-when: bash tests/smoke.sh), recovered", out.getvalue())
         parked_dir, _ = self.make_run("20260916-0000-v5x-parked", pid=2 ** 30)
         parked = self.read_state(parked_dir)
@@ -410,7 +410,7 @@ class V5X(unittest.TestCase):
                           "step": "done-when: bash tests/smoke.sh", "action": "parked"})
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status([parked_dir.name]), 0)
+            self.assertEqual(status.cmd_status([parked_dir.name]), 0)
         body = out.getvalue()
         # A parked run resumes itself, so it is still working; the note says what for.
         self.assertIn("● working", body)

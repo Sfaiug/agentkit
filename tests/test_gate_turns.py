@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate as suite_gate, config, run, worker
+from agentkit import gate as suite_gate, config, run, status, worker
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
@@ -125,7 +125,7 @@ class GateTurns(unittest.TestCase):
         state = run_record.read_state(second.run_dir)
         self.assertEqual(suite_gate.gate_turn_note(state), "waiting for a heavy suite turn")
         self.assertIn("  waiting for a heavy suite turn",
-                      run.status_details(second.run_dir, state))
+                      status.status_details(second.run_dir, state))
         first.join(20)
         second.join(20)
         self.assertEqual(self.marks.read_text(), "start\nend\nstart\nend\n")

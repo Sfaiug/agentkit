@@ -22,7 +22,7 @@ from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
 from fixtures.hand_in import records, scripted, stateful
-from agentkit import gate, host, browser, config, gc, job as jobs, land, menu, notify, orch, run, terminal, watch
+from agentkit import gate, host, browser, config, gc, job as jobs, land, menu, notify, orch, run, status, terminal, watch
 from agentkit import record
 
 SEAT = "seat"
@@ -575,7 +575,7 @@ class HandBack(Sandbox):
         run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertTrue(record.read_state(directory)["handback_pending"])
         with redirect_stdout(io.StringIO()):
-            run.cmd_status([directory.name])
+            status.cmd_status([directory.name])
         self.assertTrue(record.read_state(directory)["recovery_acknowledged_at"])
         self.assertTrue(run.owes_ending(record.read_state(directory)))
         self.screen = "at_prompt"
@@ -1138,12 +1138,12 @@ class HandBack(Sandbox):
         directory = self.blocked_record("run-7")
         state = record.read_state(directory)
         self.assertEqual(menu.run_state_word(state), "needs you")
-        self.assertEqual(run.blocked_note(state),
+        self.assertEqual(status.blocked_note(state),
                          f"{terminal.state_glyph('needs you')} blocked · the checks are wrong")
         out = io.StringIO()
         with redirect_stdout(out):
-            run.cmd_status([directory.name])
-        self.assertIn(run.blocked_note(state), terminal.plain(out.getvalue()))
+            status.cmd_status([directory.name])
+        self.assertIn(status.blocked_note(state), terminal.plain(out.getvalue()))
 
     def test_finish_reaches_its_ending_when_best_effort_steps_fail(self):
         # 2026-09-29, run 20260928-2050: a merge changed two modules together, the bar

@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, menu, notify, orch, run, usage, watch
+from agentkit import host, config, menu, notify, orch, run, status, usage, watch
 from agentkit import record
 
 WEEK = 604800
@@ -220,7 +220,7 @@ class ExhaustedResume(unittest.TestCase):
         self.assertEqual(run.waiting_word(record.read_state(run_dir), self.providers(),
                                           self.cfg, now=self.now), "exhausted")
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status([run_dir.name]), 0)
+            self.assertEqual(status.cmd_status([run_dir.name]), 0)
         # the table reads STATES words: no window, no waiting sentence, and
         # the column reads `needs you` for a run nothing will resume by itself
         self.assertNotIn("waiting for ", out.getvalue())
@@ -278,7 +278,7 @@ class ExhaustedResume(unittest.TestCase):
             (config.STATE / "usage.json").read_text())["providers"], cfg=self.cfg,
             now=self.now), ("openai", known, True))
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status([run_dir.name]), 0)
+            self.assertEqual(status.cmd_status([run_dir.name]), 0)
         self.assertIn(want, out.getvalue())
         lines = out.getvalue().splitlines()
         self.assertTrue(lines[0].startswith("host: "), lines[0])
