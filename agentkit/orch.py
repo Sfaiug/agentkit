@@ -1382,27 +1382,39 @@ def listed():
     return {path: path for path in found}
 
 
+GIT_DIRS = {}   # (path, its `.git` entry's identity): what git answered, kept until it changes
+
+
 def git_dirs(path):
     """(the repository's common git directory, whether `path` is a worktree added from
     another checkout) of the checkout at `path`, or None when it is none.
 
-    Read the way git reads it: the git directory is `.git` itself, or the one a `.git` file
-    names, absolute or relative; a `commondir` in it names the repository it was added from.
+    A plain `.git` directory with no `commondir` is a repository's own checkout; anything
+    else -- a `.git` file, a link, a worktree's git directory -- git itself is asked about,
+    once until that `.git` changes, so every layout and path it accepts reads the same here.
     """
     dot = Path(path) / ".git"
     try:
-        if dot.is_dir():
-            gitdir = dot.resolve()
-        else:
-            prefix, sep, value = dot.read_text().strip().partition(": ")
-            if prefix != "gitdir" or not sep:
-                return None
-            gitdir = (Path(path) / value).resolve()
-        if not (gitdir / "commondir").is_file():
-            return gitdir, False
-        return (gitdir / (gitdir / "commondir").read_text().strip()).resolve(), True
-    except (OSError, UnicodeDecodeError):
+        info = dot.lstat()
+        if dot.is_dir() and not dot.is_symlink() and not (dot / "commondir").exists():
+            return dot.resolve(), False
+    except OSError:
         return None
+    key = (str(path), info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+    if key not in GIT_DIRS:
+        env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+        found = []
+        for flag in ("--git-dir", "--git-common-dir"):
+            try:
+                proc = subprocess.run(["git", "-C", str(path), "rev-parse", "--path-format=absolute",
+                                       flag], capture_output=True, env=env, timeout=30)
+            except (OSError, subprocess.TimeoutExpired):
+                return None
+            if proc.returncode:
+                return None
+            found.append(Path(os.fsdecode(proc.stdout.removesuffix(b"\n"))).resolve())
+        GIT_DIRS[key] = found[1], found[0] != found[1]
+    return GIT_DIRS[key]
 
 
 def checkout_of(repo):
