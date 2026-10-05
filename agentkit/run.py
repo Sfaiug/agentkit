@@ -7017,10 +7017,11 @@ def handback_reason(state, cfg=None):
         if len(said) <= 600:
             return f"after {spent} rounds, open findings: {said}".rstrip(".")
         # a line cut short must not read as the whole list: a fix of what it shows alone
-        # spends the next round on the rest
+        # spends the next round on the rest, so it names the reviewer's whole report
         count = f"{len(rows)} open findings" if len(rows) != 1 else "1 open finding"
-        return (f"after {spent} rounds, {count}, cut short here (the result has every one in "
-                f"full): {said[:600]}").rstrip(".")
+        where = state.get("findings_file")
+        whole = f" (every one in full: {where})" if where else ""
+        return f"after {spent} rounds, {count}, cut short here{whole}: {said[:600]}".rstrip(".")
     # else a PASS the loop overrode says why it did, and a check still failing names its line
     why = "; ".join(filter(None, (review.get("overridden"), failed_check(state))))
     if why:

@@ -12,6 +12,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import sys
@@ -395,8 +396,7 @@ class HandBack(Sandbox):
                                 "## Follow-ups\n- c.py:3 - rename it - clarity\n"))
         state = record.read_state(failed)
         self.assertEqual(run.handback_reason(state),
-                         "after 3 rounds, 1 open finding, cut short here (the result has every "
-                         f"one in full): {finding[:600]}")
+                         f"after 3 rounds, 1 open finding, cut short here: {finding[:600]}")
         self.assertTrue(run.handback_line(state, failed).endswith(
             "three rounds spent: split or re-scope"))
 
@@ -413,9 +413,13 @@ class HandBack(Sandbox):
                           review_records=records(whole),
                           findings_file=str(answer))
         state = record.read_state(long)
-        self.assertTrue(run.handback_reason(state).startswith(
-            "after 3 rounds, 151 open findings, cut short here (the result has every one in "
-            f"full): {first} $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence - n0.py:1 - "))
+        said = run.handback_reason(state)
+        self.assertTrue(said.startswith(
+            f"after 3 rounds, 151 open findings, cut short here (every one in full: {answer}): "
+            f"{first} $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence - n0.py:1 - "))
+        # where it points holds every one of them
+        named = Path(re.search(r"every one in full: (\S+)\)", said).group(1)).read_text()
+        self.assertTrue(all(f"- n{i}.py:1 - " in named for i in range(150)) and first in named)
         self.assertTrue(run.handback_line(state, long).endswith(
             "three rounds spent: split or re-scope"))
         # a PASS the loop failed -- the reviewer exited 1, the checkout moved -- says so
