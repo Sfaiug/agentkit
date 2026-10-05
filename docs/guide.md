@@ -25,9 +25,9 @@ project is filed at the next menu draw or `ak watch` tick once one of its runs c
 
 
 At launch, the rulebook reads `What ak is for` from the agentkit checkout's `AGENTS.md`, where present, then `orchestrator.md`
-and this host's `~/.agentkit/rules.md` where you wrote one. Running seats keep their launch's rulebook. Its adapter hands it over
+and this host's `~/.agentkit/rules.md` where you wrote one. Its adapter hands it over
 for that launch only (Antigravity's as an `--agent` definition in `~/.agentkit/state/antigravity`), never writing into your
-own `~/.claude`, `~/.codex` or `~/.gemini`. A project's own `AGENTS.md` or `CLAUDE.md` holds its conventions and is never the place for agentkit's rules.
+own `~/.claude`, `~/.codex` or `~/.gemini`. A seat left open across a change to its rulebook is told with its next prompt, where its harness's prompt hook carries context: its current rulebook is written to a file of its own, and every prompt of its own conversation names that file until the seat runs the `ak orch rules CODE` the notice gives, saying it read that one; the code is that conversation's for those rules, so no other client and no older rules can say it. A seat opened before ak recorded which rulebook it was handed is told once the same way. Any other seat reads the new one at its next launch. A project's own `AGENTS.md` or `CLAUDE.md` holds its conventions and is never the place for agentkit's rules.
 
 At every turn's end `hooks/orchestrator-stop.sh` sends the turn back with *Continue: decide the next step and do it*
 unless the last paragraph asks something or `ak notify needs` was recorded; an answer to a prompt that asked something, a run of this seat's going, its job with a live launcher and an unsettled task (even before any run starts, following seat renames), `ak notify done`,

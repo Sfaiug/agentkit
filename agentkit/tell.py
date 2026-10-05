@@ -158,7 +158,7 @@ def deliver_to(session, log, cfg=None):
         # typed by a tick that died before its Enter: only the Enter, and its confirmation
         typed = watch.type_checked(
             session, first["line"], log, pending=True, source=source(first["from"]),
-            guard=lambda: notify.session_lock(session["name"]), ready=ready,
+            guard=lambda: watch.seat_held(session["name"]), ready=ready,
             veto=lambda current: watch.owner_question(notify.last(current)) or stale(current))
     elif held == "empty":
         typed = watch.type_at_prompt(session, first["line"], log, cfg=cfg, ready=ready,
