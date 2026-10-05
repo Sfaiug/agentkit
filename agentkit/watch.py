@@ -1017,26 +1017,8 @@ def has_dim(line):
     their background `48` twins -- and the `2` inside one names a colour, never
     faint. Only a bare 2, outside those runs, counts.
     """
-    return 2 in _sgr_codes(line)
-
-
-def faint_after(line, faint=False):
-    """Whether faint (SGR 2) is still on at that raw `-e` line's end, given whether it was at
-    its start: tmux draws it once and it carries on to the rows under it until reset."""
-    for code in _sgr_codes(line):
-        if code == 2:
-            faint = True
-        elif code in (0, 22):
-            faint = False
-    return faint
-
-
-def _sgr_codes(line):
-    """That raw line's SGR codes in order, a bare reset as 0, extended-colour runs skipped
-    whole: a `2` inside one names a colour, never faint."""
-    codes = []
     for found in SGR_SEQ.finditer(line):
-        params = found.group(1).split(";") if found.group(1) else ["0"]
+        params = found.group(1).split(";") if found.group(1) else []
         i = 0
         while i < len(params):
             if params[i] in ("38", "48") and i + 1 < len(params):
@@ -1046,9 +1028,10 @@ def _sgr_codes(line):
                 if params[i + 1] == "2":
                     i += 5
                     continue
-            codes.append(int(params[i]) if params[i].isdigit() else None)
+            if params[i].isdigit() and int(params[i]) == 2:
+                return True
             i += 1
-    return codes
+    return False
 
 
 def in_colour(text):
@@ -1490,11 +1473,13 @@ def classify(harness, tail, fact, opened_at, previous, now):
         # not rewritten on every draw.
         state, source, why, evidence, began = "at_prompt", "", "none", \
             "no hook fact and no screen rule matched", None
-    typed = composer_text(harness, tail) if seen == "at_prompt" and state == "at_prompt" else ""
-    if typed:
+    parts = composer_parts(harness, tail) if seen == "at_prompt" and state == "at_prompt" else None
+    if parts and parts[0].strip():
         # a draft taller than the draft rule's window: the composer a rule found, read whole,
-        # still holds the owner's text
-        state, source, why, evidence, began = "draft", "screen", "composer", typed, None
+        # holds the owner's text from its prompt row on -- a faint suggestion or placeholder
+        # leaves that row empty, whatever its rows under it read
+        state, source, why, evidence, began = ("draft", "screen", "composer",
+                                               " ".join(" ".join(parts).split()), None)
     if source and began is None:
         kept = previous.get("began") if previous.get("state") == state else None
         if isinstance(kept, (int, float)) and not isinstance(kept, bool):
@@ -2439,7 +2424,13 @@ def composer_draft(harness, pane):
 
 
 def composer_text(harness, pane):
-    """The composer's whole text as it reads, "" when empty, None where none is found.
+    """The composer's whole text as it reads, "" when empty, None where none is found."""
+    parts = composer_parts(harness, pane)
+    return None if parts is None else " ".join(" ".join(parts).split())
+
+
+def composer_parts(harness, pane):
+    """The composer's text by row, its prompt row first; None where no composer is found.
 
     Read on any turn, from its prompt row down to the chrome under it: a wrap or a newline
     puts text on the rows below.  Found the way the draft rule finds it: a queued inbound
@@ -2451,7 +2442,7 @@ def composer_text(harness, pane):
     if chrome["draft"]:
         # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
         # block of them, and finding none reads as empty.
-        return " ".join(chrome["draft"].findall("\n".join(rows)))
+        return chrome["draft"].findall("\n".join(rows))
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
@@ -2469,16 +2460,12 @@ def composer_text(harness, pane):
     # A boxed composer's edges are chrome, including on continuation rows.
     parts = [_draft_text(raws[at], rows[at][:-1].rstrip() if boxed else rows[at],
                          chrome["composer"])]
-    faint = False                     # a faint suggestion's rows are faint from where it began
-    for raw in raws[:at + 1]:
-        faint = faint_after(raw, faint)
     for raw, plain in zip(raws[at + 1:end(at)], rows[at + 1:end(at)]):
-        if not faint and not has_dim(raw):
+        if not has_dim(raw):
             if boxed and plain.startswith("│") and plain.endswith("│"):
                 plain = plain[1:-1].strip()
             parts.append(plain)
-        faint = faint_after(raw, faint)
-    return " ".join(" ".join(parts).split())
+    return parts
 
 
 def sync_title(session, log=lambda _: None, *, force=False):

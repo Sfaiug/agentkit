@@ -73,5 +73,14 @@ class LongDraft(Sandbox):
                                        {}, None, {}, NOW)
                 self.assertEqual(found["state"], "at_prompt")
 
+    def test_text_typed_after_a_faint_reset_is_still_the_owner_s(self):
+        # an empty prompt row with faint padding, then a row that resets and holds typed text:
+        # whatever classify reads, the composer still holds it, so nothing is typed over it
+        pane = (FIX / "claude-suggestion-pane.txt").read_text(encoding="utf-8", errors="replace")
+        shown = "\x1b[39m❯\xa0\x1b[7m \x1b[0m"
+        self.assertIn(shown, pane)
+        pane = pane.replace(shown, "\x1b[39m❯ \x1b[2m \n\x1b[0m  fix the parser")
+        self.assertEqual(watch.composer_draft("claude", pane), "fixtheparser")
+
 if __name__ == "__main__":
     unittest.main()
