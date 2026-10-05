@@ -2,17 +2,19 @@
 
 A production project names its switches with one command, `features:` in its AGENTS.md. A row
 its `list` prints with `everyone` on and `everyone_since` (when it last went on for everyone,
-ISO 8601) at least PROVEN ago is due. Once every EVERY the tick reads each repository's list
-once, however many of its checkouts sit under ~/code, and hands the longest-due switch to the
-newest open seat filed under the project, through the queue `ak tell` fills. One switch is in
-hand at a time: the next is handed once it has left the list, which the project's own deploy
-does when the code no longer reads it, and while it is still listed AGAIN after it was handed,
-that same switch is handed again. One that went off for everyone meanwhile is no longer proven:
-the seat it went to is told to leave it in the code, and the next is handed. With no open seat
-there, nothing is handed and the next read tries again.
+ISO 8601 UTC) at least PROVEN ago is due. Once every EVERY the tick reads each repository's
+list once, however many of its checkouts sit under ~/code, and hands the longest-due switch to
+the newest open seat filed under the project, through the queue `ak tell` fills, as a line only
+a seat still filed there is ever typed. One switch is in hand at a time: it stays in hand until
+it has left the list, which the project's own deploy does when the code no longer reads it, and
+while it is still listed AGAIN after it was handed, the same line is handed again. A switch
+handed and then turned off stays in hand too: the owner's rule (5 Oct 2026) is that a proven
+switch comes out, and turning one off later is a code change. With no open seat there, nothing
+is handed and the next read tries again; a record that cannot be read stops the pass, so no
+second switch is ever handed over one it no longer sees.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import time
 
@@ -28,11 +30,14 @@ def path():
 
 
 def read():
+    """The pass's record, {} before its first; one that cannot be read raises."""
     try:
         data = json.loads(path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path()} is not the switch retirement record")
+    return data
 
 
 def write(data):
@@ -42,7 +47,8 @@ def write(data):
 
 
 def since(row):
-    """When that row last went on for everyone, in epoch seconds, or None while it is not."""
+    """When that row last went on for everyone, in epoch seconds, or None while it is not; a
+    stamp with no offset is UTC."""
     stamp = row.get("everyone_since")
     if row.get("everyone") is not True or not isinstance(stamp, str):
         return None
@@ -50,7 +56,7 @@ def since(row):
         at = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return at.timestamp() if at.tzinfo else None
+    return (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).timestamp()
 
 
 def due(rows, now):
@@ -64,15 +70,9 @@ def due(rows, now):
 def line(row):
     day = time.strftime("%-d %b", time.localtime(since(row)))
     return (f"[from ak, not the owner] The `{row['id']}` switch has been on for everyone since "
-            f"{day}: two weeks or more, so it is proven. Take it out of the code, keeping the feature as "
-            "everyone has it now. Once the deploy drops it from the switch list, ak hands over "
-            "the next.")
-
-
-def back(feature):
-    return (f"[from ak, not the owner] The `{feature}` switch went off for everyone after ak "
-            "handed it to you, so it is not proven yet: leave it in the code, and drop any change "
-            "that takes it out.")
+            f"{day}: two weeks or more, so it is proven. Take it out of the code, so everyone "
+            "keeps the feature for good. Once the deploy drops it from the switch list, ak hands "
+            "over the next.")
 
 
 def projects():
@@ -108,29 +108,26 @@ def hand(log, now=None):
         if not isinstance(rows, list):
             log(f"WARN {home.name}: its switches are unread, so none was handed ({why or 'no list'})")
             continue
-        proven = due(rows, now)
-        handed = entry.pop("handed", None)
-        if handed and any(isinstance(row, dict) and row.get("id") == handed["id"] for row in rows):
-            again = [row for row in proven if row["id"] == handed["id"]]
-            if again:
-                entry["handed"] = handed   # in hand until the deploy drops it from the list
-                if now - handed["at"] < AGAIN:
-                    continue
-                proven = again
-            elif refused := tell.queue(handed["seat"], back(handed["id"])):
-                log(f"WARN {home.name}: switch {handed['id']} went off for everyone, and "
-                    f"{handed['seat']} was not told to leave it in: {refused}")
-            else:
-                log(f"{home.name}: switch {handed['id']} went off for everyone; "
-                    f"{handed['seat']} was told to leave it in")
-        if not proven:
-            continue
+        handed = entry.get("handed")
+        if handed and not any(isinstance(row, dict) and row.get("id") == handed["id"]
+                              for row in rows):
+            entry.pop("handed")    # out of the code: the deploy dropped it
+            handed = None
+        if handed:
+            if now - handed["at"] < AGAIN:
+                continue
+            feature, text = handed["id"], handed["line"]
+        else:
+            proven = due(rows, now)
+            if not proven:
+                continue
+            feature, text = proven[0]["id"], line(proven[0])
         seat = seat_for(checkouts)
         if seat is None:
-            log(f"{home.name}: switch {proven[0]['id']} is proven; no open seat to hand it to")
-        elif refused := tell.queue(seat["name"], line(proven[0]), checkouts=checkouts):
-            log(f"WARN {home.name}: switch {proven[0]['id']} was not handed: {refused}")
+            log(f"{home.name}: switch {feature} is proven; no open seat to hand it to")
+        elif refused := tell.queue(seat["name"], text, checkouts=checkouts):
+            log(f"WARN {home.name}: switch {feature} was not handed: {refused}")
         else:
-            entry["handed"] = {"id": proven[0]["id"], "at": now, "seat": seat["name"]}
-            log(f"{home.name}: switch {proven[0]['id']} is proven; handed to {seat['name']}")
+            entry["handed"] = {"id": feature, "at": now, "seat": seat["name"], "line": text}
+            log(f"{home.name}: switch {feature} is proven; handed to {seat['name']}")
     write(record)

@@ -121,27 +121,40 @@ def refusal(name, seat):
     return None
 
 
+def filed(name, message):
+    """Whether that seat may get that message by its project: one about a project (its
+    `checkouts`) only while the seat is filed under one of them."""
+    places = message.get("checkouts")
+    repo = (config.session_records().get(name) or {}).get("repo")
+    return places is None or str(orch.checkout_of(repo)) in places
+
+
 def queue(name, line, sender="", checkouts=None):
     """Queue `line` for that seat, under its lock, so the tick types it there; None once it is
     queued, else why nothing was.  `sender` is the seat it is from; none is ak itself.
-    `checkouts`, when given, are the ones the seat must still be filed under: a line about one
-    project never reaches a seat moved to another.
+    `checkouts`, when given, are the ones the seat must be filed under, when it is queued and
+    when it is typed: a line about one project never reaches a seat moved to another.
 
     Under the receiver's lock, the one a rename, a close and a filing take: the seat it is now
     is the one the message is for, and only that seat's tick pass types it.
     """
+    most = longest(config.load())
+    if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
+        return (f"{len(line):,} characters is more than a composer shows whole ({most:,}); "
+                "write the rest to a file and tell its path")
     with notify.session_lock(name) as name:
         seat = seat_of(name)
         refused = refusal(name, seat)
         if refused:
             return refused
-        repo = (config.session_records().get(name) or {}).get("repo")
-        if checkouts is not None and orch.checkout_of(repo) not in checkouts:
+        message = {"id": uuid.uuid4().hex, "from": sender, "at": time.time(), "line": line,
+                   "seat": seat}
+        if checkouts is not None:
+            message["checkouts"] = [str(checkout) for checkout in checkouts]
+        if not filed(name, message):
             return f"{name} is filed under another project now"
         try:
-            edit(name, lambda messages: messages.append(
-                {"id": uuid.uuid4().hex, "from": sender, "at": time.time(), "line": line,
-                 "seat": seat}))
+            edit(name, lambda messages: messages.append(message))
         except (OSError, ValueError) as exc:
             return f"{name}'s message queue cannot be read, so nothing was queued: {exc}"
     return None
@@ -161,9 +174,12 @@ def deliver_to(session, log, cfg=None):
     name = session["name"]
 
     def take(messages):
-        # meant for a seat this name no longer is: never typed into the one it is now
-        seat = seat_of(config.resolve_session(name))
-        messages[:] = [message for message in messages if message.get("seat") == seat]
+        # meant for a seat this name no longer is, or about a project it is no longer filed
+        # under: never typed into the one it is now
+        current = config.resolve_session(name)
+        seat = seat_of(current)
+        messages[:] = [message for message in messages
+                       if message.get("seat") == seat and filed(current, message)]
         return dict(messages[0]) if messages else None
 
     first = locked(name, take)
@@ -171,8 +187,9 @@ def deliver_to(session, log, cfg=None):
         return False
 
     def stale(held):
-        # under the typing lock, right before each key: still the seat it was meant for
-        return seat_of(held) != first["seat"]
+        # under the typing lock, right before each key: still the seat it was meant for, filed
+        # where it was
+        return seat_of(held) != first["seat"] or not filed(held, first)
 
     def ready(current):
         # under the typing lock, right before each Enter: the composer holds this line alone,
@@ -233,11 +250,6 @@ def main(argv):
     now = time.time()
     line = (f"[from seat {sender} at {time.strftime('%H:%M', time.localtime(now))}, not the "
             f"owner; reply with ak tell {sender}] {text}")
-    most = longest(config.load())
-    if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
-        print(f"ak tell: {len(line):,} characters is more than a composer shows whole ({most:,}); "
-              "write the rest to a file and tell its path", file=sys.stderr)
-        return 1
     refused = queue(argv[0], line, sender)
     if refused:
         print(f"ak tell: {refused}", file=sys.stderr)

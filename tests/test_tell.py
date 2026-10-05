@@ -258,6 +258,39 @@ class Tell(Seats):
         self.assertEqual(self.typed, [])
         self.assertEqual(self.waiting(), [])
 
+    def filed_under(self, *names):
+        for name in names:
+            (config.CODE / name / ".git").mkdir(parents=True)
+        config.update_session(SEAT, repo=str(config.CODE / names[0]))
+        return [config.CODE / names[0]]
+
+    def file(self, name):
+        with redirect_stdout(io.StringIO()):
+            orch.cmd_project([SEAT, name])
+
+    def test_a_line_about_one_project_never_reaches_a_seat_filed_under_another(self):
+        acme = self.filed_under("ACME", "OTHER")
+        self.assertIsNone(tell.queue(SEAT, "Take the old switch out.", checkouts=acme))
+        self.file("OTHER")
+        self.assertEqual(tell.queue(SEAT, "Again.", checkouts=acme),
+                         f"{SEAT} is filed under another project now")
+        self.tick()
+        self.assertEqual((self.typed, self.waiting()), ([], []))
+
+    def test_a_seat_filed_elsewhere_while_a_project_line_is_typed_never_gets_it(self):
+        acme = self.filed_under("ACME", "OTHER")
+        tell.queue(SEAT, "Take the old switch out.", checkouts=acme)
+        real_type = watch.type_at_prompt
+
+        def refile_then_type(*args, **kwargs):
+            self.file("OTHER")
+            return real_type(*args, **kwargs)
+
+        with patch.object(watch, "type_at_prompt", side_effect=refile_then_type):
+            self.tick()
+        self.tick()
+        self.assertEqual((self.typed, self.waiting()), ([], []))
+
     def test_a_told_line_never_reads_as_a_composers_placeholder(self):
         codex = (REPO / "tests/fixtures/codex-stall-pane.txt").read_text(encoding="utf-8")
         for harness, pane, empty, mark, text in (

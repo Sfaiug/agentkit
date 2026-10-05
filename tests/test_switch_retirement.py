@@ -155,20 +155,42 @@ class Retire(unittest.TestCase):
         self.assertEqual([message["line"].split("`")[1] for message in self.queued("acme")],
                          ["first", "first", "newer-listed"])
 
-    def test_one_that_went_off_for_everyone_is_called_back_and_the_next_handed(self):
+    def test_one_turned_off_after_it_was_handed_stays_in_hand_until_it_leaves_the_list(self):
         self.seat("acme", self.acme, created=10)
         self.switches(row("first", 60), row("second", 40))
         self.hand()
         self.switches(row("first", everyone=False), row("second", 40))
         self.hand(NOW + retire.EVERY)
-        self.hand(NOW + 2 * retire.EVERY)
+        self.hand(NOW + retire.AGAIN)
+        self.switches(row("second", 40))
+        self.hand(NOW + retire.AGAIN + retire.EVERY)
         lines = [message["line"] for message in self.queued("acme")]
-        self.assertEqual(len(lines), 3)
-        self.assertIn("`first` switch went off for everyone after ak handed it to you", lines[1])
-        self.assertIn("leave it in the code", lines[1])
-        self.assertIn("`second` switch has been on for everyone", lines[2])
-        self.assertIn("ACME: switch first went off for everyone; acme was told to leave it in",
-                      self.logged)
+        self.assertEqual([line.split("`")[1] for line in lines], ["first", "first", "second"])
+        self.assertEqual(lines[0], lines[1])
+
+    def test_an_unread_record_hands_nothing(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(row("first", 40))
+        self.hand()
+        self.switches(row("first", 40), row("newer-listed", 60))
+        retire.path().write_text("[]")
+        with self.assertRaises(ValueError):
+            self.hand(NOW + retire.AGAIN)
+        self.assertEqual(len(self.queued("acme")), 1)
+
+    def test_a_stamp_without_an_offset_is_utc_and_a_line_too_long_is_not_handed(self):
+        self.seat("acme", self.acme, created=10)
+        unmarked = {**row("unmarked", 60), "everyone_since": stamp(60).removesuffix("Z")}
+        self.switches(unmarked, row("x" * 900, 90))
+        self.hand()
+        self.assertTrue(any(line.startswith(f"WARN ACME: switch {'x' * 900} was not handed: ")
+                            and "more than a composer shows whole" in line
+                            for line in self.logged))
+        self.assertEqual(self.queued("acme"), [])
+        self.switches(unmarked)
+        self.hand(NOW + retire.EVERY)
+        [message] = self.queued("acme")
+        self.assertIn("`unmarked` switch", message["line"])
 
     def test_a_seat_filed_under_another_project_meanwhile_gets_nothing(self):
         self.seat("acme", self.acme, created=10)
