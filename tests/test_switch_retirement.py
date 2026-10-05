@@ -1,5 +1,5 @@
 """A feature switch on for everyone for two weeks is handed to a seat on its project to take out
-of the code: the longest-proven one, one at a time until it leaves the list, once per repository.
+of the code: the longest-proven one, one at a time until it leaves the list, once per list.
 
 Offline: a temporary HOME whose ~/code/ACME is a real git repository naming a fake features
 command in its AGENTS.md, a script answering `list` from a JSON file beside it and logging each
@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, menu, orch, retire, tell
+from agentkit import config, harness, orch, retire, tell
 
 DAY = 86400
 NOW = 1_800_000_000.0
@@ -67,7 +67,7 @@ class Retire(unittest.TestCase):
         self.fake = self.root / "fake"
         self.fake.mkdir()
         (self.fake / "features.py").write_text(FAKE)
-        self.acme = self.project("ACME", features=True)
+        self.acme = self.project("ACME", f"{sys.executable} {self.fake / 'features.py'}")
         self.seats = []
         stack.enter_context(patch.object(orch, "sessions", side_effect=lambda: [
             dict(seat) for seat in self.seats]))
@@ -76,7 +76,7 @@ class Retire(unittest.TestCase):
     def project(self, name, features):
         checkout = config.CODE / name
         checkout.mkdir(parents=True)
-        front = f"features: {sys.executable} {self.fake / 'features.py'}\n" if features else ""
+        front = f"features: {features}\n" if features else ""
         (checkout / "AGENTS.md").write_text(f"---\nusers: real\n{front}---\n\n# {name}\n")
         for args in (["init", "-q", "-b", "main"], ["add", "AGENTS.md"],
                      ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x"]):
@@ -108,7 +108,7 @@ class Retire(unittest.TestCase):
         self.seat("acme-old", self.acme, created=10)
         self.seat("acme-new", self.acme, created=30)
         self.seat("acme-gone", self.acme, created=50, exited=True)
-        other = self.project("OTHER", features=False)
+        other = self.project("OTHER", None)
         self.seat("other", other, created=90)
         self.switches(row("fresh", 13), row("hidden", everyone=False), row("old", 40),
                       row("older", 60), {**row("unstamped"), "everyone_since": None})
@@ -209,18 +209,32 @@ class Retire(unittest.TestCase):
         self.switches(row("first", 40))
         with patch.object(tell, "queue", return_value="acme is closed"):
             self.hand()
-        self.assertNotIn("handed", retire.read()[menu.switches_command(self.acme)])
+        self.assertNotIn(str(self.acme), retire.read())
         self.assertIn("WARN ACME: switch first was not handed: acme is closed", self.logged)
 
-    def test_the_lists_are_read_once_an_hour_and_once_per_repository(self):
+    def test_once_an_hour_a_projects_worktrees_print_one_list_handed_once(self):
         subprocess.run(["git", "-C", str(self.acme), "worktree", "add", "-q",
                         str(config.CODE / "ACME-wt"), "-b", "wt"], check=True)
+        self.seat("acme", self.acme, created=5)
         self.seat("acme-wt", config.CODE / "ACME-wt", created=10)
         self.switches(row("older", 60))
         self.hand()
         self.hand(NOW + retire.EVERY - 1)
-        self.assertEqual(self.lists(), 1)
-        self.assertEqual(len(self.queued("acme-wt")), 1)
+        self.assertEqual(self.lists(), 2)
+        self.assertEqual((len(self.queued("acme")), len(self.queued("acme-wt"))), (0, 1))
+
+    def test_projects_whose_commands_read_alike_keep_their_own_lists(self):
+        self.switches()
+        for name in ("ONE", "TWO"):
+            checkout = self.project(name, f"{sys.executable} features.py")
+            (checkout / "features.py").write_text(FAKE)
+            (checkout / "features.json").write_text(json.dumps([row(name.lower() + "-only", 60)]))
+            self.seat(name.lower(), checkout, created=10 if name == "ONE" else 20)
+        self.hand()
+        self.assertEqual([message["line"].split("`")[1] for message in self.queued("one")],
+                         ["one-only"])
+        self.assertEqual([message["line"].split("`")[1] for message in self.queued("two")],
+                         ["two-only"])
 
     def test_a_repository_whose_git_directory_lives_elsewhere_is_one_project(self):
         subprocess.run(["git", "-C", str(self.acme), "init", "-q",
@@ -230,7 +244,6 @@ class Retire(unittest.TestCase):
         self.seat("acme-wt", config.CODE / "ACME-wt", created=10)
         self.switches(row("older", 60))
         self.hand()
-        self.assertEqual(self.lists(), 1)
         self.assertEqual(len(self.queued("acme-wt")), 1)
 
     def test_the_switch_in_hand_stays_in_hand_as_worktrees_come_and_go(self):
@@ -246,6 +259,14 @@ class Retire(unittest.TestCase):
         self.switches(row("first", 40), row("older-listed-later", 60))
         self.hand(NOW + retire.EVERY)
         self.assertEqual([message["line"].split("`")[1] for message in self.queued("acme")],
+                         ["first"])
+        subprocess.run(["git", "-C", str(main), "worktree", "remove", "--force",
+                        str(config.CODE / "ACME-wt")], check=True)
+        self.seat("aaa", config.CODE / "AAA-wt", created=20)
+        self.hand(NOW + 2 * retire.EVERY)
+        self.assertEqual(self.queued("aaa"), [])
+        self.hand(NOW + retire.AGAIN)
+        self.assertEqual([message["line"].split("`")[1] for message in self.queued("aaa")],
                          ["first"])
 
     def test_a_checkout_git_cannot_read_keeps_the_switch_in_hand(self):

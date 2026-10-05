@@ -2,17 +2,18 @@
 
 A production project names its switches with one command, `features:` in its AGENTS.md. A row
 its `list` prints with `everyone` on and `everyone_since` (when it last went on for everyone,
-ISO 8601 UTC) at least PROVEN ago is due. Once every EVERY the tick reads each list once,
-however many checkouts under ~/code declare its command, and hands the longest-due switch to
-the newest open seat filed under one of them, through the queue `ak tell` fills, in a line that
-names the project, so it holds wherever it lands. One switch is in hand at a time: it stays in
-hand until it has left the list, which the project's own deploy does when the code no longer
-reads it, and while it is still listed AGAIN after it was handed, the same line is handed
-again. A switch handed and then turned off stays in hand too: the owner's rule (5 Oct 2026) is
-that a proven switch comes out, and turning one off later is a code change. With no open seat
-there, nothing is handed and the next read tries again. A switch is recorded in hand before
-its line is queued, and a record that cannot be read or written stops the pass, so no second
-switch is ever handed over one the record does not hold.
+ISO 8601 UTC) at least PROVEN ago is due. Once every EVERY the tick reads the list of every
+checkout under ~/code that declares one; checkouts printing the same switches read one list,
+and for each list it hands the longest-due switch to the newest open seat filed under one of
+its checkouts, through the queue `ak tell` fills, in a line that names the project, so it
+holds wherever it lands. One switch is in hand at a time: it stays in hand until it has left
+the list, which the project's own deploy does when the code no longer reads it, and while it
+is still listed AGAIN after it was handed, the same line is handed again. A switch handed and
+then turned off stays in hand too: the owner's rule (5 Oct 2026) is that a proven switch comes
+out, and turning one off later is a code change. With no open seat there, nothing is handed
+and the next read tries again. A switch is recorded in hand before its line is queued, and a
+record that cannot be read or written stops the pass, so no second switch is ever handed over
+one the record does not hold.
 """
 
 from datetime import datetime, timezone
@@ -76,18 +77,25 @@ def line(project, row):
             "switch list, ak hands over the next.")
 
 
-def lists():
-    """{a `features:` command: the checkouts under ~/code that declare it}. The command is the
-    switch list: every checkout of a project declares the same one, and it prints the project's
-    live switches wherever it runs, so it keys the list however checkouts come and go; a
-    project that changes its command starts a new list."""
+def lists(log):
+    """[(checkouts, rows)]: each switch list under ~/code once, with the checkouts reading it. A
+    checkout's list is what its `features:` command prints there, so checkouts printing the
+    same switches read one list (a project's clones and worktrees all print its live ones),
+    while two projects whose commands only read alike print their own. A checkout whose list
+    cannot be read is logged and left out until it can be."""
     from . import menu   # here, not at the top: the menu is the whole screen
     found = {}
     for checkout in orch.checkouts():
-        command = menu.switches_command(checkout)
-        if command:
-            found.setdefault(command, []).append(checkout)
-    return found
+        if not menu.switches_command(checkout):
+            continue
+        rows, why = menu.features_run(checkout, "list")
+        if not isinstance(rows, list):
+            log(f"WARN {checkout.name}: its switches are unread, so none was handed "
+                f"({why or 'no list'})")
+            continue
+        same = tuple(sorted(json.dumps(row, sort_keys=True) for row in rows))
+        found.setdefault(same, ([], rows))[0].append(checkout)
+    return list(found.values())
 
 
 def seat_for(checkouts):
@@ -100,26 +108,34 @@ def seat_for(checkouts):
                default=None)
 
 
+def hold(record, checkouts, held):
+    """Every checkout reading a list holds its switch in hand, so the list keeps it while any
+    one of them stays under ~/code, however the others come and go."""
+    for checkout in checkouts:
+        if held:
+            record[str(checkout)] = held
+        else:
+            record.pop(str(checkout), None)
+
+
 def hand(log, now=None):
-    """The tick's pass: per project, the one proven switch in hand, handed to a seat there."""
-    from . import menu   # here, not at the top: the menu is the whole screen
+    """The tick's pass: per switch list, the one proven switch in hand, handed to a seat there."""
     now = time.time() if now is None else now
     record = read()
     if now - record.get("asked", 0) < EVERY:
         return
     record["asked"] = now
-    for command, checkouts in lists().items():
+    here = {str(checkout) for checkout in orch.checkouts()}
+    for gone in [key for key in record if key != "asked" and key not in here]:
+        del record[gone]
+    for checkouts, rows in lists(log):
         home = checkouts[0]
-        entry = record.setdefault(command, {})
-        rows, why = menu.features_run(home, "list")
-        if not isinstance(rows, list):
-            log(f"WARN {home.name}: its switches are unread, so none was handed ({why or 'no list'})")
-            continue
-        handed = entry.get("handed")
-        if handed and not any(isinstance(row, dict) and row.get("id") == handed["id"]
-                              for row in rows):
-            entry.pop("handed")    # out of the code: the deploy dropped it
-            handed = None
+        listed = {row.get("id") for row in rows if isinstance(row, dict)}
+        # still listed, it is still in the code: the deploy drops it once the code stops reading it
+        handed = max((record[str(checkout)] for checkout in checkouts
+                      if str(checkout) in record and record[str(checkout)]["id"] in listed),
+                     key=lambda held: held["at"], default=None)
+        hold(record, checkouts, handed)
         if handed:
             if now - handed["at"] < AGAIN:
                 continue
@@ -134,14 +150,11 @@ def hand(log, now=None):
             log(f"{home.name}: switch {feature} is proven; no open seat to hand it to")
             continue
         # in hand before its line is queued: a record that cannot be saved hands nothing
-        entry["handed"] = {"id": feature, "at": now, "seat": seat["name"], "line": text}
+        hold(record, checkouts, {"id": feature, "at": now, "seat": seat["name"], "line": text})
         write(record)
         refused = tell.queue(seat["name"], text)
         if refused:
-            if handed:
-                entry["handed"] = handed
-            else:
-                entry.pop("handed")
+            hold(record, checkouts, handed)
             log(f"WARN {home.name}: switch {feature} was not handed: {refused}")
         else:
             log(f"{home.name}: switch {feature} is proven; handed to {seat['name']}")
