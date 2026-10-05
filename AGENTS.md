@@ -53,6 +53,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - One process never takes over another run's record (its pid, its stop, its ending): leave a verdict in its record and wake it to act.
 - Work outliving a run goes to the tmux server (`run-shell -b`): a run's threads and children die with its scope.
 - Decide from exit codes and files, never another program's output text, which catches proofs and verdicts it shouldn't.
+- Never re-create another system's semantics for an input nobody uses (Linux's path walk inside Git trees, for a linked AGENTS.md): every review round found one more difference (#520, six rounds). Refuse the input plainly instead.
 - A test never asserts a plain word is absent from output that prints paths: worktree paths carry the run's title.
 - A rule on what may merge belongs in both merge paths: `do_merge` (task runs) and `merge_own_pr` (a seat's own PR, now the main path); a guard on one alone is a bypass.
 - Typing into a seat has one typer per kind of line: the tick, under its lock. A second typer (a sender trying first) needs claims and delivery reports that each review round finds a new race in (#439, 3 rounds).

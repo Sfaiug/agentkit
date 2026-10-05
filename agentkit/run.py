@@ -407,12 +407,14 @@ def repo_rules(wt, ref):
     ak reads only its front matter itself, and a harness loads the body on its own terms
     (some never, some only beside no file of their own), so without this each brand
     worked to different rules.  Read at the base commit, never the checkout: the work
-    under review cannot rewrite the rules it is judged by.  A read that fails is no file.
+    under review cannot rewrite the rules it is judged by.  A read that fails is no file,
+    and so is a link: its text is a path, not rules (`rules_cap` refuses one).
     """
     if not ref:
         return ""
     try:
-        text = git(wt, "show", f"{ref}:AGENTS.md", check=False)
+        mode = git(wt, "ls-tree", ref, "--", "AGENTS.md", check=False).partition(" ")[0]
+        text = git(wt, "show", f"{ref}:AGENTS.md", check=False) if mode.startswith("100") else ""
     except Exception:
         return ""
     match = FRONT.match(text)
@@ -2718,14 +2720,22 @@ def files_scope(lp):
 
 
 def rules_cap(lp):
-    """Refuse an AGENTS.md past what a harness reads of it, only when this branch changes it."""
+    """Refuse a linked AGENTS.md, or one past what a harness reads of it, only when this branch
+    changes it."""
+    if lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
+                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
+        return ""
+    entry = git(lp.wt, "ls-tree", "HEAD", "--", "AGENTS.md")
+    if not entry:
+        return ""       # the branch deleted it
+    if entry.startswith("120000 "):
+        # following it would mean redoing how Linux opens a path, inside Git's trees
+        return ("AGENTS.md is a link, which ak does not follow, so workers would get no rules "
+                "from it: make AGENTS.md the file itself.")
     ceiling = config.instruction_ceiling()
-    if not ceiling or lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
-                                            f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
+    if not ceiling:
         return ""
     limit, harness = ceiling
-    if not git(lp.wt, "ls-tree", "--name-only", "HEAD", "--", "AGENTS.md"):
-        return ""       # the branch deleted it
     # the bytes a checkout holds, Git's line-end conversion and filters applied: what a harness
     # reads, not the stored blob, and read as bytes, since a text read would fold CRLF to LF
     try:
