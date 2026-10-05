@@ -160,6 +160,20 @@ class ComposerBox(Sandbox):
         self.assertNotIn("API Error", said)
         self.assertNotIn("/login", said)
 
+    def test_faint_turned_on_and_off_around_no_text_draws_nothing_faint(self):
+        """A blank row's faint code carries on to the next row, where a reset ends it before
+        any text: the bright draft there is the owner's, on the prompt row or under it."""
+        for pane, said in (
+                (PROMPT.replace("❯\u00a0\n", "\x1b[2m\n\x1b[0m❯\u00a0Fix the login\n"),
+                 "Fix the login"),
+                (drafted("Fix the login\n\x1b[2m\n\x1b[0m  and its tests"),
+                 "Fix the login and its tests")):
+            with self.subTest(said=said):
+                self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane)),
+                                 ("draft", "prompt.draft", said))
+                self.assertEqual(watch.composer_draft("claude", pane), said.replace(" ", ""))
+                self.assertEqual(self.looked(pane), ("needs you", False, []))
+
     def test_an_older_boxed_composer_holding_its_placeholder_is_free(self):
         pane = ('⎿ Done.\n╭──────────────────╮\n│ > Try "fix tests" │\n╰──────────────────╯\n'
                 '⏵⏵ bypass permissions on (shift+tab to cycle)   ◯ 92% context left\n')

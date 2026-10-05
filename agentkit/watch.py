@@ -1028,9 +1028,22 @@ def _sgr_codes(params):
         i += 1
 
 
+def _faint_drawn(raw, faint=False):
+    """(whether faint text is drawn in that raw `-e` row, whether faint is on at its end), from
+    whether it was on at its start: a code that turns faint on and another that ends it before
+    any visible text draws nothing faint."""
+    drawn, at = False, 0
+    for found in SGR_SEQ.finditer(raw):
+        drawn = drawn or (faint and bool(raw[at:found.start()].strip()))
+        for code in _sgr_codes(found.group(1)):
+            faint = True if code == 2 else False if code in (0, 22) else faint
+        at = found.end()
+    return drawn or (faint and bool(raw[at:].strip())), faint
+
+
 def has_dim(line):
-    """Does that raw `-e` line carry a faint (SGR 2) span: a suggestion, never a draft."""
-    return any(2 in _sgr_codes(found.group(1)) for found in SGR_SEQ.finditer(line))
+    """Does that raw `-e` line draw faint (SGR 2) text: a suggestion, never a draft."""
+    return _faint_drawn(line)[0]
 
 
 def dim_rows(raws):
@@ -1042,13 +1055,8 @@ def dim_rows(raws):
     """
     faint, dims = False, []
     for raw in raws:
-        dim, at = has_dim(raw), 0
-        for found in SGR_SEQ.finditer(raw):
-            dim = dim or (faint and bool(strip_sgr(raw[at:found.start()]).strip()))
-            for code in _sgr_codes(found.group(1)):
-                faint = True if code == 2 else False if code in (0, 22) else faint
-            at = found.end()
-        dims.append(dim or (faint and bool(raw[at:].strip())))
+        drawn, faint = _faint_drawn(raw, faint)
+        dims.append(drawn)
     return dims
 
 
