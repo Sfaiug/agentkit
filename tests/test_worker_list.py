@@ -390,6 +390,49 @@ class WorkerList(unittest.TestCase):
                 self.assertEqual(saved["review_pending"]["round"], 1)
                 self.assertEqual(saved["round_summaries"], [])
 
+    def test_a_quota_refusal_of_the_verdict_ask_resumes_after_refill(self):
+        # the first turn answers without a verdict, and the one extra ask is what the
+        # provider refuses: a spent window all the same, never a second silence
+        lp = self.loop("alpha", "gamma", ["alpha"])
+        lp.state["reviewers"] = ["gamma"]
+        record.save_state(lp.run_dir, lp.state)
+        asked = []
+
+        def fake(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
+            asked.append(body)
+            out = Path(out_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            code, text = (1, "usage limit reached") if asked[1:] else (0, "I have read the diff.")
+            (out / "final.md").write_text(text)
+            (out / "stderr.log").write_text(text if code else "")
+            return code, text, "review-session", False
+
+        with patch.object(run.worker, "call", side_effect=fake), \
+                patch.object(run.worker, "marked_pids", return_value=[]), \
+                patch.object(run.worker.box, "leftovers", return_value=[]), \
+                self.refused(usage.Readings(self.providers(b=100))), \
+                patch.object(run.time, "sleep",
+                             side_effect=AssertionError("quota waits on nothing")), \
+                redirect_stderr(io.StringIO()):
+            with self.assertRaises(run.Exhausted) as parked:
+                run.review(lp, "Review the work.", None, "")
+        self.assertEqual(len(asked), 2)
+        self.assertTrue(asked[1].endswith(run.NO_VERDICT_ASK))
+        run.park_exhausted(lp.state, parked.exception)
+        record.save_state(lp.run_dir, lp.state)
+        refilled = usage.Readings(self.providers(b=10))
+        with patch.object(record, "run_dirs", return_value=[lp.run_dir]), \
+                patch.object(usage, "readiness", return_value=refilled), \
+                patch.object(run, "spawn_bg", return_value=0) as spawn:
+            watch.resume_exhausted(self.cfg, refilled, log=self.logs.append, now=self.now + 3601)
+        self.assertEqual(spawn.call_count, 1,
+                         "a quota refusal of the verdict ask must resume after refill")
+        saved = record.read_state(lp.run_dir)
+        self.assertTrue(saved["quota_dry"])
+        self.assertNotIn("gave no verdict twice", saved["error"])
+        self.assertEqual(saved["review_pending"]["round"], 1)
+        self.assertEqual(saved["round_summaries"], [])
+
     def test_a_tick_no_run_waits_on_asks_no_harness(self):
         # asking runs each harness's `auth`: a pass with nothing to pick asks nobody
         watch.resume_exhausted(self.cfg, usage.Readings(self.providers()),
