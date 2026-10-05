@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, history, run, scoreboard, terminal
+from agentkit import gate, config, history, run, status, scoreboard, terminal
 
 NOW = 1_800_000_000
 WEEK = 7 * 86400
@@ -72,7 +72,7 @@ class Scoreboard(unittest.TestCase):
 
     def status(self, *args):
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status(list(args)), 0)
+            self.assertEqual(status.cmd_status(list(args)), 0)
         return out.getvalue()
 
     def test_two_weeks_measure_endings_merges_wall_time_and_all_role_tokens(self):

@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import gate, host, config, gc, menu, orch, run, watch, worker
+from agentkit import gate, host, config, gc, menu, orch, run, status, watch, worker
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -74,7 +74,8 @@ class OwnPrRounds(unittest.TestCase):
                             ("process_active", True), ("scope_alive", None),
                             ("host_status_line", "fixture host")):
             self.stack.enter_context(patch.object(record if name == "process_active" else
-                                                gate if name == "host_status_line" else run,
+                                                gate if name == "host_status_line" else
+                                                status if name == "scope_alive" else run,
                                                 name, return_value=value))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=lambda *_: dict(self.pr)))
@@ -139,7 +140,7 @@ class OwnPrRounds(unittest.TestCase):
         self.assertIn(f"defect {len(self.prompts)}", self.notices[-1])
         out = io.StringIO()
         with redirect_stdout(out):
-            run.cmd_status([self.run_dir.name])
+            status.cmd_status([self.run_dir.name])
         self.assertIn("waiting for", out.getvalue())
         self.assertIn("push", out.getvalue())
         with patch.object(watch, "run_last_write", return_value=time.time() - 7200):
@@ -267,7 +268,7 @@ class OwnPrRounds(unittest.TestCase):
                 return
             for args in ([], ["--plain"], ["--why"], [self.run_dir.name]):
                 with self.subTest(args=args), redirect_stdout(io.StringIO()) as out:
-                    run.cmd_status(args)
+                    status.cmd_status(args)
                 self.assertIn("waiting for", out.getvalue())
                 self.assertIn("push", out.getvalue())
                 if "--plain" not in args:

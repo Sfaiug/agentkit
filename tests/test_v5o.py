@@ -16,7 +16,7 @@ from unittest.mock import patch
 import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
-from agentkit import config, menu, orch, run, terminal, watch
+from agentkit import config, menu, orch, run, status, terminal, watch
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -373,7 +373,7 @@ class V5oMenu(Sandbox):
                                state="fail", verdict="FAIL", finished_at=NOW - 2 * 3600,
                                started_at=NOW - 2 * 3600 - 1800)
         with redirect_stdout(io.StringIO()):
-            run.cmd_status(["herdr-second-pass"])
+            status.cmd_status(["herdr-second-pass"])
         self.assertTrue(record.read_state(second).get("recovery_acknowledged_at"))
         third = self.touching("herdr-third-pass", owner="herdr-quiet",
                               repo=str(config.CODE / "agentkit"), title="Herdr third pass",
@@ -388,7 +388,7 @@ class V5oMenu(Sandbox):
         self.assertIn("session closed: press 3 to reopen", screen)
         self.assertNotIn("press r", screen)
         with redirect_stdout(io.StringIO()):
-            run.cmd_status(["herdr-fourth-pass"])
+            status.cmd_status(["herdr-fourth-pass"])
         self.assertTrue(record.read_state(fourth).get("recovery_acknowledged_at"))
         for run_id in ("herdr-second-pass", "herdr-third-pass", "herdr-fourth-pass"):
             state = record.read_state(config.RUNS / run_id)

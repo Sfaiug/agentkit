@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import gate, config, job as jobs, land, menu, orch, run, watch, worker
+from agentkit import gate, config, job as jobs, land, menu, orch, run, status, watch, worker
 from agentkit import host, record
 from agentkit import task as taskfile
 
@@ -995,7 +995,7 @@ class RunStop(Sandbox):
             self.assertEqual(run.cmd_stop([run_id]), 0)
         state = record.read_state(directory)
         self.assertEqual(state["state"], "stopped")
-        lines = run.status_details(directory, state)
+        lines = status.status_details(directory, state)
         workspace = next(line for line in lines if "workspace:" in line)
         self.assertIn("branch removed", workspace)
         self.assertNotIn("branch/PR retained", workspace)

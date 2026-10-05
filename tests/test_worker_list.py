@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, notify, run, usage, watch
+from agentkit import host, config, notify, run, status, usage, watch
 from agentkit import record
 from fixtures.hand_in import submitting
 
@@ -173,7 +173,7 @@ class WorkerList(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             run.preflight(lp.run_dir, opts, run.logger(lp.run_dir))
         self.assertIn("workers: alpha, gamma", (lp.run_dir / "log.txt").read_text())
-        self.assertIn("  workers: alpha, gamma", run.status_details(lp.run_dir, lp.state))
+        self.assertIn("  workers: alpha, gamma", status.status_details(lp.run_dir, lp.state))
 
     def test_a_handover_never_leaves_the_workers_list(self):
         # delta tops every budget and sits in this process's session, but the run's own

@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, smoke, stateful
-from agentkit import config, notify, orch, run, watch
+from agentkit import config, notify, orch, run, status, watch
 from agentkit import record
 
 ADAPTER = """import json, os, sys
@@ -386,7 +386,7 @@ class ResumeMidturn(unittest.TestCase):
         self.assertEqual(state["queued_at"], waited_since, "it keeps its place in the queue")
         self.assertEqual(self.cards, [])
         clock = time.strftime("%H:%M", time.localtime(self.now))
-        self.assertEqual(run.resume_age(state, self.now + 5),
+        self.assertEqual(status.resume_age(state, self.now + 5),
                          f"resumed {clock} · continued the slot wait")
 
     def test_a_done_when_gate_cut_off_runs_again_without_another_executor_turn(self):
@@ -441,7 +441,7 @@ class ResumeMidturn(unittest.TestCase):
         record.save_state(directory, state)
         out = io.StringIO()
         with patch.object(time, "time", return_value=self.now + 10), redirect_stdout(out):
-            self.assertEqual(run.cmd_status([directory.name]), 0)
+            self.assertEqual(status.cmd_status([directory.name]), 0)
         text = out.getvalue()
         self.assertIn("resumed ", text)
         self.assertIn("continued the executor's turn", text)
@@ -452,7 +452,7 @@ class ResumeMidturn(unittest.TestCase):
         self.assertIn("loop process 111 gone", shown.getvalue())
         # a gate is a step the loop continues, not a turn a model is in the middle of
         state["resume_notice"] = {"at": self.now, "role": "done-when", "restarted": False}
-        self.assertTrue(run.resume_age(state, self.now + 10).endswith("continued the done-when"))
+        self.assertTrue(status.resume_age(state, self.now + 10).endswith("continued the done-when"))
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words leak into some twenty files.
-- `run.py` (12.1k lines) holds most of the run side.
+- `run.py` (11.4k lines) holds most of the run side.
 
 ## Entry points
 
@@ -24,12 +24,16 @@
 - `run.py`: staffing, review, landing, hand-back, failures, worktrees and delivery locks.
   Passed writable workers and automatic review-PR merges park in the line and exit;
   foreground callers and jobs follow records. Forks keep `land`. API: `main`, `going`,
-  `pick_models`; for watch, job, gc, orch, menu, notify, usage, worker and a hook.
+  `pick_models`; for watch, status, job, gc, orch, menu, notify, usage, worker and a hook.
 - `gate.py`: run admission (the slot queue and host gates), check commands and host-wide
   heavy-suite turns. API: `slot_lock`, `claim_slot`, `wait_for_slot`, `slot_note`,
   `host_status_line`, `run_done_when`, turn/env helpers and wait notes. For run, land and
   tests. Leaks: run's `run_child_env`, `memory_cap_note`, `dirty_paths`, `OUT_CAP`,
   `redress_seat`, `run_depth`.
+- `status.py`: `ak run status`: the run table, one run's details and their dim lines
+  (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
+  watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
+  `own_pr_wait_note`). Leak: run's private `_cached_providers`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member
   leaves to fix itself or hand the failure to its PR's seat. Record changes and the tick
@@ -96,7 +100,8 @@
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. For
   bin/ak, menu, install.sh.
 - `host.py`: memory, load, CPUs, pressure, process/cgroup counters, `alive`, `process_identity`;
-  reads only, no agentkit imports. For config, orch, run, gate, job, watch, gc and record.
+  reads only, no agentkit imports. For config, orch, run, gate, status, job, watch,
+  gc and record.
 - `proc_snapshot.py`: read-only /proc inventory; no agentkit imports, so it runs under sudo.
   For gc.
 - `__init__.py`: empty.

@@ -20,7 +20,7 @@ from unittest.mock import patch
 import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
-from agentkit import host, command_help, config, menu, orch, run, terminal
+from agentkit import host, command_help, config, menu, orch, run, status, terminal
 from agentkit import record
 
 NOW = 1_800_000_000      # what every draw reads as the time
@@ -99,9 +99,9 @@ class Listings(Sandbox):
                 return (0, 0)
             return None
         with patch.object(terminal, "width", return_value=width), \
-                patch.object(run, "scope_alive", side_effect=alive), \
+                patch.object(status, "scope_alive", side_effect=alive), \
                 redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status(list(argv)), 0)
+            self.assertEqual(status.cmd_status(list(argv)), 0)
         return out.getvalue()
 
     def orch_list(self, argv, width=100):
@@ -290,7 +290,7 @@ class Listings(Sandbox):
         self.assertTrue(all(terminal.cells(line) <= 100 for line in table.splitlines()))
 
     def test_v5z_k_empty_status_prints_the_line_and_exits_zero(self):
-        header, groups = run.status_rows([], 100)
+        header, groups = status.status_rows([], 100)
         self.assertEqual(groups, [])
         self.assertIn("id", header)
         for name in (WORKING_ID, UNFINISHED_ID, DONE_ID):
@@ -378,7 +378,7 @@ class Listings(Sandbox):
         # a caller handing the scope down reads nothing further
         with patch.object(run, "_cached_providers",
                           wraps=run._cached_providers) as cached:
-            lines = run.status_details(directory, record.read_state(directory), {}, None)
+            lines = status.status_details(directory, record.read_state(directory), {}, None)
             self.assertEqual(cached.call_count, 0)
         self.assertIn("waiting for a provider window", "\n".join(lines))
 

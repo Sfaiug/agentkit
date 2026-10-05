@@ -1865,6 +1865,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     The seat's own runs are gathered before the first rung, because a login the top rung
     reports may be one a run of this seat's parked on rather than the seat's own.
     """
+    from . import status as status_mod    # status imports run, which imports this module
     if records is None:
         try:
             records = menu_mod.run_records()
@@ -1960,7 +1961,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         starts = [s.get("started_at") for _, s in going
                   if isinstance(s.get("started_at"), (int, float))
                   and not isinstance(s.get("started_at"), bool)]
-        reason = (run_mod.parked_line(newest[1]) if run_mod.landing_line(newest[1])
+        reason = (status_mod.parked_line(newest[1]) if run_mod.landing_line(newest[1])
                   else " · ".join(parts))
         return {"word": "working", "reason": reason,
                 "since": min(starts) if starts else None}
@@ -2011,7 +2012,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             elif first.get("state") == "waiting":
                 reason = f"run {name} waits to merge: {reason}"
             else:
-                reason = run_mod.parked_line(first, name, now=at) or f"run {name} parked: {reason}"
+                reason = (status_mod.parked_line(first, name, now=at)
+                          or f"run {name} parked: {reason}")
             return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 4. nobody is in it: its number is the way back into the conversation.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to

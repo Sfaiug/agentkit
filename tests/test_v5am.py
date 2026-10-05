@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import gate, host, config, job as jobs, menu, notify, orch, run, watch
+from agentkit import gate, host, config, job as jobs, menu, notify, orch, run, status, watch
 from agentkit import record
 
 ADAPTER = r'''import json, os, pathlib, sys, time
@@ -393,13 +393,13 @@ class Slots(unittest.TestCase):
         directory, state = self.receipt("two", "queued")
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status(["--plain"]), 0)
+            self.assertEqual(status.cmd_status(["--plain"]), 0)
         self.assertIn("waiting", out.getvalue())
         self.assertIn("waiting for a slot · limit full (1 running) · 0 ahead", out.getvalue())
         self.assertNotIn("offers recovery", out.getvalue())
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status([]), 0)
+            self.assertEqual(status.cmd_status([]), 0)
         self.assertIn("waiting for a slot · limit full (1 running) · 0 ahead", out.getvalue())
         self.assertFalse(menu.v5o_needs_look(state))
         self.assertEqual(len(self.calls()), 1)

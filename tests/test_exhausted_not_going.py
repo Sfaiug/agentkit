@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, menu, notify, orch, run, watch, worker
+from agentkit import config, menu, notify, orch, run, status, watch, worker
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -72,7 +72,7 @@ class ExhaustedNotGoing(Sandbox):
                                         error="reviewer astra died on API/transport errors")
         self.assertEqual(run.exhausted_wait(state), "reviewer")
         self.assertTrue(run.going(state))
-        self.assertEqual(run.parked_line(state, directory.name, now=NOW),
+        self.assertEqual(status.parked_line(state, directory.name, now=NOW),
                          "exhausted · resumes when a reviewer is eligible")
         found = self.decide()
         self.assertEqual((found["word"], found["reason"]),
@@ -108,7 +108,7 @@ class ExhaustedNotGoing(Sandbox):
         index = run.supersession_index(state for _, state in menu.run_records())
         reread = record.read_state(directory)
         self.assertFalse(run.settled(reread, index))
-        self.assertEqual(run.status_state_word(reread, index), "needs you")
+        self.assertEqual(status.status_state_word(reread, index), "needs you")
         # `ak run stop` is still a way out: stopped, the seat's own word stands
         record.save_state(directory, {**reread, "state": "stopped",
                                    "error": "stopped by the user"})
@@ -123,7 +123,7 @@ class ExhaustedNotGoing(Sandbox):
         reread = record.read_state(directory)
         self.assertTrue(run.is_superseded(reread, None, index))
         self.assertTrue(run.settled(reread, index))
-        self.assertEqual(run.status_state_word(reread, index), "done")
+        self.assertEqual(status.status_state_word(reread, index), "done")
 
     def test_d_such_a_run_is_in_no_running_tally(self):
         self.receipt("20260101-0900-unanswered", error=NO_VERDICT, handed_back=NOW - 590,

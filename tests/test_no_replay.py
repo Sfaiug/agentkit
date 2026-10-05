@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import browser, config, gc, menu, notify, orch, run, watch
+from agentkit import browser, config, gc, menu, notify, orch, run, status, watch
 from agentkit import record
 
 SEAT = "seat"
@@ -219,13 +219,13 @@ class NoReplay(Sandbox):
         run.announce(record.read_state(directory), directory, self.logs.append)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status(["--pending"]), 0)
+            self.assertEqual(status.cmd_status(["--pending"]), 0)
         self.assertIn("run-pending", out.getvalue())
         self.assertIn("hand-back waiting", out.getvalue())
         self.assertIn("session closed by the owner", out.getvalue())
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status([]), 0)
+            self.assertEqual(status.cmd_status([]), 0)
         self.assertIn("hand-back waiting", out.getvalue())
 
     def test_orphan_grace_keeps_a_long_dead_seat_closed(self):

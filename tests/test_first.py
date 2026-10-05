@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, land, run, worker  # noqa: E402
+from agentkit import gate, config, land, run, status, worker  # noqa: E402
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"
@@ -184,7 +184,7 @@ class First(unittest.TestCase):
             state.update(state="waiting", waiting_on={"line": lock.name, "joined": joined})
             run_record.save_state(directory, state)
         self.assertEqual([directory for directory, _ in land.line(lock)], [earlier, first])
-        self.assertEqual(run.parked_line(run_record.read_state(first)),
+        self.assertEqual(status.parked_line(run_record.read_state(first)),
                          "waiting · 2nd in line to land on main")
 
     def test_status_marks_first(self):
@@ -204,9 +204,9 @@ class First(unittest.TestCase):
                 patch.object(run_record, "process_active", return_value=True):
             out = StringIO()
             with redirect_stdout(out):
-                self.assertEqual(run.cmd_status(["--plain"]), 0)
+                self.assertEqual(status.cmd_status(["--plain"]), 0)
             self.assertEqual(out.getvalue().count("\n  first\n"), 1)
-            details = run.status_details(config.RUNS / "20250925-1200-first",
+            details = status.status_details(config.RUNS / "20250925-1200-first",
                                          run_record.read_state(config.RUNS / "20250925-1200-first"))
             self.assertIn("  first", details)
 
