@@ -315,10 +315,10 @@ class GcSweep(Sandbox):
             self.git(wt, "commit", "-qam", name)
             return wt
         kept = ("open", "unpushed", "dirty", "untracked", "hidden-new", "unchanged", "skipped",
-                "submodule", "ignore-case", "same-stat", "mode", "staged")
+                "submodule", "ignore-case", "same-stat", "mode", "staged", "mirrored")
         merged, *kept = (seat(name) for name in ("merged", *kept))
         (open_pr, unpushed, dirty, untracked, hidden_new, unchanged, skipped, submodule, case,
-         same_stat, mode, staged) = kept
+         same_stat, mode, staged, mirrored) = kept
         (dirty / "tracked").write_text("not committed\n")
         (untracked / "notes.md").write_text("never added\n")
         # Work git would not report: the repository hides new files, the index marks a file
@@ -339,6 +339,11 @@ class GcSweep(Sandbox):
         os.utime(tracked, (before, before))
         self.git(mode, "config", "--worktree", "core.fileMode", "false")
         (mode / "tracked").chmod(0o755)
+        # An edit in a checkout whose git config points its files at a clean copy elsewhere.
+        mirror = self.root / "mirror"
+        shutil.copytree(mirrored, mirror, ignore=shutil.ignore_patterns(".git"))
+        self.git(mirrored, "config", "--worktree", "core.worktree", str(mirror))
+        (mirrored / "tracked").write_text("only here\n")
         # Work only the index holds: staged, then the file put back as committed.
         (staged / "tracked").write_text("staged only\n")
         self.git(staged, "add", "tracked")

@@ -446,7 +446,8 @@ def delivered(wt, branch, head):
     lack, keeps the checkout."""
     if not branch or not head:
         return False
-    git = ["git", "-C", str(wt), "--no-optional-locks"]
+    # The files checked are the ones gc removes, whatever core.worktree names.
+    git = ["git", "-C", str(wt), f"--work-tree={wt}", "--no-optional-locks"]
     for setting in ("core.fsmonitor=false", "core.untrackedCache=false", "core.ignoreCase=false",
                     "core.fileMode=true"):
         git += ["-c", setting]
