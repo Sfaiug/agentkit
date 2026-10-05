@@ -12,7 +12,6 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 import io
 import json
 import os
-import re
 from pathlib import Path
 import shlex
 import sys
@@ -418,7 +417,7 @@ class HandBack(Sandbox):
             f"after 3 rounds, 151 open findings, cut short here (every one in full: {answer}): "
             f"{first} $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence - n0.py:1 - "))
         # where it points holds every one of them
-        named = Path(re.search(r"every one in full: (\S+)\)", said).group(1)).read_text()
+        named = answer.read_text()
         self.assertTrue(all(f"- n{i}.py:1 - " in named for i in range(150)) and first in named)
         self.assertTrue(run.handback_line(state, long).endswith(
             "three rounds spent: split or re-scope"))
