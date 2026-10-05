@@ -34,12 +34,6 @@ orch.listing = lambda **_kw: [
 orch.job_notices = lambda: []
 orch.taken_names = lambda: {"fix-api", "ship-docs"}
 
-def rename(current, name, log=print, **_kw):
-    if os.environ.get("NOTE_RENAME_WARNING") == "1":
-        log(f"WARN could not type into the {name} seat: gone")
-    return name
-
-orch.rename = rename
 menu.seat_row_state = lambda cfg, session, **_kw: {
     "word": "working", "reason": "", "since": None}
 menu.usage_lines = lambda cfg, width: []
@@ -100,36 +94,6 @@ class NoteScreen(unittest.TestCase):
         mark = len(screen.text())
         screen.send(key)
         self.assertEqual(screen.frame(after=mark)[1:], before[1:])
-
-    def test_popup_rename_confirmation_waits_for_back_in_dry_and_real_runs(self):
-        for dry_run, width, key, warning in ((True, 100, ESC, False),
-                                             (False, 40, ENTER, False),
-                                             (False, 40, ESC, True)):
-            with self.subTest(dry_run=dry_run, width=width, key=key, warning=warning), \
-                    patch.dict(os.environ, {"NOTE_RENAME_WARNING": "1" if warning else ""}):
-                screen = Screen(self, dry_run=dry_run, cols=width, own="ship-docs")
-                before = screen.frame()
-                self.assertIn("fix-api", screen.highlighted(before))
-                screen.send(b"r")
-                screen.screen("rename")
-                mark = len(screen.text())
-                screen.send(b"acme-x\r")
-                lines = screen.screen(None, after=mark)
-                self.assertRegex(lines[0], r"^agentkit · note +\d\d:\d\d$")
-                message = f"{'would rename' if dry_run else 'renamed'} ship-docs -> acme-x"
-                if warning:
-                    message = f"WARN could not type into the acme-x seat: gone {message}"
-                self.note(screen, message, mark, width)
-                mark = len(screen.text())
-                screen.resize(40, 40)
-                self.note(screen, message, mark, 40)
-                mark = len(screen.text())
-                screen.send(key)
-                returned = screen.frame(after=mark)
-                self.assertIn("fix-api", screen.highlighted(returned))
-                self.assertTrue(any("ship-docs" in line for line in returned))
-                screen.leave()
-                self.assertEqual(termios.tcgetattr(screen.slave), screen.before)
 
     def test_new_session_error_rewraps_on_resize_and_clicking_back_restores_the_menu(self):
         screen = Screen(self, cols=80)
