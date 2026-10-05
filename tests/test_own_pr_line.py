@@ -294,6 +294,113 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertFalse(record.read_state(second)["merged"])
         self.assertFalse(list(config.WT.glob("land-*")))
 
+    def test_two_rule_changes_that_fit_alone_never_land_past_the_ceiling(self):
+        rules = "---\nusers: none\ntests: true\n---\n" + "".join(f"rule {i}: acme.\n" for i in range(10))
+        self.on_main(lambda: (self.repo / "AGENTS.md").write_text(rules), "acme rules")
+        limit = len(rules.encode()) + 30
+        prs = []
+        with patch.object(run.config, "instruction_ceiling", return_value=(limit, "fixture")):
+            for name, number, rule in (("first", 1, 0), ("second", 2, 9)):
+                directory, url = self.own_pr(name, number)
+                longer = rules.replace(f"rule {rule}: acme.", f"rule {rule}: acme{'x' * 20}.")
+                (self.repo / "AGENTS.md").write_text(longer)
+                self.pushed(url, "a longer rule")
+                self.assertEqual(self.review(directory, url)["state"], "waiting")
+                prs.append((directory, url))
+            land.check_line(self.turn)
+            (first, first_url), (second, second_url) = prs
+            self.assertIn("land", self.wait(first))
+            self.assertNotIn("land", self.wait(second), "the combined rules were cleared to land")
+            self.assertNotIn("fix", self.wait(second), "rejected before the change ahead landed")
+            self.assertTrue(self.review(first, first_url)["merged"])
+            land.check_line(self.turn)
+            self.assertIn(f"AGENTS.md is {limit + 10} bytes", self.wait(second)["fix"]["line"])
+            with patch.object(run, "wait_for_own_pr", return_value=False):
+                failed = self.review(second, second_url)
+        self.assertEqual(failed["verdict"], "FAIL")
+        self.assertIn(f"AGENTS.md is {limit + 10} bytes", failed["findings"])
+        self.assertEqual(len(self.merges), 1)
+        self.assertLessEqual(len(run.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
+
+    def test_a_stack_whose_tree_passed_before_is_measured_against_its_target(self):
+        # the reviewer's case: two longer rules together rebuild a tree that went green while
+        # main's rules were already that long, so its evidence answers the stack
+        rules = "---\nusers: none\ntests: true\n---\n" + "".join(f"rule {i}: acme.\n" for i in range(10))
+        longer = {rule: f"rule {rule}: acme{'x' * 20}." for rule in (0, 9)}
+        both = rules.replace("rule 0: acme.", longer[0]).replace("rule 9: acme.", longer[9])
+        limit = len(rules.encode()) + 30
+        self.on_main(lambda: (self.repo / "AGENTS.md").write_text(both), "rules past the ceiling")
+        with patch.object(run.config, "instruction_ceiling", return_value=(limit, "fixture")):
+            cached, cached_url = self.own_pr("cached", 3)
+            self.review(cached, cached_url)
+            land.check_line(self.turn)
+            self.assertTrue(self.review(cached, cached_url)["merged"])
+            green = self.merges[-1][2]
+            self.assertIsNotNone(land.passed(self.turn, green))
+            self.on_main(lambda: (self.repo / "AGENTS.md").write_text(rules), "rules within it")
+            prs = []
+            for name, number, rule in (("first", 1, 0), ("second", 2, 9)):
+                directory, url = self.own_pr(name, number)
+                (self.repo / f"{name}.txt").unlink()
+                (self.repo / "AGENTS.md").write_text(rules.replace(f"rule {rule}: acme.", longer[rule]))
+                self.pushed(url, "a longer rule")
+                self.assertEqual(self.review(directory, url)["state"], "waiting")
+                prs.append((directory, url))
+            land.check_line(self.turn)
+            (first, first_url), (second, _) = prs
+            self.assertIn("land", self.wait(first))
+            self.assertNotIn("land", self.wait(second))
+            self.assertTrue(self.review(first, first_url)["merged"])
+            land.check_line(self.turn)
+            self.assertIn(f"AGENTS.md is {limit + 10} bytes", self.wait(second)["fix"]["line"])
+        self.assertLessEqual(len(run.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
+
+    def test_a_change_past_the_ceiling_only_behind_a_failed_one_lands_alone(self):
+        rules = "---\nusers: none\ntests: test ! -f broken.txt\n---\n" + "".join(
+            f"rule {i}: acme.\n" for i in range(10))
+        self.on_main(lambda: (self.repo / "AGENTS.md").write_text(rules), "acme rules")
+        limit = len(rules.encode()) + 30
+        prs = []
+        with patch.object(run.config, "instruction_ceiling", return_value=(limit, "fixture")):
+            for name, number, rule in (("first", 1, 0), ("second", 2, 9)):
+                directory, url = self.own_pr(name, number)
+                (self.repo / "AGENTS.md").write_text(
+                    rules.replace(f"rule {rule}: acme.", f"rule {rule}: acme{'x' * 20}."))
+                if name == "first":
+                    (self.repo / "broken.txt").write_text("fails the declared suite\n")
+                self.pushed(url, "a longer rule")
+                self.assertEqual(self.review(directory, url)["state"], "waiting")
+                prs.append(directory)
+            land.check_line(self.turn)
+        first, second = prs
+        self.assertIn("test ! -f broken.txt", self.wait(first)["fix"]["line"])
+        self.assertIn("land", self.wait(second), self.wait(second))
+
+    def test_a_change_past_the_ceiling_alone_lands_behind_one_that_shortens_the_rules(self):
+        # each fits its base; the target grows after, so the longer one is past the ceiling on
+        # the target alone and fits on the stack it lands on
+        rules = "---\nusers: none\ntests: true\n---\n" + "".join(
+            f"rule {i}: acme{'x' * 20 if i == 0 else ''}.\n" for i in range(10))
+        self.on_main(lambda: (self.repo / "AGENTS.md").write_text(rules), "acme rules")
+        limit = len(rules.encode()) + 30
+        prs = []
+        with patch.object(run.config, "instruction_ceiling", return_value=(limit, "fixture")):
+            for name, number, old, changed in (
+                    ("shorter", 1, f"rule 0: acme{'x' * 20}.", "rule 0: acme."),
+                    ("longer", 2, "rule 9: acme.", f"rule 9: acme{'x' * 20}.")):
+                directory, url = self.own_pr(name, number)
+                (self.repo / "AGENTS.md").write_text(rules.replace(old, changed))
+                self.pushed(url, "change a rule")
+                self.assertEqual(self.review(directory, url)["state"], "waiting")
+                prs.append((directory, url))
+            self.on_main(lambda: (self.repo / "AGENTS.md").write_text(
+                rules.replace("rule 5: acme.", f"rule 5: acme{'x' * 20}.")), "a longer rule")
+            land.check_line(self.turn)
+            for directory, url in prs:
+                self.assertIn("land", self.wait(directory), self.wait(directory))
+                self.assertTrue(self.review(directory, url)["merged"])
+        self.assertLessEqual(len(run.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
+
     def test_a_red_tree_goes_back_to_its_seat_and_the_push_is_checked(self):
         directory, url = self.own_pr("second", 1)
         self.review(directory, url)

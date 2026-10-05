@@ -431,6 +431,17 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     scratch, text = _stack_member(repo, saved, top, upstream, opened)
                     if text:
                         continue
+                # AGENTS.md is measured on the tree that lands, before any evidence answers it: a
+                # tree green on a target with larger rules says nothing about the ceiling.
+                failure = run.rules_cap(SimpleNamespace(wt=scratch, base_sha=tip, scratch=False))
+                if failure:
+                    # Changes ahead of it can lengthen or shorten the file: it waits for their
+                    # verdicts, and only with none ahead is the size its own to fix.
+                    if top == tip:
+                        log_path = member / "lander.log"
+                        log_path.write_text(failure + "\n")
+                        verdicts[member] = {"fix": {"line": failure, "log": str(log_path)}}
+                    continue
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
                 stacks.append((member, saved, scratch, tree,
