@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from test_lander import LanderFixture, config, gate, land, record, run
+from agentkit import status
 
 
 class LanderPassDepth(LanderFixture, unittest.TestCase):
@@ -373,7 +374,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         with record.record(green) as state:
             state["waiting_on"] = {**state["waiting_on"], "land": "tree"}
         self.assertEqual([directory for directory, _ in land.line(self.turn)], [green, earlier])
-        self.assertEqual(run.parked_line(record.read_state(earlier)),
+        self.assertEqual(status.parked_line(record.read_state(earlier)),
                          "waiting · 2nd in line to land on main")
 
     def test_two_green_deliveries_leave_the_next_pass_to_the_member_behind_them(self):
