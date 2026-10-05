@@ -31,18 +31,21 @@ def _links(root):
     found, seen, pending = [], set(), [Path(root)]
     while pending:
         directory = pending.pop()
-        if directory.resolve() in seen:
-            continue
-        seen.add(directory.resolve())
         try:
-            entries = list(os.scandir(directory))
-        except OSError:
+            real = directory.resolve(strict=True)
+            entries = [] if real in seen else list(os.scandir(directory))
+        except (OSError, RuntimeError):
+            # Missing, looping, unreadable or not a directory: nothing readable through it.
             continue
+        seen.add(real)
         for entry in entries:
             if entry.is_symlink():
                 found.append(Path(entry.path))
-            if entry.is_dir():
-                pending.append(Path(entry.path))
+            try:
+                if entry.is_dir():
+                    pending.append(Path(entry.path))
+            except OSError:
+                continue
     return found
 
 
@@ -57,21 +60,20 @@ def _credentials(env, cwd):
     caches = {home / ".cache" for home in homes}
     if env.get("XDG_CACHE_HOME"):
         caches.add(Path(env["XDG_CACHE_HOME"]))
-    directories = {home / ".git-credential-cache" for home in homes}
-    directories.update(root / "git/credential" for root in caches)
-    files = {home / ".git-credentials" for home in homes}
-    files.update(root / "git/credentials" for root in configs)
-    files.update(root / "hosts.yml" for root in gh)
+    places = {home / ".git-credential-cache" for home in homes}
+    places.update(root / "git/credential" for root in caches)
+    places.update(home / ".git-credentials" for home in homes)
+    places.update(root / "git/credentials" for root in configs)
+    places.update(root / "hosts.yml" for root in gh)
     # A worker reaches no server: only the orchestrator's own shell holds SSH keys and agent.
     for ssh in (home / ".ssh" for home in homes):
-        directories.add(ssh)
+        places.add(ssh)
         # A key linked in from elsewhere stays readable at its target unless that is hidden too.
-        for link in _links(ssh):
-            (directories if link.is_dir() else files).add(link)
+        places.update(_links(ssh))
     if env.get("SSH_AUTH_SOCK"):
         # The address is the caller's, so a relative one names a place in the caller's directory;
         # the box passes no address on, so nothing inside reads it any other way.
-        files.add(Path(os.getcwd(), env["SSH_AUTH_SOCK"]))
+        places.add(Path(os.getcwd(), env["SSH_AUTH_SOCK"]))
     # A named credential store is just as readable as the default one. Ask Git so
     # includes and repository-local settings use its own precedence and quoting.
     result = subprocess.run(["git", "config", "--get-regexp", r"^credential(\..*)?\.helper$"],
@@ -96,8 +98,8 @@ def _credentials(env, cwd):
                     value = Template(value).safe_substitute(env)
                 path = Path(value.replace("~/", str(env.get("HOME") or Path.home()) + "/", 1)
                             if value.startswith("~/") and not literal else value)
-                files.add(path if path.is_absolute() else Path(cwd or os.getcwd()) / path)
-    return directories, files
+                places.add(path if path.is_absolute() else Path(cwd or os.getcwd()) / path)
+    return places
 
 
 def _paths(names, env, cwd):
@@ -175,17 +177,21 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         if any(parent in writable for parent in path.parents):
             continue
         cmd.extend(["--bind", str(path), str(path)])
-    directories, files = _credentials(env, cwd)
-    hidden = {path.resolve() for path in directories if path.exists()}
-    for paths, option in ((directories, "--tmpfs"), (files, "--dev-bind")):
-        # Mount the real target too: a sandbox HOME often links the account's login.
-        targets = {path.resolve() for path in paths if path.exists()}
-        for path in sorted(targets):
-            # Inside a hidden directory it is gone already, and no mount point can be made there.
-            if any(parent in hidden for parent in path.parents):
-                continue
-            cmd.extend([option, str(path), "--remount-ro", str(path)] if option == "--tmpfs" else
-                       [option, "/dev/null", str(path)])
+    # Mount the real target too: a sandbox HOME often links the account's login.
+    targets = set()
+    for path in _credentials(env, cwd):
+        try:
+            if path.exists():
+                targets.add(path.resolve(strict=True))
+        except (OSError, RuntimeError):
+            continue
+    folders = {path for path in targets if path.is_dir()}
+    for path in sorted(targets):
+        # Inside a hidden folder it is gone already, and no mount point can be made there.
+        if any(parent in folders for parent in path.parents):
+            continue
+        cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
+                   ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
         yield [*cmd, "--", *argv], clean, {}
         return

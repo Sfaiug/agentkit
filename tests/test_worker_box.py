@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import socket
 import sys
@@ -247,6 +248,24 @@ class WorkerBox(unittest.TestCase):
                     code, _, _, killed, _ = self.turn()
                 self.assertEqual((code, killed), (0, False), self.logs)
                 self.stop_child()
+
+    def test_unusable_ssh_paths_still_start(self):
+        ssh = self.root / ".ssh"
+        cases = {"a link to itself": lambda: (ssh.mkdir(), (ssh / "self").symlink_to("self")),
+                 "two links to each other": lambda: (
+                     ssh.mkdir(), (ssh / "a").symlink_to("b"), (ssh / "b").symlink_to("a")),
+                 "a looping .ssh": lambda: ssh.symlink_to(".ssh"),
+                 "a file named .ssh": lambda: ssh.write_text("fixture")}
+        for name, make in cases.items():
+            with self.subTest(case=name):
+                make()
+                code, _, _, killed, _ = self.turn()
+                self.assertEqual((code, killed), (0, False), self.logs)
+                self.stop_child()
+                if ssh.is_symlink() or ssh.is_file():
+                    ssh.unlink()
+                else:
+                    shutil.rmtree(ssh)
 
     def test_keys_linked_into_ssh_stay_out_of_reach(self):
         vault, keys = self.root / "vault", self.root / "keydir"
