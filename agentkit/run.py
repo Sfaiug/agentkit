@@ -7440,8 +7440,9 @@ def installed_head():
 def pickup_new_code(lp, execv=None, current=None):
     """Replace this process with the installed agentkit when it has moved, at a safe boundary.
 
-    Before a round and before landing verification the run holds no gate turn, no delivery
-    lock and no child, so a process driving this one run replaces itself with `ak run resume
+    Before a round -- an own PR's review round too, once its push arrives -- and before
+    landing verification the run holds no gate turn, no delivery lock and no child, so a
+    process driving this one run replaces itself with `ak run resume
     <id>` and the resume continues in place on the new code: the pid, the scope and the slot
     stay the same, and a saved PASS is kept as a resume keeps it.  A job's threads share one
     process, and a delivery retry must stay one, so neither ever moves; any turn held or
@@ -7484,7 +7485,8 @@ def pickup_new_code(lp, execv=None, current=None):
     if children:
         return False
     try:
-        lp.state["pickup"] = {"pid": os.getpid(), "from": start, "to": now}
+        # the options this process runs with: a review reads them every round
+        lp.state["pickup"] = {"pid": os.getpid(), "from": start, "to": now, "opts": lp.opts}
         lp.write()
     except run_record.StopRequested:
         raise
@@ -9615,6 +9617,9 @@ def resume_run(argv):
         log = logger(run_dir)
         log(f"picked up agentkit {old}..{new}; continuing on it")
         if state.get("review_pr"):
+            # a review reads its options every round, its reviewer among them: the moved
+            # process goes on with the ones it had
+            opts = pickup.get("opts") or opts
             return drive(cfg, run_dir, opts, log,
                          job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
         return drive(cfg, run_dir, opts, log, prior=state)
@@ -10352,6 +10357,14 @@ def wait_for_own_pr(cfg, run_dir, url, state, log):
         time.sleep(gate.SLOT_POLL)
 
 
+def pr_loop(cfg, run_dir, state, opts, log):
+    """A PR review's record as a loop, for the steps between its rounds: a merge, a settled
+    round, a move onto new code.  Like every loop it writes back only what it changed."""
+    _, body, _ = taskfile.parse_task(run_dir / "task.md")
+    cmds = taskfile.done_when(body, run_dir / "task.md")
+    return Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body, cmds, body, [])
+
+
 def review_pr(cfg, run_dir, url, opts, log):
     """Own PRs wait for fixes between reviews; other authors get a single review."""
     while True:
@@ -10359,15 +10372,15 @@ def review_pr(cfg, run_dir, url, opts, log):
         if state.get("own_pr_wait") and state.get("own_pr"):
             if not wait_for_own_pr(cfg, run_dir, url, state, log):
                 return state
+            # the push starts a round, and a round runs on the agentkit installed now: a wait
+            # can outlast many merges
+            pickup_new_code(pr_loop(cfg, run_dir, state, opts, log))
         summaries = state.get("round_summaries") or []
         if (state.get("waiting_on") or {}).get("line") and not state.get("merged"):
             # a merge already recorded is settled below, never sent back to a line that skips it
-            _, body, _ = taskfile.parse_task(run_dir / "task.md")
-            cmds = taskfile.done_when(body, run_dir / "task.md")
             state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)
             run_record.save_state(run_dir, state)
-            lp = Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body,
-                      cmds, body, [])
+            lp = pr_loop(cfg, run_dir, state, opts, log)
             merge_own_pr(lp, url, state["head_sha"])
             if state.get("state") != "waiting":
                 state.pop("own_pr_round_pending", None)
@@ -10376,17 +10389,13 @@ def review_pr(cfg, run_dir, url, opts, log):
                 state.update(state="pass" if state["verdict"] == "PASS" else "fail",
                              finished_at=time.time())
             lp.write()
-            write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
+            write_result(run_dir, state, lp.cmds or ["(none declared)"], log, cfg)
         elif (state.get("merged") or (state.get("own_pr") and state.get("own_pr_round_pending") and summaries
                 and summaries[-1]["round"] == state["own_pr_round_pending"])):
             # A durable verdict still owes its post and delivery, even in round three.
-            _, body, _ = taskfile.parse_task(run_dir / "task.md")
-            cmds = taskfile.done_when(body, run_dir / "task.md")
             state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)
             run_record.save_state(run_dir, state)
-            lp = Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body,
-                      cmds, body, [])
-            state = settle_pr_round(lp, url, pr_view(url))
+            state = settle_pr_round(pr_loop(cfg, run_dir, state, opts, log), url, pr_view(url))
         else:
             state = review_pr_round(cfg, run_dir, url, opts, log)
         if not state.get("own_pr_wait"):
