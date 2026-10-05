@@ -106,6 +106,18 @@ class ComposerBox(Sandbox):
                 self.assertEqual(watch.composer_draft("claude", pane), "")
                 self.assertEqual(self.looked(pane)[1], True)
 
+    def test_a_typed_row_that_reads_like_a_queued_message_is_the_draft(self):
+        """Queued messages sit under the composer; inside its box a row like one was typed."""
+        typed = "› Message from @build-check: Ready. (ctrl+o to expand)"
+        pane = drafted("\n  " + typed)
+        self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane)),
+                         ("draft", "prompt.draft", typed))
+        self.assertEqual(watch.composer_draft("claude", pane), typed.replace(" ", ""))
+        self.assertEqual(self.looked(pane), ("needs you", False, []))
+        under = PROMPT.replace("\n  ⏵⏵", "\n" + typed + "\n  ⏵⏵", 1)
+        self.assertNotEqual(under, PROMPT)
+        self.assertEqual(watch.composer_draft("claude", under), "")
+
     def test_a_draft_longer_than_the_tail_is_read_whole(self):
         """Thirteen rows push the box's top rule above the last 15 rows; the pane still has it."""
         rows = [f"step {n} of the acme migration" for n in range(1, 14)]

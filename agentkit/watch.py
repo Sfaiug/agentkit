@@ -1407,12 +1407,19 @@ def hook_state(harness, fact):
 
 
 def _screen_rows(harness, tail):
-    """(raw, plain) non-blank rows of that tail, without the harness's queued inbound messages."""
-    # A queued inbound message is below the active UI, not part of its dialog or composer.
+    """(raw, plain) non-blank rows of that tail, without the harness's queued inbound messages.
+
+    A queued inbound message is below the active UI, not part of its dialog or composer: a row
+    that reads like one inside a ruled composer's box is what the owner typed there, and stays.
+    """
     inbound = _pattern((config.manifest(harness).get("screen") or {}).get("inbound"),
                        f"adapters/{harness}.toml")
-    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()
-                 and not (inbound and inbound.fullmatch(strip_sgr(line).strip()))]
+    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()]
+    if inbound:
+        at, end = ruled_composer(screen(harness), raw_lines)
+        boxed = range(at, end) if at is not None else range(0)
+        raw_lines = [line for index, line in enumerate(raw_lines)
+                     if index in boxed or not inbound.fullmatch(strip_sgr(line).strip())]
     return raw_lines, [strip_sgr(line).strip() for line in raw_lines]
 
 
