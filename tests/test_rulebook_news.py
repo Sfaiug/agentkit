@@ -423,8 +423,7 @@ class RulebookNews(Sandbox):
 
         with patch.object(orch, "tmux_out", side_effect=tmux), \
                 patch.object(watch, "seat_model", return_value=("claude", "opus")), \
-                patch.object(watch, "pane_text", return_value=f"> {line}"), \
-                patch.object(watch, "_holds_text", return_value=True), \
+                patch.object(watch, "pane_text", return_value=f"❯ {line}"), \
                 patch.object(watch, "asking", return_value=False):
             watch.type_at_prompt({"name": SEAT}, line, lambda _line: None, cfg=self.cfg,
                                  typed={"line": line, "seat": None})

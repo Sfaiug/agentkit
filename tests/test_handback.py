@@ -322,6 +322,35 @@ class HandBack(Sandbox):
         self.assertNotIn("handback_pending", jobs.read_job(job_dir))
         self.assertEqual(self.cards, [])
 
+    def test_text_the_owner_added_to_a_line_waiting_for_its_enter_is_never_sent(self):
+        directory = self.ended("run-edited", owner=SEAT, no_merge=True)
+        self.rows = [self.live()]
+        seat = self.claude()
+        seat.fails = True           # the text goes in and its Enter does not
+        run.announce(record.read_state(directory), directory, self.logs.append)
+        seat.composer += " and the owner's own words"
+        draft = seat.composer
+        self.tick()
+        self.tick()
+        self.assertEqual((seat.read, seat.composer), ([], draft))
+        self.assertTrue(record.read_state(directory)["handback_pending"])
+        seat.enter()                # the owner sends it, the line with their words
+        self.tick()
+        self.assertEqual((seat.read, seat.typed), ([draft], 1))
+        self.assertTrue(record.read_state(directory)["handed_back"])
+
+    def test_a_line_waiting_for_its_enter_gets_none_its_sender_refuses(self):
+        self.rows = [self.live()]
+        seat = self.claude()
+        line = "The acme tests passed."
+        for refused in ({"stale": lambda _held: True}, {"ready": lambda _held: False}):
+            with self.subTest(refused_by=next(iter(refused))):
+                seat.composer = line
+                self.assertFalse(watch.type_at_prompt(
+                    self.live(), line, self.logs.append, cfg=self.cfg,
+                    typed={"line": line, "seat": self.live()["created"]}, **refused))
+                self.assertEqual((seat.read, seat.composer), ([], line))
+
     def test_a_fail_at_the_last_round_hands_back_and_sends_no_card(self):
         directory = self.failed()
         self.rows = [self.live()]
