@@ -53,10 +53,10 @@
 - `job.py`: task files as jobs: `job.json` (capped `owner_words` since the seat's last
   launch), scheduling, task ladders (waits, merge, rerun), hand-back, relaunch.
   Calls `run.*`; for run, gc, watch, menu.
-- `watch.py`: tick, watch.json, errors (harness/manifest; `stalls`, `auth_expiry`),
-  state (`session_state`, `waiting_on`), typing receipts by source, revive, resume, PR scans,
-  after-merge checks, `health:` probes, `doctor`. For run, job, orch, menu, notify,
-  update, usage, worker, hooks.
+- `watch.py`: tick (its passes in one list, `local_passes`), watch.json, errors
+  (harness/manifest; `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`), typing
+  receipts by source, revive, resume, PR scans, after-merge checks, `health:` probes,
+  `doctor`. For run, job, orch, menu, notify, update, usage, worker, hooks.
   Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
 - `tell.py`: `ak tell`, one seat's message to another for every harness: queued in the
   receiver's `tell` seat file under the seat's own lock, typed only by the tick through
