@@ -125,11 +125,11 @@ def git_env():
     return env
 
 
-def root(repo):
-    """The repository a checkout holds, as no other one can: its root commit (the first of
-    several), abbreviated; None where it has none to read."""
+def root(repo, rev="HEAD"):
+    """The repository a checkout holds, as no other one can: the root commit of `rev` there
+    (the first of several), abbreviated; None where it has none to read."""
     try:
-        out = subprocess.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"],
+        out = subprocess.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", rev],
                              capture_output=True, text=True, timeout=30, env=git_env(),
                              stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
@@ -414,10 +414,11 @@ def still_done(name, proven):
                            f"first: {left[0]}; run `ak notify done` again")
 
 
-def add(name, what, check=None, repo=None, proven=False):
+def add(name, what, check=None, repo=None, proven=None):
     """Append an open line to the seat's plan, or return the open line that already holds this
-    check in this project.  A review follow-up names the run's project as `repo`, and is
-    `proven`: its check already failed on the reviewed work, so it is not run again first."""
+    check in this project.  A review follow-up names the run's project as `repo`, and as
+    `proven` the commit its check already failed on (the review's base): the check is not run
+    again first, and that commit's history names the repository, whatever is checked out."""
     what = " ".join(what.split())
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")
@@ -427,7 +428,12 @@ def add(name, what, check=None, repo=None, proven=False):
         check = check.strip()
         if len(check.splitlines()) != 1 or "`" in check:
             raise config.Error("a check is one shell command without backticks or line breaks")
-        if not proven:
+        if proven:
+            found = root(repo, proven)
+            if not found:
+                raise config.Error(f"{repo.name} does not hold {proven[:12]}, the commit this "
+                                   "check failed on")
+        else:
             failing, found = fails_on_main(repo, check)
             if not failing:
                 raise config.Error(f"this check already passes on {repo.name}'s default "

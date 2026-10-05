@@ -167,6 +167,7 @@ class FollowupRuns(unittest.TestCase):
         state = {"run_id": name, "state": "pass", "verdict": "PASS", "merged": True,
                  "launched_session": "seat", "workers": [self.executor, self.reviewer],
                  "repo": str(self.repo), "target": "main", "base": "origin/main",
+                 "base_sha": self.git(self.repo, "rev-parse", "origin/main"),
                  "followups": [DEFECT], **extra}
         record.save_state(directory, state)
         return directory, state
@@ -281,6 +282,24 @@ class FollowupRuns(unittest.TestCase):
         (self.repo / "broken.py").write_text("def first(items):\n    return items[0] if items else None\n")
         self.git(self.repo, "commit", "-qam", "Fix the planned follow-up")
         self.git(self.repo, "push", "-q", "origin", "main")
+        with patch.dict(os.environ, {config.SESSION_ENV: "seat"}):
+            self.assertEqual(plan.main([]), 0)
+        [line] = plan.lines("seat")
+        self.assertRegex(line, r"^- \[x\] Fix .* · done [0-9a-f]{12} Fix the planned follow-up$")
+
+    def test_a_followup_line_names_the_reviewed_history_whatever_is_checked_out(self):
+        self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        config.update_session("seat", repo=str(self.repo))
+        directory, state = self.source(followup_checks={DEFECT: CHECK})
+        self.git(self.repo, "checkout", "-q", "--orphan", "gh-pages")   # another history
+        self.git(self.repo, "commit", "-qm", "Pages")
+        self.start(directory, state)
+        fixer = self.root / "fixer"
+        self.git(self.root, "clone", "-q", str(self.remote), str(fixer))
+        (fixer / "broken.py").write_text("def first(items):\n    return items[0] if items else None\n")
+        self.git(fixer, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                 "commit", "-qam", "Fix the planned follow-up")
+        self.git(fixer, "push", "-q", "origin", "main")
         with patch.dict(os.environ, {config.SESSION_ENV: "seat"}):
             self.assertEqual(plan.main([]), 0)
         [line] = plan.lines("seat")

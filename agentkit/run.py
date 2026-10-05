@@ -3246,7 +3246,7 @@ def plan_followup(state, run_dir, session, repo, item, check, log):
     from . import plan   # here, not at the top: a seat's small verb, this the loop
     outcome = "Fix " + item.splitlines()[0].replace("·", "-")
     try:
-        plan.add(session, outcome, check, repo, proven=True)
+        plan.add(session, outcome, check, repo, proven=state.get("base_sha"))
         entry = {"outcome": outcome}
     except (config.Error, OSError) as exc:
         entry = {"outcome": outcome, "refused": str(exc)}
