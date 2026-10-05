@@ -19,6 +19,19 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, orch, run, worktrees  # noqa: E402
 
 
+def scopes_start():
+    """Whether this host's user manager really starts a scope for this process."""
+    if sys.platform != "linux" or not (orch.user_manager() and orch.can_scope()):
+        return False
+    try:
+        return subprocess.run(["systemd-run", "--user", "--scope", "--quiet", "--collect", "true"],
+                              env=orch.bus_env(), capture_output=True, timeout=30).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+SCOPES = scopes_start()
+
 class RepoCleanup(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-repo-cleanup-", dir=REPO)
@@ -147,8 +160,7 @@ class RepoCleanup(unittest.TestCase):
             time.sleep(.02)
         self.assertEqual(self.running(marker), [], "cleanup work outlived its line")
 
-    @unittest.skipUnless(sys.platform == "linux" and orch.user_manager() and orch.can_scope(),
-                         "needs a user manager that can make this process a scope")
+    @unittest.skipUnless(SCOPES, "needs a user manager that starts a scope for this process")
     def test_a_timed_out_cleanup_in_its_scope_leaves_nothing_of_its_line_running(self):
         # a child of the line's shell; one that ignores TERM; one its TERM handler would
         # start; one under `timeout`, which makes its own process group; and one a subshell
@@ -171,8 +183,7 @@ class RepoCleanup(unittest.TestCase):
                 [line] = self.cleanup_lines(run_dir)
                 self.assertIn("timed out", line)
 
-    @unittest.skipUnless(sys.platform == "linux" and orch.user_manager() and orch.can_scope(),
-                         "needs a user manager that can make this process a scope")
+    @unittest.skipUnless(SCOPES, "needs a user manager that starts a scope for this process")
     def test_a_ctrl_c_mid_cleanup_leaves_nothing_of_its_line_running(self):
         # `ak run stop` or `ak run clean` stopped with Ctrl+C while the line runs: the
         # terminal signals its whole foreground group, here a caller in a group of its own
@@ -192,6 +203,20 @@ class RepoCleanup(unittest.TestCase):
         os.killpg(caller.pid, signal.SIGINT)
         self.assertNotEqual(caller.wait(timeout=60), 0)    # the interrupt went on up
         self.assert_none_left(marker)
+
+    def test_a_scope_the_manager_never_starts_still_runs_the_line(self):
+        # systemd-run refused -- a bus that will not answer, a unit it would not make -- so
+        # nothing marked the start: the line runs the plain way, once
+        counter = self.root / "counter"
+        wt, run_dir, _state = self.make_run(
+            "cleanup-refused", f"---\ncleanup: echo cleaned >> {counter}\n---\n# acme\n")
+        with patch.object(orch, "user_manager", return_value=True), \
+                patch.object(orch, "can_scope", return_value=True), \
+                patch.object(orch, "in_slice", lambda argv, unit, env=None, **_: (["false"], env)):
+            worktrees.run_repo_cleanup(wt, run_dir)
+        self.assertEqual(counter.read_text(), "cleaned\n")
+        [line] = self.cleanup_lines(run_dir)
+        self.assertIn("exited 0", line)
 
     @unittest.skipUnless(sys.platform == "linux", "reads /proc")
     def test_without_a_scope_the_shell_goes_as_before(self):

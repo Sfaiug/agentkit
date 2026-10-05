@@ -248,26 +248,43 @@ def run_repo_cleanup(wt, run_dir):
             try:
                 repo = (run_record.read_state(Path(run_dir)) or {}).get("repo")
                 env = {**os.environ, **(config.repo_env(repo) if repo else {})}
-                # Its own scope where the user manager can make one: a timeout or an
-                # interrupted caller then stops every process the line started, whatever group
-                # or session it made, at once. Signals reach the line as they reach the caller.
                 from . import orch
-                argv, unit = ["bash", "-c", cmd], None
+
+                def line(argv, env, unit=None):
+                    """The line's exit status; a timeout or an interrupt ends it first."""
+                    with subprocess.Popen(argv, cwd=str(wt), stdout=fh, stderr=subprocess.STDOUT,
+                                          stdin=subprocess.DEVNULL, env=env) as proc:
+                        try:
+                            return proc.wait(timeout=CLEANUP_LIMIT)
+                        except BaseException:
+                            # without a scope, or one that would not stop, the shell, as before
+                            if not (unit and orch.stop_scope(unit)):
+                                proc.kill()
+                            proc.wait()     # an interrupted wait leaves the reaping to no one
+                            raise
+
+                plain = ["bash", "-c", cmd]
                 if orch.user_manager() and orch.can_scope():
+                    # Its own scope: a timeout or an interrupted caller then stops every process
+                    # the line started, whatever group or session it made, at once, and signals
+                    # still reach the line as they reach the caller. The line marks that it
+                    # started; one the manager never started runs the plain way after all.
                     unit = f"agentkit-cleanup-{Path(run_dir).name}-{os.getpid()}"
-                    argv, env = orch.in_slice(argv, unit, env=env,
-                                              properties=("-p", "KillSignal=SIGKILL",
-                                                          "-p", "CollectMode=inactive-or-failed"))
-                with subprocess.Popen(argv, cwd=str(wt), stdout=fh, stderr=subprocess.STDOUT,
-                                      stdin=subprocess.DEVNULL, env=env) as proc:
+                    marker = config.TMP / f"{unit}.launched"
+                    config.TMP.mkdir(parents=True, exist_ok=True)
+                    argv, scoped = orch.in_slice(
+                        ["sh", "-c", orch.WITNESS, str(marker), *plain], unit, env=env,
+                        properties=("-p", "KillSignal=SIGKILL",
+                                    "-p", "CollectMode=inactive-or-failed"))
                     try:
-                        proc.wait(timeout=CLEANUP_LIMIT)
-                    except BaseException:
-                        # without a scope, or one that would not stop, the shell, as before
-                        if not (unit and orch.stop_scope(unit)):
-                            proc.kill()
-                        proc.wait()     # an interrupted wait leaves the reaping to no one
-                        raise
+                        code = line(argv, scoped, unit)
+                    finally:
+                        started = marker.exists()
+                        marker.unlink(missing_ok=True)
+                    if not started:
+                        code = line(plain, env)
+                else:
+                    code = line(plain, env)
             except subprocess.TimeoutExpired:
                 outcome = f"timed out after {CLEANUP_LIMIT // 60} minutes"
                 fh.write(f"[{outcome}]\n")
@@ -275,7 +292,7 @@ def run_repo_cleanup(wt, run_dir):
                 outcome = f"could not run: {exc}"
                 fh.write(f"[{outcome}]\n")
             else:
-                outcome = f"exited {proc.returncode}"
+                outcome = f"exited {code}"
         run.note_in(Path(run_dir) / "log.txt")(f"repo cleanup: {cmd} {outcome} (see cleanup.log)")
     except Exception:
         return                          # a cleanup never stops a removal, whatever it meets
