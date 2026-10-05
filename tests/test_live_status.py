@@ -52,6 +52,19 @@ def drawn(value):
     return re.sub(r"#\[[^\]]*\]", "", value).replace("##", "#")
 
 
+def looks(home):
+    """The processes running with `home` as their HOME, this one aside (Linux; none elsewhere)."""
+    mark = f"HOME={home}".encode()
+    found = []
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            if int(proc.name) != os.getpid() and mark in (proc / "environ").read_bytes().split(b"\0"):
+                found.append(int(proc.name))
+        except (OSError, ValueError):
+            continue
+    return found
+
+
 class LiveStatus(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="live-status-")
@@ -67,6 +80,12 @@ class LiveStatus(unittest.TestCase):
                 # enumerate includes threads whose start() is still waiting for bootstrap.
                 self.assertTrue(thread._started.wait(15), f"{thread.name} did not start")
                 thread.join(15)
+            # ... and so do the hook's looks, detached in sessions of their own: every process
+            # whose HOME is this one, from the moment the hook forks it
+            deadline = time.monotonic() + 30
+            while looks(self.root) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertEqual(looks(self.root), [], "a hook's look outlived its test")
 
         self.addCleanup(settle)
         # laid out the way a process whose HOME this is lays it out, so the hook's own
