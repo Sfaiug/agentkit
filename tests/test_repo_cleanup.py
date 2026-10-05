@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -157,6 +158,36 @@ class RepoCleanup(unittest.TestCase):
                         os.kill(child, signal.SIGKILL)
                         while not self.gone(child):
                             time.sleep(.02)
+
+    def test_an_interrupted_cleanup_takes_its_children_with_it(self):
+        # `ak run stop` or `ak run clean` interrupted while the line runs: the line's tree
+        # goes before the interrupt goes on up, as subprocess.run's kill on any exception did
+        child_file = self.root / "child.pid"
+        wt, run_dir, _state = self.make_run(
+            "cleanup-interrupted", "---\ncleanup: "
+            f"sleep 30 & echo $! > {shlex.quote(str(child_file))}; wait\n---\n# acme\n")
+
+        def interrupt():
+            deadline = time.monotonic() + 10
+            while not child_file.exists() and time.monotonic() < deadline:
+                time.sleep(.02)
+            os.kill(os.getpid(), signal.SIGINT)
+
+        threading.Thread(target=interrupt, daemon=True).start()
+        child = None
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                worktrees.run_repo_cleanup(wt, run_dir)
+            child = int(child_file.read_text())
+            deadline = time.monotonic() + 2
+            while not self.gone(child) and time.monotonic() < deadline:
+                time.sleep(.02)
+            self.assertTrue(self.gone(child), "an interrupted cleanup left its child running")
+        finally:
+            if child is None and child_file.exists():
+                child = int(child_file.read_text())
+            if child is not None and not self.gone(child):
+                os.kill(child, signal.SIGKILL)
 
     @staticmethod
     def gone(pid):
