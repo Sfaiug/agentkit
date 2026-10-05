@@ -4878,6 +4878,28 @@ def merge_body(lp, head, url=None):
     return []
 
 
+def merged(lp, url, method):
+    """Record the PR as merged; True, for the merge step to return."""
+    lp.state["merged"] = True
+    lp.write()
+    lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
+    return True
+
+
+def merged_anyway(lp, url, method):
+    """Did GitHub merge the PR whatever `gh pr merge` answered?  Records it when it did.
+
+    A 5xx or a stopped call may have merged it, and `--delete-branch` exits non-zero on a
+    merge that went through when the repository deleted the head branch first (`Reference
+    does not exist`).  Only `state` says MERGED -- mergeStateStatus carries mergeability
+    (BEHIND/BLOCKED/CLEAN and the rest), never the outcome.
+    """
+    src, current = gh(lp.run_dir, "pr", "view", url, "--json", "state", "-q", ".state")
+    if stopped(src, current):
+        raise Stopped(current)
+    return src == 0 and current.strip() == "MERGED" and merged(lp, url, method)
+
+
 def do_merge(lp, url, upstream):
     """Merge the PR, integrating once more if origin moved under it while the checks ran.
 
@@ -4946,10 +4968,7 @@ def do_merge(lp, url, upstream):
                             failed=True)
             seen, mergeable = info.get("state"), info.get("mergeable")
             if seen == "MERGED":
-                lp.state["merged"] = True
-                lp.write()
-                lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
-                return True
+                return merged(lp, url, method)
             if seen != "OPEN":
                 return note(lp, "PR is closed without a merge", failed=True)
             # A moving target can change both the patch and its checks. Reuse the same
@@ -4971,20 +4990,10 @@ def do_merge(lp, url, upstream):
                 # uses the remaining retries to re-check before authorizing a merge.
                 ready = mergeable == "MERGEABLE"
         if rc == 0:
-            lp.state["merged"] = True
-            lp.write()
-            lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
-            return True
+            return merged(lp, url, method)
         if lost:
             # the last attempt's 5xx may have merged too, and no re-check followed it
-            src, current = gh(lp.run_dir, "pr", "view", url, "--json", "state",
-                              "-q", ".state")
-            if stopped(src, current):
-                raise Stopped(current)
-            if src == 0 and current.strip() == "MERGED":
-                lp.state["merged"] = True
-                lp.write()
-                lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
+            if merged_anyway(lp, url, method):
                 return True
             return park_waiting(
                 lp, f"gh pr merge --{method} failed after {MERGE_RETRIES} retries: {cause}; "
@@ -4993,15 +5002,8 @@ def do_merge(lp, url, upstream):
         vrc, why = gh(lp.run_dir, "pr", "view", url, "--json", "mergeStateStatus",
                       "-q", ".mergeStateStatus")
         if stopped(rc, out) or stopped(vrc, why):
-            # A merge that stopped may still have gone through server-side.  Only `state`
-            # says MERGED -- mergeStateStatus carries mergeability (BEHIND/BLOCKED/CLEAN and
-            # the rest), never the outcome -- so that is what confirms it.
-            src, current = gh(lp.run_dir, "pr", "view", url, "--json", "state",
-                              "-q", ".state")
-            if src == 0 and current.strip() == "MERGED":
-                lp.state["merged"] = True
-                lp.write()
-                lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
+            # a merge that stopped may still have gone through server-side
+            if merged_anyway(lp, url, method):
                 return True
             raise Stopped(out if stopped(rc, out) else why)
         if attempt == 2 or why not in ("BEHIND", "DIRTY"):
@@ -5017,6 +5019,8 @@ def do_merge(lp, url, upstream):
             return False
         if not refresh_pr_body(lp):
             return False
+    if merged_anyway(lp, url, method):
+        return True
     return note(lp, f"gh pr merge --{method} failed"
                     f"{f' with the PR {why}' if why else ''}; the PR is open at {url}: {out[-400:]}",
                 failed=True)

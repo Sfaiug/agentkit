@@ -911,6 +911,29 @@ class MergeStep(unittest.TestCase):
         self.assertTrue(state["merged"])
         self.assertNotEqual(state.get("state"), "waiting")
 
+    def test_a_merge_whose_branch_github_already_deleted_counts(self):
+        # a repository that deletes merged branches itself can beat `--delete-branch` to it:
+        # gh exits non-zero on the 404 after the merge went through (ATLAS #2132, 5 Oct)
+        _, _, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt)
+        seen = []
+
+        def fake_gh(cwd, *args, **kwargs):
+            seen.append(args[1:2] + args[-1:])
+            if args[:2] == ("pr", "merge"):
+                return 1, ("failed to delete remote branch ak/x: HTTP 404: Reference does not "
+                           "exist (https://api.github.com/repos/fixture/repo/git/refs/heads/ak/x)")
+            if args[:2] == ("pr", "view"):
+                return 0, {".mergeStateStatus": "UNKNOWN", ".state": "MERGED"}[args[-1]]
+            raise AssertionError(args)
+
+        with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
+            self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
+        self.assertEqual(len([call for call in seen if call[0] == "merge"]), 1)
+        state = record.read_state(run_dir)
+        self.assertTrue(state["merged"])
+        self.assertFalse(state.get("merge_note"))
+
     def test_an_own_pr_merge_stops_when_its_recheck_stops(self):
         for answer in ((None, "timed out"), (1, "fatal: terminal prompts disabled")):
             with self.subTest(answer=answer):
