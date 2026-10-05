@@ -55,6 +55,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - Decide from exit codes and files, never another program's output text, which catches proofs and verdicts it shouldn't.
 - Never re-create another system's semantics for an input nobody uses (Linux's path walk inside Git trees, for a linked AGENTS.md): every review round found one more difference (#520, six rounds). Refuse the input plainly instead.
 - A test never asserts a plain word is absent from output that prints paths: worktree paths carry the run's title.
+- A test never asserts a wall-clock duration (under 100 ms, say): host load breaks it at landing. Inject the clock and assert what it read.
 - A rule on what may merge belongs in both merge paths: `do_merge` (task runs) and `merge_own_pr` (a seat's own PR, now the main path); a guard on one alone is a bypass.
 - Typing into a seat has one typer per kind of line: the tick, under its lock. A second typer (a sender trying first) needs claims and delivery reports that each review round finds a new race in (#439, 3 rounds).
 - A fix that reads the screen adds no fallback for shapes it did not set out to read: every such fallback (an at_prompt backstop, an "empty composer" pattern) misread another real screen and cost a review round (#501, 3 rounds).
