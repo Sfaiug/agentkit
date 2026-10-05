@@ -44,8 +44,6 @@ class TwoLines(Sandbox):
                                               return_value=("claude", "anthropic")))
         self.stack.enter_context(patch.object(watch, "pane_text", return_value="$ "))
         self.stack.enter_context(patch.object(menu.time, "time", return_value=NOW))
-        # history knows how long a task takes, so the row carries an estimate the bar must not
-        self.stack.enter_context(patch.object(menu.history, "estimate_seconds", return_value=600))
 
     def tmux(self, *args, socket=None, **_kw):
         self.calls.append((args, socket))
@@ -98,7 +96,7 @@ class TwoLines(Sandbox):
         bar = f"tasks {terminal.progress_bar(2, 5)}"
         self.assertEqual(drawn(top), f" ▐● working▌  fix-api  fable orchestrates   {bar}")
         info = menu.v5o_seat_info(self.cfg, 1, self.seat, menu.run_records(), {}, {}, NOW)
-        self.assertIn("left", menu._last_text(info))                 # the row still has one
+        self.assertEqual(menu._last_text(info), bar)                 # the row says the same
         self.assertNotIn("left", top)
         self.assertEqual(self.options[statusbar.WHY], "")
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")

@@ -163,7 +163,7 @@ nobody in the seat any more is `needs you` with `session closed: press N to reop
 with the question it asked or `waiting for you`. Your prompt after a question answers it, in the pane or over Remote Control, even after a rename: it stops blocking hand-backs and title sync and leaves the reason. Recording the answer runs in the background, so your prompt never waits for a notification lock. Only a prompt handled in the seat's own pane counts. Earlier prompts, slash commands (including `/compact` and `/rename`), `<cross-session-message>` prompts and `<task-notification>` prompts answer nothing; watcher alerts keep their own recovery rules. Opening through ak followed by fresh output still answers a question. These exclusions do not change the turn-ending rules. `ak orch why <seat>` says what decided it, on what evidence, since when. Claude question dialogs stay `needs you` while a message from another session is queued below them. Queued messages are never unsent drafts; text you type in the composer still is, with or without a status line under it.
 
 A row is number, name, orchestrator, state, and one last column: the reason for `needs you` and `done`, and for
-`working` its place in the landing line, else the tasks bar (`tasks ██░░░ 2/5`, from `~/.agentkit/state/plan-<session>.md` under the seat's name or any name it was renamed from, the newest such plan winning, else from its unfinished jobs' tasks, and what history says the rest takes: `· ~45m left`, `· ~5h left`, `· ~36d left`) else empty, never `N running`. `ak plan` lists its numbered outcomes. `ak plan add "OUTCOME" --check 'COMMAND'` accepts a line only when the command fails on a clean checkout of the project's default branch, without seat variables. Use `--eye` for what only you can judge; `ak plan tick N` marks only those lines done on your word. An
+`working` its place in the landing line, else the tasks bar (`tasks ██░░░ 2/5`, from `~/.agentkit/state/plan-<session>.md` under the seat's name or any name it was renamed from, the newest such plan winning, else from its unfinished jobs' tasks) else empty, never `N running`, and never when the work will finish: the bar and its count are the seat's progress. `ak plan` lists its numbered outcomes. `ak plan add "OUTCOME" --check 'COMMAND'` accepts a line only when the command fails on a clean checkout of the project's default branch, without seat variables. Use `--eye` for what only you can judge; `ak plan tick N` marks only those lines done on your word. An
 ended run is its orchestrator's business. `needs you` and `done` are messages, and opening the session is reading them.
 Runs keep those row words in `ak run status`, with the parked state and its retry on the dim line; a wait that lifts
 itself has an open circle (`○ waiting for claude login`), which is not a fourth session state.
@@ -370,9 +370,9 @@ verdict, timestamps, active seconds per step (checkpointed every 30 s; parks, sl
 are no step's), tokens where the harness reports them (else unknown), peak process-tree memory, session, and the task's
 words, goal points, checks and files changed. Merged runs also keep additions plus deletions, excluding files marked
 `linguist-generated` in `.gitattributes`. Smoke and e2e runs are never recorded; an older agentkit's rows are read
-as written, never rewritten, and a median keeps a few that counted waits from pulling an estimate far. Statistics skip
-stopped runs and suite runs, by name or run record. History is best effort. The last twenty runs estimate a task's
-active time. `ak run status --history` compares the last 7 days with the 7 before for products and ak:
+as written, never rewritten. Statistics skip
+stopped runs and suite runs, by name or run record. History is best effort.
+`ak run status --history` compares the last 7 days with the 7 before for products and ak:
 runs ended, shares merged in round 1 and ended without merging, median wall hours to merge and reported tokens per merge, ak's share of all recorded tokens (failed work included), and its committed code lines and README words now and 7 days ago.
 It never picks a model or changes a limit; it also shows median rounds by task size per repo. Neither it nor `ak usage` prints per-model
 success rates: a run's verdict describes the task, not the quality of its models. A run's own directory is

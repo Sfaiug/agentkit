@@ -205,9 +205,9 @@ class CatchCounts(unittest.TestCase):
     def test_an_old_database_and_missing_history_read_as_unused(self):
         self.assert_unused()
         self.assertFalse(history.path().exists())
-        columns = ",".join(history._index())
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute(history.SCHEMA)
+            columns = ",".join(row[1] for row in db.execute("PRAGMA table_info(runs)"))
             db.execute("INSERT INTO runs (run_id, repo, reviewer) VALUES ('old', 'acme', 'reviewer')")
             before = db.execute(f"SELECT {columns} FROM runs WHERE run_id='old'").fetchone()
         self.assert_unused()

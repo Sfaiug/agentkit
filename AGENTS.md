@@ -19,7 +19,7 @@ Every change to ak is judged by what it does for what you build with it, and by 
 
 - Python 3.11 standard library and bash. No dependency is added, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
-- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). Either failure fails it. `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. Dependent checks stay together; each piece has a tmux safety guard and sandbox. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback. Rounds run done-when commands and review; the loop runs the full suite once at landing on the merge candidate.
+- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). Either failure fails it. `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. Dependent checks stay together; each piece has a tmux safety guard and sandbox. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
 - Checks needing more than loopback (smoke.sh 1-5, 6, 6b, 6d, 31a, 31d, 31e: real models, GitHub, Discord, live meters, shared browser) run in smoke.sh's live mode via `tests/live.sh`, before a host takes new code and when a harness upgrades.
 - Match the style of the file you are in. Read `ARCHITECTURE.md` first; a change that adds, removes, renames or moves a module updates the map. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
 - Docs ride the change: `README.md` and `docs/guide.md` say what the code now does.
@@ -52,3 +52,4 @@ Every change to ak is judged by what it does for what you build with it, and by 
 - The orchestrator rulebook has no length cap: each line explains something ak checks or a judgement no check can make, and a rule ak comes to enforce shrinks to a mention. [1 Oct]
 - Credits a provider account still holds (ChatGPT credits first, any provider that reports a balance) count as usage left. [2 Oct]
 - ak never spends a usage-limit reset on its own; the owner spends one by hand, from the Providers row of `c`. [2 Oct]
+- No screen estimates when work will finish; a seat's progress is its tasks bar and its count, never a percentage. [2 Oct]
