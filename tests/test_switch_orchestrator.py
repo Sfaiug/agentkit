@@ -195,6 +195,19 @@ class Switch(Sandbox):
         self.assertIn("ak run status",
                       watch.seat_read("fix-api")["midturn"]["line"])
 
+    def test_a_seat_renamed_under_the_open_screen_moves_under_its_new_name(self):
+        selected = self.selected()
+        config.rename_session("fix-api", "ship-api")    # the screen keeps the name it opened on
+        self.seat["name"] = "ship-api"
+        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
+                         "")
+        self.assertEqual(config.load_session(self.cfg, "ship-api")["orchestrator"], "astra")
+        respawns = [args for args in self.calls if args[0] == "respawn-pane"]
+        self.assertEqual([args[args.index("-t") + 1] for args in respawns], ["=ship-api:"])
+        self.assertEqual([args for args in self.calls if "new-session" in args], [])
+        self.assertIn(str(config.plan_path("ship-api")),
+                      watch.seat_read("ship-api")["midturn"]["line"])
+
     def test_a_restart_that_fails_says_so_in_one_line_and_keeps_the_record(self):
         before = config.load_session(self.cfg, "fix-api")
         self.fail.add("respawn-pane")

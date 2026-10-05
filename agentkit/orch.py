@@ -3365,6 +3365,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
     note, account = _switch_plan(cfg, name, model, providers)
     if note:
         return note
+    name = config.resolve_session(name)    # a screen open across a rename has the old name
     record = dict(config.session_records().get(name) or {})
     old_model = record["orchestrator"]
     if old_model == model:
