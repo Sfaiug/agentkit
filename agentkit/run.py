@@ -8651,11 +8651,9 @@ def cmd_clean(argv):
     if wt == Path(repo):
         print(f"{argv[0]}: ran with --no-worktree; nothing to remove")
         return 0
-    worktrees.run_repo_cleanup(wt, run_dir)
-    code, out = git_out(repo, "worktree", "remove", "--force", str(wt))
-    if code != 0 and wt.exists():
-        raise config.Error(f"could not remove worktree {wt}: {out}")
-    git(repo, "worktree", "prune", check=False)
+    told = []
+    if not worktrees.stop_checkout(state, told.append, keep_branch=True):
+        raise config.Error(f"{argv[0]}: " + "; ".join(line.removeprefix("WARN ") for line in told))
     print(f"{argv[0]}: removed worktree {wt}; branch {state.get('branch', '?')} kept")
     return 0
 
