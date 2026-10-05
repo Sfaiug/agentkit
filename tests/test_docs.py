@@ -74,7 +74,7 @@ class Docs(unittest.TestCase):
 
     def test_readme_lists_the_keys_and_says_each_state_as_the_key_line_does(self):
         page = README.read_text()
-        for key, _ in terminal.key_parts(menu.KEYS + "   s solo"):
+        for key, _ in terminal.key_parts(menu.KEYS):
             self.assertRegex(page, rf"(?m)^{re.escape(key)} +\S", f"README.md lacks `{key}`")
         self.assertNotRegex(page, r"(?m)^i +\S")
         for word in menu.STATE_ORDER:

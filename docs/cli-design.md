@@ -178,12 +178,7 @@ on a resize, where a click on a choice picks it). The main menu and the
 new-session screen use them. A click belongs to the screen it began on: a button down on the menu and
 up on the question or on `c`, or the other way round, is no click.
 
-On a terminal, `s` toggles solo on the highlighted seat, or in the popup its own seat,
-and appears as `s solo` on the key line while a seat is selected. The last column starts
-with `solo` while on; the session's record keeps the switch across restarts and model changes.
-Solo refuses task launches before a run is created and still allows its own PR reviews.
-
-Example: `↑↓ move   ⏎ open   n new   x stop   c config   s solo   esc leave`.
+Example: `↑↓ move   ⏎ open   n new   x stop   c config   esc leave`.
 
 Whatever the pointer is over lights up, on every screen, as it would in a window:
 a row under it -- a seat, a model, a feature, a choice -- takes the keys' own
@@ -245,7 +240,6 @@ UTF-8 key (`enter` is `⏎`):
 - `x stop`: `x stops the highlighted session and everything it runs, asking first`
 - `x close`: `x closes the highlighted session, which is done: its runs, checkouts and files go`
 - `c config`: `c sets the highlighted session's models, every model's effort, the providers and Discord`
-- `s solo`: `s toggles solo: no task launches while on; its own PR reviews still run`
 - `esc leave`: `Esc leaves ak; the sessions go on working without it`
 - in the popup, `n start a session`: `n starts a session and switches this terminal to it, closing the popup`
 - `r rename this session`: `r renames this session: its record, its bar and its title follow`
