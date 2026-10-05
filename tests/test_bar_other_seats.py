@@ -26,7 +26,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, orch, statusbar, terminal, watch
+from agentkit import config, notify, orch, statusbar, terminal, watch
 
 IDS = {"fix-api": "$0", "atlas-proxies": "$1", "web": "$2", "zeta": "$3"}
 WORDS = {"fix-api": "working", "atlas-proxies": "needs you", "web": "working", "zeta": "done"}
@@ -84,8 +84,8 @@ class OtherSeats(Sandbox):
         self.assertNotIn("range=", self.options["fix-api"][statusbar.FOLD])
         # the names and their lookup in one tmux command list, which no click can land inside
         whole = [args for args, _ in self.calls if statusbar.HIT in args]
-        self.assertEqual([(args[3::6], args[5::6]) for args in whole],
-                         [((statusbar.SEATS, statusbar.FOLD, statusbar.HIT), (";", ";"))])
+        self.assertEqual({(args[3::6], args[5::6]) for args in whole},
+                         {((statusbar.SEATS, statusbar.FOLD, statusbar.HIT), (";", ";"))})
         found = statusbar.seats()
         self.assertEqual(found[1], ("$1", "atlas-proxies", "needs you"))
         named, folded, hit = statusbar.others(found, "atlas-proxies")
@@ -296,6 +296,43 @@ class OnTmux(Sandbox):
                        f"a click at column {column} never reached {session}")
             time.sleep(0.3)
             self.assertEqual(self.tmux("list-clients", "-F", "#{client_session}")[1], session)
+
+    def test_h_a_renamed_or_reopened_seat_is_named_on_every_other_bar_at_once(self):
+        for name, word in (("fix-api", "working"), ("web", "needs you")):
+            self.assertEqual(self.tmux("-f", "/dev/null", "new-session", "-d", "-s", name,
+                                       "sleep 600")[0], 0)
+            config.save_session(self.cfg, name, "fable", ["astra"])
+            watch.seat_write(name, word=word, reason="", word_since=None)
+
+        def sessions():
+            return [{"name": line.partition("\t")[2], "legacy": False, "path": str(self.root),
+                     "exited": False}
+                    for line in self.tmux("list-sessions", "-F",
+                                          "#{session_id}\t#{session_name}")[1].splitlines()]
+
+        def seat(name):
+            return next(found for found in sessions() if found["name"] == name)
+
+        def named():
+            return drawn(self.tmux("show-options", "-qv", "-t", "=fix-api:", statusbar.SEATS)[1])
+        with patch.object(orch, "tmux_out", side_effect=self.tmux), \
+                patch.object(orch, "sessions", side_effect=sessions), \
+                patch.object(watch, "sync_title"), \
+                patch.object(orch, "user_manager", return_value=False):
+            notify.record("web", "needs", "Choose a deployment region")
+            self.assertEqual(watch.announce_state(seat("web"), cfg=self.cfg, records=[])["word"],
+                             "needs you")
+            statusbar._write("fix-api", "fable", "working", cfg=self.cfg)
+            self.assertIn("! web needs you", named())
+            # renamed, its word the same: fix-api names it by its new name as rename returns
+            self.assertEqual(orch.rename("web", "renamed-web"), "renamed-web")
+            self.assertIn("! renamed-web needs you", named())
+            # gone by hand, then opened again under its name: named again as it opens
+            self.assertEqual(self.tmux("kill-session", "-t", "=renamed-web:")[0], 0)
+            statusbar._write("fix-api", "fable", "working", cfg=self.cfg)
+            self.assertEqual(named(), "")
+            orch.start("renamed-web", self.root, ["sleep", "600"], "fable")
+            self.assertIn("! renamed-web needs you", named())
 
 
 if __name__ == "__main__":

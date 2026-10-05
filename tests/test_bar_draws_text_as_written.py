@@ -82,17 +82,21 @@ class AsWritten(Sandbox):
             time.sleep(.1)
         self.assertEqual(title, "fix-%H · working")
 
-    def test_d_another_seat_s_name_draws_as_it_is_at_line_one_s_end(self):
-        name = "## web #{session_name} 50% %H"
-        # a seat made by hand: tmux reads the name it is given as a format, and keeps this one
-        self.assertEqual(orch.tmux_out("new-session", "-d", "-s", orch.tmux_text(name),
-                                       "sleep 600")[0], 0)
-        self.assertIn(name, orch.tmux_out("list-sessions", "-F", "#{session_name}")[1].split("\n"))
-        watch.seat_write(name, word="needs you", reason="", word_since=None)
+    def test_d_line_one_s_end_names_seats_and_no_session_made_by_hand(self):
+        # sessions made by hand under names no seat can have -- tmux reads the name it is given as
+        # a format, and keeps these -- are no seats: never named, never counted, so no cell of
+        # theirs can stand where tmux draws another's; the seat beside them is named as it is
+        for name in ("## web #{session_name} 50% %H", "z-\U0001F468\u200d\U0001F469-0",
+                     "web_2-api"):
+            self.assertEqual(orch.tmux_out("new-session", "-d", "-s", orch.tmux_text(name),
+                                           "sleep 600")[0], 0)
+            watch.seat_write(name, word="needs you", reason="", word_since=None)
         statusbar._write("fix-api", "fable", "working", "", self.cfg)
-        said = f"! {name} needs you"
-        self.assertTrue(self.screen(said)[0].rstrip().endswith(said), self.screen(said))
-
+        said = "! web_2-api needs you"
+        line = self.screen(said)[0].rstrip()
+        self.assertTrue(line.endswith(said), line)
+        self.assertNotIn("##", line)
+        self.assertNotIn("z-", line)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

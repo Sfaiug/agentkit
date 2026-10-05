@@ -118,15 +118,17 @@ def lines(name, model, colour, word=None, last=""):
 
 
 def seats():
-    """(session id, name, word) of every session on ak's own server, the word the one it last
-    announced: what each bar's right end counts."""
+    """(session id, name, word) of every seat on ak's own server, the word the one it last
+    announced: what each bar's right end counts.  A session under a name no seat can have
+    (`orch.session_name`) is no seat, so every name drawn is the plain ASCII a seat's is, whose
+    cells `others` counts as tmux draws them."""
     from . import watch   # here, not at the top: the watch announces seats, which write this bar
     rc, out = orch.tmux_out("list-sessions", "-F", "#{session_id}\t#{session_name}",
                             socket=orch.socket_name())
     found = []
     for line in out.splitlines() if rc == 0 else ():
         sid, _, name = line.partition("\t")
-        if sid.startswith("$") and name:
+        if sid.startswith("$") and name and orch.session_name(name) == name:
             found.append((sid, name, watch.seat_read(name).get("word")))
     return found
 
@@ -170,8 +172,8 @@ def _drawn(parts):
 
 
 def retell(session):
-    """That seat's word changed, or the seat went: every seat's bar counts it again now, not at
-    the next tick, which rewrites each from what it finds anyway.  Never raises."""
+    """That seat's word or name changed, or the seat went: every seat's bar counts it again now,
+    not at the next tick, which rewrites each from what it finds anyway.  Never raises."""
     try:
         if orch.on_own_server(session):
             _tell()
@@ -204,9 +206,11 @@ def _tell(only=None):
 
 
 def dress(name, model):
-    """A new seat's bar, before its first word: who is in it.  Never raises."""
+    """A new seat's bar, before its first word: who is in it; and every other seat's bar counts
+    it again, since a seat opened under a name that needed you needs you still.  Never raises."""
     try:
         _write(name, model)
+        _tell()
     except Exception:  # noqa: BLE001 - dressing a bar never breaks the seat beneath it
         pass
 

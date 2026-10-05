@@ -2272,6 +2272,8 @@ def rename(old, new, log=print, *, auto=False):
                 watch.announce_state(moved_seat)
             except (config.Error, OSError, ValueError):
                 pass
+            from . import statusbar   # here, not at the top: its module imports this one
+            statusbar.retell(moved_seat)   # every other bar names it by its new name
     if moved_seat is not None:
         try:
             watch.sync_title(moved_seat, log)
