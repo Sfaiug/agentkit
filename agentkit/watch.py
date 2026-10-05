@@ -2722,8 +2722,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     A line goes into a composer once: a second copy is read twice, whether the first was taken
     or still waits for its Enter.  `receipt` is handed a mark the moment the text is in, for the
     ending's own record to keep until its delivery is recorded; given that mark back as `typed`,
-    this only presses Enter, and only while the composer still holds the line -- read under the
-    send lock, past any dialog -- and gone from there, the seat has it.  A reopened seat is a
+    this only presses Enter, and only while the composer still holds the line alone -- read under
+    the send lock, past any dialog -- and gone from there, the seat has it.  A reopened seat is a
     new one, with an empty composer, and matches no mark.  `stale` is asked under the send lock
     too, with the name the seat goes by then, before each key: a line that has stopped being
     this seat's to have is typed no further, and `ready` before each Enter.
@@ -2736,12 +2736,14 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             return False
         with seat_held(session["name"]) as held:
             pane = pane_text(session)
-            if (not pane.strip() or owner_question(notify.last(held))
+            if (not pane.strip() or owner_question(notify.last(held)) or stale(held)
                     or asking(held, harness, pane)):
                 return False    # nothing to read, or the screen is somebody else's: next pass
             if not _holds_text(pane, text):
                 return True
-            _send_enter(session, log)
+            # the line alone: an Enter would send whatever the owner has typed beside it since
+            if composer_draft(harness, pane) == re.sub(r"\s+", "", text) and ready(held):
+                _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
         return False
