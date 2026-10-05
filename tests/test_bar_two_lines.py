@@ -102,7 +102,9 @@ class TwoLines(Sandbox):
         self.assertIn(f"#[fg={INK},bg=#89b4fa,bold] 2/5 ", bar)
         self.assertEqual(drawn(top), f" ▐● working▌  fix-api  fable orchestrates   {drawn(bar)}")
         self.assertNotIn("left", top)
-        self.assertEqual(self.options[statusbar.WHY], "")
+        # line two is its live run: who builds it, ten minutes into the step
+        self.assertEqual(drawn(self.options[statusbar.WHY]),
+                         "  20260101-0900-going ■□□□ opus building · 10m")
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
         self.assertEqual(self.options["set-titles-string"], "fix-api · working")
 
@@ -161,7 +163,8 @@ class TwoLines(Sandbox):
         self.assertIn("client_width", top)
         self.assertIn(f"#{{w:{statusbar.KEY}}}", bottom)   # the reason stops short of the key
         # a space between the reason and the key; each option drawn as it is, never expanded
-        self.assertIn(f"{statusbar.WHY}}} #[align=right]#{{{statusbar.KEY}}}", bottom)
+        self.assertIn(f"…:{statusbar.WHYS[-1]}}}", bottom)
+        self.assertIn(f"}} #[align=right]#{{{statusbar.KEY}}}", bottom)
         self.assertTrue(bottom.endswith(f"#[align=right]#{{{statusbar.KEY}}}"))
         self.assertNotIn("E:", top + bottom)
         self.assertNotIn("E;", top + bottom)

@@ -7,8 +7,9 @@ menu row draws it, as wide as `BARS` lets it be.  Its right end is the owner's o
 ak's own server: each that needs you by name, a click away, then how many others are working
 and done.  Where they do not fit beside the left part the bar narrows, then the names fold into
 a count, then only the count of those that need you stays, and only then is the left part cut.
-Line two carries why a seat needs you or is done, the question or the summary, with the one
-key at its right end: `Ctrl-b m  menu`, or `Ctrl-b m  x close` once done.
+Line two carries why a seat needs you or is done, the question or the summary, or a working
+seat's live runs (`live`), with the one key at its right end: `Ctrl-b m  menu`, or `Ctrl-b m
+x close` once done.
 
 The bar draws on the terminal's own background and foreground and never tmux's green.  The
 chips and the tasks bar carry their own background, so they read on any terminal; the rest is
@@ -18,9 +19,9 @@ company colour that a light terminal draws in its mirror tone (a white one) is t
 own foreground, which is that tone wherever the bar is drawn.
 
 The text is data: each write puts it in the session's own options (`@ak_top` at each bar
-width, `@ak_seats`, `@ak_fold`, `@ak_need`, `@ak_why`, `@ak_key`), and two fixed formats draw
-them, so nothing a reason says is ever read as a format and each client picks what fits its own
-width.  Only ak's own tmux server is written to.
+width, `@ak_seats`, `@ak_fold`, `@ak_need`, `@ak_why` and its folded versions, `@ak_key`), and
+two fixed formats draw them, so nothing a reason says is ever read as a format and each client
+picks what fits its own width.  Only ak's own tmux server is written to.
 
 A name is drawn in a `range=right`, which nothing else on a bar draws and no key of tmux's own
 is bound to, and the one key ak binds there is a click (CLICK): `@ak_hit` finds the seat whose
@@ -29,6 +30,7 @@ click over a name do what they do anywhere else on the bar, which is nothing.
 """
 
 import fcntl
+import time
 
 from . import config, orch, terminal
 
@@ -48,17 +50,28 @@ CELLS = 36                         # a working seat's tasks bar, its ticks there
 BARS = (CELLS, 2 * CELLS // 3, CELLS // 3)   # ... and narrower, where line one is short of room
 TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left part at each
 DIM = terminal.STATE_STYLES["dim"][2]
+# A live run's step in the order a round takes them, in the word line two reads it in; a run
+# queued for a slot has not reached one.
+DOING = {"building": "building", "checks": "checking", "review": "reviewing", "landing": "landing"}
+# Line two, then each version of it with one more step folded into its count, and last the
+# counts alone (`live`).
+WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, len(DOING) + 2)))
+
+
+def _cut(option, room):
+    """`option` cut with one `…` to `room` cells -- to one at the least, since tmux reads a limit
+    of 0 as none and a negative one as the line's tail.  Only a text that does not fit goes
+    through it: tmux marks one that fills its room to the cell cut too, as it drops the styles
+    after its last cell."""
+    return "#{=/#{?#{e|>:" + room + ",0}," + room + ",1}/…:" + option + "}"
 
 
 def _line_one():
     """The widest tasks bar beside the other seats by name that fits the client, else beside
     them folded, else beside who needs you alone, each drawn whole; else the narrowest cut a
-    space short of who needs you -- to one cell at the least, since tmux reads a limit of 0 as
-    none and a negative one as the line's tail.  A pair that fits is never cut: tmux's cut marks
-    a line that fills its limit to the cell, as it drops the styles after its last cell."""
+    space short of who needs you."""
     room = "#{e|-:#{client_width},#{e|+:#{w:" + NEED + "},2}}"
-    found = ("#[align=left]#{=/#{?#{e|>:" + room + ",0}," + room + ",1}/…:" + TOPS[-1] + "} "
-             "#[align=right]#{" + NEED + "}")
+    found = "#[align=left]" + _cut(TOPS[-1], room) + " #[align=right]#{" + NEED + "}"
     for left, right in reversed([(left, right) for right in (SEATS, FOLD, NEED) for left in TOPS]):
         fits = "#{e|<=:#{e|+:#{w:" + left + "},#{e|+:#{w:" + right + "},2}},#{client_width}}"
         whole = "#[align=left]#{" + left + "} #[align=right]#{" + right + "}"
@@ -66,15 +79,24 @@ def _line_one():
     return found
 
 
+def _first_fitting(options, room):
+    """The first of `options` whose text fits in `room` cells, drawn whole, else the last cut
+    to it."""
+    found = _cut(options[-1], room)
+    for option in reversed(options):
+        found = "#{?#{e|<=:#{w:" + option + "}," + room + "},#{" + option + "}," + found + "}"
+    return found
+
+
 # Each line as tmux draws it from those options, cut with one `…` where it would run off the
-# client drawing it -- line one's (`_line_one`) beside the other seats; line two's a space short
-# of the key, so the key stays whole on every client, a phone's included.  tmux cuts by cells
-# and steps over the styles.  An option is drawn as it is and never expanded again, so its
-# doubled `#` is one escape: a second pass would halve `##` again and draw `## heading` as
-# `# heading`.
+# client drawing it -- line one's (`_line_one`) beside the other seats; line two's the first
+# version that fits a space short of the key, so the key stays whole on every client, a phone's
+# included.  tmux cuts by cells and steps over the styles.  An option is drawn as it is and never
+# expanded again, so its doubled `#` is one escape: a second pass would halve `##` again and
+# draw `## heading` as `# heading`.
 FORMATS = (_line_one(),
-           "#[align=left]#{=/#{e|-:#{client_width},#{e|+:#{w:" + KEY + "},2}}/…:" + WHY + "} "
-           "#[align=right]#{" + KEY + "}")
+           "#[align=left]" + _first_fitting(WHYS, "#{e|-:#{client_width},#{e|+:#{w:" + KEY + "},2}}")
+           + " #[align=right]#{" + KEY + "}")
 # What every write sets beside the text, so a seat dressed before this layout came has it too:
 # its two lines among them.  tmux resizes a pane only when the height changes, so a seat's
 # pane changes size once -- when it is dressed, or a seat dressed with one line at its first
@@ -84,15 +106,22 @@ LAYOUT = (("set-titles", "on"), ("status", "2"), ("status-style", "default"),
 
 
 def company(cfg, model):
-    """The colour `model`'s company is drawn in, as on its usage bar (`menu.colour`), for tmux.
+    """The colour `model`'s company is drawn in, as on its usage bar (`menu.model_colour`), for
+    tmux."""
+    from . import menu   # here, not at the top: the menu draws seats, which write this bar
+    return tone(menu.model_colour(cfg, model))
+
+
+def tone(kind):
+    """A colour as `terminal.styled` takes one -- a kind, `#RRGGBB` or None for none -- for tmux.
 
     A light grey is `default`, the terminal's own foreground: the colour itself on a dark
     terminal, and on a light one its mirror tone, as the usage rows draw it there.
     """
-    from . import menu   # here, not at the top: the menu draws seats, which write this bar
-    entry = cfg["models"].get(model) if model else None
-    own = menu.colour(cfg, entry.get("provider") if isinstance(entry, dict) else None)
-    rgb = own[1:] if own.startswith("#") else terminal.STATE_STYLES[terminal.KINDS[own]][2]
+    if not kind:
+        return "default"
+    rgb = kind[1:] if kind.startswith("#") else terminal.STATE_STYLES[terminal.KINDS.get(kind,
+                                                                                         kind)][2]
     return "default" if terminal.light_grey(rgb) else f"#{rgb}"
 
 
@@ -126,6 +155,66 @@ def lines(name, model, colour, word=None, last=""):
     # tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
     return (top, why, f"{key}#[fg=#{DIM}]  {verb} #[default]",
             orch.tmux_text(title).replace("%", "%%"))
+
+
+def live(runs, cfg, now):
+    """Line two of a working seat: its live runs (`menu.seat_runs`), as one version for each of
+    `WHYS`, the least folded first, each a list of (text, colour, bold), the colour as
+    `terminal.styled` takes one, or None.  The highlighted row of the menu draws the same.
+
+    A run reads `gh2 ■■□□ opus reviewing · round 2 of 3 · 11m`: its task id in bold, red on its
+    last round; a cell for each step of a round, dim for those it passed, the current one in the
+    colour of the model doing it, hollow for those to come; that model -- the executor building,
+    the reviewer reviewing, none checking or landing -- in its company's colour; its round once
+    past the first; how long it has been on this step.  Runs go in the order a round takes their
+    steps.  More than two on one step are one count, `landing 8 · longest 2h`, and so are the
+    runs queued for a slot, `waiting 2`.  Each next version folds one more step, the last first,
+    and the last drops the counts' times, so a line short of room folds whole runs into counts
+    before anything is cut.
+    """
+    from . import menu   # here, not at the top: the menu draws seats, which write this bar
+    full, hollow = ("■", "□") if terminal.utf8() else ("#", "-")
+    steps, dim = list(DOING), "dim"
+    group = {step: [run for run in runs if run["step"] == step] for step in (*steps, "waiting")}
+
+    def age(found):
+        ages = [now - run["since"] for run in found if type(run["since"]) in (int, float)]
+        return terminal.format_age(max(ages)) if ages else ""
+
+    def one(run):
+        at = steps.index(run["step"])
+        model = {"building": run["executor"], "review": run["reviewer"]}.get(run["step"])
+        colour = menu.model_colour(cfg, model) if model else None
+        last = bool(run["rounds"]) and run["round"] >= run["rounds"]
+        parts = [(run["task"], "FAIL" if last else None, True), (" ", None, False),
+                 (full * at, dim, False), (full, colour, False),
+                 (hollow * (len(steps) - 1 - at), dim, False), (" ", None, False)]
+        if model:
+            parts += [(model, colour, False), (" ", None, False)]
+        said = ([f"round {run['round']}" + (f" of {run['rounds']}" if run["rounds"] else "")]
+                if run["round"] > 1 else []) + [part for part in (age([run]),) if part]
+        return [*parts, (DOING[run["step"]], None, False),
+                *([(" · " + " · ".join(said), dim, False)] if said else [])]
+
+    def count(step, timed):
+        found, longest = group[step], age(group[step])
+        return [(f"{DOING.get(step, step)} {len(found)}", None, False),
+                *([(f" · {'longest ' if len(found) > 1 else ''}{longest}", dim, False)]
+                  if timed and longest and step in DOING else [])]
+
+    versions = []
+    for folded in range(len(WHYS)):
+        shown, timed = [], folded <= len(steps)
+        for at, step in enumerate(steps):
+            if len(group[step]) > 2 or (group[step] and at >= len(steps) - folded):
+                shown.append(count(step, timed))
+            else:
+                shown += [one(run) for run in group[step]]
+        if group["waiting"]:
+            shown.append(count("waiting", timed))
+        versions.append([part for n, said in enumerate(shown)
+                         for part in ([("   ", None, False)] if n else []) + said])
+    return versions
 
 
 def seats():
@@ -249,28 +338,35 @@ def redress(session, answer, cfg=None, records=None):
         except config.Error:
             selection = None
         word = answer.get("word")
-        runs = menu.seat_runs(name, records) if word == "working" else ()
+        runs = menu.seat_runs(name, records) if word == "working" else []
         progress = menu.seat_progress(name)
         # each in its own cells and never more (`narrow`), so line one picks by the width it set
         lasts = [menu.last_column(word, answer.get("reason"), *progress, runs, cells,
                                   narrow=True, tmux=True) for cells in BARS]
-        _write(name, selection["orchestrator"] if selection else None, word, lasts, cfg)
+        _write(name, selection["orchestrator"] if selection else None, word, lasts, cfg,
+               live(runs, cfg, time.time()) if runs else ())
     except Exception:  # noqa: BLE001 - dressing a bar never breaks the draw or the tick beneath it
         pass
 
 
-def _write(name, model, word=None, lasts=None, cfg=None):
+def _write(name, model, word=None, lasts=None, cfg=None, versions=()):
     """Set the bar on that seat's own session, never the server's or another seat's: a seat gone
     mid-draw, or a draw under test, fails its `set-option` quietly.  `={name}:` is that session
     alone: tmux reads a plain name as the start of any session's, so a gone `new-1` would write
     `new-10`'s bar, and it refuses `=name` without the colon as a target.  `lasts` are the
-    seat's last column at each of `BARS`."""
+    seat's last column at each of `BARS`, and `versions` a working seat's line two (`live`),
+    else every version of it is the reason."""
     cfg = config.load() if cfg is None else cfg
     lasts, colour = lasts or [""] * len(BARS), company(cfg, model)
     tops = [lines(name, model, colour, word, last)[0] for last in lasts]
     _, why, key, title = lines(name, model, colour, word, lasts[0])
+    whys = ([why] * len(WHYS) if not versions else
+            ["  " + "".join(f"#[fg={tone(colour)},{'bold' if bold else 'nobold'}]"
+                            f"{orch.tmux_text(said)}" for said, colour, bold in version)
+             + "#[default]"
+             for version in versions])
     _tell(name)
     # the title last, so whoever sees it has the whole bar to read
-    for option, value in (*LAYOUT, *zip(TOPS, tops), (WHY, why), (KEY, key),
+    for option, value in (*LAYOUT, *zip(TOPS, tops), *zip(WHYS, whys), (KEY, key),
                           ("set-titles-string", title)):
         orch.tmux_out("set-option", "-t", f"={name}:", option, value, socket=orch.socket_name())

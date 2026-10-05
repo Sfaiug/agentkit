@@ -743,6 +743,7 @@ def seat_progress(name):
 
 # A live run's step, as `Loop.step` records it, in the words a seat's bar reads: the steps of a
 # round, and the wait on the seat's own push, which is its review's; one not stepped yet builds.
+# A run in its repository's line to land is landing, and one queued for a slot is waiting.
 STEPS = {"executor": "building", "done-when": "checks", "reviewer": "review",
          "waiting for the seat's push": "review", "merge": "landing"}
 FILLS = {"building": 1 / 4, "checks": 1 / 2, "review": 3 / 4, "landing": 7 / 8}   # of its slot
@@ -750,8 +751,8 @@ FILLS = {"building": 1 / 4, "checks": 1 / 2, "review": 3 / 4, "landing": 7 / 8} 
 
 def seat_runs(name, records=None):
     """Each live run that seat launched, furthest on first: its `task` id -- its task file's name
-    up to the first `-`, else the run's id -- its `step` (`STEPS`) and `since` when, its `round`
-    of its `rounds`, its `executor` and its `reviewer`.
+    up to the first `-`, else the run's id -- its `step` (`STEPS`, or `waiting` for a slot) and
+    `since` when, its `round` of its `rounds`, its `executor` and its `reviewer`.
 
     `records` are the draw's own `run_records`, read here when they are not handed in.  The
     menu row and the seat's own status bar both read this, as they read `seat_progress`.
@@ -759,19 +760,27 @@ def seat_runs(name, records=None):
     from . import run as _run
     runs = []
     for run_dir, state in run_records() if records is None else records:
-        if state.get("state") != "running" or _run.launched_session(state) != name:
+        if _run.launched_session(state) != name:
+            continue
+        if _run.landing_line(state):
+            step, since = "landing", state["waiting_on"].get("joined")
+        elif state.get("state") == "running":
+            step = STEPS.get(state.get("step"), "building")
+            since = state.get("step_at") or state.get("started_at")
+        elif state.get("state") == "queued":
+            step, since = "waiting", state.get("queued_at")
+        else:
             continue
         task = Path(state.get("task_file") or "").stem.split("-")[0] or run_dir.name
         # the round anything last ran in, or a step was announced in before its directory was
         # made: one landing, rechecked or waiting on a push is still in the round its summary
         # closed, not the next
-        runs.append({"task": task, "step": STEPS.get(state.get("step"), "building"),
-                     "since": state.get("step_at") or state.get("started_at"),
+        runs.append({"task": task, "step": step, "since": since,
                      "round": max(1, _run.started_round(run_dir, state),
                                   state.get("step_round") or 0),
                      "rounds": state.get("rounds"),
                      "executor": state.get("executor"), "reviewer": state.get("reviewer")})
-    return sorted(runs, key=lambda run: -FILLS[run["step"]])
+    return sorted(runs, key=lambda run: -FILLS.get(run["step"], 0))
 
 
 def silent_for_run(run_dir, state, now=None):
@@ -1003,7 +1012,7 @@ def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=F
     if not tasks_bar(word, reason):
         return terminal.plain(reason or "")
     fills = [(FILLS[run["step"]], bool(run["rounds"]) and run["round"] >= run["rounds"])
-             for run in runs]
+             for run in runs if run["step"] in FILLS]
     return terminal.plan_bar(done, total, fills, room, 0 if narrow else 8, word, tmux)
 
 
@@ -1827,6 +1836,12 @@ def _note_styled(part):
     if part.startswith("?"):
         return terminal.styled("?", "attention") + terminal.styled(part[1:], "dim")
     return terminal.styled(part, "dim")
+
+
+def model_colour(cfg, model):
+    """The colour `model`'s company is drawn in: its provider's (`colour`)."""
+    entry = cfg["models"].get(model) if model else None
+    return colour(cfg, entry.get("provider") if isinstance(entry, dict) else None)
 
 
 def colour(cfg, name):
