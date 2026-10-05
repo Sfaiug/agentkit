@@ -282,7 +282,7 @@ A model's own screen sets its `model` from the harness's catalog (the effort fol
 Secrets are in `~/.agentkit/secrets/`: `discord_webhook`, `discord_user_id` and `claude_oauth_token` (the worker token
 `claude setup-token` mints, dated a year from its file). A repository's `AGENTS.md` front matter holds `tests:`, its
 full suite, which a review of others' PRs runs as its check, `cleanup:`, one shell line ak runs once in a run's checkout
-before removing it, and `users:` (above); task files go by convention in `~/.agentkit/tasks/<repo>/`. When a whole suite takes more than two minutes, ak starts a run in its session to split the `tests:` line itself, once per repository and line. The line then reads `AK_SHARD`: `k/N` selects its 1-based share, unset runs everything. ak runs the pieces together in one checkout, sizes them from live CPU room, host and run memory headroom, and measured cost, logs each separately, and retries red pieces alone.
+before removing it (a ten-minute timeout ends the command and its children first), and `users:` (above); task files go by convention in `~/.agentkit/tasks/<repo>/`. When a whole suite takes more than two minutes, ak starts a run in its session to split the `tests:` line itself, once per repository and line. The line then reads `AK_SHARD`: `k/N` selects its 1-based share, unset runs everything. ak runs the pieces together in one checkout, sizes them from live CPU room, host and run memory headroom, and measured cost, logs each separately, and retries red pieces alone.
 
 ## Adding a model or a harness
 

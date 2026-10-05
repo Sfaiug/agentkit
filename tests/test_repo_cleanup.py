@@ -5,9 +5,12 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -19,7 +22,7 @@ from agentkit import config, run, worktrees  # noqa: E402
 
 class RepoCleanup(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix="repo-cleanup-")
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-repo-cleanup-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -27,6 +30,7 @@ class RepoCleanup(unittest.TestCase):
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(self.root / "home"),
             config.SESSION_ENV: "", config.RUN_DIR_ENV: "", "AK_RUN_DEPTH": "0",
             "AK_MAX_RUNS": "0", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
         for name in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG"):
@@ -111,6 +115,49 @@ class RepoCleanup(unittest.TestCase):
         self.assertFalse(wt.exists())
         [line] = self.cleanup_lines(run_dir)
         self.assertIn("timed out", line)
+
+    @unittest.skipUnless(sys.platform == "linux", "orphan reaping needs Linux's subreaper")
+    def test_timed_out_cleanup_kills_children_before_removal(self):
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        previous = ctypes.c_int()
+        self.assertEqual(libc.prctl(37, ctypes.byref(previous), 0, 0, 0), 0)
+        self.assertEqual(libc.prctl(36, 1, 0, 0, 0), 0)
+        self.addCleanup(libc.prctl, 36, previous.value, 0, 0, 0)
+        child_file, shell_file = self.root / "child.pid", self.root / "shell.pid"
+        wt, run_dir, state = self.make_run(
+            "cleanup-child", "---\ncleanup: "
+            f"echo $$ > {shlex.quote(str(shell_file))}; trap '' TERM; "
+            f"sleep 30 & echo $! > {shlex.quote(str(child_file))}; wait\n---\n# acme\n")
+        child, reaped = None, False
+        try:
+            with patch.object(worktrees, "CLEANUP_LIMIT", 1):
+                worktrees.run_repo_cleanup(wt, run_dir)
+            child = int(child_file.read_text())
+            deadline = time.monotonic() + .5
+            while time.monotonic() < deadline:
+                if os.waitpid(child, os.WNOHANG)[0] == child:
+                    reaped = True
+                    break
+                time.sleep(.02)
+            print(f"cleanup child alive after timeout: {not reaped}", flush=True)
+            self.assertTrue(reaped, "cleanup timed out but its child was left running")
+            with self.assertRaises(ChildProcessError):
+                os.waitpid(int(shell_file.read_text()), os.WNOHANG)
+            self.assertTrue(worktrees.stop_checkout(state, lambda message: None))
+            self.assertFalse(wt.exists())
+            [line] = self.cleanup_lines(run_dir)
+            self.assertIn("timed out", line)
+        finally:
+            # Adopt and reap only this fixture's orphan, even when the old code leaks it.
+            if child is None and child_file.exists():
+                child = int(child_file.read_text())
+            if child is not None and not reaped:
+                try:
+                    os.kill(child, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                os.waitpid(child, 0)
 
 
 if __name__ == "__main__":
