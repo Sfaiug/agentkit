@@ -47,9 +47,14 @@ class Silence(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.addCleanup(patch.stopall)
+        # ak's state is the sandbox's: a run parked below tells its seat, and run from a seat
+        # that was the real seat, held with a stray "needs you" that blocked its hand-backs
+        for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+            patch.object(config, key, self.root / key.lower()).start()
         # a worker running this file carries its own run's marker, and a silent turn below
         # ends every process marked with the run it inherits
         patch.dict(os.environ, {"HOME": str(self.root), "AGENTKIT_RUN": "",
+                                "AGENTKIT_SESSION": "", "AGENTKIT_DISCORD_WEBHOOK": "off",
                                 "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
                                 "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}).start()
         patch.object(run, "dirty_paths", return_value=[]).start()
