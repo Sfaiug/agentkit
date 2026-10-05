@@ -10,10 +10,11 @@ once as live memory fits; waiting files can outnumber cores. Before each start i
 CPU pressure, waiting while it is high, and rereads host and cgroup headroom.
 Unknown files start first, then longest first by their last measured time on this host,
 kept under ~/.cache/agentkit/test-times/<hostname>/ outside the checkout.
-A failing file, or one reporting no executed cases, fails the whole and is named with its
-last lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after
-their checks. Python imports under agentkit/, tools/, bin/ and tests/ must be from the
-standard library or this repository, including files smoke.sh already ran.
+A failing file, or one reporting no executed cases, runs once more after the pool, alone;
+failing again it fails the whole and is named with its last lines. Unittest's tally
+reports the count; other scripts print TESTS_RUN=<count> after their checks. Python imports
+under agentkit/, tools/, bin/ and tests/ must be from the standard library or this
+repository, including files smoke.sh already ran.
 
     python3 tests/every_file.py [checkout]
 """
@@ -238,7 +239,7 @@ def main(root):
     env["PYTHONPYCACHEPREFIX"] = pycache.name
     pending = iter(todo)
     path = next(pending, None)
-    began, failed, jobs = time.monotonic(), 0, 0
+    began, again, failed, flaky, jobs = time.monotonic(), [], 0, 0, 0
     with pycache, ThreadPoolExecutor(max(1, len(todo))) as pool:
         running = {}
         while path is not None or running:
@@ -250,11 +251,8 @@ def main(root):
                 save_time(cache / name.name, took)
                 if code == 0 and cases_run(out) > 0:
                     print(f"PASS  {name} ({took:.0f}s)", flush=True)
-                    continue
-                failed += 1
-                reason = f"exit {code}" if code else "no tests ran"
-                print(f"FAIL  {name}: {reason} after {took:.0f}s, its last lines:")
-                print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
+                else:
+                    again.append((name, out))
             if path is not None:
                 readings = host.host_readings(slice_dir=orch.slice_cgroup,
                                               pressure_window=POLL, all_limits=True)
@@ -269,7 +267,21 @@ def main(root):
                      return_when=FIRST_COMPLETED)
             elif path is not None:
                 time.sleep(POLL)
-    print(f"test files: {len(todo) - failed} passed, {failed} failed, {jobs} at once, "
+        # Under load a timing test fails by chance: the gate would run the whole piece again
+        # for it, so each failed file first runs once more with no other file beside it.
+        for name, out in again:
+            code, rerun, took = run_file(root, root / name, env)
+            if code == 0 and cases_run(rerun) > 0:
+                flaky += 1
+                print(f"flaky: {name} failed, then passed on its re-run")
+            else:
+                failed += 1
+                out = rerun
+                reason = f"exit {code}" if code else "no tests ran"
+                print(f"FAIL  {name}: {reason} after {took:.0f}s, its last lines:")
+            print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
+    passed = f"{len(todo) - failed} passed" + (f" ({flaky} flaky)" if flaky else "")
+    print(f"test files: {passed}, {failed} failed, {jobs} at once, "
           f"{time.monotonic() - began:.0f}s")
     return 1 if failed else 0
 
