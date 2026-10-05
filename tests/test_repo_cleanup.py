@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, run, worktrees  # noqa: E402
+from agentkit import config, host, run, watch, worktrees  # noqa: E402
 
 
 class RepoCleanup(unittest.TestCase):
@@ -124,40 +124,50 @@ class RepoCleanup(unittest.TestCase):
         self.assertEqual(libc.prctl(37, ctypes.byref(previous), 0, 0, 0), 0)
         self.assertEqual(libc.prctl(36, 1, 0, 0, 0), 0)
         self.addCleanup(libc.prctl, 36, previous.value, 0, 0, 0)
-        child_file, shell_file = self.root / "child.pid", self.root / "shell.pid"
-        wt, run_dir, state = self.make_run(
-            "cleanup-child", "---\ncleanup: "
-            f"echo $$ > {shlex.quote(str(shell_file))}; trap '' TERM; "
-            f"sleep 30 & echo $! > {shlex.quote(str(child_file))}; wait\n---\n# acme\n")
-        child, reaped = None, False
-        try:
-            with patch.object(worktrees, "CLEANUP_LIMIT", 1):
-                worktrees.run_repo_cleanup(wt, run_dir)
-            child = int(child_file.read_text())
-            deadline = time.monotonic() + .5
-            while time.monotonic() < deadline:
-                if os.waitpid(child, os.WNOHANG)[0] == child:
-                    reaped = True
-                    break
-                time.sleep(.02)
-            print(f"cleanup child alive after timeout: {not reaped}", flush=True)
-            self.assertTrue(reaped, "cleanup timed out but its child was left running")
-            with self.assertRaises(ChildProcessError):
-                os.waitpid(int(shell_file.read_text()), os.WNOHANG)
-            self.assertTrue(worktrees.stop_checkout(state, lambda message: None))
-            self.assertFalse(wt.exists())
-            [line] = self.cleanup_lines(run_dir)
-            self.assertIn("timed out", line)
-        finally:
-            # Adopt and reap only this fixture's orphan, even when the old code leaks it.
-            if child is None and child_file.exists():
-                child = int(child_file.read_text())
-            if child is not None and not reaped:
+        child_file = self.root / "child.pid"
+        start = f"sleep 30 & echo $! > {shlex.quote(str(child_file))}; wait"
+        # a child of the line's own shell, and one under `timeout`, which makes its own
+        # process group
+        for name, line in (("cleanup-child", f"trap '' TERM; {start}"),
+                           ("cleanup-wrapped", f"timeout 30 bash -c {shlex.quote(start)}; :")):
+            with self.subTest(line=line):
+                child_file.unlink(missing_ok=True)
+                wt, run_dir, state = self.make_run(name, f"---\ncleanup: {line}\n---\n# acme\n")
+                child = None
                 try:
-                    os.kill(child, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                os.waitpid(child, 0)
+                    # the first line's child ignores TERM as its shell does: only KILL ends it
+                    with patch.object(worktrees, "CLEANUP_LIMIT", 1), \
+                            patch.object(watch, "STALL_KILL_WAIT", 1):
+                        worktrees.run_repo_cleanup(wt, run_dir)
+                    child = int(child_file.read_text())
+                    deadline = time.monotonic() + .5
+                    while not self.gone(child) and time.monotonic() < deadline:
+                        time.sleep(.02)
+                    self.assertTrue(self.gone(child),
+                                    "cleanup timed out but its child was left running")
+                    self.assertTrue(worktrees.stop_checkout(state, lambda message: None))
+                    self.assertFalse(wt.exists())
+                    [line] = self.cleanup_lines(run_dir)
+                    self.assertIn("timed out", line)
+                finally:
+                    # Adopt and reap only this fixture's orphan, even when the old code leaks it.
+                    if child is None and child_file.exists():
+                        child = int(child_file.read_text())
+                    if child is not None and not self.gone(child):
+                        os.kill(child, signal.SIGKILL)
+                        while not self.gone(child):
+                            time.sleep(.02)
+
+    @staticmethod
+    def gone(pid):
+        """Ended: reaped here as this test's orphan, or by its own parent, or a zombie."""
+        try:
+            if os.waitpid(pid, os.WNOHANG)[0] == pid:
+                return True
+        except ChildProcessError:
+            pass
+        stat = host.proc_stat(pid)
+        return stat is None or stat.exited
 
 
 if __name__ == "__main__":

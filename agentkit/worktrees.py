@@ -2,7 +2,6 @@
 
 import os
 import shutil
-import signal
 import subprocess
 from pathlib import Path
 
@@ -251,15 +250,14 @@ def run_repo_cleanup(wt, run_dir):
                 env = {**os.environ, **(config.repo_env(repo) if repo else {})}
                 with subprocess.Popen(["bash", "-c", cmd], cwd=str(wt), stdout=fh,
                                       stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                      start_new_session=True, env=env) as proc:
+                                      env=env) as proc:
                     try:
                         proc.wait(timeout=CLEANUP_LIMIT)
                     except subprocess.TimeoutExpired:
-                        # Kill children before the context reaps the group leader.
-                        try:
-                            os.killpg(proc.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
+                        # the line's whole tree, whatever process groups it made (`timeout`
+                        # makes its own), before the checkout goes from under it
+                        from . import watch
+                        watch.kill_tree(proc.pid, lambda line: fh.write(f"{line}\n"))
                         raise
             except subprocess.TimeoutExpired:
                 outcome = f"timed out after {CLEANUP_LIMIT // 60} minutes"
