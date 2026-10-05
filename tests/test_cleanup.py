@@ -369,6 +369,20 @@ class Cleanup(Sandbox):
         self.assertTrue(self.branch_exists(branch))
         self.assertTrue(run_record.read_state(directory)["stop_kept"])
 
+    def test_a_branch_git_keeps_is_reported_kept(self):
+        # a branch another checkout holds outlives `git branch -D`: the stop says kept and
+        # names the relaunch line, and the record agrees, so a later stop tries again
+        directory, wt, branch = self.receipt("held", state="running")
+        self.git(self.repo, "worktree", "add", "-q", str(self.root / "holder"), branch,
+                 "--force")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(run.cmd_stop(["held"]), 0)
+        self.assertFalse(wt.exists())
+        self.assertTrue(self.branch_exists(branch))
+        self.assertIn(f"kept; relaunch with from: {branch}", out.getvalue())
+        self.assertTrue(run_record.read_state(directory)["stop_kept"])
+
     def test_changed_files_survive_the_removed_checkout(self):
         # history reads the changed files after the merge took the tree: the
         # delivery sha names the same tip in the repo the branch pointed at

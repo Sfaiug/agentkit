@@ -70,19 +70,22 @@ def drop_local_branch(repo, branch, log):
     The remote branch is the PR's, when there is one, and is not this machine's
     to remove. A branch that is already gone is the outcome the caller wanted.
     The `ak/` prefix is the guard: the repo it lives in is the owner's checkout
-    under ~/code, and the branch is the only thing that goes.
+    under ~/code, and the branch is the only thing that goes. False, with its WARN,
+    when git kept the branch: a ref lock, or a checkout elsewhere that holds it.
     """
     if not isinstance(branch, str) or not branch.startswith("ak/"):
-        return
+        return True
     if not run.git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False):
-        return
+        return True
     try:
         code, out = run.git_out(repo, "branch", "-D", branch)
     except run.Stopped as exc:
         log(f"WARN could not delete branch {branch}: {exc}")
-        return
+        return False
     if code != 0:
         log(f"WARN could not delete branch {branch}: {out}")
+        return False
+    return True
 
 
 def resume_holds_tree(state, run_dir=None):
@@ -305,6 +308,4 @@ def stop_checkout(state, log, keep_branch=False):
     if code != 0 and retention.present(wt):
         log(f"WARN could not remove worktree {wt}: {out}")
         return False
-    if not keep_branch:
-        drop_local_branch(repo, branch, log)
-    return True
+    return keep_branch or drop_local_branch(repo, branch, log)
