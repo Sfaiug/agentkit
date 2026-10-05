@@ -1814,7 +1814,7 @@ def announce_state(session, cfg=None, look=False, **facts):
                 or previous.get("word_since") != answer["since"]):
             seat_write(name, word=answer["word"], reason=answer["reason"],
                        word_since=answer["since"])
-        statusbar.redress(session, answer, cfg=cfg)
+        statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
     return answer
 
 

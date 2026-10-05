@@ -1,8 +1,8 @@
 """The one animation clock: which cells move, and what each shows at every frame.
 
 At rest one thing moves, a working session's `●` breathing; news moves once and is then still --
-a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright, a bar
-that changed value glides to it, an effort's bar a step filled rises into place and a step onto
+a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright, a usage
+bar that changed value glides to it, an effort's bar a step filled rises into place and a step onto
 a model's highest effort sends a light through its word, a mark set fills and one cleared
 empties, one whose change was refused shakes, a row just added glows; a popup's content fades in
 once, as it opens; the rule under a screen's header glides while its content is fetched; a light
@@ -26,7 +26,6 @@ DIMMER = 0.5        # ... that tone: half way from its colour to the background
 PULSE = 0.3         # seconds each of the two pulses of a `!` that turned `needs you` takes
 SETTLE = 0.4        # ... a `✓` that turned `done` takes from bright to its colour
 GLIDE = 0.3         # ... a bar takes from its old value to its new one
-LIT = 0.3           # ... a task bar's newly filled block stays lit after the glide
 SWEEP = 0.4         # ... the light takes across a bar that reached full, after the glide, or
                     # one the pointer came onto
 RISE = 0.15         # ... an effort's bar a step filled takes to rise into place, or to lower
@@ -87,40 +86,34 @@ def settling(glyph, word, began, bright=False):
     return at, began + SETTLE
 
 
-def gliding(before, after, began, colour=None, bright=False, sweep=False):
-    """A bar drawn `before` and now `after`, each its blocks as a draw writes them (`███░░`),
-    from `began`: an animation for each of its cells, left to right, and when it is still.
+def gliding(before, after, began, colour, bright=False, sweep=False):
+    """A usage bar drawn `before` and now `after`, each its blocks as a draw writes them
+    (`███░░`), from `began`: an animation for each of its cells, left to right, and when it is
+    still.
 
     Its filled end glides from the one to the other in GLIDE seconds, an eighth of a cell at a
-    time where the blocks are `█`.  On a plain bar -- a seat's tasks -- each block it newly
-    fills lights, until LIT seconds after the glide; and with `sweep`, its value just reached
-    full, one light crosses it a cell at a time left to right in the SWEEP seconds after the
-    glide, the only light then.  `colour` is the kind a coloured bar's filled blocks are drawn
-    in, its empty ones dim, and None a plain bar's.  Each cell's last frame is that cell as the
-    draw wrote it.
+    time; and with `sweep`, its value just reached full, one light crosses it a cell at a time
+    left to right in the SWEEP seconds after the glide, the only light then.  `colour` is the
+    kind its filled blocks are drawn in, its empty ones dim.  Each cell's last frame is that
+    cell as the draw wrote it.
     """
-    full, empty = "█░" if set(after) <= set("█░") else "#-"
-    size, was, filled = len(after), before.count(full), after.count(full)
-    new = colour is None and filled > was
-    light = terminal.faded(colour or "working", -BRIGHTER)
+    size, was, filled = len(after), before.count("█"), after.count("█")
+    light = terminal.faded(colour, -BRIGHTER)
 
     def cell(n):
         def at(now):
             t = now - began
             reached = was + (filled - was) * eased(t / GLIDE)
-            eighths = round(reached * 8) - 8 * n if full == "█" else 8 * (round(reached) - n)
-            block = full if eighths >= 8 else PARTS[eighths - 1] if eighths > 0 else empty
-            if (new and was <= n < reached and t < GLIDE + (0 if sweep else LIT)
-                    or sweep and GLIDE <= t < GLIDE + SWEEP
-                    and n == int(size * (t - GLIDE) / SWEEP)):
+            eighths = round(reached * 8) - 8 * n
+            block = "█" if eighths >= 8 else PARTS[eighths - 1] if eighths > 0 else "░"
+            if sweep and GLIDE <= t < GLIDE + SWEEP and n == int(size * (t - GLIDE) / SWEEP):
                 kind = light
             else:
-                kind = colour if block != empty else colour and "dim"
-            text = terminal.styled(block, kind) if kind else block
+                kind = colour if block != "░" else "dim"
+            text = terminal.styled(block, kind)
             return terminal.highlight(text, mark=False) if bright else text
         return at
-    return ([cell(n) for n in range(size)],
-            began + GLIDE + (SWEEP if sweep else LIT if new else 0))
+    return [cell(n) for n in range(size)], began + GLIDE + (SWEEP if sweep else 0)
 
 
 def rising(bar, up, began, bright=False):

@@ -109,26 +109,23 @@ class MenuRows(Sandbox):
                     state="running", finished_at=None, started_at=NOW - 600,
                     rounds=2, round_summaries=[], **run_record.process_owner())
         screen, _ = self.draw(100, 30)
-        expected = f"tasks {terminal.progress_bar(2, 5)}"
-        self.assertIn(expected, screen)
-        self.assertIn("2/5", screen)
         row = next(line for line in screen.splitlines() if "fix-api" in line)
-        self.assertIn("● working", row)
-        self.assertIn("tasks ", row)
-        self.assertNotIn("running", row.split("tasks ")[0].rsplit("working", 1)[-1])
+        # two of five merged, and the run going a quarter into the next, in the row's room
+        self.assertRegex(row, r"● working  █+▒+░+ 2/5$")
+        self.assertEqual(terminal.cells(row), 100)
+        self.assertNotIn("running", row)
 
     def test_no_bar_without_plan(self):
         # Working via a turn, no plan and no runs: the last column is empty.
         self.seat("lonely-work", "atoll", live="working")
         screen, _ = self.draw(100, 30)
         row = next(line for line in screen.splitlines() if "lonely-work" in line)
-        self.assertNotIn("tasks ", row)
-        self.assertNotIn("/", row)
+        self.assertTrue(row.rstrip().endswith("● working"), row)
         # A plan with zero tasks is no plan at all.
         (config.STATE / "plan-lonely-work.md").write_text("just notes\n")
         screen, _ = self.draw(100, 30)
         row = next(line for line in screen.splitlines() if "lonely-work" in line)
-        self.assertNotIn("tasks ", row)
+        self.assertTrue(row.rstrip().endswith("● working"), row)
 
     def test_reason_column_needs_you(self):
         self.seat("ask-seat", "atoll")
@@ -159,7 +156,8 @@ class MenuRows(Sandbox):
                     rounds=2, round_summaries=[], **run_record.process_owner())
         idle = self.seat("idle-work", "atoll", live="working")
         screen, _ = self.draw(100, 30)
-        self.assertIn("tasks ", next(line for line in screen.splitlines() if "planned-work" in line))
+        self.assertRegex(next(line for line in screen.splitlines() if "planned-work" in line),
+                         r"█+▒+░+ 1/3$")
         row = next(line for line in screen.splitlines() if "running-work" in line)
         self.assertNotIn("2 running", row)
         self.assertTrue(row.rstrip().endswith("● working"))

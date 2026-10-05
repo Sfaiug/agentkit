@@ -1160,6 +1160,12 @@ def plan_path(name):
     return seat_file("plan", name)
 
 
+def runs_moved_path():
+    """Touched whenever a seat's run moves -- a step, a round, an ending -- so an open menu, which
+    watches it, reads its rows again."""
+    return STATE / "runs-moved"
+
+
 def stop_path(name):
     """Where hooks/seat-state.sh leaves this turn's start for the stop hook's rule."""
     return seat_file("stop", name)

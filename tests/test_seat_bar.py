@@ -76,7 +76,8 @@ class SeatBar(Sandbox):
         info = menu.v5o_seat_info(self.cfg, 1, seat, menu.run_records(), {}, {}, NOW)
         watch.announce_state(seat, cfg=self.cfg)
         row = "\n".join(terminal.plain(line) for line in menu.v5o_seat_blocks([info], 100)[0])
-        return info["word"], menu._last_text(info), row, self.options[statusbar.TOP]
+        last = menu._last_text(info, menu.v5o_column_widths([info], 100)["sent"])
+        return info["word"], last, row, self.options[statusbar.TOP]
 
     def test_a_renamed_seats_plan_under_its_old_name_draws_its_bar(self):
         seat = self.seat("fix-api", was="api-fix")
@@ -85,9 +86,9 @@ class SeatBar(Sandbox):
         self.plan("api-fix", 3, 7)
         word, last, row, bar = self.drawn(seat)
         self.assertEqual(word, "working")
-        self.assertEqual(last, f"tasks {terminal.progress_bar(3, 7)}")
+        self.assertRegex(last, r"^█+▒+░+ 3/7$")           # the run going, a quarter in
         self.assertIn(last, row)
-        self.assertIn(last, bar)
+        self.assertIn(" 3/7 ", bar)
         self.assertEqual(watch.plan_progress("fix-api"), (3, 7))
         self.assertEqual(menu.seat_progress("fix-api"), (3, 7))
 
@@ -99,12 +100,12 @@ class SeatBar(Sandbox):
         _, last, row, bar = self.drawn(seat)
         self.assertIn("5/6", last)
         self.assertIn(last, row)
-        self.assertIn(last, bar)
+        self.assertIn("5/6", bar)
         self.plan("fix-api", 2, 4, at=NOW)                # now the new name's is the newer
         self.assertEqual(watch.plan_progress("fix-api"), (2, 4))
         _, last, row, bar = self.drawn(seat)
         self.assertIn("2/4", last)
-        self.assertIn(last, bar)
+        self.assertIn("2/4", bar)
 
     def test_c_without_a_plan_the_unfinished_jobs_draw_the_bar(self):
         seat = self.seat("fix-api", was="api-fix")
@@ -117,10 +118,9 @@ class SeatBar(Sandbox):
         word, last, row, bar = self.drawn(seat)
         self.assertEqual(word, "working")
         # merged, passed and skipped are done, of every task of the two unfinished jobs
-        self.assertRegex(last, r"^tasks [█░]+ 3/7$")
-        self.assertEqual(last, f"tasks {terminal.progress_bar(3, 7)}")
+        self.assertRegex(last, r"^█+▒+░+ 3/7$")
         self.assertIn(last, row)
-        self.assertIn(last, bar)
+        self.assertIn(" 3/7 ", bar)
         self.assertEqual(menu.seat_progress("web-portal"), (1, 2))
         # a plan, once there is one, is what the bar reads
         self.plan("fix-api", 1, 2)
@@ -137,7 +137,7 @@ class SeatBar(Sandbox):
         self.assertNotIn("running", bar)
         self.job("job-new", "fix-api", ["merged", "running"])
         word, last, row, bar = self.drawn(seat)
-        self.assertEqual(last, f"tasks {terminal.progress_bar(1, 2)}")
+        self.assertRegex(last, r"^█+▒+░+ 1/2$")
         self.assertNotIn("running", row)
         self.assertNotIn("running", bar)
 

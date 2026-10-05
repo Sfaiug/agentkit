@@ -2135,10 +2135,11 @@ class Loop:
         self.written = copy.deepcopy(self.state)
 
     def step(self, name):
-        """Record which step this run is in, and since when, for `ak run status` and the bar."""
+        """Record which step this run is in, since when and in which round, for `ak run status`
+        and the bar: a round's first step is announced before its directory is made."""
         now = time.time()
         history.open_step(self.state.get("run_id"), name, now, log=self.log)
-        self.state.update(step=name, step_at=now)
+        self.state.update(step=name, step_at=now, step_round=self.rnd)
         self.save()
         redress_seat(launched_session(self.state))
 
@@ -6791,9 +6792,17 @@ def redress_seat(session):
     update.  The job is the server's, not the run's: the run's exit, the stop of its scope and
     its marker sweep leave it be.  A seat tmux has lost, and a legacy one on the user's own
     server, is no target there, so nothing runs for it; nothing here ever raises into the run.
+
+    Every open menu hears of it first, whatever tmux holds: the run touches the one file they
+    watch (`config.runs_moved_path`), which takes no lock, so the seat's row moves with its bar
+    though the seat's word stays as it was -- a legacy seat's and a gone seat's rows included.
     """
     if not session:
         return
+    try:
+        config.runs_moved_path().touch()
+    except OSError:
+        pass   # the next draw's own read, or the menu's timer, catches up
     publish = shlex.join([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
                           "from agentkit import run; run.publish_seat(sys.argv[2])",
                           str(config.REPO), session])

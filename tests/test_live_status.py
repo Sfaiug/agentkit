@@ -3,9 +3,9 @@
 A hook event has the seat looked at again at once, off the harness's path, and the word goes to
 the seat's record and its bar through the one writer; an open menu draws again within two
 seconds of a record's word moving, off an mtime and never a pane capture.  The bar names who
-orchestrates, tmux cuts it on each client, and neither the row nor the bar says when the work
-will finish.  Offline: a fake tmux (a callable in-process, a script on PATH for the hook's own
-process), fake captures and a throwaway HOME; no tmux server is ever started.
+orchestrates and tmux cuts it on each client.  Offline: a fake tmux (a callable in-process, a
+script on PATH for the hook's own process), fake captures and a throwaway HOME; no tmux server is
+ever started.
 """
 
 from contextlib import ExitStack, redirect_stdout
@@ -27,7 +27,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, history, menu, orch, statusbar, terminal, watch  # noqa: E402
+from agentkit import config, menu, orch, record, run, statusbar, terminal, watch  # noqa: E402
 
 # The hook's own process asks tmux through PATH, so this stands in for the server: one marked
 # seat on the suite's socket, which lives at /fake/agentkit-test, whose pane is %7, a capture as
@@ -274,6 +274,60 @@ class LiveStatus(unittest.TestCase):
         self.assertIn("● working", rows[1][0])          # the recorded word
         self.assertIn("● working", rows[2][0])
 
+    def test_an_open_menu_moves_a_row_s_tasks_bar_within_two_seconds_of_a_run_s_step(self):
+        # the seat stays `working` while its run goes from building to review: the bar moves at
+        # once, and the row must too, though the seat's word, reason and since stay as they were
+        # -- a legacy seat's as well, whose bar no tmux job of ak's ever writes
+        self.seat["legacy"] = True
+        self.plan(4, 8)
+        self.hook("UserPromptSubmit")
+        watch.hook_look("herdr")
+        run_dir = config.RUNS / "20260101-0900-gh2-going"
+        run_dir.mkdir(parents=True)
+        state = {"run_id": run_dir.name, "title": "gh2", "state": "running", "step": "executor",
+                 "step_at": time.time(), "started_at": time.time(), "rounds": 3,
+                 "launched_session": "herdr", "task_file": str(self.root / "gh2-going.md"),
+                 "executor": "opus", "reviewer": "astra"}
+        record.save_state(run_dir, state)
+        screens, out, woke = [], io.StringIO(), []
+
+        def review(wake):
+            time.sleep(menu.STIR + 0.2)                 # whatever the last draw stirred has landed
+            try:
+                os.read(wake, 4096)
+            except BlockingIOError:
+                pass
+            record.save_state(run_dir, dict(state, step="reviewer", step_at=time.time()))
+            run.redress_seat("herdr")                   # what the run's step does, and no more
+            began = time.monotonic()
+            woke.append((bool(select.select([wake], [], [], 2)[0]), time.monotonic() - began))
+            return None
+
+        answers = iter([review, lambda wake: ""])
+
+        def wait_key(prompt, timeout=None, wake=None):
+            screens.append(terminal.plain(out.getvalue()))
+            out.seek(0)
+            out.truncate()
+            return next(answers)(wake)
+
+        with patch.object(orch, "listing",
+                          side_effect=lambda *a, **k: [dict(self.seat, repo=self.repo)]), \
+                patch.object(orch, "job_notices", return_value=[]), \
+                patch.object(menu.Live, "probe", return_value=False), \
+                patch.object(menu, "wait_key", side_effect=wait_key), \
+                redirect_stdout(out):
+            self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
+        [(ready, waited)] = woke
+        self.assertTrue(ready, "the menu was never woken")
+        self.assertLess(waited, 2.0)
+        building, reviewing = ([line for line in screen.splitlines() if " herdr " in line][0]
+                               for screen in screens)
+        self.assertIn("● working", reviewing)
+        # the run's slot fills from a quarter to three quarters, as the bar's did
+        self.assertGreater(reviewing.count("▒"), building.count("▒"), (building, reviewing))
+        self.assertEqual(menu.seat_runs("herdr")[0]["step"], "review")
+
     def test_an_older_look_never_lands_on_the_bar_after_a_newer_one(self):
         # a menu's look decides on what it read; the turn ends and the seat's own hook publishes
         # that; the menu's older answer must not reach the bar after it
@@ -469,23 +523,25 @@ class LiveStatus(unittest.TestCase):
                 # the bar is the row's own values, word and last column alike
                 self.assertEqual(bar, statusbar.lines(
                     "herdr", "opus", statusbar.company(self.cfg, "opus"), info["word"],
-                    menu._last_text(info))[:2])
+                    menu.last_column(info["word"], info["sentence"], *info["bar"], info["runs"],
+                                     statusbar.CELLS, tmux=True))[:2])
                 self.assertEqual(self.options["set-titles-string"], f"herdr · {word}")
 
     # --- the bar names who orchestrates ------------------------------------------
 
     def test_the_bar_names_who_orchestrates(self):
         claude = statusbar.company(self.cfg, "opus")
+        tasks = menu.last_column("working", "", 4, 8, (), statusbar.CELLS, tmux=True)
         self.assertEqual(
-            drawn(statusbar.lines("ak-verification", "opus", claude, "working",
-                                  "tasks ████░░░░ 4/8")[0]),
-            " ▐● working▌  ak-verification  opus orchestrates   tasks ████░░░░ 4/8")
+            drawn(statusbar.lines("ak-verification", "opus", claude, "working", tasks)[0]),
+            f" ▐● working▌  ak-verification  opus orchestrates   {drawn(tasks)}")
+        self.assertIn(" 4/8 ", drawn(tasks))
         # through the one writer, from the session record's orchestrator
         self.plan(4, 8)
         statusbar.redress(dict(self.seat, repo=self.repo),
                           {"word": "working", "reason": "", "since": None}, cfg=self.cfg)
         self.assertEqual(drawn(self.options[statusbar.TOP]),
-                         f" ▐● working▌  herdr  opus orchestrates   tasks {terminal.progress_bar(4, 8)}")
+                         f" ▐● working▌  herdr  opus orchestrates   {drawn(tasks)}")
         # before its first word a seat's bar is who is in it, as it always was
         self.assertEqual(drawn(statusbar.lines("herdr", "opus", claude)[0]),
                          " herdr  opus orchestrates")
@@ -506,19 +562,6 @@ class LiveStatus(unittest.TestCase):
         self.assertEqual(drawn(statusbar.lines("herdr", "opus", "#D97757", "done", "shipped")[1]),
                          "  shipped")
 
-    # --- no estimate of when the work will finish -------------------------------------
-
-    def test_no_row_and_no_bar_says_when_the_work_will_finish(self):
-        # the owner took estimates off every screen: the tasks bar and its count are progress
-        self.plan(3, 8)
-        self.hook("UserPromptSubmit")
-        _, row = self.row()
-        bar = f"tasks {terminal.progress_bar(3, 8)}"
-        self.assertTrue(terminal.plain(row).rstrip().endswith(bar), row)
-        self.assertTrue(drawn(self.options[statusbar.TOP]).endswith(bar))
-        for module, name in ((menu, "seat_estimate"), (menu, "ESTIMATE_EVERY"),
-                             (history, "estimate_seconds")):
-            self.assertFalse(hasattr(module, name), name)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

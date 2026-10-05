@@ -120,7 +120,7 @@ class LandingLine(Sandbox):
         self.assertEqual(answer["reason"], sentence)
         with patch.object(menu, "seat_row_state", return_value=answer):
             info = menu.v5o_seat_info(self.cfg, 1, session, [(directory, state)], {}, {}, 200000)
-        self.assertEqual(menu._last_text(info), sentence)
+        self.assertEqual(menu._last_text(info, 40), sentence)
         self.assertEqual(menu.last_column("working", sentence, 1, 3), sentence)
 
     def test_job_follows_members_to_their_ending_including_after_merge(self):
