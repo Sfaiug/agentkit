@@ -50,22 +50,19 @@ TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left pa
 DIM = terminal.STATE_STYLES["dim"][2]
 
 
-def _beside(left, right):
-    """Line one: `left` with `right` at its end, cut a space short of it -- to one cell at the
-    least, since tmux reads a limit of 0 as none and a negative one as the line's tail."""
-    room = "#{e|-:#{client_width},#{e|+:#{w:" + right + "},2}}"
-    return ("#[align=left]#{=/#{?#{e|>:" + room + ",0}," + room + ",1}/…:" + left + "} "
-            "#[align=right]#{" + right + "}")
-
-
 def _line_one():
     """The widest tasks bar beside the other seats by name that fits the client, else beside
-    them folded, else beside who needs you alone, else the narrowest cut beside that."""
-    pairs = [(left, right) for right in (SEATS, FOLD, NEED) for left in TOPS]
-    found = _beside(*pairs[-1])
-    for left, right in reversed(pairs[:-1]):
+    them folded, else beside who needs you alone, each drawn whole; else the narrowest cut a
+    space short of who needs you -- to one cell at the least, since tmux reads a limit of 0 as
+    none and a negative one as the line's tail.  A pair that fits is never cut: tmux's cut marks
+    a line that fills its limit to the cell, as it drops the styles after its last cell."""
+    room = "#{e|-:#{client_width},#{e|+:#{w:" + NEED + "},2}}"
+    found = ("#[align=left]#{=/#{?#{e|>:" + room + ",0}," + room + ",1}/…:" + TOPS[-1] + "} "
+             "#[align=right]#{" + NEED + "}")
+    for left, right in reversed([(left, right) for right in (SEATS, FOLD, NEED) for left in TOPS]):
         fits = "#{e|<=:#{e|+:#{w:" + left + "},#{e|+:#{w:" + right + "},2}},#{client_width}}"
-        found = "#{?" + fits + "," + _beside(left, right) + "," + found + "}"
+        whole = "#[align=left]#{" + left + "} #[align=right]#{" + right + "}"
+        found = "#{?" + fits + "," + whole + "," + found + "}"
     return found
 
 

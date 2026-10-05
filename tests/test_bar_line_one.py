@@ -92,6 +92,16 @@ class LineOne(Sandbox):
             shown = self.line(84)       # the 12-cell bar fits beside the name, so it stays
             self.assertTrue(shown.rstrip().endswith("! atlas-proxies needs you"), shown)
 
+    def test_d_a_line_one_that_fits_is_never_cut_even_to_the_cell(self):
+        # the narrowest bar beside who needs you, whole, in the cells tmux counts
+        least = 2 + sum(int(orch.tmux_out("display-message", "-p", "-t", "=fix-api:",
+                                          "#{w:" + option + "}")[1])
+                        for option in (statusbar.TOPS[-1], statusbar.NEED))
+        for width in range(least - 3, 200):
+            shown = self.line(width)
+            self.assertEqual("…" in shown, width < least, (width, shown))
+            self.assertLessEqual(len(shown.rstrip()), width, width)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
