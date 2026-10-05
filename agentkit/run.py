@@ -3084,10 +3084,13 @@ def open_followup(state, text, repair=None, tip=None, split=None):
 
 
 def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
-    """A merge starts ordinary runs, once, under the same lock that closes the seat.
+    """A merge hands its follow-ups on, once, under the same lock that closes the seat.
 
-    The receipt is the duplicate guard even while admission waits. There is no collector
-    or backlog: this ending alone gets to launch its list.
+    A review follow-up becomes a line in the seat's own plan, checked by its failing command:
+    the seat builds it with the context it already has.  Anything else on the list (a flaky
+    check's evidence) starts an ordinary run.  The receipt is the duplicate guard even while
+    admission waits. There is no collector or backlog: this ending alone gets to hand on its
+    list.
 
     A target failing a check on its own tip starts one the same way, before any merge:
     `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, the
@@ -3108,25 +3111,34 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         if not (repair or split):
             current = run_record.read_state(run_dir) or state
             if "followup_runs" in current:
-                state["followup_runs"] = current["followup_runs"]
+                state.update({key: current[key] for key in ("followup_runs", "followup_plan")
+                              if key in current})
                 return None
             state["followup_runs"] = []
             run_record.save_state(run_dir, state)
         if watch.seat_closed(session):
             return None
+        request = repair or split
+        checks = {} if request else state.get("followup_checks") or {}
+        items = [request["text"]] if request else state["followups"]
+        planned = [item for item in items if item in checks]   # the seat's own, executors or not
+        repo = main_checkout(Path(state["repo"])) if planned else None
+        for item in planned:
+            plan_followup(state, run_dir, session, repo, item, checks[item], log)
         cfg = report_config(cfg)
         record = config.session_records().get(config.resolve_session(session), {})
         if record.get("workers") == []:
             return None
-        repo = main_checkout(Path(state["repo"]))
+        repo = repo or main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
         if split:
             previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
             if previous:
                 return previous
         key = repair and {"target": target, "command": repair["command"]}
-        request = repair or split
-        for item in [request["text"]] if request else state["followups"]:
+        for item in items:
+            if item in planned:
+                continue
             source = {**state, "repo": str(repo)}
             opened = open_followup(source, item, key, repair and repair["sha"],
                                    split and split["command"])
@@ -3226,6 +3238,22 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 continue
+
+
+def plan_followup(state, run_dir, session, repo, item, check, log):
+    """Write one review follow-up into the seat's plan, unless an open line already holds its
+    check in this project; the run's ending names it, or why the plan refused it."""
+    from . import plan   # here, not at the top: a seat's small verb, this the loop
+    outcome = "Fix " + item.splitlines()[0].replace("·", "-")
+    try:
+        plan.add(session, outcome, check, repo, proven=state.get("base_sha"))
+        entry = {"outcome": outcome}
+    except (config.Error, OSError) as exc:
+        entry = {"outcome": outcome, "refused": str(exc)}
+    log(f"follow-up for {session}: {outcome}" + (f" (not planned: {entry['refused']})"
+                                                if "refused" in entry else " (in its plan)"))
+    state.setdefault("followup_plan", []).append(entry)
+    run_record.save_state(run_dir, state)
 
 
 def done_when_counts(dw_log, cmds):
@@ -3798,6 +3826,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
     lp.state["followups"] = submitted.followups if verdict == "PASS" else []
+    lp.state["followup_checks"] = submitted.followup_checks if verdict == "PASS" else {}
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)
         # A landing re-review with a pending suite keeps the task's probe base.
@@ -7014,6 +7043,18 @@ def failed_check(state):
     return None
 
 
+def planned_followups(state):
+    """The review follow-ups a merge handed to its seat, as the ending's sentence about them."""
+    entries = state.get("followup_plan") or []
+    planned = [entry["outcome"] for entry in entries if "refused" not in entry]
+    refused = [f"{entry['outcome']} ({entry['refused']})" for entry in entries
+               if "refused" in entry]
+    return ((f"Review follow-ups now in your plan, yours to build: {'; '.join(planned)}. "
+             if planned else "")
+            + (f"Review follow-ups your plan refused, yours to judge: {'; '.join(refused)}. "
+               if refused else ""))
+
+
 def handback_line(state, run_dir, cfg=None):
     """The one line a finished run types into the seat that launched it.
 
@@ -7031,7 +7072,8 @@ def handback_line(state, run_dir, cfg=None):
     line = (f"run {run_dir.name} finished {handback_verdict(state, cfg)}: "
             f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace} "
             + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
-               if state.get("followup_runs") else "") + "Decide the next step.")
+               if state.get("followup_runs") else "") + planned_followups(state)
+            + "Decide the next step.")
     spent = len(state.get("round_summaries") or [])
     if (state.get("state") == "fail" and (state.get("rounds") or 0) > 0
             and spent >= (state.get("rounds") or 0) and review_failed(state)):

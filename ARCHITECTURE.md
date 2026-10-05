@@ -77,7 +77,7 @@
 - `worker.py`: headless turns, preambles, review, adapters, silence, auth, cleanup.
   `turn`, `call`, `boxed` checks, `kill_marked`, `auth_ok`.
   Used by run, gate, watch, usage, menu, harness. Leak: Claude shell timeout.
-- `plan.py`: `ak plan`, checked outcomes or the owner's eye.
+- `plan.py`: `ak plan`, checked outcomes or the owner's eye; a merged run writes its review follow-ups here.
 - `box.py`: credential masks, PID teardown. `command`, `check`, `returncode`, `leftovers`;
   for worker and run.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded

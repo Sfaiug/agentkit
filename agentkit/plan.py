@@ -125,11 +125,11 @@ def git_env():
     return env
 
 
-def root(repo):
-    """The repository a checkout holds, as no other one can: its root commit (the first of
-    several), abbreviated; None where it has none to read."""
+def root(repo, rev="HEAD"):
+    """The repository a checkout holds, as no other one can: the root commit of `rev` there
+    (the first of several), abbreviated; None where it has none to read."""
     try:
-        out = subprocess.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"],
+        out = subprocess.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", rev],
                              capture_output=True, text=True, timeout=30, env=git_env(),
                              stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
@@ -414,27 +414,45 @@ def still_done(name, proven):
                            f"first: {left[0]}; run `ak notify done` again")
 
 
-def add(name, what, check=None):
+def add(name, what, check=None, repo=None, proven=None):
+    """Append an open line to the seat's plan, or return the open line that already holds this
+    check in this project.  A review follow-up names the run's project as `repo`, and as
+    `proven` the commit its check already failed on (the review's base): the check is not run
+    again first, and that commit's history names the repository, whatever is checked out."""
     what = " ".join(what.split())
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")
-    repo = project_of(name)
+    repo = Path(repo) if repo else project_of(name)
+    found = None
     if check is not None:
         check = check.strip()
         if len(check.splitlines()) != 1 or "`" in check:
             raise config.Error("a check is one shell command without backticks or line breaks")
-        failing, found = fails_on_main(repo, check)
-        if not failing:
-            raise config.Error(f"this check already passes on {repo.name}'s default branch, so "
-                               "it proves nothing; write one that fails until the work is done")
-    where = named(repo, found if check is not None else None)
+        if proven:
+            found = root(repo, proven)
+            if not found:
+                raise config.Error(f"{repo.name} does not hold {proven[:12]}, the commit this "
+                                   "check failed on")
+        else:
+            failing, found = fails_on_main(repo, check)
+            if not failing:
+                raise config.Error(f"this check already passes on {repo.name}'s default "
+                                   "branch, so it proves nothing; write one that fails until "
+                                   "the work is done")
+    where = named(repo, found)
     if "·" in where:
         raise config.Error(f"{where}: a project a line names holds no `·`")
     stamp = time.strftime("%Y-%m-%d %H:%M")
     proof = f"check: `{check}`" if check is not None else EYE
     line = f"- [ ] {what} · {proof} · {where} · written {stamp}"
     with held(name) as current:
-        write(current, [*lines(current), line])
+        text = lines(current)
+        for old in text:
+            parsed = LINE.match(old.strip())
+            if (check is not None and parsed and is_open(old)
+                    and parsed["check"] == check and parsed["project"] == where):
+                return old.strip()     # an open line already holds this check here
+        write(current, [*text, line])
     return line
 
 
