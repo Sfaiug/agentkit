@@ -67,7 +67,7 @@ def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red
     repairs.update(red or {})
     for tree in red or {}:
         kept.pop(tree, None)     # a target found red holds no earlier pass
-    failed.update({tree: {"at": time.time(), **fix, "checks": list(checks)}
+    failed.update({tree: {"at": time.time(), **fix, "checks": list(checks), "code": _code()}
                    for tree, fix in (red_stacks or {}).items()})
     for tree in trees:
         failed.pop(tree, None)
@@ -451,7 +451,9 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
             suite = run.declared_suite(stacks[0][2], ref=tip)
             if limit is None:
                 limit = gate.whole_checks_that_fit(suite)
-            green, red = _trees(turn)[1], _trees(turn, "red_stacks")[1]
+            # Only this lander's ak commit answers: another's pass or failure is checked again.
+            green, red = ({tree: entry for tree, entry in _trees(turn, kind)[1].items()
+                           if entry.get("code") == _code()} for kind in ("trees", "red_stacks"))
             # The first stack has no green prefix to attribute a cached failure to.
             # Retry its own check after a kill or flake; later evidence survives a crash.
             if not prefix:
