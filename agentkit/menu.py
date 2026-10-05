@@ -14,7 +14,7 @@ the moment it is pressed, and from a pipe it is a line.
       2  fix-api             fable   ● working     ████▒▒░░░░ 2/5
       3  web-portal          fable   ✓ done        hero swapped and published
 
-      ↑↓ move   ⏎ open   n new   x stop   c config   s solo   esc leave
+      ↑↓ move   ⏎ open   n new   x stop   c config   esc leave
 
 `n` asks for a name, then shows the orchestrator and both roles with the last created session's
 chosen already.
@@ -76,8 +76,8 @@ glides -- then is still.  The sub-screens are not live: they are read once, like
 question -- but a project's feature switches, which draw again within a second of their `list`
 landing.
 
-Six keys: the numbers, `n`, `x`, `c` (the highlighted seat's models, every model's effort,
-providers, discord, version), `s` (toggle solo), and Esc, which leaves, as it goes back from every
+Five keys: the numbers, `n`, `x`, `c` (the highlighted seat's models, every model's effort,
+providers, discord, version), and Esc, which leaves, as it goes back from every
 screen and question under it; `q` is no key.  Nothing needs a manual: while the pointer rests
 on a row, a state word, a heading, a usage row or a key-line item, the key line says what it
 is in one sentence (terminal.TIPS), and the keys come back when it leaves; a usage row under
@@ -104,8 +104,8 @@ it is drawn, so what a number opens never depends on the page that is up.
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
 a tmux popup: a number switches this client to that session and `n` starts one and switches to
 it, both of which close the popup, `r` renames this session, `x` stops this session -- or,
-done, closes it at once -- `s` toggles solo on this session, and Esc closes the popup.  The
-popup offers those five keys and the
+done, closes it at once -- and Esc closes the popup.  The
+popup offers those four keys and the
 numbers; `c` lives on the menu outside.
 
 On the server the menu is this process.  On a client -- a machine where install.sh recorded the
@@ -898,7 +898,6 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     sentence = "" if word == "working" and not reason.startswith("waiting · ") else reason
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
-            "solo": bool(selection and selection.get("solo")),
             "sentence": sentence, "bar": bar, "runs": seat_runs(name, records) if bar else [],
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
@@ -1015,14 +1014,11 @@ def tasks_bar(word, reason):
 
 
 def _last_text(info, room, narrow=False):
-    """The row's one last column in `room` cells: reason, tasks bar, or empty, after `solo`
-    on a solo seat (`last_column`)."""
+    """The row's one last column in `room` cells: reason, tasks bar, or empty (`last_column`)."""
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
-    solo = "solo" if info.get("solo") else ""
-    text = last_column(info.get("word"), info.get("sentence"), done, total, info.get("runs", ()),
-                       room - (len(solo) + 3 if solo else 0), narrow)
-    return " · ".join(part for part in (solo, text) if part)
+    return last_column(info.get("word"), info.get("sentence"), done, total, info.get("runs", ()),
+                       room, narrow)
 
 
 def v5o_column_widths(infos, term_width):
@@ -1194,8 +1190,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                       order[0] if order else None)      # a seat before any heading
     if owned and words.get(own or cursor) == "done":
         keys = keys.replace("x stop", "x close", 1)
-    if owned and not ask and isinstance(own or cursor, str):
-        keys = keys.replace("esc leave", "s solo   esc leave", 1)
     asking, card = ask or (None, ())
     asked = list(card) if asking in words else []
     # Seat columns are sized once per draw from every row on screen, so the
@@ -3552,7 +3546,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     on `esc leave`, leaves at once, whatever a thread is doing (`Live.close`); `q` is no key.
     """
     keys = OVERLAY_KEYS if overlay else KEYS
-    actions = ("n", "x", "r", "s") if overlay else ("n", "x", "c", "s")
+    actions = ("n", "x", "r") if overlay else ("n", "x", "c")
     cursor = os.environ.pop("AK_MENU_CURSOR", "") or None
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
@@ -3659,19 +3653,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if terminal.is_sequence(key):
                 continue          # an arrow key is neither Esc nor a key: draw again, silently
             key = key.lower()
-            if key in ("x", "c", "s") and not overlay and terminal.unseen():
+            if key in ("x", "c") and not overlay and terminal.unseen():
                 continue          # it acts on the highlighted seat: brought back, to be seen first
             seat = own if overlay else cursor
-            if key == "s" and drawn is not None:
-                if isinstance(seat, str):
-                    if dry_run:
-                        pause(f"would toggle solo for {seat}")
-                    else:
-                        try:
-                            orch.set_solo(seat)
-                        except config.Error as exc:
-                            pause(str(exc))
-                continue
             if key == "x" and isinstance(seat, Path):
                 continue          # a heading is no seat to stop
             if key == "x" and drawn is not None and seat in drawn["words"]:
