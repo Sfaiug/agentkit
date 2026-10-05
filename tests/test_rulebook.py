@@ -31,6 +31,7 @@ RULES = (("Understand first", "unknown knowns, "),
          ("Decide and delegate", "Three rounds is the budget; ak refuses more."),
          ("Decide and delegate", "only when a default is wrong (`repo`, `from`)"),
          ("Decide and delegate", "never `done_when_minutes`"),
+         ("Decide and delegate", "Asked to improve an existing codebase, map it first"),
          ("Decide and delegate", "Runs already going are never stopped for a process change"),
          ("Decide and delegate", "`ak run stop <id> --keep` and a relaunch with `from: <branch>`, "
                                  "never steering"))
