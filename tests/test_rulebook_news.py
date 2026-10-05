@@ -372,6 +372,45 @@ class RulebookNews(Sandbox):
         self.assertIn(TOLD, heard[0])
         self.assertEqual(self.rules().read_text(), config.seat_rulebook(SEAT))
 
+    def test_nothing_runs_between_the_last_look_at_the_screen_and_the_enter(self):
+        # the owner starts typing while the news is written: the look before Enter sees it
+        self.handed(BEFORE)
+        typing, entered, prepare = [], [], orch.rulebook_prepare
+
+        def written(name):
+            prepare(name)
+            typing.append(name)
+
+        def tmux(*args, **_kw):
+            if args[:1] == ("send-keys",) and args[-1] == "Enter":
+                entered.append(args)
+            return 0, ""
+
+        with patch.object(orch, "rulebook_prepare", side_effect=written), \
+                patch.object(orch, "tmux_out", side_effect=tmux), \
+                patch.object(watch, "_send_line", return_value=True), \
+                patch.object(watch, "pane_text", return_value=""), \
+                patch.object(watch, "KEY_GAP", 0):
+            watch.type_checked({"name": SEAT}, "a peer note", lambda _line: None,
+                               guard=lambda: watch.seat_held(SEAT),
+                               ready=lambda _held: not typing)
+        self.assertEqual(typing, [SEAT])
+        self.assertEqual(entered, [])
+
+    def test_a_conversation_that_stopped_being_the_seat_s_is_never_told(self):
+        self.handed(BEFORE)
+        self.prompt()                                   # told; another hook refused it
+
+        @contextmanager
+        def cleared_meanwhile(*_args, **_kwargs):
+            # /clear makes another conversation the seat's as the busy lock is tried
+            config.update_session(SEAT, conversation="c3a1f2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b",
+                                  id_source="claude-hook")
+            yield None
+
+        with patch.object(notify, "session_lock", side_effect=cleared_meanwhile):
+            self.assertEqual(orch.rulebook_news(SEAT, OWN), "")
+
     def test_a_delivery_s_retried_enter_is_told(self):
         # an Enter that failed left the line typed; the rules change before the retry
         self.handed(BEFORE)

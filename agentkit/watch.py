@@ -132,7 +132,7 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
         return state in ("draft", "asking") or bool(draft)
 
     if not type_checked(session, line, log, harness, pending=stuck,
-                        guard=lambda: notify.session_lock(name), veto=veto):
+                        guard=lambda: seat_held(name), veto=veto):
         log(f"WARN could not type the question into the {name} seat")
         return 1
     log(f"asked the {name} seat: {question}")
@@ -2345,12 +2345,18 @@ def _wait_sent(session, harness, text):
     return False
 
 
-def _send_enter(session, log, held=None):
-    """One Enter into a seat; False where the send failed.  `held`: the name the seat's lock is
-    held under, if it is -- the prompt's own hook never waits on that lock, so the news this
-    prompt carries is made ready first (`orch.rulebook_prepare`)."""
-    if held is not None:
+@contextmanager
+def seat_held(name):
+    """The seat's lock for typing into it, the news its next prompt carries made ready first
+    (`orch.rulebook_prepare`): that prompt's own hook never waits on this lock, and nothing
+    runs between the last look at the screen and the Enter."""
+    with notify.session_lock(name) as held:
         orch.rulebook_prepare(held)
+        yield held
+
+
+def _send_enter(session, log):
+    """One Enter into a seat; False where the send failed."""
     name = session["name"]
     rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", "Enter",
                             socket=orch.seat_socket(session))
@@ -2440,7 +2446,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not _send_line(seat, text, log, typed, source=source):
                 return False
             time.sleep(KEY_GAP)
-        if not ready(held if held is not None else name) or not _send_enter(seat, log, held):
+        if not ready(held if held is not None else name) or not _send_enter(seat, log):
             return False
     if not confirm or _wait_sent(seat, harness, text):
         return True
@@ -2448,7 +2454,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
         if (veto(held if held is not None else name)
                 or not ready(held if held is not None else name)):
             return False
-        if not _send_enter(seat, log, held):
+        if not _send_enter(seat, log):
             return False
     if _wait_sent(seat, harness, text):
         return True
@@ -2463,7 +2469,7 @@ def type_into(session, text, log, stale=lambda held: False, *, source="ak"):
     seat goes by now, so what changed while the pane was read or the lock waited still counts.
     """
     return type_checked(session, text, log, None,
-                        guard=lambda: notify.session_lock(session["name"]),
+                        guard=lambda: seat_held(session["name"]),
                         veto=lambda held: owner_question(notify.last(held)) or stale(held),
                         source=source)
 
@@ -2631,7 +2637,7 @@ def sync_title(session, log=lambda _: None, *, force=False):
                               title_conversation=record.get("conversation"))
 
     sent = type_checked(session, line, log, plugin.name,
-                        guard=lambda: notify.session_lock(name), veto=veto,
+                        guard=lambda: seat_held(name), veto=veto,
                         typed=typed, pending=bool(composed))
     with notify.session_lock(name) as held:
         current = config.session_records().get(held, {})
@@ -2728,14 +2734,14 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         except (config.Error, OSError):
             return False
-        with notify.session_lock(session["name"]) as held:
+        with seat_held(session["name"]) as held:
             pane = pane_text(session)
             if (not pane.strip() or owner_question(notify.last(held))
                     or asking(held, harness, pane)):
                 return False    # nothing to read, or the screen is somebody else's: next pass
             if not _holds_text(pane, text):
                 return True
-            _send_enter(session, log, held)
+            _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
         return False
@@ -2759,7 +2765,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                     and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
     return type_checked(session, text, log, None,
-                        guard=lambda: notify.session_lock(session["name"]), veto=veto,
+                        guard=lambda: seat_held(session["name"]), veto=veto,
                         typed=lambda: receipt(mark), source=source, ready=ready)
 
 

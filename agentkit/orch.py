@@ -2134,7 +2134,10 @@ def rulebook_news(session, conversation):
     told = record.get("rulebook_told") or {}
     text = config.seat_rulebook(current)
     path = config.seat_file("rules", current)
-    if (on_disk(path) != text.encode() or told.get("conversation") != conversation
+    # read again: a /clear or a relaunch while the lock was held makes another conversation
+    # the seat's, whatever this one was told
+    if (not owns(record, conversation) or not seat_plugin(record).prompt_context
+            or on_disk(path) != text.encode() or told.get("conversation") != conversation
             or told.get("sha") != config.rulebook_digest(text)):
         return ""                       # nothing it could read and say so yet: the next prompt
     return (f"Read {path} in full now, before anything else: it is your current rulebook, and "
