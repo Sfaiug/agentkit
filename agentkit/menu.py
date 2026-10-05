@@ -1056,15 +1056,20 @@ def v5o_column_widths(infos, term_width):
 
 
 def _head(info, widths):
-    """A seat row's fixed columns -- number, name, orchestrator, state -- in `widths`, cut to
-    the room as plain text only where no width is left for them."""
-    head = "  ".join(["", _styled_cell(info["number"], widths["num"], "dim", right=True),
-                      terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
-                      _styled_cell(info.get("orchestrator") or info.get("worker") or "",
-                                   widths["orch"], "dim"),
-                      _styled_cell(terminal.state_text(info["count"]), widths["count"],
-                                   terminal.state_colour(info["count"]))])
-    return head if terminal.cells(head) <= widths["room"] else terminal.cut(head, widths["room"])
+    """A seat row's fixed columns -- number, name, orchestrator, state -- in `widths`.  Where
+    even their narrowest do not fit, the number keeps its place behind the indent the highlight's
+    `›` takes, and the rest is cut to the room as plain text."""
+    number = "  " + _styled_cell(info["number"], widths["num"], "dim", right=True)
+    rest = [terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
+            _styled_cell(info.get("orchestrator") or info.get("worker") or "", widths["orch"],
+                         "dim"),
+            _styled_cell(terminal.state_text(info["count"]), widths["count"],
+                         terminal.state_colour(info["count"]))]
+    head = "  ".join([number, *rest])
+    if terminal.cells(head) <= widths["room"]:
+        return head
+    left = widths["room"] - terminal.cells(number) - 2
+    return number + ("  " + terminal.cut(" ".join(rest), left) if left > 0 else "")
 
 
 def v5o_seat_blocks(infos, term_width, widths=None):

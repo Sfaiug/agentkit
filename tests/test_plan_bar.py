@@ -270,6 +270,30 @@ class PlanBar(Sandbox):
                         self.assertEqual(heads[0].index("● working"), heads[1].index("! needs you"),
                                          heads)
 
+    def test_a_highlighted_head_keeps_its_number_at_any_width(self):
+        # below the narrowest head the rest is cut, never the indent the highlight's `›` takes
+        info = {"number": "1", "name": "acme", "orchestrator": "gpt-astra", "count": "working",
+                "word": "working", "sentence": "", "runs": [], "repo": None}
+        groups = ([{"name": "acme", "checkout": None, "seats": [info]}], [info], 0, {})
+        for width in range(6, 41):
+            for number in ("1", "1234"):
+                for depth in (0, 24):
+                    with self.subTest(width=width, number=number, depth=depth), \
+                            patch.dict(info, number=number), \
+                            patch.object(terminal, "width", return_value=width), \
+                            patch.object(terminal, "height", return_value=100), \
+                            patch.object(terminal, "colour_depth", return_value=depth), \
+                            patch.object(menu, "usage_lines", return_value=[]), \
+                            patch.object(menu, "usage_rows", return_value=[]), \
+                            redirect_stdout(io.StringIO()) as output:
+                        drawn = {}
+                        menu.draw({}, [], groups=groups, drawn=drawn, cursor="acme")
+                        lines = terminal.ANSI.sub("", output.getvalue()).splitlines()
+                        row = next(row for row, spot in drawn["spots"].items()
+                                   if spot[0] == "acme")
+                        self.assertRegex(lines[row - 1], rf"^› +{number}(  |$)")
+                        self.assertLessEqual(terminal.cells(lines[row - 1]), width)
+
     def test_a_phone_s_tasks_line_never_runs_past_the_screen(self):
         # the line under a narrow row is all the room there is: beside `solo` and a long count
         for width, done, total in ((22, 127, 143), (24, 4999, 9999), (30, 3, 7), (40, 3, 7)):
