@@ -2,8 +2,8 @@
 
 import os
 import shutil
+import signal
 import subprocess
-import sys
 from pathlib import Path
 
 from . import config, retention, run
@@ -213,15 +213,6 @@ def drop_unrecorded_checkout(repo, wt, branch, log):
 
 
 CLEANUP_LIMIT = 600
-# The line's holder: on Linux a subreaper, so what the line orphans as it forks and exits --
-# before a teardown or during one -- is reparented below the holder, never out of the tree
-# `watch.end_tree` reads. Its exit status is the line's.
-HOLD = r'''import ctypes, subprocess, sys
-if sys.platform == "linux":
-    ctypes.CDLL(None).prctl(36, 1, 0, 0, 0)     # PR_SET_CHILD_SUBREAPER
-code = subprocess.call(["bash", "-c", sys.argv[1]])
-sys.exit(code if code >= 0 else 128 - code)
-'''
 
 
 def run_repo_cleanup(wt, run_dir):
@@ -258,21 +249,21 @@ def run_repo_cleanup(wt, run_dir):
             try:
                 repo = (run_record.read_state(Path(run_dir)) or {}).get("repo")
                 env = {**os.environ, **(config.repo_env(repo) if repo else {})}
-                # its own session: a Ctrl+C at the caller's terminal reaches the caller
-                # alone, so the line is still there, whole, for the teardown below
-                with subprocess.Popen([sys.executable, "-c", HOLD, cmd], cwd=str(wt),
-                                      stdout=fh, stderr=subprocess.STDOUT,
-                                      stdin=subprocess.DEVNULL, start_new_session=True,
-                                      env=env) as proc:
+                # its own session and process group: a Ctrl+C at the caller's terminal reaches
+                # the caller alone, and the line's whole group goes below, not only its shell
+                with subprocess.Popen(["bash", "-c", cmd], cwd=str(wt), stdout=fh,
+                                      stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                      start_new_session=True, env=env) as proc:
                     try:
                         proc.wait(timeout=CLEANUP_LIMIT)
                     except BaseException:
-                        # a timeout or an interrupted caller: the line's whole tree goes, as
-                        # its shell alone went to subprocess.run's KILL, before the checkout
-                        # goes from under it
-                        from . import watch
-                        if watch.end_tree(proc.pid, lambda line: fh.write(f"{line}\n")):
-                            proc.wait()     # an interrupted wait leaves the reaping to no one
+                        # a timeout or an interrupted caller; a command that left the group for
+                        # one of its own (`timeout`, `setsid`, a daemon) is its own, as it was
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        proc.wait()     # an interrupted wait leaves the reaping to no one
                         raise
             except subprocess.TimeoutExpired:
                 outcome = f"timed out after {CLEANUP_LIMIT // 60} minutes"

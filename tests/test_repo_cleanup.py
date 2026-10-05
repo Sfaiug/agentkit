@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, run, watch, worktrees  # noqa: E402
+from agentkit import config, run, worktrees  # noqa: E402
 
 
 class RepoCleanup(unittest.TestCase):
@@ -149,14 +149,11 @@ class RepoCleanup(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "linux", "reads /proc")
     def test_a_timed_out_cleanup_leaves_nothing_of_its_line_running(self):
-        # a child of the line's shell; one that ignores TERM; one under `timeout`, which
-        # makes its own process group; one a TERM handler would start; and one whose
-        # parent forked it into a session of its own and exited, as a daemon does
+        # a child of the line's shell, one that ignores TERM, and one its TERM handler would
+        # start: all in the line's own process group, which goes whole on a KILL
         for name, line in (
                 ("cleanup-child", "sleep {m} & wait"),
-                ("cleanup-detached", "(setsid sleep {m} &); sleep {m} & wait"),
                 ("cleanup-deaf", "trap '' TERM; sleep {m} & wait"),
-                ("cleanup-wrapped", "timeout 30 bash -c 'sleep {m} & wait'; :"),
                 ("cleanup-handler", "trap 'sleep {m} & exit' TERM; sleep {m} & wait")):
             with self.subTest(line=line):
                 marker = self.marked()
@@ -190,46 +187,6 @@ class RepoCleanup(unittest.TestCase):
         self.assertNotEqual(caller.wait(timeout=30), 0)    # the interrupt went on up
         self.assert_none_left(marker)
 
-    @unittest.skipUnless(sys.platform == "linux", "reads /proc")
-    def test_a_ctrl_c_during_the_teardown_waits_for_it(self):
-        # a second Ctrl+C just after the first member is stopped: the interrupt goes on up
-        # once the tree is gone, never with the tree left stopped
-        marker = self.marked()
-        wt, run_dir, _state = self.make_run(
-            "cleanup-torn", f"---\ncleanup: sleep {marker} & wait\n---\n# acme\n")
-        kill, sent = os.kill, []
-
-        def interrupting(pid, sig):
-            kill(pid, sig)
-            if sig == signal.SIGSTOP and not sent:
-                sent.append(pid)
-                kill(os.getpid(), signal.SIGINT)
-
-        with patch.object(worktrees, "CLEANUP_LIMIT", 1), \
-                patch.object(watch.os, "kill", interrupting), \
-                self.assertRaises(KeyboardInterrupt):
-            worktrees.run_repo_cleanup(wt, run_dir)
-        self.assertTrue(sent)
-        self.assert_none_left(marker)
-
-    @unittest.skipUnless(sys.platform == "linux", "reads /proc")
-    def test_an_unreadable_process_table_still_ends_the_line(self):
-        # no reading names a member: the line's own process group still goes, and the
-        # caller returns within the limit instead of waiting on a shell nobody killed
-        marker = self.marked()
-        wt, run_dir, _state = self.make_run(
-            "cleanup-blind", f"---\ncleanup: sleep {marker} & wait\n---\n# acme\n")
-        caller = subprocess.Popen(
-            [sys.executable, "-c",
-             f"import sys; sys.path.insert(0, {str(REPO)!r})\n"
-             "from unittest.mock import patch\n"
-             "from agentkit import watch, worktrees\n"
-             "with patch.object(worktrees, 'CLEANUP_LIMIT', .5), \\\n"
-             "        patch.object(watch, '_proc_table', return_value={}):\n"
-             f"    worktrees.run_repo_cleanup({str(wt)!r}, {str(run_dir)!r})\n"],
-            start_new_session=True)
-        self.assertEqual(caller.wait(timeout=30), 0)
-        self.assert_none_left(marker)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

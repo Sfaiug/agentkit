@@ -3790,56 +3790,6 @@ def kill_tree(pid, log=lambda _: None):
     return not left
 
 
-def end_tree(pid, log=lambda _: None):
-    """End that process tree at once, with nothing in it left to act: stop it, then kill it.
-
-    SIGSTOP to every member, read again until a reading holds no new one -- a stopped
-    process starts nothing, so a child forked meanwhile is caught by the next reading --
-    then SIGKILL in the reverse of that order: each member was read after its parent, so
-    children go first and `pid` last, and no stopped process group is left orphaned into
-    the SIGHUP and SIGCONT that would wake a handler. SIGKILL runs no handler of theirs.
-    `pid` is a member even where /proc cannot be read, and the KILL to a root that leads
-    its own process group goes to that group, so what no reading named in it goes too; the
-    caller's interrupts wait until the tree is gone, so nothing is left half stopped. A root that is a subreaper
-    keeps what its tree orphans below it; under any other root, a process that left the
-    tree before a reading is not the tree's. True when none of it is left.
-    """
-    held = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
-    try:
-        tree = []
-        while True:
-            found = [p for p in descendants(pid) or [pid] if p != os.getpid() and p not in tree]
-            if not found:
-                break
-            for member in found:
-                try:
-                    os.kill(member, signal.SIGSTOP)
-                except OSError:
-                    pass
-            tree += found
-        for member in reversed(tree[1:]):       # the root is read first
-            try:
-                os.kill(member, signal.SIGKILL)
-            except OSError:
-                pass
-        # last the root, with whatever of its own process group no reading named
-        try:
-            (os.killpg if os.getpgid(pid) == pid else os.kill)(pid, signal.SIGKILL)
-        except OSError:
-            pass
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            if all(_gone(member) for member in tree):
-                return True
-            time.sleep(0.05)
-        left = [member for member in tree if not _gone(member)]
-        if left:
-            log(f"WARN {pid}: still alive after KILL: {left[:5]}")
-        return not left
-    finally:
-        signal.pthread_sigmask(signal.SIG_SETMASK, held)
-
-
 def stop_run_scope(state, log=lambda _: None):
     """Stop a run's scope, then whatever it missed by marker; old receipts keep tree cleanup."""
     scope = state.get("scope") if isinstance(state, dict) else None
