@@ -140,6 +140,17 @@ class OpenGates(unittest.TestCase):
                                     text=True, capture_output=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(os.path.lexists(home / '.codex/auth.json'))
+            # A login the worker box withholds reads as /dev/null there: absent, not broken.
+            hosts = caller / '.config/gh/hosts.yml'
+            hosts.unlink()
+            hosts.symlink_to('/dev/null')
+            shutil.rmtree(home)
+            result = subprocess.run(['bash', '-c', setup + '\nsmoke_home'],
+                                    env={**os.environ, 'HOME': str(caller), 'REPO': str(REPO),
+                                         'WORK': str(root / 'work')},
+                                    text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(os.path.lexists(home / '.config/gh/hosts.yml'))
 
     def test_gates_merge_back_only_valid_renamed_logins_whole(self):
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
