@@ -30,41 +30,35 @@ SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 
 
 def _links(root):
-    """Every link reachable from root, through linked directories too, each directory once."""
-    from . import config
+    """Every link reachable from root, through linked directories too, each directory once.
+
+    A closed directory on the way raises PermissionError: what it holds is unknown."""
     found, seen, pending = [], set(), [Path(root)]
     while pending:
         directory = pending.pop()
         try:
             real = directory.resolve(strict=True)
+            entries = [] if real in seen else list(os.scandir(directory))
+        except PermissionError:
+            raise
         except (OSError, RuntimeError):
-            # Missing, looping or behind a closed directory: nothing readable through it.
-            continue
-        # Nothing is readable through a directory that cannot be entered.
-        if real in seen or not os.access(real, os.X_OK):
+            # Missing, looping or not a directory: nothing readable through it.
             continue
         seen.add(real)
-        try:
-            entries = list(os.scandir(directory))
-        except PermissionError:
-            # Its files open by name, and the links among them reach keys nobody can list.
-            raise config.Error(f"{real} can be entered but not listed, so the worker box "
-                               f"cannot hide the keys it links to; run `chmod u+r {shlex.quote(str(real))}`")
-        except OSError:
-            # Not a directory.
-            continue
         for entry in entries:
             if entry.is_symlink():
                 found.append(Path(entry.path))
             try:
                 if entry.is_dir():
                     pending.append(Path(entry.path))
+            except PermissionError:
+                raise
             except OSError:
                 continue
     return found
 
 
-def _credentials(env, cwd):
+def _credentials(env, cwd, agent=None):
     # The turn reads a relative path in its environment from its own directory.
     base = Path(cwd or os.getcwd())
     homes = {base / (env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
@@ -87,10 +81,10 @@ def _credentials(env, cwd):
         places.add(ssh)
         # A key linked in from elsewhere stays readable at its target unless that is hidden too.
         places.update(_links(ssh))
-    if env.get("SSH_AUTH_SOCK"):
+    if agent:
         # The address is the caller's, so a relative one names a place in the caller's directory;
         # the box passes no address on, so nothing inside reads it any other way.
-        places.add(Path(os.getcwd(), env["SSH_AUTH_SOCK"]))
+        places.add(Path(os.getcwd(), agent))
     # A named credential store is just as readable as the default one. Ask Git so
     # includes and repository-local settings use its own precedence and quoting.
     result = subprocess.run(["git", "config", "--get-regexp", r"^credential(\..*)?\.helper$"],
@@ -207,12 +201,23 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
-    for path in _credentials(env, cwd):
-        try:
-            if path.exists():
+    try:
+        for path in _credentials(clean, cwd, env.get("SSH_AUTH_SOCK")):
+            try:
                 targets.add(path.resolve(strict=True))
-        except (OSError, RuntimeError):
-            continue
+            except PermissionError:
+                raise
+            except (OSError, RuntimeError):
+                # Missing, looping or under a file: nothing to hide there.
+                continue
+    except PermissionError as exc:
+        # The command could open a closed directory it owns, so what it holds stays unknown.
+        from . import config
+        real = Path(os.path.realpath(exc.filename))
+        closed = next(path for path in (*reversed(real.parents), real)
+                      if path == real or not os.access(path, os.R_OK | os.X_OK))
+        raise config.Error(f"{closed} is closed to you, so the worker box cannot see what it must "
+                           f"hide there; run `chmod u+rx {shlex.quote(str(closed))}`") from None
     folders = {path for path in targets if path.is_dir()}
     for path in sorted(targets):
         # Inside a hidden folder it is gone already, and no mount point can be made there.

@@ -4,6 +4,7 @@ from contextlib import ExitStack
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -309,27 +310,63 @@ class WorkerBox(unittest.TestCase):
                 self.assertEqual((result.returncode, result.stdout.strip()), (0, ""), result.stderr)
         self.assertEqual(key.read_text(), "fixture-key")
 
-    def test_a_directory_that_hides_its_links_refuses_the_box(self):
-        ssh, keys = self.root / ".ssh", self.root / "keydir"
-        ssh.mkdir()
-        keys.mkdir()
-        (self.root / "id_outside").write_text("fixture-key")
-        (ssh / "keys").symlink_to(keys)
-        for closed in (ssh, keys):
-            (closed / "id_linked").symlink_to(self.root / "id_outside")
+    def test_a_closed_directory_on_the_way_to_a_key_refuses_the_box(self):
+        # The command could open a closed directory it owns, so what it holds counts as there.
+        def listed_not_entered(case):
+            (case / "home/.ssh").mkdir(parents=True)
+            (case / "home/.ssh/id_linked").symlink_to(case / "id_outside")
+            return {"HOME": str(case / "home")}, case / "home/.ssh", 0o111
+
+        def linked_directory(case):
+            (case / "home/.ssh").mkdir(parents=True)
+            (case / "keydir").mkdir()
+            (case / "keydir/id_linked").symlink_to(case / "id_outside")
+            (case / "home/.ssh/keys").symlink_to(case / "keydir")
+            return {"HOME": str(case / "home")}, case / "keydir", 0o111
+
+        def linked_key(case):
+            (case / "home/.ssh").mkdir(parents=True)
+            (case / "vault").mkdir()
+            (case / "vault/id_fixture").write_text("fixture-key")
+            (case / "home/.ssh/id_fixture").symlink_to(case / "vault/id_fixture")
+            return {"HOME": str(case / "home")}, case / "vault", 0
+
+        def home(case):
+            (case / "home/.ssh").mkdir(parents=True)
+            return {"HOME": str(case / "home")}, case / "home", 0
+
+        def agent(case):
+            (case / "vault").mkdir()
+            return {"SSH_AUTH_SOCK": str(case / "vault/agent")}, case / "vault", 0
+
+        for make in (listed_not_entered, linked_directory, linked_key, home, agent):
+            case = self.root / make.__name__
+            case.mkdir()
+            (case / "id_outside").write_text("fixture-key")
+            env, closed, mode = make(case)
+            closed.chmod(mode)
             self.addCleanup(closed.chmod, 0o700)
-            with self.subTest(directory=closed.name):
-                # Entered but not listed: its links reach keys the box cannot find.
-                closed.chmod(0o111)
-                with self.assertRaisesRegex(config.Error, f"chmod u\\+r {closed}"):
-                    with box.command(["true"], dict(os.environ)):
+            for walls in (True, False):
+                with self.subTest(case=make.__name__, walls=walls), patch.dict(os.environ, env), \
+                        self.assertRaisesRegex(config.Error, f"{re.escape(str(closed))}.* is closed to "
+                                               f"you.*chmod u\\+rx"):
+                    with box.command(["true"], dict(os.environ), cwd=self.root, walls=walls):
                         pass
-                # Not even entered: nothing is readable through it.
-                closed.chmod(0)
-                code, _, _, killed, _ = self.turn()
-                self.assertEqual((code, killed), (0, False), self.logs)
-                self.stop_child()
-                closed.chmod(0o700)
+
+    def test_the_credential_query_sees_no_token(self):
+        # A git first on PATH answers the box's question about credential stores.
+        bindir, seen, git = self.root / "bin", self.root / "seen.json", shutil.which("git")
+        bindir.mkdir()
+        (bindir / "git").write_text(
+            f"#!{sys.executable}\nimport json, os, sys\n"
+            f"open({str(seen)!r}, 'w').write(json.dumps([os.environ.get(k) for k in {box.TOKENS!r}]))\n"
+            f"os.execv({git!r}, [{git!r}, *sys.argv[1:]])\n")
+        (bindir / "git").chmod(0o755)
+        with patch.dict(os.environ, {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+                                     "GITHUB_TOKEN": "fixture-github", "SSH_AUTH_SOCK": "agent"}):
+            with box.command(["true"], dict(os.environ), cwd=self.root):
+                pass
+        self.assertEqual(json.loads(seen.read_text()), [None] * len(box.TOKENS))
 
     def test_files_writes_identity_environment_and_exit_status_stay_the_same(self):
         with patch.dict(os.environ, {"BOX_LEAK": "0", "BOX_INSPECT": "1", "BOX_EXIT": "7",
