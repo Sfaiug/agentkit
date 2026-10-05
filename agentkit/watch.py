@@ -1124,8 +1124,8 @@ def pane_tail(text):
 
 
 def screen_tail(harness, pane):
-    """The tail that harness's screen is read from: `pane_tail`, reaching up to the top rule of
-    a ruled composer's box that a long draft pushed above it, found over the whole pane."""
+    """The tail that harness's screen is read from: `pane_tail`, reaching up to the prompt row
+    of a ruled composer's box that a long draft pushed above it, found over the whole pane."""
     lines = _content_rows(pane)
     try:
         chrome = screen(harness)
@@ -1160,28 +1160,24 @@ def content_lines(harness, tail):
 def ruled_composer(chrome, rows):
     """(prompt row, closing rule row) of the composer a ruled harness draws, else (None, None).
 
-    Its box: the bottom-most prompt row right under a rule of the harness's chrome -- bare, with
-    the seat's name in it, or between corners -- closed by the first row under it drawn in that
-    rule's own glyph, at least as long as its run before any name, between corners or none.  Every row between is the composer's,
-    a wrapped or multi-line draft's even where one reads like a rule (`---`), and a user's
-    status line under the box is never it, even where it starts with a prompt mark.  The box's
-    rules and prompt row start at the pane's left edge, and a draft's rows under its prompt row
-    are indented: `rows` keep their leading spaces (raw or plain), so nothing typed -- a rule's
-    glyphs, a prompt mark -- is ever the box.
+    It is the bottom-most prompt row whose first chrome row under it is a bare rule, so a
+    user's status line under that rule is never the composer, even where it starts with a
+    prompt mark.  The box's prompt row and rules start at the pane's left edge and a draft's
+    rows under its prompt row are indented, so `rows` keep their leading spaces (raw or plain)
+    and only rows at the left edge are its prompt row and its chrome: nothing typed -- a run
+    of rule glyphs, `---`, a prompt mark -- is ever the box, and every row between is the
+    composer's.
     """
     if not chrome["ruled"]:
         return None, None
     cells = [strip_sgr(row).rstrip() for row in rows]
-    for at in range(len(cells) - 1, 0, -1):
-        top = cells[at - 1]
-        run = re.match(r"[╭┌]?(([─━═])\2*)", top)
-        if not (run and re.match(r"(?:│\s*)?[❯›⟩]", cells[at]) and chrome_line(chrome, top)):
-            continue
-        closing = re.compile(f"[╰└]?{run.group(2)}{{{len(run.group(1))},}}[╯┘]?")
-        end = next((row for row in range(at + 1, len(cells)) if closing.fullmatch(cells[row])),
-                   None)
-        if end is not None:
-            return at, end
+    for at in range(len(cells) - 1, -1, -1):
+        if re.match(r"(?:│\s*)?[❯›⟩]", cells[at]):
+            end = next((row for row in range(at + 1, len(cells))
+                        if not cells[row].startswith(" ") and chrome_line(chrome, cells[row])),
+                       len(cells))
+            if end < len(cells) and re.fullmatch(RULE, cells[end]):
+                return at, end
     return None, None
 
 

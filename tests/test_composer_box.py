@@ -146,6 +146,20 @@ class ComposerBox(Sandbox):
         self.assertEqual(watch.composer_draft("claude", pane), "Fixthelogin")
         self.assertEqual(self.looked(pane), ("needs you", False, []))
 
+    def test_a_tall_status_line_under_the_box_is_never_read_as_its_output(self):
+        """Its top rule can fall out of the tail; the box is still found, and everything under
+        its closing rule stays chrome for the stall, login and stuck readers."""
+        rows = PROMPT.splitlines()
+        closing = max(at for at, row in enumerate(rows) if row.startswith("─"))
+        status = [f"  acme status {n}" for n in range(11)] + [
+            "  Please run /login · API Error: 401 Invalid API key"]
+        pane = "\n".join(rows[:closing + 1] + status + rows[closing + 1:]) + "\n"
+        tail = watch.pane_tail(pane)
+        self.assertFalse(tail.splitlines()[0].startswith("─"))     # its top rule cut off
+        said = "\n".join(watch.content_lines("claude", tail))
+        self.assertNotIn("API Error", said)
+        self.assertNotIn("/login", said)
+
     def test_an_older_boxed_composer_holding_its_placeholder_is_free(self):
         pane = ('⎿ Done.\n╭──────────────────╮\n│ > Try "fix tests" │\n╰──────────────────╯\n'
                 '⏵⏵ bypass permissions on (shift+tab to cycle)   ◯ 92% context left\n')
