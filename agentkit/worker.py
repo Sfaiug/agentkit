@@ -48,8 +48,13 @@ BLOCKED = ('[worker judgement] Close every turn with `ak hand-in done`, or `ak h
 # The reviewer supplies evidence; the loop weighs it outside the reviewer's editable copy.
 GATE = ("[worker judgement] Hand in a **blocking** finding only for a correctness defect in "
         "the task's outcome, a safety or data-loss risk, a check the executor weakened or "
-        "skipped, or a scope violation (work the task did not ask for, or asked-for work "
-        "missing). Use "
+        "skipped, a scope violation (work the task did not ask for, or asked-for work "
+        "missing), or complexity the diff adds: a second home for a piece of knowledge, a special "
+        "case inside general code, work pushed onto callers that the module could do, or a "
+        "function that only forwards to another. Quote the added lines and name the other home "
+        "or the caller in why it matters; complexity already on main is neither blocking nor a "
+        "follow-up. Moving what the change needs into its one home, or deleting what it makes "
+        "dead, is no scope violation. Use "
         "`ak hand-in finding path:line \"what\" \"why it matters\" --run 'command'` "
         "or `--quote 'lines from that file'` for blocking findings only; use only files on the branch.\n"
         "[checked by ak: tests/test_hand_in.py] ak refuses malformed or evidence-free findings, "
@@ -76,9 +81,11 @@ REAL_USERS = ("[worker judgement] This repository has real users: new user-visib
               "do that they could not before; an improvement to an existing feature is not) that "
               "is not behind the project's feature switch, or is on for anyone but the owner by "
               "default, is also a blocking finding.")
-# The owner's own words for how much to build, all four in every executor and fixer.
+# The owner's own words for how much to build and how, in every executor and fixer.
 LEAST = ("[worker judgement] Minimum change that solves the task completely; the best part is no part. Less is "
-         "more: brutal elimination, the least possible steps.")
+         "more: brutal elimination, the least possible steps. Make it as if the system had been "
+         "designed for it: each piece of knowledge in one home, no special case inside general "
+         "code, nothing callers must do that a module could, and what the change makes dead deleted.")
 COMMITS = ("[checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.")
 PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running "
              "when your turn ends and asks once to finish in the foreground.")

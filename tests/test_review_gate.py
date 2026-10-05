@@ -150,6 +150,10 @@ sys.exit(1)
                               "a check the executor weakened or skipped",
                               "a scope violation (work the task did not ask for, "
                               "or asked-for work missing)",
+                              "complexity the diff adds: a second home for a piece of knowledge, "
+                              "a special case inside general code, work pushed onto callers that "
+                              "the module could do, or a function that only forwards to another",
+                              "complexity already on main is neither blocking nor a follow-up",
                               "ak hand-in follow-up", 'path:line "what" "why it matters"',
                               "never a reason to fail",
                               "however long the follow-ups list is",
