@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander as fixture
-from agentkit import config, land, record, run, watch
+from agentkit import config, gate, land, record, run, watch
 
 SUITE = "test ! -f broken.txt"
 
@@ -125,6 +125,30 @@ class RedMain(unittest.TestCase):
         self.assertEqual((first / "run.json").read_bytes(), before)
         self.assertNotIn("land", self.wait(later))
         self.assert_cleaned()
+
+    def test_a_pass_records_the_ak_commit_it_started_on(self):
+        # an update installed while the suite runs is not the commit that checked it
+        head = ["commit-a"]
+        git = run.git
+
+        def installed(cwd, *args, **kw):
+            if Path(cwd) == config.REPO and args == ("rev-parse", "HEAD"):
+                return head[0]
+            return git(cwd, *args, **kw)
+
+        def update_during(*args, **kw):
+            head[0] = "commit-b"
+            return self.check(*args, **kw)
+
+        land._code.cache_clear()
+        self.addCleanup(land._code.cache_clear)
+        self.member()
+        self.advance()
+        with patch.object(run, "git", side_effect=installed), \
+                patch.object(gate, "run_done_when", side_effect=update_during):
+            land.check_line(self.turn)
+        tree = self.wait(config.RUNS / "first")["land"]
+        self.assertEqual(land.passed(self.turn, tree)["code"], "commit-a")
 
     def test_a_target_this_landers_code_passed_is_not_checked_again(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})

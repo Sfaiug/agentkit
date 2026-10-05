@@ -202,6 +202,7 @@ def check_line(turn, log=lambda _: None):
     """
     from . import run, watch
     turn = Path(turn)
+    _code()     # read as the pass starts: an update installed during a check is not this pass's
     with turn.with_suffix(".lander.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
