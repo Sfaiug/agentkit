@@ -315,9 +315,10 @@ class GcSweep(Sandbox):
             self.git(wt, "commit", "-qam", name)
             return wt
         kept = ("open", "unpushed", "dirty", "untracked", "hidden-new", "unchanged", "skipped",
-                "submodule", "ignore-case")
+                "submodule", "ignore-case", "same-stat", "mode", "staged")
         merged, *kept = (seat(name) for name in ("merged", *kept))
-        open_pr, unpushed, dirty, untracked, hidden_new, unchanged, skipped, submodule, case = kept
+        (open_pr, unpushed, dirty, untracked, hidden_new, unchanged, skipped, submodule, case,
+         same_stat, mode, staged) = kept
         (dirty / "tracked").write_text("not committed\n")
         (untracked / "notes.md").write_text("never added\n")
         # Work git would not report: the repository hides new files, the index marks a file
@@ -327,6 +328,21 @@ class GcSweep(Sandbox):
         (hidden_new / "notes.md").write_text("never added\n")
         self.git(case, "config", "--worktree", "core.ignoreCase", "true")
         (case / "TRACKED").write_text("a new file beside `tracked`\n")
+        # An edit of the same size under the old mtime, with ctime and full stats ignored, and
+        # a new executable bit with file modes ignored.
+        self.git(same_stat, "config", "--worktree", "core.trustctime", "false")
+        self.git(same_stat, "config", "--worktree", "core.checkStat", "minimal")
+        tracked, before = same_stat / "tracked", time.time() - 100
+        os.utime(tracked, (before, before))
+        self.git(same_stat, "update-index", "--refresh")
+        tracked.write_text("same-stah\n")
+        os.utime(tracked, (before, before))
+        self.git(mode, "config", "--worktree", "core.fileMode", "false")
+        (mode / "tracked").chmod(0o755)
+        # Work only the index holds: staged, then the file put back as committed.
+        (staged / "tracked").write_text("staged only\n")
+        self.git(staged, "add", "tracked")
+        (staged / "tracked").write_text("staged\n")
         for wt, flag in ((unchanged, "--assume-unchanged"), (skipped, "--skip-worktree")):
             self.git(wt, "update-index", flag, "tracked")
             (wt / "tracked").write_text("edited out of git's sight\n")

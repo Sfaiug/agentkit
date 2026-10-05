@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 from . import config, host, job as jobs, orch, proc_snapshot, record, retention, run, worktrees
@@ -431,34 +432,42 @@ def in_gone_sandbox(wt):
 
 
 def delivered(wt, branch, head):
-    """Whether GitHub holds everything in a seat's checkout: git sees no change and no new
-    file in it (what it ignores is output, not work), the branch's newest pull request
-    merged, and GitHub has its head commit, which the line may have rebased before merging.
+    """Whether GitHub holds everything in a seat's checkout: its files are its head commit's
+    with nothing new (what git ignores is output, not work), nothing is staged beyond that
+    commit, the branch's newest pull request merged, and GitHub has the head commit, which the
+    line may have rebased before merging.
     Only a worktree added from a repository kept elsewhere qualifies: a clone holds its own
-    branches, stash and other worktrees' history, which removing it would take.
-    Anything unproven may exist nowhere else: a file the index marks assume-unchanged or
-    skip-worktree, whose edits git no longer reports, and a submodule, whose own commits
-    GitHub may lack, keep the checkout; no setting of the repository's hides a change or a
-    new file from the check."""
+    branches, stash and other worktrees' history, which removing it would take.  The files
+    are compared by content against a fresh index read from the head commit, so nothing the
+    checkout's own index caches or marks (stat data, assume-unchanged, skip-worktree) and no
+    setting of the repository's can hide an edit; a submodule, whose own commits GitHub may
+    lack, keeps the checkout."""
     if not branch or not head:
         return False
     git = ["git", "-C", str(wt), "--no-optional-locks"]
     for setting in ("core.fsmonitor=false", "core.untrackedCache=false", "core.ignoreCase=false",
-                    "core.ignoreStat=false"):
+                    "core.fileMode=true"):
         git += ["-c", setting]
     code, dirs, _ = run.tool_run([*git, "rev-parse", "--path-format=absolute", "--git-dir",
                                   "--git-common-dir"], timeout=60)
     own, common = (dirs.splitlines() + ["", ""])[:2]
     if code != 0 or not common or own == common:
         return False
-    code, index, _ = run.tool_run([*git, "ls-files", "--stage", "-v"], timeout=60)
-    if code != 0 or any(not line.startswith("H ") or line.split()[1] == "160000"
-                        for line in index.splitlines()):
+    code, _, _ = run.tool_run([*git, "diff", "--cached", "--quiet", "--no-ext-diff"], timeout=60)
+    if code != 0:
         return False
-    code, changed, _ = run.tool_run([*git, "status", "--porcelain", "--untracked-files=all"],
-                                    timeout=60)
-    if code != 0 or changed.strip():
-        return False
+    with tempfile.TemporaryDirectory() as scratch:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
+        code, _, _ = run.tool_run([*git, "read-tree", head], timeout=60, env=env)
+        if code != 0:
+            return False
+        code, index, _ = run.tool_run([*git, "ls-files", "--stage"], timeout=60, env=env)
+        if code != 0 or any(line.split()[0] == "160000" for line in index.splitlines()):
+            return False
+        code, changed, _ = run.tool_run([*git, "status", "--porcelain", "--untracked-files=all"],
+                                        timeout=600, env=env)
+        if code != 0 or changed.strip():
+            return False
     # The branch's newest pull request, not any: a name reused after a merge has work open.
     code, state = run.gh(wt, "pr", "list", "--head", branch, "--state", "all",
                          "--json", "number,state", "--jq", "max_by(.number).state", timeout=60)
