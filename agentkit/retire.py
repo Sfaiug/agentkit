@@ -3,26 +3,29 @@
 A production project names its switches with one command, `features:` in its AGENTS.md. A row
 its `list` prints with `everyone` on and `everyone_since` (when it last went on for everyone,
 ISO 8601 UTC) at least PROVEN ago is due. A project is a checkout under ~/code, as everywhere
-in ak: once every EVERY the tick reads the list of each one that declares a command, and
-hands its longest-due switch to the newest open seat filed under that checkout, through the
-queue `ak tell` fills, in a line that names the project, so it holds wherever it lands. One
-switch is in hand per checkout at a time: it stays in hand until it has left the list, which
-the project's own deploy does when the code no longer reads it, and while it is still listed
-AGAIN after it was handed, the same line is handed again. A switch handed and then turned off
-stays in hand too: the owner's rule (5 Oct 2026) is that a proven switch comes out, and
-turning one off later is a code change. With no open seat there, nothing is handed and the
-next read tries again. A switch is recorded in hand before its line is queued, and a record
+in ak: once every EVERY the tick reads the list of each one that declares a command, and hands
+its longest-due switch to the newest open seat filed under that checkout, through the queue
+`ak tell` fills, in a line that names the project, so it holds wherever it lands. One switch is
+in hand per checkout at a time: it stays in hand until it has left the list, which the project's
+own deploy does when the code no longer reads it, and while it is still listed AGAIN after it
+was handed, the same line is handed again. A switch handed and then turned off stays in hand
+too: the owner's rule (5 Oct 2026) is that a proven switch comes out, and turning one off later
+is a code change. One of that id listed as on for everyone since another moment is another
+switch, unproven until its own two weeks are up. With no open seat there, nothing is handed and
+the next read tries again. A switch is recorded in hand before its line is queued, and a record
 that cannot be read or written stops the pass.
 
 Nothing here guesses which checkouts are one project: a guess that merges two hands one
 project's work to the other's seat and never reads the other's list. So one project checked
 out twice, with open seats filed under both, hears of a switch in each, and a checkout renamed
-or replaced starts its record afresh.
+starts its record afresh; one replaced at the same path keeps the switch in hand only while
+its list still shows that switch, on since the same moment, or off.
 """
 
 from datetime import datetime, timezone
 import hashlib
 import json
+from pathlib import Path
 import time
 
 from . import config, orch, tell
@@ -87,8 +90,12 @@ def line(project, row):
     whole = config.STATE / "retire" / f"{hashlib.sha256(text.encode()).hexdigest()[:16]}.txt"
     whole.parent.mkdir(parents=True, exist_ok=True)
     whole.write_text(text + "\n", encoding="utf-8")
+    try:
+        shown = f"~/{whole.relative_to(Path.home())}"   # as long however deep the home is
+    except ValueError:
+        shown = whole
     return (f"[from ak, not the owner] A proven feature switch is yours to take out of the code: "
-            f"{whole} says which, and where.")
+            f"{shown} says which, and where.")
 
 
 def seat_for(checkout):
@@ -120,24 +127,25 @@ def hand(log, now=None):
             continue
         handed = record.get(key)
         if handed and not any(isinstance(row, dict) and row.get("id") == handed["id"]
-                              for row in rows):
-            del record[key]    # out of the code: the deploy dropped it
+                              and since(row) in (None, handed["since"]) for row in rows):
+            del record[key]    # out of the code, or one of that id went on for everyone anew
             handed = None
         if handed:
             if now - handed["at"] < AGAIN:
                 continue
-            feature, text = handed["id"], handed["line"]
+            feature, proof, text = handed["id"], handed["since"], handed["line"]
         else:
             proven = due(rows, now)
             if not proven:
                 continue
-            feature, text = proven[0]["id"], line(checkout.name, proven[0])
+            feature, proof, text = proven[0]["id"], since(proven[0]), line(checkout.name, proven[0])
         seat = seat_for(checkout)
         if seat is None:
             log(f"{checkout.name}: switch {feature} is proven; no open seat to hand it to")
             continue
         # in hand before its line is queued: a record that cannot be saved hands nothing
-        record[key] = {"id": feature, "at": now, "seat": seat["name"], "line": text}
+        record[key] = {"id": feature, "since": proof, "at": now, "seat": seat["name"],
+                       "line": text}
         write(record)
         refused = tell.queue(seat["name"], text)
         if refused:

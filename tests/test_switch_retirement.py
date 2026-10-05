@@ -166,6 +166,15 @@ class Retire(unittest.TestCase):
         self.assertEqual([line.split("`")[1] for line in lines], ["first", "first", "second"])
         self.assertEqual(lines[0], lines[1])
 
+    def test_one_of_that_id_on_for_everyone_anew_is_another_switch(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(row("search", 60))
+        self.hand()
+        self.switches(row("search", 1))
+        self.hand(NOW + retire.AGAIN + retire.EVERY)
+        self.assertEqual(len(self.queued("acme")), 1)
+        self.assertEqual(set(retire.read()), {"asked"})
+
     def test_an_unread_record_hands_nothing(self):
         self.seat("acme", self.acme, created=10)
         self.switches(row("first", 40))
@@ -188,9 +197,9 @@ class Retire(unittest.TestCase):
         self.switches(row("x" * 900, 90), row("new-search", 60))
         self.hand()
         [message] = self.queued("acme")
-        self.assertIsNone(tell.too_long(message["line"]))
+        self.assertIn(": ~/.agentkit/", message["line"])
         whole = Path(message["line"].split(": ")[-1].removesuffix(" says which, and where."))
-        self.assertIn(f"In ACME, the `{'x' * 900}` switch", whole.read_text())
+        self.assertIn(f"In ACME, the `{'x' * 900}` switch", whole.expanduser().read_text())
 
     def test_a_record_that_cannot_be_written_hands_nothing(self):
         self.seat("acme", self.acme, created=10)
