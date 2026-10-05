@@ -420,11 +420,18 @@ def delivered(wt, repo, branch, head):
     """Whether GitHub holds everything in a seat's checkout: git sees no change and no new
     file in it (what it ignores is output, not work), the branch's pull request merged, and
     GitHub has its head commit, which the line may have rebased before merging.  Anything
-    unproven may exist nowhere else."""
+    unproven may exist nowhere else: a file the index marks assume-unchanged or
+    skip-worktree, whose edits git no longer reports, and a submodule, whose own commits
+    GitHub may lack, keep the checkout; the repository's settings cannot hide a new file."""
     if not branch or not head:
         return False
-    code, changed, _ = run.tool_run(["git", "-C", str(wt), "--no-optional-locks", "status",
-                                     "--porcelain"], timeout=60)
+    git = ["git", "-C", str(wt), "-c", "core.fsmonitor=false", "--no-optional-locks"]
+    code, index, _ = run.tool_run([*git, "ls-files", "--stage", "-v"], timeout=60)
+    if code != 0 or any(not line.startswith("H ") or line.split()[1] == "160000"
+                        for line in index.splitlines()):
+        return False
+    code, changed, _ = run.tool_run([*git, "status", "--porcelain", "--untracked-files=all"],
+                                    timeout=60)
     if code != 0 or changed.strip():
         return False
     code, merged = run.gh(repo, "pr", "list", "--head", branch, "--state", "merged",

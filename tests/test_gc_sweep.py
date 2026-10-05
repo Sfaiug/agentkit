@@ -314,17 +314,34 @@ class GcSweep(Sandbox):
             (wt / "tracked").write_text(name + "\n")
             self.git(wt, "commit", "-qam", name)
             return wt
-        merged, open_pr, unpushed, dirty, untracked = (
-            seat(name) for name in ("merged", "open", "unpushed", "dirty", "untracked"))
+        kept = ("open", "unpushed", "dirty", "untracked", "hidden-new", "unchanged", "skipped",
+                "submodule")
+        merged, *kept = (seat(name) for name in ("merged", *kept))
+        open_pr, unpushed, dirty, untracked, hidden_new, unchanged, skipped, submodule = kept
         (dirty / "tracked").write_text("not committed\n")
         (untracked / "notes.md").write_text("never added\n")
+        # Work git would not report: the repository hides new files, the index marks a file
+        # unchanged or out of the tree, or a submodule holds commits of its own.
+        self.git(self.repo, "config", "extensions.worktreeConfig", "true")
+        self.git(hidden_new, "config", "--worktree", "status.showUntrackedFiles", "no")
+        (hidden_new / "notes.md").write_text("never added\n")
+        for wt, flag in ((unchanged, "--assume-unchanged"), (skipped, "--skip-worktree")):
+            self.git(wt, "update-index", flag, "tracked")
+            (wt / "tracked").write_text("edited out of git's sight\n")
+        component = self.make_repo("component")
+        self.git(submodule, "-c", "protocol.file.allow=always", "submodule", "add", "-q",
+                 str(component), "component")
+        self.git(submodule, "commit", "-qm", "component")
+        self.git(submodule / "component", "-c", "user.name=sweep", "-c", "user.email=s@localhost",
+                 "commit", "-q", "--allow-empty", "-m", "local only")
+        self.git(submodule, "commit", "-qam", "component moved")
         # What git ignores is output, not work.
         (self.repo / ".git" / "info" / "exclude").write_text(".ak-test-sandbox/\n")
         (merged / ".ak-test-sandbox").mkdir()
         (merged / ".ak-test-sandbox" / "left").write_text("a killed test's\n")
-        for wt in (merged, open_pr, unpushed, dirty, untracked):
+        for wt in (merged, *kept):
             self.aged(wt, 2 * DAY)
-        heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, open_pr, dirty, untracked)}
+        heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, *kept) if wt != unpushed}
         def github(cwd, *args, timeout=None):
             if args[:2] == ("pr", "list"):
                 return 0, "0" if args[args.index("--head") + 1] == "seat/open" else "1"
@@ -333,12 +350,12 @@ class GcSweep(Sandbox):
             dry = self.gc("--dry-run")
             self.assertIn(f"gc: would remove orphan-worktree {merged}: a seat's, seat/merged "
                           "merged", dry)
-            for wt in (open_pr, unpushed, dirty, untracked):
+            for wt in kept:
                 self.assertNotIn(str(wt), dry)
             self.gc()
         self.assertFalse(merged.exists())
         self.assertNotIn(str(merged), self.listed(self.repo))
-        for wt in (open_pr, unpushed, dirty, untracked):
+        for wt in kept:
             self.assertTrue(wt.is_dir(), wt)
 
     def test_a_tree_gc_cannot_take_is_reported_once_and_never_again(self):
