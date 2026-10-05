@@ -27,6 +27,104 @@ class MergeTrain(LanderFixture, unittest.TestCase):
     def stacked_files(self, tree):
         return set(run.git(self.repo, "ls-tree", "--name-only", tree).splitlines())
 
+    def assert_members_deliver_in_order(self, members):
+        waits = {d: self.wait(d) for d in members}
+        loops, merged = {}, []
+        for directory in members:
+            state = record.read_state(directory)
+            state.update(state="running")
+            lp = SimpleNamespace(state=state, wt=self.repo, run_dir=directory,
+                                 base_sha=self.base, target="main", log=lambda _: None)
+            lp.write = lambda lp=lp: record.save_state(lp.run_dir, lp.state)
+            lp.write()
+            loops[directory] = lp
+
+        def attempt(directory):
+            lp = loops[directory]
+            run.git(self.repo, "checkout", lp.state["branch"])
+
+            def deliver():
+                self.assertNotIn("delivery_wait", record.read_state(directory))
+                self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), waits[directory]["land"])
+                checked = lp.state["final_check"]
+                self.assertEqual(checked["tested"], land.passed(self.turn, waits[directory]["land"])["tested"])
+                body = run.merge_body(lp, run.git(self.repo, "rev-parse", "HEAD"))
+                self.assertEqual(bool(body), checked["tested"] == waits[directory]["land"])
+                run.git(self.repo, "push", "origin", "HEAD:main")
+                lp.state.update(state="pass", merged=True)
+                merged.append(directory)
+                return True
+
+            self.assertTrue(run.land_from_line(lp, "origin/main", deliver))
+
+        def wait_for_prefix(_seconds):
+            last = members[-1]
+            self.assertEqual(merged, [])
+            self.assertEqual(self.wait(last), waits[last])
+            self.assertIn("delivery_wait", record.read_state(last))
+            with self.turn.open("a") as probe:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            clock.sleep.side_effect = AssertionError("a predecessor waited for its dependent")
+            for directory in members[:-1]:
+                attempt(directory)
+            run.git(self.repo, "checkout", loops[last].state["branch"])
+
+        with patch.object(run, "time", wraps=run.time) as clock:
+            clock.sleep.side_effect = wait_for_prefix
+            attempt(members[-1])
+        clock.sleep.assert_called_once_with(gate.SLOT_POLL)
+        self.assertEqual(merged, members)
+        self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), waits[members[-1]]["land"])
+        for directory in members:
+            current = record.read_state(directory)
+            self.assertTrue(current["merged"])
+            self.assertNotIn("waiting_on", current)
+
+    def test_five_waiting_members_land_in_order_after_one_green_check(self):
+        members = [self.member(f"member-{n}", joined=n, **{f"member-{n}.txt": f"{n}\n"})
+                   for n in range(1, 6)]
+        self.advance()
+        with patch.object(gate, "derived_heavy_limit", return_value=1):
+            land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [m.name for m in members])
+        deepest, files = self.trees[0]
+        self.assertTrue({f"member-{n}.txt" for n in range(1, 6)} <= files)
+        for index, member in enumerate(members):
+            wait = self.wait(member)
+            self.assertEqual(land.passed(self.turn, wait["land"])["tested"], deepest)
+            self.assertEqual(wait["after"], {m.name: self.wait(m)["land"] for m in members[:index]})
+        self.assert_members_deliver_in_order(members)
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(land.line(self.turn), [])
+        self.assert_cleaned()
+
+    def test_a_bad_fourth_of_six_is_narrowed_and_the_others_land_in_the_same_pass(self):
+        members = [self.member(f"member-{n}", joined=n, **{
+            f"member-{n}.txt": f"{n}\n", **({"broken.txt": "broken\n"} if n == 4 else {})})
+            for n in range(1, 7)]
+        self.advance()
+        with patch.object(gate, "derived_heavy_limit", return_value=1):
+            land.check_line(self.turn)
+        checked = [{f for f in files if f.startswith("member-")} for _, files in self.trees]
+        self.assertEqual(checked, [
+            {f"member-{n}.txt" for n in range(1, 7)},
+            {f"member-{n}.txt" for n in range(1, 4)},
+            {f"member-{n}.txt" for n in range(1, 5)},
+            {f"member-{n}.txt" for n in (1, 2, 3, 5, 6)}])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [m.name for m in members])
+        self.assertIn("fix", self.wait(members[3]))
+        good = members[:3] + members[4:]
+        for index, member in enumerate(good):
+            wait = self.wait(member)
+            self.assertNotIn("fix", wait)
+            self.assertEqual(wait["after"], {m.name: self.wait(m)["land"] for m in good[:index]})
+            self.assertNotIn("broken.txt", self.stacked_files(wait["land"]))
+        self.assert_members_deliver_in_order(good)
+        self.assertEqual(len(self.checks), 4)
+        self.assertEqual([m for m, _ in land.line(self.turn)], [members[3]])
+        self.assert_cleaned()
+
     def test_a_woken_member_merges_while_a_later_stack_is_checking(self):
         first = self.member("head")
         self.advance()
@@ -411,48 +509,8 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assertEqual(len({cwd for _, cwd, _ in self.checks}), 2)
         self.assertEqual([call.args[0] for call in self.wake.call_args_list],
                          [first.name, later.name])
-        waits = {d: self.wait(d) for d in (first, later)}
-        loops, merged = {}, []
-        for directory in (first, later):
-            state = record.read_state(directory)
-            state.update(state="running")
-            lp = SimpleNamespace(state=state, wt=self.repo, run_dir=directory,
-                                 base_sha=self.base, target="main", log=lambda _: None)
-            lp.write = lambda lp=lp: record.save_state(lp.run_dir, lp.state)
-            lp.write()
-            loops[directory] = lp
-
-        def deliver(directory):
-            lp = loops[directory]
-            self.assertNotIn("delivery_wait", record.read_state(directory))
-            self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), waits[directory]["land"])
-            run.git(self.repo, "push", "origin", "HEAD:main")
-            lp.state.update(state="pass", merged=True)
-            merged.append(directory)
-            return True
-
-        def wait_for_first(_seconds):
-            self.assertEqual(merged, [])
-            self.assertEqual(self.wait(later), waits[later])
-            self.assertIn("delivery_wait", record.read_state(later))
-            with self.turn.open("a") as probe:
-                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            run.git(self.repo, "checkout", loops[first].state["branch"])
-            self.assertTrue(run.land_from_line(loops[first], "origin/main", lambda: deliver(first)))
-            run.git(self.repo, "checkout", loops[later].state["branch"])
-
-        run.git(self.repo, "checkout", loops[later].state["branch"])
-        with patch.object(run, "time", wraps=run.time) as clock:
-            clock.sleep.side_effect = wait_for_first
-            self.assertTrue(run.land_from_line(loops[later], "origin/main", lambda: deliver(later)))
-        clock.sleep.assert_called_once_with(gate.SLOT_POLL)
-        self.assertEqual(merged, [first, later])
+        self.assert_members_deliver_in_order([first, later])
         self.assertEqual(len(self.checks), 2)
-        self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), waits[later]["land"])
-        for directory in (first, later):
-            current = record.read_state(directory)
-            self.assertTrue(current["merged"])
-            self.assertNotIn("waiting_on", current)
         self.assertEqual(land.line(self.turn), [])
         self.assert_cleaned()
 

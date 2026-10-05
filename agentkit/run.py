@@ -4842,6 +4842,7 @@ def merge_body(lp, head, url=None):
     suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
     if (suite and checked.get("suite") == suite and checked.get("outcome") == "passed"
             and checked.get("sha") == head and checked.get("tree_sha")
+            and checked.get("tested", checked["tree_sha"]) == checked["tree_sha"]
             and checked["tree_sha"] == git(lp.wt, "rev-parse", f"{head}^{{tree}}")):
         body = f"Suite-Passed-Tree: {checked['tree_sha']}"
         if url:
@@ -5487,6 +5488,8 @@ def land_from_line(lp, upstream, deliver):
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],
+                                           "tested": (landing.passed(turn, wait["land"]) or {}).get(
+                                               "tested", identity["tree_sha"]),
                                            "suite": declared_suite(lp.wt, lp.target, ref=tip)}
                 lp.write()
                 result = deliver()
@@ -6481,6 +6484,8 @@ def final_check_line(state, cmds):
             loc = f"in round {rnd}" if rnd else "in round"
             return f"final check: {record['outcome']} {loc}{sha}"
         if where == "landing":
+            if record.get("tested") and record["tested"] != record.get("tree_sha"):
+                return f"final check: {record['outcome']} at landing on tree {record['tested']}"
             return f"final check: {record['outcome']} at landing{sha}"
         if record.get("sha"):
             return f"final check: {record['outcome']} on {record['sha']}"
