@@ -1,5 +1,5 @@
 """A feature switch on for everyone for two weeks is handed to a seat on its project to take out
-of the code: the longest-proven one, one at a time until it leaves the list, once per list.
+of the code: the longest-proven one, one at a time until it leaves the list, once per project.
 
 Offline: a temporary HOME whose ~/code/ACME is a real git repository naming a fake features
 command in its AGENTS.md, a script answering `list` from a JSON file beside it and logging each
@@ -176,19 +176,21 @@ class Retire(unittest.TestCase):
             self.hand(NOW + retire.AGAIN)
         self.assertEqual(len(self.queued("acme")), 1)
 
-    def test_a_stamp_without_an_offset_is_utc_and_a_line_too_long_is_not_handed(self):
+    def test_a_stamp_without_an_offset_is_utc(self):
         self.seat("acme", self.acme, created=10)
-        unmarked = {**row("unmarked", 60), "everyone_since": stamp(60).removesuffix("Z")}
-        self.switches(unmarked, row("x" * 900, 90))
+        self.switches({**row("unmarked", 60), "everyone_since": stamp(60).removesuffix("Z")})
         self.hand()
-        self.assertTrue(any(line.startswith(f"WARN ACME: switch {'x' * 900} was not handed: ")
-                            and "more than a composer shows whole" in line
-                            for line in self.logged))
-        self.assertEqual(self.queued("acme"), [])
-        self.switches(unmarked)
-        self.hand(NOW + retire.EVERY)
         [message] = self.queued("acme")
         self.assertIn("`unmarked` switch", message["line"])
+
+    def test_a_hand_off_longer_than_a_told_line_is_handed_as_a_file(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(row("x" * 900, 90), row("new-search", 60))
+        self.hand()
+        [message] = self.queued("acme")
+        self.assertIsNone(tell.too_long(message["line"]))
+        whole = Path(message["line"].split(": ")[-1].removesuffix(" says which, and where."))
+        self.assertIn(f"In ACME, the `{'x' * 900}` switch", whole.read_text())
 
     def test_a_record_that_cannot_be_written_hands_nothing(self):
         self.seat("acme", self.acme, created=10)
@@ -209,7 +211,7 @@ class Retire(unittest.TestCase):
         self.switches(row("first", 40))
         with patch.object(tell, "queue", return_value="acme is closed"):
             self.hand()
-        self.assertNotIn(str(self.acme), retire.read())
+        self.assertEqual(set(retire.read()), {"asked"})
         self.assertIn("WARN ACME: switch first was not handed: acme is closed", self.logged)
 
     def test_once_an_hour_a_projects_worktrees_print_one_list_handed_once(self):
@@ -220,21 +222,32 @@ class Retire(unittest.TestCase):
         self.switches(row("older", 60))
         self.hand()
         self.hand(NOW + retire.EVERY - 1)
-        self.assertEqual(self.lists(), 2)
+        self.assertEqual(self.lists(), 1)
         self.assertEqual((len(self.queued("acme")), len(self.queued("acme-wt"))), (0, 1))
 
-    def test_projects_whose_commands_read_alike_keep_their_own_lists(self):
+    def test_projects_listing_alike_keep_their_own_lists(self):
         self.switches()
         for name in ("ONE", "TWO"):
             checkout = self.project(name, f"{sys.executable} features.py")
             (checkout / "features.py").write_text(FAKE)
-            (checkout / "features.json").write_text(json.dumps([row(name.lower() + "-only", 60)]))
+            (checkout / "features.json").write_text(json.dumps([row("new-search", 60)]))
             self.seat(name.lower(), checkout, created=10 if name == "ONE" else 20)
         self.hand()
-        self.assertEqual([message["line"].split("`")[1] for message in self.queued("one")],
-                         ["one-only"])
-        self.assertEqual([message["line"].split("`")[1] for message in self.queued("two")],
-                         ["two-only"])
+        self.assertEqual([message["line"][:40] for message in self.queued("one")],
+                         ["[from ak, not the owner] In ONE, the `ne"])
+        self.assertEqual([message["line"][:40] for message in self.queued("two")],
+                         ["[from ak, not the owner] In TWO, the `ne"])
+
+    def test_a_renamed_checkout_keeps_its_switch_in_hand(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(row("first", 40))
+        self.hand()
+        renamed = self.acme.rename(config.CODE / "ACME-new")
+        config.update_session("acme", repo=str(renamed))
+        self.switches(row("first", 40), row("older-listed-later", 60))
+        self.hand(NOW + retire.EVERY)
+        self.assertEqual([message["line"].split("`")[1] for message in self.queued("acme")],
+                         ["first"])
 
     def test_a_repository_whose_git_directory_lives_elsewhere_is_one_project(self):
         subprocess.run(["git", "-C", str(self.acme), "init", "-q",
@@ -279,6 +292,8 @@ class Retire(unittest.TestCase):
         self.hand(NOW + retire.EVERY)
         self.assertEqual([message["line"].split("`")[1] for message in self.queued("acme")],
                          ["first"])
+        self.assertIn("WARN ACME: git cannot say which project it is, so none was handed",
+                      self.logged)
 
     def test_the_seat_the_tick_runs_in_takes_ak_lines_too(self):
         self.seat("acme", self.acme, created=10)

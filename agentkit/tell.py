@@ -30,6 +30,15 @@ def longest(cfg):
     return min([fold for fold in folds if fold] or [MAX_BYTES])
 
 
+def too_long(line):
+    """Why `line` is more than a told line may hold, else None."""
+    most = longest(config.load())
+    if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
+        return (f"{len(line):,} characters is more than a composer shows whole ({most:,}); "
+                "write the rest to a file and tell its path")
+    return None
+
+
 def source(sender):
     """The typing receipt's source for a line one seat sent another; no seat is ak itself."""
     return f"seat:{sender}" if sender else "ak"
@@ -129,10 +138,9 @@ def queue(name, line, sender=""):
     Under the receiver's lock, the one a rename and a close take: the seat it is now is the
     one the message is for, and only that seat's tick pass types it.
     """
-    most = longest(config.load())
-    if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
-        return (f"{len(line):,} characters is more than a composer shows whole ({most:,}); "
-                "write the rest to a file and tell its path")
+    refused = too_long(line)
+    if refused:
+        return refused
     with notify.session_lock(name) as name:
         seat = seat_of(name)
         refused = refusal(name, seat, sender)
