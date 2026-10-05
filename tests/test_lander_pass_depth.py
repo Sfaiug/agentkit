@@ -386,6 +386,50 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
     def test_a_tip_departing_after_a_crash_cannot_answer_stacks_that_all_fit(self):
         self.assert_a_departed_tested_tip_is_rechecked(3, crash=True)
 
+    def test_a_cached_batch_is_reused_while_its_tested_tip_remains(self):
+        members = self.members()
+        self.capacity.return_value = 1
+        with patch.object(record, "record", side_effect=RuntimeError("before verdict")):
+            with self.assertRaisesRegex(RuntimeError, "before verdict"):
+                land.check_line(self.turn)
+        tested = self.checked[0][0]
+        self.checks.clear()
+        self.capacity.return_value = 9
+        land.check_line(self.turn)
+        self.assertEqual(self.checks, [])
+        for member in members:
+            wait = self.wait(member)
+            self.assertEqual(wait.get("tested", wait["land"]), tested)
+        self.assert_cleaned()
+
+    def test_covered_evidence_still_owes_a_replacement_members_own_checks(self):
+        suite = "test -f base.txt && { test ! -f a.txt || test -f b.txt; }"
+        first = self.member("first", once="true", **{"a.txt": "a\n"})
+        second = self.member("second", joined=2, once="true", **{"c.txt": "c\n"})
+        third = self.member("third", joined=3, once="true", **{"b.txt": "b\n"})
+        self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        self.capacity.return_value = 1
+        with patch.object(record, "record", side_effect=RuntimeError("before verdict")):
+            with self.assertRaisesRegex(RuntimeError, "before verdict"):
+                land.check_line(self.turn)
+        tested = self.checked[0][0]
+        with record.record(third) as state:
+            state.update(state="stopped")
+            state.pop("waiting_on")
+        replacement = self.member("replacement", joined=4, once="test -f acceptance.txt",
+                                  **{"b.txt": "b\n"})
+        self.checked.clear()
+        self.checks.clear()
+        land.check_line(self.turn)
+        self.assertEqual(self.checked[0][0], tested)
+        for member in (first, replacement):
+            self.assertIn("fix", self.wait(member))
+            self.assertNotIn("land", self.wait(member))
+        tree = self.wait(second)["land"]
+        self.assertNotIn("a.txt", run.git(self.repo, "ls-tree", "--name-only", tree).splitlines())
+        self.assertIn(tree, [checked for checked, _ in self.checked])
+        self.assert_cleaned()
+
     def test_the_deepest_stack_covers_every_member_when_only_one_check_fits(self):
         members = self.members()
         self.capacity.return_value = 1
