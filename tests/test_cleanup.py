@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 import unittest
@@ -231,6 +232,35 @@ class Cleanup(Sandbox):
         gc.gc(lambda _message: None)
         worktrees.drop_checkout(current, lambda _message: None)
         self.assertEqual((owned / "keep").read_text(), "owner\n")
+
+    def test_clean_leaves_a_live_or_owned_checkout_and_says_why(self):
+        # `ak run clean` takes the same guarded way out as a stop: never a tree under a
+        # loop that may still be going, never anything under ~/code
+        directory, wt, _ = self.receipt("going", state="running", pid="scheduler")
+        with self.assertRaisesRegex(config.Error, "the run is still going"):
+            run.cmd_clean(["going"])
+        self.assertTrue(wt.is_dir())
+        owned = config.CODE / "proj"
+        owned.mkdir(parents=True)
+        (owned / "keep").write_text("owner\n")
+        directory, _, _ = self.receipt("owned", state="stopped")
+        state = run_record.read_state(directory)
+        state["worktree"] = str(owned)
+        run_record.save_state(directory, state)
+        with self.assertRaisesRegex(config.Error, "under"):
+            run.cmd_clean(["owned"])
+        self.assertEqual((owned / "keep").read_text(), "owner\n")
+
+    def test_a_checkout_git_no_longer_lists_still_goes(self):
+        # its registration pruned, or its repo cloned afresh: the tree is the run's own
+        # under ~/.agentkit/wt, so it goes as a directory, and nothing is reported left
+        directory, wt, branch = self.receipt("unlisted", state="stopped")
+        shutil.rmtree(self.repo / ".git" / "worktrees" / "unlisted")
+        told = []
+        self.assertTrue(worktrees.stop_checkout(run_record.read_state(directory), told.append))
+        self.assertFalse(wt.exists())
+        self.assertFalse(self.branch_exists(branch))
+        self.assertEqual(told, [])
 
     def test_repo_under_code_still_loses_worktree_and_branch(self):
         # Every real repo lives under ~/code; only the worktree being deleted

@@ -704,9 +704,11 @@ def gc(report, automatic=False):
                             if not stale_worktree(path, time.time(), paths, leftovers()):
                                 continue
                             if item["kind"] == "unmerged-worktree":
-                                worktrees.run_repo_cleanup(path, directory)
-                            clear_tree(path, report)
-                            done = not left_behind(path, report)
+                                done = drop_tree(retention.read_json(directory / "run.json") or {},
+                                                 path, report)
+                            else:
+                                clear_tree(path, report)
+                                done = not left_behind(path, report)
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
                     elif item["kind"] == "tmp-entry" or item.get("tmp"):
@@ -812,28 +814,13 @@ def gc(report, automatic=False):
                                 continue
                             if item["action"] == "compress":
                                 done = retention.compress(path, item["identity"])
-                            elif item.get("loose"):
-                                if not (
-                                        retention.expired(
-                                            state.get("finished_at"), time.time(), GC_AGE)
-                                        or (run.already_handed_back(state)
-                                            and not worktrees.resume_holds_tree(state, directory))):
-                                    continue
-                                done = drop_tree(state, path, report)
+                            elif item.get("loose") and not (
+                                    retention.expired(state.get("finished_at"), time.time(), GC_AGE)
+                                    or (run.already_handed_back(state)
+                                        and not worktrees.resume_holds_tree(state, directory))):
+                                continue
                             else:
-                                worktrees.run_repo_cleanup(path, directory)
-                                try:
-                                    code, _ = run.git_out(state["repo"], "worktree", "remove",
-                                                      str(path))
-                                except run.Stopped as exc:
-                                    # a stop is not a verdict on the candidate: it stays put,
-                                    # and the remedy is reported rather than raised past the pass
-                                    report(f"gc: {item['kind']} {path} left in place: {exc}")
-                                    continue
-                                gone = not left_behind(path, report)
-                                done = code == 0 and gone
-                                if done:
-                                    worktrees.drop_local_branch(state.get("repo"), state.get("branch"), report)
+                                done = drop_tree(state, path, report)
                     if done:
                         removed.append(item["path"])
                         report(f"gc: {item['action']} {item['kind']} {path}{gc_why(item)}")
@@ -904,26 +891,6 @@ def size_words(count):
     return f"{count:.0f} {unit}" if unit == "B" else f"{count:.1f} {unit}"
 
 
-def sweep_checkout(state, wt, report):
-    """A merged checkout, registered or not: git first, then the directory, then prune.
-
-    `git worktree remove --force` takes what git still lists, whatever the tree holds.
-    A directory git no longer knows -- its registration pruned, its repo cloned afresh --
-    is taken as a directory, and `git worktree prune` in the repo forgets whatever
-    registration is left.  The local branch goes with a merged checkout, as everywhere.
-    """
-    repo = state["repo"]
-    run_id = state.get("run_id")
-    if isinstance(run_id, str) and run_id:
-        worktrees.run_repo_cleanup(wt, config.RUNS / run_id)
-    run.git_out(repo, "worktree", "remove", "--force", str(wt))
-    if retention.present(wt):
-        retention.remove(wt, directory=True)
-    if Path(repo).is_dir():
-        run.git(repo, "worktree", "prune", check=False)
-    worktrees.drop_local_branch(repo, state.get("branch"), report)
-
-
 def sweep(report):
     """Apply `sweep_plan` under the collector's lock: the items removed, `bytes` on each."""
     removed = []
@@ -936,7 +903,7 @@ def sweep(report):
                 try:
                     if item["kind"] == "merged-worktree":
                         state = retention.read_json(Path(item["run"]) / "run.json") or {}
-                        sweep_checkout(state, path, report)
+                        worktrees.stop_checkout(state, report)
                     else:
                         retention.remove(path, directory=True)
                 except run.Stopped as exc:

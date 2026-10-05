@@ -35,8 +35,9 @@
   watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
   `own_pr_wait_note`). Leak: run's private `_cached_providers`.
 - `worktrees.py`: a run's worktree and local branch: whether they may go (final run, gone
-  loop, never ~/code, held for a resume) and taking them, the repo's `cleanup:` line first.
-  `settle_run`, `drop_checkout`, `stop_checkout`, `provably_final` for run and gc.
+  loop, never ~/code, held for a resume) and the one way they go, `stop_checkout`: the
+  repo's `cleanup:` line, git, the directory, the branch. Stop, clean, endings and gc call
+  it. `settle_run`, `drop_checkout`, `provably_final` for run and gc.
   Leaks: run's state predicates, `git`, `git_out`, `Stopped`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member

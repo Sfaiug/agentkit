@@ -180,13 +180,8 @@ def settle_run(state, run_dir, log=None):
         browser.close_owned(run=run_id)
     except (OSError, ValueError, TypeError):
         pass
-    if state.get("merged") or state.get("state") == "not_needed":
-        drop_checkout(state, log, keep_branch=False)
-        return
-    if (state.get("state") in ("fail", "error", "blocked", "stopped")
-            and run.already_handed_back(state) and not resume_holds_tree(state, run_dir)
-            and not state.get("checkout_kept")):
-        drop_checkout(state, log)
+    if state.get("merged") or state.get("state") == "not_needed" or run.already_handed_back(state):
+        _drop_told(state, log, run_dir)
 
 
 def checkout_removable(state):
@@ -267,12 +262,15 @@ def run_repo_cleanup(wt, run_dir):
 
 
 def stop_checkout(state, log, keep_branch=False):
-    """Remove a stopped run's worktree, and its local branch unless kept.
+    """Remove a run's worktree, and its local branch unless kept: the one way a checkout goes.
 
-    Taken worktree first -- the branch is checked out there -- then the branch
-    itself.  A branch already gone is not a failure worth warning about: the line
-    reports it removed either way.  A loop that is still alive, and anything under
-    ~/code, is not this run's to delete.
+    The repo's `cleanup:` line first, while the checkout is still there to run it in; then
+    `git worktree remove --force`, whatever the tree holds; then by hand what git left of
+    the run's own tree under ~/.agentkit/wt -- a registration pruned, a repo cloned
+    afresh -- and `git worktree prune` for what git still lists; the branch last, since
+    it is checked out in the tree.  A branch already gone is not a failure worth warning
+    about.  A loop that is still alive, and anything under ~/code, is not this run's to
+    delete.  `ak run stop`, `ak run clean`, an ending and the collector all come here.
 
     True when nothing asked to go is left: the worktree is gone and the branch is
     gone or kept on purpose.  Anything still on disk -- a live loop, a checkout
@@ -285,6 +283,7 @@ def stop_checkout(state, log, keep_branch=False):
     # The worktree is what goes; git only runs in the repo, which lives under
     # ~/code on every real machine and is never itself the thing deleted.
     if under_code(wt):
+        log(f"WARN left worktree {wt}: it is under {config.CODE}")
         return False
     if not pid_gone(state):
         log(f"WARN left worktree {wt}: the run is still going")
@@ -297,10 +296,15 @@ def stop_checkout(state, log, keep_branch=False):
     except run.Stopped as exc:
         log(f"WARN could not remove worktree {wt}: {exc}")
         return False
-    if code != 0 and wt.exists():
+    if code != 0 and wt.parent == config.WT and retention.safe(wt):
+        shutil.rmtree(wt, ignore_errors=True)
+    try:
+        run.git(repo, "worktree", "prune", check=False)
+    except run.Stopped as exc:
+        log(f"WARN could not prune worktrees in {repo}: {exc}")
+    if code != 0 and retention.present(wt):
         log(f"WARN could not remove worktree {wt}: {out}")
         return False
-    run.git(repo, "worktree", "prune", check=False)
     if not keep_branch:
         drop_local_branch(repo, branch, log)
     return True
