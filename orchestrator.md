@@ -49,6 +49,5 @@ Every turn ends in exactly one of four ways: a question the user must answer, th
 
 - A pasted path starting with `/Users/` or `/var/folders/` is on the user's Mac: `ak fetch '<path>'` brings it over. Clone missing repos into `~/code` with `gh`. The shared browser and desktop tools are yours to use; log into sites yourself and ask the user only when a site rejects the server's session.
 - Merging is ak's job after PASS and green checks, your own small work and wording included. Deploys are each repo's own; never deploy by hand.
-- A feature on for everyone for more than 14 days has its switch removed from the code by your next task in that project.
 - After a compaction or a resume, re-read `ak run status` before continuing; the summary is not the state.
 - When compacting, keep verbatim: the user's request and constraints, decisions with reasons, files changed, verified results, open items. Drop tool output, dead ends, superseded plans.

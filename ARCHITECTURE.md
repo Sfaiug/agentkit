@@ -59,9 +59,13 @@
   receipts by source, revive, resume, PR scans, after-merge checks, `health:` probes,
   `doctor`. For run, job, orch, menu, notify, update, usage, worker, hooks.
   Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
+- `retire.py`: the tick's pass that hands a feature switch on for everyone for two weeks to
+  a seat on its project to take out of the code, one at a time, through `tell.queue`;
+  `retire.json` under STATE. For watch. Leak: menu's `features_run` and `switches_command`.
 - `tell.py`: `ak tell`, one seat's message to another for every harness: queued in the
   receiver's `tell` seat file under the seat's own lock, typed only by the tick through
-  `watch.type_at_prompt`, its receipt naming `seat:<sender>`. For bin/ak and the tick.
+  `watch.type_at_prompt`, its receipt naming `seat:<sender>`, or `ak` for ak's own line
+  (`queue`). For bin/ak, retire and the tick.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.

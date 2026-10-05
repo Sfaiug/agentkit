@@ -212,7 +212,7 @@ sys.exit(1)
         self.assertEqual(len(seen["real"]), 2)
         self.assertEqual(seen["real"], seen["none"])
 
-    def test_the_rulebook_holds_the_question_the_planning_line_and_the_14_day_line(self):
+    def test_the_rulebook_holds_the_question_and_the_planning_line(self):
         rulebook = (REPO / "orchestrator.md").read_text()
         sections = dict(re.findall(r"(?ms)^## (.+?)\n(.*?)(?=^## |\Z)", rulebook))
         for section, words in (
@@ -221,9 +221,7 @@ sys.exit(1)
                 ("Understand first", "`Yes, new features stay hidden until I switch them on`"),
                 ("Understand first", "`users: none` or `users: real`"),
                 ("Decide and delegate", '"New feature: it stays hidden until you switch it on"'),
-                ("Decide and delegate", "a `features:` command"),
-                ("Housekeeping", "A feature on for everyone for more than 14 days has its switch "
-                                 "removed from the code by your next task in that project.")):
+                ("Decide and delegate", "a `features:` command")):
             with self.subTest(words=words):
                 self.assertIn(words, sections[section])
 
