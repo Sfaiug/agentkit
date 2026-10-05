@@ -84,7 +84,8 @@ class GateLanders(unittest.TestCase):
         """A record marked waiting for a gate turn of `repo` since `since`.
 
         A landing waiter ranks by when its first landing wait began, kept in its
-        marker beside the record; a round waiter's mark is the old shape, with no
+        marker beside the record and published in its wait's file, as a lap of
+        `gate_turn` publishes it; a round waiter's mark is the old shape, with no
         landing key at all.
         """
         directory = self.record(name, repo, first, landing)
@@ -94,6 +95,8 @@ class GateLanders(unittest.TestCase):
             mark["landing"] = True
             (directory / "landing_since").write_text(
                 repr(since if landing_since is None else landing_since))
+            self.stack.enter_context(gate.landing_wait(True, gate._first_landing_wait(directory),
+                                                       name))
         state["gate_turn"] = mark
         run_record.save_state(directory, state)
         return directory
@@ -227,6 +230,21 @@ class GateLanders(unittest.TestCase):
         self.assertEqual(order, ["older", "younger"])
         self.assertFalse(gate.landing_waits())
 
+    def test_a_landing_wait_ranks_by_its_file_alone(self):
+        # Its record's marker may say otherwise -- a clock set back between the two reads --
+        # and two waiters that each ranked the other first would both give a free turn away.
+        repo = run.main_checkout(ACME)
+        lander = self.record("record-lander", ACME, landing=True)
+        state = run_record.read_state(lander)
+        state["gate_turn"] = {"pid": state["pid"], "of": str(repo), "since": 1000,
+                              "landing": True}
+        run_record.save_state(lander, state)
+        (lander / "landing_since").write_text("1000")
+        self.stack.enter_context(gate.landing_wait(True, 3000, "record-lander"))
+        self.stack.enter_context(gate.landing_wait(True, 2000, "line"))
+        self.assertTrue(gate._gate_waiter_before(repo, "record-lander", 3000, True))
+        self.assertFalse(gate._gate_waiter_before(repo, "line", 2000, True))
+
     def test_a_dead_line_checks_wait_holds_nobody_back(self):
         # Its holder is gone, so nothing holds its file: no round check or new run waits on it.
         dead = config.RUNS / ".landing-wait-gone"
@@ -301,6 +319,10 @@ class GateLanders(unittest.TestCase):
             # second waits wait now but count from their seeds
             self.assertEqual(gate.mark_gate_wait(early, repo), 1000.0)
             self.assertEqual(gate.mark_gate_wait(late, repo), 2000.0)
+        # each lap's wait publishes the seed in its file, as `gate_turn` does
+        for directory in (early, late):
+            self.stack.enter_context(gate.landing_wait(True, gate._first_landing_wait(directory),
+                                                       directory.name))
         self.assertTrue(gate._gate_waiter_before(repo, "seed-late", 2000.0, True))
         self.assertFalse(gate._gate_waiter_before(repo, "seed-early", 1000.0, True))
         # a lander that never waited counts from now, behind both seeds

@@ -424,8 +424,9 @@ def mark_gate_wait(run_dir, of):
     `of` is the repository the waiter checks, kept on the mark from the
     per-repository turns; the note and the rank are host-wide and ignore it.  With
     this process's pid and the wait's start, so a
-    freed turn goes to the waiter that has waited longest.  A landing run's mark
-    says so; the start of its first landing wait lives beside the record, where
+    freed turn goes to the round check that has waited longest.  A landing run's mark
+    says so, and its wait's file ranks it (`landing_wait`); the start of its first
+    landing wait lives beside the record, where
     whole-record saves cannot wipe it (see `_first_landing_wait`): that start is
     what this returns for a lander, the wait's own start otherwise, and None when
     it recorded none.
@@ -536,14 +537,13 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False):
     checks.  Rank is a landing run before any round check, then the longest wait,
     then the run id, so a freed turn finishes a run ready to land before starting
     another round's check; `--first` plays no part, or loop repairs starve every
-    other suite under load.  A lander's wait
-    counts from the start of its first landing wait, not from the lap; a mark from
-    before landers ranked carries no landing and reads as a round check.  A mark
+    other suite under load.  A landing wait -- a run's, or the line checker's that
+    marks no record -- ranks by its own file alone (`landing_wait`), whose start is the
+    one its waiter ranks itself by: a lander's counts from its first landing wait, not
+    from the lap.  A record's mark ranks round checks only; one from before landers
+    ranked carries no landing and reads as a round check.  A mark
     whose process is gone, or whose pid no longer matches its record -- a kill or
-    a resume left it behind -- holds nobody back.  Every landing wait, the line
-    checker's that marks no record too, also ranks by its own file (`landing_wait`):
-    the start written there is the one its waiter ranks itself by, and its record's
-    first landing wait never comes before it.
+    a resume left it behind -- holds nobody back.
     """
     me = (not is_landing, since, exclude or "")
     if any((False, *wait) < me for wait in _landing_waiters() if wait[1] != exclude):
@@ -559,13 +559,12 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False):
             continue
         if not run_record.process_active(other):
             continue
-        landing = bool(turn.get("landing"))
-        waited = _first_landing_wait(directory) if landing else turn.get("since")
+        if turn.get("landing"):
+            continue
+        waited = turn.get("since")
         if not isinstance(waited, (int, float)) or isinstance(waited, bool):
-            waited = turn.get("since") if landing else 0
-            if not isinstance(waited, (int, float)) or isinstance(waited, bool):
-                waited = 0
-        if (not landing, waited, directory.name) < me:
+            waited = 0
+        if (True, waited, directory.name) < me:
             return True
     return False
 
