@@ -44,6 +44,14 @@ RULES = [
                 r"\b(cpu|memory|pids)\.(pressure|stat|max|high|current|events)\b|CGROUP_ROOT",
      "home": ("agentkit/host.py",),
      "max": 0},
+    # A process's stat and statm fields have one reader: host.proc_stat names them, and
+    # host.resident_bytes counts pages. box.py runs as its own script inside the worker's
+    # walls, and proc_snapshot.py under sudo with no agentkit imports: each keeps a copy.
+    {"name": "process stat",
+     "flags": (),
+     "pattern": r'"stat"|"statm"|/stat\b|/statm\b',
+     "home": ("agentkit/host.py",),
+     "max": 3},
     # The heavy-suite turn owns its lock files, landing wait marker and child flag.
     {"name": "heavy suite turn",
      "flags": (),
@@ -124,6 +132,13 @@ RULES = [
      "pattern": r"job\.json",
      "home": ("agentkit/job.py",),
      "max": 0},
+    # A run's worktree goes one way: the repo's `cleanup:` line, then git, then its `ak/`
+    # branch. Each call of the cleanup line outside worktrees.py spells that order again.
+    {"name": "run worktree removal",
+     "flags": (),
+     "pattern": r"run_repo_cleanup\(",
+     "home": ("agentkit/worktrees.py",),
+     "max": 4},
 ]
 
 

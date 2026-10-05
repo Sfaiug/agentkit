@@ -11,7 +11,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import box, command_help, config, hand_in, record
+from . import box, command_help, config, hand_in, host, record
 from .harness import load as harness_plugin
 
 # A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
@@ -304,14 +304,10 @@ def _lineage():
     lineage, pid = set(), os.getpid()
     while pid and pid not in lineage:
         lineage.add(pid)
-        try:
-            fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-            parent = int(fields[1])
-        except (OSError, ValueError, IndexError):
+        stat = host.proc_stat(pid)
+        if stat is None or stat.ppid <= 0:
             break
-        if parent <= 0:
-            break
-        pid = parent
+        pid = stat.ppid
     return lineage
 
 
@@ -607,7 +603,7 @@ def shell_timeout_ms():
 
 
 def call(cfg, model_name, body, workspace, out_dir, role="executor", session=None, env=None,
-         limit=None):
+         limit=None, places=()):
     """Run one turn.  Returns (exit_code, final_text, session_id, killed); out_dir holds the
     artifacts.
 
@@ -635,6 +631,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     The gate carries REAL_USERS when the workspace's AGENTS.md says `users: real`, read by the
     loop's own reader on every turn that has the gate: a reviewer's first turn, its retries, and
     a follow-up that starts a new conversation all hold it.  No other preamble has the gate.
+
+    `places` are directories the turn may write beside its workspace, out dir and harness state.
     """
     entry = config.model(cfg, model_name)
     adapter = config.adapter(entry["harness"])
@@ -673,7 +671,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     own = out_dir / "adapter-stderr.log"
     paths = config.manifest(entry["harness"]).get("worker", {})
     with box.command(cmd, turn_env, out_dir, cwd=workspace,
-                     state=paths.get("state", ()), logins=paths.get("logins", ())) as (cmd, turn_env, spawn), \
+                     state=paths.get("state", ()), places=places,
+                     logins=paths.get("logins", ())) as (cmd, turn_env, spawn), \
             own.open("wb") as err:
         code, _, killed = limited(cmd, None, silence=limit, activity=out_dir / "events.jsonl",
                                   abort=lambda: watching(out_dir),
@@ -709,7 +708,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
 
 
 def turn(cfg, model_name, body, workspace, out_dir, role="executor", session=None, env=None,
-         limit=None, log=None):
+         limit=None, log=None, places=()):
     """One call and its cleanup; the fifth result says whether it left processes running."""
     # Let call apply harness defaults over inheritance; pass only explicit overrides.
     env = dict(env or {})
@@ -720,7 +719,7 @@ def turn(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     log = log or (lambda message: print(message, file=sys.stderr))
     try:
         result = call(cfg, model_name, body, workspace, out_dir, role, session, env=env,
-                      limit=limit)
+                      limit=limit, places=places)
     finally:
         left = box.leftovers(out_dir)
         for pid, command in left:

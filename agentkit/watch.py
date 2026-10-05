@@ -606,6 +606,7 @@ def screen(harness):
     built = {"composer": _pattern(block.get("composer"), path),
              "footer": _pattern(f"(?:{footer})$" if footer else None, path, re.I),
              "ruled": bool(block.get("ruled")),
+             "queues": bool(block.get("queues_typing")),
              "folds_over": block.get("folds_over") if isinstance(block.get("folds_over"), int)
              else None,
              "draft": _pattern(block.get("draft"), path, re.M),
@@ -2681,9 +2682,31 @@ def at_prompt(session, cfg=None, pane=None):
     return found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
 
 
+def takes_line(session, cfg=None, pane=None, midturn=False):
+    """May a line be typed into that seat now: at its own prompt, or -- `midturn` -- during a
+    turn whose harness holds a typed line for its model's next step (`[screen] queues_typing`)."""
+    if at_prompt(session, cfg=cfg, pane=pane):
+        return True
+    if not midturn or any(session.get(key) for key in orch.CLOSED):
+        return False
+    try:
+        harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
+        if not harness or not screen(harness)["queues"]:
+            return False
+        pane = pane_text(session) if pane is None else pane
+        if not pane.strip():
+            return False
+        found = live_state(session, harness, pane=pane, cfg=cfg)
+    except (config.Error, OSError):
+        return False
+    return _turn_in_flight(harness, found)[0]
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
-                   source="ak", stale=lambda held: False, ready=lambda held: True):
-    """One line into a seat, and only while its harness sits at its own prompt.
+                   source="ak", stale=lambda held: False, ready=lambda held: True,
+                   midturn=False):
+    """One line into a seat, and only while its harness sits at its own prompt -- or, with
+    `midturn`, while a turn runs where its harness holds the line for its next step.
 
     The prompt is tested twice: once here, and once more inside the send lock, because two
     runs ending together would both find the seat free and the second would then type into
@@ -2715,7 +2738,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                 return True
             _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
-    if not at_prompt(session, cfg=cfg):
+    if not takes_line(session, cfg=cfg, midturn=midturn):
         return False
     composed = []
 
@@ -2733,7 +2756,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             harness = seat_model(config.load() if cfg is None else cfg, held)[0]
         except (config.Error, OSError):
             return True
-        return not (harness and at_prompt(session, cfg=cfg, pane=pane)
+        return not (harness and takes_line(session, cfg=cfg, pane=pane, midturn=midturn)
                     and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
     return type_checked(session, text, log, None,
@@ -3675,18 +3698,15 @@ def _proc_table():
         return table
     for entry in pids:
         pid = int(entry)
-        try:
-            text = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-            ppid = int(text[1])
-            state = text[0]
-        except (OSError, ValueError, IndexError):
+        stat = host.proc_stat(pid)
+        if stat is None:
             continue
         try:
             raw = Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace")
             args = [part for part in raw.split("\0") if part]
         except OSError:
             args = []
-        table[pid] = (ppid, state, args)
+        table[pid] = (stat.ppid, stat.state, args)
     return table
 
 
@@ -3727,11 +3747,8 @@ def _gone(pid):
         return False
     except OSError:
         return False
-    try:
-        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
-        return state in ("Z", "X")
-    except (OSError, IndexError):
-        return False
+    stat = host.proc_stat(pid)
+    return stat is not None and stat.exited
 
 
 def kill_tree(pid, log=lambda _: None):

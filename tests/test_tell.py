@@ -24,8 +24,13 @@ from agentkit.harness import claude
 
 SENDER, SEAT = "fix-api", "acme-docs"
 NOW = 1_000_000.0
-QUEUED = f"{SEAT}: queued; ak types it at its next quiet prompt"
-PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
+QUEUED = f"{SEAT}: queued; ak types it as soon as it can take a line"
+FIX = REPO / "tests/fixtures"
+PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8")
+# A real 2.1.289 turn running with one line already held above its composer, whose faint hint
+# reads empty.
+MIDTURN = (FIX / "claude-queued-midturn-pane.txt").read_text(encoding="utf-8")
+HELD = next(row for row in MIDTURN.splitlines(True) if "Press up to edit queued messages" in row)
 
 
 def prompt(at, text):
@@ -61,7 +66,8 @@ class Seats(unittest.TestCase):
                                          self.seat if name == self.seat["name"] else None))
         stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         stack.enter_context(patch.object(watch, "at_prompt", side_effect=lambda *_a, **_kw: self.free))
-        self.pane = PROMPT
+        self.pane = self.base = PROMPT
+        self.empty = "❯\u00a0\n"      # the base pane's empty composer row
         stack.enter_context(patch.object(watch, "pane_text", side_effect=lambda *_a, **_kw: self.pane))
         stack.enter_context(patch.object(watch, "KEY_GAP", 0))
         stack.enter_context(patch.object(watch.time, "sleep"))
@@ -72,9 +78,9 @@ class Seats(unittest.TestCase):
         self.assertEqual(args[args.index("-t") + 1], f"={self.seat['name']}:")
         if "-l" in args:
             self.typed.append(args[-1])
-            self.pane = PROMPT.replace("❯\u00a0\n", "❯ " + args[-1] + "\n")
+            self.pane = self.base.replace(self.empty, "❯ " + args[-1] + "\n")
         elif args[-1] == "Enter":
-            self.pane = PROMPT
+            self.pane = self.base
         return 0, ""
 
     def tell(self, *argv):
@@ -145,6 +151,34 @@ class Tell(Seats):
         self.assertEqual(self.typed, [])
         self.assertEqual(len(self.waiting()), 1)
 
+    def turn_running(self, pane=MIDTURN, empty=HELD):
+        """The seat mid-turn by its own hooks, `pane` on its screen with `empty` its composer."""
+        config.hook_facts_path(SEAT).write_text(json.dumps(
+            {"session": SEAT, "event": "UserPromptSubmit", "kind": "", "text": "", "at": NOW - 60}))
+        self.free, self.pane, self.base, self.empty = False, pane, pane, empty
+
+    def test_a_seat_whose_harness_holds_a_typed_line_gets_it_mid_turn(self):
+        self.turn_running()
+        self.tell(SEAT, "Parser merged.")
+        self.tick()
+        line = self.header() + "Parser merged."
+        self.assertEqual(self.typed, [line])
+        self.assertEqual([row["source"] for row in self.receipts()], [f"seat:{SENDER}"])
+        self.assertEqual(self.waiting(), [])
+
+    def test_mid_turn_it_waits_out_a_question_the_owners_draft_and_a_harness_that_drops_it(self):
+        self.tell(SEAT, "Parser merged.")
+        for pane in ("claude-question-with-message-pane.txt", "claude-draft-pane.txt"):
+            with self.subTest(pane=pane):
+                self.turn_running((FIX / pane).read_text(encoding="utf-8"))
+                self.tick()
+        config.save_session(self.cfg, SEAT, "astra", ["opus"], {
+            "cwd": str(self.root / SEAT), "conversation": "thread", "id_source": harness.LAUNCHER})
+        self.turn_running()
+        self.tick()
+        self.assertEqual(self.typed, [])
+        self.assertEqual(len(self.waiting()), 1)
+
     def test_a_told_line_is_never_the_owners_words(self):
         self.tell(SEAT, "Parser merged.")
         self.tick()
@@ -164,7 +198,7 @@ class Tell(Seats):
         self.tick()
         self.assertEqual(self.typed, [self.header() + "Parser merged."])
         self.assertEqual(self.tell(SEAT, "Docs too.")[1],
-                         "acme-pages: queued; ak types it at its next quiet prompt")
+                         "acme-pages: queued; ak types it as soon as it can take a line")
         self.tick()
         self.assertEqual(self.typed[-1], self.header() + "Docs too.")
 
@@ -180,7 +214,7 @@ class Tell(Seats):
             config.rename_session(SEAT, "acme-pages")
             self.seat = {"name": "acme-pages", "created": 10, "legacy": False}
         sender.join(10)
-        self.assertEqual(sent[0][:2], (0, "acme-pages: queued; ak types it at its next quiet prompt"))
+        self.assertEqual(sent[0][:2], (0, "acme-pages: queued; ak types it as soon as it can take a line"))
         self.tick()
         self.assertEqual(self.typed, [self.header() + "Parser merged."])
         self.assertEqual(self.waiting("acme-pages"), [])

@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import gate, host, config, gc, menu, orch, run, status, watch, worker
+from agentkit import gate, host, config, gc, menu, orch, run, worktrees, status, watch, worker
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -342,7 +342,7 @@ class OwnPrRounds(unittest.TestCase):
         with patch.object(run, "gh", return_value=(1, "HTTP 502: fixture")):
             state = self.review(["FAIL", "PASS"])
         self.assertEqual(state["state"], "error")
-        self.assertTrue(run.resume_holds_tree(state, self.run_dir))
+        self.assertTrue(worktrees.resume_holds_tree(state, self.run_dir))
         self.assert_resumed_post_finishes_round_one()
 
     def test_round_three_pass_with_a_failed_post_can_still_merge(self):

@@ -218,7 +218,7 @@ class RunTree(unittest.TestCase):
         calls = []
 
         def attempt(cfg_, name, body, workspace, out_dir, role="executor", session=None,
-                    env=None, limit=None):
+                    env=None, limit=None, **_kw):
             calls.append(env.get("AGENTKIT_RUN"))
             if len(calls) == 1:
                 survivor = subprocess.Popen(
@@ -274,7 +274,7 @@ class RunTree(unittest.TestCase):
         seen = {}
 
         def attempt(cfg_, name, body, workspace, out_dir, role="executor", session=None,
-                    env=None, limit=None):
+                    env=None, limit=None, **_kw):
             seen["worker"] = (env or {}).get("AGENTKIT_RUN")
             return 0, "## Summary\nall done", None, False
 

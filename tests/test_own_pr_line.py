@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, hand_in, land, record, run, watch, worker
+from agentkit import config, gate, gc, hand_in, land, record, run, worktrees, watch, worker
 from fixtures.hand_in import submitting
 from test_lander import LanderFixture
 
@@ -450,7 +450,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
             self.review(directory, url)
         # drive records the error, and the seat's hand-back cleans up after it
         state = run.mark_state(directory, "error", "cannot verify the PR before delivery")
-        run.settle_run({**state, "handed_back": True}, directory)
+        worktrees.settle_run({**state, "handed_back": True}, directory)
         self.assertTrue(Path(state["worktree"]).is_dir())
         state = self.review(directory, url)
         self.assertTrue(state["merged"])
@@ -660,7 +660,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         with patch.object(run, "run_slot", side_effect=lambda *_: nullcontext()), \
                 patch.object(run.history, "Sampler"), \
                 patch.object(run.history, "sample_rss", return_value=None), \
-                patch.object(run, "settle_run"), patch.object(run, "stop_run_tree"), \
+                patch.object(worktrees, "settle_run"), patch.object(run, "stop_run_tree"), \
                 patch.object(run, "finish", return_value=0), \
                 patch.object(run, "gh", return_value=(0, "")):
             rc = run.review_pr_main(self.cfg, {"--review": None, "--review-pr": url},

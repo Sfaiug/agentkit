@@ -1040,13 +1040,36 @@ def v5o_column_widths(infos, term_width):
                       for info in infos] + [0]), 14)
     count_w = min(max([terminal.cells(terminal.state_text(info["count"]))
                        for info in infos] + [1]), 16)
+    # The head always fits the room, on a phone as on a wide screen, so the columns start at
+    # one offset: the name and the orchestrator share what the number and the state leave, the
+    # longer giving way first (as `terminal.seats`), then the state; `_head` cuts the rest.
+    while 2 + num_w + 2 + name_w + 2 + orch_w + 2 + count_w > room and max(name_w, orch_w) > 1:
+        if name_w >= orch_w:
+            name_w -= 1
+        else:
+            orch_w -= 1
+    count_w = max(1, min(count_w, room - (2 + num_w + 2 + name_w + 2 + orch_w + 2)))
     fixed = 2 + num_w + 2 + name_w + 2 + orch_w + 2 + count_w + 2
-    # The phone keeps the same fixed name column, capped to what fits beside
-    # the orchestrator and state it always reserves, so those start at one offset.
-    name_narrow = max(1, min(name_w, room - 2 - num_w - 2 - orch_w - 2 - count_w - 2))
     return {"room": room, "narrow": term_width < 60, "num": num_w, "name": name_w,
             "orch": orch_w, "count": count_w, "worker": orch_w, "bar": 0,
-            "name_narrow": name_narrow, "sent": max(10, room - fixed), "free": room - fixed}
+            "sent": max(10, room - fixed), "free": room - fixed}
+
+
+def _head(info, widths):
+    """A seat row's fixed columns -- number, name, orchestrator, state -- in `widths`.  Where
+    even their narrowest do not fit, the number keeps its place behind the indent the highlight's
+    `›` takes, and the rest is cut to the room as plain text."""
+    number = "  " + _styled_cell(info["number"], widths["num"], "dim", right=True)
+    rest = [terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
+            _styled_cell(info.get("orchestrator") or info.get("worker") or "", widths["orch"],
+                         "dim"),
+            _styled_cell(terminal.state_text(info["count"]), widths["count"],
+                         terminal.state_colour(info["count"]))]
+    head = "  ".join([number, *rest])
+    if terminal.cells(head) <= widths["room"]:
+        return head
+    left = widths["room"] - terminal.cells(number) - 2
+    return number + ("  " + terminal.cut(" ".join(rest), left) if left > 0 else "")
 
 
 def v5o_seat_blocks(infos, term_width, widths=None):
@@ -1062,22 +1085,12 @@ def v5o_seat_blocks(infos, term_width, widths=None):
     if widths is None:
         widths = v5o_column_widths(infos, term_width)
     room, narrow = widths["room"], widths["narrow"]
-    num_w, name_w, count_w = widths["num"], widths["name"], widths["count"]
-    orch_w = widths.get("orch", widths.get("worker", 0))
     if not infos:
         return []
     blocks = []
     if narrow:
         for info in infos:
-            num = _styled_cell(info["number"], num_w, "dim", right=True)
-            name_cell = terminal.pad(terminal.cut(info["name"], widths["name_narrow"]),
-                                     widths["name_narrow"])
-            orch_cell = _styled_cell(info.get("orchestrator") or info.get("worker") or "",
-                                     orch_w, "dim")
-            count_cell = _styled_cell(terminal.state_text(info["count"]), count_w,
-                                      terminal.state_colour(info["count"]))
-            head = "  " + num + "  " + name_cell + "  " + orch_cell + "  " + count_cell
-            block = [head]
+            block = [_head(info, widths)]
             second_room = max(1, room - 4)
             tail = _last_text(info, second_room, narrow=True)
             if tail:
@@ -1090,30 +1103,13 @@ def v5o_seat_blocks(infos, term_width, widths=None):
     # that wraps in ten cells at least.
     sent_room, free = widths["sent"], widths["free"]
     for info in infos:
-        block = []
-        num = _styled_cell(info["number"], num_w, "dim", right=True)
-        name_cell = terminal.pad(terminal.cut(info["name"], name_w), name_w)
-        orch_cell = _styled_cell(info.get("orchestrator") or info.get("worker") or "",
-                                 orch_w, "dim")
-        count_cell = _styled_cell(terminal.state_text(info["count"]), count_w,
-                                  terminal.state_colour(info["count"]))
+        head = _head(info, widths)
         last = _last_text(info, free)
         if not last:
-            line = "  " + num + "  " + name_cell + "  " + orch_cell + "  " + count_cell
-            line = line.rstrip()
-            if terminal.cells(terminal.plain(line)) > room:
-                # Cap without cutting escapes: plain-cut only when no colour would break.
-                # Cells here are plain-measured; escapes add no width.
-                plain = terminal.plain(line)
-                line = terminal.cut(plain, room)
-            block.append(line)
-            blocks.append(block)
+            blocks.append([head])
             continue
         if sent_room <= free and terminal.cells(last) <= free:
-            line = ("  " + num + "  " + name_cell + "  " + orch_cell + "  " +
-                    count_cell + "  " + last)
-            block.append(line)
-            blocks.append(block)
+            blocks.append([head + "  " + last])
             continue
         cont_room = max(1, room - 4)
         bar = tasks_bar(info.get("word"), info.get("sentence"))
@@ -1122,15 +1118,13 @@ def v5o_seat_blocks(infos, term_width, widths=None):
             # a row without ten cells left starts nothing: either goes under its row, the bar
             # drawn in that line's room and a sentence cut to it
             under = _last_text(info, cont_room)
-            blocks.append(["  " + num + "  " + name_cell + "  " + orch_cell + "  " + count_cell,
+            blocks.append([head,
                            "    " + (under if terminal.cells(under) <= cont_room
                                      else terminal.cut(under, cont_room))])
             continue
         wrapped = terminal.wrap(last, sent_room)
         first, rest = wrapped[0], " ".join(wrapped[1:])
-        line = ("  " + num + "  " + name_cell + "  " + orch_cell + "  " +
-                count_cell + "  " + first)
-        block.append(line)
+        block = [head + "  " + first]
         cont = terminal.cut(rest, cont_room) if terminal.cells(rest) > cont_room else rest
         if cont:
             block.append("    " + cont)
@@ -1926,7 +1920,8 @@ def usage_tip(cfg, number, now=None):
     had it been spent as fast as time passes, from the meter's window and reset, or None where
     there is no such week: `Acme II · 68% left · resets Thu
     20:00 (in 2 d 6 h) · lasts at this pace`, more left than that share lasting the week; a
-    spent meter has nothing left to pace."""
+    spent meter has nothing left to pace, and its credits, where it has any, stand in its 0%'s
+    place as on the row (`Acme II · 62,469 credits left · resets …`)."""
     now = time.time() if now is None else now
     rows = usage_rows(cfg)
     if not 0 < number <= len(rows):
@@ -1951,7 +1946,8 @@ def usage_tip(cfg, number, now=None):
                              else f"{max(1, secs // 60)} min") + ")"
     spent = None if pace is None or not left else terminal.TIPS[
         "slower" if left > round(100 * pace) else "faster" if left < round(100 * pace) else "even"]
-    return " · ".join(part for part in (terminal.plain(label), f"{left}% left", resets, spent)
+    shown = (not left and usage.credits_note(prov)) or f"{left}% left"
+    return " · ".join(part for part in (terminal.plain(label), shown, resets, spent)
                       if part), pace
 
 

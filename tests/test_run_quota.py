@@ -205,7 +205,7 @@ class Quota(unittest.TestCase):
                              role=lambda role: f"{role}-scratch",
                              dir=lambda name: run_dir / "round-1" / name)
         bodies = {}
-        def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
+        def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
             bodies[name] = body
             if name == "astra":
                 return 1, "usage limit reached", "s-astra", False
@@ -233,7 +233,7 @@ class Quota(unittest.TestCase):
         # way the real worker.call does.
         run_dir, state = self.receipt("20260916-1200-quota-end")
         providers = self.providers(openai_used=100, anthropic_used=100, meta_used=50)
-        def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
+        def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             if config.model(cfg, name)["harness"] == "muse":
                 return 1, "quota exhausted for muse-spark", "s", False
@@ -264,7 +264,7 @@ class Quota(unittest.TestCase):
                      quota_dry=True)
         record.save_state(run_dir, state)
         providers = self.providers(openai_used=40, anthropic_used=100, meta_used=50)
-        def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
+        def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             if role.startswith("reviewer"):
                 return 0, "VERDICT: PASS\nNo findings.", "s-review", False
@@ -370,7 +370,7 @@ class Quota(unittest.TestCase):
                              save=lambda: record.save_state(run_dir, lp.state),
                              role=lambda role: f"{role}-scratch",
                              dir=lambda name: run_dir / "round-1" / name)
-        def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
+        def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
             return 1, "usage limit reached", "s", False
         providers = self.providers(openai_used=100, anthropic_used=40, meta_used=100)
         with patch.object(run.worker, "call", side_effect=turn), \

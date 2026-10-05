@@ -22,7 +22,7 @@ from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
 from fixtures.hand_in import records, scripted, stateful
-from agentkit import gate, host, browser, config, gc, job as jobs, land, menu, notify, orch, run, status, terminal, watch
+from agentkit import gate, host, browser, config, gc, job as jobs, land, menu, notify, orch, run, worktrees, status, terminal, watch
 from agentkit import record
 
 SEAT = "seat"
@@ -1160,7 +1160,7 @@ class HandBack(Sandbox):
                 patch.object(run, "redress_seat", side_effect=bar_boom), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
-                patch.object(run, "settle_run",
+                patch.object(worktrees, "settle_run",
                              side_effect=lambda s, d, log=None: settles.append(s["run_id"])):
             code = run.finish(state, directory, self.logs.append, self.cfg)
         self.assertEqual(code, 0)
@@ -1189,7 +1189,7 @@ class HandBack(Sandbox):
                 patch.object(run, "redress_seat"), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
-                patch.object(run, "settle_run",
+                patch.object(worktrees, "settle_run",
                              side_effect=lambda s, d, log=None: settles.append(s["run_id"])):
             code = run.finish(record.read_state(directory), directory,
                               self.logs.append, self.cfg)

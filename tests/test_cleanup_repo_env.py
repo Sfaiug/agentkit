@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, gc, run  # noqa: E402
+from agentkit import config, gc, run, worktrees  # noqa: E402
 
 
 class CleanupRepoEnv(unittest.TestCase):
@@ -67,10 +67,10 @@ class CleanupRepoEnv(unittest.TestCase):
 
     def test_every_removal_path_gives_cleanup_the_repo_secrets(self):
         paths = {
-            "stop": lambda wt, run_dir, state: run.stop_checkout(state, lambda message: None),
+            "stop": lambda wt, run_dir, state: worktrees.stop_checkout(state, lambda message: None),
             "clean": lambda wt, run_dir, state: run.cmd_clean([state["run_id"]]),
             "sweep": lambda wt, run_dir, state: gc.sweep_checkout(state, wt, lambda *a: None),
-            "gc": lambda wt, run_dir, state: run.run_repo_cleanup(wt, run_dir),
+            "gc": lambda wt, run_dir, state: worktrees.run_repo_cleanup(wt, run_dir),
         }
         for name, remove in paths.items():
             with self.subTest(path=name):
@@ -86,7 +86,7 @@ class CleanupRepoEnv(unittest.TestCase):
     def test_unreadable_env_file_is_reported_not_silent(self):
         (config.ENV / "acme.env").write_text("not a pair\n")
         wt, run_dir, state = self.make_run("cleanup-bad-env")
-        self.assertTrue(run.stop_checkout(state, lambda message: None))
+        self.assertTrue(worktrees.stop_checkout(state, lambda message: None))
         self.assertFalse(wt.exists())
         [line] = [line for line in (run_dir / "log.txt").read_text().splitlines()
                   if "repo cleanup:" in line]

@@ -85,7 +85,7 @@ def _paths(names, env, cwd):
         yield path if path.is_absolute() else Path(cwd or os.getcwd()) / path
 
 
-def _walls(cmd, clean, cwd, out_dir, state, logins):
+def _walls(cmd, clean, cwd, out_dir, state, places, logins):
     """Make all but the turn's own places read-only; return where its scratch mounts go."""
     cmd.extend(["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"])
     # A read-only bind disables devices too. Restore the nodes, leaving their
@@ -106,7 +106,7 @@ def _walls(cmd, clean, cwd, out_dir, state, logins):
     cmd.extend(["--remount-ro", "/dev"])
     at = len(cmd)
     writable = set()
-    for path in _paths(state, clean, cwd):
+    for path in [*_paths(state, clean, cwd), *map(Path, places)]:
         path = path.resolve()
         path.mkdir(parents=True, exist_ok=True)
         writable.add(path)
@@ -143,17 +143,19 @@ def _walls(cmd, clean, cwd, out_dir, state, logins):
 
 
 @contextmanager
-def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=(), walls=True, drain=False):
+def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(), walls=True,
+            drain=False):
     """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
 
-    Without walls every write stays as it is outside: a check runs a project's own
+    `state` names a manifest's paths, expanded from the environment; `places` are literal
+    directories the command may also write. Without walls every write stays as it is outside: a check runs a project's own
     suite, which writes where that project says, like a log in /tmp.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
            "--new-session"]
     if walls:
-        at = _walls(cmd, clean, cwd, out_dir, state, logins)
+        at = _walls(cmd, clean, cwd, out_dir, state, places, logins)
     else:
         cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
     directories, files = _credentials(clean, cwd)

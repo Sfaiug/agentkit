@@ -17,6 +17,7 @@ import test_review_gate as gate
 import test_proof_weighed as proof
 from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, task, watch, worker
 from agentkit import record
+from fixtures.hand_in import stateful
 from fixtures.landing import landing
 
 
@@ -35,7 +36,7 @@ assert sys.argv[1] == "run", sys.argv
 wt, out = pathlib.Path(sys.argv[4]), pathlib.Path(sys.argv[6])
 prompt = pathlib.Path(sys.argv[5]).read_text()
 role = "reviewer" if prompt.startswith("You are the reviewer") else "executor"
-with (root / "calls.jsonl").open("a") as fh:
+with (root / "harness/calls.jsonl").open("a") as fh:
     fh.write(json.dumps({"role": role, "prompt": prompt}) + "\n")
 if role == "reviewer":
     answer = (root / "review.md").read_text()
@@ -71,10 +72,14 @@ else:
         (out / "before.log").write_bytes(before.stderr)
         (wt / "broken.py").write_text("def first(items):\n    return items[0] if items else None\n")
         subprocess.run([sys.executable, str(test)], cwd=wt, check=True)
-        (out.parents[1] / "regression.sh").write_text("python3 test_empty.py\n")
-        subprocess.run(["git", "add", "."], cwd=wt, check=True)
-        subprocess.run(["git", "commit", "-qm", "Handle empty input"], cwd=wt, check=True)
-        answer = "## Summary\nRegression test failed with IndexError before; passed after."
+        try:
+            (out.parents[1] / "regression/regression.sh").write_text("python3 test_empty.py\n")
+        except OSError as error:
+            answer = f"## Blocked\nregression.sh: {error}"
+        else:
+            subprocess.run(["git", "add", "."], cwd=wt, check=True)
+            subprocess.run(["git", "commit", "-qm", "Handle empty input"], cwd=wt, check=True)
+            answer = "## Summary\nRegression test failed with IndexError before; passed after."
 (out / "final.md").write_text(answer)
 (out / "session_id").write_text("fixture-" + role)
 '''
@@ -89,6 +94,8 @@ class FollowupRuns(unittest.TestCase):
         self.logs, self.spawns, self.gh_calls, self.endings = [], [], [], []
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
             self.script(self.root / "adapters" / f"{harness}.sh", ADAPTER)
+            # The run directory stays read-only to its turns, as on a real host.
+            stateful(self.root / "adapters" / f"{harness}.sh", self.root / "harness")
         (self.root / "mode").write_text("fix")
         (self.root / "review.md").write_text("VERDICT: PASS\n")
         self.repo = self.root / "acme"
@@ -307,7 +314,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("if items else None", self.git(self.repo, "show", "origin/main:broken.py"))
         self.assertIn("IndexError", next(child.glob("round-1/executor*/before.log")).read_text())
         self.assertIn("[exit 0]", (child / "round-1/donewhen.log").read_text())
-        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
+        calls = [json.loads(line) for line in (self.root / "harness/calls.jsonl").read_text().splitlines()]
         self.assertEqual([c["role"] for c in calls], ["executor", "reviewer"])
         self.assertIn("First fetch the target branch", calls[0]["prompt"])
         self.assertIn("another open run of session seat", calls[0]["prompt"])

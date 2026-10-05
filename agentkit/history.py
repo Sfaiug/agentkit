@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from statistics import median
 
-from . import config, record
+from . import config, host, record
 
 _LOCK = threading.Lock()
 SUMMARY_TASKS = 20    # the status line looks back over this many finished runs per repo
@@ -313,12 +313,9 @@ def sample_rss(run_id, pid=None, *, log=None):
         for entry in Path("/proc").iterdir():
             if not entry.name.isdigit():
                 continue
-            try:
-                stat = (entry / "stat").read_text()
-                tail = stat.rsplit(")", 1)[1].split()
-                children.setdefault(int(tail[1]), []).append(int(entry.name))
-            except (OSError, ValueError, IndexError):
-                continue
+            stat = host.proc_stat(entry.name)
+            if stat is not None:
+                children.setdefault(stat.ppid, []).append(int(entry.name))
         pids, todo = set(), [pid]
         while todo:
             current = todo.pop()
@@ -326,14 +323,7 @@ def sample_rss(run_id, pid=None, *, log=None):
                 continue
             pids.add(current)
             todo.extend(children.get(current, ()))
-        page = os.sysconf("SC_PAGE_SIZE")
-        rss = 0
-        for current in pids:
-            try:
-                rss += int((Path("/proc") / str(current) / "statm").read_text().split()[1])
-            except (OSError, ValueError, IndexError):
-                pass
-        mb = rss * page / (1024 * 1024)
+        mb = sum(host.resident_bytes(current) or 0 for current in pids) / (1024 * 1024)
     except (OSError, ValueError, TypeError):
         return None
     _write(lambda connection: connection.execute(

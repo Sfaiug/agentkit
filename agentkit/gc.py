@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 
-from . import config, host, job as jobs, orch, proc_snapshot, record, retention, run
+from . import config, host, job as jobs, orch, proc_snapshot, record, retention, run, worktrees
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -381,7 +381,7 @@ def stale_worktree(wt, now, paths, left):
     if (state and state.get("run_id") == wt.name and state.get("worktree") == str(wt)
             and state.get("state") == "pass" and not state.get("merged")
             and (state.get("merge_note") or state.get("no_merge"))
-            and not state.get("scratch") and run.provably_final(state)
+            and not state.get("scratch") and worktrees.provably_final(state)
             and retention.expired(finished, now, GC_AGE)
             and not record.writing(directory)):
         return {"action": "remove", "kind": "unmerged-worktree", "path": str(wt),
@@ -435,7 +435,7 @@ def clearable(tree):
     """Whether gc may empty that tree by hand: straight under ~/.agentkit/wt, work or tmp,
     this user's, reached through no link, and nowhere under ~/code."""
     return (tree.parent in (config.WT, config.WORK, config.TMP) and retention.safe(tree)
-            and tree.is_dir() and not run.under_code(tree))
+            and tree.is_dir() and not worktrees.under_code(tree))
 
 
 def left_behind(tree, report):
@@ -480,12 +480,12 @@ def drop_tree(state, tree, report, keep_branch=None, with_run=False):
     going, a tree that is not the run's own, one reached through a link or under ~/code --
     is never followed by a removal by hand.
     """
-    allowed = (tree is not None and own_tree(state) == tree and run.provably_final(state)
+    allowed = (tree is not None and own_tree(state) == tree and worktrees.provably_final(state)
                and clearable(tree)
                and (tree.parent == config.WORK and with_run if state.get("scratch")
-                    else run.checkout_removable(state)))
+                    else worktrees.checkout_removable(state)))
     try:
-        run.drop_checkout(state, report, keep_branch=keep_branch, with_run=with_run)
+        worktrees.drop_checkout(state, report, keep_branch=keep_branch, with_run=with_run)
     except OSError:
         if not allowed or (left_behind(tree, report) and str(tree) not in leftovers()):
             raise
@@ -526,7 +526,7 @@ def gc_candidates(now=None):
         # runs however old they are; the seat is what they belong to. Pending
         # hand-backs and cards are not consulted: with the session gone there is
         # no seat left to tell, and the directory goes with them untold.
-        if (state and state.get("run_id") == directory.name and run.provably_final(state)
+        if (state and state.get("run_id") == directory.name and worktrees.provably_final(state)
                 and run_aged_out(directory, state, now)
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
                 and not record.writing(directory) and retention.safe(directory)):
@@ -536,7 +536,7 @@ def gc_candidates(now=None):
                 owner = ""
                 keep_for_seat = True
             else:
-                keep_for_seat = run.session_lives(owner)
+                keep_for_seat = session_lives(owner)
             if not keep_for_seat:
                 yield {"action": "remove", "kind": "old-run", "path": str(directory),
                        "run": str(directory), "whole": True, "final": True,
@@ -549,20 +549,20 @@ def gc_candidates(now=None):
         # only copy there.
         if (state and state.get("run_id") == directory.name
                 and state.get("state") in ("fail", "error", "blocked", "stopped")
-                and run.provably_final(state)
+                and worktrees.provably_final(state)
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
                 and not record.writing(directory)
                 and (retention.expired(finished, now, GC_AGE)
                      or (run.already_handed_back(state)
-                         and not run.resume_holds_tree(state, directory)))
-                and run.disposable_workspace(directory, state) and state["worktree"] not in left
+                         and not worktrees.resume_holds_tree(state, directory)))
+                and worktrees.disposable_workspace(directory, state) and state["worktree"] not in left
                 and not retention.busy(Path(state["worktree"]), paths)):
             yield {"action": "remove", "kind": "ended-worktree", "path": str(state["worktree"]),
                    "run": str(directory), "loose": True, "final": True,
                    "state_identity": retention.fingerprint(directory / "run.json")}
         if (not state or state.get("run_id") != directory.name or state.get("scratch")
                 or state.get("state") != "pass" or not state.get("merged")
-                or not run.provably_final(state)
+                or not worktrees.provably_final(state)
                 or state.get("notification_pending") or state.get("pending_inbox")
                 or state.get("handback_pending")
                 or retention.writer_active(state) or retention.busy(directory, paths)
@@ -704,7 +704,7 @@ def gc(report, automatic=False):
                             if not stale_worktree(path, time.time(), paths, leftovers()):
                                 continue
                             if item["kind"] == "unmerged-worktree":
-                                run.run_repo_cleanup(path, directory)
+                                worktrees.run_repo_cleanup(path, directory)
                             clear_tree(path, report)
                             done = not left_behind(path, report)
                     elif item["kind"] == "harness-entries":
@@ -742,7 +742,7 @@ def gc(report, automatic=False):
                             state = retention.read_json(directory / "run.json")
                             # A provably final run does not wait for a second look at
                             # its fingerprint. A run that has since resumed still does.
-                            same = (item.get("final") and run.provably_final(state or {})) or (
+                            same = (item.get("final") and worktrees.provably_final(state or {})) or (
                                 retention.fingerprint(directory / "run.json") == item["state_identity"])
                             if (not same or retention.writer_active(state or {})
                                     or retention.busy(directory, paths)):
@@ -752,7 +752,7 @@ def gc(report, automatic=False):
                                     owner = run.launched_session(state or {})
                                 except config.Error:
                                     continue
-                                if run.session_lives(owner) or not run.provably_final(state or {}):
+                                if session_lives(owner) or not worktrees.provably_final(state or {}):
                                     continue
                                 # The directory is going. Its checkout would otherwise
                                 # stay behind with nothing pointing at it. A dirty tree
@@ -764,7 +764,7 @@ def gc(report, automatic=False):
                                 # reported as left behind is not tried again.
                                 tree = own_tree(state)
                                 if tree is not None and str(tree) in leftovers():
-                                    run.drop_local_branch(state.get("repo"), state.get("branch"),
+                                    worktrees.drop_local_branch(state.get("repo"), state.get("branch"),
                                                       report)
                                 else:
                                     drop_tree(state, tree, report, keep_branch=False,
@@ -799,7 +799,7 @@ def gc(report, automatic=False):
                             state = retention.read_json(directory / "run.json")
                             # Final and the loop gone: do not wait for the fingerprint
                             # taken while planning. Anything that has started again stays.
-                            same = (item.get("final") and run.provably_final(state or {})) or (
+                            same = (item.get("final") and worktrees.provably_final(state or {})) or (
                                 retention.fingerprint(directory / "run.json") == item["state_identity"])
                             worktree = (state or {}).get("worktree")
                             if (not same or retention.writer_active(state or {})
@@ -808,7 +808,7 @@ def gc(report, automatic=False):
                                     or (not item.get("loose")
                                         and not collectible_worktree(directory, state))):
                                 continue
-                            if not run.provably_final(state or {}):
+                            if not worktrees.provably_final(state or {}):
                                 continue
                             if item["action"] == "compress":
                                 done = retention.compress(path, item["identity"])
@@ -817,11 +817,11 @@ def gc(report, automatic=False):
                                         retention.expired(
                                             state.get("finished_at"), time.time(), GC_AGE)
                                         or (run.already_handed_back(state)
-                                            and not run.resume_holds_tree(state, directory))):
+                                            and not worktrees.resume_holds_tree(state, directory))):
                                     continue
                                 done = drop_tree(state, path, report)
                             else:
-                                run.run_repo_cleanup(path, directory)
+                                worktrees.run_repo_cleanup(path, directory)
                                 try:
                                     code, _ = run.git_out(state["repo"], "worktree", "remove",
                                                       str(path))
@@ -833,7 +833,7 @@ def gc(report, automatic=False):
                                 gone = not left_behind(path, report)
                                 done = code == 0 and gone
                                 if done:
-                                    run.drop_local_branch(state.get("repo"), state.get("branch"), report)
+                                    worktrees.drop_local_branch(state.get("repo"), state.get("branch"), report)
                     if done:
                         removed.append(item["path"])
                         report(f"gc: {item['action']} {item['kind']} {path}{gc_why(item)}")
@@ -864,14 +864,14 @@ def sweep_plan(now=None):
         state = retention.read_json(directory / "run.json")
         if (not state or state.get("run_id") != directory.name or state.get("scratch")
                 or state.get("state") != "pass" or not state.get("merged")
-                or not run.provably_final(state) or record.writing(directory)):
+                or not worktrees.provably_final(state) or record.writing(directory)):
             continue
         repo, worktree = state.get("repo"), state.get("worktree")
         if (not isinstance(repo, str) or not repo or not isinstance(worktree, str)
                 or Path(worktree) != config.WT / directory.name or Path(repo) == Path(worktree)):
             continue
         wt = Path(worktree)
-        if (run.under_code(wt) or not retention.present(wt) or not retention.safe(wt)
+        if (worktrees.under_code(wt) or not retention.present(wt) or not retention.safe(wt)
                 or retention.busy(wt, paths) or str(wt) in left):
             continue
         found.append({"action": "remove", "kind": "merged-worktree", "path": str(wt),
@@ -915,13 +915,13 @@ def sweep_checkout(state, wt, report):
     repo = state["repo"]
     run_id = state.get("run_id")
     if isinstance(run_id, str) and run_id:
-        run.run_repo_cleanup(wt, config.RUNS / run_id)
+        worktrees.run_repo_cleanup(wt, config.RUNS / run_id)
     run.git_out(repo, "worktree", "remove", "--force", str(wt))
     if retention.present(wt):
         retention.remove(wt, directory=True)
     if Path(repo).is_dir():
         run.git(repo, "worktree", "prune", check=False)
-    run.drop_local_branch(repo, state.get("branch"), report)
+    worktrees.drop_local_branch(repo, state.get("branch"), report)
 
 
 def sweep(report):
@@ -1009,3 +1009,22 @@ def run_aged_out(directory, state, now):
         except OSError:
             return False
     return when <= now - RUN_DIR_AGE
+
+
+def session_lives(name):
+    """Whether that seat still exists: its record, or a tmux session under the name.
+
+    A missing or unreadable name is not proof the seat is gone. `None` — a run
+    nobody's seat launched — is not a living session.
+    """
+    if not isinstance(name, str) or not name:
+        return False
+    try:
+        if config.session_path(name).exists():
+            return True
+    except config.Error:
+        return True
+    try:
+        return orch.find(name) is not None
+    except (config.Error, OSError, TypeError, ValueError):
+        return True

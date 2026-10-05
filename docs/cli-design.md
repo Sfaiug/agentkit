@@ -257,7 +257,7 @@ UTF-8 key (`enter` is `⏎`):
 - `done`: `done: it said so, and the row carries its summary`
 - a project's heading: `{name}: the project the sessions under it work in, those needing you first`
 - one naming feature switches: `{name}: Enter or a click opens the switches of its hidden features`
-- a usage row: its label, `NN% left`, `resets <when> (in 2 d 6 h)`, then `runs out early at this pace`, `lasts at this pace` or `on pace` (none once it is at 0%)
+- a usage row: its label, `NN% left` (once it is at 0%, the credits it still runs on where it has any, `62,469 credits left`), `resets <when> (in 2 d 6 h)`, then `runs out early at this pace`, `lasts at this pace` or `on pace` (none once it is at 0%)
 - a usage row with no week to draw: `{name}: no week to draw, {why}; the bar comes with the first reading of one`
 - a model, on `c` and `n`: `{name}: {model} through {harness}, at {effort} effort`
 - its id, on its own screen: `model id: what {harness} is asked to run, one its catalog lists`
@@ -382,7 +382,9 @@ Example under `Claude`: `› opus    ●     ■      ■     claude · xhigh`.
 
 Fixed columns with two-space gutters, sized once per draw from the rows on
 screen: number, name, orchestrator, state (glyph and word in the state's
-colour), and one last column. The last column takes all the remaining width;
+colour), and one last column. Those before the last always fit the screen: the
+name and the orchestrator share what the number and the state leave, the longer
+giving way first, then the state. The last column takes all the remaining width;
 it wraps once at a word onto an indented continuation and is cut with ` …`
 only past that. A row with fewer than ten cells left puts it on the indented
 line alone, cut there, so no line runs past the screen. Columns use gutters, never ` · `. Never cut inside a
