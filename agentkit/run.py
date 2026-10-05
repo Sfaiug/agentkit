@@ -12430,7 +12430,7 @@ def main(argv):
         # says to start regardless.  A run's own child launch never runs the
         # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.launch_refusal(meta)
+        refusal = taskfile.launch_refusal(meta, cmds)
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2

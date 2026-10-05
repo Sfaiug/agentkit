@@ -3,10 +3,12 @@
 Offline: task files in a temporary directory, read through `agentkit.task` alone.
 """
 
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -64,6 +66,33 @@ class TaskFile(unittest.TestCase):
         self.assertIsNone(task.rounds_refusal(task.TASK_MAX_ROUNDS, "--rounds"))
         self.assertIsNone(task.rounds_refusal("many", "--rounds"))
 
+    def test_a_heredoc_in_done_when_is_refused(self):
+        # what bash's own parser meets in the line, whichever bash it is (before 5.2 bash -n
+        # skips a substitution's body)
+        for cmd in ("python3 - <<'PY'", "cat <<EOF > out", "bash <<-END", "true; cat<<E"):
+            with self.subTest(cmd):
+                self.assertIn("opens a heredoc", task.launch_refusal({}, ["true", cmd]))
+        for cmd in ("grep -q x <<< \"$out\"", "grep -q '<<EOF' notes.md", 'echo "a<<b"',
+                    "test $((1 << 3)) -eq 8", "(( (1 << 3) == 8 ))", "true # <<EOF is an example",
+                    "printf '%s\\n' $'escaped \\'<<literal'", "python3 -m pytest -q  # once",
+                    "test $((1<(2 << 3))) -eq 1", "(true)# `cat <<EOF`",
+                    "x=literal; test \"${x#'`cat <<EOF`'}\" = literal"):
+            with self.subTest(cmd):
+                self.assertIsNone(task.launch_refusal({}, [cmd]))
+
+    def test_only_bash_s_own_warning_counts_whatever_the_environment(self):
+        # an inherited `verbose` would echo the line itself to stderr
+        lines = ("echo 'bash: warning: here-document at line 1 delimited by end-of-file <<'",
+                 "true # x: warning: here-document at line 1 delimited by end-of-file <<E")
+        with patch.dict(os.environ, {"SHELLOPTS": "verbose", "BASH_ENV": "/nonexistent"}):
+            for cmd in lines:
+                with self.subTest(cmd):
+                    self.assertIsNone(task.launch_refusal({}, [cmd]))
+            self.assertIn("opens a heredoc", task.launch_refusal({}, ["cat <<EOF"]))
+
+    def test_a_line_without_a_heredoc_operator_starts_no_bash(self):
+        with patch.object(task.subprocess, "run", side_effect=AssertionError("bash started")):
+            self.assertIsNone(task.launch_refusal({}, ["true", "python3 -m pytest -q"]))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,6 +1,8 @@
 """The task file: front matter, title, done-when commands and size."""
 
+import os
 import re
+import subprocess
 
 from . import config
 
@@ -12,6 +14,10 @@ TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
 FENCE = re.compile(r"```(?:bash|sh)?\n(.*?)```", re.S)
 ONCE_MARKER = re.compile(r"#\s*once\s*$")
+# bash's own warning for a heredoc it never closes, from 3.2 (`bash: warning: …`) to 5.2
+# (`bash: line 1: warning: …`)
+UNCLOSED_HEREDOC = re.compile(r"^[^:\n]+: (?:line \d+: )?warning: here-document at line \d+ "
+                              r"delimited by end-of-file", re.M)
 
 
 def front_matter(path):
@@ -133,12 +139,41 @@ def task_size(body, cmds):
     return task_words(body), task_points(body), len(cmds)
 
 
-def launch_refusal(meta):
-    """One sentence when a new task file cannot start as written, else None."""
+def launch_refusal(meta, cmds):
+    """One sentence when a new task file cannot start as written, else None.
+
+    A heredoc never works in done-when: each line runs as a command of its own, so the
+    opening line reads an empty script and its body lines run as commands.
+    """
     if "after" in meta:
         return ("`after:` is gone: tasks launched together are independent pieces; build work "
                 "that waits on another piece in your session, in order")
+    heredoc = next((cmd for cmd in cmds if opens_heredoc(cmd)), None)
+    if heredoc:
+        return (f"done-when line {heredoc!r} opens a heredoc, but each line runs as a command of "
+                "its own: put the script in a file the change adds, or on one line")
     return rounds_refusal(meta.get("rounds"), "task rounds")
+
+
+def opens_heredoc(command):
+    """Whether bash's own parser, reading `command` as a whole script, meets an unclosed heredoc.
+
+    `bash -n` runs nothing, so a shift in arithmetic, a comment, any quoting and a `<<<`
+    here-string are no heredoc, exactly as when the line runs.  What bash parses only when it
+    runs it -- a backquoted body, and before bash 5.2 any substitution's -- this leaves as bash
+    -n does: reading it any other way would refuse lines bash runs as written.
+    """
+    if "<<" not in command:
+        return False        # no expansion makes a heredoc: its operator is in the text
+    # nothing inherited may make bash read a file first or echo the line back (`verbose`)
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS")}
+    try:
+        said = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True,
+                              env={**env, "LC_ALL": "C"}, timeout=30).stderr
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return bool(UNCLOSED_HEREDOC.search(said))
 
 
 def rounds_refusal(value, what):
