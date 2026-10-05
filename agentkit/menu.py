@@ -321,8 +321,10 @@ class Live:
         changing, or when asked (`ask`): the seats and their groups, for each draw to draw.
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
-        word to that seat's record and to its bar in one go, so a screen that reads again when a
-        record changes, as recorded, never shows a row its bar contradicts for longer than this.
+        word to that seat's record and to its bar in one go, and a run's step, round and ending
+        note their moment there before they move its bar (`run.publish_seat`), so a screen that
+        reads again when a record changes, as recorded, never shows a row its bar contradicts for
+        longer than this.
         The records are noted before every read, so one written while it reads is still news.
         Looking is a `stat` per file -- its inode as well as its mtime, since every write
         replaces the file -- and nothing here captures a pane.  A read on news looks at no seat

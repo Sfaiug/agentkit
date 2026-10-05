@@ -6807,9 +6807,15 @@ def redress_seat(session):
 
 
 def publish_seat(session):
-    """`redress_seat`'s job: that seat's bar, if tmux still holds it on agentkit's own server."""
+    """`redress_seat`'s job: that seat's bar, if tmux still holds it on agentkit's own server.
+
+    The moment goes on the seat's record first (`runs_moved_at`): a run's step can move the
+    bar while the seat's word stays as it was, and an open menu reads again when a seat's record
+    changes, so its row moves with the bar.
+    """
     seat = orch.find(session)
     if seat is not None and orch.on_own_server(seat):
+        watch.seat_write(seat["name"], runs_moved_at=time.time())
         watch.announce_state(seat)
 
 

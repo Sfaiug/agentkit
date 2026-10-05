@@ -27,7 +27,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, menu, orch, statusbar, terminal, watch  # noqa: E402
+from agentkit import config, menu, orch, record, run, statusbar, terminal, watch  # noqa: E402
 
 # The hook's own process asks tmux through PATH, so this stands in for the server: one marked
 # seat on the suite's socket, which lives at /fake/agentkit-test, whose pane is %7, a capture as
@@ -273,6 +273,58 @@ class LiveStatus(unittest.TestCase):
         self.assertIn("! needs you", rows[0][0])
         self.assertIn("● working", rows[1][0])          # the recorded word
         self.assertIn("● working", rows[2][0])
+
+    def test_an_open_menu_moves_a_row_s_tasks_bar_within_two_seconds_of_a_run_s_step(self):
+        # the seat stays `working` while its run goes from building to review: the bar moves at
+        # once, and the row must too, though the seat's word, reason and since stay as they were
+        self.plan(4, 8)
+        self.hook("UserPromptSubmit")
+        watch.hook_look("herdr")
+        run_dir = config.RUNS / "20260101-0900-gh2-going"
+        run_dir.mkdir(parents=True)
+        state = {"run_id": run_dir.name, "title": "gh2", "state": "running", "step": "executor",
+                 "step_at": time.time(), "started_at": time.time(), "rounds": 3,
+                 "launched_session": "herdr", "task_file": str(self.root / "gh2-going.md"),
+                 "executor": "opus", "reviewer": "astra"}
+        record.save_state(run_dir, state)
+        screens, out, woke = [], io.StringIO(), []
+
+        def review(wake):
+            time.sleep(menu.STIR + 0.2)                 # whatever the last draw stirred has landed
+            try:
+                os.read(wake, 4096)
+            except BlockingIOError:
+                pass
+            record.save_state(run_dir, dict(state, step="reviewer", step_at=time.time()))
+            run.publish_seat("herdr")                   # what the run's step hands to tmux
+            began = time.monotonic()
+            woke.append((bool(select.select([wake], [], [], 2)[0]), time.monotonic() - began))
+            return None
+
+        answers = iter([review, lambda wake: ""])
+
+        def wait_key(prompt, timeout=None, wake=None):
+            screens.append(terminal.plain(out.getvalue()))
+            out.seek(0)
+            out.truncate()
+            return next(answers)(wake)
+
+        with patch.object(orch, "listing",
+                          side_effect=lambda *a, **k: [dict(self.seat, repo=self.repo)]), \
+                patch.object(orch, "job_notices", return_value=[]), \
+                patch.object(menu.Live, "probe", return_value=False), \
+                patch.object(menu, "wait_key", side_effect=wait_key), \
+                redirect_stdout(out):
+            self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
+        [(ready, waited)] = woke
+        self.assertTrue(ready, "the menu was never woken")
+        self.assertLess(waited, 2.0)
+        building, reviewing = ([line for line in screen.splitlines() if " herdr " in line][0]
+                               for screen in screens)
+        self.assertIn("● working", reviewing)
+        # the run's slot fills from a quarter to three quarters, as the bar's did
+        self.assertGreater(reviewing.count("▒"), building.count("▒"), (building, reviewing))
+        self.assertEqual(menu.seat_runs("herdr")[0]["step"], "review")
 
     def test_an_older_look_never_lands_on_the_bar_after_a_newer_one(self):
         # a menu's look decides on what it read; the turn ends and the seat's own hook publishes
