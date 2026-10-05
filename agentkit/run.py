@@ -2727,7 +2727,7 @@ def rules_cap(lp):
                                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
     limit, harness = ceiling
-    if git_out(lp.wt, "cat-file", "-e", "HEAD:AGENTS.md")[0] != 0:
+    if not git(lp.wt, "ls-tree", "--name-only", "HEAD", "--", "AGENTS.md"):
         return ""       # the branch deleted it
     # the bytes a checkout holds, Git's line-end conversion and filters applied: what a harness
     # reads, not the stored blob, and read as bytes, since a text read would fold CRLF to LF
