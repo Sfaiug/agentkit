@@ -333,6 +333,59 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
                 self.assertIsNone(land.passed(self.turn, self.wait(member)["land"]))
         self.assert_cleaned()
 
+    def assert_a_departed_tested_tip_is_rechecked(self, count, *, crash=False):
+        suite = "test -f base.txt && { test ! -f a.txt || test -f b.txt; }"
+        members = [self.member(f"member-{n}", joined=n, once="true", **{
+            "a.txt" if n == 1 else "b.txt" if n == count else f"member-{n}.txt": f"{n}\n"})
+            for n in range(1, count + 1)]
+        self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        self.capacity.return_value = 1
+
+        def stop_tip(cmds, cwd, log_path, *args, **kw):
+            result = self.check(cmds, cwd, log_path, *args, **kw)
+            with record.record(members[-1]) as current:
+                current.update(state="stopped")
+                current.pop("waiting_on")
+            return result
+
+        if crash:
+            with patch.object(record, "record", side_effect=RuntimeError("before verdict")):
+                with self.assertRaisesRegex(RuntimeError, "before verdict"):
+                    land.check_line(self.turn)
+            with record.record(members[-1]) as current:
+                current.update(state="stopped")
+                current.pop("waiting_on")
+        else:
+            with patch.object(gate, "run_done_when", side_effect=stop_tip):
+                land.check_line(self.turn)
+        tested = self.checked[0][0]
+        self.assertTrue(all("land" not in self.wait(m) for m in members[:-1]))
+        self.assertTrue(all(land.passed(self.turn, tree)["tested"] == tested
+                            for tree in land._trees(self.turn)[1]))
+        self.checked.clear()
+        self.checks.clear()
+        self.wake.reset_mock()
+        # Exercise both direct cached answers and the crowded pass's prefix replay.
+        self.capacity.return_value = 9 if crash else 1
+        land.check_line(self.turn)
+        self.assertTrue(self.checks)
+        self.assertIn("fix", self.wait(members[0]))
+        self.assertNotIn("land", self.wait(members[0]))
+        for member in members[1:-1]:
+            wait = self.wait(member)
+            self.assertIn("land", wait)
+            self.assertNotEqual(wait.get("tested", wait["land"]), tested)
+            self.assertNotIn("a.txt", run.git(self.repo, "ls-tree", "--name-only", wait["land"]).splitlines())
+            self.assertIn(land.passed(self.turn, wait["land"])["tested"],
+                          [tree for tree, _ in self.checked])
+        self.assert_cleaned()
+
+    def test_a_tip_stopped_during_the_check_cannot_supply_cached_batch_coverage(self):
+        self.assert_a_departed_tested_tip_is_rechecked(5)
+
+    def test_a_tip_departing_after_a_crash_cannot_answer_stacks_that_all_fit(self):
+        self.assert_a_departed_tested_tip_is_rechecked(3, crash=True)
+
     def test_the_deepest_stack_covers_every_member_when_only_one_check_fits(self):
         members = self.members()
         self.capacity.return_value = 1
