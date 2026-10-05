@@ -132,6 +132,15 @@ RULES = [
      "pattern": r"job\.json",
      "home": ("agentkit/job.py",),
      "max": 0},
+    # A run's state words are grouped once, in record.py (ACTIVE, FAILED, ENDED, GOING): a
+    # literal group elsewhere is a second copy that a new state word would miss. install.sh
+    # reads run records before agentkit is installed, so it keeps its own.
+    {"name": "run state groups",
+     "flags": (),
+     "pattern": r'\("(queued|running)", "(queued|running)"[,)]|"fail", "error", "blocked"|'
+                r'^(ENDED|GOING) = ',
+     "home": ("agentkit/record.py",),
+     "max": 1},
     # A run's worktree goes one way: the repo's `cleanup:` line, then git, then its `ak/`
     # branch. Each call of the cleanup line outside worktrees.py spells that order again.
     {"name": "run worktree removal",

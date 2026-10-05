@@ -33,7 +33,7 @@ def compute(now=None):
     if common:
         own_names.add((config.REPO / os.fsdecode(common).strip()).resolve().parent.name)
     rows = [row for row in history.ended_runs(now - 2 * week, now)
-            if row["final_state"] in ("pass", "fail", "error", "blocked", "exhausted")]
+            if row["final_state"] in ("pass", *record.FAILED, "exhausted")]
 
     board = {"products": [], "ak": []}
     for end in (now, now - week):
@@ -54,7 +54,7 @@ def compute(now=None):
                       if row.get("executor_tokens") is not None and row.get("reviewer_tokens") is not None]
             stats = {"runs": len(group), "merged": len(merged),
                      "first_round": sum(row["rounds_used"] == 1 for row in merged) / len(group),
-                     "unmerged": sum(row["final_state"] in ("fail", "error", "blocked", "exhausted")
+                     "unmerged": sum(row["final_state"] in (*record.FAILED, "exhausted")
                                      for row in group if row not in merged) / len(group),
                      "hours": median(hours) if hours else None,
                      "tokens": median(tokens) if tokens else None}

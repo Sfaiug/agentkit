@@ -782,7 +782,7 @@ def silent_for_run(run_dir, state, now=None):
     run directory, whatever the step. Under an hour nothing changes.
     """
     from . import run as _run
-    if state.get("state") not in ("running", "queued"):
+    if state.get("state") not in record.ACTIVE:
         return None
     if _run.own_pr_wait_note(state) and record.process_active(state):
         return None  # the seat's push, not another loop write, ends this wait
@@ -849,7 +849,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
         return False
     if state.get("merged"):
         return False
-    if state.get("state") not in ("fail", "error", "blocked", "interrupted", "pass"):
+    if state.get("state") not in (*record.FAILED, "interrupted", "pass"):
         return False
     at = time.time() if now is None else now
     ended = (state.get("finished_at") or state.get("interrupted_at")
@@ -1500,7 +1500,7 @@ def session_runs(name):
             state = record.read_state(run_dir)
             word = state and state.get("state")
             if (state and run_mod.launched_session(state) == name
-                    and (word not in run_mod.ENDED
+                    and (word not in record.ENDED
                          or word == "error" and run_mod.unfinished(state))):
                 found.append(run_dir)
         except (OSError, ValueError, config.Error):
@@ -2047,7 +2047,7 @@ def run_state_word(state):
         return run.waiting_word(state)
     if run.going(state):
         return "working"
-    if run.needs_recovery(state) or state.get("state") in ("fail", "error", "blocked"):
+    if run.needs_recovery(state) or state.get("state") in record.FAILED:
         return "needs you"
     return "done"
 
@@ -2059,7 +2059,7 @@ def run_age_secs(state):
     started = state.get("started_at") or 0
     if run.needs_recovery(state):
         return max(0.0, now - (state.get("interrupted_at") or started or now))
-    if state.get("state") in ("queued", "running") or run.landing_line(state):
+    if state.get("state") in record.ACTIVE or run.landing_line(state):
         return max(0.0, now - (started or now))
     if not started:
         return 0.0

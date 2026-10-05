@@ -936,8 +936,6 @@ def worker_token_note(now=None):
 
 
 LIVE = ("asking", "working", "at_prompt", "draft")   # the states a live seat can be caught in
-GOING = ("queued", "running", "waiting", "exhausted", "stalled",
-         "waiting_login")                       # a run that resumes itself
 TURN_SECS = 3 * 3600   # age of a seat fact worth checking; never a worker turn cap
 # Screen captures for the seat rules are taken with attributes (`capture-pane -p -e`),
 # so dim text can be told from typed text. A faint (SGR 2) span is a suggestion or
@@ -4105,7 +4103,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
             if not state:
                 continue
             status = state.get("state")
-            if status == "stopped" or status not in ("running", "queued", "interrupted"):
+            if status == "stopped" or status not in (*run_record.ACTIVE, "interrupted"):
                 continue
             if status == "interrupted" and not (state.get("deaths") or []):
                 # An interruption with no death recorded on it is not this pass's: a
@@ -4923,7 +4921,7 @@ def revive_seats(cfg, log):
         state = run_record.read_state(run_dir)
         if state:
             states.append(state)
-        if not state or state.get("state") not in ("running", "queued"):
+        if not state or state.get("state") not in run_record.ACTIVE:
             continue
         try:
             seat = run_mod.launched_session(state)
@@ -4979,7 +4977,7 @@ def wants_github(state):
     runs are still owed a push.
     """
     from . import run   # here, not at the top: run imports this module
-    if state.get("state") in ("queued", "running"):
+    if state.get("state") in run_record.ACTIVE:
         if state.get("review_pr"):
             return True
         if "no_merge" in state:
@@ -5075,11 +5073,11 @@ def settled(entry, dry_run=False):
     if st is None:
         return "failed"
     if dry_run:
-        if st.get("state") in ("running", "queued") and not run_record.process_active(st):
+        if st.get("state") in run_record.ACTIVE and not run_record.process_active(st):
             return "pending"  # interruption requires an explicit recovery choice
     else:
         st = run.reap(run_dir, st)
-    if st.get("state") in ("running", "queued") or run.needs_recovery(st):
+    if st.get("state") in run_record.ACTIVE or run.needs_recovery(st):
         return "pending"
     if st.get("state") == "stopped":
         return "done"  # deliberately ended: never relaunched, whatever the head does
@@ -5841,7 +5839,7 @@ def offer_endings(log):
             receipt = run_record.read_state(run_dir)
             if receipt:
                 receipt = run.reap(run_dir, receipt)
-                if receipt.get("state") in run.ENDED:
+                if receipt.get("state") in run_record.ENDED:
                     # Every ending nobody has heard is offered again here, not only one a flag
                     # was left on: a hand-back the run could not type goes in at the next quiet
                     # prompt, and so does the ending of an attempt that was reaped without one.

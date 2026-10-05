@@ -162,7 +162,7 @@ class RunStop(Sandbox):
             self.assertEqual(run.cmd_stop([run_id]), 0)
         state = record.read_state(directory)
         self.assertEqual(state["state"], "stopped")
-        self.assertIn("stopped", run.ENDED)
+        self.assertIn("stopped", record.ENDED)
         self.assertFalse(run.needs_recovery(state))
         self.assertFalse(run.unfinished(state))
         self.assertFalse(run.owes_ending(state))

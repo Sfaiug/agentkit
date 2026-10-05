@@ -143,7 +143,6 @@ LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
-ENDED = ("pass", "fail", "error", "blocked", "stopped", "not_needed")
 QUEUED_GRACE = 30               # old launchers did not record the background child's identity
 _RUN_CONTEXT = threading.local()  # job threads export their own depth and slot owner
 _DELIVERY_HELD = threading.local()   # the delivery locks this thread is already inside
@@ -3044,7 +3043,7 @@ def repair_open(state, tip):
     a target that moved past it is a new red.
     """
     return followup_open(state) or (
-        state.get("state") in ENDED and state.get("state") != "not_needed"
+        state.get("state") in run_record.ENDED and state.get("state") != "not_needed"
         and not state.get("merged") and state.get("repair_tip") == tip)
 
 
@@ -6976,7 +6975,7 @@ def handback_reason(state, cfg=None):
     cap_line = " ".join((state.get("error") or "").split())
     if cap_line.startswith("killed: memory cap"):
         return cap_line[:300]
-    if state.get("state") not in ENDED and needs_recovery(state):
+    if state.get("state") not in run_record.ENDED and needs_recovery(state):
         # an interruption, or a stop no window will lift: what stopped it is the whole news,
         # and rounds and findings say nothing about a run that never reached its verdict.  A
         # resumed attempt that did reach one is an ending, `recovery_pending` or not, and says
@@ -7115,7 +7114,7 @@ def owes_ending(state):
         return False
     if going(state) and state.get("state") == "error":
         return False
-    return (state.get("state") in ENDED and not already_handed_back(state)
+    return (state.get("state") in run_record.ENDED and not already_handed_back(state)
             and not state.get("reported"))
 
 
@@ -7240,7 +7239,7 @@ def hand_back(state, run_dir, log, cfg=None):
             state["handed_back"] = said["handed_back"]
             log(f"run {run_dir.name} was already handed back to the {session} seat")
             return True
-        if (said.get("state") in ENDED and not said.get("handback_pending")
+        if (said.get("state") in run_record.ENDED and not said.get("handback_pending")
                 and not said.get("notification_pending") and watch.is_preexisting(said)):
             mark_delivery(run_dir, state, handed_back=time.time(),
                           handback_note=watch.PREEXISTING_NOTE, handback_pending=None,
@@ -7307,7 +7306,7 @@ def announce(state, run_dir, log, cfg=None):
     if going(state) and state.get("state") == "error":
         return
     session = launched_session(state)
-    if needs_recovery(state) and state.get("state") not in ENDED:
+    if needs_recovery(state) and state.get("state") not in run_record.ENDED:
         # Inside a job the scheduler owns recovery: a run the job is adopting right now is
         # resumed by the job itself seconds later, and a recovery notice would be per-task
         # noise contradicting what happens next.
@@ -7315,7 +7314,7 @@ def announce(state, run_dir, log, cfg=None):
             return
         reap(run_dir, state)
         return
-    if state.get("state") not in ENDED:
+    if state.get("state") not in run_record.ENDED:
         return
     if not session or state.get("repair") and (state.get("merged")
                                                or state.get("state") == "not_needed"):
@@ -7541,7 +7540,7 @@ def needs_recovery(state):
     members belong to the lander even if an earlier attempt left a recovery mark.
     """
     return (not landing_line(state) and
-            state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
+            state.get("state") not in (*run_record.ACTIVE, "pass", "blocked", "stopped", "not_needed") and
             (state.get("state") in ("interrupted", "exhausted", "stalled", "waiting_login") or
              bool(state.get("recovery_pending"))))
 
@@ -7570,7 +7569,7 @@ def notify_recovery(run_dir, state):
     the same line back twice, and escalate one already delivered to the owner once the seat
     closed.
     """
-    if state.get("state") in ENDED or state.get("handed_back"):
+    if state.get("state") in run_record.ENDED or state.get("handed_back"):
         return  # an ending is announce's, and one already said is nobody's to say again
     if getattr(jobs._JOB_MUTE, "adopt", None):
         return  # the job resumes this run itself; a notice would contradict what happens next
@@ -7960,8 +7959,8 @@ def reap(run_dir, state, memory_probe=None):
     asking a real one.
     """
     state = run_record.read_state(run_dir) or state
-    if state.get("state") not in ("running", "queued") and not needs_recovery(state):
-        if state.get("state") not in ENDED:
+    if state.get("state") not in run_record.ACTIVE and not needs_recovery(state):
+        if state.get("state") not in run_record.ENDED:
             return state
         # else: an ended run whose loop may have died before its final cleanup --
         # fall through and sweep what it left behind, once per loop
@@ -7973,18 +7972,18 @@ def reap(run_dir, state, memory_probe=None):
         if status == "stalled":
             return state  # parked by the tick; only an explicit resume moves it
         resumed_at = state.get("stall_resume_at")
-        if (status in ("running", "queued") and isinstance(resumed_at, (int, float))
+        if (status in run_record.ACTIVE and isinstance(resumed_at, (int, float))
                 and not isinstance(resumed_at, bool)
                 and 0 <= time.time() - resumed_at < STALL_RESUME_GRACE):
             return state  # the tick stopped this loop and ordered a resume; it adopts next
         holding = state.get("resume_after")
-        if (status in ("running", "queued") and isinstance(holding, (int, float))
+        if (status in run_record.ACTIVE and isinstance(holding, (int, float))
                 and not isinstance(holding, bool) and time.time() < holding):
             return state  # the tick is waiting out this dead loop's backoff before its next try
         grace = (status == "queued" and
                  (state.get("launch_pending") or not state.get("process_identity")) and
                  time.time() - (state.get("queued_at") or state.get("started_at") or 0) < QUEUED_GRACE)
-        if status in ("running", "queued") and not grace and not run_record.process_active(state):
+        if status in run_record.ACTIVE and not grace and not run_record.process_active(state):
             cap_reason = (memory_cap_reason(state, probe=memory_probe)
                           if status == "running" else None)
             if cap_reason:
@@ -8011,7 +8010,7 @@ def reap(run_dir, state, memory_probe=None):
         elif status == "interrupted" and not state.get("interrupted_at"):
             interrupt(state, state.get("error") or "Earlier interruption; detection time recorded now.")
             run_record.save_state(run_dir, state)
-        if status in ("pass", "fail", "error", "blocked", "exhausted", "waiting_login",
+        if status in ("pass", *run_record.FAILED, "exhausted", "waiting_login",
                       "interrupted") and not run_record.process_active(state):
             swept = [state.get("pid"), state.get("process_identity")]
             if state.get("tree_stopped") != swept:
@@ -8159,7 +8158,7 @@ def mark_looked_at(run_dir, state=None):
         current = run_record.read_state(run_dir) if state is None else dict(state)
         if not current:
             return False
-        if current.get("state") not in ENDED:
+        if current.get("state") not in run_record.ENDED:
             return False
         if current.get("state") == "error" and going(current):
             return False
@@ -8177,7 +8176,7 @@ def acknowledge(run_dir):
         state = run_record.read_state(run_dir)
         if not state:
             raise config.Error("the run is no longer waiting for recovery")
-        waiting = needs_recovery(state) or state.get("state") in ("fail", "error", "blocked")
+        waiting = needs_recovery(state) or state.get("state") in run_record.FAILED
         if not waiting or state.get("recovery_acknowledged_at"):
             raise config.Error("the run is no longer waiting for recovery")
         state["recovery_acknowledged_at"] = time.time()
@@ -8471,7 +8470,7 @@ def exhausted_wait(state):
 def going(state, now=None):
     """Whether the run keeps its seat working while it lasts.
 
-    The GOING states -- queued, running, waiting, exhausted, stalled,
+    The `record.GOING` states -- queued, running, waiting, exhausted, stalled,
     waiting_login -- which resume themselves or are already running, plus an
     error the tick will retry. Errors and waits on a target ref need current admission:
     an old stamp cannot keep a seat working after its retry stopped being allowed,
@@ -8485,7 +8484,7 @@ def going(state, now=None):
         return False
     if state.get("state") == "exhausted":
         return bool(exhausted_wait(state))
-    if state.get("state") in watch.GOING:
+    if state.get("state") in run_record.GOING:
         return True
     if state.get("state") != "error":
         return False
@@ -8596,7 +8595,7 @@ def unfinished(state, records=None, index=None):
     `records` is an iterable of states already read, `index` a `supersession_index`
     over them; without either supersession is not read.
     """
-    if state.get("state") in ("running", "queued"):
+    if state.get("state") in run_record.ACTIVE:
         return True
     if not (needs_recovery(state) and not state.get("recovery_acknowledged_at")):
         return False
@@ -8612,7 +8611,7 @@ def stoppable(state):
     for the ladder, the way stopping a waiting run ends its wait.  Every other ending sits
     inert, so there is nothing to stop.
     """
-    return state.get("state") not in ENDED or state.get("state") == "error"
+    return state.get("state") not in run_record.ENDED or state.get("state") == "error"
 
 
 def ways_out(state, run_dir):
@@ -8624,7 +8623,7 @@ def ways_out(state, run_dir):
     gone.
     """
     run_id = Path(run_dir).name
-    ways = [f"ak run status {run_id}"] if state.get("state") in ENDED else []
+    ways = [f"ak run status {run_id}"] if state.get("state") in run_record.ENDED else []
     if failed_at_budget(state):
         onward = continue_line(state, run_dir)
         ways += [onward.removeprefix("continue: ")] if onward else []
@@ -8694,7 +8693,7 @@ def stop_owned_runs(name):
                 continue
         except config.Error:
             continue
-        if state.get("state") not in ENDED:
+        if state.get("state") not in run_record.ENDED:
             try:
                 cmd_stop([run_dir.name])
             except config.Error as exc:
@@ -8731,7 +8730,7 @@ def release_session(name):
         except config.Error:
             continue
         ids.append(run_dir.name)
-        if state.get("state") in ENDED:
+        if state.get("state") in run_record.ENDED:
             if not worktrees.drop_checkout(state, lambda _message: None, keep_branch=False):
                 continue
             # the branch went with the checkout: the status row reads this mark,
@@ -9601,7 +9600,7 @@ def resume_run(argv):
             return drive(cfg, run_dir, opts, log,
                          job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
         return drive(cfg, run_dir, opts, log, prior=state)
-    if not child and state.get("state") in ("running", "queued"):
+    if not child and state.get("state") in run_record.ACTIVE:
         if run_record.process_active(state):
             raise config.Error(f"{argv[0]} is still running as pid {state['pid']}")
         state = reap(run_dir, state)
@@ -10795,7 +10794,7 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
         if exclude is not None and Path(directory) == Path(exclude):
             continue
         state = run_record.read_state(directory)
-        if not state or state.get("state") not in ("running", "queued"):
+        if not state or state.get("state") not in run_record.ACTIVE:
             continue
         if not run_record.process_active(state):
             continue
