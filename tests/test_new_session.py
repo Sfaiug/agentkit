@@ -202,6 +202,22 @@ class NewSession(Sandbox):
         self.run_repo(None, None, "notes", tasks / "notes" / "check.md")
         self.run_repo(None, str(own), "scratch", tasks / "agentkit" / "check.md")
 
+    def test_a_worktree_beside_a_checkout_is_that_checkout(self):
+        # Seats add worktrees under ~/code for their own work: none is a project of its own,
+        # and a PR review takes the checkout, never a seat's worktree that sorts before it.
+        main = self.checkout("acme")
+        subprocess.run(["git", "-C", str(main), "remote", "add", "origin",
+                        "git@github.com:me/acme.git"], check=True)
+        linked = config.CODE / ".acme-fix"
+        subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", "-b", "fix", str(linked)],
+                       check=True)
+        self.assertIn(main, orch.checkouts())
+        self.assertNotIn(linked, orch.checkouts())
+        self.assertEqual(orch.checkout_of(str(linked)), main)
+        (linked / "app").mkdir()
+        self.assertEqual(orch.cwd_project(linked / "app"), main)
+        self.assertEqual(run.checkout_for("me/acme", print), main)
+
     def test_scratch_run_keeps_session_projectless(self):
         config.save_session(self.cfg, "seat", "fable", ["opus"], {"cwd": str(config.CODE), "repo": None})
         before = config.session_path("seat").read_bytes()
