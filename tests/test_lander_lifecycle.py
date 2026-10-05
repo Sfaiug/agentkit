@@ -71,6 +71,9 @@ class LanderLifecycle(unittest.TestCase):
         self.assertTrue(kw["nice"])
         self.assertIn("MemoryMax=4000M", kw["properties"])
         self.assertIn("MemorySwapMax=4000M", kw["properties"])
+        # Every passed run waits behind this check: it outweighs every run for the CPU.
+        self.assertIn(f"CPUWeight={host.CPU_WEIGHT_MAX}", kw["properties"])
+        self.assertNotIn("CPUWeight=40", kw["properties"])
         self.assertEqual(output, self.turn.with_suffix(".log"))
         self.assertEqual(env["AK_RUN_DEPTH"], "0")
         for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_SCOPE",
@@ -115,7 +118,7 @@ class LanderLifecycle(unittest.TestCase):
 
     def test_a_suite_oom_keeps_the_lander_scope_running(self):
         self.member(memory_cap_mb=6000)
-        _, properties = run.run_scope_limits(cap_mb=6000)
+        _, properties = run.run_scope_limits(cap_mb=6000, cpu_weight=host.CPU_WEIGHT_MAX)
         self.assertEqual(self.starts[0][4]["properties"], properties)
         self.assertIn("OOMPolicy=continue", properties)
 

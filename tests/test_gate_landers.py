@@ -139,6 +139,88 @@ class GateLanders(unittest.TestCase):
         self.assertTrue(plain.result[0] and lander.result[0])
         self.assertEqual(self.marks.read_text(), "lander\nround\n")
 
+    def test_the_line_checkers_wait_holds_round_checks_and_new_runs(self):
+        # The line's checker marks no member's record; its wait still goes first.
+        plain = Gate(self, "round-waiter", ACME, [self.mark("round")])
+        holder = gate.gate_lock(ACME, 0).open("a")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        plain.start()
+        self.until(lambda: self.turn("round-waiter").get("since") is not None,
+                   "the round waiter to mark its wait")
+        context = {"repo": ACME, "run_id": "member", "landing": True, "since": time.time()}
+        def check():
+            with gate.gate_turn(None, self.root / "line.log", None, None, self.root,
+                                context=context):
+                with self.marks.open("a") as marks:
+                    marks.write("lander\n")
+        checker = threading.Thread(target=check, daemon=True)
+        checker.start()
+        self.until(gate.landing_waits, "the checker to wait for a turn")
+        repo = run.main_checkout(ACME)
+        self.assertTrue(gate._gate_waiter_before(repo, "round-waiter",
+                                                 self.turn("round-waiter")["since"]))
+        readings = {"free_mb": 8000, "mem_total_mb": 16000, "slice_cpu_pressure": 0}
+        new = {"run_id": "new-run", "run_depth": 0}
+        self.assertFalse(gate.claim_slot(new, 0, readings))
+        self.assertEqual(new["slot_wait_kind"], "landing")
+        repair = {"run_id": "repair", "run_depth": 0, "first": True}
+        self.assertFalse(gate.claim_slot(repair, 0, readings))   # its first steady poll
+        self.assertTrue(gate.claim_slot(repair, 0, readings))
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        checker.join(20)
+        plain.join(20)
+        self.assertIsNone(plain.error, plain.error)
+        self.assertEqual(self.marks.read_text(), "lander\nround\n")
+        self.assertFalse(gate.landing_waits())
+        self.assertFalse(gate.claim_slot(new, 0, readings))   # its first steady poll
+        self.assertTrue(gate.claim_slot(new, 0, readings))
+
+    def test_a_landing_check_is_seen_from_its_first_look_at_the_turns(self):
+        # No new run or round check slips in while the checker reads headroom for its pieces.
+        seen, real = [], gate._heavy_max_existing
+        def look():
+            seen.append(gate.landing_waits())
+            return real()
+        context = {"repo": ACME, "run_id": "member", "landing": True, "since": time.time()}
+        with patch.object(gate, "_heavy_max_existing", side_effect=look):
+            with gate.gate_turn(None, self.root / "line.log", None, None, self.root,
+                                context=context):
+                self.assertFalse(gate.landing_waits())    # it holds its turn: no wait left
+        self.assertEqual(seen[:1], [True])
+
+    def test_a_check_whose_member_left_the_line_holds_nobody_back(self):
+        turn = config.RUNS / ".merge-acme.lock"
+        member = self.record("member", ACME)
+        state = run_record.read_state(member)
+        run_record.save_state(member, {**state, "state": "waiting", "pid": None,
+                                       "waiting_on": {"line": turn.name, "joined": 1}})
+        holder = gate.gate_lock(ACME, 0).open("a")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        context = {"repo": ACME, "run_id": "member", "landing": True, "since": 1,
+                   "line": turn.name}
+        done = []
+        def check():
+            with gate.gate_turn(None, self.root / "line.log", None, None, self.root,
+                                context=context):
+                done.append(True)
+        checker = threading.Thread(target=check, daemon=True)
+        checker.start()
+        self.until(gate.landing_waits, "the checker to wait for a turn")
+        with run_record.record(member) as current:
+            current["state"] = "stopped"
+        self.until(lambda: not gate.landing_waits(), "the checker to stop holding others back")
+        readings = {"free_mb": 8000, "mem_total_mb": 16000, "slice_cpu_pressure": 0}
+        new = {"run_id": "new-run", "run_depth": 0}
+        self.assertFalse(gate.claim_slot(new, 0, readings))   # its first steady poll
+        self.assertTrue(gate.claim_slot(new, 0, readings))
+        repo = run.main_checkout(ACME)
+        self.assertFalse(gate._gate_waiter_before(repo, "round", time.time() - 60))
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        checker.join(20)
+        self.assertEqual(done, [True])
+
     def test_earlier_first_landing_wait_wins_between_landers_across_retries(self):
         # the old lander is on its second wait: waiting since 3000, but its first
         # landing wait began at 1000, ahead of the new lander's 2000
