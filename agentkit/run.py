@@ -1496,8 +1496,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 continue
         else:
             session, calls = sid or session, calls + 1
+        # An ask for a missing closing or verdict is the turn's one extra call already.
         if (not killed and (unfinished or turn_unfinished(target))
-                and "-retry-hand-in" not in out_dir.name):
+                and "-retry-hand-in" not in out_dir.name and not body.endswith(NO_VERDICT_ASK)):
             log(f"{role} {name} ended its turn with a command still in the background; asking "
                 "it to finish in the foreground")
             finish = target.with_name(f"{target.name}-retry-foreground")
@@ -3663,6 +3664,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.log(f"WARN reviewer fell back to {lp.reviewer}"
                f"{' on another provider' if theirs not in (None, spare) else ''}")
         return f"reviewer-{lp.reviewer}"
+    ask = None      # where the answer that gave no verdict is, for the call asking once more
     while True:
         if not lp.executor and not lp.state.get("review_pr"):
             raise config.Error("task review requires a recorded executor")
@@ -3671,7 +3673,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         turn_kind, turn_sid = open_turn(rd, name)
         out = free_dir(lp, name)
         asked_body, note, resume = rbody, None, {}
-        if turn_kind == "resume":
+        if ask:
+            asked_body, resume, ask = NO_VERDICT_ASK, {"fresh_body": rbody, "previous": ask}, None
+        elif turn_kind == "resume":
             asked_body = host_ended_prompt(lp.state)
             lp.review_sid = turn_sid
             note = {"at": time.time(), "role": "reviewer", "restarted": False}
@@ -3738,61 +3742,18 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         if submitted is not None and submitted.done:
             break
         # A missing verdict is a reviewer that has not answered, never an answer: ask the
-        # same session once more, same round, no backoff, not a transport attempt.  When
-        # the turn already spent its one extra call finishing background work in the
-        # foreground, that call already carried the verdict ask, so a second silence
-        # means the reviewer is gone: no round is recorded, same as a dead reviewer.
-        if list(lp.round_dir.glob(f"{out.name}*foreground*")):
+        # same session once more, same round, no backoff, through the same call as the
+        # review itself, so a window spent on the ask is a spent window and waits for its
+        # refill.  When the turn already spent its one extra call finishing background
+        # work in the foreground, that call already carried the verdict ask, so a second
+        # silence means the reviewer is gone: no round is recorded, same as a dead reviewer.
+        if asked_body == NO_VERDICT_ASK or list(lp.round_dir.glob(f"{out.name}*foreground*")):
             record_findings(lp, out, text)
             lp.save()
             name = fall_back("gave no verdict twice", out)
             continue
         lp.log(f"reviewer {lp.reviewer} gave no verdict; asking once more")
-        out2 = lp.dir(name)
-        attempt2 = 1
-        while out2.exists():
-            attempt2 += 1
-            out2 = lp.dir(f"{name}-attempt{attempt2}")
-        env2 = {**run_child_env(), "AK_RUN_ROLE": "worker",
-                "AK_RUN_LOG": str(out2.parent.parent / "log.txt"),
-                hand_in.CONTINUE: str(written_answer(out, text).parent / hand_in.FILE)}
-        run_record.stop_check(lp.run_dir)
-        try:
-            with reviewer_checkout(lp.wt, out2, lp.log) if not lp.scratch else nullcontext(lp.wt) as cwd:
-                code2, text2, sid2, killed2, unfinished2 = worker.turn(
-                    lp.cfg, lp.reviewer, NO_VERDICT_ASK, cwd, out2, lp.role("reviewer"),
-                    lp.review_sid, env=env2, limit=lp.turn_limit, log=lp.log)
-            # The extra ask names no account, so it runs on the usual login: the turn's
-            # own reading belongs to that login, and to no login nobody tracks.
-            provider = config.model(lp.cfg, lp.reviewer)["provider"]
-            names = config.accounts(lp.cfg, provider)
-            if not names or config.DEFAULT_ACCOUNT in names:
-                note_turn_meters(lp.cfg, lp.reviewer, out2,
-                                 config.DEFAULT_ACCOUNT if names else None)
-        except worker.LoginExpired as expired:
-            lp.review_sid = expired.session or lp.review_sid
-            lp.save()           # the parked conversation is in run.json before the run parks
-            raise
-        finally:
-            history_role_tokens(lp.state.get("run_id"), "reviewer", out2, lp.log,
-                                lp.cfg, lp.reviewer)
-            memory_cap_note(lp.run_dir, lp.log)
-        lp.review_sid = sid2 or lp.review_sid
-        if code2 != 0:
-            lp.log(f"WARN reviewer {killed_word(code2) or f'exited {code2}'}; "
-                   f"see {out2 / 'stderr.log'}")
-        submitted2 = review_records(out2, text2)
-        answered2 = submitted2 is not None and submitted2.done
-        if not killed2 and (unfinished2 or turn_unfinished(out2)) and answered2:
-            lp.log(f"WARN reviewer {lp.reviewer} ended its turn with a command still in the "
-                   "background again; carrying on with what it reported")
-        if answered2:
-            code, text, out = code2, text2, out2
-            submitted = submitted2
-            break
-        record_findings(lp, out2, text2)
-        lp.save()
-        name = fall_back("gave no verdict twice", out2)
+        ask = written_answer(out, text).parent
 
     checkout_changed = not lp.scratch and (
         identity != validation or commit_identity(lp.wt) != identity
