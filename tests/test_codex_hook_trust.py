@@ -44,7 +44,8 @@ class HookTrust(unittest.TestCase):
             fake.write_text("#!/bin/sh\necho '  --dangerously-bypass-hook-trust'\n")
             fake.chmod(0o755)
             seen = []
-            with patch.dict(os.environ, {codex.RECEIPT_ENV: str(Path(tmp) / "receipt")}):
+            with patch.dict(os.environ, {codex.RECEIPT_ENV: str(Path(tmp) / "receipt"),
+                                         "HOME": tmp}):
                 codex.main(["--", str(fake)], launch=lambda cmd, receipt: seen.append(cmd) or 0)
         flags = [seen[0][i + 1] for i, word in enumerate(seen[0]) if word == "-c"]
         installed = {}
