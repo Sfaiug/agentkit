@@ -2689,25 +2689,29 @@ def commit_identity(wt):
             "tree_sha": git(wt, "rev-parse", "HEAD^{tree}")}
 
 
-def plan_context(seat, repo, reviewed):
+def plan_context(seat, repo, head):
     """The seat's open plan lines on the repository under review, for the review of its own
     PR there: the outcomes the user agreed to, each with the check that proves it.  A line
-    belongs here by the root commit it recorded, read in the PR's own checkout `reviewed`
-    whatever branch `repo` has out; one from before lines named a root, by the checkout its
-    project name resolves to.  A line on another project, or one `ak plan` did not write, is
-    no outcome of this PR.  An unreadable plan refuses the review: judged without the agreed
-    outcomes, it would pass what it should not."""
+    belongs here by the root commit it recorded, matched against the PR head's own history
+    in `repo` whatever branch is checked out there; one from before lines named a root, by
+    the checkout its project name resolves to.  A line on another project, or one `ak plan`
+    did not write, is no outcome of this PR.  A plan, or a root, that cannot be read refuses
+    the review: judged without the agreed outcomes, it would pass what it should not."""
     from . import plan
-    here, open_lines = plan.root(Path(reviewed)), []
-    for line in plan.lines(seat):
-        found = plan.LINE.match(line.strip())
-        if not found or not plan.is_open(line):
-            continue
-        project = found["project"]
+    found = [line for line in map(plan.LINE.match, map(str.strip, plan.lines(seat)))
+             if line and plan.is_open(line.string)]
+    rooted = any("#" in line["project"] for line in found)
+    here = plan.root(repo, head) if rooted else None
+    if rooted and here is None:
+        raise config.Error(f"cannot read the root commit of {head[:12]} in {repo}, so the plan's "
+                           "lines cannot be matched to this PR; run the review again")
+    open_lines = []
+    for line in found:
+        project = line["project"]
         placed = plan.place(seat, project) if "#" not in project else None
         if (project.rpartition("#")[2] == here if "#" in project
                 else placed is not None and placed.resolve() == Path(repo).resolve()):
-            open_lines.append(line.strip())
+            open_lines.append(line.string)
     if not open_lines:
         return ""
     return ("## The plan this PR serves\nThe session's open plan lines, the outcomes the user "
@@ -10536,6 +10540,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     target_sha = git(repo, "rev-parse", f"origin/{base}^{{commit}}")
     base_sha = git(repo, "merge-base", target_sha, head)
+    # read before any checkout is made: a plan that refuses the review leaves nothing behind
+    planned = plan_context(session_at_launch, repo, head) if is_own else ""
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
         if advancing:
@@ -10555,7 +10561,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     body = (f"# {title}\n\n## Goal\nJudge {url} by {info['author']} against this repository: "
             f"its AGENTS.md, README, tests and conventions, and the intent the PR states. {wrote}\n\n"
             f"## The PR says\n{(info.get('body') or '(no description)').strip()}\n\n"
-            + (plan_context(session_at_launch, repo, wt) if is_own else "")
+            + planned
             + "## Done when\n```bash\n" + (cmds[0] if cmds else "true   # AGENTS.md declares no tests:") + "\n```\n")
     (run_dir / "task.md").write_text(f"---\nrepo: {repo}\nrounds: {n_rounds}\n---\n{body}")
     state = stamp_origin({**(run_record.read_state(run_dir) or {}), "run_id": run_dir.name,

@@ -88,11 +88,13 @@ class OwnPrReview(unittest.TestCase):
             run.capture_launch(directory, {"--review-pr": URL})
             for name, value in (("pr_view", info), ("viewer_login", "owner"),
                                 ("checkout_for", self.repo), ("fetch", (0, "")),
-                                ("make_worktree", (worktree or self.repo, "ak/pr-7")),
                                 ("collect_usage", {}),
                                 ("ready_order", ["astra"]), ("post_review", True),
                                 ("checks", (True, "")), ("gh_json", (info, ""))):
                 mocks.enter_context(patch.object(run, name, return_value=value))
+            self.made = []
+            mocks.enter_context(patch.object(run, "make_worktree", side_effect=lambda *args: (
+                self.made.append(args), (worktree or self.repo, "ak/pr-7"))[1]))
             mocks.enter_context(patch.object(gc, "disk_pressure", return_value=False))
             for name in ("exclude_junk", "join_session_project", "restore_review_checkout",
                          "write_result", "refused"):
@@ -168,11 +170,18 @@ class OwnPrReview(unittest.TestCase):
         self.assertNotIn("the site loads", own)
         self.assertNotIn("a hand-kept note", own)
 
-    def test_an_unreadable_plan_refuses_the_review(self):
-        config.plan_path("fix-api").write_bytes(b"- [ ] \xff\xfe not text\n")
+    def test_an_unreadable_plan_or_root_refuses_the_review_before_any_checkout(self):
         self.change(5)
-        with self.assertRaises(config.Error):
-            self.review()
+        here = plan.named(self.repo)
+        for why, written in (("plan", b"- [ ] \xff\xfe not text\n"),
+                             ("root", f"- [ ] the fence holds · check: `true` · {here}"
+                                      " · written 2026-10-02 12:00\n".encode())):
+            with self.subTest(why=why):
+                config.plan_path("fix-api").write_bytes(written)
+                with patch.object(plan, "root", return_value=None), \
+                        self.assertRaises(config.Error):
+                    self.review()
+                self.assertEqual(self.made, [], "a checkout was made for a refused review")
 
     def test_another_authors_pr_and_a_review_without_a_seat_run(self):
         self.change(1000)
