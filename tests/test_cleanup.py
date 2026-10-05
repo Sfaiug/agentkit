@@ -383,6 +383,24 @@ class Cleanup(Sandbox):
         self.assertIn(f"kept; relaunch with from: {branch}", out.getvalue())
         self.assertTrue(run_record.read_state(directory)["stop_kept"])
 
+    def test_a_branch_lookup_that_times_out_is_reported_kept(self):
+        # a git that never said whether the branch is there has not removed it: the stop
+        # finishes, says kept, and the record agrees
+        directory, wt, branch = self.receipt("slow-ref", state="running")
+        real = run.tool_run
+
+        def timed_out(cmd, *args, **kwargs):
+            if cmd[3:4] == ["rev-parse"] and cmd[-1] == f"refs/heads/{branch}":
+                return None, "", "git rev-parse timed out"
+            return real(cmd, *args, **kwargs)
+        out = io.StringIO()
+        with patch.object(run, "tool_run", side_effect=timed_out), redirect_stdout(out):
+            self.assertEqual(run.cmd_stop(["slow-ref"]), 0)
+        self.assertFalse(wt.exists())
+        self.assertTrue(self.branch_exists(branch))
+        self.assertIn(f"kept; relaunch with from: {branch}", out.getvalue())
+        self.assertTrue(run_record.read_state(directory)["stop_kept"])
+
     def test_changed_files_survive_the_removed_checkout(self):
         # history reads the changed files after the merge took the tree: the
         # delivery sha names the same tip in the repo the branch pointed at
