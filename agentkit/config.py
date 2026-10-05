@@ -742,6 +742,7 @@ SEAT_FILES = {
     "stop": "json",      # this turn's start, for the stop hook's rule
     "title": "json",     # the title last read from its conversation
     "input": "jsonl",    # each line ak typed, with its source and conversation
+    "tell": "json",      # what other seats sent it with `ak tell`, until ak types it there
     "rulebook": "md",    # the rulebook its orchestrator was started on
 }
 
@@ -832,7 +833,7 @@ def check_stop_owner(owner):
     if caller and isinstance(owner, str) and owner:
         owner = resolve_session(owner)
         if owner != caller:
-            raise Error(f"owned by seat {owner}; message that seat instead")
+            raise Error(f"owned by seat {owner}; tell it instead: ak tell {owner} \"...\"")
 
 
 def _validate_session(cfg, name, data):
