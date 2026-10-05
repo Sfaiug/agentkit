@@ -1187,8 +1187,9 @@ class Limits(unittest.TestCase):
         real_gh = run.gh
 
         def confirm_gh(cwd, *args, **kwargs):
-            if "--json" in args and args[args.index("--json") + 1] == "state":
-                return 0, "MERGED"
+            if "--json" in args and args[args.index("--json") + 1] == "state,headRefOid,baseRefName":
+                return 0, json.dumps({"state": "MERGED", "headRefOid": state["delivery_sha"],
+                                      "baseRefName": "main"})
             return real_gh(cwd, *args, **kwargs)
 
         with patch.object(run, "TOOL_CAP", 5), patch.object(run, "gh", side_effect=confirm_gh), \
