@@ -5502,6 +5502,8 @@ def land_from_line(lp, upstream, deliver):
         lp.write()
     if lp.state["landing_reds"] > CONFLICT_ROUNDS:
         lp.state.pop("waiting_on", None)
+        # The count bounds one landing; a person who resumes the ended run starts a new one.
+        lp.state.pop("landing_reds", None)
         return note(lp, f"landing failed four times: {failure['line']}; see {failure['log']}",
                     failed=True)
     if not integrate(lp, upstream):
