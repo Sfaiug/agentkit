@@ -315,9 +315,9 @@ class GcSweep(Sandbox):
             self.git(wt, "commit", "-qam", name)
             return wt
         kept = ("open", "unpushed", "dirty", "untracked", "hidden-new", "unchanged", "skipped",
-                "submodule")
+                "submodule", "ignore-case")
         merged, *kept = (seat(name) for name in ("merged", *kept))
-        open_pr, unpushed, dirty, untracked, hidden_new, unchanged, skipped, submodule = kept
+        open_pr, unpushed, dirty, untracked, hidden_new, unchanged, skipped, submodule, case = kept
         (dirty / "tracked").write_text("not committed\n")
         (untracked / "notes.md").write_text("never added\n")
         # Work git would not report: the repository hides new files, the index marks a file
@@ -325,6 +325,8 @@ class GcSweep(Sandbox):
         self.git(self.repo, "config", "extensions.worktreeConfig", "true")
         self.git(hidden_new, "config", "--worktree", "status.showUntrackedFiles", "no")
         (hidden_new / "notes.md").write_text("never added\n")
+        self.git(case, "config", "--worktree", "core.ignoreCase", "true")
+        (case / "TRACKED").write_text("a new file beside `tracked`\n")
         for wt, flag in ((unchanged, "--assume-unchanged"), (skipped, "--skip-worktree")):
             self.git(wt, "update-index", flag, "tracked")
             (wt / "tracked").write_text("edited out of git's sight\n")

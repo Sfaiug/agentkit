@@ -433,10 +433,14 @@ def delivered(wt, branch, head):
     merged, and GitHub has its head commit, which the line may have rebased before merging.
     Anything unproven may exist nowhere else: a file the index marks assume-unchanged or
     skip-worktree, whose edits git no longer reports, and a submodule, whose own commits
-    GitHub may lack, keep the checkout; the repository's settings cannot hide a new file."""
+    GitHub may lack, keep the checkout; no setting of the repository's hides a change or a
+    new file from the check."""
     if not branch or not head:
         return False
-    git = ["git", "-C", str(wt), "-c", "core.fsmonitor=false", "--no-optional-locks"]
+    git = ["git", "-C", str(wt), "--no-optional-locks"]
+    for setting in ("core.fsmonitor=false", "core.untrackedCache=false", "core.ignoreCase=false",
+                    "core.ignoreStat=false"):
+        git += ["-c", setting]
     code, index, _ = run.tool_run([*git, "ls-files", "--stage", "-v"], timeout=60)
     if code != 0 or any(not line.startswith("H ") or line.split()[1] == "160000"
                         for line in index.splitlines()):
