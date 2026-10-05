@@ -386,8 +386,8 @@ class HandBack(Sandbox):
                                ["bash tests/smoke.sh", "acceptance: FAILED"]]})
         self.assertEqual(run.handback_reason(record.read_state(older)), "after 3 rounds, the final "
                          "check failed: `bash tests/smoke.sh` — acceptance: FAILED")
-        # a review FAIL carries its blocking findings, the first 600 characters, and never
-        # the follow-ups listed after them
+        # a review FAIL carries its blocking findings, the first 600 characters -- saying so
+        # when that cuts them short -- and never the follow-ups listed after them
         finding = "- a.py:1 - " + "x" * 700
         failed = self.ended("run-42", owner=SEAT, state="fail", verdict="FAIL", rounds=3,
                             round_summaries=[{}, {}, {}], findings=(
@@ -395,7 +395,7 @@ class HandBack(Sandbox):
                                 "## Follow-ups\n- c.py:3 - rename it - clarity\n"))
         state = record.read_state(failed)
         self.assertEqual(run.handback_reason(state),
-                         f"after 3 rounds, open findings: {finding[:600]}")
+                         f"after 3 rounds, 1 open finding, cut short here: {finding[:600]}")
         self.assertTrue(run.handback_line(state, failed).endswith(
             "three rounds spent: split or re-scope"))
 
@@ -412,8 +412,13 @@ class HandBack(Sandbox):
                           review_records=records(whole),
                           findings_file=str(answer))
         state = record.read_state(long)
-        self.assertTrue(run.handback_reason(state).startswith(
-            f"after 3 rounds, open findings: {first} $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence - n0.py:1 - "))
+        said = run.handback_reason(state)
+        self.assertTrue(said.startswith(
+            f"after 3 rounds, 151 open findings, cut short here (every one in full: {answer}): "
+            f"{first} $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence - n0.py:1 - "))
+        # where it points holds every one of them
+        named = answer.read_text()
+        self.assertTrue(all(f"- n{i}.py:1 - " in named for i in range(150)) and first in named)
         self.assertTrue(run.handback_line(state, long).endswith(
             "three rounds spent: split or re-scope"))
         # a PASS the loop failed -- the reviewer exited 1, the checkout moved -- says so

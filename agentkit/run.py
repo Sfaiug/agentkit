@@ -7008,14 +7008,20 @@ def handback_reason(state, cfg=None):
     if word.startswith("PASS"):
         return state.get("pr") or word[len("PASS, "):]
     # a FAIL hands back what the next step turns on: the rounds it spent and why they did
-    # not pass -- the findings themselves, never their count, or the check still failing
+    # not pass -- the findings themselves, or the check still failing
     spent = len(state.get("round_summaries") or [])
     review = state.get("review") if isinstance(state.get("review"), dict) else {}
     if review_failed(state):
-        blocking = "\n".join("- " + hand_in.item_text(row)
-                             for row in hand_in.Review(state["review_records"]).findings)
-        return (f"after {spent} rounds, open findings: "
-                + " ".join(blocking.split())[:600]).rstrip(".")
+        rows = hand_in.Review(state["review_records"]).findings
+        said = " ".join("\n".join("- " + hand_in.item_text(row) for row in rows).split())
+        if len(said) <= 600:
+            return f"after {spent} rounds, open findings: {said}".rstrip(".")
+        # a line cut short must not read as the whole list: a fix of what it shows alone
+        # spends the next round on the rest, so it names the reviewer's whole report
+        count = f"{len(rows)} open findings" if len(rows) != 1 else "1 open finding"
+        where = state.get("findings_file")
+        whole = f" (every one in full: {where})" if where else ""
+        return f"after {spent} rounds, {count}, cut short here{whole}: {said[:600]}".rstrip(".")
     # else a PASS the loop overrode says why it did, and a check still failing names its line
     why = "; ".join(filter(None, (review.get("overridden"), failed_check(state))))
     if why:
