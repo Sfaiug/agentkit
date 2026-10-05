@@ -5881,9 +5881,11 @@ def local_passes(state, dry_run, log):
         # Of the snapshot, not of the adapters: a provider is asked at most once per
         # usage.PROBE_EVERY, a minute, so with no menu open this tick is what keeps the
         # readings current. Muse's adapter keeps its paid probe on its own longer interval,
-        # and this read never spends a reset.
-        providers.update(run._cached_providers() if dry_run
-                         else usage.collect(config.load(), refresh=True))
+        # and this read never spends a reset. The read itself is handed on, never a copy:
+        # a `usage.Readings` is what tells `readiness` to check each harness can run.
+        nonlocal providers
+        providers = (run._cached_providers() if dry_run
+                     else usage.collect(config.load(), refresh=True))
 
     return (
         ("the notification retry did not run",

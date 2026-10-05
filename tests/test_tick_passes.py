@@ -85,10 +85,11 @@ class TickPasses(unittest.TestCase):
             self.assertIs(self.passes[f"agentkit.watch.{name}"].call_args.kwargs["dry_run"], True)
 
     def test_the_exhausted_resume_reads_the_usage_this_tick_refreshed(self):
-        self.passes["agentkit.usage.collect"].return_value = {"claude": "fresh"}
+        # the read itself, never a copy: a Readings is what has readiness check the harnesses
+        fresh = usage.Readings({"claude": "fresh"})
+        self.passes["agentkit.usage.collect"].return_value = fresh
         self.tick()
-        self.assertEqual(self.passes["agentkit.watch.resume_exhausted"].call_args.args[1],
-                         {"claude": "fresh"})
+        self.assertIs(self.passes["agentkit.watch.resume_exhausted"].call_args.args[1], fresh)
         self.passes["agentkit.usage.collect"].side_effect = OSError("meter")
         self.assertIn("WARN the usage refresh did not finish: meter", self.tick())
         self.assertEqual(self.passes["agentkit.watch.resume_exhausted"].call_args.args[1], {})
