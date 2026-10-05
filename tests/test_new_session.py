@@ -8,6 +8,7 @@ from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -242,12 +243,22 @@ class NewSession(Sandbox):
 
     def test_a_worktree_of_a_second_agentkit_clone_is_agentkit(self):
         own = self.checkout("agentkit", Path.home())
-        clone = self.checkout("agentkit")
-        linked = config.CODE / ".agentkit-fix"
-        subprocess.run(["git", "-C", str(clone), "worktree", "add", "-q", "-b", "fix", str(linked)],
-                       check=True)
-        self.assertNotIn(linked, orch.checkouts())
-        self.assertEqual(orch.checkout_of(str(linked)), own)
+        for layout in ([], ["--separate-git-dir", str(self.root / "clone.git")]):
+            with self.subTest(layout=layout):
+                clone = config.CODE / "agentkit"
+                subprocess.run(["git", "init", "-q", "-b", "main", *layout, str(clone)], check=True)
+                subprocess.run(["git", "-C", str(clone), "-c", "user.name=Fixture", "-c",
+                                "user.email=fixture@localhost", "commit", "-q", "--allow-empty",
+                                "-m", "x"], check=True)
+                linked = config.CODE / ".agentkit-fix"
+                subprocess.run(["git", "-C", str(clone), "worktree", "add", "-q", "-b", "fix",
+                                str(linked)], check=True)
+                self.assertEqual(orch.checkouts().count(own), 1)
+                self.assertNotIn(linked, orch.checkouts())
+                self.assertEqual(orch.checkout_of(str(linked)), own)
+                self.assertEqual(orch.cwd_project(linked), own)
+                for path in (clone, linked, self.root / "clone.git"):
+                    shutil.rmtree(path, ignore_errors=True)
 
     def test_scratch_run_keeps_session_projectless(self):
         config.save_session(self.cfg, "seat", "fable", ["opus"], {"cwd": str(config.CODE), "repo": None})

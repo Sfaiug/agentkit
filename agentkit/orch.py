@@ -1365,6 +1365,12 @@ def checkouts():
     agentkit's own checkout ~/agentkit, which lives beside ~/code rather than in it. A
     worktree added from another of them is not listed: `checkout_of` files it under that
     one, and a second clone at ~/code/agentkit under agentkit's own."""
+    return sorted(set(listed().values()), key=lambda path: path.name)
+
+
+def listed():
+    """{every checkout that stands for a project: the project's checkout}, a second clone of
+    agentkit standing for agentkit's own (`checkouts`)."""
     found = ([path for path in config.CODE.iterdir() if path.is_dir() and (path / ".git").exists()]
              if config.CODE.is_dir() else [])
     own = update.agentkit_dir()
@@ -1372,8 +1378,8 @@ def checkouts():
     mains = {known[0] for known in dirs.values() if known and not known[1]}
     found = [path for path in found if not (dirs[path] and dirs[path][1] and dirs[path][0] in mains)]
     if (own / ".git").exists() and all(path.resolve() != own.resolve() for path in found):
-        found = [path for path in found if path.name != own.name] + [own]
-    return sorted(found, key=lambda path: path.name)
+        return {path: own if path.name == own.name else path for path in (*found, own)}
+    return {path: path for path in found}
 
 
 def git_dirs(path):
@@ -1414,23 +1420,21 @@ def checkout_of(repo):
         path = Path(repo).resolve()
     except (OSError, ValueError):
         return None
-    found = checkouts()
-    for checkout in found:
+    found = listed()
+    for checkout, project in found.items():
         try:
             if checkout.resolve() == path:
-                return checkout
+                return project
         except OSError:
             continue
     dirs = git_dirs(path)
     if dirs and dirs[1]:
-        common = dirs[0]
-        added = next((checkout for checkout in found
-                      if (git_dirs(checkout) or (None,))[0] == common), None)
+        added = next((project for checkout, project in found.items()
+                      if (git_dirs(checkout) or (None,))[0] == dirs[0]), None)
         if added:
             return added
-        path = common.parent if common.name == ".git" else path
     if path.parent == config.CODE.resolve():
-        return next((checkout for checkout in found if checkout.name == path.name), None)
+        return next((project for project in found.values() if project.name == path.name), None)
     return None
 
 
