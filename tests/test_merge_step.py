@@ -897,8 +897,8 @@ class MergeStep(unittest.TestCase):
             if args[:2] == ("pr", "merge"):
                 merges.append(args)
                 return 1, GITHUB_504
-            if args[:2] == ("pr", "view") and "-q" in args:
-                return 0, "MERGED"
+            if args[:2] == ("pr", "view") and "state,headRefOid" in args:
+                return 0, json.dumps({"state": "MERGED", "headRefOid": lp.state["delivery_sha"]})
             if args[:2] == ("pr", "view"):
                 return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
                                       "baseRefName": "main", "mergeable": "MERGEABLE"})
@@ -923,8 +923,10 @@ class MergeStep(unittest.TestCase):
             if args[:2] == ("pr", "merge"):
                 return 1, ("failed to delete remote branch ak/x: HTTP 404: Reference does not "
                            "exist (https://api.github.com/repos/fixture/repo/git/refs/heads/ak/x)")
+            if args[:2] == ("pr", "view") and "-q" in args:
+                return 0, "UNKNOWN"
             if args[:2] == ("pr", "view"):
-                return 0, {".mergeStateStatus": "UNKNOWN", ".state": "MERGED"}[args[-1]]
+                return 0, json.dumps({"state": "MERGED", "headRefOid": lp.state["delivery_sha"]})
             raise AssertionError(args)
 
         with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
@@ -933,6 +935,36 @@ class MergeStep(unittest.TestCase):
         state = record.read_state(run_dir)
         self.assertTrue(state["merged"])
         self.assertFalse(state.get("merge_note"))
+
+    def test_a_merged_pr_whose_head_is_not_the_delivery_is_not_this_runs_merge(self):
+        # --match-head-commit refused because another writer replaced the head and merged it:
+        # the PR is MERGED, but the reviewed work never reached the target
+        for answer in ((1, "GraphQL: Head branch was modified"), (None, "timed out"),
+                       (1, GITHUB_504)):
+            with self.subTest(answer=answer):
+                root = Path(tempfile.mkdtemp(dir=self.root))
+                _, _, wt = make_repos(root)
+                lp, run_dir, _ = make_loop(root, wt)
+
+                pr = {"state": "MERGED", "headRefOid": "0" * 40, "baseRefName": "main",
+                      "mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN"}
+
+                def fake_gh(cwd, *args, **kwargs):
+                    if args[:2] == ("pr", "merge"):
+                        return answer
+                    if args[:2] == ("pr", "view") and "-q" in args:
+                        return 0, pr[args[args.index("-q") + 1].removeprefix(".")]
+                    if args[:2] == ("pr", "view"):
+                        return 0, json.dumps(pr)
+                    raise AssertionError(args)
+
+                with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
+                    try:
+                        answered = landing(lp, lambda: run.do_merge(lp, URL, "origin/main"))
+                    except run.Stopped:
+                        answered = False
+                self.assertFalse(answered)
+                self.assertFalse(record.read_state(run_dir).get("merged"))
 
     def test_an_own_pr_merge_stops_when_its_recheck_stops(self):
         for answer in ((None, "timed out"), (1, "fatal: terminal prompts disabled")):

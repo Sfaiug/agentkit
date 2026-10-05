@@ -4887,17 +4887,23 @@ def merged(lp, url, method):
 
 
 def merged_anyway(lp, url, method):
-    """Did GitHub merge the PR whatever `gh pr merge` answered?  Records it when it did.
+    """Did GitHub merge the delivered commit whatever `gh pr merge` answered?  Records it when it did.
 
     A 5xx or a stopped call may have merged it, and `--delete-branch` exits non-zero on a
     merge that went through when the repository deleted the head branch first (`Reference
     does not exist`).  Only `state` says MERGED -- mergeStateStatus carries mergeability
-    (BEHIND/BLOCKED/CLEAN and the rest), never the outcome.
+    (BEHIND/BLOCKED/CLEAN and the rest), never the outcome -- and only a merged head that is
+    the delivery SHA is this run's work: a head another writer replaced and merged is not.
     """
-    src, current = gh(lp.run_dir, "pr", "view", url, "--json", "state", "-q", ".state")
-    if stopped(src, current):
-        raise Stopped(current)
-    return src == 0 and current.strip() == "MERGED" and merged(lp, url, method)
+    src, view = gh(lp.run_dir, "pr", "view", url, "--json", "state,headRefOid")
+    if stopped(src, view):
+        raise Stopped(view)
+    try:
+        info = json.loads(view) if src == 0 else {}
+    except ValueError:
+        info = {}
+    return (info.get("state") == "MERGED" and info.get("headRefOid") == lp.state["delivery_sha"]
+            and merged(lp, url, method))
 
 
 def do_merge(lp, url, upstream):
