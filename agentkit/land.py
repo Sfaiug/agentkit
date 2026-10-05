@@ -41,13 +41,14 @@ def passed(turn, tree):
     return _trees(turn)[1].get(tree)
 
 
-def note(turn, trees, leader, *, checks=(), tested=None, red=None, red_stacks=None):
+def note(turn, trees, leader, *, checks=(), tested=None, at=None, red=None, red_stacks=None):
     """Keep stack evidence, with the `checks` it ran, separately from target probes awaiting
     their repair."""
     path, kept = _trees(turn)
     failed = {} if red_stacks == {} else _trees(turn, "red_stacks")[1]
     repairs = _trees(turn, "red")[1]
-    kept.update({tree: {"at": time.time(), "tested": tested or tree, "leader": leader,
+    checked_at = time.time() if at is None else at
+    kept.update({tree: {"at": checked_at, "tested": tested or tree, "leader": leader,
                         "checks": list(checks)} for tree in trees})
     repairs.update(red or {})
     failed.update({tree: {"at": time.time(), **fix, "checks": list(checks)}
@@ -409,8 +410,9 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                _landing_checks(member, saved, scratch, tip)))
             if not stacks:
                 break
+            suite = run.declared_suite(stacks[0][2], ref=tip)
             if capacity is None:
-                capacity = gate.whole_checks_that_fit(run.declared_suite(stacks[0][2], ref=tip))
+                capacity = gate.whole_checks_that_fit(suite)
             green, red = _trees(turn)[1], _trees(turn, "red_stacks")[1]
             # The first stack has no green prefix to attribute a cached failure to.
             # Retry its own check after a kill or flake; later evidence survives a crash.
@@ -418,9 +420,13 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 red.pop(stacks[0][3], None)
             # Evidence answers a stack only for the checks it ran: two tasks can stack
             # the same tree, and each owes its own `# once` commands.
+            def checked(entry, checks):
+                ran = iter(entry.get("checks", ()))
+                return all(cmd in ran for cmd in checks)
+
             answers = {}
             for _, _, _, tree, checks in stacks:
-                if tree in green and set(checks) <= set(green[tree].get("checks", ())):
+                if tree in green and checked(green[tree], checks):
                     answers[tree, checks] = {"land": tree}
                 elif red.get(tree, {}).get("checks") == list(checks):
                     answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log")}}
@@ -429,13 +435,16 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
 
             def commands(index):
                 # A covered member still owes its own once-commands, on the tested tree.
-                return tuple(dict.fromkeys(cmd for stack in stacks[:index + 1]
-                                           for cmd in stack[4])) if batched else stacks[index][4]
+                if not batched:
+                    return stacks[index][4]
+                groups = dict.fromkeys(stack[4] for stack in stacks[:index + 1])
+                return tuple(cmd for group in groups for cmd in group if cmd != suite) + (
+                    (suite,) if suite else ())
 
-            def cover(index, checks, tested):
+            def cover(index, checks, tested, at=None):
                 covered = stacks[:index + 1] if batched else [stacks[index]]
                 note(turn, [stack[3] for stack in covered], directory.name,
-                     checks=checks, tested=tested)
+                     checks=checks, tested=tested, at=at)
                 for _, _, _, tree, own in covered:
                     answers[tree, own] = {"land": tree}
 
@@ -444,8 +453,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     if red.get(tree, {}).get("checks") == list(commands(index)):
                         answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log")}}
                     evidence = green.get(tree)
-                    if evidence and set(commands(index)) <= set(evidence.get("checks", ())):
-                        cover(index, evidence["checks"], evidence["tested"])
+                    if evidence and checked(evidence, commands(index)):
+                        cover(index, evidence["checks"], evidence["tested"], evidence["at"])
 
             def answer_tree(index, checks, check):
                 tree, own = stacks[index][3:]

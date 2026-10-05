@@ -312,11 +312,13 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         for tree, files in self.checked:
             if "member-4.txt" not in files:
                 evidence["trees"].pop(tree)
+        checked_at = next(iter(evidence["trees"].values()))["at"]
         cache.write_text(json.dumps(evidence))
         self.checked.clear()
         self.checks.clear()
         self.capacity.return_value = 2
-        land.check_line(self.turn)
+        with patch.object(land.time, "time", return_value=checked_at + land.KEEP - 1):
+            land.check_line(self.turn)
         self.assertEqual(self.checks, [])
         self.assertEqual(self.checked_members(), set())
         self.assertIn("land", self.wait(members[0]))
@@ -325,6 +327,10 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
                               [member.name for member in members])
         for member in members[:4]:
             self.assertIn("land", self.wait(member))
+        # Reusing a check does not buy another day of suite evidence.
+        with patch.object(land.time, "time", return_value=checked_at + land.KEEP + 1):
+            for member in members[:4]:
+                self.assertIsNone(land.passed(self.turn, self.wait(member)["land"]))
         self.assert_cleaned()
 
     def test_the_deepest_stack_covers_every_member_when_only_one_check_fits(self):
@@ -355,6 +361,19 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.assertTrue(all("land" in self.wait(member) for member in members))
         for n in range(1, 4):
             self.assertIn(f"test -f member-{n}.txt", self.checks[0][0])
+        self.assert_cleaned()
+
+    def test_a_batch_keeps_once_commands_in_order_and_runs_the_suite_last(self):
+        first = self.member("first", once="true")
+        second = self.member("second", joined=2, once="touch acceptance.txt")
+        third = self.member("third", joined=3, once="test -f acceptance.txt")
+        self.advance(**{"AGENTS.md": "---\ntests: test -f acceptance.txt && test -f tip.txt\n---\n"})
+        self.capacity.return_value = 1
+        land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(self.checks[0][0], ["true", "touch acceptance.txt", "test -f acceptance.txt",
+                                          "test -f acceptance.txt && test -f tip.txt"])
+        self.assertTrue(all("land" in self.wait(member) for member in (first, second, third)))
         self.assert_cleaned()
 
     def test_a_sharded_suite_checks_the_deepest_stack_to_cover_every_member(self):
