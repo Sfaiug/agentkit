@@ -111,6 +111,7 @@ class LanderWakes(Sandbox):
         self.assert_free()
         self.fixer_inputs.append(text)
         self.events.append((name, lp.rnd))
+        lp.dir(name).mkdir(parents=True, exist_ok=True)     # as `execute` makes its turn's
         self.assertEqual(role, "fixer")
         if name == "rebase-fixer":
             return resolve(self.wt)
@@ -263,16 +264,29 @@ class LanderWakes(Sandbox):
         self.assert_rounds(state)
         self.assertEqual(self.merges, [])
 
-    def test_failed_re_review_ends_with_findings_even_with_rounds_left(self):
-        self.verdicts = iter(["FAIL"])
+    def test_a_failed_re_review_with_rounds_left_spends_one_and_rejoins_the_line(self):
+        self.verdicts = iter(["FAIL", "PASS"])
         self.park(spent=1, broken=True)
+        self.assertEqual(run.cmd_resume([self.directory.name]), 0)
+        state = record.read_state(self.directory)
+        self.assertEqual(state["state"], "waiting")
+        self.assertNotIn("fix", state["waiting_on"])
+        self.assertIn("the repair drops intent", self.fixer_inputs[-1])
+        self.assertEqual(self.events, [("final-fixer", 1), ("reviewer", "round-1"),
+                                       ("executor", 2), ("reviewer", "round-2")])
+        self.assertEqual(len(state["round_summaries"]), 2)
+        self.assertEqual(self.merges, [])
+
+    def test_a_failed_re_review_at_the_round_budget_ends_with_findings(self):
+        self.verdicts = iter(["FAIL"])
+        self.park(spent=3, broken=True)
         self.assertEqual(run.cmd_resume([self.directory.name]), 1)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "fail")
         self.assertEqual(state["review"]["verdict"], "FAIL")
         self.assertIn("the repair drops intent", state["findings"])
         self.assertNotIn("waiting_on", state)
-        self.assertEqual(self.events, [("final-fixer", 1), ("reviewer", "round-1")])
+        self.assertEqual(self.events, [("final-fixer", 3), ("reviewer", "round-3")])
         self.assert_rounds(state)
 
     def test_required_pr_check_failure_is_red(self):
