@@ -4,8 +4,11 @@ from contextlib import ExitStack
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
+import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -44,6 +47,15 @@ if os.environ.get("BOX_PATHS"):
     seen["tokens"] = [os.environ.get(key) for key in (
         "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")]
     seen["pid1_token"] = b"GH_TOKEN=" in Path("/proc/1/environ").read_bytes()
+if os.environ.get("BOX_AGENT"):
+    import socket
+    agent = socket.socket(socket.AF_UNIX)
+    try:
+        agent.connect(os.environ["BOX_AGENT"])
+        seen["agent"] = True
+    except OSError:
+        seen["agent"] = False
+    seen["agent_address"] = os.environ.get("SSH_AUTH_SOCK")
 if os.environ.get("BOX_INSPECT"):
     (Path.home() / ".codex").mkdir(exist_ok=True)
     (Path.home() / ".codex/fixture").write_text("harness write")
@@ -105,7 +117,8 @@ class WorkerBox(unittest.TestCase):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "GH_CONFIG_DIR",
                     "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "BOX_LEAK", "BOX_NEST", "BOX_HANG",
-                    "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS", "BOX_SIGNAL", "BOX_TERM"):
+                    "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS", "BOX_SIGNAL", "BOX_TERM", "BOX_AGENT",
+                    "SSH_AUTH_SOCK"):
             os.environ.pop(key, None)
         self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
         # The only real child is our fixture. No marker sweep may inspect the hosting run.
@@ -192,6 +205,168 @@ class WorkerBox(unittest.TestCase):
         self.assertFalse(seen["pid1_token"])
         self.assertEqual(login.read_text(), "fixture-login")
         self.assertEqual(store.read_text(), "fixture-store")
+
+    def test_ssh_keys_and_agent_are_out_of_reach(self):
+        key = self.root / ".ssh/id_fixture"
+        key.parent.mkdir()
+        key.write_text("fixture-key")
+        # AF_UNIX paths are short; the checkout path may not be.
+        short = tempfile.TemporaryDirectory(prefix="ak-agent-")
+        self.addCleanup(short.cleanup)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(listener.close)
+        sock = Path(short.name) / "agent"
+        listener.bind(str(sock))
+        listener.listen(1)
+        with patch.dict(os.environ, {"SSH_AUTH_SOCK": str(sock), "BOX_AGENT": str(sock),
+                                     "BOX_PATHS": json.dumps([str(key)])}):
+            code, text, _, killed, _ = self.turn()
+        self.assertEqual((code, killed), (0, False))
+        seen = json.loads(text)
+        self.assertEqual((seen["paths"], seen["agent"], seen["agent_address"]), ([""], False, None))
+        self.assertEqual(key.read_text(), "fixture-key")
+
+    def test_a_relative_agent_address_never_reaches_the_turn(self):
+        # A relative address is the caller's: it names this socket in the caller's directory.
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(listener.close)
+        name = f".ak-test-agent-{os.getpid()}"
+        listener.bind(name)
+        self.addCleanup(os.unlink, name)
+        listener.listen(1)
+        with patch.dict(os.environ, {"SSH_AUTH_SOCK": name, "BOX_AGENT": name}):
+            code, text, _, killed, _ = self.turn()
+        self.assertEqual((code, killed), (0, False))
+        seen = json.loads(text)
+        self.assertEqual((seen["agent"], seen["agent_address"]), (False, None))
+
+    def test_an_agent_socket_inside_a_hidden_directory_still_starts(self):
+        for place in (".ssh/agent", ".git-credential-cache/agent", ".cache/git/credential/agent"):
+            with self.subTest(place=place):
+                sock = self.root / place
+                sock.parent.mkdir(parents=True, exist_ok=True)
+                sock.write_text("")
+                with patch.dict(os.environ, {"SSH_AUTH_SOCK": str(sock)}):
+                    code, _, _, killed, _ = self.turn()
+                self.assertEqual((code, killed), (0, False), self.logs)
+                self.stop_child()
+
+    def test_unusable_ssh_paths_still_start(self):
+        ssh = self.root / ".ssh"
+        cases = {"a link to itself": lambda: (ssh.mkdir(), (ssh / "self").symlink_to("self")),
+                 "two links to each other": lambda: (
+                     ssh.mkdir(), (ssh / "a").symlink_to("b"), (ssh / "b").symlink_to("a")),
+                 "a looping .ssh": lambda: ssh.symlink_to(".ssh"),
+                 "a file named .ssh": lambda: ssh.write_text("fixture")}
+        for name, make in cases.items():
+            with self.subTest(case=name):
+                make()
+                code, _, _, killed, _ = self.turn()
+                self.assertEqual((code, killed), (0, False), self.logs)
+                self.stop_child()
+                if ssh.is_symlink() or ssh.is_file():
+                    ssh.unlink()
+                else:
+                    shutil.rmtree(ssh)
+
+    def test_keys_linked_into_ssh_stay_out_of_reach(self):
+        vault, keys = self.root / "vault", self.root / "keydir"
+        vault.mkdir()
+        keys.mkdir()
+        (vault / "id_linked").write_text("fixture-key")
+        (keys / "id_dir").write_text("fixture-key")
+        # Links inside a linked directory, and a loop that must not trap the walk.
+        outside = self.root / "outside"
+        (outside / "keydir").mkdir(parents=True)
+        (outside / "id_file").write_text("fixture-key")
+        (outside / "keydir/id_dir").write_text("fixture-key")
+        (keys / "id_file").symlink_to(outside / "id_file")
+        (keys / "keydir").symlink_to(outside / "keydir")
+        (keys / "loop").symlink_to(keys)
+        ssh = self.root / ".ssh"
+        ssh.mkdir()
+        (ssh / "id_linked").symlink_to("../vault/id_linked")
+        (ssh / "keys").symlink_to(keys)
+        paths = [vault / "id_linked", keys / "id_dir", outside / "id_file", outside / "keydir/id_dir"]
+        with patch.dict(os.environ, {"BOX_PATHS": json.dumps([str(path) for path in paths])}):
+            code, text, _, killed, _ = self.turn()
+        self.assertEqual((code, killed), (0, False))
+        self.assertEqual(json.loads(text)["paths"], [""] * len(paths))
+        self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * len(paths))
+
+    def test_a_relative_home_hides_the_keys_where_the_turn_reads_them(self):
+        # The turn resolves HOME=home in its own directory, not in the launcher's.
+        key = self.root / "home/.ssh/id_fixture"
+        key.parent.mkdir(parents=True)
+        key.write_text("fixture-key")
+        read = ("from pathlib import Path; key = Path.home() / '.ssh/id_fixture'; "
+                "print(key.read_text() if key.exists() else '')")
+        for walls in (True, False):
+            with self.subTest(walls=walls), patch.dict(os.environ, {"HOME": "home"}):
+                with box.command([sys.executable, "-c", read], dict(os.environ), cwd=self.root,
+                                 walls=walls) as (cmd, env, _):
+                    result = subprocess.run(cmd, env=env, cwd=self.root, capture_output=True,
+                                            text=True, timeout=10)
+                self.assertEqual((result.returncode, result.stdout.strip()), (0, ""), result.stderr)
+        self.assertEqual(key.read_text(), "fixture-key")
+
+    def test_a_closed_directory_on_the_way_to_a_key_refuses_the_box(self):
+        # The command could open a closed directory it owns, so what it holds counts as there.
+        def listed_not_entered(case):
+            (case / "home/.ssh").mkdir(parents=True)
+            (case / "home/.ssh/id_linked").symlink_to(case / "id_outside")
+            return {"HOME": str(case / "home")}, case / "home/.ssh", 0o111
+
+        def linked_directory(case):
+            (case / "home/.ssh").mkdir(parents=True)
+            (case / "keydir").mkdir()
+            (case / "keydir/id_linked").symlink_to(case / "id_outside")
+            (case / "home/.ssh/keys").symlink_to(case / "keydir")
+            return {"HOME": str(case / "home")}, case / "keydir", 0o111
+
+        def linked_key(case):
+            (case / "home/.ssh").mkdir(parents=True)
+            (case / "vault").mkdir()
+            (case / "vault/id_fixture").write_text("fixture-key")
+            (case / "home/.ssh/id_fixture").symlink_to(case / "vault/id_fixture")
+            return {"HOME": str(case / "home")}, case / "vault", 0
+
+        def home(case):
+            (case / "home/.ssh").mkdir(parents=True)
+            return {"HOME": str(case / "home")}, case / "home", 0
+
+        def agent(case):
+            (case / "vault").mkdir()
+            return {"SSH_AUTH_SOCK": str(case / "vault/agent")}, case / "vault", 0
+
+        for make in (listed_not_entered, linked_directory, linked_key, home, agent):
+            case = self.root / make.__name__
+            case.mkdir()
+            (case / "id_outside").write_text("fixture-key")
+            env, closed, mode = make(case)
+            closed.chmod(mode)
+            self.addCleanup(closed.chmod, 0o700)
+            for walls in (True, False):
+                with self.subTest(case=make.__name__, walls=walls), patch.dict(os.environ, env), \
+                        self.assertRaisesRegex(config.Error, f"{re.escape(str(closed))}.* is closed to "
+                                               f"you.*chmod u\\+rx"):
+                    with box.command(["true"], dict(os.environ), cwd=self.root, walls=walls):
+                        pass
+
+    def test_the_credential_query_sees_no_token(self):
+        # A git first on PATH answers the box's question about credential stores.
+        bindir, seen, git = self.root / "bin", self.root / "seen.json", shutil.which("git")
+        bindir.mkdir()
+        (bindir / "git").write_text(
+            f"#!{sys.executable}\nimport json, os, sys\n"
+            f"open({str(seen)!r}, 'w').write(json.dumps([os.environ.get(k) for k in {box.TOKENS!r}]))\n"
+            f"os.execv({git!r}, [{git!r}, *sys.argv[1:]])\n")
+        (bindir / "git").chmod(0o755)
+        with patch.dict(os.environ, {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+                                     "GITHUB_TOKEN": "fixture-github", "SSH_AUTH_SOCK": "agent"}):
+            with box.command(["true"], dict(os.environ), cwd=self.root):
+                pass
+        self.assertEqual(json.loads(seen.read_text()), [None] * len(box.TOKENS))
 
     def test_files_writes_identity_environment_and_exit_status_stay_the_same(self):
         with patch.dict(os.environ, {"BOX_LEAK": "0", "BOX_INSPECT": "1", "BOX_EXIT": "7",

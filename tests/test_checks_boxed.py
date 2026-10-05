@@ -78,6 +78,21 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertEqual(seen, [{"file": "", "token": None}] * len(seen))
                 self.assertEqual(self.credential.read_text(), "fixture-login")
 
+    def test_proof_and_check_cannot_read_ssh_keys(self):
+        key = self.root / ".ssh/id_fixture"
+        key.parent.mkdir()
+        key.write_text("fixture-key")
+        command = self.command(
+            "import os; from pathlib import Path; p = Path(os.environ['HOME'], '.ssh/id_fixture'); "
+            "print('key:' + (p.read_text() if p.exists() else ''))")
+        result = self.proof(command)
+        self.assertEqual((result["returncode"], result["output"].strip()), (0, "key:"), result)
+        ok, text = self.check(command)
+        self.assertTrue(ok, text)
+        self.assertIn("key:\n", text + "\n")
+        self.assertNotIn("fixture-key", text)
+        self.assertEqual(key.read_text(), "fixture-key")
+
     def alive(self):
         with (self.root / "alive.lock").open("a") as lock:
             try:

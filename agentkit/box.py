@@ -21,29 +21,70 @@ import time
 from contextlib import contextmanager, nullcontext
 from string import Template
 
-TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
+# What a box never passes on: GitHub tokens, and the SSH agent's address.
+TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK")
 PROCESSES = "box-processes.json"
 # The supervisor runs from the text this module was loaded from: the file on disk can change
 # under a running launcher, when a probe checks out another revision of ak's own checkout.
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 
 
-def _credentials(env, cwd):
-    homes = {Path(env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
+def _links(root):
+    """Every link reachable from root, through linked directories too, each directory once.
+
+    A closed directory on the way raises PermissionError: what it holds is unknown."""
+    found, seen, pending = [], set(), [Path(root)]
+    while pending:
+        directory = pending.pop()
+        try:
+            real = directory.resolve(strict=True)
+            entries = [] if real in seen else list(os.scandir(directory))
+        except PermissionError:
+            raise
+        except (OSError, RuntimeError):
+            # Missing, looping or not a directory: nothing readable through it.
+            continue
+        seen.add(real)
+        for entry in entries:
+            if entry.is_symlink():
+                found.append(Path(entry.path))
+            try:
+                if entry.is_dir():
+                    pending.append(Path(entry.path))
+            except PermissionError:
+                raise
+            except OSError:
+                continue
+    return found
+
+
+def _credentials(env, cwd, agent=None):
+    # The turn reads a relative path in its environment from its own directory.
+    base = Path(cwd or os.getcwd())
+    homes = {base / (env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
     configs = {home / ".config" for home in homes}
     if env.get("XDG_CONFIG_HOME"):
-        configs.add(Path(env["XDG_CONFIG_HOME"]))
+        configs.add(base / env["XDG_CONFIG_HOME"])
     gh = {root / "gh" for root in configs}
     if env.get("GH_CONFIG_DIR"):
-        gh.add(Path(env["GH_CONFIG_DIR"]))
+        gh.add(base / env["GH_CONFIG_DIR"])
     caches = {home / ".cache" for home in homes}
     if env.get("XDG_CACHE_HOME"):
-        caches.add(Path(env["XDG_CACHE_HOME"]))
-    directories = {home / ".git-credential-cache" for home in homes}
-    directories.update(root / "git/credential" for root in caches)
-    files = {home / ".git-credentials" for home in homes}
-    files.update(root / "git/credentials" for root in configs)
-    files.update(root / "hosts.yml" for root in gh)
+        caches.add(base / env["XDG_CACHE_HOME"])
+    places = {home / ".git-credential-cache" for home in homes}
+    places.update(root / "git/credential" for root in caches)
+    places.update(home / ".git-credentials" for home in homes)
+    places.update(root / "git/credentials" for root in configs)
+    places.update(root / "hosts.yml" for root in gh)
+    # A worker reaches no server: only the orchestrator's own shell holds SSH keys and agent.
+    for ssh in (home / ".ssh" for home in homes):
+        places.add(ssh)
+        # A key linked in from elsewhere stays readable at its target unless that is hidden too.
+        places.update(_links(ssh))
+    if agent:
+        # The address is the caller's, so a relative one names a place in the caller's directory;
+        # the box passes no address on, so nothing inside reads it any other way.
+        places.add(Path(os.getcwd(), agent))
     # A named credential store is just as readable as the default one. Ask Git so
     # includes and repository-local settings use its own precedence and quoting.
     result = subprocess.run(["git", "config", "--get-regexp", r"^credential(\..*)?\.helper$"],
@@ -68,8 +109,8 @@ def _credentials(env, cwd):
                     value = Template(value).safe_substitute(env)
                 path = Path(value.replace("~/", str(env.get("HOME") or Path.home()) + "/", 1)
                             if value.startswith("~/") and not literal else value)
-                files.add(path if path.is_absolute() else Path(cwd or os.getcwd()) / path)
-    return directories, files
+                places.add(base / path)
+    return places
 
 
 def _paths(names, env, cwd):
@@ -158,13 +199,32 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         at = _walls(cmd, clean, cwd, out_dir, state, places, logins)
     else:
         cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
-    directories, files = _credentials(clean, cwd)
-    for paths, option in ((directories, "--tmpfs"), (files, "--dev-bind")):
-        # Mount the real target too: a sandbox HOME often links the account's login.
-        targets = {path.resolve() for path in paths if path.exists()}
-        for path in sorted(targets):
-            cmd.extend([option, str(path), "--remount-ro", str(path)] if option == "--tmpfs" else
-                       [option, "/dev/null", str(path)])
+    # Mount the real target too: a sandbox HOME often links the account's login.
+    targets = set()
+    try:
+        for path in _credentials(clean, cwd, env.get("SSH_AUTH_SOCK")):
+            try:
+                targets.add(path.resolve(strict=True))
+            except PermissionError:
+                raise
+            except (OSError, RuntimeError):
+                # Missing, looping or under a file: nothing to hide there.
+                continue
+    except PermissionError as exc:
+        # The command could open a closed directory it owns, so what it holds stays unknown.
+        from . import config
+        real = Path(os.path.realpath(exc.filename))
+        closed = next(path for path in (*reversed(real.parents), real)
+                      if path == real or not os.access(path, os.R_OK | os.X_OK))
+        raise config.Error(f"{closed} is closed to you, so the worker box cannot see what it must "
+                           f"hide there; run `chmod u+rx {shlex.quote(str(closed))}`") from None
+    folders = {path for path in targets if path.is_dir()}
+    for path in sorted(targets):
+        # Inside a hidden folder it is gone already, and no mount point can be made there.
+        if any(parent in folders for parent in path.parents):
+            continue
+        cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
+                   ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
         yield [*cmd, "--", *argv], clean, {}
         return
