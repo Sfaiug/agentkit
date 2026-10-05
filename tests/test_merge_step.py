@@ -25,6 +25,8 @@ from agentkit import record
 URL = "https://github.com/fixture/repo/pull/7"
 BASE_RACE = ("GraphQL: Base branch was modified. Review and try the merge again. "
              "(mergePullRequest)")
+HEAD_RACE = ("GraphQL: Head branch was modified. Review and try the merge again. "
+             "(mergePullRequest)")
 GITHUB_504 = ('non-200 OK status code: 504 Gateway Timeout body: "{\\"message\\": \\"We '
               "couldn't respond to your request in time. Sorry about that. Please try "
               'resubmitting your request and contact us if the problem persists.\\"}"')
@@ -822,6 +824,37 @@ class MergeStep(unittest.TestCase):
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(seen, ["merge", "view", "merge"])
         self.assertTrue(record.read_state(run_dir)["merged"])
+
+    def test_a_merge_racing_its_own_push_is_tried_again_unless_the_head_moved(self):
+        # GitHub can answer `Head branch was modified` for a head it has not yet taken in from
+        # the delivery's own push: the re-check finds the pushed head and the merge goes
+        # through; a head that really is another commit still ends the run
+        for head, merged in (("delivered", True), ("0" * 40, False)):
+            with self.subTest(head=head):
+                root = self.root / head[:4]
+                root.mkdir()
+                _, _, wt = make_repos(root)
+                lp, run_dir, _ = make_loop(root, wt)
+                seen = []
+
+                def fake_gh(cwd, *args, **kwargs):
+                    seen.append(args[1])
+                    if args[:2] == ("pr", "merge"):
+                        return (1, HEAD_RACE) if len(seen) == 1 else (0, "merged")
+                    if args[:2] == ("pr", "view"):
+                        sha = lp.state["delivery_sha"] if merged else head
+                        return 0, json.dumps({"state": "OPEN", "headRefOid": sha,
+                                              "baseRefName": "main", "mergeable": "MERGEABLE"})
+                    raise AssertionError(args)
+
+                with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
+                    self.assertEqual(bool(landing(lp, lambda: run.do_merge(lp, URL, "origin/main"))),
+                                     merged)
+                self.assertEqual(seen, ["merge", "view", "merge"] if merged else ["merge", "view"])
+                state = record.read_state(run_dir)
+                self.assertEqual(bool(state.get("merged")), merged)
+                if not merged:
+                    self.assertIn("PR head or target changed since PASS", state["merge_note"])
 
     def test_an_own_pr_merge_asks_again_after_a_github_5xx(self):
         _, _, wt = make_repos(self.root)

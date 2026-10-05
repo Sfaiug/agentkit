@@ -95,11 +95,14 @@ PR_URL = re.compile(r"https://\S+?/pull/\d+")
 # the race a merge can lose to a merge to the target between the push and this call; the
 # answer is a retry, never an ending -- see `do_merge`
 BASE_BRANCH_MODIFIED = re.compile(r"Base branch was modified", re.I)
+# the same answer about the head right after delivery pushed it: GitHub has not yet taken the
+# push in, and the re-check ends the run if the head really moved
+HEAD_BRANCH_MODIFIED = re.compile(r"Head branch was modified", re.I)
 # GitHub's own server failing the call, which its answer says to resubmit: the merge may or
 # may not have gone through, so it is re-checked and retried like the race above
 GITHUB_5XX = re.compile(r"status code: 5\d\d|HTTP 5\d\d|Bad Gateway|Gateway Timeout|"
                         r"Service Unavailable|couldn't respond to your request in time", re.I)
-MERGE_RETRIES = 3      # how often either is re-fetched, re-checked and tried again
+MERGE_RETRIES = 3      # how often any of them is re-fetched, re-checked and tried again
 # the line a fetch prints for a ref another process holds: the ref moved under it, or git's
 # lock on it is held -- not a ref no retry can write, such as a stale name in its way; see
 # `fetch`.  `.*`, not `[^']*`: a ref name or a checkout path may hold an apostrophe
@@ -4871,7 +4874,9 @@ def do_merge(lp, url, upstream):
     PR is re-checked to still be mergeable, and the merge is tried again -- three times,
     with a growing wait -- and only then does the run park `waiting` with the reason,
     retried after the next merge to the target.  GitHub answering with a 5xx of its own
-    takes the same road, and a merge it went through with anyway counts as merged.  Work
+    takes the same road, and a merge it went through with anyway counts as merged; so does
+    `Head branch was modified` straight after the delivery's own push, which the re-check
+    ends only when the PR head really is another commit.  Work
     that passed review is never thrown away over one lost race or one bad answer.
     """
     method = lp.state["merge_method"]
@@ -4894,6 +4899,8 @@ def do_merge(lp, url, upstream):
                 break
             if BASE_BRANCH_MODIFIED.search(out or ""):
                 cause = "the base branch was modified under the merge"
+            elif HEAD_BRANCH_MODIFIED.search(out or ""):
+                cause = "GitHub had not yet taken the pushed head"
             elif GITHUB_5XX.search(out or ""):
                 cause = "GitHub failed the merge call"
             else:
