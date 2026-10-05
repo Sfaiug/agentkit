@@ -8,6 +8,7 @@ from pathlib import Path
 import shlex
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -221,6 +222,27 @@ class ChecksBoxed(unittest.TestCase):
                 text = (self.proof(command)["output"] if name == "proof"
                         else self.check(command)[1])
                 self.assertIn("zombies 0", text)
+
+    def test_a_launcher_keeps_the_supervisor_it_loaded(self):
+        # A probe may check out another revision of ak's own checkout under the launcher.
+        copy = self.root / "copy"
+        shutil.copytree(REPO / "agentkit", copy / "agentkit",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        driver = (
+            "import sys\nfrom pathlib import Path\nfrom types import SimpleNamespace\n"
+            "sys.path.insert(0, sys.argv[1])\nfrom agentkit import box, gate, run\n"
+            "Path(box.__file__).write_text('raise SystemExit(99)\\n')\n"
+            "root = Path(sys.argv[2])\n"
+            "lp = SimpleNamespace(scratch=True, wt=root, run_dir=root, done_when_limit=10,\n"
+            "                     turn_limit=10, log=lambda _: None)\n"
+            "print(run.proof_on(lp, 'printf started; exit 7', root / 'proof.log'))\n"
+            "print(gate.run_done_when(['printf started; exit 7'], root, root / 'check.log', set(),\n"
+            "                         limit=10, silence=5)[1])\n")
+        result = subprocess.run([sys.executable, "-c", driver, str(copy), str(self.root)],
+                                capture_output=True, text=True, timeout=120)
+        self.assertIn("{'returncode': 7, 'output': 'started', 'killed': False}", result.stdout,
+                      result)
+        self.assertIn("[exit 7]\nstarted", result.stdout, result)
 
 
 if __name__ == "__main__":

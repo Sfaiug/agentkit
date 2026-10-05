@@ -23,6 +23,9 @@ from string import Template
 
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 PROCESSES = "box-processes.json"
+# The supervisor runs from the text this module was loaded from: the file on disk can change
+# under a running launcher, when a probe checks out another revision of ak's own checkout.
+SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 
 
 def _credentials(env, cwd):
@@ -167,7 +170,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=(), walls=Tru
     report.unlink(missing_ok=True)
     # PID 1 records children before exiting; its exit makes the kernel kill
     # every descendant, even one with a new session or an empty environment.
-    argv = [sys.executable, str(Path(__file__).resolve()), str(report),
+    argv = [sys.executable, "-I", "-c", SUPERVISOR, str(report),
             *(["--drain"] if drain else []), *argv]
     read, write = os.pipe()
     target = None
