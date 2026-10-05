@@ -352,17 +352,52 @@ class RulebookNews(Sandbox):
         self.handed(BEFORE)
         heard = []
 
-        def enter(*_args):
-            heard.append(self.prompt())     # the hook runs as the Enter lands, lock still held
-            return True
+        def tmux(*args, **_kw):
+            if args[:1] == ("send-keys",) and args[-1] == "Enter":
+                heard.append(self.prompt())     # the hook runs as the Enter lands, lock held
+            return 0, ""
 
         with patch.object(watch, "_send_line", return_value=True), \
-                patch.object(watch, "_send_enter", side_effect=enter), \
+                patch.object(orch, "tmux_out", side_effect=tmux), \
                 patch.object(watch, "pane_text", return_value=""), \
                 patch.object(watch, "KEY_GAP", 0):
             self.assertTrue(watch.type_into({"name": SEAT}, "a peer note", lambda _line: None))
         self.assertIn("has changed", heard[0])
         self.assertEqual(config.rulebook_path(SEAT).read_text(), config.seat_rulebook(SEAT))
+
+    def test_a_delivery_s_retried_enter_is_told(self):
+        # an Enter that failed left the line typed; the rules change before the retry
+        self.handed(BEFORE)
+        heard, line = [], "a peer note"
+
+        def tmux(*args, **_kw):
+            if args[:1] == ("send-keys",) and args[-1] == "Enter":
+                heard.append(self.prompt())
+            return 0, ""
+
+        with patch.object(orch, "tmux_out", side_effect=tmux), \
+                patch.object(watch, "seat_model", return_value=("claude", "opus")), \
+                patch.object(watch, "pane_text", return_value=f"> {line}"), \
+                patch.object(watch, "_holds_text", return_value=True), \
+                patch.object(watch, "asking", return_value=False):
+            watch.type_at_prompt({"name": SEAT}, line, lambda _line: None, cfg=self.cfg,
+                                 typed={"line": line, "seat": None})
+        self.assertIn("has changed", heard[0])
+
+    def test_a_renamed_seat_from_before_keeps_its_file_through_a_failed_relaunch(self):
+        config.save_session(self.cfg, "acme-old", "opus", ["astra"], {"cwd": str(self.root), **OWNED})
+        self.handed(BEFORE, name="acme-old", recorded=False)
+        config.rename_session("acme-old", "acme-new")
+        orch.keep_launch_rulebook("acme-new")      # before the relaunch's adapter writes
+        time.sleep(0.05)
+        config.rulebook_path("acme-new").write_text("the relaunch's, never read\n")
+        (config.HOME / "rules.md").write_text("A newer rule.\n")
+        with notify.session_lock("acme-new") as held:   # the relaunch failed; a delivery types
+            orch.rulebook_prepare(held)
+            told = self.prompt(session="acme-old")
+        self.assertIn(str(config.rulebook_path("acme-old")), told)
+        self.assertEqual(config.rulebook_path("acme-old").read_text(),
+                         config.seat_rulebook("acme-new"))
 
     def test_a_rulebook_file_cut_mid_character_is_written_again(self):
         self.handed(BEFORE)

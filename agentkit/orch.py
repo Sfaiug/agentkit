@@ -2050,24 +2050,32 @@ def keep_launch_rulebook(name):
     from . import notify
     with notify.session_lock(name) as current:
         record = config.session_records().get(current)
-        if not record or record.get("rulebook_sha"):
+        if not record or (record.get("rulebook_sha") and record.get("launched_as")):
             return
-        launched = on_disk(launch_file(current))
-        if launched:
-            config.update_session(current, rulebook_sha=config.rulebook_digest(launched))
+        # the name and its digest, together: the adapter may write a newer file under another
+        # of the seat's names, and a relaunch that fails leaves this harness on this one
+        named = launched_name(current)
+        fields = {"launched_as": named}
+        if not record.get("rulebook_sha"):
+            launched = on_disk(config.rulebook_path(named))
+            if not launched:
+                return
+            fields["rulebook_sha"] = config.rulebook_digest(launched)
+        config.update_session(current, **fields)
 
 
-def launch_file(current, launched_as=None):
-    """The rulebook file a seat's harness was launched with: under the name it was launched
-    under, which it carries through a rename -- `launched_as` where the caller knows it, else
-    its launch's record of it, and for a seat from before that record the newest of its
-    names' files."""
+def launched_name(current, launched_as=None):
+    """The name a seat's harness was launched under, which it carries through a rename and its
+    rulebook file is under: `launched_as` where the caller knows it (the harness's own hook),
+    else its record's, and for a seat from before that record the one of its names with the
+    newest file."""
     named = launched_as or (config.session_records().get(current) or {}).get("launched_as")
     if named:
-        return config.rulebook_path(named)
+        return named
     names = [current, *(old for old, new in config.session_aliases().items() if new == current)]
-    files = [path for path in map(config.rulebook_path, names) if path.is_file()]
-    return max(files, key=lambda path: path.stat().st_mtime) if files else config.rulebook_path(current)
+    found = [name for name in names if config.rulebook_path(name).is_file()]
+    return (max(found, key=lambda name: config.rulebook_path(name).stat().st_mtime)
+            if found else current)
 
 
 def on_disk(path):
@@ -2082,13 +2090,14 @@ def on_disk(path):
 
 
 def rulebook_due(name, launched_as=None):
-    """(record, conversation, launched, text, file) when the seat's conversation is to be told
-    its rulebook changed, else None; `name` is the name it goes by now."""
+    """(record, conversation, launched, text, launched name) when the seat's conversation is to
+    be told its rulebook changed, else None; `name` is the name it goes by now."""
     record = config.session_records().get(name)
     conversation = seat_conversation(record) if record else None
     if not record or not seat_plugin(record).prompt_context or not owns(record, conversation):
         return None
-    path = launch_file(name, launched_as)
+    named = launched_name(name, launched_as)
+    path = config.rulebook_path(named)
     launched = record.get("rulebook_sha")
     if not launched:
         held = on_disk(path)
@@ -2101,7 +2110,7 @@ def rulebook_due(name, launched_as=None):
     # told and not yet said read is told again, whatever the rules are now; and a file that
     # says other rules than these was named to the seat, so it is too
     pending = (record.get("rulebook_told") or {}).get("conversation") == conversation
-    return ((record, conversation, launched, text, path)
+    return ((record, conversation, launched, text, named)
             if pending or config.rulebook_digest(text) != holds or on_disk(path) != text.encode()
             else None)
 
@@ -2117,7 +2126,8 @@ def rulebook_prepare(name, launched_as=None):
         found = rulebook_due(name, launched_as)
         if not found:
             return
-        record, conversation, launched, text, path = found
+        record, conversation, launched, text, named = found
+        path = config.rulebook_path(named)
         sha = config.rulebook_digest(text)
         told = record.get("rulebook_told") or {}
         fields = {}
@@ -2126,8 +2136,9 @@ def rulebook_prepare(name, launched_as=None):
             # launched with, and a record write that fails must leave it; a recorded one is a
             # launch's, never a prompt's to replace
             fields["rulebook_sha"] = launched
-            if launched_as:
-                fields["launched_as"] = launched_as      # the hook's word: a delivery's next
+        if record.get("launched_as") != named:
+            # with its digest, and the hook's word over any other: a delivery reads this one
+            fields["launched_as"] = named
         if told.get("conversation") != conversation or told.get("sha") != sha:
             # a code for this conversation and these rules, which only a prompt that carried
             # the news holds: `ak orch rules` takes nothing else
@@ -2178,7 +2189,7 @@ def rulebook_news(session, conversation):
     record = config.session_records().get(current) or {}
     told = record.get("rulebook_told") or {}
     text = config.seat_rulebook(current)
-    path = launch_file(current, session)
+    path = config.rulebook_path(launched_name(current, session))
     if (on_disk(path) != text.encode() or told.get("conversation") != conversation
             or told.get("sha") != config.rulebook_digest(text)):
         return ""                       # nothing it could read and say so yet: the next prompt
