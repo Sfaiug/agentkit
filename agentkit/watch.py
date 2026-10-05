@@ -1131,22 +1131,6 @@ def pane_tail(text):
     return "\n".join(lines[-PANE_LINES:])
 
 
-def screen_tail(harness, pane):
-    """The tail that harness's screen is read from: `pane_tail`, reaching up to the prompt row
-    of a ruled composer's box that a long draft pushed above it, found over the whole pane."""
-    lines = _content_rows(pane)
-    try:
-        chrome = screen(harness)
-    except config.Error:
-        chrome = {"ruled": False}
-    start = len(lines) - PANE_LINES
-    if chrome["ruled"] and start > 0:
-        at = ruled_composer(chrome, lines)[0]
-        if at is not None:
-            start = min(start, at - 1)
-    return "\n".join(lines[max(0, start):])
-
-
 def _plain_lines(tail):
     """Stripped plain lines; `-e` attributes never make a blank line non-empty."""
     return [strip_sgr(line).strip() for line in tail.splitlines() if strip_sgr(line).strip()]
@@ -1475,15 +1459,14 @@ def screen_state(harness, tail):
                       if re.match(prompt, region[index])]
             end = None
             if rule["chrome"] and chrome["ruled"]:
-                # Its composer is the box `ruled_composer` finds over the whole tail, every row
-                # between its own rules, under the footer at the pane's bottom -- or, with none
-                # drawn, a prompt row right on that bottom.
-                region, raws = lines, raw_lines
-                at, end = ruled_composer(chrome, raw_lines)
-                if at is not None and not chrome_line(chrome, lines[-1]):
+                # Its composer is the box `ruled_composer` finds in the rule's own rows, every
+                # row of it down to its closing rule, under the footer at the pane's bottom --
+                # or, with none drawn, a prompt row right on that bottom.
+                at, end = ruled_composer(chrome, raws)
+                if at is not None and not chrome_line(chrome, region[-1]):
                     at = None
-                elif at is None and re.match(prompt, lines[-1]):
-                    at, end = len(lines) - 1, len(lines)
+                elif at is None and re.match(prompt, region[-1]):
+                    at, end = len(region) - 1, len(region)
                 marked = [] if at is None else [at]
             elif rule["chrome"]:
                 # The composer's own rule sits right under it and the footer at the bottom;
@@ -1668,8 +1651,8 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         pane = pane_text(session)
     at = time.time() if now is None else now
     try:
-        found = classify(harness, screen_tail(harness, pane), hook_facts(name),
-                         previous.get("opened_at"), previous, at)
+        found = classify(harness, pane_tail(pane), hook_facts(name), previous.get("opened_at"),
+                         previous, at)
     except config.Error as exc:
         # a manifest somebody is in the middle of writing is not a reason for a blank menu
         print(f"WARN cannot read what {name} is doing: {exc}", file=sys.stderr)
@@ -2296,7 +2279,7 @@ def _decided_state(name, harness, pane):
         return None
     try:
         previous = seat_read(name)
-        found = classify(harness, screen_tail(harness, pane), hook_facts(name),
+        found = classify(harness, pane_tail(pane), hook_facts(name),
                          previous.get("opened_at"), previous, time.time())
     except (config.Error, OSError):
         return None
@@ -2504,9 +2487,7 @@ def composer_draft(harness, pane):
     rule closes is one -- a user's status line under the rule never is, whatever its mark.
     """
     chrome = screen(harness)
-    # the tail, reaching up to a ruled composer's box however long its draft: only that box is
-    # anchored to the composer drawn now, and anything else higher up is older output
-    raws, rows = _screen_rows(harness, screen_tail(harness, pane))
+    raws, rows = _screen_rows(harness, pane_tail(pane))
     if chrome["draft"]:
         # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
         # block of them, and finding none reads as empty.

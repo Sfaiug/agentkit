@@ -4,8 +4,9 @@ Claude Code draws its composer between two rules and puts a wrapped or multi-lin
 under the prompt row.  Those rows are the draft, even one that reads like a rule (`---`), and a
 seat whose composer holds any of it is never typed into.  The screens are a real 2.1.289
 capture with invented names (tests/fixtures/claude-multiline-draft-pane.txt) and the empty
-prompt capture with drafts written into it.  A draft taller than the whole pane has no box
-on the screen to read, as before.
+prompt capture with drafts written into it.  The screen is read within the rows it always was
+(a draft rule's eight, the tail's fifteen); a draft taller than those is the typing gate's to
+refuse, as a composer it cannot read.
 """
 
 import json
@@ -118,14 +119,6 @@ class ComposerBox(Sandbox):
         self.assertNotEqual(under, PROMPT)
         self.assertEqual(watch.composer_draft("claude", under), "")
 
-    def test_a_draft_longer_than_the_tail_is_read_whole(self):
-        """Thirteen rows push the box's top rule above the last 15 rows; the pane still has it."""
-        rows = [f"step {n} of the acme migration" for n in range(1, 14)]
-        pane = drafted("\n  ".join(rows))
-        self.assertTrue(watch.pane_tail(pane).startswith("❯"))     # its top rule cut off
-        self.assertEqual(watch.composer_draft("claude", pane), "".join(rows).replace(" ", ""))
-        self.assertEqual(self.looked(pane), ("needs you", False, []))
-
     def test_a_faint_suggestion_wrapped_over_rows_is_no_draft(self):
         """tmux writes SGR 2 once, on the first row; the second row carries it unwritten."""
         rows = drafted("\x1b[0;2mTry fixing the acme login redirect and running all of its"
@@ -186,6 +179,16 @@ class ComposerBox(Sandbox):
                               ("codex", "› Fix the old thing\n" + output + legacy)):
             with self.subTest(harness=harness):
                 self.assertNotIn("Fixtheoldthing", watch.composer_draft(harness, pane) or "")
+
+    def test_an_older_claude_box_above_newer_output_is_not_the_composer(self):
+        old = "─" * 40 + "\n❯ Fix the old thing\n" + "─" * 40 + "\n"
+        output = "".join(f"⏺ step {n} done\n" for n in range(20))
+        legacy = ('╭──────────────────╮\n│ > Try "fix tests" │\n╰──────────────────╯\n'
+                  "⏵⏵ bypass permissions on (shift+tab to cycle)\n")
+        pane = old + output + legacy
+        self.assertNotEqual(watch.screen_state("claude", watch.pane_tail(pane))[0], "draft")
+        self.assertNotIn("Fixtheoldthing", watch.composer_draft("claude", pane) or "")
+        self.assertEqual(self.looked(pane)[1], True)
 
     def test_an_older_boxed_composer_holding_its_placeholder_is_free(self):
         pane = ('⎿ Done.\n╭──────────────────╮\n│ > Try "fix tests" │\n╰──────────────────╯\n'
