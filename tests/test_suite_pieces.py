@@ -199,6 +199,14 @@ class SuitePieces(unittest.TestCase):
         (parent / "lander-widget.scope" / "cpu.weight").unlink()
         self.assertIsNone(host.kept_cpu(whole))
 
+    def test_injected_readings_never_read_the_real_cgroups(self):
+        # A suite's own check may run at the top weight: the injected readings stay the truth.
+        whole, _ = self.cgroups({"lander-widget.scope": (host.CPU_WEIGHT_MAX, 0.5),
+                                 "agentkit-run-build.scope": (40, 0.8)})
+        root = os.environ.pop("AK_CGROUP_ROOT")     # the same tree, as the machine's own
+        with patch.object(host, "CGROUP_ROOT", root):
+            self.assertIsNone(host.kept_cpu(whole))
+
     def landing_pieces(self, used):
         """Pieces a landing check adds beside four running pieces, the slice read as `used`."""
         busy = {**ROOM, "slice_cpu_used": used, "slice_memory_high_mb": 41000}
