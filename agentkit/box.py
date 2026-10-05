@@ -351,8 +351,14 @@ def _supervise(report, argv, drain=False):
         if pid == proc.pid:
             code = proc.returncode = os.waitstatus_to_exitcode(status)
             break
-    if reader is not None:
-        reader.join()
+    while reader is not None and reader.is_alive():
+        # Whoever still holds the output may leave more orphans; reap them until EOF.
+        reader.join(0.05)
+        try:
+            while os.waitpid(-1, os.WNOHANG)[0]:
+                pass
+        except ChildProcessError:
+            pass
     left = []
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():

@@ -198,6 +198,30 @@ class ChecksBoxed(unittest.TestCase):
             self.assertFalse(ok, text)
             self.assertIn("[exit 126]", text)
 
+    def test_orphans_are_reaped_while_the_output_drains(self):
+        # The shell is gone at once; its background child holds the output and leaves
+        # exited children to PID 1, which must not let them pile up until forks fail.
+        source = (
+            "import os, pathlib, time\n"
+            "while os.getppid() != 1:\n    time.sleep(.01)\n"
+            "for _ in range(20):\n"
+            "    child = os.fork()\n"
+            "    if child == 0:\n        os.fork()\n        os._exit(0)\n"
+            "    os.waitpid(child, 0)\n"
+            "time.sleep(1)\n"
+            "states = []\n"
+            "for entry in pathlib.Path('/proc').iterdir():\n"
+            "    try:\n"
+            "        states.append((entry / 'stat').read_text().rsplit(')', 1)[1].split()[0])\n"
+            "    except (OSError, IndexError):\n        pass\n"
+            "print('zombies', states.count('Z'))\n")
+        for name in ("proof", "check"):
+            with self.subTest(command=name):
+                command = self.command(source) + " &"
+                text = (self.proof(command)["output"] if name == "proof"
+                        else self.check(command)[1])
+                self.assertIn("zombies 0", text)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
