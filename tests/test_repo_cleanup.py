@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, run  # noqa: E402
+from agentkit import config, run, worktrees  # noqa: E402
 
 
 class RepoCleanup(unittest.TestCase):
@@ -70,9 +70,9 @@ class RepoCleanup(unittest.TestCase):
         wt, run_dir, state = self.make_run(
             "cleanup-once",
             f"---\ncleanup: pwd && echo cleaned >> {counter}\n---\n# acme\n")
-        run.run_repo_cleanup(wt, run_dir)
-        run.run_repo_cleanup(wt, run_dir)
-        self.assertTrue(run.stop_checkout(state, lambda message: None))
+        worktrees.run_repo_cleanup(wt, run_dir)
+        worktrees.run_repo_cleanup(wt, run_dir)
+        self.assertTrue(worktrees.stop_checkout(state, lambda message: None))
         self.assertFalse(wt.exists())
         self.assertEqual(counter.read_text().splitlines(), ["cleaned"])
         self.assertIn(str(wt), (run_dir / "cleanup.log").read_text())
@@ -97,7 +97,7 @@ class RepoCleanup(unittest.TestCase):
     def test_without_cleanup_nothing_runs(self):
         wt, run_dir, state = self.make_run(
             "no-cleanup", "---\nusers: none\n---\n# acme\n")
-        self.assertTrue(run.stop_checkout(state, lambda message: None))
+        self.assertTrue(worktrees.stop_checkout(state, lambda message: None))
         self.assertFalse(wt.exists())
         self.assertFalse((run_dir / "cleanup.log").exists())
         self.assertEqual(self.cleanup_lines(run_dir), [])
@@ -106,8 +106,8 @@ class RepoCleanup(unittest.TestCase):
     def test_timed_out_cleanup_still_removes(self):
         wt, run_dir, state = self.make_run(
             "cleanup-slow", "---\ncleanup: sleep 30\n---\n# acme\n")
-        with patch.object(run, "CLEANUP_LIMIT", 1):
-            self.assertTrue(run.stop_checkout(state, lambda message: None))
+        with patch.object(worktrees, "CLEANUP_LIMIT", 1):
+            self.assertTrue(worktrees.stop_checkout(state, lambda message: None))
         self.assertFalse(wt.exists())
         [line] = self.cleanup_lines(run_dir)
         self.assertIn("timed out", line)

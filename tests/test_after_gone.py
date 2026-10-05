@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job, record, run, task
+from agentkit import config, job, record, run, worktrees, task
 
 AK_MAIN = runpy.run_path(str(REPO / "bin/ak"))["main"]
 
@@ -126,7 +126,7 @@ class AfterGone(unittest.TestCase):
         with patch.object(run, "collect_usage", side_effect=AssertionError("a model pick")), \
                 patch.object(run, "rounds", side_effect=AssertionError("a round ran")), \
                 patch.object(run, "integrate", side_effect=AssertionError("integrated")), \
-                patch.object(run, "settle_run"):
+                patch.object(worktrees, "settle_run"):
             ended = run.loop({}, run_dir, run_dir / "task.md",
                              {"--exec": None, "--review": None, "--rounds": None,
                               "--no-worktree": False}, lambda _: None, prior=state)
@@ -157,7 +157,7 @@ class AfterGone(unittest.TestCase):
                                     merge_failed=False, scratch=False, repo=str(repo),
                                     worktree=str(wt), base_sha=tip,
                                     from_pass={"task": "alpha.md", "tip": tip})
-        with patch.object(run, "settle_run"):
+        with patch.object(worktrees, "settle_run"):
             ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
                              lambda _: None, prior=state)
         self.assertEqual(ended["state"], "blocked")
@@ -200,7 +200,7 @@ class AfterGone(unittest.TestCase):
             self.assertRegex(ended["error"], r"relaunch with `from: ak/beta`; its checkout "
                                              r".* stopped part way off ak/beta .* is kept")
             # the seat is told, and the hand-back's cleanup leaves the checkout to it
-            run.settle_run({**record.read_state(run_dir), "handed_back": True}, run_dir)
+            worktrees.settle_run({**record.read_state(run_dir), "handed_back": True}, run_dir)
         self.assertEqual((wt / "fixer.txt").read_text(), "fixer work\n")
         self.assertEqual(git("show", "ak/beta:file.txt"), "own work")
 
@@ -216,14 +216,14 @@ class AfterGone(unittest.TestCase):
         with patch.object(run, "git", side_effect=on_branch), \
                 patch.object(run, "in_progress", return_value=False), \
                 patch.object(run, "commit_leftovers", side_effect=run.Stopped("git commit killed")), \
-                patch.object(run, "drop_checkout", side_effect=AssertionError("cleaned up")), \
+                patch.object(worktrees, "drop_checkout", side_effect=AssertionError("cleaned up")), \
                 patch("agentkit.browser.close_owned"):
             ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
                              lambda _: None, prior=state)
             self.assertEqual(ended["state"], "blocked")
             self.assertRegex(ended["error"], r"relaunch with `from: ak/beta`; git could not .*"
                                              r"git commit killed.* is kept")
-            run.settle_run({**record.read_state(run_dir), "handed_back": True}, run_dir)
+            worktrees.settle_run({**record.read_state(run_dir), "handed_back": True}, run_dir)
 
     def test_work_no_commit_could_take_keeps_its_checkout(self):
         wt = self.root / "wt-gamma"
@@ -238,13 +238,13 @@ class AfterGone(unittest.TestCase):
                 patch.object(run, "in_progress", return_value=False), \
                 patch.object(run, "commit_leftovers"), \
                 patch.object(run, "dirty_paths", return_value=["src/api.py"]), \
-                patch.object(run, "drop_checkout", side_effect=AssertionError("cleaned up")), \
+                patch.object(worktrees, "drop_checkout", side_effect=AssertionError("cleaned up")), \
                 patch("agentkit.browser.close_owned"):
             ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
                              lambda _: None, prior=state)
             self.assertEqual(ended["state"], "blocked")
             self.assertRegex(ended["error"], "could not be committed, so its checkout .* is kept")
-            run.settle_run({**record.read_state(run_dir), "handed_back": True}, run_dir)
+            worktrees.settle_run({**record.read_state(run_dir), "handed_back": True}, run_dir)
 
     def test_an_unstarted_run_ends_blocked_before_its_checkout(self):
         run_dir = config.RUNS / "20261004-0702-beta"
@@ -253,7 +253,7 @@ class AfterGone(unittest.TestCase):
         record.save_state(run_dir, {"run_id": run_dir.name,
                                     "from_pass": {"task": "alpha.md", "tip": "tip"}})
         with patch.object(run, "make_worktree", side_effect=AssertionError("a checkout")), \
-                patch.object(run, "settle_run"):
+                patch.object(worktrees, "settle_run"):
             ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
                              lambda _: None)
         self.assertEqual(ended["state"], "blocked")

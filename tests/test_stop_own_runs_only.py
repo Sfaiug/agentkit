@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import browser, config, job, notify, orch, record, run, watch
+from agentkit import browser, config, job, notify, orch, record, run, worktrees, watch
 
 
 class StopOwnRunsOnly(Sandbox):
@@ -33,12 +33,13 @@ class StopOwnRunsOnly(Sandbox):
         self.tmux = self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
         self.card = self.stack.enter_context(patch.object(notify, "forget_card"))
         self.tabs = self.stack.enter_context(patch.object(browser, "close_owned"))
-        self.checkout = self.stack.enter_context(patch.object(run, "stop_checkout", return_value=True))
+        self.checkout = self.stack.enter_context(patch.object(worktrees, "stop_checkout", return_value=True))
         self.kill = self.stack.enter_context(patch.object(watch, "kill_tree"))
         self.stack.enter_context(patch.object(run, "marker_pids", return_value=[4242]))
         self.stack.enter_context(patch.object(record, "process_active", return_value=True))
-        for name in ("history_finish", "record_result", "redress_seat", "drop_checkout"):
+        for name in ("history_finish", "record_result", "redress_seat"):
             self.stack.enter_context(patch.object(run, name))
+        self.stack.enter_context(patch.object(worktrees, "drop_checkout"))
 
     def running(self, name, owner, *, in_job=False, legacy=False):
         directory = config.RUNS / name

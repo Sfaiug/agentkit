@@ -132,6 +132,13 @@ RULES = [
      "pattern": r"job\.json",
      "home": ("agentkit/job.py",),
      "max": 0},
+    # A run's worktree goes one way: the repo's `cleanup:` line, then git, then its `ak/`
+    # branch. Each call of the cleanup line outside worktrees.py spells that order again.
+    {"name": "run worktree removal",
+     "flags": (),
+     "pattern": r"run_repo_cleanup\(",
+     "home": ("agentkit/worktrees.py",),
+     "max": 4},
 ]
 
 

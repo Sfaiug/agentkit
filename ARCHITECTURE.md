@@ -11,7 +11,7 @@
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words leak into some twenty files.
-- `run.py` (11.4k lines) holds most of the run side.
+- `run.py` (11.0k lines) holds most of the run side.
 
 ## Entry points
 
@@ -34,6 +34,10 @@
   (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
   watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
   `own_pr_wait_note`). Leak: run's private `_cached_providers`.
+- `worktrees.py`: a run's worktree and local branch: whether they may go (final run, gone
+  loop, never ~/code, held for a resume) and taking them, the repo's `cleanup:` line first.
+  `settle_run`, `drop_checkout`, `stop_checkout`, `provably_final` for run and gc.
+  Leaks: run's state predicates, `git`, `git_out`, `Stopped`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member
   leaves to fix itself or hand the failure to its PR's seat. Record changes and the tick
