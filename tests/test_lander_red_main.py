@@ -3,6 +3,7 @@
 Offline: local Git and real suites, with isolated state and fake repair launches and wakes.
 """
 
+from contextlib import ExitStack
 import json
 from pathlib import Path
 import sys
@@ -149,6 +150,33 @@ class RedMain(unittest.TestCase):
             land.check_line(self.turn)
         tree = self.wait(config.RUNS / "first")["land"]
         self.assertEqual(land.passed(self.turn, tree)["code"], "commit-a")
+
+    def test_an_older_commits_green_prefix_blames_no_member_for_a_red_target(self):
+        # first's stack passed under another ak commit: it is checked again, never trusted
+        first = self.member()
+        later = self.member("later", joined=2, **{"later.txt": "later\n"})
+        self.advance(**{"broken.txt": "target breakage\n"})
+        run.fetch(self.repo, "origin")
+        tip = run.git(self.repo, "rev-parse", "origin/main")
+        saved = record.read_state(first)
+        with ExitStack() as opened:
+            scratch, text = land._stack_member(self.repo, saved, tip, "origin/main", opened)
+            self.assertFalse(text)
+            tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
+            checks = land._landing_checks(first, saved, scratch, tip)
+        land.note(self.turn, [run.git(self.repo, "rev-parse", "origin/main^{tree}")], "earlier",
+                  checks=[SUITE])
+        land.note(self.turn, [tree], "earlier", checks=checks)
+        path = land._trees(self.turn)[0]
+        kept = json.loads(path.read_text())
+        for evidence in kept["trees"].values():
+            evidence["code"] = "another-commit"
+        path.write_text(json.dumps(kept))
+        before = {directory: (directory / "run.json").read_bytes() for directory in (first, later)}
+        land.check_line(self.turn)
+        self.wake.assert_not_called()
+        self.assertEqual(len(self.prepared), 1)
+        self.assert_parked(before)
 
     def test_a_target_this_landers_code_passed_is_not_checked_again(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})
