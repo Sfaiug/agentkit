@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, notify, orch, statusbar
+from agentkit import config, notify, orch, statusbar, watch
 from agentkit.harness import codex
 
 SEAT = "acme-fix"
@@ -346,6 +346,29 @@ class RulebookNews(Sandbox):
             self.assertEqual(self.prompt(), "")
         self.assertEqual(config.rulebook_path(SEAT).read_text(), BEFORE)
         self.assertIn("has changed", self.prompt())
+
+    def test_a_prompt_delivered_under_the_seat_s_lock_is_told(self):
+        # an autonomous seat's prompts are ak's deliveries, each typed under the seat's lock
+        self.handed(BEFORE)
+        heard = []
+
+        def enter(*_args):
+            heard.append(self.prompt())     # the hook runs as the Enter lands, lock still held
+            return True
+
+        with patch.object(watch, "_send_line", return_value=True), \
+                patch.object(watch, "_send_enter", side_effect=enter), \
+                patch.object(watch, "pane_text", return_value=""), \
+                patch.object(watch, "KEY_GAP", 0):
+            self.assertTrue(watch.type_into({"name": SEAT}, "a peer note", lambda _line: None))
+        self.assertIn("has changed", heard[0])
+        self.assertEqual(config.rulebook_path(SEAT).read_text(), config.seat_rulebook(SEAT))
+
+    def test_a_rulebook_file_cut_mid_character_is_written_again(self):
+        self.handed(BEFORE)
+        config.rulebook_path(SEAT).write_bytes("Rule two \u2013".encode()[:-1])   # a failed write
+        self.assertIn("has changed", self.prompt())
+        self.assertEqual(config.rulebook_path(SEAT).read_text(), config.seat_rulebook(SEAT))
 
     def test_its_record_writes_never_land_over_a_rename(self):
         # while a rename holds the seat's lock: a prompt skips, a launch waits, neither writes

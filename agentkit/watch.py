@@ -2402,7 +2402,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
     `ready` is asked under the guard right before each Enter, after the gap: the owner can
-    type in it, and an Enter it refuses is never sent.
+    type in it, and an Enter it refuses is never sent.  Under a seat's lock, the news its
+    prompt carries is made ready right before each Enter (`orch.rulebook_prepare`): the
+    prompt's own hook never waits on the lock this holds.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -2429,6 +2431,12 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             # all there is.
             confirm = any(pattern.search(strip_sgr(line))
                           for line in pane_tail(pane_text(seat)).splitlines())
+
+    def enter(held):
+        if held is not None:
+            orch.rulebook_prepare(held)
+        return _send_enter(seat, log)
+
     with guard() as held:
         if veto(held if held is not None else name):
             return False
@@ -2436,7 +2444,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not _send_line(seat, text, log, typed, source=source):
                 return False
             time.sleep(KEY_GAP)
-        if not ready(held if held is not None else name) or not _send_enter(seat, log):
+        if not ready(held if held is not None else name) or not enter(held):
             return False
     if not confirm or _wait_sent(seat, harness, text):
         return True
@@ -2444,7 +2452,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
         if (veto(held if held is not None else name)
                 or not ready(held if held is not None else name)):
             return False
-        if not _send_enter(seat, log):
+        if not enter(held):
             return False
     if _wait_sent(seat, harness, text):
         return True
