@@ -431,6 +431,14 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     scratch, text = _stack_member(repo, saved, top, upstream, opened)
                     if text:
                         continue
+                # Each head fit the ceiling alone; the stack is what lands. Measured before any
+                # evidence answers it: a tree green on a target with larger rules says nothing.
+                failure = run.rules_cap(SimpleNamespace(wt=scratch, base_sha=tip, scratch=False))
+                if failure:
+                    log_path = member / "lander.log"
+                    log_path.write_text(failure + "\n")
+                    verdicts[member] = {"fix": {"line": failure, "log": str(log_path)}}
+                    continue
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
                 stacks.append((member, saved, scratch, tree,
