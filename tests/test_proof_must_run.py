@@ -1,12 +1,13 @@
 """A proof that could not start establishes no defect on either commit."""
 
 import shlex
+import shutil
 import sys
 import unittest
 from unittest.mock import patch
 
 import test_proof_weighed as proof
-from agentkit import hand_in, run, worker
+from agentkit import gate, hand_in, run
 
 
 class ProofMustRun(unittest.TestCase):
@@ -75,17 +76,27 @@ class ProofMustRun(unittest.TestCase):
         self.assertIn("[exit 1]", self.lp.findings)
 
     def test_a_missing_or_unexecutable_shell_is_a_note_and_restores_the_checkout(self):
-        limited = worker.limited
-        for error in (FileNotFoundError("missing shell"), PermissionError("unexecutable shell")):
-            with self.subTest(error=error):
-                def cannot_start(command, *args, **kwargs):
-                    if command == ["bash", "-c", self.fails]:
-                        raise error
-                    return limited(command, *args, **kwargs)
-                with patch.object(worker, "limited", side_effect=cannot_start):
-                    self.assertEqual(self.review(proof.finding("api.py:1", "no shell", self.fails)), "PASS")
+        bindir = self.root / "proof-bin"
+        bindir.mkdir()
+        for name in ("git", "bwrap"):
+            (bindir / name).symlink_to(shutil.which(name))
+        # Only replay lacks a shell; the reviewer still submits its real proof.
+        env = {**gate.suite_env(), "PATH": str(bindir)}
+        for code in (127, 126):
+            with self.subTest(code=code):
+                if code == 126:
+                    (bindir / "bash").write_text("unexecutable shell\n")
+                    (bindir / "bash").chmod(0o644)
+                with patch.object(gate, "suite_env", return_value=env):
+                    verdict = self.review(proof.finding("api.py:1", "no shell", self.fails))
+                self.assertEqual(verdict, "PASS", self.lp.findings)
                 self.assertEqual(self.lp.state["followups"], [])
-                self.assertIn(str(error), self.lp.state["notes"][0])
+                evidence = self.lp.state["review_records"][0]["evidence"]
+                for result in (evidence, evidence["base"]):
+                    self.assertEqual((result["returncode"], result["killed"]), (code, False))
+                    self.assertIn("bash", result["output"])
+                    self.assertNotIn("Traceback", result["output"])
+                self.assertIn(f"[exit {code}]", self.lp.state["notes"][0])
 
     def test_a_missing_script_reporting_exit_two_reaches_the_fixer(self):
         calls = self.rounds([{

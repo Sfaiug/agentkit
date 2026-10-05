@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -547,6 +548,18 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
             monitor.join()
     killed = expired.is_set()
     return (TIMEOUT if killed else proc.returncode), out or "", killed
+
+
+def boxed(cmd, limit, *, env, cwd, **kwargs):
+    """The check watchdog and status, with a worker turn's credential masks and teardown."""
+    with tempfile.TemporaryDirectory(dir=Path(kwargs["activity"]).parent) as out_dir, \
+            box.command(cmd, env, out_dir, cwd=cwd, walls=False, drain=True) as (cmd, env, spawn):
+        code, text, killed = limited(cmd, limit, env=env, cwd=cwd, **spawn, **kwargs)
+        if not killed:
+            # Bubblewrap exits 1 when it cannot build the box. Without the supervisor's
+            # report that is no exit of the command: it never started, the shell's 126.
+            code = box.returncode(out_dir, 126 if code == 1 else code)
+    return code, text, killed
 
 
 def recovered_session(out_dir):

@@ -1,7 +1,7 @@
 """A run's memory cap is its own, and a seat is never throttled with its runs.
 
 The unit tests inject every kill and every systemctl.  Nothing here signals a
-pid, a process group, or an `agentkit-run-*` unit.  The one integration test
+pid, a process group, or an `agentkit-run-*` unit. The live mode's integration check
 starts a throwaway scope under `agentkit-test-cap*`, inside `agentkit-test.slice`,
 and only after the child has seen a memory.max of at most 64 MB in that scope.
 It never calls os.kill, killpg or pkill.  The kernel's own cap is what ends the
@@ -451,9 +451,10 @@ class MemoryCap(unittest.TestCase):
                 patch.object(run, "_scope_oom_probe", return_value=("oom-kill", 1)),
                 patch.object(orch, "stop_scope", return_value=True)):
             self.stack.enter_context(mocked)
-        self.test_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure()
+        self.check_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure()
 
-    def test_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure(self):
+    # tests/live.sh selects this explicitly; landing discovers only the fake-manager cases.
+    def check_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure(self):
         if not shutil.which("systemd-run") or not orch.user_manager():
             self.skipTest("no user systemd manager")
         token = f"agentkit-test-cap{os.getpid() % 100000}{uuid.uuid4().hex[:4]}"

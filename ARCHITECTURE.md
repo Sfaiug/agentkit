@@ -35,8 +35,9 @@
   watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
   `own_pr_wait_note`). Leak: run's private `_cached_providers`.
 - `worktrees.py`: a run's worktree and local branch: whether they may go (final run, gone
-  loop, never ~/code, held for a resume) and taking them, the repo's `cleanup:` line first.
-  `settle_run`, `drop_checkout`, `stop_checkout`, `provably_final` for run and gc.
+  loop, never ~/code, held for a resume) and the one way they go, `stop_checkout`: the
+  repo's `cleanup:` line, git, the directory, the branch. Stop, clean, endings and gc call
+  it. `settle_run`, `drop_checkout`, `provably_final` for run and gc.
   Leaks: run's state predicates, `git`, `git_out`, `Stopped`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member
@@ -53,10 +54,10 @@
 - `job.py`: task files as jobs: `job.json` (capped `owner_words` since the seat's last
   launch), scheduling, task ladders (waits, merge, rerun), hand-back, relaunch.
   Calls `run.*`; for run, gc, watch, menu.
-- `watch.py`: tick, watch.json, errors (harness/manifest; `stalls`, `auth_expiry`),
-  state (`session_state`, `waiting_on`), typing receipts by source, revive, resume, PR scans,
-  after-merge checks, `health:` probes, `doctor`. For run, job, orch, menu, notify,
-  update, usage, worker, hooks.
+- `watch.py`: tick (its passes in one list, `local_passes`), watch.json, errors
+  (harness/manifest; `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`), typing
+  receipts by source, revive, resume, PR scans, after-merge checks, `health:` probes,
+  `doctor`. For run, job, orch, menu, notify, update, usage, worker, hooks.
   Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
 - `tell.py`: `ak tell`, one seat's message to another for every harness: queued in the
   receiver's `tell` seat file under the seat's own lock, typed only by the tick through
@@ -73,7 +74,7 @@
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,
   manifests, seat records, rename chain, `SEAT_FILES`, child env. Used by nearly everything.
 - `worker.py`: headless turns, preambles, review, adapters, silence, auth, cleanup.
-  `turn`, `call`, `kill_marked`, `auth_ok`.
+  `turn`, `call`, `boxed` checks, `kill_marked`, `auth_ok`.
   Used by run, gate, watch, usage, menu, harness. Leak: Claude shell timeout.
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye.
 - `box.py`: credential masks, PID teardown. `command`, `check`, `returncode`, `leftovers`;

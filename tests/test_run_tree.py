@@ -248,13 +248,13 @@ class RunTree(unittest.TestCase):
 
     def test_done_when_command_children_die_with_the_round(self):
         # A gate command that backgrounds a detached sleeper and exits 0: the
-        # sleeper proves it started by writing kid.ready, and dies with the gate.
+        # sleeper proves it started by writing kid.ready, and dies with the command.
         # The sleeper is named after the case, so the scan for that name proves
         # nothing leaked unmarked either.
         self.enter_run_context()
         ok, text = suite_gate.run_done_when(
             [f"setsid bash -c 'echo started >kid.ready; exec -a {self.run_id} sleep 100' "
-             "</dev/null >/dev/null 2>&1 &",
+             "</dev/null >/dev/null 2>&1 & "
              "for i in $(seq 1 100); do test -f kid.ready && break; sleep 0.1; done; "
              "test -f kid.ready"],
             self.root, self.root / "donewhen.log", set(), limit=60, silence=60)

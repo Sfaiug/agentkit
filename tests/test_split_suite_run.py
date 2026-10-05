@@ -214,14 +214,14 @@ class SplitSuiteRun(unittest.TestCase):
         self.lp, self.run_dir, _ = make_loop(folder, wt, ["true # once"], cfg=self.cfg)
         self.lp.state["launched_session"] = "seat"
         record.save_state(self.run_dir, self.lp.state)
-        limited = worker.limited
+        limited = worker.boxed
         def suite(argv, limit, **kwargs):
             if argv != ["bash", "-c", "true"]:
                 return limited(argv, limit, **kwargs)
             self.clock += 121
             return 0, "", False
         with patch.object(gate.time, "monotonic", side_effect=lambda: self.clock), \
-                patch.object(worker, "limited", side_effect=suite):
+                patch.object(worker, "boxed", side_effect=suite):
             self.assertTrue(run.final_check(self.lp, "origin/main"))
         self.assertEqual(len(self.spawned), 1)
 

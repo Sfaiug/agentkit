@@ -18,12 +18,15 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from string import Template
 
 # What a box never passes on: GitHub tokens, and the SSH agent's address.
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK")
 PROCESSES = "box-processes.json"
+# The supervisor runs from the text this module was loaded from: the file on disk can change
+# under a running launcher, when a probe checks out another revision of ak's own checkout.
+SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 
 
 def _links(root):
@@ -115,16 +118,9 @@ def _paths(names, env, cwd):
         yield path if path.is_absolute() else Path(cwd or os.getcwd()) / path
 
 
-@contextmanager
-def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()):
-    """Yield (command, environment, spawn options); wait for teardown on every exit.
-
-    `state` names a manifest's paths, expanded from the environment; `places` are literal
-    directories the command may also write.
-    """
-    clean = {key: value for key, value in env.items() if key not in TOKENS}
-    cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
-           "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"]
+def _walls(cmd, clean, cwd, out_dir, state, places, logins):
+    """Make all but the turn's own places read-only; return where its scratch mounts go."""
+    cmd.extend(["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"])
     # A read-only bind disables devices too. Restore the nodes, leaving their
     # directories read-only so ordinary files cannot fill the host's /dev tmpfs.
     for device in Path("/dev").rglob("*"):
@@ -141,7 +137,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             option = "--dev-bind" if device.is_char_device() or device.is_block_device() else "--ro-bind"
             cmd.extend([option, str(device), str(device)])
     cmd.extend(["--remount-ro", "/dev"])
-    scratch_at = len(cmd)
+    at = len(cmd)
     writable = set()
     for path in [*_paths(state, clean, cwd), *map(Path, places)]:
         path = path.resolve()
@@ -170,13 +166,31 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                                     check=True, timeout=10)
             writable.update((workspace / path).resolve() for path in result.stdout.splitlines())
     if out_dir is not None:
-        output = Path(out_dir).resolve()
-        writable.add(output)
+        writable.add(Path(out_dir).resolve())
     for path in sorted(writable):
         # A redundant file mount prevents atomic refresh within its writable parent.
         if any(parent in writable for parent in path.parents):
             continue
         cmd.extend(["--bind", str(path), str(path)])
+    return at
+
+
+@contextmanager
+def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(), walls=True,
+            drain=False):
+    """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
+
+    `state` names a manifest's paths, expanded from the environment; `places` are literal
+    directories the command may also write. Without walls every write stays as it is outside: a check runs a project's own
+    suite, which writes where that project says, like a log in /tmp.
+    """
+    clean = {key: value for key, value in env.items() if key not in TOKENS}
+    cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
+           "--new-session"]
+    if walls:
+        at = _walls(cmd, clean, cwd, out_dir, state, places, logins)
+    else:
+        cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
     for path in _credentials(env, cwd):
@@ -199,7 +213,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     report.unlink(missing_ok=True)
     # PID 1 records children before exiting; its exit makes the kernel kill
     # every descendant, even one with a new session or an empty environment.
-    argv = [sys.executable, str(Path(__file__).resolve()), str(report), *argv]
+    argv = [sys.executable, "-I", "-c", SUPERVISOR, str(report),
+            *(["--drain"] if drain else []), *argv]
     read, write = os.pipe()
     target = None
     lock = threading.Lock()
@@ -237,16 +252,18 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         except subprocess.TimeoutExpired:
             proc.kill()
 
-    with tempfile.TemporaryDirectory(prefix=".box-", dir=output) as scratch:
-        mounts = []
-        for name, destination in (("tmp", "/var/tmp"), ("shm", "/dev/shm")):
-            source = Path(scratch) / name
-            source.mkdir()
-            mounts.extend(["--bind", str(source), destination])
-        # Short aliases allow Unix sockets even when out has a long run id. Bind
-        # these first so a workspace or declared state under /var/tmp still wins.
-        cmd[scratch_at:scratch_at] = mounts
-        clean["TMPDIR"] = "/var/tmp"
+    with (tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) if walls
+          else nullcontext()) as scratch:
+        if scratch is not None:
+            mounts = []
+            for name, destination in (("tmp", "/var/tmp"), ("shm", "/dev/shm")):
+                source = Path(scratch) / name
+                source.mkdir()
+                mounts.extend(["--bind", str(source), destination])
+            # Short aliases allow Unix sockets even when out has a long run id. Bind
+            # these first so a workspace or declared state under /var/tmp still wins.
+            cmd[at:at] = mounts
+            clean["TMPDIR"] = "/var/tmp"
         try:
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop}
@@ -308,6 +325,10 @@ def check():
         if result.returncode == 0:
             return
         why = result.stderr.strip() or f"exit {result.returncode}"
+    except subprocess.TimeoutExpired:
+        # A host that cannot nest a box says so at once; a slow probe is load, and every
+        # turn keeps its own silence and ceiling limits.
+        return
     except (OSError, subprocess.SubprocessError) as exc:
         why = str(exc)
     for path, setting in (("/proc/sys/kernel/unprivileged_userns_clone",
@@ -342,8 +363,16 @@ def leftovers(out_dir):
     return _report(out_dir).get("processes", [])
 
 
-def _supervise(report, argv):
-    proc = subprocess.Popen(argv, start_new_session=True)
+def _supervise(report, argv, drain=False):
+    try:
+        proc = subprocess.Popen(argv, start_new_session=True, **(
+            {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT} if drain else {}))
+    except OSError as exc:
+        # A command that never started proves no defect; keep the shell's launch codes.
+        code = 127 if isinstance(exc, FileNotFoundError) else 126
+        print(exc, file=sys.stderr)
+        Path(report).write_text(json.dumps({"returncode": code, "processes": []}))
+        return code
 
     def term(signum, _frame):
         # Outer bwrap cannot forward TERM; leave it alive while the harness saves
@@ -354,6 +383,17 @@ def _supervise(report, argv):
             pass
 
     signal.signal(signal.SIGTERM, term)
+    reader = None
+    if drain:
+        # Checks have always waited for children holding their output pipe. Keep
+        # PID 1 alive until EOF so those children still face the silence watchdog.
+        def forward():
+            with proc.stdout:
+                for chunk in iter(lambda: proc.stdout.read1(64 * 1024), b""):
+                    sys.stdout.buffer.write(chunk)
+                    sys.stdout.buffer.flush()
+        reader = threading.Thread(target=forward)
+        reader.start()
     # PID 1 also inherits orphans. Reap them while waiting for the adapter, so a
     # long turn cannot accumulate zombies from double-forked commands.
     while True:
@@ -361,6 +401,14 @@ def _supervise(report, argv):
         if pid == proc.pid:
             code = proc.returncode = os.waitstatus_to_exitcode(status)
             break
+    while reader is not None and reader.is_alive():
+        # Whoever still holds the output may leave more orphans; reap them until EOF.
+        reader.join(0.05)
+        try:
+            while os.waitpid(-1, os.WNOHANG)[0]:
+                pass
+        except ChildProcessError:
+            pass
     left = []
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():
@@ -380,4 +428,5 @@ def _supervise(report, argv):
 
 
 if __name__ == "__main__":
-    sys.exit(_supervise(sys.argv[1], sys.argv[2:]))
+    drain = sys.argv[2] == "--drain"
+    sys.exit(_supervise(sys.argv[1], sys.argv[3:] if drain else sys.argv[2:], drain))

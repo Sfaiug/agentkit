@@ -31,6 +31,7 @@ import shlex
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -326,8 +327,9 @@ def bus_env(env=None):
 def user_manager():
     """Is there a user systemd manager here?
 
-    A connection to the manager's own control socket is the answer.  Only a running
-    `systemd --user` listens on one in the uid's runtime directory, so this says what neither
+    A connection to the manager's own control socket in this PID namespace is the answer.
+    Only a running `systemd --user` listens on one in the uid's runtime directory,
+    so this says what neither
     a session bus address nor a file that is merely there can: a D-Bus socket may be
     anybody's, an address may name no path at all, and a socket left behind by a manager that
     has gone refuses the connection.  Connecting rather than asking `systemctl` is deliberate:
@@ -344,7 +346,11 @@ def user_manager():
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
                     probe.settimeout(5)
                     probe.connect(str(control))
-                _MANAGER["answer"] = True
+                    # An outside manager cannot resolve a box's PIDs. Linux
+                    # reports that socket peer's invisible PID as zero.
+                    _MANAGER["answer"] = not hasattr(socket, "SO_PEERCRED") or struct.unpack(
+                        "3i", probe.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                               struct.calcsize("3i")))[0] > 0
             except (OSError, ValueError):
                 pass
     return _MANAGER["answer"]

@@ -20,7 +20,7 @@ Every change to ak is judged by what it does for what you build with it, and by 
 - Python 3.11 standard library and bash. No dependency is added, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
 - The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). Either failure fails it. `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. Dependent checks stay together; each piece has a tmux safety guard and sandbox. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
-- Checks needing more than loopback (smoke.sh 1-5, 6, 6b, 6d, 31a, 31d, 31e: real models, GitHub, Discord, live meters, shared browser) run in smoke.sh's live mode via `tests/live.sh`, before a host takes new code and when a harness upgrades.
+- Checks needing more than loopback (smoke.sh 1-5, 6, 6b, 6d, 6f, 6g, 31a, 31d, 31e: real models, GitHub, Discord, live meters, shared browser, user systemd) run in smoke.sh's live mode via `tests/live.sh`, before a host takes new code and when a harness upgrades.
 - Match the style of the file you are in. Read `ARCHITECTURE.md` first; a change that adds, removes, renames or moves a module updates the map. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
 - Docs ride the change: `README.md` and `docs/guide.md` say what the code now does.
 - `orchestrator.md` is the rulebook an agentkit session is launched with, not a file for here.

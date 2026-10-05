@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, gc, orch, retention, run
+from agentkit import config, gc, orch, retention, run, worktrees
 from agentkit import record as run_record
 
 DAY = 86400
@@ -338,11 +338,11 @@ class GcSweep(Sandbox):
         failed_merge = dict(merged=False, merge_failed=True, merge_note="PR is closed",
                             finished_at=time.time() - 8 * DAY)
         directory, wt, _ = self.receipt("locked", self.repo, **failed_merge)
-        held, clear = [], gc.clear_tree
-        def watched(tree, report):
+        held, take = [], worktrees.stop_checkout
+        def watched(state, log, keep_branch=False):
             held.append(str(directory) in getattr(run_record._RECOVERY_HELD, "paths", set()))
-            return clear(tree, report)
-        with patch.object(gc, "clear_tree", side_effect=watched):
+            return take(state, log, keep_branch=keep_branch)
+        with patch.object(worktrees, "stop_checkout", side_effect=watched):
             self.gc()
         self.assertEqual(held, [True])
         self.assertFalse(wt.exists())

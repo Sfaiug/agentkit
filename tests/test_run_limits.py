@@ -251,8 +251,8 @@ class Limits(unittest.TestCase):
 
     def test_v5f_done_when_past_its_limit_fails_the_round_and_leaves_no_children(self):
         self.repo()
-        child = self.root / "child.pid"
-        hang = f"echo begun; sleep 600 & echo $! > {shlex.quote(str(child))}; wait"
+        child = self.root / "child.lock"
+        hang = f"flock -x {shlex.quote(str(child))} bash -c 'echo begun; exec sleep 600' & wait"
         self.stack.enter_context(patch.object(run_record, "SILENCE_MINUTES", 0.05))
         task = self.task([hang])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra",
@@ -278,7 +278,7 @@ class Limits(unittest.TestCase):
         # The fixer saw the first stop; the gate log holds a later stop with its own age.
         self.assertIn(stopped.rsplit(" (", 1)[0] + " (", fixer)
         # nothing the command spawned outlived it
-        self.assertTrue(self.gone(int(child.read_text().strip())))
+        self.assertEqual(subprocess.run(["flock", "-n", str(child), "true"]).returncode, 0)
         # a timeout is a failed check, never a PASS, whatever the reviewer said
         self.assertIn("VERDICT: PASS",
                       (directory / "round-1" / "reviewer" / "final.md").read_text())
@@ -501,7 +501,7 @@ class Limits(unittest.TestCase):
         def recorded(cmd, limit, **kw):
             # The harness's event stream identifies a turn regardless of its wrapper.
             name = ("turn" if Path(kw.get("activity") or "").name == "events.jsonl"
-                    else Path(cmd[0]).name)
+                    else "command")
             limits.append((name, limit, kw.get("silence")))
             return real(cmd, limit, **kw)
 
@@ -515,7 +515,7 @@ class Limits(unittest.TestCase):
             self.assertEqual((directory / "log.txt").read_text().count(
                 f"ignoring {key}: the loop watches for silence"), 1)
         turns = [(limit, silence) for name, limit, silence in limits if name == "turn"]
-        commands = [(limit, silence) for name, limit, silence in limits if name == "bash"]
+        commands = [(limit, silence) for name, limit, silence in limits if name == "command"]
         self.assertTrue(turns and commands)
         self.assertEqual(set(turns), {(None, 60 * run_record.SILENCE_MINUTES)})
         self.assertTrue(all(0 < limit <= 3600 * run_record.CEILING_HOURS and
@@ -1097,10 +1097,10 @@ class Limits(unittest.TestCase):
         self.repo()
         lock = self.root / "suite.lock"
         lock.touch()
-        holder, taken = self.root / "grandchild.pid", self.root / "taken"
+        taken = self.root / "taken"
         hang = (f"echo ok 8g; (flock -x {shlex.quote(str(lock))} "
                 f"bash -c 'echo taken > {shlex.quote(str(taken))}; sleep 600') & "
-                f"echo $! > {shlex.quote(str(holder))}; sleep 600")
+                "sleep 600")
         self.stack.enter_context(patch.object(run_record, "SILENCE_MINUTES", 0.05))
         task = self.task([hang])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra",
@@ -1123,7 +1123,6 @@ class Limits(unittest.TestCase):
         self.assertIn("ok 8g", fixer)
         # the grandchild really held the lock, and no survivor of its process group is left
         self.assertEqual(taken.read_text(), "taken\n")
-        self.assertTrue(self.gone(int(holder.read_text().strip())))
         self.assertEqual(subprocess.run(["flock", "-n", str(lock), "true"]).returncode, 0)
 
     # --- 11: reviewer round 2 -- four findings -------------------------------
