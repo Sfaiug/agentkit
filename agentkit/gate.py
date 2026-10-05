@@ -243,6 +243,9 @@ def claim_slot(state, limit, readings=None):
         reason, kind = _wait_reason(readings, minimum, 0)
         if reason is None and not is_first:
             reason, kind = _slice_cpu_reason(readings)
+    if reason is None and not is_first and landing_waits():
+        # Finished work goes first: the headroom a new run would take is the suite's.
+        reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
     if reason:
         state["slot_waited"] = True
         state["slot_wait_reason"], state["slot_wait_kind"] = reason, kind
@@ -453,6 +456,40 @@ def mark_gate_wait(run_dir, of):
     return None
 
 
+@contextmanager
+def landing_wait(landing):
+    """While a landing suite waits for a heavy turn it holds this file shared.
+
+    The line's checker marks no member's record, so this is how round checks and new
+    runs see a landing wait and stay behind it; the kernel lets go with the holder, so a
+    dead waiter holds nobody back.
+    """
+    if not landing:
+        yield
+        return
+    config.RUNS.mkdir(parents=True, exist_ok=True)
+    with (config.RUNS / ".heavy-landing.wait").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        yield
+
+
+def landing_waits():
+    """Whether a landing suite waits for a heavy turn now; unreadable is no.
+
+    Probes take turns on their own file, so one probe never reads another as a waiter.
+    """
+    try:
+        with (config.RUNS / ".heavy-landing.probe").open("a") as turn, \
+                (config.RUNS / ".heavy-landing.wait").open("a") as probe:
+            fcntl.flock(turn, fcntl.LOCK_EX)
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        pass
+    return False
+
+
 def gate_turn_note(state):
     """`waiting for a heavy suite turn` while a run waits in `gate_turn`, else ""."""
     turn = state.get("gate_turn")
@@ -474,8 +511,11 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False):
     counts from the start of its first landing wait, not from the lap; a mark from
     before landers ranked carries no landing and reads as a round check.  A mark
     whose process is gone, or whose pid no longer matches its record -- a kill or
-    a resume left it behind -- holds nobody back.
+    a resume left it behind -- holds nobody back.  The line's checker has no record
+    to mark; a round check sees its wait in `landing_waits`.
     """
+    if not is_landing and landing_waits():
+        return True
     me = (not is_landing, since, exclude or "")
     for directory in run_record.run_dirs():
         if directory.name == exclude:
@@ -528,7 +568,7 @@ class _GateHold:
 
 
 def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
-                        job_mem_mb=HEAVY_MEM_MB, *, unit=False):
+                        job_mem_mb=HEAVY_MEM_MB, *, unit=False, won_cpu=0.0):
     """Running suites plus how many more the live headroom fits; at least one.
 
     The slice's idle cores over one suite's 0.7, and its free memory over 0.4 GB,
@@ -541,6 +581,8 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, for jobs
     other than a heavy suite. With `unit`, pieces also fit the caller's soft
     limit and the remaining room under every enclosing hard memory cap.
+    `won_cpu` is the use the caller's CPU weight takes from others
+    (`host.outweighed_cpu`), idle to it; memory has no such weight.
     """
     if running is None:
         running = _heavy_running()
@@ -549,12 +591,13 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     cpu_quota = host._reading(readings, "slice_cpu_quota")
     if cpu_quota is not None:
         used = host._reading(readings, "slice_cpu_used")
-        cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
+        cpu_free = (cpu_quota - max(0.0, used - won_cpu) if used is not None
+                    else float(cpu_quota))
     else:
         cpus = host._reading(readings, "cpus", "nproc")
         load = host._reading(readings, "load", "load1", "load_1m")
         if cpus is not None and load is not None:
-            cpu_free = cpus - load
+            cpu_free = cpus - max(0.0, load - won_cpu)
         elif cpus is not None:
             cpu_free = float(cpus)
         else:
@@ -630,6 +673,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                 pinned = None
             # CPU sampling sleeps; locking free slots across it would count them as running.
             readings = host.host_readings(slice_dir=orch.slice_cgroup) if pinned is None else None
+            won = host.outweighed_cpu() if pinned is None else 0.0
             total = max(1, _heavy_max_existing() + 1, len(slots))
             while len(slots) < total:
                 slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
@@ -642,7 +686,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     continue
                 temp.append(fh)
             new_limit = pinned if pinned is not None else derived_heavy_limit(
-                readings, held, job_cpus, job_mem_mb, unit=pieces)
+                readings, held, job_cpus, job_mem_mb, unit=pieces, won_cpu=won)
             while len(slots) < new_limit:
                 slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
             candidates = []
@@ -675,7 +719,9 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                 waited_since = me_since if is_landing else time.time()
             step = history.close_step(run_dir.name) if run_dir else None
             uncapped = False
+            waiting = ExitStack()
             try:
+                waiting.enter_context(landing_wait(is_landing))
                 while True:
                     log_path.write_text(said + "\n")
                     run_record.stop_check(run_dir)
@@ -694,6 +740,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                         continue
                     break
             finally:
+                waiting.close()
                 if run_dir:
                     mark_gate_wait(run_dir, None)
             if run_dir:

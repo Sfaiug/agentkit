@@ -402,6 +402,30 @@ def _slice_cpu_used(cgroup, delay=0.1):
     return max(0.0, (second - first) / (elapsed * 1000000))
 
 
+CPU_WEIGHT_MAX = 10000   # the kernel's top cpu.weight
+
+
+def outweighed_cpu(delay=0.1):
+    """Cores this process takes from its cgroup's siblings when it gets busy, else 0.
+
+    The kernel shares a parent's CPU among its busy children by weight, so a cgroup at the
+    top weight gets nearly all its siblings use now: their parent's live use, its own being
+    the poll that asks.  Two at the top weight share alike and each counts the other's use
+    too; CPU counted twice only slows them, as memory counted twice would not.  Any lower
+    weight, or a cgroup that cannot be read, takes nothing.
+    """
+    own = process_cgroup()
+    if not own:
+        return 0.0
+    path = cgroup_path(own)
+    try:
+        if int((path / "cpu.weight").read_text()) < CPU_WEIGHT_MAX:
+            return 0.0
+    except (OSError, ValueError):
+        return 0.0
+    return _slice_cpu_used(path.parent, delay) or 0.0
+
+
 def _slice_memory(cgroup):
     """(used, high) of the cgroup in MB, used without reclaimable cache.
 

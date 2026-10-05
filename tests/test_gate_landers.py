@@ -139,6 +139,43 @@ class GateLanders(unittest.TestCase):
         self.assertTrue(plain.result[0] and lander.result[0])
         self.assertEqual(self.marks.read_text(), "lander\nround\n")
 
+    def test_the_line_checkers_wait_holds_round_checks_and_new_runs(self):
+        # The line's checker marks no member's record; its wait still goes first.
+        plain = Gate(self, "round-waiter", ACME, [self.mark("round")])
+        holder = gate.gate_lock(ACME, 0).open("a")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        plain.start()
+        self.until(lambda: self.turn("round-waiter").get("since") is not None,
+                   "the round waiter to mark its wait")
+        context = {"repo": ACME, "run_id": "member", "landing": True, "since": time.time()}
+        def check():
+            with gate.gate_turn(None, self.root / "line.log", None, None, self.root,
+                                context=context):
+                with self.marks.open("a") as marks:
+                    marks.write("lander\n")
+        checker = threading.Thread(target=check, daemon=True)
+        checker.start()
+        self.until(gate.landing_waits, "the checker to wait for a turn")
+        repo = run.main_checkout(ACME)
+        self.assertTrue(gate._gate_waiter_before(repo, "round-waiter",
+                                                 self.turn("round-waiter")["since"]))
+        readings = {"free_mb": 8000, "mem_total_mb": 16000, "slice_cpu_pressure": 0}
+        new = {"run_id": "new-run", "run_depth": 0}
+        self.assertFalse(gate.claim_slot(new, 0, readings))
+        self.assertEqual(new["slot_wait_kind"], "landing")
+        repair = {"run_id": "repair", "run_depth": 0, "first": True}
+        self.assertFalse(gate.claim_slot(repair, 0, readings))   # its first steady poll
+        self.assertTrue(gate.claim_slot(repair, 0, readings))
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        checker.join(20)
+        plain.join(20)
+        self.assertIsNone(plain.error, plain.error)
+        self.assertEqual(self.marks.read_text(), "lander\nround\n")
+        self.assertFalse(gate.landing_waits())
+        self.assertFalse(gate.claim_slot(new, 0, readings))   # its first steady poll
+        self.assertTrue(gate.claim_slot(new, 0, readings))
+
     def test_earlier_first_landing_wait_wins_between_landers_across_retries(self):
         # the old lander is on its second wait: waiting since 3000, but its first
         # landing wait began at 1000, ahead of the new lander's 2000

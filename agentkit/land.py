@@ -121,9 +121,11 @@ def start_line(turn, log=lambda _: None):
                 and math.isfinite(value) and value > 0]
         if ceiling and ceiling > 0:
             caps.append(run.memory_cap_mb(ceiling))
-        properties = ()
+        # Every passed run waits behind this check: it outweighs every run for the CPU.
+        properties = ("-p", f"CPUWeight={host.CPU_WEIGHT_MAX}")
         if caps:
-            _, properties = run.run_scope_limits(cap_mb=math.ceil(max(caps)))
+            _, properties = run.run_scope_limits(cap_mb=math.ceil(max(caps)),
+                                                 cpu_weight=host.CPU_WEIGHT_MAX)
         env = config.child_env()
         # This work outlives its caller and must not belong to the caller's stop sweep.
         for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",

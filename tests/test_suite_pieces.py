@@ -138,6 +138,31 @@ class SuitePieces(unittest.TestCase):
                 self.assertEqual(text.count("--- AK_SHARD="), count)
                 self.assertIn(f"--- AK_SHARD={count}/{count} ---", text)
 
+    def test_a_check_at_the_top_cpu_weight_counts_its_siblings_cpu_as_its_own(self):
+        # The line's checker outweighs every run: the CPU builds use now is its for the taking.
+        busy = {**ROOM, "slice_cpu_used": 3.5, "slice_memory_high_mb": 4100}
+        for won, count in ((0.0, 1), (2.8, 4)):
+            with self.subTest(won=won), patch.dict(os.environ, {
+                    "AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(busy)}), \
+                    patch.object(host, "outweighed_cpu", return_value=won):
+                ok, text = self.check()
+                self.assertTrue(ok, text)
+                self.assertEqual(text.count("--- AK_SHARD="), count)
+
+    def test_only_the_top_cpu_weight_takes_its_siblings_use(self):
+        relative = "/agentkit.slice/agentkit-runs.slice/agentkit-lander-acme.scope"
+        own = self.root / "cgroup" / relative.lstrip("/")
+        own.mkdir(parents=True)
+        with patch.dict(os.environ, {"AK_CGROUP_ROOT": str(self.root / "cgroup")}), \
+                patch.object(host, "process_cgroup", return_value=relative), \
+                patch.object(host, "_slice_cpu_used", return_value=2.5) as used:
+            for weight, won in ((host.CPU_WEIGHT_MAX, 2.5), (40, 0.0)):
+                (own / "cpu.weight").write_text(f"{weight}\n")
+                self.assertEqual(host.outweighed_cpu(), won)
+            used.assert_called_once_with(own.parent, 0.1)
+            (own / "cpu.weight").unlink()
+            self.assertEqual(host.outweighed_cpu(), 0.0)
+
     def test_hard_memory_caps_bound_pieces_at_admission_and_without_a_turn(self):
         root = self.root / "cgroups"
         part = root / "agentkit.slice"

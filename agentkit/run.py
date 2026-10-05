@@ -7658,7 +7658,7 @@ def memory_cap_line(mb):
     return f"killed: memory cap {shown} GB"
 
 
-def run_scope_limits(ceiling_mb=None, *, cap_mb=None):
+def run_scope_limits(ceiling_mb=None, *, cap_mb=None, cpu_weight=40):
     """(cap in MiB, systemd properties) for one run scope.
 
     CPU and I/O weight stay below the seats' 100, and the memory cap is applied
@@ -7668,11 +7668,11 @@ def run_scope_limits(ceiling_mb=None, *, cap_mb=None):
     loop, its harness session and its worktree go on, and `memory_cap_note` says
     so.  The properties are what `systemd-run -p` takes; the cap is what the
     receipt records, so the reason can still name the number after the process
-    that knew it is gone. A lander supplies its recorded suite need as `cap_mb`
-    while keeping the same scope properties.
+    that knew it is gone. A lander supplies its recorded suite need as `cap_mb`,
+    and its own CPU weight: among the runs only, so the seats keep theirs.
     """
     cap = memory_cap_mb(ceiling_mb) if cap_mb is None else cap_mb
-    return cap, ("-p", "CPUWeight=40", "-p", "IOWeight=40",
+    return cap, ("-p", f"CPUWeight={cpu_weight}", "-p", "IOWeight=40",
                  "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M",
                  *(("-p", "OOMPolicy=continue") if orch.scope_oom_policy() else ()))
 
