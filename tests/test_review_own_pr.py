@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, orch, run, watch
+from agentkit import config, gc, orch, run, worktrees, watch
 from agentkit import record
 from fixtures.hand_in import records
 
@@ -450,7 +450,7 @@ class OwnPr(unittest.TestCase):
         with patch.object(orch, "find", return_value={"name": "fix-api"}), \
                 patch.object(watch, "type_at_prompt",
                              side_effect=lambda seat, line, *a, **k: typed.append(line) or True):
-            with patch.object(run, "launcher_world") as world, patch.object(run, "drop_checkout"):
+            with patch.object(run, "launcher_world") as world, patch.object(worktrees, "drop_checkout"):
                 world.return_value.__enter__.return_value = True
                 world.return_value.__exit__.return_value = False
                 run.announce(record.read_state(run_dir), run_dir, lambda line: None)

@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import browser, config, gc, menu, orch, retention, run, watch
+from agentkit import browser, config, gc, menu, orch, retention, run, worktrees, watch
 from agentkit import record as run_record
 
 DAY = 86400
@@ -139,7 +139,7 @@ class Cleanup(Sandbox):
         directory, wt, branch = self.receipt("merged", state="pass", merged=True, age=60)
         state = run_record.read_state(directory)
         with redirect_stdout(io.StringIO()):
-            run.settle_run(state, directory, lambda _message: None)
+            worktrees.settle_run(state, directory, lambda _message: None)
         self.assertFalse(wt.exists())
         self.assertFalse(self.branch_exists(branch))
         for name in ("result.md", "run.json", "task.md"):
@@ -216,8 +216,8 @@ class Cleanup(Sandbox):
         state.update(run_record.process_owner())
         run_record.save_state(directory, state)
         self.assertEqual(gc.gc(lambda _message: None), [])
-        run.settle_run(state, directory, lambda _message: None)
-        run.drop_checkout(state, lambda _message: None)
+        worktrees.settle_run(state, directory, lambda _message: None)
+        worktrees.drop_checkout(state, lambda _message: None)
         self.assertTrue(wt.is_dir())
         # A finished run whose checkout is under ~/code is not collected either.
         owned = config.CODE / "proj"
@@ -229,7 +229,7 @@ class Cleanup(Sandbox):
         current["repo"] = str(owned)
         run_record.save_state(code_dir, current)
         gc.gc(lambda _message: None)
-        run.drop_checkout(current, lambda _message: None)
+        worktrees.drop_checkout(current, lambda _message: None)
         self.assertEqual((owned / "keep").read_text(), "owner\n")
 
     def test_repo_under_code_still_loses_worktree_and_branch(self):
@@ -251,7 +251,7 @@ class Cleanup(Sandbox):
                  "repo": str(repo), "worktree": str(wt), "branch": branch,
                  "merged": True, "started_at": now - 90, "finished_at": now - 60,
                  "pid": DEAD, "process_identity": None}
-        run.drop_checkout(state, lambda _message: None)
+        worktrees.drop_checkout(state, lambda _message: None)
         self.assertFalse(wt.exists())
         left = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet",
                                f"refs/heads/{branch}"],
@@ -350,7 +350,7 @@ class Cleanup(Sandbox):
         state = run_record.read_state(directory)
         state.update(base_sha=self.head, delivery_sha=tip)
         run_record.save_state(directory, state)
-        run.settle_run(run_record.read_state(directory), directory, lambda _message: None)
+        worktrees.settle_run(run_record.read_state(directory), directory, lambda _message: None)
         self.assertFalse(wt.exists())
         self.assertFalse(self.branch_exists(branch))
         self.assertEqual(run.changed_files(run_record.read_state(directory)), ["shipped.txt"])
@@ -388,8 +388,8 @@ class Cleanup(Sandbox):
                                        "handed_back": now, "pid": DEAD,
                                        "process_identity": None, "round_summaries": [],
                                        "rounds": 1})
-            run.settle_run(run_record.read_state(directory), directory, lambda _message: None)
-            run._drop_told(run_record.read_state(directory), lambda _message: None, directory)
+            worktrees.settle_run(run_record.read_state(directory), directory, lambda _message: None)
+            worktrees._drop_told(run_record.read_state(directory), lambda _message: None, directory)
             runs.append((directory, work))
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_clean(["made"]), 0)
@@ -457,7 +457,7 @@ class Cleanup(Sandbox):
         stored["tab-other"] = {"first_seen": 1, "last_change": 1, "url": "https://y", "title": "y"}
         browser._write_tabs(stored)
         state = run_record.read_state(directory)
-        run.settle_run(state, directory, lambda _message: None)
+        worktrees.settle_run(state, directory, lambda _message: None)
         self.assertIn("tab-ended", self.closed)
         self.assertNotIn("tab-other", self.closed)
         self.assertEqual(list(browser._read_tabs()), ["tab-other"])
