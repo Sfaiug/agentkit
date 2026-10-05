@@ -17,7 +17,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, muse_usage, usage, usage_probe
+from agentkit import config, usage, usage_probe
+from agentkit.harness import muse_usage
 from agentkit.harness import muse
 
 
@@ -195,8 +196,8 @@ class MuseProbe(unittest.TestCase):
         for directory in ("agentkit", "agentkit/harness", "adapters"):
             (self.fixture_repo / directory).mkdir(parents=True)
         # the probe and the harness plugin that says the policy is Muse's, and nothing else
-        for name in ("__init__.py", "config.py", "host.py", "usage_probe.py", "muse_usage.py",
-                     "harness/__init__.py", "harness/muse.py"):
+        for name in ("__init__.py", "config.py", "host.py", "usage_probe.py",
+                     "harness/__init__.py", "harness/muse.py", "harness/muse_usage.py"):
             shutil.copy2(REPO / "agentkit" / name, self.fixture_repo / "agentkit" / name)
         for name in ("muse.sh", "muse-usage.sh", "muse.toml"):
             shutil.copy2(REPO / "adapters" / name, self.fixture_repo / "adapters" / name)
