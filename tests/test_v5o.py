@@ -576,13 +576,13 @@ class V5oMenu(Sandbox):
         # Seat columns are sized once per draw from every row on screen, so
         # the count column starts at the same column under every project --
         # wide and on the phone, where the name column is the capped
-        # widths["name_narrow"]. Rows are found by global number: names can
+        # widths["name"]. Rows are found by global number: names can
         # be cut on narrow screens, and the needs-you line owns no seat.
         for width in (40, 100, 170):
             ordered, _, _, _ = menu.v5o_groups(self.cfg, self.seats)
             widths = menu.v5o_column_widths([seat for project in ordered
                                              for seat in project["seats"]], width)
-            name_w = widths["name_narrow"] if width < 60 else widths["name"]
+            name_w = widths["name"]
             orch_w = widths.get("orch", widths.get("worker", 0))
             count_at = 2 + widths["num"] + 2 + name_w + 2 + orch_w + 2
             screen, _ = self.draw(width, 30)

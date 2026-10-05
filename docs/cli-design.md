@@ -382,7 +382,9 @@ Example under `Claude`: `› opus    ●     ■      ■     claude · xhigh`.
 
 Fixed columns with two-space gutters, sized once per draw from the rows on
 screen: number, name, orchestrator, state (glyph and word in the state's
-colour), and one last column. The last column takes all the remaining width;
+colour), and one last column. Those before the last always fit the screen: the
+name and the orchestrator share what the number and the state leave, the longer
+giving way first, then the state. The last column takes all the remaining width;
 it wraps once at a word onto an indented continuation and is cut with ` …`
 only past that. A row with fewer than ten cells left puts it on the indented
 line alone, cut there, so no line runs past the screen. Columns use gutters, never ` · `. Never cut inside a
