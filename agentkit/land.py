@@ -1,8 +1,8 @@
 """Check parked landing-line stacks and wake each run to deliver or fix its own work.
 
-Only the tested tree carries suite evidence. A red stack after a green one wakes
-its newest member to fix; later stacks are rebuilt without it. A red target gets
-one repair first. The lander never owns a member's process or delivery.
+Green evidence names the tested tree, including for stacks it covers. A red stack
+after a green one wakes its newest member to fix; later stacks are rebuilt without it.
+A red target gets one repair first. The lander never owns a member's process or delivery.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -41,13 +41,14 @@ def passed(turn, tree):
     return _trees(turn)[1].get(tree)
 
 
-def note(turn, trees, leader, *, checks=(), red=None, red_stacks=None):
+def note(turn, trees, leader, *, checks=(), tested=None, at=None, red=None, red_stacks=None):
     """Keep stack evidence, with the `checks` it ran, separately from target probes awaiting
     their repair."""
     path, kept = _trees(turn)
     failed = {} if red_stacks == {} else _trees(turn, "red_stacks")[1]
     repairs = _trees(turn, "red")[1]
-    kept.update({tree: {"at": time.time(), "tested": tree, "leader": leader,
+    checked_at = time.time() if at is None else at
+    kept.update({tree: {"at": checked_at, "tested": tested or tree, "leader": leader,
                         "checks": list(checks)} for tree in trees})
     repairs.update(red or {})
     failed.update({tree: {"at": time.time(), **fix, "checks": list(checks)}
@@ -70,7 +71,7 @@ def line(turn):
         if (isinstance(wait, dict) and not state.get("merged")
                 and (state.get("state") == "waiting"
                      or (green_delivery(wait)
-                         and state.get("state") not in run.ENDED
+                         and state.get("state") not in record.ENDED
                          and run.followup_open(state)
                          and (record.process_active(state) or run.tick_resumes(state))))
                 and wait.get("line") == turn.name
@@ -120,9 +121,11 @@ def start_line(turn, log=lambda _: None):
                 and math.isfinite(value) and value > 0]
         if ceiling and ceiling > 0:
             caps.append(run.memory_cap_mb(ceiling))
-        properties = ()
+        # Every passed run waits behind this check: it outweighs every run for the CPU.
+        properties = ("-p", f"CPUWeight={host.CPU_WEIGHT_MAX}")
         if caps:
-            _, properties = run.run_scope_limits(cap_mb=math.ceil(max(caps)))
+            _, properties = run.run_scope_limits(cap_mb=math.ceil(max(caps)),
+                                                 cpu_weight=host.CPU_WEIGHT_MAX)
         env = config.child_env()
         # This work outlives its caller and must not belong to the caller's stop sweep.
         for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
@@ -202,6 +205,8 @@ def check_line(turn, log=lambda _: None):
                 continue
             if target is None:
                 repo = Path(state.get("worktree") or state["repo"])
+                # The repository's machine-side settings, as a run's own checks get them.
+                os.environ.update(config.repo_env(Path(state["repo"])))
                 upstream = state.get("target") or state["base"]
                 upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
                 run.fetch(repo, "origin", "--prune", check=True)
@@ -211,7 +216,8 @@ def check_line(turn, log=lambda _: None):
             red = _trees(turn, "red")[1].get(target_tree)
             name = None
             # a PR waits on no repair: its own tree is checked, and lands if it mends the target
-            if red and not passed(turn, target_tree) and not state.get("review_pr"):
+            if (red and (passed(turn, target_tree) or {}).get("tested") != target_tree
+                    and not state.get("review_pr")):
                 name = red.get("run")
                 repair = record.read_state(config.RUNS / name) if name else None
                 if repair is None:
@@ -262,7 +268,7 @@ def check_line(turn, log=lambda _: None):
                             same = (current and review.get("verdict") == "PASS"
                                     and run.passed_review_head(current) == run.passed_review_head(saved)
                                     and ((current.get("waiting_on") == saved["waiting_on"]
-                                          and current.get("state") not in run.ENDED
+                                          and current.get("state") not in record.ENDED
                                           and (current.get("state") == "waiting"
                                                or (run.followup_open(current)
                                                    and (record.process_active(current) or run.tick_resumes(current))))
@@ -303,7 +309,7 @@ def _check(directory, state, scratch, cmds, log_path, log):
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
     # The checker takes a heavy turn without marking any member's record.
     context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
-               "since": state["waiting_on"]["joined"]}
+               "since": state["waiting_on"]["joined"], "line": state["waiting_on"]["line"]}
     suite = next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
     with gate.gate_turn(None, log_path, log, suite, scratch, context=context):
         ok, text = gate.run_done_when(
@@ -374,12 +380,17 @@ def _check_tree(directory, state, scratch, tree, checks, log):
 
 def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None):
     from . import gate, run
+    if prefix:
+        wait = prefix[-1][1]["waiting_on"]
+        # A cut-short batch must finish delivering before its target can be probed.
+        if wait.get("tested", wait["land"]) != wait["land"]:
+            return {}
     directory, state = members[0]
     upstream = state.get("target") or state["base"]
     upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
     config.WT.mkdir(parents=True, exist_ok=True)
     pending, verdicts = list(members), {}
-    remaining = None
+    limit = None
     while pending:
         with ExitStack() as opened:
             top, stacks = tip, []
@@ -409,8 +420,9 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                _landing_checks(member, saved, scratch, tip)))
             if not stacks:
                 break
-            if remaining is None:
-                remaining = gate.whole_checks_that_fit(run.declared_suite(stacks[0][2], ref=tip))
+            suite = run.declared_suite(stacks[0][2], ref=tip)
+            if limit is None:
+                limit = gate.whole_checks_that_fit(suite)
             green, red = _trees(turn)[1], _trees(turn, "red_stacks")[1]
             # The first stack has no green prefix to attribute a cached failure to.
             # Retry its own check after a kill or flake; later evidence survives a crash.
@@ -418,25 +430,58 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 red.pop(stacks[0][3], None)
             # Evidence answers a stack only for the checks it ran: two tasks can stack
             # the same tree, and each owes its own `# once` commands.
+            def checked(entry, checks):
+                ran = iter(entry.get("checks", ()))
+                return all(cmd in ran for cmd in checks)
+
+            def green_answer(tree, tested):
+                return {"land": tree} if tree == tested else {"land": tree, "tested": tested}
+
+            def commands(index):
+                # A covered member still owes its own once-commands, on the tested tree.
+                groups = dict.fromkeys(stack[4] for stack in stacks[:index + 1])
+                return tuple(cmd for group in groups for cmd in group if cmd != suite) + (
+                    (suite,) if suite else ())
+
+            positions = {stack[3]: index for index, stack in enumerate(stacks)}
+            # Coverage can be reused only when this line can still deliver its tested tip.
+            green = {tree: entry for tree, entry in green.items()
+                     if entry.get("tested") == tree
+                     or (tree in positions
+                         and positions.get(entry.get("tested"), -1) >= positions[tree]
+                         and checked(entry, commands(positions[entry["tested"]])))}
             answers = {}
             for _, _, _, tree, checks in stacks:
-                if green.get(tree, {}).get("checks") == list(checks):
-                    answers[tree, checks] = {"land": tree}
+                if tree in green and checked(green[tree], checks):
+                    answers[tree, checks] = green_answer(tree, green[tree]["tested"])
                 elif red.get(tree, {}).get("checks") == list(checks):
                     answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log")}}
-            unchecked = {}
-            for member, saved, scratch, tree, checks in stacks:
-                if (tree, checks) not in answers and len(unchecked) < remaining:
-                    unchecked.setdefault((tree, checks), (member, saved, scratch, tree, checks))
-            remaining -= len(unchecked)
+            batched = len({(tree, checks) for _, _, _, tree, checks in stacks
+                           if (tree, checks) not in answers}) > limit
 
-            def answer_tree(key, check):
-                if key not in answers:
-                    tree, checks = key
-                    answer = answers[key] = check.result()
-                    note(turn, [tree] if "land" in answer else [], directory.name, checks=checks,
-                         red_stacks={tree: answer["fix"]} if "fix" in answer else None)
-                return answers[key]
+            def cover(index, checks, tested, at=None):
+                covered = stacks[:index + 1] if batched else [stacks[index]]
+                note(turn, [stack[3] for stack in covered], directory.name,
+                     checks=checks, tested=tested, at=at)
+                for _, _, _, tree, own in covered:
+                    answers[tree, own] = green_answer(tree, tested)
+
+            if batched:
+                for index, (_, _, _, tree, checks) in enumerate(stacks):
+                    if red.get(tree, {}).get("checks") == list(commands(index)):
+                        answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log")}}
+                    evidence = green.get(tree)
+                    if evidence and checked(evidence, commands(index)):
+                        cover(index, evidence["checks"], evidence["tested"], evidence["at"])
+
+            def answer_tree(index, checks, check):
+                tree, own = stacks[index][3:]
+                answer = check.result()
+                if "land" in answer:
+                    cover(index, checks, tree)
+                else:
+                    answers[tree, own] = answer
+                    note(turn, [], directory.name, checks=checks, red_stacks={tree: answer["fix"]})
 
             rebuild, target_red = False, False
 
@@ -452,7 +497,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     if answer is None or ("fix" in answer and index and not green_prefix):
                         break
                     if (index == 0 and not prefix and "fix" in answer
-                            and not saved.get("repair") and not passed(turn, target_tree)):
+                            and not saved.get("repair")
+                            and (passed(turn, target_tree) or {}).get("tested") != target_tree):
                         run.git(scratch, "reset", "--hard", tip)
                         run.git(scratch, "clean", "-fdx")
                         suite = run.declared_suite(scratch, ref=tip)
@@ -483,24 +529,43 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     green_prefix = "land" in answer
                     if "fix" in answer:
                         # Only this green-to-red transition identifies a culprit.
-                        # Rebuilding shares the pass's remaining checks.
+                        # Later stacks need new checks on trees without this member.
                         pending = [(m, s) for m, s in pending
                                    if m not in verdicts or "land" in verdicts[m]]
                         rebuild = True
                         return
 
-            with ThreadPoolExecutor(max_workers=max(1, len(unchecked))) as pool:
-                running = {pool.submit(_check_tree, *args, log): key
-                           for key, args in unchecked.items()}
+            with ThreadPoolExecutor(max_workers=max(1, limit)) as pool:
+                running = {}
                 try:
                     decide()
-                    for check in as_completed(running):
-                        answer_tree(running[check], check)
+                    while not rebuild and not target_red:
+                        unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
+                                     if (tree, checks) not in answers]
+                        if batched and unchecked:
+                            # Narrow the first unresolved red between the last green and it.
+                            red_index = next((index for index in range(unchecked[0], len(stacks))
+                                              if "fix" in answers.get(tuple(stacks[index][3:]), {})), None)
+                            unchecked = [(unchecked[0] - 1 + red_index) // 2
+                                         if red_index is not None else unchecked[-1]]
+                        active = {tuple(stacks[index][3:]) for index, _ in running.values()}
+                        for index in unchecked:
+                            member, saved, scratch, tree, own = stacks[index]
+                            if (tree, own) in active or len(running) >= limit:
+                                continue
+                            checks = commands(index) if batched else own
+                            running[pool.submit(_check_tree, member, saved, scratch, tree, checks, log)] = index, checks
+                            active.add((tree, own))
+                        if not running:
+                            break
+                        check = next(as_completed(running))
+                        index, checks = running.pop(check)
+                        answer_tree(index, checks, check)
                         decide()
                 finally:
                     # Keep suffix evidence even if a wake or verdict write crashes.
-                    for check, key in running.items():
-                        answer_tree(key, check)
+                    for check, (index, checks) in running.items():
+                        answer_tree(index, checks, check)
             if target_red or not rebuild:
                 break
     return verdicts

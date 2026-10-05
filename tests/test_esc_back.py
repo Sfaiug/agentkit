@@ -81,7 +81,7 @@ def mark_return(module, name):
 for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "config_add"),
                      (menu, "config_add_provider"), (menu, "config_remove_provider"),
                      (menu, "config_discord"), (menu, "show_features"), (menu, "new_session"),
-                     (menu, "rename_this_session"), (menu, "pause"), (terminal, "choose")):
+                     (menu, "pause"), (terminal, "choose")):
     mark_return(module, name)
 code = menu.loop(cfg, overlay=os.environ.get("ESC_OVERLAY") == "1")
 print("<back loop>", flush=True)
@@ -321,14 +321,12 @@ class EscBack(unittest.TestCase):
         menu_.leave()
         self.assertNotIn("<opened", menu_.text())
 
-    def test_the_popup_goes_back_from_rename_and_esc_closes_it(self):
+    def test_the_popup_goes_back_from_its_models_and_esc_closes_it(self):
         menu_ = Menu(self, own="alpha")
         menu_.screen()
-        mark = len(menu_.text())
-        menu_.send(b"r")
-        menu_.back("rename_this_session", title("rename"))
-        self.assertRegex(menu_.text()[mark:], r"Name: \x1b\[[\d;]*malpha\x1b\[0m")
-        self.assertNotIn("<renamed", menu_.text())
+        config_ = title("config · alpha")        # its own seat's, wherever the highlight is
+        menu_.press(b"c", config_)
+        menu_.back("config_matrix", config_)
         menu_.leave()
 
     def test_a_notice_waits_for_esc_with_the_terminal_given_back(self):

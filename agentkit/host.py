@@ -369,37 +369,84 @@ def _slice_cpu_quota(cgroup):
         return None
 
 
-def _slice_cpu_used(cgroup, delay=0.1):
-    """The cgroup's current CPU use in cores, or None when it cannot be read.
+def _cpu_usage_usec(cgroup):
+    """The cgroup's cumulative `cpu.stat` `usage_usec`, or None when it cannot be read."""
+    try:
+        for line in (cgroup / "cpu.stat").read_text().splitlines():
+            if line.startswith("usage_usec"):
+                return float(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
 
-    Two samples of `cpu.stat`'s `usage_usec` around a tenth of a second of sleep:
-    the rate over the measured window.  A single sample is cumulative since the
-    cgroup was made, which says nothing live; dividing by the measured elapsed
-    rather than the requested sleep keeps a delayed wakeup from overestimating.
+
+def _cpu_rates(cgroups, delay=0.1):
+    """Each readable cgroup's live CPU use in cores, from one shared sample window.
+
+    Two samples of `usage_usec` around a tenth of a second of sleep: the rate over the
+    measured window.  A single sample is cumulative since the cgroup was made, which says
+    nothing live; dividing by the measured elapsed rather than the requested sleep keeps
+    a delayed wakeup from overestimating.  A cgroup unreadable at either sample is left out.
     """
-    if cgroup is None:
-        return None
-    path = cgroup / "cpu.stat"
-    def _usage():
-        try:
-            for line in path.read_text().splitlines():
-                if line.startswith("usage_usec"):
-                    return float(line.split()[1])
-        except (OSError, ValueError, IndexError):
-            return None
-        return None
-    first = _usage()
-    if first is None:
-        return None
+    first = {cgroup: _cpu_usage_usec(cgroup) for cgroup in cgroups}
+    first = {cgroup: value for cgroup, value in first.items() if value is not None}
+    if not first:
+        return {}
     start = time.monotonic()
     time.sleep(delay)
-    second = _usage()
-    if second is None:
-        return None
+    second = {cgroup: _cpu_usage_usec(cgroup) for cgroup in first}
     elapsed = time.monotonic() - start
     if elapsed <= 0:
+        return {}
+    return {cgroup: max(0.0, (second[cgroup] - value) / (elapsed * 1000000))
+            for cgroup, value in first.items() if second[cgroup] is not None}
+
+
+def _slice_cpu_used(cgroup, delay=0.1):
+    """The cgroup's current CPU use in cores, or None when it cannot be read."""
+    if cgroup is None:
         return None
-    return max(0.0, (second - first) / (elapsed * 1000000))
+    return _cpu_rates([cgroup], delay).get(cgroup)
+
+
+CPU_WEIGHT_MAX = 10000   # the kernel's top cpu.weight
+
+
+def _cpu_weight(cgroup):
+    try:
+        return int((cgroup / "cpu.weight").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def kept_cpu(slice_dir, delay=0.1):
+    """The slice's live CPU use this process cannot take for itself, or None where it takes none.
+
+    The kernel shares a parent's CPU among its busy children by weight, so a cgroup at the
+    top weight gets nearly all the live use of its lower-weighted siblings; the rest of the
+    slice's use stays -- siblings at its own weight share alike, its own use is its own and
+    nothing outside its parent yields.  The slice and those siblings are read in one sample
+    window, so a burst between two readings cannot erase use another holds.  None at any lower
+    own weight, or where the cgroups cannot be read.
+    """
+    own = process_cgroup()
+    if not own or slice_dir is None:
+        return None
+    path = cgroup_path(own)
+    weight = _cpu_weight(path)
+    if weight is None or weight < CPU_WEIGHT_MAX:
+        return None
+    try:
+        siblings = [sibling for sibling in path.parent.iterdir()
+                    if sibling.name != path.name and sibling.is_dir()]
+    except OSError:
+        return None
+    lower = [sibling for sibling in siblings
+             if (other := _cpu_weight(sibling)) is not None and other < weight]
+    rates = _cpu_rates([Path(slice_dir), *lower], delay)
+    if Path(slice_dir) not in rates:
+        return None
+    return max(0.0, rates[Path(slice_dir)] - sum(rates.get(sibling, 0.0) for sibling in lower))
 
 
 def _slice_memory(cgroup):

@@ -437,7 +437,7 @@ def job_block_line(job):
             parts.append(f"{counts[state]} {state}")
     # a task whose launcher is gone reads its run's own word (`job_now`): `2 interrupted`
     parts += [f"{count} {state}" for state, count in counts.items()
-              if state not in ("running", "queued", *known)]
+              if state not in (*record.ACTIVE, *known)]
     return f"job {job['job_id']}: {', '.join(parts) if parts else 'no tasks'}"
 
 
@@ -459,7 +459,7 @@ def job_now(job, alive, cfg=None, index=None):
     for task in job["tasks"]:
         run_state = run.reap(config.RUNS / task["run_id"], {}) if task.get("run_id") else {}
         if run_state.get("state") and (not alive or task.get("state") in JOB_TERMINAL):
-            ended = run_state["state"] in run.ENDED
+            ended = run_state["state"] in record.ENDED
             # a merge is merged whatever today's config makes of its review's providers
             word = ("merged" if run_state.get("merged") else
                     job_classify(run_state, run.report_config(cfg)) if ended else
@@ -750,7 +750,7 @@ def job_await(run_dir, poll=lambda: None):
             with job_adopting(run_dir.name):
                 state = run.reap(run_dir, state)
             line = run.landing_line(state)
-            if not (state.get("state") in ("queued", "running") or line
+            if not (state.get("state") in record.ACTIVE or line
                     or (state.get("state") == "interrupted" and state.get("deaths")
                         and run.tick_resumes(state))):
                 return state
@@ -1051,14 +1051,14 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
         if (run_state.get("state") == "queued" and run_state.get("slot_waiting") and
                 not record.process_active(run_state)) or run_state.get("state") in (
                 "interrupted", "exhausted", "stalled") or (
-                run.needs_recovery(run_state) and run_state.get("state") not in run.ENDED
+                run.needs_recovery(run_state) and run_state.get("state") not in record.ENDED
                 and run_state.get("state") != "waiting_login"):
             # a scoped job resumes it in a run scope of its own and follows it there
             scoped = job_scoped(job)
             with job_adopting(run_dir.name), job_muted():
                 run.cmd_resume([run_dir.name, "--bg"] if scoped else [run_dir.name])
             run_state = job_await(run_dir) if scoped else record.read_state(run_dir) or run_state
-        if run_state.get("state") in ("running", "queued"):
+        if run_state.get("state") in record.ACTIVE:
             # `reap` declined it (inside its grace) or it is parked: pace the next look at
             # the once-a-minute rate and keep the run, so adopt hands back instead of spinning
             task["retry_after"] = time.time() + JOB_PICKER_INTERVAL
@@ -1072,7 +1072,7 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
         current = record.read_state(run_dir) or {}
         moved = ((current.get("state"), current.get("merged"))
                  != (run_state.get("state"), run_state.get("merged")))
-        if moved and current.get("state") in ("running", "queued", "waiting"):
+        if moved and current.get("state") in (*record.ACTIVE, "waiting"):
             # another process took it on after this one read it -- a resume, or its delivery
             # parked in its line -- so the resume was refused: its attempt is still the task's,
             # looked at again at the picker's pace
@@ -1167,7 +1167,7 @@ def job_admission(job_dir, job, now=None):
         run_state = (record.read_state(config.RUNS / task["run_id"]) if task.get("run_id") else None) or {}
         if "stopped" in (task.get("state"), run_state.get("state")):
             return ""
-        if (task.get("state") not in JOB_TERMINAL and run_state.get("state") not in run.ENDED
+        if (task.get("state") not in JOB_TERMINAL and run_state.get("state") not in record.ENDED
                 and any(run_state.get(key) for key in (
                     "handed_back", "recovery_notified", "recovery_acknowledged_at"))):
             return ""
@@ -1249,7 +1249,7 @@ def run_job_loop(cfg, job_dir, job):
                 continue
             with job_adopting(rundir.name):
                 state = run.reap(rundir, record.read_state(rundir) or {})
-            if state.get("state") in ("running", "queued") and record.process_active(state):
+            if state.get("state") in record.ACTIVE and record.process_active(state):
                 # alive elsewhere; its own scheduler owns it: look again in a minute,
                 # not every tick (the reap takes the run's lock each time)
                 task["retry_after"] = now + JOB_PICKER_INTERVAL
@@ -1320,7 +1320,7 @@ def run_job_loop(cfg, job_dir, job):
                 # record is never adopted, then resume it in a worker, never redo it
                 with job_adopting(kept_dir.name):
                     kept_state = run.reap(kept_dir, record.read_state(kept_dir) or {})
-                if kept_state.get("state") in ("running", "queued") \
+                if kept_state.get("state") in record.ACTIVE \
                         and record.process_active(kept_state):
                     # alive elsewhere; its own scheduler owns it: back off like every wait
                     task["retry_after"] = now + JOB_PICKER_INTERVAL
@@ -1434,14 +1434,22 @@ def run_job_loop(cfg, job_dir, job):
         if not seat:
             log("no seat launched this job, so nothing is sent; "
                 "the result is here and in `ak run status`")
-        elif notify.shaped("done", text, session=seat,
-                           event_id=f"job:{job['job_id']}:{job['finished_at']}") != 0:
-            job["card_pending"] = True
-            save()
-            log("WARN job card was not accepted; retry required")
-            orch.stop_scope(job.get("scope"), log, wait=False)
-            return 1
-        job["card_sent"] = {"kind": "done", "at": job["finished_at"]}
+        else:
+            try:
+                sent = notify.shaped("done", text, session=seat,
+                                     event_id=f"job:{job['job_id']}:{job['finished_at']}")
+            except notify.Refused as exc:
+                # the seat's plan is still open: no done for it now; it says done itself
+                log(f"job {job['job_id']}: no done for {seat}: {exc}")
+                sent = None
+            if sent:
+                job["card_pending"] = True
+                save()
+                log("WARN job card was not accepted; retry required")
+                orch.stop_scope(job.get("scope"), log, wait=False)
+                return 1
+            job["card_sent"] = {"kind": "done" if sent == 0 else "plan open",
+                                "at": job["finished_at"]}
     save()
     orch.stop_scope(job.get("scope"), log, wait=False)
     return 1 if undelivered else 0

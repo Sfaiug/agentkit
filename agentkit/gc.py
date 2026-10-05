@@ -548,7 +548,7 @@ def gc_candidates(now=None):
         # reads result.md. The branch stays: a run that never pushed holds its
         # only copy there.
         if (state and state.get("run_id") == directory.name
-                and state.get("state") in ("fail", "error", "blocked", "stopped")
+                and state.get("state") in (*record.FAILED, "stopped")
                 and worktrees.provably_final(state)
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
                 and not record.writing(directory)

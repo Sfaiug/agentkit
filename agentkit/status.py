@@ -140,7 +140,7 @@ def scope_alive(state, scope_dir=None, _marker=None, _rss=None, _active=None):
     says nothing.  Anything unreadable fails open to no reading, the way every
     gate here does: no cgroup, no answer, no line.
     """
-    if (state or {}).get("state") in run.ENDED:
+    if (state or {}).get("state") in run_record.ENDED:
         return None
     if scope_dir is None and (state or {}).get("scope"):
         scope_dir = run_scope_dir(state.get("scope"))
@@ -270,7 +270,7 @@ def actionable(state):
     if state.get("recovery_acknowledged_at"):
         return False
     finished = state.get("finished_at") or state.get("started_at")
-    recent_failure = (state.get("state") in ("fail", "error", "blocked") and
+    recent_failure = (state.get("state") in run_record.FAILED and
                       type(finished) in (int, float) and time.time() - gc.GC_AGE < finished <= time.time())
     pending_delivery = (state.get("state") == "pass" and state.get("repo")
                         and not state.get("merged") and not state.get("no_merge")
@@ -281,7 +281,7 @@ def actionable(state):
 
 def status_key(pair):
     state = pair[1]
-    return (state.get("state") in ("running", "queued"), bool(actionable(state)),
+    return (state.get("state") in run_record.ACTIVE, bool(actionable(state)),
             state.get("interrupted_at") or state.get("finished_at") or state.get("started_at") or 0)
 
 
@@ -423,7 +423,7 @@ def status_rows(found, width, index=None, cfg=None):
     for directory, state in found:
         done = len(state.get("round_summaries") or [])
         total = state.get("rounds")
-        going = state.get("state") in ("queued", "running")
+        going = state.get("state") in run_record.ACTIVE
         rnd = min(done + 1, total) if going and total else done
         if run.own_pr_wait_note(state) or state.get("own_pr_round_pending"):
             rnd = state.get("own_pr_round_pending") or done
@@ -666,7 +666,7 @@ def cmd_status(argv):
         # An admitted error or merge wait still belongs to the tick. Once admission
         # ends it ages out of the listing like any other ending, stale stamp or not.
         live = run.going(state) and state.get("state") in ("waiting", "error")
-        if (not wanted and not show_history and state.get("state") not in ("running", "queued", "stalled",
+        if (not wanted and not show_history and state.get("state") not in (*run_record.ACTIVE, "stalled",
                                                                   "unreadable")
                 and not actionable(state) and not live and
                 time.time() - (state.get("finished_at") or state.get("started_at") or 0) > gc.GC_AGE):

@@ -5,6 +5,7 @@ Offline: temporary HOME, injected host/cgroup readings and short fixture command
 
 from collections import Counter
 from contextlib import ExitStack
+import fcntl
 from io import BytesIO
 import json
 import os
@@ -17,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, host, run, worker
+from agentkit import config, gate, host, orch, run, worker
 from agentkit import record
 from test_red_target import make_loop, make_repos
 
@@ -137,6 +138,91 @@ class SuitePieces(unittest.TestCase):
                 self.assertTrue(ok, text)
                 self.assertEqual(text.count("--- AK_SHARD="), count)
                 self.assertIn(f"--- AK_SHARD={count}/{count} ---", text)
+
+    def test_a_check_at_the_top_cpu_weight_counts_lower_weighted_use_as_its_own(self):
+        # The line's checker outweighs every run: the CPU builds use now is its for the taking.
+        busy = {**ROOM, "slice_cpu_used": 3.5, "slice_memory_high_mb": 4100}
+        for kept, count in ((None, 1), (0.7, 4)):
+            with self.subTest(kept=kept), patch.dict(os.environ, {
+                    "AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(busy)}), \
+                    patch.object(host, "kept_cpu", return_value=kept):
+                ok, text = self.check()
+                self.assertTrue(ok, text)
+                self.assertEqual(text.count("--- AK_SHARD="), count)
+
+    def cgroups(self, busy, outside=0.0):
+        """ak's slice, its runs slice and the run groups `busy` maps to (weight, cores used),
+        plus `outside` cores used beside the runs slice.  Every counter, the slices' their
+        sums, advances by those cores over each fake sleep, on a fake clock."""
+        root = self.root / "cgroup"
+        whole = root / "agentkit.slice"
+        parent = whole / "agentkit-runs.slice"
+        clock, used = [100.0], {}
+        for name, (weight, cores) in busy.items():
+            (parent / name).mkdir(parents=True)
+            (parent / name / "cpu.weight").write_text(f"{weight}\n")
+            used[parent / name] = cores
+        totals = dict.fromkeys([*used, parent, whole], 0.0)
+        def write():
+            for path, total in totals.items():
+                (path / "cpu.stat").write_text(f"usage_usec {total:.0f}\n")
+        def sleep(delay):
+            clock[0] += delay
+            for path, cores in used.items():
+                totals[path] += cores * delay * 1e6
+            totals[parent] += sum(used.values()) * delay * 1e6
+            totals[whole] += (sum(used.values()) + outside) * delay * 1e6
+            write()
+        write()
+        membership = self.root / "membership"
+        membership.write_text(f"0::/{(parent / 'lander-widget.scope').relative_to(root)}\n")
+        self.stack.enter_context(patch.dict(os.environ, {
+            "AK_CGROUP_ROOT": str(root), "AK_CGROUP_FILE": str(membership)}))
+        self.stack.enter_context(patch.object(orch, "slice_cgroup", return_value=whole))
+        self.stack.enter_context(patch.object(host.time, "sleep", side_effect=sleep))
+        self.stack.enter_context(patch.object(host.time, "monotonic", side_effect=lambda: clock[0]))
+        return whole, parent
+
+    def test_only_lower_weighted_siblings_use_is_free_to_the_top_weight(self):
+        # A lander at the same weight shares alike, its own use is its own, and nothing
+        # beside the runs slice yields: of 4.3 cores in use only the build's 0.8 is taken.
+        top = host.CPU_WEIGHT_MAX
+        whole, parent = self.cgroups({"lander-widget.scope": (top, 0.5),
+                                      "lander-acme.scope": (top, 2.0),
+                                      "agentkit-run-build.scope": (40, 0.8)}, outside=1.0)
+        self.assertAlmostEqual(host.kept_cpu(whole), 3.5)
+        (parent / "lander-widget.scope" / "cpu.weight").write_text("40\n")
+        self.assertIsNone(host.kept_cpu(whole))
+        (parent / "lander-widget.scope" / "cpu.weight").unlink()
+        self.assertIsNone(host.kept_cpu(whole))
+
+    def landing_pieces(self, used):
+        """Pieces a landing check adds beside four running pieces, the slice read as `used`."""
+        busy = {**ROOM, "slice_cpu_used": used, "slice_memory_high_mb": 41000}
+        self.stack.enter_context(patch.dict(os.environ, {
+            "AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(busy)}))
+        for index in range(4):
+            holder = self.stack.enter_context(gate.gate_lock(None, index).open("a"))
+            fcntl.flock(holder, fcntl.LOCK_EX)
+        context = {"repo": str(self.root), "run_id": "widget", "landing": True, "since": 1}
+        with gate.gate_turn(None, self.root / "gate.log", None, SUITE, self.root, context=context):
+            return len(gate._GATE_HELD.hold.slots)
+
+    def test_running_landing_pieces_are_not_counted_free_again(self):
+        # Another lander's four pieces keep their 2 cores; only the build's 0.8 of the 3.3
+        # in use can be taken: 4 - 2.5 cores fit two more pieces, not five.
+        top = host.CPU_WEIGHT_MAX
+        self.cgroups({"lander-widget.scope": (top, 0.5), "lander-acme.scope": (top, 2.0),
+                      "agentkit-run-build.scope": (40, 0.8)})
+        self.assertEqual(self.landing_pieces(3.3), 2)
+
+    def test_a_build_burst_after_another_reading_takes_nothing_held(self):
+        # The slice read 2.8 while the build idled; it uses 1.2 now. The other lander's 2.8
+        # stays its own: 4 - 2.8 cores fit one more piece, not three.
+        top = host.CPU_WEIGHT_MAX
+        self.cgroups({"lander-widget.scope": (top, 0.0), "lander-acme.scope": (top, 2.8),
+                      "agentkit-run-build.scope": (40, 1.2)})
+        self.assertEqual(self.landing_pieces(2.8), 1)
 
     def test_hard_memory_caps_bound_pieces_at_admission_and_without_a_turn(self):
         root = self.root / "cgroups"

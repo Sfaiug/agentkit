@@ -143,7 +143,6 @@ LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
-ENDED = ("pass", "fail", "error", "blocked", "stopped", "not_needed")
 QUEUED_GRACE = 30               # old launchers did not record the background child's identity
 _RUN_CONTEXT = threading.local()  # job threads export their own depth and slot owner
 _DELIVERY_HELD = threading.local()   # the delivery locks this thread is already inside
@@ -408,12 +407,14 @@ def repo_rules(wt, ref):
     ak reads only its front matter itself, and a harness loads the body on its own terms
     (some never, some only beside no file of their own), so without this each brand
     worked to different rules.  Read at the base commit, never the checkout: the work
-    under review cannot rewrite the rules it is judged by.  A read that fails is no file.
+    under review cannot rewrite the rules it is judged by.  A read that fails is no file,
+    and so is a link: its text is a path, not rules (`rules_cap` refuses one).
     """
     if not ref:
         return ""
     try:
-        text = git(wt, "show", f"{ref}:AGENTS.md", check=False)
+        mode = git(wt, "ls-tree", ref, "--", "AGENTS.md", check=False).partition(" ")[0]
+        text = git(wt, "show", f"{ref}:AGENTS.md", check=False) if mode.startswith("100") else ""
     except Exception:
         return ""
     match = FRONT.match(text)
@@ -1497,8 +1498,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 continue
         else:
             session, calls = sid or session, calls + 1
+        # An ask for a missing closing or verdict is the turn's one extra call already.
         if (not killed and (unfinished or turn_unfinished(target))
-                and "-retry-hand-in" not in out_dir.name):
+                and "-retry-hand-in" not in out_dir.name and not body.endswith(NO_VERDICT_ASK)):
             log(f"{role} {name} ended its turn with a command still in the background; asking "
                 "it to finish in the foreground")
             finish = target.with_name(f"{target.name}-retry-foreground")
@@ -2718,14 +2720,22 @@ def files_scope(lp):
 
 
 def rules_cap(lp):
-    """Refuse an AGENTS.md past what a harness reads of it, only when this branch changes it."""
+    """Refuse a linked AGENTS.md, or one past what a harness reads of it, only when this branch
+    changes it."""
+    if lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
+                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
+        return ""
+    entry = git(lp.wt, "ls-tree", "HEAD", "--", "AGENTS.md")
+    if not entry:
+        return ""       # the branch deleted it
+    if entry.startswith("120000 "):
+        # following it would mean redoing how Linux opens a path, inside Git's trees
+        return ("AGENTS.md is a link, which ak does not follow, so workers would get no rules "
+                "from it: make AGENTS.md the file itself.")
     ceiling = config.instruction_ceiling()
-    if not ceiling or lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
-                                            f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
+    if not ceiling:
         return ""
     limit, harness = ceiling
-    if not git(lp.wt, "ls-tree", "--name-only", "HEAD", "--", "AGENTS.md"):
-        return ""       # the branch deleted it
     # the bytes a checkout holds, Git's line-end conversion and filters applied: what a harness
     # reads, not the stored blob, and read as bytes, since a text read would fold CRLF to LF
     try:
@@ -3044,7 +3054,7 @@ def repair_open(state, tip):
     a target that moved past it is a new red.
     """
     return followup_open(state) or (
-        state.get("state") in ENDED and state.get("state") != "not_needed"
+        state.get("state") in run_record.ENDED and state.get("state") != "not_needed"
         and not state.get("merged") and state.get("repair_tip") == tip)
 
 
@@ -3664,6 +3674,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.log(f"WARN reviewer fell back to {lp.reviewer}"
                f"{' on another provider' if theirs not in (None, spare) else ''}")
         return f"reviewer-{lp.reviewer}"
+    ask = None      # where the answer that gave no verdict is, for the call asking once more
     while True:
         if not lp.executor and not lp.state.get("review_pr"):
             raise config.Error("task review requires a recorded executor")
@@ -3672,7 +3683,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         turn_kind, turn_sid = open_turn(rd, name)
         out = free_dir(lp, name)
         asked_body, note, resume = rbody, None, {}
-        if turn_kind == "resume":
+        if ask:
+            asked_body, resume, ask = NO_VERDICT_ASK, {"fresh_body": rbody, "previous": ask}, None
+        elif turn_kind == "resume":
             asked_body = host_ended_prompt(lp.state)
             lp.review_sid = turn_sid
             note = {"at": time.time(), "role": "reviewer", "restarted": False}
@@ -3739,61 +3752,18 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         if submitted is not None and submitted.done:
             break
         # A missing verdict is a reviewer that has not answered, never an answer: ask the
-        # same session once more, same round, no backoff, not a transport attempt.  When
-        # the turn already spent its one extra call finishing background work in the
-        # foreground, that call already carried the verdict ask, so a second silence
-        # means the reviewer is gone: no round is recorded, same as a dead reviewer.
-        if list(lp.round_dir.glob(f"{out.name}*foreground*")):
+        # same session once more, same round, no backoff, through the same call as the
+        # review itself, so a window spent on the ask is a spent window and waits for its
+        # refill.  When the turn already spent its one extra call finishing background
+        # work in the foreground, that call already carried the verdict ask, so a second
+        # silence means the reviewer is gone: no round is recorded, same as a dead reviewer.
+        if asked_body == NO_VERDICT_ASK or list(lp.round_dir.glob(f"{out.name}*foreground*")):
             record_findings(lp, out, text)
             lp.save()
             name = fall_back("gave no verdict twice", out)
             continue
         lp.log(f"reviewer {lp.reviewer} gave no verdict; asking once more")
-        out2 = lp.dir(name)
-        attempt2 = 1
-        while out2.exists():
-            attempt2 += 1
-            out2 = lp.dir(f"{name}-attempt{attempt2}")
-        env2 = {**run_child_env(), "AK_RUN_ROLE": "worker",
-                "AK_RUN_LOG": str(out2.parent.parent / "log.txt"),
-                hand_in.CONTINUE: str(written_answer(out, text).parent / hand_in.FILE)}
-        run_record.stop_check(lp.run_dir)
-        try:
-            with reviewer_checkout(lp.wt, out2, lp.log) if not lp.scratch else nullcontext(lp.wt) as cwd:
-                code2, text2, sid2, killed2, unfinished2 = worker.turn(
-                    lp.cfg, lp.reviewer, NO_VERDICT_ASK, cwd, out2, lp.role("reviewer"),
-                    lp.review_sid, env=env2, limit=lp.turn_limit, log=lp.log)
-            # The extra ask names no account, so it runs on the usual login: the turn's
-            # own reading belongs to that login, and to no login nobody tracks.
-            provider = config.model(lp.cfg, lp.reviewer)["provider"]
-            names = config.accounts(lp.cfg, provider)
-            if not names or config.DEFAULT_ACCOUNT in names:
-                note_turn_meters(lp.cfg, lp.reviewer, out2,
-                                 config.DEFAULT_ACCOUNT if names else None)
-        except worker.LoginExpired as expired:
-            lp.review_sid = expired.session or lp.review_sid
-            lp.save()           # the parked conversation is in run.json before the run parks
-            raise
-        finally:
-            history_role_tokens(lp.state.get("run_id"), "reviewer", out2, lp.log,
-                                lp.cfg, lp.reviewer)
-            memory_cap_note(lp.run_dir, lp.log)
-        lp.review_sid = sid2 or lp.review_sid
-        if code2 != 0:
-            lp.log(f"WARN reviewer {killed_word(code2) or f'exited {code2}'}; "
-                   f"see {out2 / 'stderr.log'}")
-        submitted2 = review_records(out2, text2)
-        answered2 = submitted2 is not None and submitted2.done
-        if not killed2 and (unfinished2 or turn_unfinished(out2)) and answered2:
-            lp.log(f"WARN reviewer {lp.reviewer} ended its turn with a command still in the "
-                   "background again; carrying on with what it reported")
-        if answered2:
-            code, text, out = code2, text2, out2
-            submitted = submitted2
-            break
-        record_findings(lp, out2, text2)
-        lp.save()
-        name = fall_back("gave no verdict twice", out2)
+        ask = written_answer(out, text).parent
 
     checkout_changed = not lp.scratch and (
         identity != validation or commit_identity(lp.wt) != identity
@@ -4842,6 +4812,7 @@ def merge_body(lp, head, url=None):
     suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
     if (suite and checked.get("suite") == suite and checked.get("outcome") == "passed"
             and checked.get("sha") == head and checked.get("tree_sha")
+            and checked.get("tested", checked["tree_sha"]) == checked["tree_sha"]
             and checked["tree_sha"] == git(lp.wt, "rev-parse", f"{head}^{{tree}}")):
         body = f"Suite-Passed-Tree: {checked['tree_sha']}"
         if url:
@@ -5487,6 +5458,9 @@ def land_from_line(lp, upstream, deliver):
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],
+                                           "tested": wait.get("tested") or (
+                                               landing.passed(turn, wait["land"]) or {}).get(
+                                                   "tested", identity["tree_sha"]),
                                            "suite": declared_suite(lp.wt, lp.target, ref=tip)}
                 lp.write()
                 result = deliver()
@@ -6481,6 +6455,8 @@ def final_check_line(state, cmds):
             loc = f"in round {rnd}" if rnd else "in round"
             return f"final check: {record['outcome']} {loc}{sha}"
         if where == "landing":
+            if record.get("tested") and record["tested"] != record.get("tree_sha"):
+                return f"final check: {record['outcome']} at landing on tree {record['tested']}"
             return f"final check: {record['outcome']} at landing{sha}"
         if record.get("sha"):
             return f"final check: {record['outcome']} on {record['sha']}"
@@ -6970,7 +6946,7 @@ def handback_reason(state, cfg=None):
     cap_line = " ".join((state.get("error") or "").split())
     if cap_line.startswith("killed: memory cap"):
         return cap_line[:300]
-    if state.get("state") not in ENDED and needs_recovery(state):
+    if state.get("state") not in run_record.ENDED and needs_recovery(state):
         # an interruption, or a stop no window will lift: what stopped it is the whole news,
         # and rounds and findings say nothing about a run that never reached its verdict.  A
         # resumed attempt that did reach one is an ending, `recovery_pending` or not, and says
@@ -7109,7 +7085,7 @@ def owes_ending(state):
         return False
     if going(state) and state.get("state") == "error":
         return False
-    return (state.get("state") in ENDED and not already_handed_back(state)
+    return (state.get("state") in run_record.ENDED and not already_handed_back(state)
             and not state.get("reported"))
 
 
@@ -7234,7 +7210,7 @@ def hand_back(state, run_dir, log, cfg=None):
             state["handed_back"] = said["handed_back"]
             log(f"run {run_dir.name} was already handed back to the {session} seat")
             return True
-        if (said.get("state") in ENDED and not said.get("handback_pending")
+        if (said.get("state") in run_record.ENDED and not said.get("handback_pending")
                 and not said.get("notification_pending") and watch.is_preexisting(said)):
             mark_delivery(run_dir, state, handed_back=time.time(),
                           handback_note=watch.PREEXISTING_NOTE, handback_pending=None,
@@ -7301,7 +7277,7 @@ def announce(state, run_dir, log, cfg=None):
     if going(state) and state.get("state") == "error":
         return
     session = launched_session(state)
-    if needs_recovery(state) and state.get("state") not in ENDED:
+    if needs_recovery(state) and state.get("state") not in run_record.ENDED:
         # Inside a job the scheduler owns recovery: a run the job is adopting right now is
         # resumed by the job itself seconds later, and a recovery notice would be per-task
         # noise contradicting what happens next.
@@ -7309,7 +7285,7 @@ def announce(state, run_dir, log, cfg=None):
             return
         reap(run_dir, state)
         return
-    if state.get("state") not in ENDED:
+    if state.get("state") not in run_record.ENDED:
         return
     if not session or state.get("repair") and (state.get("merged")
                                                or state.get("state") == "not_needed"):
@@ -7535,7 +7511,7 @@ def needs_recovery(state):
     members belong to the lander even if an earlier attempt left a recovery mark.
     """
     return (not landing_line(state) and
-            state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
+            state.get("state") not in (*run_record.ACTIVE, "pass", "blocked", "stopped", "not_needed") and
             (state.get("state") in ("interrupted", "exhausted", "stalled", "waiting_login") or
              bool(state.get("recovery_pending"))))
 
@@ -7564,7 +7540,7 @@ def notify_recovery(run_dir, state):
     the same line back twice, and escalate one already delivered to the owner once the seat
     closed.
     """
-    if state.get("state") in ENDED or state.get("handed_back"):
+    if state.get("state") in run_record.ENDED or state.get("handed_back"):
         return  # an ending is announce's, and one already said is nobody's to say again
     if getattr(jobs._JOB_MUTE, "adopt", None):
         return  # the job resumes this run itself; a notice would contradict what happens next
@@ -7682,7 +7658,7 @@ def memory_cap_line(mb):
     return f"killed: memory cap {shown} GB"
 
 
-def run_scope_limits(ceiling_mb=None, *, cap_mb=None):
+def run_scope_limits(ceiling_mb=None, *, cap_mb=None, cpu_weight=40):
     """(cap in MiB, systemd properties) for one run scope.
 
     CPU and I/O weight stay below the seats' 100, and the memory cap is applied
@@ -7692,11 +7668,11 @@ def run_scope_limits(ceiling_mb=None, *, cap_mb=None):
     loop, its harness session and its worktree go on, and `memory_cap_note` says
     so.  The properties are what `systemd-run -p` takes; the cap is what the
     receipt records, so the reason can still name the number after the process
-    that knew it is gone. A lander supplies its recorded suite need as `cap_mb`
-    while keeping the same scope properties.
+    that knew it is gone. A lander supplies its recorded suite need as `cap_mb`,
+    and its own CPU weight: among the runs only, so the seats keep theirs.
     """
     cap = memory_cap_mb(ceiling_mb) if cap_mb is None else cap_mb
-    return cap, ("-p", "CPUWeight=40", "-p", "IOWeight=40",
+    return cap, ("-p", f"CPUWeight={cpu_weight}", "-p", "IOWeight=40",
                  "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M",
                  *(("-p", "OOMPolicy=continue") if orch.scope_oom_policy() else ()))
 
@@ -7954,8 +7930,8 @@ def reap(run_dir, state, memory_probe=None):
     asking a real one.
     """
     state = run_record.read_state(run_dir) or state
-    if state.get("state") not in ("running", "queued") and not needs_recovery(state):
-        if state.get("state") not in ENDED:
+    if state.get("state") not in run_record.ACTIVE and not needs_recovery(state):
+        if state.get("state") not in run_record.ENDED:
             return state
         # else: an ended run whose loop may have died before its final cleanup --
         # fall through and sweep what it left behind, once per loop
@@ -7967,18 +7943,18 @@ def reap(run_dir, state, memory_probe=None):
         if status == "stalled":
             return state  # parked by the tick; only an explicit resume moves it
         resumed_at = state.get("stall_resume_at")
-        if (status in ("running", "queued") and isinstance(resumed_at, (int, float))
+        if (status in run_record.ACTIVE and isinstance(resumed_at, (int, float))
                 and not isinstance(resumed_at, bool)
                 and 0 <= time.time() - resumed_at < STALL_RESUME_GRACE):
             return state  # the tick stopped this loop and ordered a resume; it adopts next
         holding = state.get("resume_after")
-        if (status in ("running", "queued") and isinstance(holding, (int, float))
+        if (status in run_record.ACTIVE and isinstance(holding, (int, float))
                 and not isinstance(holding, bool) and time.time() < holding):
             return state  # the tick is waiting out this dead loop's backoff before its next try
         grace = (status == "queued" and
                  (state.get("launch_pending") or not state.get("process_identity")) and
                  time.time() - (state.get("queued_at") or state.get("started_at") or 0) < QUEUED_GRACE)
-        if status in ("running", "queued") and not grace and not run_record.process_active(state):
+        if status in run_record.ACTIVE and not grace and not run_record.process_active(state):
             cap_reason = (memory_cap_reason(state, probe=memory_probe)
                           if status == "running" else None)
             if cap_reason:
@@ -8005,7 +7981,7 @@ def reap(run_dir, state, memory_probe=None):
         elif status == "interrupted" and not state.get("interrupted_at"):
             interrupt(state, state.get("error") or "Earlier interruption; detection time recorded now.")
             run_record.save_state(run_dir, state)
-        if status in ("pass", "fail", "error", "blocked", "exhausted", "waiting_login",
+        if status in ("pass", *run_record.FAILED, "exhausted", "waiting_login",
                       "interrupted") and not run_record.process_active(state):
             swept = [state.get("pid"), state.get("process_identity")]
             if state.get("tree_stopped") != swept:
@@ -8153,7 +8129,7 @@ def mark_looked_at(run_dir, state=None):
         current = run_record.read_state(run_dir) if state is None else dict(state)
         if not current:
             return False
-        if current.get("state") not in ENDED:
+        if current.get("state") not in run_record.ENDED:
             return False
         if current.get("state") == "error" and going(current):
             return False
@@ -8171,7 +8147,7 @@ def acknowledge(run_dir):
         state = run_record.read_state(run_dir)
         if not state:
             raise config.Error("the run is no longer waiting for recovery")
-        waiting = needs_recovery(state) or state.get("state") in ("fail", "error", "blocked")
+        waiting = needs_recovery(state) or state.get("state") in run_record.FAILED
         if not waiting or state.get("recovery_acknowledged_at"):
             raise config.Error("the run is no longer waiting for recovery")
         state["recovery_acknowledged_at"] = time.time()
@@ -8465,7 +8441,7 @@ def exhausted_wait(state):
 def going(state, now=None):
     """Whether the run keeps its seat working while it lasts.
 
-    The GOING states -- queued, running, waiting, exhausted, stalled,
+    The `record.GOING` states -- queued, running, waiting, exhausted, stalled,
     waiting_login -- which resume themselves or are already running, plus an
     error the tick will retry. Errors and waits on a target ref need current admission:
     an old stamp cannot keep a seat working after its retry stopped being allowed,
@@ -8479,7 +8455,7 @@ def going(state, now=None):
         return False
     if state.get("state") == "exhausted":
         return bool(exhausted_wait(state))
-    if state.get("state") in watch.GOING:
+    if state.get("state") in run_record.GOING:
         return True
     if state.get("state") != "error":
         return False
@@ -8590,7 +8566,7 @@ def unfinished(state, records=None, index=None):
     `records` is an iterable of states already read, `index` a `supersession_index`
     over them; without either supersession is not read.
     """
-    if state.get("state") in ("running", "queued"):
+    if state.get("state") in run_record.ACTIVE:
         return True
     if not (needs_recovery(state) and not state.get("recovery_acknowledged_at")):
         return False
@@ -8606,7 +8582,7 @@ def stoppable(state):
     for the ladder, the way stopping a waiting run ends its wait.  Every other ending sits
     inert, so there is nothing to stop.
     """
-    return state.get("state") not in ENDED or state.get("state") == "error"
+    return state.get("state") not in run_record.ENDED or state.get("state") == "error"
 
 
 def ways_out(state, run_dir):
@@ -8618,7 +8594,7 @@ def ways_out(state, run_dir):
     gone.
     """
     run_id = Path(run_dir).name
-    ways = [f"ak run status {run_id}"] if state.get("state") in ENDED else []
+    ways = [f"ak run status {run_id}"] if state.get("state") in run_record.ENDED else []
     if failed_at_budget(state):
         onward = continue_line(state, run_dir)
         ways += [onward.removeprefix("continue: ")] if onward else []
@@ -8688,7 +8664,7 @@ def stop_owned_runs(name):
                 continue
         except config.Error:
             continue
-        if state.get("state") not in ENDED:
+        if state.get("state") not in run_record.ENDED:
             try:
                 cmd_stop([run_dir.name])
             except config.Error as exc:
@@ -8725,7 +8701,7 @@ def release_session(name):
         except config.Error:
             continue
         ids.append(run_dir.name)
-        if state.get("state") in ENDED:
+        if state.get("state") in run_record.ENDED:
             if not worktrees.drop_checkout(state, lambda _message: None, keep_branch=False):
                 continue
             # the branch went with the checkout: the status row reads this mark,
@@ -9595,7 +9571,7 @@ def resume_run(argv):
             return drive(cfg, run_dir, opts, log,
                          job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
         return drive(cfg, run_dir, opts, log, prior=state)
-    if not child and state.get("state") in ("running", "queued"):
+    if not child and state.get("state") in run_record.ACTIVE:
         if run_record.process_active(state):
             raise config.Error(f"{argv[0]} is still running as pid {state['pid']}")
         state = reap(run_dir, state)
@@ -10789,7 +10765,7 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
         if exclude is not None and Path(directory) == Path(exclude):
             continue
         state = run_record.read_state(directory)
-        if not state or state.get("state") not in ("running", "queued"):
+        if not state or state.get("state") not in run_record.ACTIVE:
             continue
         if not run_record.process_active(state):
             continue

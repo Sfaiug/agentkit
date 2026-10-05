@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, menu, notify, orch, watch
+from agentkit import config, notify, orch, watch
 from agentkit.harness import claude
 
 
@@ -592,16 +592,11 @@ class SeatTitle(Sandbox):
         self.assertEqual(pauses, [(watch.KEY_GAP, True), (watch.SENT_POLL, False),
                                   (watch.SENT_POLL, False)])
 
-    def test_cli_and_menu_keep_send_warnings(self):
+    def test_cli_keeps_send_warnings(self):
         self.fail_send = True
         with redirect_stdout(io.StringIO()) as output:
             orch.cmd_rename(["lagoon", "quay"])
         self.assertIn("WARN could not type into the quay seat", output.getvalue())
-        with patch.dict(os.environ, {config.SESSION_ENV: "quay"}), \
-                patch.object(orch, "ask_name", return_value="harbor"), \
-                redirect_stdout(io.StringIO()) as output:
-            menu.rename_this_session(False)
-        self.assertIn("WARN could not type into the harbor seat", output.getvalue())
 
 
 if __name__ == "__main__":

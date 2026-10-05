@@ -42,6 +42,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from . import command_help, config, retention
+from . import record as run_record
 
 FILE_CAP = 8 * 1024 * 1024
 UA = "agentkit/1 (+https://github.com)"
@@ -362,6 +363,20 @@ def session_lock(session):
                 return
             finally:
                 fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+@contextmanager
+def name_lock(name):
+    """The lock file of that very name, never followed to the seat it leads to: a rename back to
+    an earlier name holds it, so a writer reaching that name once its record moves there waits
+    for the files to follow."""
+    config.ensure_dirs()
+    with config.notify_path(name).with_suffix(".lock").open("a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
 
 
 def record(session, kind, text, **extra):
@@ -826,7 +841,7 @@ def failed_declaration(notice, mine, index=None):
     from . import run as run_mod    # here, not at the top: the loop imports this module
     stamp = notice.get("time", 0)
     return [directory.name for directory, state in mine
-            if state.get("state") in ("fail", "error", "blocked")
+            if state.get("state") in run_record.FAILED
             and (directory.name in notice.get("runs", []) or
                  (isinstance(state.get("finished_at"), (int, float))
                   and state["finished_at"] >= stamp))
@@ -1166,8 +1181,17 @@ def embed(kind, session, text):
             "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
+class Refused(config.Error):
+    """A `shaped` gate said no: nothing was recorded, and the caller hears why."""
+
+
 def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
-    """Record the question or declaration, then evaluate the same transition latch."""
+    """Record the question or declaration, then evaluate the same transition latch.
+
+    A done, whoever declares it, waits for every line of the seat's plan: its checks run
+    first (`plan.require_done`), and the plan is read once more under the seat's lock right
+    before the record (`plan.still_done`); a refusal records nothing and is raised as
+    `Refused`."""
     if worker_blocked(kind, dry_run):
         return 0
     if paths:
@@ -1183,9 +1207,21 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         return 0
     if not name:
         raise config.Error("notify needs a session: use --session NAME")
-    from . import menu, run, watch
+    from . import menu, plan, run, watch
+    gate = None
+    if kind == "done":
+        try:
+            proven = plan.require_done(name)
+        except config.Error as exc:
+            raise Refused(str(exc)) from None
+        gate = lambda current: plan.still_done(current, proven)   # and still, as recorded
     try:
         with session_lock(name) as name:
+            if gate:
+                try:
+                    gate(name)
+                except config.Error as exc:
+                    raise Refused(str(exc)) from None
             previous = last(name, include_seen=True)
             if not (event_id and previous and previous.get("source") == event_id):
                 extra = {"source": event_id, "pr": pr,
@@ -1223,6 +1259,8 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         # lands on has stood; a watcher's own notice is dated by the word.
         return transition(name, answer=answer, now=stamp + (CARD_WAIT if kind == "needs" else 0),
                           began=stamp if event_id is None else None)
+    except Refused:
+        raise
     except (OSError, ValueError, config.Error) as exc:
         print(f"notify: record could not be persisted ({type(exc).__name__}); retry required", file=sys.stderr)
         return 1
@@ -1285,6 +1323,8 @@ def main(argv):
             i += 1
     if len(rest) != 1 or rest[0].startswith("-") or not rest[0].strip():
         raise config.Error(USAGE)
+    if kind and worker_blocked(kind, dry_run):
+        return 0                          # before the plan's checks: a worker runs none of them
     if kind:
         return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run)
     raise config.Error(USAGE)

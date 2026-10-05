@@ -159,6 +159,53 @@ class RedMain(unittest.TestCase):
         self.assertEqual(len(self.checks), 1)
         self.assertEqual(self.prepared, [])
 
+    def test_a_covered_red_target_gets_a_probe_and_waits_on_its_repair(self):
+        suite = "test -f base.txt && { test ! -f a.txt || test -f b.txt; }"
+        first = self.member("first", **{"a.txt": "a\n"})
+        second = self.member("second", joined=2, **{"b.txt": "b\n"})
+        self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
+        with patch.object(fixture.gate, "derived_heavy_limit", return_value=1):
+            land.check_line(self.turn)
+        tree = self.wait(first)["land"]
+        self.assertNotEqual(land.passed(self.turn, tree)["tested"], tree)
+        with record.record(second) as state:
+            state.update(state="stopped")
+            state.pop("waiting_on")
+        with record.record(first) as state:
+            state.update(state="running", pid=5678)
+        third = self.member("third", joined=3, **{"c.txt": "c\n"})
+        before = {third: (third / "run.json").read_bytes()}
+        self.checks.clear()
+        self.wake.reset_mock()
+        with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") == 5678):
+            land.check_line(self.turn)
+        self.assertEqual(self.checks, [])
+        self.assert_parked(before)
+        self.assertEqual(self.prepared, [])
+        # Once the covered prefix delivers, the target itself can be probed and repaired.
+        run.git(self.repo, "checkout", "ak/first")
+        run.git(self.repo, "rebase", "origin/main")
+        self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), tree)
+        run.git(self.repo, "push", "origin", "HEAD:main")
+        run.git(self.repo, "checkout", "main")
+        with record.record(first) as state:
+            state.update(state="pass", merged=True)
+            state.pop("waiting_on")
+        self.checks.clear()
+        self.wake.reset_mock()
+        land.check_line(self.turn)
+        self.assertEqual([cmds for cmds, _, _ in self.checks], [["true", suite], [suite]])
+        self.assertEqual(len(self.prepared), 1)
+        self.assert_parked(before)
+        self.wake.assert_not_called()
+        # Covered evidence must not bypass a repair already holding this target either.
+        land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(len(self.prepared), 1)
+        self.assert_parked(before)
+        self.wake.assert_not_called()
+        self.assert_cleaned()
+
     def assert_skipped_head(self, failure, target_red=True):
         first = self.member(**{"base.txt": "branch\n"})
         later = self.member("later", joined=2,

@@ -16,6 +16,12 @@ _RECOVERY_HELD = threading.local()   # the recovery locks this thread is already
 _RUN_TEMP = "run.tmp"
 DELIVERY_TEMP = "delivery.tmp"
 RECOVERY_LOCK = "recovery.lock"
+# The state word a run's record holds, grouped by what the rest of ak asks of it. A new
+# word joins its groups here; a tuple of state words anywhere else is a second copy.
+ACTIVE = ("queued", "running")              # a loop is working the run, or is about to
+FAILED = ("fail", "error", "blocked")       # ended with nothing delivered, and not by choice
+ENDED = ("pass", *FAILED, "stopped", "not_needed")
+GOING = (*ACTIVE, "waiting", "exhausted", "stalled", "waiting_login")   # resumes itself
 
 
 class StopRequested(Exception):
@@ -115,7 +121,7 @@ def _write_state(run_dir, state, temp=_RUN_TEMP):
              for saved in (previous, state)]
     if (any(waits[0].get(key) != waits[1].get(key) for key in ("line", "joined", "land", "fix"))
             or (previous.get("state") != state.get("state")
-                and state.get("state") not in ("running", "queued"))):
+                and state.get("state") not in ACTIVE)):
         from . import land
         # A wake's bookkeeping must not put another suite ahead of its delivery.
         for name in {wait["line"] for wait in waits if isinstance(wait.get("line"), str)}:

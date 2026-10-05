@@ -215,18 +215,36 @@ class Silence(unittest.TestCase):
 
     def test_chatty_turn_has_no_total_cap(self):
         cfg = self.adapter(
-            "for _ in range(35):\n"
+            "time.sleep(2.2)\n"
+            "for _ in range(300):\n"
+            " if (out / 'past-ceiling').exists(): break\n"
             " with (out / 'events.jsonl').open('a') as fh: fh.write('{\"type\":\"event\"}\\n')\n"
             " time.sleep(.1)\n"
             "(out / 'final.md').write_text('## Summary\\nFinished')\n")
-        clock = Clock(4 * 3600)
-        with patch.object(worker.time, "monotonic", side_effect=clock):
+        out = self.root / "turns" / "executor"
+        events = out / "events.jsonl"
+        now, written = 0, 0
+
+        def clock():
+            nonlocal now, written
+            size = events.stat().st_size if events.exists() else 0
+            # Only observed output advances time, so a slow startup cannot spend silence.
+            if size != written:
+                now, written = now + 600, size
+            if now > 3600 * record.CEILING_HOURS:
+                (out / "past-ceiling").touch()
+            return now
+
+        with patch.object(worker.time, "monotonic", side_effect=clock), \
+                patch.object(worker, "ACTIVITY_POLL", .05), \
+                patch.object(run, "transient_wait", side_effect=AssertionError(
+                    "the chatty turn must finish without retries")):
             code, text, _, dead = run.call_retrying(
-                cfg, "fixture", "do it", self.root, self.root / "turns" / "executor",
+                cfg, "fixture", "do it", self.root, out,
                 "executor", None, lambda _: None)
         self.assertEqual((code, dead), (0, False))
         self.assertIn("Finished", text)
-        self.assertGreater(clock.now, 3600 * record.CEILING_HOURS)
+        self.assertGreater(now, 3600 * record.CEILING_HOURS)
 
     def test_run_json_records_new_fields_and_removes_old_fields(self):
         state = {"done_when_minutes": 45, "turn_hours": 3, "stall_minutes": 60}

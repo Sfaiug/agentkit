@@ -42,7 +42,7 @@ def pid_gone(state):
 
 def provably_final(state):
     """A run whose state is final and whose loop is gone. Nothing here is still using the tree."""
-    return isinstance(state, dict) and state.get("state") in run.ENDED and pid_gone(state)
+    return isinstance(state, dict) and state.get("state") in run_record.ENDED and pid_gone(state)
 
 
 def disposable_workspace(directory, state):
@@ -71,13 +71,15 @@ def drop_local_branch(repo, branch, log):
     to remove. A branch that is already gone is the outcome the caller wanted.
     The `ak/` prefix is the guard: the repo it lives in is the owner's checkout
     under ~/code, and the branch is the only thing that goes. False, with its WARN,
-    when git kept the branch: a ref lock, or a checkout elsewhere that holds it.
+    when git kept the branch: a ref lock, a checkout elsewhere that holds it, or a
+    git that never answered whether it is there.
     """
     if not isinstance(branch, str) or not branch.startswith("ak/"):
         return True
-    if not run.git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False):
-        return True
     try:
+        if not run.git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}",
+                       check=False):
+            return True
         code, out = run.git_out(repo, "branch", "-D", branch)
     except run.Stopped as exc:
         log(f"WARN could not delete branch {branch}: {exc}")
@@ -122,7 +124,7 @@ def _drop_told(state, log, run_dir=None):
     if state.get("merged") or state.get("state") == "not_needed":
         drop_checkout(state, log, keep_branch=False)
         return
-    if state.get("state") in ("fail", "error", "blocked", "stopped"):
+    if state.get("state") in (*run_record.FAILED, "stopped"):
         if resume_holds_tree(state, run_dir) or state.get("checkout_kept"):
             return
         drop_checkout(state, log)
