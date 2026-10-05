@@ -191,7 +191,8 @@ class Scoreboard(unittest.TestCase):
         self.assertFalse(history.path().exists())
         with patch.object(scoreboard.subprocess, "run", side_effect=OSError("git unavailable")):
             board = scoreboard.compute(NOW)
-        self.assertEqual(board, {"products": [None, None], "ak": [None, None], "size": [None, None]})
+        self.assertEqual(board, {"products": [None, None], "ak": [None, None],
+                                 "waits": [None, None], "size": [None, None]})
         text = self.status("--history")
         self.assertIn("no runs ended", text)
         self.assertIn("size unavailable", text)
@@ -220,6 +221,7 @@ class Scoreboard(unittest.TestCase):
                    {"runs": 1, "merged": 1, "first_round": 1, "unmerged": 0,
                     "hours": None, "tokens": None, "token_share": None}],
             "size": [{"code_lines": 17, "readme_words": 5}, None],
+            "waits": [None, None],
         }
         expected = [
             "Scoreboard (reported tokens; size now and 7 days ago)",
@@ -231,6 +233,7 @@ class Scoreboard(unittest.TestCase):
             "          ended without merging; no merged runs; 60%    ended without merging; merge hours unknown;",
             "          of all recorded tokens                        median tokens per merged run unknown; no",
             "                                                        tokens recorded",
+            "waits     not recorded                                  not recorded",
             "ak size   17 code lines, 5 README words                 size unavailable",
         ]
         with patch.object(scoreboard, "compute", return_value=board), \

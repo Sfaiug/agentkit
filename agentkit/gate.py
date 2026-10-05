@@ -284,11 +284,23 @@ def reserve_slot(state, limit):
     state.pop("slot_healthy_polls", None)
 
 
+def count_wait(run_id, wait, since):
+    """Add what this process waited since `since` (monotonic) to its run's history; returns now.
+
+    The waiting process counts its own wait as it polls, so one that dies loses at most a
+    poll, and no recovery can count time no process spent waiting -- nor a clock correction.
+    """
+    now = time.monotonic()
+    history.add_wait(run_id, wait, now - since)
+    return now
+
+
 def wait_for_slot(run_dir):
     """Reserve a slot in run.json before work starts; no process-local semaphore can do this."""
     announced = False
     first_poll = True
     wait_kind = None
+    counted = None
     while True:
         limit = config.max_runs()
         with slot_lock(), run_record.recovery_lock(run_dir):
@@ -317,7 +329,11 @@ def wait_for_slot(run_dir):
             print(slot_note(state), flush=True)
             run.redress_seat(state.get("launched_session"))
             announced = True
+        counted = counted or time.monotonic()
         time.sleep(SLOT_POLL)
+        counted = count_wait(run_dir.name, "slot", counted)
+    if counted:
+        count_wait(run_dir.name, "slot", counted)
     if state.get("slot_waited"):
         minutes = max(0, int((time.time() - state["queued_at"]) / 60))
         kind = wait_kind or "count"
@@ -776,7 +792,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             for fh in slot:
                 fcntl.flock(fh, fcntl.LOCK_UN)
             slot = []
-            began = time.monotonic()
+            began = counted = time.monotonic()
             said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
             if log is not None:
                 log(f"done-when: {said}")
@@ -789,6 +805,8 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     log_path.write_text(said + "\n")
                     run_record.stop_check(run_dir)
                     time.sleep(GATE_POLL)
+                    if run_dir:
+                        counted = count_wait(run_dir.name, "suite", counted)
                     if is_landing and not _still_landing(context):
                         # Its members left the line: this check waits as a round check now.
                         is_landing, waited_since = False, time.time()
@@ -809,6 +827,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             finally:
                 if run_dir:
                     mark_gate_wait(run_dir, None)
+                    count_wait(run_dir.name, "suite", counted)
             if run_dir:
                 history.open_step(run_dir.name, step)
             if uncapped:

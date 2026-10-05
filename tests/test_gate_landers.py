@@ -332,14 +332,19 @@ class GateLanders(unittest.TestCase):
         early = self.record("seed-early", ACME, landing=True)
         late = self.record("seed-late", ACME, landing=True)
         repo = run.main_checkout(ACME)
-        with patch.object(gate.time, "time", side_effect=[1000.0, 1100.0, 2000.0, 2100.0,
-                                                         3000.0, 3100.0]):
+        clock = [1000.0]
+        with patch.object(gate.time, "time", side_effect=lambda: clock[0]):
             self.assertEqual(gate.mark_gate_wait(early, repo), 1000.0)
+            clock[0] = 1100.0
             gate.mark_gate_wait(early, None)
+            clock[0] = 2000.0
             self.assertEqual(gate.mark_gate_wait(late, repo), 2000.0)
+            clock[0] = 2100.0
             gate.mark_gate_wait(late, None)
             # second waits wait now but count from their seeds
+            clock[0] = 3000.0
             self.assertEqual(gate.mark_gate_wait(early, repo), 1000.0)
+            clock[0] = 3100.0
             self.assertEqual(gate.mark_gate_wait(late, repo), 2000.0)
         # each lap's wait publishes the seed in its file, as `gate_turn` does
         for directory in (early, late):
