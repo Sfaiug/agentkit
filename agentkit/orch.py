@@ -2073,6 +2073,24 @@ def rulebook_due(name):
             if pending or holds is None or config.rulebook_digest(text) != holds else None)
 
 
+def fetch_projects():
+    """The tick's pass: the default branch of each project a seat is filed under, fetched.
+
+    A seat's rulebook carries its project's AGENTS.md as `origin/HEAD` holds it
+    (`config.seat_rulebook`), and only a fetch shows a merge there, ak's own or one made
+    anywhere else; its next prompt then names the new rules (`rulebook_news`).  A checkout
+    with no `origin/HEAD` is given one from origin (`run.default_base`).  A failed fetch waits
+    for the next tick.
+    """
+    from . import run
+    for repo in sorted({record["repo"] for record in config.session_records().values()
+                        if record.get("repo")}):
+        if Path(repo).is_dir():
+            base = run.default_base(Path(repo), lambda _: None)
+            if base.startswith("origin/"):
+                run.fetch(Path(repo), "--quiet", "origin", base.removeprefix("origin/"))
+
+
 def rulebook_prepare(name):
     """Under the seat's lock, `name` the name it goes by now: when its conversation is to be
     told its rulebook, write that rulebook to the seat's `rules` file and give the
@@ -3667,18 +3685,25 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
              "account": account, "home_account": account}
     if len(selected) == 4:
         extra["reviewers"] = selected[3]
-    if unnamed and not dry_run:
-        # The adapter writes the rulebook while building its command, before the seat starts.
-        extra["unnamed"] = True
+    path, before = config.session_path(name), None
+    if not dry_run:
+        # The adapter writes the rulebook while building its command, before the seat starts,
+        # from this record: the project it is filed under, an unnamed seat's instruction.
+        if unnamed:
+            extra["unnamed"] = True
+        if path.exists():
+            before = path.read_bytes()
         config.save_session(cfg, name, model, workers, extra)
-    elif not dry_run:
-        config.update_session(name, unnamed=None)
     try:
         with scratch(dry_run):
             cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     except Exception:
-        if unnamed:
-            config.session_path(name).unlink(missing_ok=True)
+        if not dry_run:
+            # the record of the seat this name had before, as it was
+            if before is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(before)
         raise
     if not dry_run:
         if conversation:

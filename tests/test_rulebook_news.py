@@ -608,11 +608,13 @@ class RulebookNews(Sandbox):
         self.said_read(notice)
         self.assertEqual(self.prompt(), "")
 
-    def test_a_seat_reads_its_project_s_merged_agents_md_and_is_told_when_a_merge_changes_it(self):
-        def git(cwd, *args):
-            subprocess.run(["git", "-C", str(cwd), "-c", "user.name=Acme", "-c",
-                            "user.email=acme@example.com", *args], check=True, capture_output=True)
+    def git(self, cwd, *args):
+        return subprocess.run(["git", "-C", str(cwd), "-c", "user.name=Acme", "-c",
+                               "user.email=acme@example.com", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
 
+    def test_a_seat_reads_its_project_s_merged_agents_md_and_is_told_when_a_merge_changes_it(self):
+        git = self.git
         upstream, checkout = self.root / "acme-origin", self.root / "acme"
         git(self.root, "init", "-q", "-b", "main", str(upstream))
         (upstream / "AGENTS.md").write_text("---\ntests: python3 acme_gate.py\n---\n# Acme\n\nAcme rule one.\n")
@@ -625,16 +627,39 @@ class RulebookNews(Sandbox):
         self.assertNotIn("acme_gate", config.seat_rulebook(SEAT))
         (checkout / "AGENTS.md").write_text("Acme draft nobody merged.\n")
         self.assertEqual(self.prompt(), "")
-        # a section the rulebook already holds -- ak's vision, in agentkit's own -- is read once
-        held = next(part for part in config.SECTIONS.split(config.rulebook_text()) if part.strip())
-        (upstream / "AGENTS.md").write_text(f"# Acme\n\nAcme rule two.\n\n{held}")
+        # merged upstream, and nothing else fetches it: the tick's pass does; a section the
+        # rulebook also holds, in a fenced template here, is carried as committed
+        held = next(part for part in re.split(r"(?m)^(?=## )", config.rulebook_text())
+                    if part.startswith("## "))
+        rules = f"# Acme\n\nAcme rule two. Every README holds:\n\n```markdown\n{held.strip()}\n```\n"
+        (upstream / "AGENTS.md").write_text(rules)
         git(upstream, "commit", "-qam", "rule two")
-        git(checkout, "fetch", "-q", "origin")
+        self.assertEqual(self.prompt(), "")
+        orch.fetch_projects()
         self.assertIn(TOLD, self.prompt())
         told = self.rules().read_text()
-        self.assertIn("Acme rule two.", told)
+        self.assertIn(rules.strip(), told)
         self.assertNotIn("Acme draft", told)
-        self.assertEqual(told.count(held.strip()), 1)
+
+    def test_a_project_s_default_branch_is_read_without_origin_head_or_past_a_branch_named_so(self):
+        git = self.git
+        upstream, checkout = self.root / "acme-origin.git", self.root / "acme"
+        git(self.root, "init", "-q", "--bare", "-b", "main", str(upstream))
+        git(self.root, "init", "-q", "-b", "main", str(checkout))
+        (checkout / "AGENTS.md").write_text("# Acme\n\nAcme merged policy.\n")
+        git(checkout, "add", "AGENTS.md")
+        git(checkout, "commit", "-qm", "rules")
+        git(checkout, "remote", "add", "origin", str(upstream))
+        git(checkout, "push", "-qu", "origin", "main")       # no origin/HEAD in this checkout
+        git(checkout, "checkout", "-qb", "draft")
+        (checkout / "AGENTS.md").write_text("# Acme\n\nAcme draft policy.\n")
+        git(checkout, "commit", "-qam", "draft rules")
+        git(checkout, "branch", "origin/HEAD")              # a branch the short name finds first
+        config.update_session(SEAT, repo=str(checkout))
+        orch.fetch_projects()
+        book = config.seat_rulebook(SEAT)
+        self.assertIn("Acme merged policy.", book)
+        self.assertNotIn("Acme draft policy.", book)
 
 
 if __name__ == "__main__":

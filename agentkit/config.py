@@ -36,7 +36,6 @@ JOB_DIR_ENV = "AGENTKIT_JOB_DIR"  # the `ak run --bg` job child this receipt bel
 KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
 HARNESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # a harness name is one path component
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)          # an AGENTS.md's front matter: ak's, not rules
-SECTIONS = re.compile(r"(?m)^(?=#{1,2} )")              # where a rulebook's sections start
 
 
 RUN_DIR_ENV = "AGENTKIT_RUN_DIR"
@@ -1257,20 +1256,18 @@ def agents_body(repo, ref):
 
 def seat_rulebook(session):
     """What `session`'s rulebook file holds when it opens now: `rulebook_text`, the AGENTS.md of
-    the project it is filed under as on that project's default branch -- what its workers get --
-    and an unnamed seat's instruction to name itself."""
+    the project it is filed under as on that project's default branch -- what its workers get,
+    as the tick last fetched it (`orch.fetch_projects`) -- and an unnamed seat's instruction to
+    name itself."""
     body = rulebook_text()
     record = session_records().get(session, {})
     repo = record.get("repo")
-    project = agents_body(repo, "origin/HEAD")
+    # the full name: a branch or tag called origin/HEAD would win the short one
+    project = agents_body(repo, "refs/remotes/origin/HEAD")
     if project:
-        # a section the rulebook already holds -- ak's vision, in agentkit's own -- is read once
-        held = {part.strip() for part in SECTIONS.split(body)}
-        project = "".join(part for part in SECTIONS.split(project) if part.strip() not in held)
-    if project.strip():
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "
-                f"get the same.\n\n{project.strip()}\n")
+                f"get the same.\n\n{project}\n")
     if record.get("unnamed"):
         body = (f"{body.rstrip()}\n\nThis seat is unnamed. As soon as the conversation tells you "
                 "what the job is, name this seat with `ak orch rename --auto <name>`. Choose the "

@@ -17,6 +17,7 @@ import hashlib
 import io
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -130,6 +131,30 @@ class DryRun(unittest.TestCase):
         notice.write_text('{"kind": "question", "summary": "merge acme?"}\n')
         self.dry_run(["acme-fix"], "acme-fix")
         self.assertEqual(notice.read_text(), '{"kind": "question", "summary": "merge acme?"}\n')
+
+    def test_a_named_seat_opened_in_a_project_launches_with_its_rules(self):
+        def git(cwd, *args):
+            subprocess.run(["git", "-C", str(cwd), "-c", "user.name=Acme", "-c",
+                            "user.email=acme@example.com", *args], check=True, capture_output=True)
+
+        upstream, checkout = config.CODE / "acme-origin", config.CODE / "acme"
+        git(config.CODE.parent, "init", "-q", "-b", "main", str(upstream))
+        (upstream / "AGENTS.md").write_text("# Acme\n\nAcme release policy.\n")
+        git(upstream, "add", "AGENTS.md")
+        git(upstream, "commit", "-qm", "rules")
+        git(config.CODE.parent, "clone", "-q", str(upstream), str(checkout))
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(checkout)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.main(["acme-fix"]), 0)
+        self.assertEqual(orch.records()["acme-fix"]["repo"], str(checkout))
+        self.assertIn("Acme release policy.", config.rulebook_path("acme-fix").read_text())
+        # a new seat by that name whose launch fails leaves the record it had as it was
+        before = config.session_path("acme-fix").read_bytes()
+        with patch.object(orch, "fresh_command", side_effect=config.Error("no harness")), \
+                redirect_stdout(io.StringIO()), self.assertRaisesRegex(config.Error, "no harness"):
+            orch.main(["acme-fix", "--model", "gemini"])
+        self.assertEqual(config.session_path("acme-fix").read_bytes(), before)
 
 
 if __name__ == "__main__":
