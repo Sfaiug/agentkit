@@ -840,9 +840,10 @@ def settle(path, passed):
 
     A passed suite has nothing left to show, and its sandbox goes with it.  A failed
     one keeps its sandbox for whoever reads the failure and takes every older sibling
-    whose suite is over -- signed off, or its writer gone -- so at most one failed
-    sandbox stays, the newest.  A sibling with no receipt, or one still being written,
-    is left for `ak run gc` and its day.  The receipt is signed off first either way.
+    whose suite signed off, so at most one failed sandbox stays, the newest.  A sibling
+    with no receipt, or one not signed off, is left for `ak run gc` and its day: a suite
+    in a box's own pid namespace sees every writer outside it as gone, and would take
+    suites still running.  The receipt is signed off first either way.
     """
     path = Path(path)
     finish(path)
@@ -857,8 +858,7 @@ def settle(path, passed):
                     or not safe(sibling) or not sibling.is_dir()):
                 continue
             record = read_json(marker(sibling))
-            if not record or not (record.get("finished_at")
-                                  or ("pid" in record and not writer_active(record))):
+            if not record or not record.get("finished_at"):
                 continue
             shutil.rmtree(sibling)
     except OSError:
