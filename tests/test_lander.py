@@ -163,7 +163,7 @@ class Lander(LanderFixture, unittest.TestCase):
             current = record.read_state(directory)
             current["waiting_on"].pop("land")
             self.assertEqual(current["waiting_on"].pop("after"),
-                             [] if directory == first else [first.name])
+                             {} if directory == first else {first.name: tree})
             self.assertEqual(current, original)
             self.assertEqual(run.git(self.repo, "rev-parse", original["branch"]),
                              original["review"]["head_sha"])
@@ -465,7 +465,7 @@ class Lander(LanderFixture, unittest.TestCase):
         self.assertEqual(sorted(pieces.read_text().splitlines()), ["1/2", "2/2"])
         current = record.read_state(directory)
         tree = current["waiting_on"].pop("land")
-        self.assertEqual(current["waiting_on"].pop("after"), [])
+        self.assertEqual(current["waiting_on"].pop("after"), {})
         self.assertEqual(current, original)
         self.assertEqual(land.passed(self.turn, tree)["tested"], tree)
         self.assertEqual(gate._heavy_running(), 0)

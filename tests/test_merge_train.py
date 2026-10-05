@@ -133,7 +133,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                             for tree in land._trees(self.turn)[1]))
         current = record.read_state(later)
         current["waiting_on"].pop("land")
-        self.assertEqual(current["waiting_on"].pop("after"), [first.name])
+        self.assertEqual(current["waiting_on"].pop("after"), {first.name: self.wait(first)["land"]})
         self.assertEqual(current, original)
         self.assertEqual(run.git(other, "rev-parse", original["branch"]), head)
         self.assertEqual(run.git(other, "worktree", "list", "--porcelain").count("worktree "), 1)
@@ -226,7 +226,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             current["waiting_on"].pop(key)
             if key == "land":
                 self.assertEqual(current["waiting_on"].pop("after"),
-                                 [] if directory == first else [first.name])
+                                 {} if directory == first else {first.name: self.wait(first)["land"]})
             self.assertEqual(current, originals[directory])
         self.assert_cleaned()
 
@@ -383,7 +383,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assertEqual([checked for checked, _ in self.trees].count(tree), 1)
         current = record.read_state(later)
         current["waiting_on"].pop("land")
-        self.assertEqual(current["waiting_on"].pop("after"), [head.name])
+        self.assertEqual(current["waiting_on"].pop("after"), {head.name: self.wait(head)["land"]})
         self.assertEqual(current, original)
         with record.record(head) as current:
             current["state"] = "running"
@@ -479,7 +479,8 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             "oldest.txt": "oldest\n",
             **({"broken.txt": "broken\n"} if kind == "red" else {}),
             **({"base.txt": "branch\n"} if kind == "conflict" else {})})
-        later = self.member("later", joined=2, **{"later.txt": "later\n"})
+        later = self.member("later", joined=2, **{
+            "later.txt": "later\n", **({"oldest.txt": "oldest\n"} if kind == "covered" else {})})
         last = self.member("last", joined=3, **{"last.txt": "last\n"})
         if kind == "unavailable":
             with record.record(oldest) as current:
@@ -487,7 +488,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.advance(**({"base.txt": "target\n"} if kind == "conflict" else {}))
         with patch.object(gate, "derived_heavy_limit", return_value=5):
             land.check_line(self.turn)
-        self.assertIn("fix", self.wait(oldest))
+        self.assertIn("land" if kind == "covered" else "fix", self.wait(oldest))
         self.assertIn("land", self.wait(later))
         self.assertIn("land", self.wait(last))
         for directory in (later, last):
@@ -512,7 +513,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             self.assertEqual([d for d, _ in land.line(self.turn)], [later, last, oldest])
             wait = self.wait(oldest)
             self.assertEqual(wait["joined"], 1)
-            self.assertEqual(wait["after"], [later.name, last.name])
+            self.assertEqual(wait["after"], {d.name: self.wait(d)["land"] for d in (later, last)})
             self.assertTrue({"later.txt", "last.txt"} <= self.stacked_files(wait["land"]))
             loops, merged = {}, []
             for directory in (oldest, later, last):
@@ -536,7 +537,13 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                     merged.append(directory)
                     return True
 
-                self.assertTrue(run.land_from_line(lp, "origin/main", deliver))
+                result = run.land_from_line(lp, "origin/main", deliver)
+                if directory == oldest and kind == "covered":
+                    self.assertFalse(result)
+                    self.assertTrue(lp.state["on_target"])
+                    self.assertNotIn("waiting_on", lp.state)
+                else:
+                    self.assertTrue(result)
 
             def wait_for_prefix(_seconds):
                 self.assertEqual(self.wait(oldest), wait)
@@ -550,7 +557,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                 clock.sleep.side_effect = wait_for_prefix
                 attempt(oldest)
             clock.sleep.assert_called_once_with(run.SLOT_POLL)
-            self.assertEqual(merged, [later, last, oldest])
+            self.assertEqual(merged, [later, last] if kind == "covered" else [later, last, oldest])
             self.assertEqual(land.line(self.turn), [])
         self.assert_cleaned()
 
@@ -562,6 +569,9 @@ class MergeTrain(LanderFixture, unittest.TestCase):
 
     def test_an_unavailable_member_rejoins_behind_its_tested_prefix(self):
         self.assert_rejoining_member_follows_its_tested_prefix("unavailable")
+
+    def test_a_rejoining_member_ignores_dependencies_on_its_earlier_tree(self):
+        self.assert_rejoining_member_follows_its_tested_prefix("covered")
 
     def test_a_member_claimed_during_a_stack_check_is_never_sent_a_fix(self):
         first = self.member("first")
