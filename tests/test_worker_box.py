@@ -48,10 +48,11 @@ if os.environ.get("BOX_AGENT"):
     import socket
     agent = socket.socket(socket.AF_UNIX)
     try:
-        agent.connect(os.environ["SSH_AUTH_SOCK"])
+        agent.connect(os.environ["BOX_AGENT"])
         seen["agent"] = True
     except OSError:
         seen["agent"] = False
+    seen["agent_address"] = os.environ.get("SSH_AUTH_SOCK")
 if os.environ.get("BOX_INSPECT"):
     (Path.home() / ".codex").mkdir(exist_ok=True)
     (Path.home() / ".codex/fixture").write_text("harness write")
@@ -214,13 +215,27 @@ class WorkerBox(unittest.TestCase):
         sock = Path(short.name) / "agent"
         listener.bind(str(sock))
         listener.listen(1)
-        with patch.dict(os.environ, {"SSH_AUTH_SOCK": str(sock), "BOX_AGENT": "1",
+        with patch.dict(os.environ, {"SSH_AUTH_SOCK": str(sock), "BOX_AGENT": str(sock),
                                      "BOX_PATHS": json.dumps([str(key)])}):
             code, text, _, killed, _ = self.turn()
         self.assertEqual((code, killed), (0, False))
         seen = json.loads(text)
-        self.assertEqual((seen["paths"], seen["agent"]), ([""], False))
+        self.assertEqual((seen["paths"], seen["agent"], seen["agent_address"]), ([""], False, None))
         self.assertEqual(key.read_text(), "fixture-key")
+
+    def test_a_relative_agent_address_never_reaches_the_turn(self):
+        # A relative address is the caller's: it names this socket in the caller's directory.
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(listener.close)
+        name = f".ak-test-agent-{os.getpid()}"
+        listener.bind(name)
+        self.addCleanup(os.unlink, name)
+        listener.listen(1)
+        with patch.dict(os.environ, {"SSH_AUTH_SOCK": name, "BOX_AGENT": name}):
+            code, text, _, killed, _ = self.turn()
+        self.assertEqual((code, killed), (0, False))
+        seen = json.loads(text)
+        self.assertEqual((seen["agent"], seen["agent_address"]), (False, None))
 
     def test_an_agent_socket_inside_a_hidden_directory_still_starts(self):
         for place in (".ssh/agent", ".git-credential-cache/agent", ".cache/git/credential/agent"):

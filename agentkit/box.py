@@ -21,7 +21,8 @@ import time
 from contextlib import contextmanager
 from string import Template
 
-TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
+# What a box never passes on: GitHub tokens, and the SSH agent's address.
+TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK")
 PROCESSES = "box-processes.json"
 
 
@@ -68,7 +69,9 @@ def _credentials(env, cwd):
         for link in _links(ssh):
             (directories if link.is_dir() else files).add(link)
     if env.get("SSH_AUTH_SOCK"):
-        files.add(Path(env["SSH_AUTH_SOCK"]))
+        # The address is the caller's, so a relative one names a place in the caller's directory;
+        # the box passes no address on, so nothing inside reads it any other way.
+        files.add(Path(os.getcwd(), env["SSH_AUTH_SOCK"]))
     # A named credential store is just as readable as the default one. Ask Git so
     # includes and repository-local settings use its own precedence and quoting.
     result = subprocess.run(["git", "config", "--get-regexp", r"^credential(\..*)?\.helper$"],
@@ -172,7 +175,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         if any(parent in writable for parent in path.parents):
             continue
         cmd.extend(["--bind", str(path), str(path)])
-    directories, files = _credentials(clean, cwd)
+    directories, files = _credentials(env, cwd)
     hidden = {path.resolve() for path in directories if path.exists()}
     for paths, option in ((directories, "--tmpfs"), (files, "--dev-bind")):
         # Mount the real target too: a sandbox HOME often links the account's login.
