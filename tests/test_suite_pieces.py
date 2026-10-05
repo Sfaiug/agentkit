@@ -5,6 +5,7 @@ Offline: temporary HOME, injected host/cgroup readings and short fixture command
 
 from collections import Counter
 from contextlib import ExitStack
+import fcntl
 from io import BytesIO
 import json
 import os
@@ -149,19 +150,59 @@ class SuitePieces(unittest.TestCase):
                 self.assertTrue(ok, text)
                 self.assertEqual(text.count("--- AK_SHARD="), count)
 
-    def test_only_the_top_cpu_weight_takes_its_siblings_use(self):
-        relative = "/agentkit.slice/agentkit-runs.slice/agentkit-lander-acme.scope"
-        own = self.root / "cgroup" / relative.lstrip("/")
-        own.mkdir(parents=True)
-        with patch.dict(os.environ, {"AK_CGROUP_ROOT": str(self.root / "cgroup")}), \
-                patch.object(host, "process_cgroup", return_value=relative), \
-                patch.object(host, "_slice_cpu_used", return_value=2.5) as used:
-            for weight, won in ((host.CPU_WEIGHT_MAX, 2.5), (40, 0.0)):
-                (own / "cpu.weight").write_text(f"{weight}\n")
-                self.assertEqual(host.outweighed_cpu(), won)
-            used.assert_called_once_with(own.parent, 0.1)
-            (own / "cpu.weight").unlink()
-            self.assertEqual(host.outweighed_cpu(), 0.0)
+    def cgroups(self, busy):
+        """A runs slice whose groups `busy` maps to (weight, cores used); counters, the
+        slice's their sum, advance by those cores over each fake sleep on a fake clock."""
+        root = self.root / "cgroup"
+        parent = root / "agentkit.slice" / "agentkit-runs.slice"
+        clock, used = [100.0], {}
+        for name, (weight, cores) in busy.items():
+            (parent / name).mkdir(parents=True)
+            (parent / name / "cpu.weight").write_text(f"{weight}\n")
+            used[parent / name] = (cores, 0.0)
+            (parent / name / "cpu.stat").write_text("usage_usec 0\n")
+        (parent / "cpu.stat").write_text("usage_usec 0\n")
+        def sleep(delay):
+            clock[0] += delay
+            for path, (cores, total) in used.items():
+                used[path] = cores, total + cores * delay * 1e6
+                (path / "cpu.stat").write_text(f"usage_usec {used[path][1]:.0f}\n")
+            whole = sum(total for _, total in used.values())
+            (parent / "cpu.stat").write_text(f"usage_usec {whole:.0f}\n")
+        membership = self.root / "membership"
+        membership.write_text(f"0::/{(parent / 'lander-widget.scope').relative_to(root)}\n")
+        self.stack.enter_context(patch.dict(os.environ, {
+            "AK_CGROUP_ROOT": str(root), "AK_CGROUP_FILE": str(membership)}))
+        self.stack.enter_context(patch.object(host.time, "sleep", side_effect=sleep))
+        self.stack.enter_context(patch.object(host.time, "monotonic", side_effect=lambda: clock[0]))
+        return parent
+
+    def test_only_lower_weighted_siblings_cpu_is_taken(self):
+        # A lander at the same weight shares alike, and the caller's own use is its own.
+        top = host.CPU_WEIGHT_MAX
+        parent = self.cgroups({"lander-widget.scope": (top, 0.5), "lander-acme.scope": (top, 2.0),
+                               "agentkit-run-build.scope": (40, 0.8)})
+        self.assertAlmostEqual(host.outweighed_cpu(), 0.8)
+        (parent / "lander-widget.scope" / "cpu.weight").write_text("40\n")
+        self.assertEqual(host.outweighed_cpu(), 0.0)
+        (parent / "lander-widget.scope" / "cpu.weight").unlink()
+        self.assertEqual(host.outweighed_cpu(), 0.0)
+
+    def test_running_landing_pieces_are_not_counted_free_again(self):
+        # Four pieces of another lander hold turns and keep their 2 cores; only the build's
+        # 0.8 of the 3.3 in use can be taken: 4 - 2.5 cores fit two more pieces, not five.
+        top = host.CPU_WEIGHT_MAX
+        self.cgroups({"lander-widget.scope": (top, 0.5), "lander-acme.scope": (top, 2.0),
+                      "agentkit-run-build.scope": (40, 0.8)})
+        busy = {**ROOM, "slice_cpu_used": 3.3, "slice_memory_high_mb": 41000}
+        self.stack.enter_context(patch.dict(os.environ, {
+            "AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(busy)}))
+        for index in range(4):
+            holder = self.stack.enter_context(gate.gate_lock(None, index).open("a"))
+            fcntl.flock(holder, fcntl.LOCK_EX)
+        context = {"repo": str(self.root), "run_id": "widget", "landing": True, "since": 1}
+        with gate.gate_turn(None, self.root / "gate.log", None, SUITE, self.root, context=context):
+            self.assertEqual(len(gate._GATE_HELD.hold.slots), 2)
 
     def test_hard_memory_caps_bound_pieces_at_admission_and_without_a_turn(self):
         root = self.root / "cgroups"
