@@ -381,7 +381,7 @@ def stale_worktree(wt, now, paths, left):
                         "why": "no run record"}
             if delivered(wt, *seat):
                 return {"action": "remove", "kind": "orphan-worktree", "path": str(wt),
-                        "why": f"a seat's, {seat[1]} merged"}
+                        "why": f"a seat's, {seat[0]} merged"}
         return None
     state = retention.read_json(directory / "run.json")
     finished = (state or {}).get("finished_at")
@@ -397,26 +397,37 @@ def stale_worktree(wt, now, paths, left):
 
 
 def seat_branch(wt, directory):
-    """(repository, branch, head) when a checkout is a seat's own, else None.
+    """The (branch, head) of a seat's own checkout, else None.
 
-    A seat builds its pull requests in a checkout of its own on a branch of a repository
-    that is still here.  A run's checkout has its run's directory, the line's is detached
-    and a smoke suite's repository went with its sandbox: none of those holds a seat's work.
+    A seat builds in a checkout of its own -- a worktree or a clone, whatever its layout --
+    on a branch.  A run's checkout has its run's directory, the line's is detached, and a
+    smoke suite's `.git` points into a sandbox that has gone: none of those holds a seat's
+    work.  A seat's checkout git cannot read is still a seat's, kept for want of proof.
     """
-    repo = worktree_repo(wt)
-    if retention.present(directory) or repo is None or not retention.present(repo / ".git"):
+    if retention.present(directory) or not (wt / ".git").exists() or pointer_gone(wt):
         return None
+    code, ref, _ = run.tool_run(["git", "-C", str(wt), "symbolic-ref", "-q", "HEAD"],
+                                timeout=60)
+    if code == 1:
+        return None
+    known, head, _ = run.tool_run(["git", "-C", str(wt), "rev-parse", "-q", "--verify", "HEAD"],
+                                  timeout=60)
+    return (ref.strip().removeprefix("refs/heads/") if code == 0 else None,
+            head.strip() if code == 0 and known == 0 else None)
+
+
+def pointer_gone(wt):
+    """Whether a checkout's `.git` file names a git directory that no longer exists."""
+    if not (wt / ".git").is_file():          # a clone's own `.git` directory
+        return False
     try:
-        ref = retention.read_bytes(retention.git_directory(wt) / "HEAD").decode().strip()
-        if not ref.startswith("ref: refs/heads/"):
-            return None
-        return repo, ref.removeprefix("ref: refs/heads/"), retention.git_ref(
-            retention.git_directory(repo), ref.removeprefix("ref: "))
-    except (OSError, ValueError, UnicodeDecodeError):
-        return repo, None, None
+        prefix, sep, value = retention.read_bytes(wt / ".git").decode().strip().partition(": ")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return prefix == "gitdir" and bool(sep) and not (wt / value).exists()
 
 
-def delivered(wt, repo, branch, head):
+def delivered(wt, branch, head):
     """Whether GitHub holds everything in a seat's checkout: git sees no change and no new
     file in it (what it ignores is output, not work), the branch's pull request merged, and
     GitHub has its head commit, which the line may have rebased before merging.  Anything
@@ -434,11 +445,11 @@ def delivered(wt, repo, branch, head):
                                     timeout=60)
     if code != 0 or changed.strip():
         return False
-    code, merged = run.gh(repo, "pr", "list", "--head", branch, "--state", "merged",
+    code, merged = run.gh(wt, "pr", "list", "--head", branch, "--state", "merged",
                           "--json", "number", "--jq", "length", timeout=60)
     if code != 0 or merged in ("", "0"):
         return False
-    code, _ = run.gh(repo, "api", f"repos/{{owner}}/{{repo}}/commits/{head}", "--silent",
+    code, _ = run.gh(wt, "api", f"repos/{{owner}}/{{repo}}/commits/{head}", "--silent",
                      timeout=60)
     return code == 0
 

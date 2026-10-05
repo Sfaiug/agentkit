@@ -339,21 +339,47 @@ class GcSweep(Sandbox):
         (self.repo / ".git" / "info" / "exclude").write_text(".ak-test-sandbox/\n")
         (merged / ".ak-test-sandbox").mkdir()
         (merged / ".ak-test-sandbox" / "left").write_text("a killed test's\n")
-        for wt in (merged, *kept):
+        # Every layout a seat may build in is a seat's: a clone, a worktree of a bare
+        # repository, a clone keeping its git directory elsewhere and a worktree whose `.git`
+        # points back by a relative path. A merged clean clone goes; with notes, each stays.
+        def layout(wt, *clone):
+            self.git(self.root, "clone", "-q", *clone, str(self.repo), str(wt)) if clone else None
+            self.git(wt, "checkout", "-qb", "seat/" + wt.name)
+            self.git(wt, "-c", "user.name=sweep", "-c", "user.email=s@localhost", "commit", "-q",
+                     "--allow-empty", "-m", wt.name)
+            return wt
+        merged_clone = layout(config.WT / "merged-clone", "--no-hardlinks")
+        clone = layout(config.WT / "clone", "--no-hardlinks")
+        separate = layout(config.WT / "separate", "--separate-git-dir", str(self.root / "sep.git"))
+        self.git(self.root, "clone", "-q", "--bare", str(self.repo), str(self.root / "bare.git"))
+        bare = config.WT / "bare-worktree"
+        self.git(self.root / "bare.git", "worktree", "add", "-q", "--detach", str(bare))
+        layout(bare)
+        relative = config.WT / "relative"
+        self.git(self.repo, "worktree", "add", "-q", "--detach", str(relative))
+        layout(relative)
+        (relative / ".git").write_text(
+            "gitdir: " + os.path.relpath(self.repo / ".git" / "worktrees" / "relative", relative) + "\n")
+        for wt in (clone, separate, bare, relative):
+            (wt / "notes.md").write_text("never added\n")
+        kept = [*kept, clone, separate, bare, relative]
+        for wt in (merged, merged_clone, *kept):
             self.aged(wt, 2 * DAY)
-        heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, *kept) if wt != unpushed}
+        heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, merged_clone, *kept)
+                 if wt != unpushed}
         def github(cwd, *args, timeout=None):
             if args[:2] == ("pr", "list"):
                 return 0, "0" if args[args.index("--head") + 1] == "seat/open" else "1"
             return (0, "") if args[1].rsplit("/", 1)[-1] in heads else (1, "HTTP 404")
         with patch.object(run, "gh", side_effect=github):
             dry = self.gc("--dry-run")
-            self.assertIn(f"gc: would remove orphan-worktree {merged}: a seat's, seat/merged "
-                          "merged", dry)
+            for wt in (merged, merged_clone):
+                self.assertIn(f"gc: would remove orphan-worktree {wt}: a seat's, seat/{wt.name} "
+                              "merged", dry)
             for wt in kept:
                 self.assertNotIn(str(wt), dry)
             self.gc()
-        self.assertFalse(merged.exists())
+        self.assertFalse(merged.exists() or merged_clone.exists())
         self.assertNotIn(str(merged), self.listed(self.repo))
         for wt in kept:
             self.assertTrue(wt.is_dir(), wt)
