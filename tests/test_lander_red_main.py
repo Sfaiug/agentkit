@@ -3,6 +3,7 @@
 Offline: local Git and real suites, with isolated state and fake repair launches and wakes.
 """
 
+import json
 from pathlib import Path
 import sys
 import time
@@ -11,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander as fixture
-from agentkit import config, land, record, run, watch
+from agentkit import config, gate, land, record, run, watch
 
 SUITE = "test ! -f broken.txt"
 
@@ -98,6 +99,65 @@ class RedMain(unittest.TestCase):
         self.wake.assert_not_called()
         self.assertIn("Tree: ", (first / "target-probe.log").read_text())
         self.assert_cleaned()
+
+    def test_a_target_another_landers_code_passed_is_checked_again_before_any_blame(self):
+        # An ak change can break the checks themselves: main's pass from before it counts not.
+        first = self.member()
+        self.advance(**{"broken.txt": "target breakage\n"})
+        tree = run.git(self.repo, "rev-parse", "main^{tree}")
+        land.note(self.turn, [tree], "earlier", checks=[SUITE])
+        path = land._trees(self.turn)[0]
+        kept = json.loads(path.read_text())
+        kept["trees"][tree]["code"] = "another-commit"
+        path.write_text(json.dumps(kept))
+        before = (first / "run.json").read_bytes()
+        land.check_line(self.turn)
+        self.assertEqual(len(self.prepared), 1)
+        self.assertEqual(self.checks[-1][0], [SUITE])
+        checks = len(self.checks)
+        # its repair holds the line from then on, as for a target with no pass at all
+        later = self.member("later", joined=2)
+        for _ in range(2):
+            land.check_line(self.turn)
+        self.assertEqual(len(self.checks), checks)
+        self.assertEqual(len(self.prepared), 1)
+        self.wake.assert_not_called()
+        self.assertEqual((first / "run.json").read_bytes(), before)
+        self.assertNotIn("land", self.wait(later))
+        self.assert_cleaned()
+
+    def test_a_pass_records_the_ak_commit_it_started_on(self):
+        # an update installed while the suite runs is not the commit that checked it
+        head = ["commit-a"]
+        git = run.git
+
+        def installed(cwd, *args, **kw):
+            if Path(cwd) == config.REPO and args == ("rev-parse", "HEAD"):
+                return head[0]
+            return git(cwd, *args, **kw)
+
+        def update_during(*args, **kw):
+            head[0] = "commit-b"
+            return self.check(*args, **kw)
+
+        land._code.cache_clear()
+        self.addCleanup(land._code.cache_clear)
+        self.member()
+        self.advance()
+        with patch.object(run, "git", side_effect=installed), \
+                patch.object(gate, "run_done_when", side_effect=update_during):
+            land.check_line(self.turn)
+        tree = self.wait(config.RUNS / "first")["land"]
+        self.assertEqual(land.passed(self.turn, tree)["code"], "commit-a")
+
+    def test_a_target_this_landers_code_passed_is_not_checked_again(self):
+        first = self.member(**{"broken.txt": "branch breakage\n"})
+        self.advance()
+        land.note(self.turn, [run.git(self.repo, "rev-parse", "main^{tree}")], "earlier",
+                  checks=[SUITE])
+        land.check_line(self.turn)
+        self.assertIn(SUITE, self.wait(first)["fix"]["line"])
+        self.assertEqual(len(self.checks), 1)
 
     def test_only_the_repair_lands_until_the_target_tree_changes(self):
         first, later, before = self.red_line()
