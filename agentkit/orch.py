@@ -1871,8 +1871,6 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if detached and (not record.get("cwd") or not ran_in.is_dir()):
         raise config.Error(f"{name}: recorded directory is unavailable: {ran_in}")
     cwd = ran_in if ran_in.is_dir() else seat_cwd()
-    if not dry_run:
-        keep_launch_rulebook(name)      # the adapter below rewrites the rulebook file
     with scratch(dry_run):
         if recorded:
             cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account)
@@ -1984,7 +1982,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     # first prompt may already be offered a newer one, which nothing after may wipe.  Under
     # the seat's lock, so a rename going on keeps its record; a start that fails puts the
     # record back, since the harness that read the old one is still there.
-    kept = ("rulebook_sha", "launched_as", "rulebook_told", "rulebook_read")
+    kept = ("rulebook_sha", "rulebook_told", "rulebook_read")
     with notify.session_lock(name) as current:
         # read under the lock the prompts rewrite it under, and held until the harness is up:
         # till its pane is replaced the one it replaces can still prompt, and that prompt's
@@ -1994,8 +1992,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
         except OSError:
             handed = None
         held = {key: (config.session_records().get(current) or {}).get(key) for key in kept}
-        config.update_session(current, rulebook_sha=handed, launched_as=name, rulebook_told=None,
-                              rulebook_read=None)
+        config.update_session(current, rulebook_sha=handed, rulebook_told=None, rulebook_read=None)
         try:
             _start_harness(name, model, cwd, cmd, session)
         except BaseException:
@@ -2043,44 +2040,9 @@ def _start_harness(name, model, cwd, cmd, session):
         start(name, cwd, cmd, model)
 
 
-def keep_launch_rulebook(name):
-    """Write down what a seat from before `rulebook_sha` was launched with, before a relaunch's
-    adapter rewrites its rulebook file: that file is the only word on it, and a relaunch that
-    fails leaves the harness that read it running, still to be told of a change."""
-    from . import notify
-    with notify.session_lock(name) as current:
-        record = config.session_records().get(current)
-        if not record or (record.get("rulebook_sha") and record.get("launched_as")):
-            return
-        # the name and its digest, together: the adapter may write a newer file under another
-        # of the seat's names, and a relaunch that fails leaves this harness on this one
-        named = launched_name(current)
-        fields = {"launched_as": named}
-        if not record.get("rulebook_sha"):
-            launched = on_disk(config.rulebook_path(named))
-            if not launched:
-                return
-            fields["rulebook_sha"] = config.rulebook_digest(launched)
-        config.update_session(current, **fields)
-
-
-def launched_name(current, launched_as=None):
-    """The name a seat's harness was launched under, which it carries through a rename and its
-    rulebook file is under: `launched_as` where the caller knows it (the harness's own hook),
-    else its record's, and for a seat from before that record the one of its names with the
-    newest file."""
-    named = launched_as or (config.session_records().get(current) or {}).get("launched_as")
-    if named:
-        return named
-    names = [current, *(old for old, new in config.session_aliases().items() if new == current)]
-    found = [name for name in names if config.rulebook_path(name).is_file()]
-    return (max(found, key=lambda name: config.rulebook_path(name).stat().st_mtime)
-            if found else current)
-
-
 def on_disk(path):
-    """A rulebook file's bytes, b"" when it is gone, None when it cannot be read: compared as
-    bytes, so a file a failed write cut mid-character is only one to write again."""
+    """A file's bytes, b"" when it is gone, None when it cannot be read: compared as bytes, so
+    one a failed write cut mid-character is only one to write again."""
     try:
         return path.read_bytes()
     except FileNotFoundError:
@@ -2089,63 +2051,51 @@ def on_disk(path):
         return None
 
 
-def rulebook_due(name, launched_as=None):
-    """(record, conversation, launched, text, launched name) when the seat's conversation is to
-    be told its rulebook changed, else None; `name` is the name it goes by now."""
+def rulebook_due(name):
+    """(record, conversation, rulebook) when the seat's conversation is to be told its rulebook,
+    else None; `name` is the name it goes by now.
+
+    What a conversation holds: the rules it said it read (`rulebook_read`), else its launch's
+    (`rulebook_sha`), which are in every conversation's system prompt -- so a conversation
+    `/clear` started is told again.  A seat launched before its launch's was recorded holds
+    rules nobody knows, and is told rather than guessed at.  Told and not yet said read is
+    told again, whatever the rules are now."""
     record = config.session_records().get(name)
     conversation = seat_conversation(record) if record else None
     if not record or not seat_plugin(record).prompt_context or not owns(record, conversation):
         return None
-    named = launched_name(name, launched_as)
-    path = config.rulebook_path(named)
-    launched = record.get("rulebook_sha")
-    if not launched:
-        held = on_disk(path)
-        if not held:
-            return None
-        launched = config.rulebook_digest(held)
     read = record.get("rulebook_read") or {}
-    holds = read.get("sha") if read.get("conversation") == conversation else launched
+    holds = (read.get("sha") if read.get("conversation") == conversation
+             else record.get("rulebook_sha"))
     text = config.seat_rulebook(name)
-    # told and not yet said read is told again, whatever the rules are now; and a file that
-    # says other rules than these was named to the seat, so it is too
     pending = (record.get("rulebook_told") or {}).get("conversation") == conversation
-    return ((record, conversation, launched, text, named)
-            if pending or config.rulebook_digest(text) != holds or on_disk(path) != text.encode()
-            else None)
+    return ((record, conversation, text)
+            if pending or holds is None or config.rulebook_digest(text) != holds else None)
 
 
-def rulebook_prepare(name, launched_as=None):
-    """Under the seat's lock, `name` the name it goes by now: when its rulebook changed since
-    its conversation was handed one, rewrite its rulebook file and give that conversation a
-    code for those rules, which its next prompt carries.  A prompt's hook does this itself
-    when it gets the lock; it never waits for it, so a delivery, which holds it while it
-    types, does it right before its Enter.  A failed write only means the next prompt tries
-    again."""
+def rulebook_prepare(name):
+    """Under the seat's lock, `name` the name it goes by now: when its conversation is to be
+    told its rulebook, write that rulebook to the seat's `rules` file and give the
+    conversation a code for it, which its next prompt carries.  The file is the seat's own,
+    never the one its harness was launched from, and follows it through a rename.  A prompt's
+    hook does this itself when it gets the lock; it never waits for it, so every Enter typed
+    under it does it first (`watch._send_enter`).  A failed write only means the next prompt
+    tries again."""
     try:
-        found = rulebook_due(name, launched_as)
+        found = rulebook_due(name)
         if not found:
             return
-        record, conversation, launched, text, named = found
-        path = config.rulebook_path(named)
+        record, conversation, text = found
         sha = config.rulebook_digest(text)
         told = record.get("rulebook_told") or {}
-        fields = {}
-        if not record.get("rulebook_sha"):
-            # a seat from before `rulebook_sha`: its file is its only word on what it was
-            # launched with, and a record write that fails must leave it; a recorded one is a
-            # launch's, never a prompt's to replace
-            fields["rulebook_sha"] = launched
-        if record.get("launched_as") != named:
-            # with its digest, and the hook's word over any other: a delivery reads this one
-            fields["launched_as"] = named
         if told.get("conversation") != conversation or told.get("sha") != sha:
             # a code for this conversation and these rules, which only a prompt that carried
             # the news holds: `ak orch rules` takes nothing else
-            fields["rulebook_told"] = {"conversation": conversation, "sha": sha,
-                                       "code": secrets.token_hex(6)}
-        if fields and config.update_session(name, **fields) is None:
-            return
+            if config.update_session(name, rulebook_told={
+                    "conversation": conversation, "sha": sha,
+                    "code": secrets.token_hex(6)}) is None:
+                return
+        path = config.seat_file("rules", name)
         if on_disk(path) != text.encode():
             tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
             tmp.write_bytes(text.encode())
@@ -2155,47 +2105,41 @@ def rulebook_prepare(name, launched_as=None):
 
 
 def rulebook_news(session, conversation):
-    """What a seat's next prompt carries when its rulebook changed since it was handed one: "".
+    """What a seat's next prompt carries when its conversation is to be told its rulebook: "".
 
     A harness reads its rulebook only when it opens, so a seat left open across a change to
     `orchestrator.md`, the vision or this host's `rules.md` would keep working to the old
     rules.  Reopening it replaces its pane, and nothing on a screen proves the owner has no
-    draft there, so the seat is told instead, with the prompt that starts its next turn: its
-    rulebook file is rewritten (`rulebook_prepare`), and this names it.  Only its own
-    conversation is told (`owns`): a client started inside the seat inherits its name and is
-    never it.  `session` is the name the harness was launched under, whose file that is; the
-    record is under the name it goes by now.  Every prompt carries the news until the
-    conversation says it read that rulebook (`ak orch rules`, `rulebook_ack`): a prompt
-    something refused, or one whose rewrite failed, only means the next one tells it again.
-    A harness whose prompt hook carries no context (`context` on its `UserPromptSubmit`
-    event) reads the new rulebook at its next launch, and a seat no launch of ours handed one
-    has none to replace.
-
-    What a conversation holds is per conversation: the launch's rulebook (`rulebook_sha`)
-    is in every conversation's system prompt, and one it said it read (`rulebook_read`) only
-    in that one -- so a conversation `/clear` started is told again.
+    draft there, so the seat is told instead, with the prompt that starts its next turn:
+    the rulebook is written to its `rules` file (`rulebook_prepare`), and this names it.
+    Only its own conversation is told (`owns`): a client started inside the seat inherits its
+    name and is never it.  Every prompt carries the news until the conversation says it read
+    that rulebook (`ak orch rules`, `rulebook_ack`): a prompt something refused, or one whose
+    write failed, only means the next one tells it again.  A harness whose prompt hook
+    carries no context (`context` on its `UserPromptSubmit` event) reads the new rulebook at
+    its next launch.
     """
     from . import notify
     current = config.resolve_session(session)
     if (not owns(config.session_records().get(current) or {}, conversation)
-            or not rulebook_due(current, session)):
+            or not rulebook_due(current)):
         return ""
     # the prompt never waits: a delivery holds the seat's lock while it types this prompt,
-    # and made its news ready before its Enter
+    # and readied its news before its Enter
     with notify.session_lock(session, wait=False) as name:
         if name:
-            rulebook_prepare(name, session)
+            rulebook_prepare(name)
     current = config.resolve_session(session)
     record = config.session_records().get(current) or {}
     told = record.get("rulebook_told") or {}
     text = config.seat_rulebook(current)
-    path = config.rulebook_path(launched_name(current, session))
+    path = config.seat_file("rules", current)
     if (on_disk(path) != text.encode() or told.get("conversation") != conversation
             or told.get("sha") != config.rulebook_digest(text)):
         return ""                       # nothing it could read and say so yet: the next prompt
-    return (f"The rulebook you were opened with has changed. Read {path} in full now, before "
-            "anything else: it replaces that rulebook, and where the two differ it wins. "
-            f"Then run `ak orch rules {told['code']}` to say you have.")
+    return (f"Read {path} in full now, before anything else: it is your current rulebook, and "
+            "where it differs from the one you were opened with, it wins. Then run "
+            f"`ak orch rules {told['code']}` to say you have.")
 
 
 def rulebook_ack(name, code):
@@ -3430,7 +3374,6 @@ def switch_orchestrator(cfg, name, model, providers=None):
         session = find(name)
         ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
         cwd = ran_in if ran_in.is_dir() else seat_cwd()
-        keep_launch_rulebook(name)      # the adapter below rewrites the rulebook file
         cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     except (config.Error, OSError) as exc:
         return _one_line(exc)

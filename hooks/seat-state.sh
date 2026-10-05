@@ -22,9 +22,10 @@
 # the same hooks, and a seat's row must never be moved by one.  No $AGENTKIT_SESSION, or
 # AK_RUN_ROLE=worker, and this writes nothing and exits 0.
 #
-# On a prompt it passes on the one thing a seat is told with one: that its rulebook changed
-# since it was handed one (`orch.rulebook_news`), printed as the harness's prompt context until
-# the seat says it read it (`ak orch rules`).  That is all it ever prints.
+# On a prompt it passes on the one thing a seat is told with one: where its current rulebook
+# is, when the one it was handed is out of date or unknown (`orch.rulebook_news`), printed as
+# the harness's prompt context until the seat says it read it (`ak orch rules`).  That is all
+# it ever prints.
 #
 # Every failure is exit 0 with nothing written: a hook that fails loudly is a harness that stops.
 
@@ -271,8 +272,8 @@ main() {
   idle_compact "$payload" "$jq"
 }
 
-# A seat's prompt carries the news that its rulebook changed, as the context its harness adds
-# to that prompt, until the seat says it read it; a harness that takes no context, a worker, a
+# A seat's prompt carries where its current rulebook is, as the context its harness adds to
+# that prompt, until the seat says it read it; a harness that takes no context, a worker, a
 # client that is not the seat's own conversation and every other event print nothing.
 news() {
   local payload=$1 jq event

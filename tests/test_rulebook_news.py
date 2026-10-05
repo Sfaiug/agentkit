@@ -22,6 +22,7 @@ SEAT = "acme-fix"
 BEFORE = "the rules from before\n"
 OWN = "0f5d6e2a-6a43-4c3e-9b0e-3a1f6c2d9e10"      # the conversation the seat's launch handed out
 OWNED = {"conversation": OWN, "id_source": "launcher", "resumable": True}
+TOLD = "it is your current rulebook"                # what a notice says
 
 
 class RulebookNews(Sandbox):
@@ -52,6 +53,10 @@ class RulebookNews(Sandbox):
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         return result.stdout
 
+    def rules(self, name=SEAT):
+        """The seat's own file a notice names."""
+        return config.seat_file("rules", name)
+
     def said_read(self, notice, session=SEAT):
         """The seat runs the `ak orch rules DIGEST` its notice gave."""
         digest = re.search(r"ak orch rules ([0-9a-f]+)", notice).group(1)
@@ -62,11 +67,11 @@ class RulebookNews(Sandbox):
     def test_a_changed_rulebook_is_named_in_every_prompt_until_the_seat_says_it_read_it(self):
         self.handed(BEFORE)
         told = json.loads(self.prompt())["hookSpecificOutput"]
-        path = config.rulebook_path(SEAT)
+        path = self.rules()
         self.assertEqual(told["hookEventName"], "UserPromptSubmit")
         self.assertIn(f"Read {path} in full", told["additionalContext"])
         self.assertEqual(path.read_text(), config.seat_rulebook(SEAT))
-        self.assertIn("has changed", self.prompt())   # not said read yet: told again
+        self.assertIn(TOLD, self.prompt())   # not said read yet: told again
         self.assertEqual(self.said_read(told["additionalContext"]), 0)
         self.assertEqual(config.session_records()[SEAT]["rulebook_read"],
                          {"conversation": OWN, "sha": config.rulebook_digest(config.seat_rulebook(SEAT))})
@@ -79,10 +84,10 @@ class RulebookNews(Sandbox):
         rules.write_text("Rule two.\n")
         notice = self.prompt()
         rules.write_text("Rule three.\n")
-        self.assertIn("has changed", self.prompt())       # the file now says rule three
+        self.assertIn(TOLD, self.prompt())       # the file now says rule three
         with self.assertRaisesRegex(config.Error, "not the code the seat's latest prompt gave"):
             self.said_read(notice)
-        self.assertIn("has changed", self.prompt())
+        self.assertIn(TOLD, self.prompt())
 
     def test_a_conversation_clear_started_is_told_again(self):
         # /clear keeps the harness and its launch rulebook, and drops what the old one read
@@ -91,13 +96,13 @@ class RulebookNews(Sandbox):
         cleared = "c3a1f2e4-5b6d-4e7f-8a9b-0c1d2e3f4a5b"
         config.update_session(SEAT, conversation=cleared, id_source="claude-hook")
         notice = self.prompt(conversation=cleared)
-        self.assertIn("has changed", notice)
+        self.assertIn(TOLD, notice)
         self.said_read(notice)
         self.assertEqual(self.prompt(conversation=cleared), "")
 
     def test_a_prompt_refused_before_its_turn_offers_it_again(self):
         self.handed(BEFORE)
-        self.assertIn("has changed", self.prompt())
+        self.assertIn(TOLD, self.prompt())
         # another hook refused that prompt: nothing said it was read
         self.said_read(self.prompt())
         self.assertEqual(self.prompt(), "")
@@ -107,35 +112,35 @@ class RulebookNews(Sandbox):
         rules.write_text("Rule one.\n")
         self.handed(config.seat_rulebook(SEAT))          # opened on rule one
         rules.write_text("Rule two.\n")
-        self.assertIn("has changed", self.prompt())      # rule two offered; no turn ran on it
+        self.assertIn(TOLD, self.prompt())      # rule two offered; no turn ran on it
         rules.write_text("Rule one.\n")                  # the owner put rule one back
         notice = self.prompt()                            # the file it was told says rule two
-        self.assertIn("has changed", notice)
-        self.assertIn("Rule one.", config.rulebook_path(SEAT).read_text())
+        self.assertIn(TOLD, notice)
+        self.assertIn("Rule one.", self.rules().read_text())
         self.said_read(notice)
         self.assertEqual(self.prompt(), "")
 
     def test_a_prompt_typed_while_the_seat_is_held_tells_the_file_as_it_stands(self):
         self.handed(BEFORE)
-        self.assertIn("has changed", self.prompt())     # told; another hook refused it
+        self.assertIn(TOLD, self.prompt())     # told; another hook refused it
         with notify.session_lock(SEAT):                  # the next prompt, typed by a delivery
             notice = self.prompt()
-        self.assertIn("has changed", notice)
+        self.assertIn(TOLD, notice)
         self.said_read(notice)
         self.assertEqual(self.prompt(), "")
 
     def test_a_nested_client_neither_hears_nor_reads_the_seat_s_notice(self):
         self.handed(BEFORE)
-        self.assertIn("has changed", self.prompt())     # offered; another hook refused it
+        self.assertIn(TOLD, self.prompt())     # offered; another hook refused it
         self.assertEqual(self.prompt(conversation="acme-nested"), "")
-        self.assertIn("has changed", self.prompt())
+        self.assertIn(TOLD, self.prompt())
 
     def test_a_conversation_its_harness_does_not_vouch_for_is_never_told(self):
         # an id the record holds without the launcher's or the harness's own word for it
         self.handed(BEFORE)
         config.update_session(SEAT, id_source="discovered", resumable=False)
         self.assertEqual(self.prompt(), "")
-        self.assertEqual(config.rulebook_path(SEAT).read_text(), BEFORE)
+        self.assertFalse(self.rules().exists())
 
     def test_only_a_conversation_its_harness_vouches_for_says_it_read_it(self):
         self.handed(BEFORE)
@@ -151,52 +156,53 @@ class RulebookNews(Sandbox):
         nested = "7c1e0a55-2b7d-4f0e-8a51-5d8b1f4c3a22"
         self.assertEqual(self.prompt(conversation=nested), "")
         self.assertEqual(self.prompt("Stop", conversation=nested), "")
-        self.assertEqual(config.rulebook_path(SEAT).read_text(), BEFORE)
-        self.assertIn("has changed", self.prompt())
+        self.assertFalse(self.rules().exists())
+        self.assertIn(TOLD, self.prompt())
 
-    def test_a_current_rulebook_or_none_ever_handed_says_nothing(self):
-        self.assertEqual(self.prompt(), "")      # no launch of ours handed it one
+    def test_a_current_rulebook_says_nothing(self):
         self.handed(config.seat_rulebook(SEAT))
         self.assertEqual(self.prompt(), "")
 
-    def test_a_seat_launched_before_the_record_kept_it_is_told_from_its_file(self):
-        self.handed(BEFORE, recorded=False)
-        self.assertIn("has changed", self.prompt())
+    def test_a_seat_launched_before_the_record_kept_it_is_told_once(self):
+        # what it was handed is unknown: it is told, never guessed at from a file
+        self.handed(config.seat_rulebook(SEAT), recorded=False)
+        self.said_read(self.prompt())
+        self.assertEqual(self.prompt(), "")
 
     def test_a_record_write_that_fails_leaves_an_old_seats_rulebook_to_offer_again(self):
         self.handed(BEFORE, recorded=False)      # its file is its only word on its launch
         blocked = config.session_path(SEAT).with_suffix(".tmp")
         blocked.mkdir()                          # the record cannot be written for now
         self.assertEqual(self.prompt(), "")
-        self.assertEqual(config.rulebook_path(SEAT).read_text(), BEFORE)
+        self.assertFalse(self.rules().exists())
         blocked.rmdir()
-        self.assertIn("has changed", self.prompt())
+        self.assertIn(TOLD, self.prompt())
 
     def test_a_rewrite_that_fails_names_nothing_and_the_next_prompt_does(self):
         self.handed(BEFORE)
         replace = Path.replace
 
         def full(path, target):
-            if Path(target).name.startswith("rulebook-"):
+            if Path(target).name.startswith("rules-"):
                 raise OSError("disk full")       # the rulebook file alone cannot be written
             return replace(path, target)
 
         with patch.object(Path, "replace", full):
             self.assertEqual(orch.rulebook_news(SEAT, OWN), "")   # nothing to read, so no news
-        self.assertEqual(config.rulebook_path(SEAT).read_text(), BEFORE)
-        self.assertIn("has changed", self.prompt())
+        self.assertFalse(self.rules().exists())
+        self.assertIn(TOLD, self.prompt())
 
     def test_a_turn_whose_prompt_carried_nothing_says_nothing_read(self):
         rules = config.HOME / "rules.md"
         rules.write_text("Rule one.\n")
         self.handed(config.seat_rulebook(SEAT))
         rules.write_text("Rule two.\n")
-        self.assertIn("has changed", self.prompt())      # told; another hook refused it
+        self.assertIn(TOLD, self.prompt())      # told; another hook refused it
         rules.write_text("Rule three.\n")
         replace = Path.replace
 
         def full(path, target):
-            if Path(target).name.startswith("rulebook-"):
+            if Path(target).name.startswith("rules-"):
                 raise OSError("disk full")
             return replace(path, target)
 
@@ -204,13 +210,13 @@ class RulebookNews(Sandbox):
             self.assertEqual(orch.rulebook_news(SEAT, OWN), "")   # its rewrite failed
         self.prompt("Stop")                                  # and its turn ran without it
         self.assertNotIn("rulebook_read", config.session_records()[SEAT])
-        self.assertIn("has changed", self.prompt())
+        self.assertIn(TOLD, self.prompt())
 
     def test_a_client_that_inherited_the_seat_s_name_cannot_say_it_read_anything(self):
         self.handed(BEFORE)
         self.prompt()                                     # the seat's own prompt is told
         self.assertEqual(self.prompt(conversation="acme-nested"), "")
-        digest = config.rulebook_digest(config.rulebook_path(SEAT).read_bytes())
+        digest = config.rulebook_digest(self.rules().read_bytes())
         with self.assertRaisesRegex(config.Error, "not the code"):
             self.said_read(f"ak orch rules {digest[:12]}")   # the file's digest is no code
         self.assertNotIn("rulebook_read", config.session_records()[SEAT])
@@ -225,7 +231,7 @@ class RulebookNews(Sandbox):
         with self.assertRaisesRegex(config.Error, "rules changed since that prompt"):
             self.said_read(notice)
         self.assertNotIn("rulebook_read", config.session_records()[SEAT])
-        self.assertIn("has changed", self.prompt())
+        self.assertIn(TOLD, self.prompt())
 
     def test_a_launch_recorded_while_a_prompt_waits_keeps_its_rulebook(self):
         self.handed(BEFORE)
@@ -248,19 +254,20 @@ class RulebookNews(Sandbox):
         rules.write_text("Rule one.\n")
         self.handed(config.seat_rulebook(SEAT))          # launched on rule one
         rules.write_text("Rule two.\n")
-        self.assertIn("has changed", self.prompt())      # told rule two, never said read
+        self.assertIn(TOLD, self.prompt())      # told rule two, never said read
         rules.write_text("Rule one.\n")
-        self.assertIn("has changed", self.prompt())      # told it is back; another hook refused
+        self.assertIn(TOLD, self.prompt())      # told it is back; another hook refused
         notice = self.prompt()
-        self.assertIn("has changed", notice)             # so the next prompt tells it again
+        self.assertIn(TOLD, notice)             # so the next prompt tells it again
         self.said_read(notice)
         self.assertEqual(self.prompt(), "")
 
-    def test_a_missing_rulebook_file_is_written_again_and_told(self):
+    def test_a_missing_rules_file_is_written_again_and_told(self):
         self.handed(BEFORE)
-        config.rulebook_path(SEAT).unlink()
-        self.assertIn("has changed", self.prompt())
-        self.assertEqual(config.rulebook_path(SEAT).read_text(), config.seat_rulebook(SEAT))
+        self.prompt()
+        self.rules().unlink()
+        self.assertIn(TOLD, self.prompt())
+        self.assertEqual(self.rules().read_text(), config.seat_rulebook(SEAT))
 
     def test_a_launch_records_the_file_as_it_reads_under_the_seat_s_lock(self):
         config.rulebook_path(SEAT).write_text(BEFORE)
@@ -293,7 +300,7 @@ class RulebookNews(Sandbox):
         self.assertEqual(config.session_records()[SEAT]["rulebook_sha"],
                          config.rulebook_digest(config.rulebook_path(SEAT).read_bytes()))
         self.assertNotIn("A newer rule.", config.rulebook_path(SEAT).read_text())
-        self.assertIn("has changed", self.prompt())     # the new harness is told after
+        self.assertIn(TOLD, self.prompt())     # the new harness is told after
 
     def test_only_a_seats_prompt_hears_it(self):
         self.handed(BEFORE)
@@ -302,21 +309,21 @@ class RulebookNews(Sandbox):
                            ("UserPromptSubmit", {"AGENTKIT_SESSION": ""})):
             with self.subTest(event=event, env=env):
                 self.assertEqual(self.prompt(event, **env), "")
-        self.assertEqual(config.rulebook_path(SEAT).read_text(), BEFORE)
+        self.assertFalse(self.rules().exists())
 
     def test_a_harness_whose_prompt_takes_no_context_reads_it_at_its_next_launch(self):
         config.save_session(self.cfg, SEAT, "mimo", ["mimo"], {"cwd": str(self.root), **OWNED})
         self.assertFalse(orch.seat_plugin(config.session_records()[SEAT]).prompt_context)
         self.handed(BEFORE)
         self.assertEqual(self.prompt(), "")
-        self.assertEqual(config.rulebook_path(SEAT).read_text(), BEFORE)
+        self.assertFalse(self.rules().exists())
 
-    def test_a_renamed_seat_is_told_through_the_name_it_was_launched_under(self):
+    def test_a_renamed_seat_is_told_through_the_file_of_the_name_it_goes_by(self):
         config.save_session(self.cfg, "acme-old", "opus", ["astra"], {"cwd": str(self.root), **OWNED})
-        self.handed(BEFORE, name="acme-old", recorded=False)
+        self.handed(BEFORE, name="acme-old")
         config.rename_session("acme-old", "acme-new")
         told = json.loads(self.prompt(session="acme-old"))["hookSpecificOutput"]
-        self.assertIn(str(config.rulebook_path("acme-old")), told["additionalContext"])
+        self.assertIn(str(self.rules("acme-new")), told["additionalContext"])
         self.said_read(told["additionalContext"], session="acme-old")
         self.assertEqual(config.session_records()["acme-new"]["rulebook_read"],
                          {"conversation": OWN,
@@ -338,14 +345,14 @@ class RulebookNews(Sandbox):
                 "cwd": cwd, "transcript_path": str(rollout)}}))
         self.handed(BEFORE)
         self.assertEqual(self.prompt(conversation="acme-nested-thread"), "")
-        self.assertIn("has changed", self.prompt(conversation=thread))
+        self.assertIn(TOLD, self.prompt(conversation=thread))
 
     def test_a_prompt_never_waits_on_a_delivery_holding_the_seat(self):
         self.handed(BEFORE)
         with notify.session_lock(SEAT):        # a delivery typing this very prompt
             self.assertEqual(self.prompt(), "")
-        self.assertEqual(config.rulebook_path(SEAT).read_text(), BEFORE)
-        self.assertIn("has changed", self.prompt())
+        self.assertFalse(self.rules().exists())
+        self.assertIn(TOLD, self.prompt())
 
     def test_a_prompt_delivered_under_the_seat_s_lock_is_told(self):
         # an autonomous seat's prompts are ak's deliveries, each typed under the seat's lock
@@ -362,8 +369,8 @@ class RulebookNews(Sandbox):
                 patch.object(watch, "pane_text", return_value=""), \
                 patch.object(watch, "KEY_GAP", 0):
             self.assertTrue(watch.type_into({"name": SEAT}, "a peer note", lambda _line: None))
-        self.assertIn("has changed", heard[0])
-        self.assertEqual(config.rulebook_path(SEAT).read_text(), config.seat_rulebook(SEAT))
+        self.assertIn(TOLD, heard[0])
+        self.assertEqual(self.rules().read_text(), config.seat_rulebook(SEAT))
 
     def test_a_delivery_s_retried_enter_is_told(self):
         # an Enter that failed left the line typed; the rules change before the retry
@@ -382,28 +389,29 @@ class RulebookNews(Sandbox):
                 patch.object(watch, "asking", return_value=False):
             watch.type_at_prompt({"name": SEAT}, line, lambda _line: None, cfg=self.cfg,
                                  typed={"line": line, "seat": None})
-        self.assertIn("has changed", heard[0])
+        self.assertIn(TOLD, heard[0])
 
-    def test_a_renamed_seat_from_before_keeps_its_file_through_a_failed_relaunch(self):
-        config.save_session(self.cfg, "acme-old", "opus", ["astra"], {"cwd": str(self.root), **OWNED})
-        self.handed(BEFORE, name="acme-old", recorded=False)
-        config.rename_session("acme-old", "acme-new")
-        orch.keep_launch_rulebook("acme-new")      # before the relaunch's adapter writes
-        time.sleep(0.05)
-        config.rulebook_path("acme-new").write_text("the relaunch's, never read\n")
-        (config.HOME / "rules.md").write_text("A newer rule.\n")
-        with notify.session_lock("acme-new") as held:   # the relaunch failed; a delivery types
-            orch.rulebook_prepare(held)
-            told = self.prompt(session="acme-old")
-        self.assertIn(str(config.rulebook_path("acme-old")), told)
-        self.assertEqual(config.rulebook_path("acme-old").read_text(),
-                         config.seat_rulebook("acme-new"))
+    def test_a_seat_from_before_whose_launch_file_was_rewritten_is_still_told(self):
+        # a reopen that failed rewrote its launch file to the current rules first: the
+        # harness that survived still holds what it was opened with
+        for seat, now in (("acme-same", "acme-same"), ("acme-was", "acme-now")):
+            with self.subTest(renamed=seat != now):
+                config.save_session(self.cfg, seat, "opus", ["astra"],
+                                    {"cwd": str(self.root), **OWNED})
+                self.handed(BEFORE, name=seat, recorded=False)
+                if now != seat:
+                    config.rename_session(seat, now)
+                config.rulebook_path(now).write_text(config.seat_rulebook(now))
+                with notify.session_lock(now) as held:     # a delivery types its prompt
+                    orch.rulebook_prepare(held)
+                    self.assertIn(TOLD, self.prompt(session=seat))
 
-    def test_a_rulebook_file_cut_mid_character_is_written_again(self):
+    def test_a_rules_file_cut_mid_character_is_written_again(self):
         self.handed(BEFORE)
-        config.rulebook_path(SEAT).write_bytes("Rule two \u2013".encode()[:-1])   # a failed write
-        self.assertIn("has changed", self.prompt())
-        self.assertEqual(config.rulebook_path(SEAT).read_text(), config.seat_rulebook(SEAT))
+        self.prompt()
+        self.rules().write_bytes("Rule two \u2013".encode()[:-1])   # a failed write
+        self.assertIn(TOLD, self.prompt())
+        self.assertEqual(self.rules().read_text(), config.seat_rulebook(SEAT))
 
     def test_its_record_writes_never_land_over_a_rename(self):
         # while a rename holds the seat's lock: a prompt skips, a launch waits, neither writes
@@ -473,7 +481,7 @@ class RulebookNews(Sandbox):
 
         with patch.object(orch, "start", side_effect=harness_up), patch.object(statusbar, "dress"):
             orch.launch(SEAT, "opus", str(self.root), ["true"], OWN)
-        self.assertIn("has changed", self.prompt())
+        self.assertIn(TOLD, self.prompt())
 
     def test_a_launch_that_fails_to_start_keeps_the_record_of_the_harness_still_there(self):
         self.handed(BEFORE)
@@ -510,9 +518,7 @@ class RulebookNews(Sandbox):
                 patch.object(orch, "tmux_out", side_effect=tmux), \
                 self.assertRaises(config.Error):
             orch.resume(self.cfg, SEAT, log=lambda _: None, hand_over=False, account="default")
-        self.assertEqual(config.session_records()[SEAT]["rulebook_sha"],
-                         config.rulebook_digest(BEFORE))
-        self.assertIn("has changed", self.prompt())
+        self.assertIn(TOLD, self.prompt())
 
     def test_a_model_switch_that_fails_leaves_an_old_seat_to_be_told(self):
         self.handed(BEFORE, recorded=False)
@@ -540,7 +546,7 @@ class RulebookNews(Sandbox):
             self.assertIn("tmux refused", orch.switch_orchestrator(self.cfg, SEAT, "fable",
                                                                     providers={}))
         self.assertEqual(config.session_records()[SEAT]["orchestrator"], "opus")
-        self.assertIn("has changed", self.prompt())
+        self.assertIn(TOLD, self.prompt())
 
     def test_a_launch_records_the_rulebook_it_handed(self):
         self.handed(BEFORE, recorded=False)

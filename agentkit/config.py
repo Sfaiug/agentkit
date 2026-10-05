@@ -748,6 +748,7 @@ SEAT_FILES = {
     "tell": "json",      # what other seats sent it with `ak tell`, until ak types it there
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
+    "rules": "md",       # the rulebook its prompt names once that one is out of date
 }
 
 
