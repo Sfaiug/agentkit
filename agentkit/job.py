@@ -1434,14 +1434,22 @@ def run_job_loop(cfg, job_dir, job):
         if not seat:
             log("no seat launched this job, so nothing is sent; "
                 "the result is here and in `ak run status`")
-        elif notify.shaped("done", text, session=seat,
-                           event_id=f"job:{job['job_id']}:{job['finished_at']}") != 0:
-            job["card_pending"] = True
-            save()
-            log("WARN job card was not accepted; retry required")
-            orch.stop_scope(job.get("scope"), log, wait=False)
-            return 1
-        job["card_sent"] = {"kind": "done", "at": job["finished_at"]}
+        else:
+            try:
+                sent = notify.shaped("done", text, session=seat,
+                                     event_id=f"job:{job['job_id']}:{job['finished_at']}")
+            except notify.Refused as exc:
+                # the seat's plan is still open: no done for it now; it says done itself
+                log(f"job {job['job_id']}: no done for {seat}: {exc}")
+                sent = None
+            if sent:
+                job["card_pending"] = True
+                save()
+                log("WARN job card was not accepted; retry required")
+                orch.stop_scope(job.get("scope"), log, wait=False)
+                return 1
+            job["card_sent"] = {"kind": "done" if sent == 0 else "plan open",
+                                "at": job["finished_at"]}
     save()
     orch.stop_scope(job.get("scope"), log, wait=False)
     return 1 if undelivered else 0

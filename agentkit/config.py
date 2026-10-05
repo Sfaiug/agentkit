@@ -744,6 +744,7 @@ SEAT_FILES = {
     "input": "jsonl",    # each line ak typed, with its source and conversation
     "tell": "json",      # what other seats sent it with `ak tell`, until ak types it there
     "rulebook": "md",    # the rulebook its orchestrator was started on
+    "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
 }
 
 

@@ -1754,16 +1754,10 @@ def plan_text(name):
     writes under the name it was launched with, so a plan under any name whose rename
     pointers lead here is this session's, and of several the one written last wins.
     """
-    plans = []
-    for each in [name] + [old for old, now in config.session_aliases().items() if now == name]:
-        try:
-            path = config.plan_path(each)
-            plans.append((path.stat().st_mtime, path))
-        except (OSError, config.Error):
-            continue
+    from . import plan
     try:
-        return max(plans)[1].read_text(encoding="utf-8", errors="replace") if plans else ""
-    except OSError:
+        return plan.path(name).read_text(encoding="utf-8", errors="replace")
+    except (OSError, config.Error):
         return ""
 
 
