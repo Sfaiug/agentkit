@@ -431,6 +431,8 @@ def delivered(wt, branch, head):
     """Whether GitHub holds everything in a seat's checkout: git sees no change and no new
     file in it (what it ignores is output, not work), the branch's newest pull request
     merged, and GitHub has its head commit, which the line may have rebased before merging.
+    Only a worktree added from a repository kept elsewhere qualifies: a clone holds its own
+    branches, stash and other worktrees' history, which removing it would take.
     Anything unproven may exist nowhere else: a file the index marks assume-unchanged or
     skip-worktree, whose edits git no longer reports, and a submodule, whose own commits
     GitHub may lack, keep the checkout; no setting of the repository's hides a change or a
@@ -441,6 +443,11 @@ def delivered(wt, branch, head):
     for setting in ("core.fsmonitor=false", "core.untrackedCache=false", "core.ignoreCase=false",
                     "core.ignoreStat=false"):
         git += ["-c", setting]
+    code, dirs, _ = run.tool_run([*git, "rev-parse", "--path-format=absolute", "--git-dir",
+                                  "--git-common-dir"], timeout=60)
+    own, common = (dirs.splitlines() + ["", ""])[:2]
+    if code != 0 or not common or own == common:
+        return False
     code, index, _ = run.tool_run([*git, "ls-files", "--stage", "-v"], timeout=60)
     if code != 0 or any(not line.startswith("H ") or line.split()[1] == "160000"
                         for line in index.splitlines()):

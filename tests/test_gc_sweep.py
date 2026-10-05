@@ -343,7 +343,8 @@ class GcSweep(Sandbox):
         (merged / ".ak-test-sandbox" / "left").write_text("a killed test's\n")
         # Every layout a seat may build in is a seat's: a clone, a worktree of a bare
         # repository, a clone keeping its git directory elsewhere and a worktree whose `.git`
-        # points back by a relative path. A merged clean clone goes; with notes, each stays.
+        # points back by a relative path. With notes, each stays; and a clone stays even
+        # merged and clean, its own branches and stash going with it otherwise.
         def layout(wt, *clone):
             self.git(self.root, "clone", "-q", *clone, str(self.repo), str(wt)) if clone else None
             self.git(wt, "checkout", "-qb", "seat/" + wt.name)
@@ -364,24 +365,23 @@ class GcSweep(Sandbox):
             "gitdir: " + os.path.relpath(self.repo / ".git" / "worktrees" / "relative", relative) + "\n")
         for wt in (clone, separate, bare, relative):
             (wt / "notes.md").write_text("never added\n")
-        kept = [*kept, clone, separate, bare, relative]
-        for wt in (merged, merged_clone, *kept):
+        self.git(merged_clone, "branch", "private")
+        kept = [*kept, merged_clone, clone, separate, bare, relative]
+        for wt in (merged, *kept):
             self.aged(wt, 2 * DAY)
-        heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, merged_clone, *kept)
-                 if wt != unpushed}
+        heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, *kept) if wt != unpushed}
         def github(cwd, *args, timeout=None):
             if args[:2] == ("pr", "list"):     # the branch's newest pull request
                 return 0, "OPEN" if args[args.index("--head") + 1] == "seat/open" else "MERGED"
             return (0, "") if args[1].rsplit("/", 1)[-1] in heads else (1, "HTTP 404")
         with patch.object(run, "gh", side_effect=github):
             dry = self.gc("--dry-run")
-            for wt in (merged, merged_clone):
-                self.assertIn(f"gc: would remove orphan-worktree {wt}: a seat's, seat/{wt.name} "
-                              "merged", dry)
+            self.assertIn(f"gc: would remove orphan-worktree {merged}: a seat's, seat/merged "
+                          "merged", dry)
             for wt in kept:
                 self.assertNotIn(str(wt), dry)
             self.gc()
-        self.assertFalse(merged.exists() or merged_clone.exists())
+        self.assertFalse(merged.exists())
         self.assertNotIn(str(merged), self.listed(self.repo))
         for wt in kept:
             self.assertTrue(wt.is_dir(), wt)
