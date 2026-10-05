@@ -369,9 +369,9 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual(json.loads(seen.read_text()), [None] * len(box.TOKENS))
 
     def test_the_commands_own_git_is_never_asked(self):
-        # PATH names `bin`: the project's own inside the workspace, nothing where ak runs. Git's
-        # answers decide what the box hides and opens, so ak's own Git gives them, reading
-        # configuration wherever it lives: here inside ~/.ssh, which the box hides.
+        # ak stands in the workspace, and PATH names `bin` and the current directory: the
+        # project's own. Git's answers decide what the box hides and opens, so ak's own Git
+        # gives them, reading configuration wherever it lives: here inside ~/.ssh.
         ssh, store, asked = self.root / ".ssh", self.root / "named-store", self.root / "asked"
         ssh.mkdir()
         store.write_text("fixture-store")
@@ -384,8 +384,12 @@ class WorkerBox(unittest.TestCase):
             f"#!{sys.executable}\nimport os, sys\nopen({str(asked)!r}, 'w')\n"
             f"os.execv({git!r}, [{git!r}, *sys.argv[1:]])\n")
         (bindir / "git").chmod(0o755)
+        (self.root / "git").symlink_to(bindir / "git")
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.root)
         read = f"print(open({str(store)!r}).read())"
-        with patch.dict(os.environ, {"PATH": f"bin{os.pathsep}{os.environ['PATH']}"}):
+        relative = f"bin{os.pathsep}{os.pathsep}"
+        with patch.dict(os.environ, {"PATH": relative + os.environ["PATH"]}):
             # Both questions with walls, the credential one without.
             for walls in (True, False):
                 with self.subTest(walls=walls):
@@ -395,6 +399,11 @@ class WorkerBox(unittest.TestCase):
                                                 text=True, timeout=10)
                     self.assertEqual((result.returncode, result.stdout.strip()), (0, ""),
                                      result.stderr)
+        # With no Git of ak's own the box refuses; it asks neither of the project's.
+        with patch.dict(os.environ, {"PATH": relative + str(ssh)}), \
+                self.assertRaisesRegex(config.Error, "needs git"):
+            with box.command(["true"], dict(os.environ), cwd=self.root):
+                pass
         self.assertFalse(asked.exists())
 
     def test_files_writes_identity_environment_and_exit_status_stay_the_same(self):

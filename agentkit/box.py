@@ -59,12 +59,15 @@ def _links(root):
 
 
 def _git(args, env, cwd, **kwargs):
-    """Ask ak's own Git: the one found from where ak runs, which its loop commits and pushes with.
+    """Ask ak's own Git: the first in a directory ak's own PATH names in full.
 
-    Its answers decide what a box hides and what it opens for writing, and the command's PATH
-    and directory may name the project's own `git`."""
-    # Absolute, or a find relative to where ak runs would be looked up again in `cwd`.
-    return subprocess.run([os.path.abspath(shutil.which("git") or "git"), *args], cwd=cwd,
+    Its answers decide what a box hides and what it opens for writing. The command's PATH, a
+    relative entry and the current directory may each name the project's own `git`."""
+    git = shutil.which("git", path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
+    if git is None:
+        from . import config
+        raise config.Error("worker box needs git in a directory PATH names in full")
+    return subprocess.run([git, *args], cwd=cwd,
                           env={**env, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"},
                           capture_output=True, text=True, timeout=10, **kwargs)
 
