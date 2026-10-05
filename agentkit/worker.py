@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import box, command_help, config, hand_in, record
+from . import box, command_help, config, hand_in, host, record
 from .harness import load as harness_plugin
 
 # A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
@@ -303,14 +303,10 @@ def _lineage():
     lineage, pid = set(), os.getpid()
     while pid and pid not in lineage:
         lineage.add(pid)
-        try:
-            fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-            parent = int(fields[1])
-        except (OSError, ValueError, IndexError):
+        stat = host.proc_stat(pid)
+        if stat is None or stat.ppid <= 0:
             break
-        if parent <= 0:
-            break
-        pid = parent
+        pid = stat.ppid
     return lineage
 
 

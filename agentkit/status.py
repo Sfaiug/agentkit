@@ -162,7 +162,7 @@ def scope_alive(state, scope_dir=None, _marker=None, _rss=None, _active=None):
     pid = (state or {}).get("pid")
     if loop_alive and isinstance(pid, int) and pid > 0 and pid not in pids:
         pids.append(pid)
-    rss = _rss or host._marked_rss
+    rss = _rss or host.resident_bytes
     total = 0
     for member in pids:
         try:

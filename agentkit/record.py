@@ -59,10 +59,8 @@ def process_active(state):
     current = host.process_identity(pid)
     if current is None:
         # A zombie still answers kill(0). An unreadable /proc, however, is not proof of death.
-        try:
-            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] not in ("Z", "X")
-        except (OSError, IndexError):
-            return True
+        stat = host.proc_stat(pid)
+        return stat is None or not stat.exited
     saved = state.get("process_identity")
     if saved:
         return all(saved.get(key) == current[key] for key in ("boot", "ticks"))

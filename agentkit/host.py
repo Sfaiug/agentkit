@@ -4,6 +4,7 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 PROC = Path("/proc")
 OWN_CGROUP = PROC / "self/cgroup"
@@ -27,19 +28,44 @@ def alive(pid):
     return True
 
 
+class ProcStat(NamedTuple):
+    """The fields of `/proc/<pid>/stat` ak reads: state letter, parent, start in clock ticks."""
+    state: str
+    ppid: int
+    start: int
+
+    @property
+    def exited(self):
+        """A zombie or a dead task: it runs nothing, though it may still answer kill(0)."""
+        return self.state in ("Z", "X")
+
+
+def proc_stat(pid, proc_root=PROC):
+    """That process's `ProcStat`, or None where its stat cannot be read.
+
+    The command name sits in parentheses and may hold spaces or `)`, so the fields are
+    counted after the last `)`.  What None means -- gone, hidden, or not proof of
+    anything -- is the caller's to say.
+    """
+    try:
+        fields = (Path(proc_root) / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+        return ProcStat(fields[0], int(fields[1]), int(fields[19]))
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 def process_identity(pid):
     """Linux process birth, including the boot so a reboot cannot recycle an identity."""
+    stat = proc_stat(pid)
+    if stat is None or stat.exited:
+        return None
     try:
-        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        if fields[0] in ("Z", "X"):
-            return None
-        ticks = int(fields[19])
         boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
         btime = next(line.split()[1] for line in Path("/proc/stat").read_text().splitlines()
                      if line.startswith("btime "))
-        return {"boot": boot, "ticks": ticks,
-                "started_at": int(btime) + ticks / os.sysconf("SC_CLK_TCK")}
-    except (OSError, ValueError, IndexError, StopIteration):
+        return {"boot": boot, "ticks": stat.start,
+                "started_at": int(btime) + stat.start / os.sysconf("SC_CLK_TCK")}
+    except (OSError, ValueError, StopIteration):
         return None
 
 
@@ -118,7 +144,7 @@ def _g(value):
     return f"{value:.1f}".rstrip("0").rstrip(".")
 
 
-def _marked_rss(pid, proc_root="/proc"):
+def resident_bytes(pid, proc_root=PROC):
     """Resident bytes for one pid from its statm, or None where unread."""
     try:
         resident = int((Path(proc_root) / str(pid) / "statm").read_text().split()[1])
