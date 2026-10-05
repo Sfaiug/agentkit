@@ -1,12 +1,14 @@
 """A feature switch on for everyone for two weeks is handed to a seat on its project to take out
-of the code: the longest-proven one, one at a time, once per repository.
+of the code: the longest-proven one, one at a time, once per repository, called back when it
+goes off for everyone meanwhile.
 
 Offline: a temporary HOME whose ~/code/ACME is a real git repository naming a fake features
 command in its AGENTS.md, a script answering `list` from a JSON file beside it and logging each
 call; the open seats are faked.  The handed line is read from the seat's `ak tell` queue.
 """
 
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
+import io
 from datetime import datetime, timezone
 import json
 import os
@@ -141,6 +143,49 @@ class Retire(unittest.TestCase):
         self.hand(NOW + retire.AGAIN + retire.EVERY)
         self.assertEqual([("`older` switch" in m["line"]) for m in self.queued("acme")],
                          [True, True])
+
+    def test_the_switch_in_hand_is_handed_again_before_an_older_one_listed_since(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(row("first", 40))
+        self.hand()
+        self.switches(row("first", 40), row("newer-listed", 60))
+        self.hand(NOW + retire.AGAIN)
+        self.switches(row("newer-listed", 60))
+        self.hand(NOW + retire.AGAIN + retire.EVERY)
+        self.assertEqual([message["line"].split("`")[1] for message in self.queued("acme")],
+                         ["first", "first", "newer-listed"])
+
+    def test_one_that_went_off_for_everyone_is_called_back_and_the_next_handed(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(row("first", 60), row("second", 40))
+        self.hand()
+        self.switches(row("first", everyone=False), row("second", 40))
+        self.hand(NOW + retire.EVERY)
+        self.hand(NOW + 2 * retire.EVERY)
+        lines = [message["line"] for message in self.queued("acme")]
+        self.assertEqual(len(lines), 3)
+        self.assertIn("`first` switch went off for everyone after ak handed it to you", lines[1])
+        self.assertIn("leave it in the code", lines[1])
+        self.assertIn("`second` switch has been on for everyone", lines[2])
+        self.assertIn("ACME: switch first went off for everyone; acme was told to leave it in",
+                      self.logged)
+
+    def test_a_seat_filed_under_another_project_meanwhile_gets_nothing(self):
+        self.seat("acme", self.acme, created=10)
+        self.project("OTHER", features=False)
+        self.switches(row("proven", 60))
+
+        def refiled():
+            # filed elsewhere after the seat was picked, before its line is queued
+            with redirect_stdout(io.StringIO()):
+                orch.cmd_project(["acme", "OTHER"])
+            return [dict(seat) for seat in self.seats]
+
+        with patch.object(orch, "sessions", side_effect=refiled):
+            self.hand()
+        self.assertEqual(self.queued("acme"), [])
+        self.assertIn("WARN ACME: switch proven was not handed: acme is filed under another "
+                      "project now", self.logged)
 
     def test_the_lists_are_read_once_an_hour_and_once_per_repository(self):
         subprocess.run(["git", "-C", str(self.acme), "worktree", "add", "-q",

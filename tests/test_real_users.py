@@ -221,7 +221,8 @@ sys.exit(1)
                 ("Understand first", "`Yes, new features stay hidden until I switch them on`"),
                 ("Understand first", "`users: none` or `users: real`"),
                 ("Decide and delegate", '"New feature: it stays hidden until you switch it on"'),
-                ("Decide and delegate", "a `features:` command")):
+                ("Decide and delegate", "a `features:` command"),
+                ("Decide and delegate", '"you_switchable","everyone_since"')):
             with self.subTest(words=words):
                 self.assertIn(words, sections[section])
 

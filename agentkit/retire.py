@@ -4,10 +4,12 @@ A production project names its switches with one command, `features:` in its AGE
 its `list` prints with `everyone` on and `everyone_since` (when it last went on for everyone,
 ISO 8601) at least PROVEN ago is due. Once every EVERY the tick reads each repository's list
 once, however many of its checkouts sit under ~/code, and hands the longest-due switch to the
-newest open seat filed under the project, through the queue `ak tell` fills. One switch at a
-time: the next is handed once the last has left the list, which the project's own deploy does
-when the code no longer reads it, and one still listed AGAIN after it was handed is handed
-again. With no open seat there, nothing is handed and the next read tries again.
+newest open seat filed under the project, through the queue `ak tell` fills. One switch is in
+hand at a time: the next is handed once it has left the list, which the project's own deploy
+does when the code no longer reads it, and while it is still listed AGAIN after it was handed,
+that same switch is handed again. One that went off for everyone meanwhile is no longer proven:
+the seat it went to is told to leave it in the code, and the next is handed. With no open seat
+there, nothing is handed and the next read tries again.
 """
 
 from datetime import datetime
@@ -67,6 +69,12 @@ def line(row):
             "the next.")
 
 
+def back(feature):
+    return (f"[from ak, not the owner] The `{feature}` switch went off for everyone after ak "
+            "handed it to you, so it is not proven yet: leave it in the code, and drop any change "
+            "that takes it out.")
+
+
 def projects():
     """{main checkout: its checkouts under ~/code}, for each repository that names switches."""
     from . import menu, run   # here, not at the top: both are the whole screen and loop
@@ -87,7 +95,7 @@ def seat_for(checkouts):
 
 
 def hand(log, now=None):
-    """The tick's pass: at most one proven switch per project handed to a seat there."""
+    """The tick's pass: per project, the one proven switch in hand, handed to a seat there."""
     from . import menu   # here, not at the top: the menu is the whole screen
     now = time.time() if now is None else now
     record = read()
@@ -101,21 +109,28 @@ def hand(log, now=None):
             log(f"WARN {home.name}: its switches are unread, so none was handed ({why or 'no list'})")
             continue
         proven = due(rows, now)
-        handed = entry.get("handed") or {}
+        handed = entry.pop("handed", None)
+        if handed and any(isinstance(row, dict) and row.get("id") == handed["id"] for row in rows):
+            again = [row for row in proven if row["id"] == handed["id"]]
+            if again:
+                entry["handed"] = handed   # in hand until the deploy drops it from the list
+                if now - handed["at"] < AGAIN:
+                    continue
+                proven = again
+            elif refused := tell.queue(handed["seat"], back(handed["id"])):
+                log(f"WARN {home.name}: switch {handed['id']} went off for everyone, and "
+                    f"{handed['seat']} was not told to leave it in: {refused}")
+            else:
+                log(f"{home.name}: switch {handed['id']} went off for everyone; "
+                    f"{handed['seat']} was told to leave it in")
         if not proven:
-            entry.pop("handed", None)
-            continue
-        if (handed.get("id") in {row["id"] for row in proven}
-                and now - handed.get("at", 0) < AGAIN):
             continue
         seat = seat_for(checkouts)
         if seat is None:
             log(f"{home.name}: switch {proven[0]['id']} is proven; no open seat to hand it to")
-            continue
-        refused = tell.queue(seat["name"], line(proven[0]))
-        if refused:
+        elif refused := tell.queue(seat["name"], line(proven[0]), checkouts=checkouts):
             log(f"WARN {home.name}: switch {proven[0]['id']} was not handed: {refused}")
-            continue
-        entry["handed"] = {"id": proven[0]["id"], "at": now, "seat": seat["name"]}
-        log(f"{home.name}: switch {proven[0]['id']} is proven; handed to {seat['name']}")
+        else:
+            entry["handed"] = {"id": proven[0]["id"], "at": now, "seat": seat["name"]}
+            log(f"{home.name}: switch {proven[0]['id']} is proven; handed to {seat['name']}")
     write(record)

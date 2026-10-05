@@ -121,18 +121,23 @@ def refusal(name, seat):
     return None
 
 
-def queue(name, line, sender=""):
+def queue(name, line, sender="", checkouts=None):
     """Queue `line` for that seat, under its lock, so the tick types it there; None once it is
     queued, else why nothing was.  `sender` is the seat it is from; none is ak itself.
+    `checkouts`, when given, are the ones the seat must still be filed under: a line about one
+    project never reaches a seat moved to another.
 
-    Under the receiver's lock, the one a rename and a close take: the seat it is now is the
-    one the message is for, and only that seat's tick pass types it.
+    Under the receiver's lock, the one a rename, a close and a filing take: the seat it is now
+    is the one the message is for, and only that seat's tick pass types it.
     """
     with notify.session_lock(name) as name:
         seat = seat_of(name)
         refused = refusal(name, seat)
         if refused:
             return refused
+        repo = (config.session_records().get(name) or {}).get("repo")
+        if checkouts is not None and orch.checkout_of(repo) not in checkouts:
+            return f"{name} is filed under another project now"
         try:
             edit(name, lambda messages: messages.append(
                 {"id": uuid.uuid4().hex, "from": sender, "at": time.time(), "line": line,
