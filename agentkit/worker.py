@@ -559,7 +559,8 @@ def boxed(cmd, limit, *, env, cwd, **kwargs):
             box.command(cmd, env, out_dir, cwd=cwd, drain=True) as (cmd, env, spawn):
         code, text, killed = limited(cmd, limit, env=env, cwd=cwd, **spawn, **kwargs)
         if not killed:
-            code = box.returncode(out_dir, code)
+            # No recorded exit: the box failed before its command ran, which proves nothing.
+            code = box.returncode(out_dir, 126)
     return code, text, killed
 
 

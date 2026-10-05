@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import socket
 import sys
 import tempfile
@@ -16,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, run, worker
+from agentkit import config, gate, hand_in, run, worker
 
 
 class ChecksBoxed(unittest.TestCase):
@@ -162,6 +163,24 @@ class ChecksBoxed(unittest.TestCase):
                 ok, text = self.check(command)
                 self.assertFalse(ok, text)
                 self.assertIn(f"[exit {code}]\npartial", text)
+
+    def test_a_box_that_cannot_start_proves_nothing(self):
+        # bwrap exits 1 on a mount it cannot make, before its supervisor runs the command.
+        bindir = self.root / "bin"
+        bindir.mkdir()
+        wrapper = bindir / "bwrap"
+        missing = self.root / "missing-mount-source"
+        wrapper.write_text("#!/bin/sh\nexec " + shlex.join(
+            [shutil.which("bwrap"), "--ro-bind", str(missing), str(missing)]) + ' "$@"\n')
+        wrapper.chmod(0o755)
+        with patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}"}):
+            result = self.proof("touch started; exit 7")
+            self.assertFalse((self.root / "started").exists())
+            self.assertEqual((result["returncode"], result["killed"]), (126, False), result)
+            self.assertFalse(hand_in.proof_failed(result), result)
+            ok, text = self.check("true")
+            self.assertFalse(ok, text)
+            self.assertIn("[exit 126]", text)
 
 
 if __name__ == "__main__":
