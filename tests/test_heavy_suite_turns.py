@@ -69,10 +69,13 @@ class HeavySuiteTurns(unittest.TestCase):
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         # a worker running this file carries its run's marker, which a killed command
-        # would end, and the suites' AK_MAX_RUNS=0, under which no suite takes a turn
+        # would end, and the suites' AK_MAX_RUNS=0, under which no suite takes a turn; the
+        # line's checker runs it at the top CPU weight, where a turn samples the real slice
+        # beside the injected readings: in no cgroup it samples none
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root),
                                                           "AGENTKIT_RUN": "", "AK_PARENT_RUN": "",
-                                                          "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0"}))
+                                                          "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0",
+                                                          "AK_CGROUP_FILE": str(self.root / "no-cgroup")}))
         os.environ.pop("AK_MAX_RUNS", None)
         os.environ.pop("AK_HOST_READINGS", None)
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))

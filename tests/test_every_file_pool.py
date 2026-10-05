@@ -20,6 +20,15 @@ import every_file
 from agentkit import host
 
 CALM = {"cpus": 8, "load": 50, "cpu_pressure": 12, "free_mb": 4600}
+# Each run of the file notes itself in the checkout; it passes from its second run on.
+FLAKY = '''import pathlib, sys
+log = pathlib.Path("runs")
+log.write_text(log.read_text() + "run\\n" if log.exists() else "run\\n")
+run = len(log.read_text().splitlines())
+if run < 2:
+    sys.exit(f"acme run {run}")
+print("TESTS_RUN=1")
+'''
 
 
 class EveryFilePool(unittest.TestCase):
@@ -135,6 +144,41 @@ class EveryFilePool(unittest.TestCase):
         with patch.object(host, "host_readings", side_effect=AssertionError("host read")), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(every_file.main(self.root), 0)
+
+    def piece(self, **files):
+        tests = self.root / "tests"
+        tests.mkdir()
+        (tests / "smoke.sh").write_text("#!/bin/bash\n")
+        for name, body in files.items():
+            (tests / f"{name}.py").write_text(body)
+        out = io.StringIO()
+        with patch.object(host, "host_readings", return_value=CALM), redirect_stdout(out):
+            code = every_file.main(self.root)
+        return code, out.getvalue()
+
+    def test_a_file_that_fails_then_passes_on_its_re_run_is_flaky_and_passes(self):
+        code, out = self.piece(test_acme=FLAKY, test_widget='print("TESTS_RUN=1")\n')
+        self.assertEqual(code, 0, out)
+        self.assertIn("flaky: tests/test_acme.py failed, then passed on its re-run\n"
+                      "      acme run 1\n", out)
+        self.assertIn("test files: 2 passed (1 flaky), 0 failed,", out)
+
+    def test_a_file_that_fails_twice_fails_the_piece_with_its_re_runs_last_lines(self):
+        code, out = self.piece(test_acme=FLAKY.replace("run < 2", "run < 3"),
+                               test_widget='print("TESTS_RUN=1")\n')
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL  tests/test_acme.py: exit 1 after", out)
+        self.assertIn("      acme run 2\n", out)
+        self.assertNotIn("acme run 1", out)
+        self.assertIn("test files: 1 passed, 1 failed,", out)
+
+    def test_the_re_run_starts_only_after_every_other_file_has_finished(self):
+        slow = ('import pathlib, time\ntime.sleep(0.5)\n'
+                'pathlib.Path("finished").touch()\nprint("TESTS_RUN=1")\n')
+        beside = 'sys.exit(0 if pathlib.Path("finished").exists() else "ran beside another")\n'
+        code, out = self.piece(test_acme=FLAKY + beside, test_widget=slow)
+        self.assertEqual(code, 0, out)
+        self.assertIn("flaky: tests/test_acme.py failed, then passed on its re-run\n", out)
 
     def pressure_file(self, path, total):
         path.parent.mkdir(parents=True, exist_ok=True)
