@@ -174,6 +174,19 @@ class ComposerBox(Sandbox):
                 self.assertEqual(watch.composer_draft("claude", pane), said.replace(" ", ""))
                 self.assertEqual(self.looked(pane), ("needs you", False, []))
 
+    def test_older_output_far_above_is_never_the_composer_of_an_unruled_harness(self):
+        """Only a ruled composer's box is read past the tail: elsewhere an older composer or
+        prompt echo higher up is history, never the composer drawn now."""
+        opencode = (FIX / "opencode-prompt-pane.txt").read_text(encoding="utf-8")
+        old_box = opencode.replace('Ask anything… "What is the tech stack of this project?"',
+                                   "Fix the old thing")
+        output = "".join(f"  ⏺ step {n} done\n" for n in range(30))
+        legacy = "▌ Ask Codex to do something\n⏎ send  ⌃T transcript\n"
+        for harness, pane in (("opencode", old_box + output + opencode),
+                              ("codex", "› Fix the old thing\n" + output + legacy)):
+            with self.subTest(harness=harness):
+                self.assertNotIn("Fixtheoldthing", watch.composer_draft(harness, pane) or "")
+
     def test_an_older_boxed_composer_holding_its_placeholder_is_free(self):
         pane = ('⎿ Done.\n╭──────────────────╮\n│ > Try "fix tests" │\n╰──────────────────╯\n'
                 '⏵⏵ bypass permissions on (shift+tab to cycle)   ◯ 92% context left\n')

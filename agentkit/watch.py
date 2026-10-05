@@ -2504,8 +2504,9 @@ def composer_draft(harness, pane):
     rule closes is one -- a user's status line under the rule never is, whatever its mark.
     """
     chrome = screen(harness)
-    # the whole pane: a long line wraps over more rows than the tail holds
-    raws, rows = _screen_rows(harness, pane)
+    # the tail, reaching up to a ruled composer's box however long its draft: only that box is
+    # anchored to the composer drawn now, and anything else higher up is older output
+    raws, rows = _screen_rows(harness, screen_tail(harness, pane))
     if chrome["draft"]:
         # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
         # block of them, and finding none reads as empty.
