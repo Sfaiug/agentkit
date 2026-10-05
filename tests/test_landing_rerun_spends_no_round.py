@@ -146,10 +146,8 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertEqual(state["waiting_on"]["joined"], 1)
         self.assertNotIn("fix", state["waiting_on"])
 
-    def test_line_rerun_review_failure_keeps_findings_without_a_task_fixer(self):
-        self.history = self.history[:1]
-        self.lp.state["round_summaries"] = copy.deepcopy(self.history)
-        self.lp.rnd = 1
+    def test_line_rerun_review_failure_at_the_round_budget_keeps_findings(self):
+        # with rounds left a task fixer works on them (tests/test_lander_wakes.py)
         self.verdicts = iter(["FAIL"])
         failure = self.run_dir / "lander.log"
         failure.write_text("$ check\n[exit 1]\nshared file needs fixed.txt\n")
@@ -158,8 +156,8 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.lp.save()
         self.assertFalse(run.land(self.lp, "origin/main", lambda: self.fail("local suite"),
                                   lambda: self.fail("red delivery")))
-        self.assertEqual(self.events, [("gate", False), ("fixer", 1), ("gate", True),
-                                       ("reviewer", "round-1")])
+        self.assertEqual(self.events, [("gate", False), ("fixer", 3), ("gate", True),
+                                       ("reviewer", "round-3")])
         state = record.read_state(self.run_dir)
         self.assertEqual(state["review"]["verdict"], "FAIL")
         self.assertIn("the fix skips a check", state["findings"])
