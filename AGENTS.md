@@ -49,7 +49,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A final check stopped for silence names the hung process after `still running:`: fix the hang on your branch, or hand in blocked if origin/main hangs too; gate changes are their own task.
 - A repairing tick re-derives placement or state from what it finds; findings remembered between ticks lose races.
 - A run's CPU and memory come from its cgroup (`cpu.stat`, `memory.current`), which counts killed and orphaned processes; process-tree sampling misses them. Put a process in its cgroup at start (its own scope, as `in_slice` does); moving it later races.
-- To end a detached script's work, hold its process group (a holder leader, reaped last) and signal the group; `ps` never proves a group empty. Some macOS Pythons lack `os.waitid`.
+- To end a detached script's work, hold its process group (a holder leader, reaped last) and signal the group; `ps` never proves a group empty. Some macOS Pythons lack `os.waitid`. A group ends only what stays in it: to end everything a command started, even what made its own group or session, start it in a cgroup scope (`orch.start_in_slice`'s claim and witness, `orch.seat_scope_run`'s argv) and stop the scope. Process groups, tree walks and subreapers each lost a race in review, and a session of its own hides the line from the caller's Ctrl+C (#537, closed after 12 rounds).
 - One process never takes over another run's record (its pid, its stop, its ending): leave a verdict in its record and wake it to act.
 - Work outliving a run goes to the tmux server (`run-shell -b`): a run's threads and children die with its scope.
 - Decide from exit codes and files, never another program's output text, which catches proofs and verdicts it shouldn't.
