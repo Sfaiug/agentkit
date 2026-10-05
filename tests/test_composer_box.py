@@ -103,6 +103,21 @@ class ComposerBox(Sandbox):
                 self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane))[0], "draft")
                 self.assertEqual(self.looked(pane), ("needs you", False, []))
 
+    def test_a_prompt_mark_on_a_boxed_continuation_is_the_owners(self):
+        for top, closing in (("╭╮", "╰╯"), ("┌┐", "└┘")):
+            for mark in "❯›⟩":
+                pane = (f"⏺ Done.\n{top[0]}{'─' * 30}{top[1]}\n"
+                        f"│ ❯ Fix the login              │\n│   {mark}                          │\n"
+                        f"{closing[0]}{'─' * 30}{closing[1]}\n"
+                        "⏵⏵ bypass permissions on (shift+tab to cycle)\n")
+                said = f"Fix the login {mark}"
+                with self.subTest(corners=top, mark=mark):
+                    self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane)),
+                                     ("draft", "prompt.draft", said))
+                    self.assertEqual(watch.composer_draft("claude", pane),
+                                     said.replace(" ", ""))
+                    self.assertEqual(self.looked(pane), ("needs you", False, []))
+
     def test_an_empty_row_in_a_box_with_corners_is_no_draft(self):
         """Its edges are chrome on every row: both readers agree the composer is empty."""
         for top, closing in (("╭╮", "╰╯"), ("┌┐", "└┘")):
