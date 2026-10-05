@@ -57,5 +57,21 @@ class LongDraft(Sandbox):
         self.assertEqual(found["state"], "at_prompt")
 
 
+    def test_a_faint_suggestion_over_two_rows_is_no_draft(self):
+        # faint set on the first row carries on to the next until reset: all of it is a
+        # suggestion or placeholder, nothing the owner typed
+        for harness, name, shown, ghost in (
+                ("claude", "claude-suggestion-pane.txt", "\x1b[39m❯\xa0\x1b[7m \x1b[0m",
+                 "\x1b[39m❯ \x1b[2mTry checking the\n  parser next\x1b[0m"),
+                ("codex", "codex-suggestion-pane.txt",
+                 "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m",
+                 "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to\n  do anything\x1b[0m")):
+            with self.subTest(harness=harness):
+                pane = (FIX / name).read_text(encoding="utf-8", errors="replace")
+                self.assertIn(shown, pane)
+                found = watch.classify(harness, watch.pane_tail(pane.replace(shown, ghost)),
+                                       {}, None, {}, NOW)
+                self.assertEqual(found["state"], "at_prompt")
+
 if __name__ == "__main__":
     unittest.main()

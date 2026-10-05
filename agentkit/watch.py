@@ -1017,8 +1017,26 @@ def has_dim(line):
     their background `48` twins -- and the `2` inside one names a colour, never
     faint. Only a bare 2, outside those runs, counts.
     """
+    return 2 in _sgr_codes(line)
+
+
+def faint_after(line, faint=False):
+    """Whether faint (SGR 2) is still on at that raw `-e` line's end, given whether it was at
+    its start: tmux draws it once and it carries on to the rows under it until reset."""
+    for code in _sgr_codes(line):
+        if code == 2:
+            faint = True
+        elif code in (0, 22):
+            faint = False
+    return faint
+
+
+def _sgr_codes(line):
+    """That raw line's SGR codes in order, a bare reset as 0, extended-colour runs skipped
+    whole: a `2` inside one names a colour, never faint."""
+    codes = []
     for found in SGR_SEQ.finditer(line):
-        params = found.group(1).split(";") if found.group(1) else []
+        params = found.group(1).split(";") if found.group(1) else ["0"]
         i = 0
         while i < len(params):
             if params[i] in ("38", "48") and i + 1 < len(params):
@@ -1028,10 +1046,9 @@ def has_dim(line):
                 if params[i + 1] == "2":
                     i += 5
                     continue
-            if params[i].isdigit() and int(params[i]) == 2:
-                return True
+            codes.append(int(params[i]) if params[i].isdigit() else None)
             i += 1
-    return False
+    return codes
 
 
 def in_colour(text):
@@ -2452,11 +2469,15 @@ def composer_text(harness, pane):
     # A boxed composer's edges are chrome, including on continuation rows.
     parts = [_draft_text(raws[at], rows[at][:-1].rstrip() if boxed else rows[at],
                          chrome["composer"])]
+    faint = False                     # a faint suggestion's rows are faint from where it began
+    for raw in raws[:at + 1]:
+        faint = faint_after(raw, faint)
     for raw, plain in zip(raws[at + 1:end(at)], rows[at + 1:end(at)]):
-        if not has_dim(raw):
+        if not faint and not has_dim(raw):
             if boxed and plain.startswith("│") and plain.endswith("│"):
                 plain = plain[1:-1].strip()
             parts.append(plain)
+        faint = faint_after(raw, faint)
     return " ".join(" ".join(parts).split())
 
 
