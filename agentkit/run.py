@@ -3118,22 +3118,26 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             run_record.save_state(run_dir, state)
         if watch.seat_closed(session):
             return None
+        request = repair or split
+        checks = {} if request else state.get("followup_checks") or {}
+        items = [request["text"]] if request else state["followups"]
+        planned = [item for item in items if item in checks]   # the seat's own, executors or not
+        repo = main_checkout(Path(state["repo"])) if planned else None
+        for item in planned:
+            plan_followup(state, run_dir, session, repo, item, checks[item], log)
         cfg = report_config(cfg)
         record = config.session_records().get(config.resolve_session(session), {})
         if record.get("workers") == []:
             return None
-        repo = main_checkout(Path(state["repo"]))
+        repo = repo or main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
         if split:
             previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
             if previous:
                 return previous
         key = repair and {"target": target, "command": repair["command"]}
-        request = repair or split
-        checks = {} if request else state.get("followup_checks") or {}
-        for item in [request["text"]] if request else state["followups"]:
-            if item in checks:
-                plan_followup(state, run_dir, session, repo, item, checks[item], log)
+        for item in items:
+            if item in planned:
                 continue
             source = {**state, "repo": str(repo)}
             opened = open_followup(source, item, key, repair and repair["sha"],
@@ -3238,13 +3242,11 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
 
 def plan_followup(state, run_dir, session, repo, item, check, log):
     """Write one review follow-up into the seat's plan, unless an open line already holds its
-    check; the run's ending names it, or why the plan refused it."""
+    check in this project; the run's ending names it, or why the plan refused it."""
     from . import plan   # here, not at the top: a seat's small verb, this the loop
     outcome = "Fix " + item.splitlines()[0].replace("·", "-")
     try:
-        if not any(f"check: `{check.strip()}`" in line and line.lstrip().startswith("- [ ]")
-                   for line in plan.lines(session)):
-            plan.add(session, outcome, check, repo, proven=True)
+        plan.add(session, outcome, check, repo, proven=True)
         entry = {"outcome": outcome}
     except (config.Error, OSError) as exc:
         entry = {"outcome": outcome, "refused": str(exc)}

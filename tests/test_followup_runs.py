@@ -3,7 +3,7 @@
 Temporary HOME, local git remote, fake gh and fake models; no detached run is started.
 """
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import nullcontext
 import json
 import os
@@ -16,12 +16,13 @@ from unittest.mock import patch
 import test_review_gate as gate
 import test_proof_weighed as proof
 from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, task, watch, worker
-from agentkit import record
+from agentkit import plan, record
 from fixtures.hand_in import stateful
 from fixtures.landing import landing
 
 
 DEFECT = "broken.py:1 - empty input crashes - base abc123: `first([])` raises IndexError"
+CHECK = "python3 -c 'from broken import first; first([])'"
 OTHER = "other.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"
 
 ADAPTER = r'''import json, os, pathlib, subprocess, sys
@@ -243,9 +244,9 @@ class FollowupRuns(unittest.TestCase):
         children = self.start(directory, state)
         self.assertEqual(len(children), 1)
         self.assertIn(flaky, (children[0] / "task.md").read_text())
-        plan = config.plan_path("seat").read_text()
-        self.assertEqual(plan.count("- [ ] "), 1)
-        self.assertIn(f"- [ ] Fix {DEFECT} · check: `{check}` · acme · written ", plan)
+        text = config.plan_path("seat").read_text()
+        self.assertEqual(text.count("- [ ] "), 1)
+        self.assertIn(f"- [ ] Fix {DEFECT} · check: `{check}` · {plan.named(self.repo)} · written ", text)
         self.assertIn("now in your plan, yours to build: Fix broken.py:1",
                       run.handback_line(state, directory, self.cfg))
         self.start(directory, record.read_state(directory))
@@ -253,7 +254,7 @@ class FollowupRuns(unittest.TestCase):
         later, again = self.source("later", followups=[found_again],
                                    followup_checks={found_again: check})
         self.assertEqual(self.start(later, again), [])
-        self.assertEqual(config.plan_path("seat").read_text(), plan)
+        self.assertEqual(config.plan_path("seat").read_text(), text)
         self.assertEqual(len(self.spawns), 1)
 
     def test_a_followup_its_plan_refuses_is_named_for_the_seat_to_judge(self):
@@ -263,6 +264,56 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("your plan refused, yours to judge: Fix broken.py:1",
                       run.handback_line(record.read_state(directory), directory, self.cfg))
         self.assertEqual(self.spawns, [])
+
+    def test_a_seat_with_no_executors_still_gets_its_review_followups_in_its_plan(self):
+        config.update_session("seat", workers=[])
+        flaky = "flaky: python3 -m unittest passed only on its re-run"
+        directory, state = self.source(followups=[DEFECT, flaky], followup_checks={DEFECT: CHECK})
+        self.assertEqual(self.start(directory, state), [])
+        self.assertIn(f"- [ ] Fix {DEFECT} · check: `{CHECK}` · {plan.named(self.repo)} · ",
+                      config.plan_path("seat").read_text())
+        self.assertEqual(self.spawns, [])
+
+    def test_a_followup_line_ticks_once_its_fix_is_on_the_default_branch(self):
+        self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        config.update_session("seat", repo=str(self.repo))      # `ak orch project acme`
+        self.start(*self.source(followup_checks={DEFECT: CHECK}))
+        (self.repo / "broken.py").write_text("def first(items):\n    return items[0] if items else None\n")
+        self.git(self.repo, "commit", "-qam", "Fix the planned follow-up")
+        self.git(self.repo, "push", "-q", "origin", "main")
+        with patch.dict(os.environ, {config.SESSION_ENV: "seat"}):
+            self.assertEqual(plan.main([]), 0)
+        [line] = plan.lines("seat")
+        self.assertRegex(line, r"^- \[x\] Fix .* · done [0-9a-f]{12} Fix the planned follow-up$")
+
+    def test_the_same_check_in_another_project_is_a_line_of_its_own(self):
+        self.start(*self.source(followup_checks={DEFECT: CHECK}))
+        other = self.root / "other-project"
+        self.git(self.root, "clone", "-q", str(self.repo), str(other))
+        self.start(*self.source("other", repo=str(other), followup_checks={DEFECT: CHECK}))
+        self.assertEqual([line.split(" · ")[2] for line in plan.lines("seat")],
+                         [plan.named(self.repo), plan.named(other)])
+
+    def test_a_followup_written_while_the_plan_is_being_edited_is_kept(self):
+        directory, state = self.source(followup_checks={DEFECT: CHECK})
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with plan.held("seat"):
+                merge = pool.submit(self.start, directory, state)
+                self.assertFalse(wait([merge], timeout=1).done)
+                plan.write("seat", [*plan.lines("seat"), f"- [ ] by hand · your eye · {plan.named(self.repo)} · written 2026-10-04 21:00"])
+            merge.result(timeout=30)
+        self.assertEqual(len(plan.lines("seat")), 2)
+
+    def test_a_maintainer_merge_tells_the_seat_what_it_put_in_its_plan(self):
+        url = "https://github.com/acme/widget/pull/1"
+        self.source(merged=False, pr=url, followup_checks={DEFECT: CHECK})
+        sent = []
+        with patch.object(orch, "find", return_value={"name": "seat"}), \
+                patch.object(watch, "type_into",
+                             side_effect=lambda seat, line, log: sent.append(line) or True):
+            self.assertTrue(watch.say(False, self.logs.append, "PR #1: merged by the maintainer",
+                                      url, "seat", merged=True))
+        self.assertIn("now in your plan, yours to build: Fix broken.py:1", sent[0])
 
     def test_exclusions_and_closed_session_start_nothing(self):
         for index, changes in enumerate(({"merged": False}, {"launched_session": None},
@@ -353,7 +404,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn(f"Commit {merged}", found)
         self.assertIn("Before the task: return 1 / value", found)
         self.assertIn(f"- [ ] Fix {OTHER} · check: `python3 -c 'from other import ratio; ratio(0)'` "
-                      "· acme · written ", config.plan_path("seat").read_text())
+                      f"· {plan.named(self.repo)} · written ", config.plan_path("seat").read_text())
         self.assertIn("now in your plan, yours to build: Fix other.py:2", self.endings[-1])
 
     def test_not_needed_is_done_without_checks_review_or_pr(self):

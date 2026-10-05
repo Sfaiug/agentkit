@@ -5229,11 +5229,11 @@ def say(dry_run, log, text, url, session, merged=False):
     Never to Discord.  The run learns it first, where the menu and `ak run status` were
     already showing `waiting for the maintainer` -- a seat that cannot be typed into never
     holds that back -- and a live seat is typed the line, exactly as a review question is
-    put to the `inbox`.  A decision already on the run is not recorded again, so a retry
-    after a failed typing tells the seat without recording twice or starting fix runs
-    twice.  True means it has landed everywhere it goes, or that there is nowhere left
-    for it to land and following this PR is over; False means the seat is still owed its
-    line and the next tick retries it.
+    put to the `inbox`, with the review follow-ups a merge put in its plan.  A decision
+    already on the run is not recorded again, so a retry after a failed typing tells the
+    seat without recording twice or starting fix runs twice.  True means it has landed
+    everywhere it goes, or that there is nowhere left for it to land and following this PR
+    is over; False means the seat is still owed its line and the next tick retries it.
     """
     from . import run   # here, not at the top: run imports this module
     if dry_run:
@@ -5247,8 +5247,10 @@ def say(dry_run, log, text, url, session, merged=False):
         log(f"recorded on run {run_dir.name}: {text}")
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
+        planned = run.planned_followups(run_state).strip() if merged and run_dir else ""
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
-                "decision on a PR of ours, for you to act on or not.")
+                "decision on a PR of ours, for you to act on or not."
+                + (f" {planned}" if planned else ""))
         if not type_into(seat, line, log):
             return False
         log(f"told the {seat['name']} seat: {text}")

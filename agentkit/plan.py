@@ -415,9 +415,9 @@ def still_done(name, proven):
 
 
 def add(name, what, check=None, repo=None, proven=False):
-    """Append an open line to the seat's plan.  A review follow-up names the run's project as
-    `repo`, and is `proven`: its check already failed on the reviewed work, so it is not run
-    again before the line is written."""
+    """Append an open line to the seat's plan, or return the open line that already holds this
+    check in this project.  A review follow-up names the run's project as `repo`, and is
+    `proven`: its check already failed on the reviewed work, so it is not run again first."""
     what = " ".join(what.split())
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")
@@ -440,7 +440,13 @@ def add(name, what, check=None, repo=None, proven=False):
     proof = f"check: `{check}`" if check is not None else EYE
     line = f"- [ ] {what} · {proof} · {where} · written {stamp}"
     with held(name) as current:
-        write(current, [*lines(current), line])
+        text = lines(current)
+        for old in text:
+            parsed = LINE.match(old.strip())
+            if (check is not None and parsed and is_open(old)
+                    and parsed["check"] == check and parsed["project"] == where):
+                return old.strip()     # an open line already holds this check here
+        write(current, [*text, line])
     return line
 
 
