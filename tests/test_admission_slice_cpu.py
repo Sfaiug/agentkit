@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, run  # noqa: E402
+from agentkit import gate, host, config  # noqa: E402
 from agentkit import record
 
 READINGS = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -41,15 +41,15 @@ class AdmissionSliceCpu(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1",
                                                          "AK_MIN_FREE_MB": "3072"}))
         os.environ.pop("AK_MAX_LOAD", None)
-        self.stack.enter_context(patch.object(run, "slot_counts", return_value=(0, 0)))
-        self.stack.enter_context(patch.object(run, "frozen_runs", return_value=0))
+        self.stack.enter_context(patch.object(gate, "slot_counts", return_value=(0, 0)))
+        self.stack.enter_context(patch.object(gate, "frozen_runs", return_value=0))
         self.stack.enter_context(patch.object(record, "process_owner",
                                               return_value={"pid": 1}))
 
     def claim(self, readings, state=None):
         state = {"run_id": "r", "run_depth": 0, **(state or {})}
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}):
-            return run.claim_slot(state, 1), state
+            return gate.claim_slot(state, 1), state
 
     def test_high_host_load_with_idle_slice_admits(self):
         loaded = {**READINGS, "load": 41, "slice_cpu_pressure": 5}
@@ -151,7 +151,7 @@ class AdmissionSliceCpu(unittest.TestCase):
     def test_host_line_names_slice_cpu_gate(self):
         readings = {**READINGS, "slice_cpu_pressure": 12}
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}):
-            self.assertEqual(run.host_status_line(),
+            self.assertEqual(gate.host_status_line(),
                              "host: 8 cpus · ak cpu 12% · 4 G free · "
                              "a run is admitted while ≥ 3 G free and "
                              "ak cpu ≤ 40% · at most 1 run at once\n"

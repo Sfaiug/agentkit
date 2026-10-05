@@ -111,6 +111,13 @@ def _reading(readings, *names):
     return None
 
 
+def _g(value):
+    if value is None:
+        return "?"
+    value = value / 1024
+    return f"{value:.1f}".rstrip("0").rstrip(".")
+
+
 def _unit_memory(readings):
     """(used, high, raw, name) for the cgroup the gate reads, or None.
 

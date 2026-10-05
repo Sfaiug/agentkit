@@ -11,7 +11,7 @@
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words leak into some twenty files.
-- `run.py` (12.3k lines) holds most of the run side.
+- `run.py` (12.1k lines) holds most of the run side.
 
 ## Entry points
 
@@ -21,13 +21,15 @@
 
 ## agentkit/
 
-- `run.py`: staffing, review, landing, hand-back, failures, slots, worktrees and delivery locks.
+- `run.py`: staffing, review, landing, hand-back, failures, worktrees and delivery locks.
   Passed writable workers and automatic review-PR merges park in the line and exit;
   foreground callers and jobs follow records. Forks keep `land`. API: `main`, `going`,
   `pick_models`; for watch, job, gc, orch, menu, notify, usage, worker and a hook.
-- `gate.py`: check commands and host-wide heavy-suite turns; `run_done_when`, turn/env
-  helpers and wait notes. For run and tests. Leaks: run's `run_child_env`, `memory_cap_note`,
-  `dirty_paths`, `OUT_CAP`.
+- `gate.py`: run admission (the slot queue and host gates), check commands and host-wide
+  heavy-suite turns. API: `slot_lock`, `claim_slot`, `wait_for_slot`, `slot_note`,
+  `host_status_line`, `run_done_when`, turn/env helpers and wait notes. For run, land and
+  tests. Leaks: run's `run_child_env`, `memory_cap_note`, `dirty_paths`, `OUT_CAP`,
+  `redress_seat`, `run_depth`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member
   leaves to fix itself or hand the failure to its PR's seat. Record changes and the tick
@@ -136,7 +138,6 @@ Run side, out of `run.py`:
 - `record`: transition table.
 - `turn`: model calls and harness failures.
 - `staffing`: executor and reviewer budgets.
-- `gate`: admission.
 - `prompts`: preambles and review contract.
 - `rounds`: loop calling the rest.
 - `land`: PR, checks, merge.

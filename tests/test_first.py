@@ -101,14 +101,14 @@ class First(unittest.TestCase):
                                       "AK_HOST_READINGS": json.dumps(HEALTHY)}), \
                 patch.object(run_record, "process_owner", return_value=dict(FAKE_OWNER)), \
                 patch.object(run_record, "process_active", return_value=True):
-            self.assertLess(run.slot_order(run_record.read_state(first)),
-                            run.slot_order(run_record.read_state(earlier)))
+            self.assertLess(gate.slot_order(run_record.read_state(first)),
+                            gate.slot_order(run_record.read_state(earlier)))
             state = run_record.read_state(first)
-            self.assertFalse(run.claim_slot(state, 1))
-            self.assertTrue(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))
+            self.assertTrue(gate.claim_slot(state, 1))
             self.assertEqual(state["state"], "running")
             behind = run_record.read_state(earlier)
-            self.assertFalse(run.claim_slot(behind, 1))
+            self.assertFalse(gate.claim_slot(behind, 1))
             self.assertEqual(behind["slot_wait_kind"], "count")
 
     def test_first_admitted_above_load_but_not_below_memory_floor(self):
@@ -119,14 +119,14 @@ class First(unittest.TestCase):
                 patch.object(run_record, "process_active", return_value=True):
             os.environ["AK_HOST_READINGS"] = json.dumps({**HEALTHY, "load": 41})
             state = run_record.read_state(loaded)
-            self.assertFalse(run.claim_slot(state, 1))
-            self.assertTrue(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))
+            self.assertTrue(gate.claim_slot(state, 1))
             self.assertEqual(state["state"], "running")
             run_record.save_state(loaded, state)
             thirsty = self.queued("20250925-1201-thirsty", 2000, first=True)
             os.environ["AK_HOST_READINGS"] = json.dumps({**HEALTHY, "free_mb": 1024})
             dry = run_record.read_state(thirsty)
-            self.assertFalse(run.claim_slot(dry, 1))
+            self.assertFalse(gate.claim_slot(dry, 1))
             self.assertEqual(dry["slot_wait_kind"], "memory")
             self.assertIn("needs 3 G", dry["slot_wait_reason"])
 
@@ -139,14 +139,14 @@ class First(unittest.TestCase):
                 patch.object(run_record, "process_owner", return_value=dict(FAKE_OWNER)), \
                 patch.object(run_record, "process_active", return_value=True):
             later = run_record.read_state(two)
-            self.assertFalse(run.claim_slot(later, 1))
+            self.assertFalse(gate.claim_slot(later, 1))
             self.assertEqual(later["slot_wait_kind"], "count")
             early = run_record.read_state(one)
-            self.assertFalse(run.claim_slot(early, 1))
-            self.assertTrue(run.claim_slot(early, 1))
+            self.assertFalse(gate.claim_slot(early, 1))
+            self.assertTrue(gate.claim_slot(early, 1))
             run_record.save_state(one, early)
-            self.assertFalse(run.claim_slot(later, 1))
-            self.assertTrue(run.claim_slot(later, 1))
+            self.assertFalse(gate.claim_slot(later, 1))
+            self.assertTrue(gate.claim_slot(later, 1))
             self.assertEqual(later["state"], "running")
 
     def test_first_waits_its_gate_turn_behind_an_earlier_waiter(self):

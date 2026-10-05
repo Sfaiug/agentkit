@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, run  # noqa: E402
+from agentkit import gate, host  # noqa: E402
 
 
 class SlotNoteAhead(unittest.TestCase):
@@ -20,10 +20,10 @@ class SlotNoteAhead(unittest.TestCase):
     def lines(self, running, ahead, first=False):
         """(claim_slot's saved line, slot_note's own line) for the same counts."""
         state = {"run_id": "r", "run_depth": 0, "first": first}
-        with patch.object(run, "slot_counts", return_value=(running, ahead)), \
+        with patch.object(gate, "slot_counts", return_value=(running, ahead)), \
                 patch.object(host, "host_readings", side_effect=AssertionError("must not read")):
-            self.assertFalse(run.claim_slot(state, 4))
-            return state["slot_wait_reason"], run.slot_note({"run_id": "r", "first": first})
+            self.assertFalse(gate.claim_slot(state, 4))
+            return state["slot_wait_reason"], gate.slot_note({"run_id": "r", "first": first})
 
     def test_full_limit_with_nobody_queued_ahead(self):
         line = "waiting for a slot · limit full (4 running) · 0 ahead"

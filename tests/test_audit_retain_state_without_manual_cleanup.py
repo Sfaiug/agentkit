@@ -24,7 +24,7 @@ REAL_TMUX = shutil.which("tmux")
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import host, config, gc, menu, notify, orch, retention, run, update, watch
+from agentkit import gate, host, config, gc, menu, notify, orch, retention, run, update, watch
 from agentkit import record as run_record
 
 DAY = 86400
@@ -69,7 +69,7 @@ sys.exit(1)
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
-        self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", .01))
         config.ensure_dirs()
         system_tmp = self.root / "system-tmp"
         system_tmp.mkdir(exist_ok=True)

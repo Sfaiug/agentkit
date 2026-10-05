@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import host, config, job as jobs, menu, notify, orch, run, watch
+from agentkit import gate, host, config, job as jobs, menu, notify, orch, run, watch
 from agentkit import record
 
 ADAPTER = r'''import json, os, pathlib, sys, time
@@ -48,10 +48,10 @@ if role == "executor":
 (out / "session_id").write_text("fixture-" + role)
 '''
 LAUNCH = """import sys
-from agentkit import host, job as jobs, run
+from agentkit import gate, host, job as jobs, run
 host.host_readings = lambda **_kw: {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                              "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}
-run.SLOT_POLL = .03
+gate.SLOT_POLL = .03
 jobs.JOB_TICK = .03
 raise SystemExit(run.main(sys.argv[1:]))
 """
@@ -229,11 +229,11 @@ class Slots(unittest.TestCase):
         before = record.read_state(directory)
         self.assertEqual(before["state"], "queued")
         self.assertEqual(before["pid"], os.getpid())
-        self.assertEqual(run.slot_counts({"run_id": "new"})[0], 0)
+        self.assertEqual(gate.slot_counts({"run_id": "new"})[0], 0)
 
         self.launch("waiter")
         _, waiting = self.receipt("waiter", "queued")
-        self.assertEqual(run.slot_note(waiting), "waiting for a slot · 1 ahead")
+        self.assertEqual(gate.slot_note(waiting), "waiting for a slot · 1 ahead")
         popen = subprocess.Popen
 
         def launch(*args, **kwargs):
@@ -248,7 +248,7 @@ class Slots(unittest.TestCase):
         self.assertEqual(after["pid"], self.procs[-1][0].pid)
         self.assertEqual(after["queued_at"], before["queued_at"])
         self.assertTrue(after["slot_started_at"])
-        self.assertEqual(run.slot_counts({"run_id": "new"})[0], 1)
+        self.assertEqual(gate.slot_counts({"run_id": "new"})[0], 1)
         self.assertFalse(run.queued(directory))  # the parent cannot adopt its child's slot
         self.assertEqual(len(self.calls()), 1)
         self.release(directory)
@@ -266,7 +266,7 @@ class Slots(unittest.TestCase):
             with self.assertRaisesRegex(config.Error, "fork failed"):
                 run.spawn_bg(directory, [task, "--bg"])
         self.assertEqual(record.read_state(directory)["state"], "interrupted")
-        self.assertEqual(run.slot_counts({"run_id": "new"})[0], 0)
+        self.assertEqual(gate.slot_counts({"run_id": "new"})[0], 0)
         self.launch("next")
         self.started("next")
         self.finish_all()
@@ -345,7 +345,7 @@ class Slots(unittest.TestCase):
         child, state = self.started("child")
         self.assertEqual(state["parent_run"], parent.name)
         self.assertEqual(state["run_depth"], 1)
-        self.assertEqual(run.slot_counts({"run_id": "new"})[0], 1)
+        self.assertEqual(gate.slot_counts({"run_id": "new"})[0], 1)
         self.finish_all()
         for call in self.calls() + self.calls("reviewer"):
             self.assertEqual(call["depth"], "1" if call["id"] == parent.name else "2")
@@ -490,7 +490,7 @@ usage._store, pathlib.Path.replace = publish, rename
             self.launch(name)
         self.wait(lambda: len(self.states()) == 6 and len(self.calls()) == 2)
         self.assertEqual(sum(s["state"] == "running" for _, s in self.states()), 2)
-        queued = sorted((s for _, s in self.states() if s["state"] == "queued"), key=run.slot_order)
+        queued = sorted((s for _, s in self.states() if s["state"] == "queued"), key=gate.slot_order)
         self.finish_all()
         admitted = sorted((s for _, s in self.states()), key=lambda s: s["slot_started_at"])
         self.assertEqual([s["run_id"] for s in admitted[2:]], [s["run_id"] for s in queued])
@@ -526,7 +526,7 @@ usage._store, pathlib.Path.replace = publish, rename
         self.start(self.task("two"), "--anyway", "--exec", self.executor,
                    "--review", self.reviewer)
         _, queued = self.receipt("two", "queued")
-        self.assertEqual(run.slot_note(queued), "waiting for a slot · limit full (1 running) · 0 ahead")
+        self.assertEqual(gate.slot_note(queued), "waiting for a slot · limit full (1 running) · 0 ahead")
         self.release(first)
         self.started("two")
         self.finish_all()

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, hand_in, land, record, run, watch, worker
+from agentkit import config, gate, gc, hand_in, land, record, run, watch, worker
 from fixtures.hand_in import submitting
 from test_lander import LanderFixture
 
@@ -163,7 +163,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         handed_back = []
 
         def push(seconds):
-            if seconds != run.SLOT_POLL or handed_back:
+            if seconds != gate.SLOT_POLL or handed_back:
                 return
             handed_back.append(record.read_state(directory).get("findings") or "")
             self.assertEqual(self.merges, [])
@@ -303,7 +303,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         checks = len(self.checks)
 
         def push(seconds):
-            if seconds != run.SLOT_POLL:
+            if seconds != gate.SLOT_POLL:
                 return
             self.assertTrue(self.notices, "the seat received no landing failure")
             self.assertIn("final check failed at landing", self.notices[-1])

@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import host, config, gc, menu, orch, run, watch, worker
+from agentkit import gate, host, config, gc, menu, orch, run, watch, worker
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -73,7 +73,8 @@ class OwnPrRounds(unittest.TestCase):
                             ("collect_usage", {}), ("checks", (True, "")),
                             ("process_active", True), ("scope_alive", None),
                             ("host_status_line", "fixture host")):
-            self.stack.enter_context(patch.object(record if name == "process_active" else run,
+            self.stack.enter_context(patch.object(record if name == "process_active" else
+                                                gate if name == "host_status_line" else run,
                                                 name, return_value=value))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=lambda *_: dict(self.pr)))
@@ -127,7 +128,7 @@ class OwnPrRounds(unittest.TestCase):
         return 0, text, f"review-{n}", False
 
     def push(self, seconds):
-        if seconds != run.SLOT_POLL:
+        if seconds != gate.SLOT_POLL:
             return
         state = record.read_state(self.run_dir)
         self.waits.append(state)
@@ -206,7 +207,7 @@ class OwnPrRounds(unittest.TestCase):
         clock = run.time
 
         def die(seconds):
-            if seconds == run.SLOT_POLL:
+            if seconds == gate.SLOT_POLL:
                 raise InterruptedError("fixture: loop died while waiting")
 
         clock.sleep.side_effect = die
@@ -262,7 +263,7 @@ class OwnPrRounds(unittest.TestCase):
 
     def test_default_status_names_the_push_wait(self):
         def push(seconds):
-            if seconds != run.SLOT_POLL:
+            if seconds != gate.SLOT_POLL:
                 return
             for args in ([], ["--plain"], ["--why"], [self.run_dir.name]):
                 with self.subTest(args=args), redirect_stdout(io.StringIO()) as out:
@@ -278,7 +279,7 @@ class OwnPrRounds(unittest.TestCase):
 
     def test_push_wait_is_never_reported_as_silent(self):
         def push(seconds):
-            if seconds != run.SLOT_POLL:
+            if seconds != gate.SLOT_POLL:
                 return
             state = record.read_state(self.run_dir)
             with patch.object(watch, "run_last_write", return_value=time.time() - 7200):

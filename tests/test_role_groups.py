@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import test_worker_list as fixtures
 from fixtures.hand_in import smoke, submitting
-from agentkit import config, gc, run, usage, watch
+from agentkit import gate, config, gc, run, usage, watch
 from agentkit import record as run_record
 
 
@@ -33,7 +33,7 @@ class RoleGroups(unittest.TestCase):
         directory = config.RUNS / name
         directory.mkdir()
         with patch.object(run, "redress_seat"), \
-                patch.object(run, "history_start"), patch.object(run, "claim_slot"):
+                patch.object(run, "history_start"), patch.object(gate, "claim_slot"):
             run.capture_launch(directory, cfg=self.cfg)
         return directory, run_record.read_state(directory)
 
