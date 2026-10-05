@@ -38,11 +38,6 @@ def identity(text, argv):
     return f"{text} (installed build {build})" if build and build not in text else text
 
 
-def snapshot(harness, identity, version):
-    """The installed launcher, build, metadata and launch links, for `restore()` to put back."""
-    return Snapshot(harness, identity, version)
-
-
 def install_lock(directory, *, remove_stale=False):
     """Refuse live/unknown writers; reclaim only a lock with a demonstrably dead PID."""
     lock = directory / ".muse-update-lock"
@@ -285,6 +280,9 @@ class Snapshot:
                       flush=True)
         if self.lock:
             self.lock.close()
+
+
+snapshot = Snapshot
 
 
 def _stem(account):
