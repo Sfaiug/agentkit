@@ -58,6 +58,9 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - Typing into a seat has one typer per kind of line: the tick, under its lock. A second typer (a sender trying first) needs claims and delivery reports that each review round finds a new race in (#439, 3 rounds).
 - A fix that reads the screen adds no fallback for shapes it did not set out to read: every such fallback (an at_prompt backstop, an "empty composer" pattern) misread another real screen and cost a review round (#501, 3 rounds).
 - A line typed into a seat is delivered at least once: no mark, receipt or transcript read closes every crash window between its Enter and the queue rewrite (#439, #502: six rounds). Say so in the task and the PR; never promise exactly once.
+- A test that asserts a UTF-8 glyph the menu draws (│ ▶ ✓ …) pins `patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"})`: under LANG=C the menu draws ASCII and the landing suite runs in the caller's locale.
+- Whatever a bar or the menu shows of a run is in run.json when its step publishes (round directories come later), and an open menu sees only the files it watches: a display fact derived from anything else lags (#504, 3 rounds).
+- A screen-reading change reads only the rows the code it replaces read: every reach further up (a whole-pane read, a tail extended to a box) met an older composer, echo or box a reviewer could place there (#507, nine rounds).
 
 ## Owner rules
 
