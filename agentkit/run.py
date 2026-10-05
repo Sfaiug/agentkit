@@ -3629,7 +3629,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # The round is read off `dir`, which is what free_dir writes through.
     rd = lp.dir("reviewer").parent
     name = open_review(rd)[0] or "reviewer"
-    def fall_back(reason, out, allow_self=True):
+    def fall_back(reason, out, allow_self=True, quota=False):
         """The path a dry, twice-silent or twice-transient reviewer takes: next spare, else Exhausted."""
         # Recheck at the point of fallback, including spares from saved/legacy callers, and
         # against the meters as they read now: a spare whose own provider has run dry is none.
@@ -3653,7 +3653,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         else:
             offered = spares
         if not offered:
-            raise Exhausted(f"reviewer {lp.reviewer} {reason} and no eligible reviewer is left "
+            exhausted = QuotaDry if quota else Exhausted
+            raise exhausted(f"reviewer {lp.reviewer} {reason} and no eligible reviewer is left "
                             f"to review; waiting for review. See {out}*/stderr.log")
         lp.reviewer, lp.review_sid = offered.pop(0), None
         lp.spares = [n for n in spares if n != lp.reviewer]
@@ -3681,7 +3682,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.review_sid = None
             note = {"at": time.time(), "role": "reviewer", "restarted": True}
             lp.state["resume_notice"] = note
-        why = "died on API/transport errors"
+        why, quota = "died on API/transport errors", False
         model = lp.reviewer     # a fallback below moves on from it before its tokens are read
         reviewed = config.model(lp.cfg, model)
         review_harness, review_model = reviewed["harness"], reviewed["model"]
@@ -3723,6 +3724,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             # takes the same road out: the spares, checked against the executor and config.
             dry.remember(lp.state)
             code, text, lp.review_sid, dead, why = dry.code, dry.text, dry.session, True, dry.detail
+            quota = dry.quota
         finally:
             history_role_tokens(lp.state.get("run_id"), "reviewer", out, lp.log, lp.cfg, model)
         if code != 0:
@@ -3731,7 +3733,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         if dead:
             record_findings(lp, out, text)
             lp.save()
-            name = fall_back(why, out)
+            name = fall_back(why, out, quota=quota)
             continue
         submitted = review_records(out, text)
         if submitted is not None and submitted.done:

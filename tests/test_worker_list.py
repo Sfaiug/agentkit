@@ -353,6 +353,40 @@ class WorkerList(unittest.TestCase):
         self.assertEqual([line.split("] ", 1)[1] for line in lines],
                          ["skipped delta: codex is not logged in"])
 
+    def test_a_quota_refusal_from_the_last_reviewer_resumes_after_refill(self):
+        for kind in ("task", "pr", "own-pr"):
+            with self.subTest(kind=kind):
+                lp = self.loop("alpha" if kind == "task" else None, "gamma",
+                               [] if kind == "own-pr" else ["alpha"])
+                lp.state["reviewers"] = ["gamma"]
+                if kind != "task":
+                    lp.state["review_pr"] = "https://github.com/acme/api/pull/7"
+                if kind == "own-pr":
+                    lp.state.update(own_pr=True, own_orchestrator="seat")
+                record.save_state(lp.run_dir, lp.state)
+                refusal = run.RanDry("gamma", "b", 1, "usage limit reached", None,
+                                     self.now + 3600, "usage limit reached", True)
+                with patch.object(run, "call_retrying", side_effect=refusal), \
+                        patch.object(run, "collect_usage",
+                                     return_value=usage.Readings(self.providers(b=100))), \
+                        redirect_stderr(io.StringIO()):
+                    with self.assertRaises(run.Exhausted) as parked:
+                        run.review(lp, "Review the work.", None, "")
+                run.park_exhausted(lp.state, parked.exception)
+                record.save_state(lp.run_dir, lp.state)
+                refilled = usage.Readings(self.providers(b=10))
+                with patch.object(record, "run_dirs", return_value=[lp.run_dir]), \
+                        patch.object(usage, "readiness", return_value=refilled), \
+                        patch.object(run, "spawn_bg", return_value=0) as spawn:
+                    watch.resume_exhausted(self.cfg, refilled, log=self.logs.append,
+                                           now=self.now + 3601)
+                self.assertEqual(spawn.call_count, 1,
+                                 "a reviewer quota refusal must resume after refill")
+                saved = record.read_state(lp.run_dir)
+                self.assertTrue(saved["quota_dry"])
+                self.assertEqual(saved["review_pending"]["round"], 1)
+                self.assertEqual(saved["round_summaries"], [])
+
     def test_a_tick_no_run_waits_on_asks_no_harness(self):
         # asking runs each harness's `auth`: a pass with nothing to pick asks nobody
         watch.resume_exhausted(self.cfg, usage.Readings(self.providers()),
