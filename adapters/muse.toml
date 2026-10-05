@@ -16,16 +16,15 @@ logins = ["~/.config/muse/auth.json", "$XDG_CONFIG_HOME/muse/auth.json", "~/.mus
 # How `ak update` moves this harness.  `upgrade` is the launcher's own install path, the one
 # `install.sh` used; with MUSE_NO_AUTO_UPDATE=1 pinning it everywhere else, this is the only way
 # muse ever moves.  It offers no versioned reinstall, so there is no `revert` and `cannot` says
-# why; `snapshot_dir = "launcher"` is the rollback instead -- the directory of the resolved
-# `version` command, with its build, its metadata and its launch links, saved before anything
-# moves and put back when an upgrade or a gate fails.  `latest` is the build the launcher's
-# channel names, asked the way the launcher asks it.
+# why; the snapshot agentkit/harness/muse.py takes of the launcher's directory, with its build,
+# its metadata and its launch links, is the rollback instead: saved before anything moves and
+# put back when an upgrade or a gate fails.  `latest` is the build the launcher's channel names,
+# asked the way the launcher asks it.
 [update]
 version = ["muse", "--version"]
 upgrade = ["muse"]
 env = { MUSE_LAUNCHER_INSTALL = "1" }
 cannot = "its channel installer offers no versioned reinstall"
-snapshot_dir = "launcher"
 latest = ["sh", "-c", '''
 exec curl -fsSL -A muse-code/launcher-3 "https://api.meta.ai/muse-code/channels/${MUSE_CHANNEL:-muse-stable}"''']
 

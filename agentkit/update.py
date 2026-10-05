@@ -1,12 +1,12 @@
 """Upgrade the harnesses with acceptance gates and a restorable local snapshot.
 
 Which harnesses, and how each one moves, is `[update]` in `adapters/<harness>.toml` -- the
-version command, the upgrade, the versioned reinstall that puts it back, the environment it
-needs and the directory to snapshot where it has no such reinstall.  A harness whose manifest
-names no version and upgrade command is not one `ak update` moves.
+version command, the upgrade, the versioned reinstall that puts it back and the environment it
+needs.  A harness whose manifest names no version and upgrade command is not one `ak update`
+moves.
 
-Claude and Codex offer versioned reinstalls. Muse's channel installer deletes old builds,
-so its local launcher, build, metadata and launch links must be saved before any upgrade.
+A harness whose installer deletes the build it replaces, with no versioned reinstall, is put
+back from the local snapshot its plugin takes before any upgrade (`snapshot`).
 Failures attempt rollback and verify the resulting identities; a failed restore is reported
 explicitly, with its snapshot retained. Ordinary launches and version checks remain frozen.
 
@@ -21,7 +21,6 @@ commit whose `tests/live.sh` passed where it has one (`live_target`).
 
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
 import fcntl
-import hashlib
 import io
 import json
 import os
@@ -30,7 +29,6 @@ import re
 import shlex
 import shutil
 import signal
-import stat
 import subprocess
 import sys
 import tempfile
@@ -140,8 +138,7 @@ def harnesses(cfg=None):
                        "revert": _argv(name, facts, "revert") or None,
                        "latest": _argv(name, facts, "latest"),
                        "env": {str(key): str(value) for key, value in env.items()},
-                       "cannot": str(facts.get("cannot") or ""),
-                       "snapshot_dir": str(facts.get("snapshot_dir") or "")}
+                       "cannot": str(facts.get("cannot") or "")}
     return tuple(found.values())
 
 
@@ -185,7 +182,7 @@ def step(cmd, fh, env=None, timeout=STEP_CAP):
                 fh.write(f"[timed out after {timeout}s]\n")
                 code = "timeout"
             finally:
-                # A timed-out Muse launcher can leave its installer subshell writing.
+                # A timed-out installer can leave a subshell of its own writing.
                 # Signal only while the child is still ours: wait()/poll() may already have
                 # reaped an exited launcher, after which its PID/PGID could be reused.
                 if proc.returncode is None and proc.poll() is None:
@@ -250,249 +247,6 @@ def swap_end(name, since, until):
                    default=None)
     except (OSError, ValueError, TypeError):
         return None
-
-
-def muse_install_lock(directory, *, remove_stale=False):
-    """Refuse live/unknown writers; reclaim only a lock with a demonstrably dead PID."""
-    lock = directory / ".muse-update-lock"
-    try:
-        info = lock.lstat()
-    except FileNotFoundError:
-        return
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
-        raise config.Error(f"unsafe Muse installer lock at {lock}; inspect it before retrying")
-    pidfile = lock / "pid"
-    try:
-        pidinfo = pidfile.lstat()
-        if (not stat.S_ISREG(pidinfo.st_mode) or pidinfo.st_uid != os.geteuid()
-                or pidinfo.st_nlink != 1):
-            raise ValueError("unsafe pid file")
-        text = pidfile.read_text().strip()
-        if not text.isascii() or not text.isdecimal() or not 0 < int(text) < 2**31:
-            raise ValueError("invalid pid")
-        pid = int(text)
-    except (OSError, ValueError) as exc:
-        raise config.Error(f"cannot identify the writer of Muse installer lock {lock}: {exc}; "
-                           "inspect the lock and remove it only if no installer is running") from exc
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        pass
-    except PermissionError as exc:
-        raise config.Error(f"cannot inspect pid {pid} holding Muse installer lock {lock}") from exc
-    else:
-        raise config.Error(f"Muse installer lock {lock} is held by running pid {pid}; retry after it exits")
-    if remove_stale:
-        # Do not traverse or recursively delete an unexpected replacement lock.
-        def identity(value):
-            return value.st_dev, value.st_ino, value.st_mode, value.st_size, value.st_mtime_ns, value.st_ctime_ns
-        if (identity(lock.lstat()) != identity(info) or identity(pidfile.lstat()) != identity(pidinfo)
-                or pidfile.read_text().strip() != text or set(lock.iterdir()) != {pidfile}):
-            raise config.Error(f"Muse installer lock {lock} changed during its stale-lock check")
-        pidfile.unlink()
-        lock.rmdir()
-        say(f"update: removed stale Muse installer lock {lock} (dead pid {pid})")
-
-
-class MuseSnapshot:
-    """A local rollback for the launcher's adjacent muse-bin-<build> layout.
-
-    Taken for the harness whose manifest says `[update] snapshot_dir = "launcher"` and for no
-    other: it is what a channel installer that deletes the build it replaces needs, and the only
-    rollback strategy there is here.  Unknown layouts fail closed. Copies are verified and restore files are staged on each
-    destination filesystem before any harness upgrades. Only failed-restore copies stay
-    protected from automatic retention; a verified rollback releases its snapshot immediately.
-    """
-
-    metadata = (".muse-version", ".muse-release-info.json", ".muse-update-checked-at",
-                ".muse-update-notice")
-
-    def __init__(self, harness, identity):
-        self.harness, self.identity = harness, identity
-        self.path = None
-        self.staged, self.parents, self.stage_ids = {}, {}, {}
-        self.lock = None
-
-    @staticmethod
-    def describe(path):
-        info = path.lstat()
-        mode = stat.S_IMODE(info.st_mode)
-        if info.st_uid != os.geteuid():
-            raise config.Error(f"Muse file is not owned by this account: {path}")
-        if stat.S_ISLNK(info.st_mode):
-            return {"link": os.readlink(path), "mode": mode}
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise config.Error(f"Muse snapshot needs a regular file or symlink: {path}")
-        with path.open("rb") as fh:
-            digest = hashlib.file_digest(fh, "sha256").hexdigest()
-        return {"sha256": digest, "mode": mode}
-
-    @staticmethod
-    def parent_identity(parent):
-        # Do not follow a replaced parent during restore, even if the final file is a link.
-        info = parent.stat()
-        if (parent.resolve(strict=True) != parent or not stat.S_ISDIR(info.st_mode)
-                or info.st_uid != os.geteuid() or info.st_mode & 0o300 != 0o300
-                or not os.access(parent, os.W_OK | os.X_OK)):
-            raise config.Error(f"Muse restore needs an owned, writable directory without symlink parents: {parent}")
-        return info.st_dev, info.st_ino, stat.S_IMODE(info.st_mode)
-
-    def launch_paths(self, path, *, in_install=False):
-        paths = []
-        while True:
-            if path in paths or (in_install and path.parent != self.directory):
-                raise config.Error(f"Muse has a cyclic or external build link: {path}")
-            self.parent_identity(path.parent)
-            paths.append(path)
-            if not path.is_symlink():
-                self.describe(path)
-                return paths
-            path = Path(os.path.abspath(path.parent / os.readlink(path)))
-
-    def managed_paths(self):
-        paths = {self.directory / name for name in self.metadata}
-        paths.add(self.directory / "muse-bin")
-        paths.update(self.directory.glob("muse-bin-*"))
-        return {p for p in paths if p.exists() or p.is_symlink()}
-
-    @staticmethod
-    def copy(source, target):
-        shutil.copy2(source, target, follow_symlinks=False)
-        if not target.is_symlink():
-            with target.open("rb") as fh:
-                os.fsync(fh.fileno())
-
-    def __enter__(self):
-        try:
-            self.lock = (config.TMP / "muse-update.lock").open("a")
-            fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            command = config.harness_binary(self.harness["version"][0])
-            if not command:
-                raise config.Error("Muse launcher is not installed here")
-            self.entry = Path(os.path.abspath(command))
-            paths = set(self.launch_paths(self.entry))
-            self.launcher = self.entry.resolve(strict=True)
-            self.directory = self.launcher.parent
-            muse_install_lock(self.directory)
-            build = (self.directory / ".muse-version").read_text().strip()
-            if not re.fullmatch(r"\d+\.\d+\.\d+-R\d+(?:\.\d+)?", build):
-                raise config.Error("Muse has an unsupported installed build layout")
-            binary = self.directory / f"muse-bin-{build}"
-            if not os.access(binary, os.X_OK) or not os.access(self.launcher, os.X_OK):
-                raise config.Error("Muse's launcher or active binary is not executable")
-            release = json.loads((self.directory / ".muse-release-info.json").read_text())
-            if not isinstance(release, dict) or release.get("version") != build:
-                raise config.Error("Muse release metadata does not identify the installed build")
-            managed = self.managed_paths()
-            for path in managed:
-                paths.update(self.launch_paths(path, in_install=True))
-            self.entries = {p: self.describe(p) for p in sorted(paths)}
-            self.path = Path(tempfile.mkdtemp(prefix="muse-snapshot-", dir=config.TMP))
-            self.saved = {}
-            for i, (path, entry) in enumerate(self.entries.items()):
-                parent = path.parent
-                if parent not in self.parents:
-                    self.parents[parent] = self.parent_identity(parent)
-                    self.staged[parent] = Path(tempfile.mkdtemp(prefix=".ak-muse-restore-", dir=parent))
-                    self.stage_ids[parent] = self.parent_identity(self.staged[parent])
-                saved = self.path / str(i)
-                self.copy(path, saved)
-                self.copy(saved, self.staged[parent] / path.name)
-                self.saved[path] = saved
-                if self.describe(saved) != entry:
-                    raise config.Error(f"Muse snapshot copy could not be verified: {path}")
-            manifest = {"identity": self.identity, "launcher": str(self.launcher),
-                        "entry": str(self.entry), "files": [
-                            {"path": str(p), "saved": self.saved[p].name, **entry}
-                            for p, entry in self.entries.items()]}
-            with (self.path / "manifest.json").open("w") as fh:
-                json.dump(manifest, fh, indent=2)
-                fh.flush()
-                os.fsync(fh.fileno())
-            self.check_restore()
-            if version(self.harness) != self.identity:
-                raise config.Error("Muse's installed identity changed during snapshot preflight")
-            if (self.managed_paths() != managed
-                    or any(self.describe(p) != entry for p, entry in self.entries.items())):
-                raise config.Error("Muse changed while its snapshot was being taken")
-            muse_install_lock(self.directory, remove_stale=True)
-            return self
-        except (OSError, RuntimeError, ValueError, config.Error) as exc:
-            self.__exit__(None, None, None)
-            if self.path:
-                shutil.rmtree(self.path, ignore_errors=True)
-            raise config.Error(f"cannot assure a complete Muse snapshot and safe restore: {exc}") from exc
-
-    def check_restore(self):
-        for parent, identity in self.parents.items():
-            if self.parent_identity(parent) != identity:
-                raise config.Error(f"Muse restore directory changed: {parent}")
-            if self.parent_identity(self.staged[parent]) != self.stage_ids[parent]:
-                raise config.Error(f"Muse staged restore directory changed: {self.staged[parent]}")
-        muse_install_lock(self.directory)
-        for path, entry in self.entries.items():
-            if (self.describe(self.saved[path]) != entry
-                    or self.describe(self.staged[path.parent] / path.name) != entry):
-                raise config.Error(f"Muse restore copy changed: {path}")
-
-    def restore(self):
-        self.check_restore()
-        muse_install_lock(self.directory, remove_stale=True)
-        extras = self.managed_paths() - self.entries.keys()
-        # Destination ownership/link count describe the failed installation, not the saved
-        # build. Replace those entries without opening their contents or following links.
-        # A directory cannot be overwritten by a file: move it aside on the same filesystem
-        # first, and let staging cleanup remove it after the restored version is verified.
-        for path in set(self.entries) | extras:
-            try:
-                directory = stat.S_ISDIR(path.lstat().st_mode)
-            except FileNotFoundError:
-                continue
-            if directory:
-                displaced = Path(tempfile.mkdtemp(prefix=".displaced-", dir=self.staged[path.parent]))
-                os.replace(path, displaced / "entry")
-        # Restore the binaries/metadata before publishing the launcher and its launch links.
-        launch = set(self.launch_paths_from_snapshot())
-        for path in sorted(self.entries, key=lambda p: p in launch):
-            os.replace(self.staged[path.parent] / path.name, path)
-        for path in extras:
-            path.unlink(missing_ok=True)
-        if any(self.describe(p) != entry for p, entry in self.entries.items()):
-            raise config.Error("Muse restore bytes, links or modes did not match the snapshot")
-        if version(self.harness) != self.identity:
-            raise config.Error("restored Muse failed its pinned version check")
-        self.discard()
-
-    def discard(self):
-        """Only verified/unused backups may be deleted or handed to routine retention."""
-        try:
-            shutil.rmtree(self.path)
-        except OSError as exc:
-            # A cleanup error must neither misreport a verified restore nor strand another
-            # permanent binary copy. Failed restores never reach this registration path.
-            retention.begin(self.path, "update")
-            retention.finish(self.path)
-            say(f"update: snapshot cleanup failed at {self.path}: {exc}")
-
-    def launch_paths_from_snapshot(self):
-        path = self.entry
-        while True:
-            yield path
-            entry = self.entries[path]
-            if "link" not in entry:
-                break
-            path = Path(os.path.abspath(path.parent / entry["link"]))
-
-    def __exit__(self, *exc):
-        for directory in self.staged.values():
-            # A changed install parent must not redirect even cleanup outside its old home.
-            try:
-                if self.parent_identity(directory.parent) == self.parents[directory.parent]:
-                    shutil.rmtree(directory)
-            except (OSError, RuntimeError, config.Error) as cleanup_error:
-                say(f"update: restore staging cleanup failed at {directory}: {cleanup_error}")
-        if self.lock:
-            self.lock.close()
 
 
 def moved(before, after):
@@ -1264,7 +1018,7 @@ def main(argv):
                     "frozen installed release, not a reproducible versioned install; "
                     "cannot be reverted by its channel installer; "
                     "requires a complete local snapshot for rollback, checked before upgrading"
-                    if harness["snapshot_dir"] else
+                    if harness_plugin(name).snapshots() else
                     f"cannot be reverted: {harness['cannot'] or 'it offers no versioned reinstall'}")
             print(f"{name} {before[name] or 'not installed'} ({note}): "
                   f"{shlex.join(harness['upgrade'])}")
@@ -1333,13 +1087,14 @@ def upgrade(plan, before):
     with output as fh, retention.artifact(log_path, "update"), ExitStack() as stack:
         snapshot, attempted = None, False
         # the harness whose rollback is a local snapshot rather than a versioned reinstall
-        snapshotted = next((h for h in plan if h["snapshot_dir"]), None)
+        snapshotted = next((h for h in plan if harness_plugin(h["name"]).snapshots()), None)
         try:
             name = snapshotted["name"] if snapshotted else ""
             if name and (before[name] or config.harness_binary(snapshotted["version"][0])):
                 if not before[name]:
                     raise config.Error(f"installed {name} failed its pinned version check")
-                snapshot = stack.enter_context(MuseSnapshot(snapshotted, before[name]))
+                snapshot = stack.enter_context(
+                    harness_plugin(name).snapshot(snapshotted, before[name], version))
                 say(f"update: {name} snapshot verified at {snapshot.path}")
                 fh.write(f"{name} snapshot: {snapshot.path}\n")
                 fh.flush()
