@@ -427,8 +427,11 @@ def kept_cpu(slice_dir, delay=0.1):
     slice's use stays -- siblings at its own weight share alike, its own use is its own and
     nothing outside its parent yields.  The slice and those siblings are read in one sample
     window, so a burst between two readings cannot erase use another holds.  None at any lower
-    own weight, or where the cgroups cannot be read.
+    own weight, or where the cgroups cannot be read.  Beside injected readings it reads only an
+    injected cgroup tree: like `host_readings`, an injected snapshot avoids the real machine.
     """
+    if os.environ.get("AK_HOST_READINGS") and not os.environ.get("AK_CGROUP_ROOT"):
+        return None
     own = process_cgroup()
     if not own or slice_dir is None:
         return None

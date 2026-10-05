@@ -78,6 +78,8 @@ class HeavySuiteTurns(unittest.TestCase):
                                                           "AK_CGROUP_FILE": str(self.root / "no-cgroup")}))
         os.environ.pop("AK_MAX_RUNS", None)
         os.environ.pop("AK_HOST_READINGS", None)
+        # nor its cgroup: a landing check runs this file at the top CPU weight
+        self.stack.enter_context(patch.object(host, "process_cgroup", return_value=None))
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
