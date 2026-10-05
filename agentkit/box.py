@@ -38,9 +38,13 @@ def _credentials(env, cwd):
         caches.add(Path(env["XDG_CACHE_HOME"]))
     directories = {home / ".git-credential-cache" for home in homes}
     directories.update(root / "git/credential" for root in caches)
+    # A worker reaches no server: only the orchestrator's own shell holds SSH keys and agent.
+    directories.update(home / ".ssh" for home in homes)
     files = {home / ".git-credentials" for home in homes}
     files.update(root / "git/credentials" for root in configs)
     files.update(root / "hosts.yml" for root in gh)
+    if env.get("SSH_AUTH_SOCK"):
+        files.add(Path(env["SSH_AUTH_SOCK"]))
     # A named credential store is just as readable as the default one. Ask Git so
     # includes and repository-local settings use its own precedence and quoting.
     result = subprocess.run(["git", "config", "--get-regexp", r"^credential(\..*)?\.helper$"],

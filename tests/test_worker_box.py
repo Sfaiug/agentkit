@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import sys
 import tempfile
 import time
@@ -43,6 +44,14 @@ if os.environ.get("BOX_PATHS"):
     seen["tokens"] = [os.environ.get(key) for key in (
         "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")]
     seen["pid1_token"] = b"GH_TOKEN=" in Path("/proc/1/environ").read_bytes()
+if os.environ.get("BOX_AGENT"):
+    import socket
+    agent = socket.socket(socket.AF_UNIX)
+    try:
+        agent.connect(os.environ["SSH_AUTH_SOCK"])
+        seen["agent"] = True
+    except OSError:
+        seen["agent"] = False
 if os.environ.get("BOX_INSPECT"):
     (Path.home() / ".codex").mkdir(exist_ok=True)
     (Path.home() / ".codex/fixture").write_text("harness write")
@@ -104,7 +113,8 @@ class WorkerBox(unittest.TestCase):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "GH_CONFIG_DIR",
                     "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "BOX_LEAK", "BOX_NEST", "BOX_HANG",
-                    "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS", "BOX_SIGNAL", "BOX_TERM"):
+                    "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS", "BOX_SIGNAL", "BOX_TERM", "BOX_AGENT",
+                    "SSH_AUTH_SOCK"):
             os.environ.pop(key, None)
         self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
         # The only real child is our fixture. No marker sweep may inspect the hosting run.
@@ -191,6 +201,26 @@ class WorkerBox(unittest.TestCase):
         self.assertFalse(seen["pid1_token"])
         self.assertEqual(login.read_text(), "fixture-login")
         self.assertEqual(store.read_text(), "fixture-store")
+
+    def test_ssh_keys_and_agent_are_out_of_reach(self):
+        key = self.root / ".ssh/id_fixture"
+        key.parent.mkdir()
+        key.write_text("fixture-key")
+        # AF_UNIX paths are short; the checkout path may not be.
+        short = tempfile.TemporaryDirectory(prefix="ak-agent-")
+        self.addCleanup(short.cleanup)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(listener.close)
+        sock = Path(short.name) / "agent"
+        listener.bind(str(sock))
+        listener.listen(1)
+        with patch.dict(os.environ, {"SSH_AUTH_SOCK": str(sock), "BOX_AGENT": "1",
+                                     "BOX_PATHS": json.dumps([str(key)])}):
+            code, text, _, killed, _ = self.turn()
+        self.assertEqual((code, killed), (0, False))
+        seen = json.loads(text)
+        self.assertEqual((seen["paths"], seen["agent"]), ([""], False))
+        self.assertEqual(key.read_text(), "fixture-key")
 
     def test_files_writes_identity_environment_and_exit_status_stay_the_same(self):
         with patch.dict(os.environ, {"BOX_LEAK": "0", "BOX_INSPECT": "1", "BOX_EXIT": "7",
