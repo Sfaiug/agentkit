@@ -55,8 +55,8 @@
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`,
-  `tally`) and a seat's last column, for watch, run, orch, notify, statusbar. Leaks:
-  provider colour and name tables; reads `usage.json` itself.
+  `tally`) and a seat's last column and live runs (`seat_runs`), for watch, run, orch, notify,
+  statusbar. Leaks: provider colour and name tables; reads `usage.json` itself.
 - `statusbar.py`: a seat's two tmux status lines; for orch, watch.
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,
   manifests, seat records, rename chain, `SEAT_FILES`, child env. Used by nearly everything.
@@ -80,8 +80,8 @@
   up into menu, run, watch and orch.
 - `update.py`: `[update]` upgrades, rollback; `go_live` once `tests/live.sh` passed.
   Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
-- `history.py`: SQLite `history.db` of runs/steps.
-  `ended_runs` for scoreboard. For run, gate, menu, harness. Leak: harness event logs.
+- `history.py`: SQLite `history.db` of runs and steps; `ended_runs` for the scoreboard.
+  For run, gate, harness. Leak: parses harness event logs.
 - `scoreboard.py`: two weeks of work, ak's cost, committed size, words and wrapping.
   `compute`, `render` for run history.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree

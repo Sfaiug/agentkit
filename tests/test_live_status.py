@@ -3,9 +3,9 @@
 A hook event has the seat looked at again at once, off the harness's path, and the word goes to
 the seat's record and its bar through the one writer; an open menu draws again within two
 seconds of a record's word moving, off an mtime and never a pane capture.  The bar names who
-orchestrates, tmux cuts it on each client, and neither the row nor the bar says when the work
-will finish.  Offline: a fake tmux (a callable in-process, a script on PATH for the hook's own
-process), fake captures and a throwaway HOME; no tmux server is ever started.
+orchestrates and tmux cuts it on each client.  Offline: a fake tmux (a callable in-process, a
+script on PATH for the hook's own process), fake captures and a throwaway HOME; no tmux server is
+ever started.
 """
 
 from contextlib import ExitStack, redirect_stdout
@@ -27,7 +27,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, history, menu, orch, statusbar, terminal, watch  # noqa: E402
+from agentkit import config, menu, orch, statusbar, terminal, watch  # noqa: E402
 
 # The hook's own process asks tmux through PATH, so this stands in for the server: one marked
 # seat on the suite's socket, which lives at /fake/agentkit-test, whose pane is %7, a capture as
@@ -469,23 +469,25 @@ class LiveStatus(unittest.TestCase):
                 # the bar is the row's own values, word and last column alike
                 self.assertEqual(bar, statusbar.lines(
                     "herdr", "opus", statusbar.company(self.cfg, "opus"), info["word"],
-                    menu._last_text(info))[:2])
+                    menu.last_column(info["word"], info["sentence"], *info["bar"], info["runs"],
+                                     statusbar.CELLS, tmux=True))[:2])
                 self.assertEqual(self.options["set-titles-string"], f"herdr · {word}")
 
     # --- the bar names who orchestrates ------------------------------------------
 
     def test_the_bar_names_who_orchestrates(self):
         claude = statusbar.company(self.cfg, "opus")
+        tasks = menu.last_column("working", "", 4, 8, (), statusbar.CELLS, tmux=True)
         self.assertEqual(
-            drawn(statusbar.lines("ak-verification", "opus", claude, "working",
-                                  "tasks ████░░░░ 4/8")[0]),
-            " ▐● working▌  ak-verification  opus orchestrates   tasks ████░░░░ 4/8")
+            drawn(statusbar.lines("ak-verification", "opus", claude, "working", tasks)[0]),
+            f" ▐● working▌  ak-verification  opus orchestrates   {drawn(tasks)}")
+        self.assertIn(" 4/8 ", drawn(tasks))
         # through the one writer, from the session record's orchestrator
         self.plan(4, 8)
         statusbar.redress(dict(self.seat, repo=self.repo),
                           {"word": "working", "reason": "", "since": None}, cfg=self.cfg)
         self.assertEqual(drawn(self.options[statusbar.TOP]),
-                         f" ▐● working▌  herdr  opus orchestrates   tasks {terminal.progress_bar(4, 8)}")
+                         f" ▐● working▌  herdr  opus orchestrates   {drawn(tasks)}")
         # before its first word a seat's bar is who is in it, as it always was
         self.assertEqual(drawn(statusbar.lines("herdr", "opus", claude)[0]),
                          " herdr  opus orchestrates")
@@ -506,19 +508,6 @@ class LiveStatus(unittest.TestCase):
         self.assertEqual(drawn(statusbar.lines("herdr", "opus", "#D97757", "done", "shipped")[1]),
                          "  shipped")
 
-    # --- no estimate of when the work will finish -------------------------------------
-
-    def test_no_row_and_no_bar_says_when_the_work_will_finish(self):
-        # the owner took estimates off every screen: the tasks bar and its count are progress
-        self.plan(3, 8)
-        self.hook("UserPromptSubmit")
-        _, row = self.row()
-        bar = f"tasks {terminal.progress_bar(3, 8)}"
-        self.assertTrue(terminal.plain(row).rstrip().endswith(bar), row)
-        self.assertTrue(drawn(self.options[statusbar.TOP]).endswith(bar))
-        for module, name in ((menu, "seat_estimate"), (menu, "ESTIMATE_EVERY"),
-                             (history, "estimate_seconds")):
-            self.assertFalse(hasattr(module, name), name)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

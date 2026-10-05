@@ -1,11 +1,13 @@
 """A seat's bar draws what it says as it was said: a `#`, a `%` or a `#{…}` in a question, a
-summary, a tasks bar or a seat's name is text, never a format, a style or a time.
+summary or a seat's name is text, never a format, a style or a time, and a tasks bar keeps
+every cell.
 
 Runs tmux itself: the seat on a server of its own, and a client attached to it in a pane of a
 second server, whose screen is read back as a person would see it.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -14,7 +16,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import orch, statusbar
+from agentkit import menu, orch, statusbar
 
 SAID = "## heading, a ## b, ### c, 50% at %H, #{session_name} and #[bold] end #"
 
@@ -58,11 +60,15 @@ class AsWritten(Sandbox):
             statusbar._write("fix-api", "fable", word, SAID, self.cfg)
             self.assertIn("  " + SAID + " ", self.screen(SAID)[1], word)
 
-    def test_b_a_tasks_bar_drawn_in_hashes_keeps_every_cell(self):
-        bar = "tasks ####---- 4/8"
-        statusbar._write("fix-api", "fable", "working", bar, self.cfg)
-        self.assertTrue(self.screen(bar)[0].rstrip().endswith("fable orchestrates   " + bar),
-                        self.screen(bar))
+    def test_b_a_tasks_bar_keeps_every_cell(self):
+        for lang in ("C.UTF-8", "C"):
+            with self.subTest(lang=lang), patch.dict(os.environ, {"LANG": lang, "LC_ALL": lang}):
+                bar = menu.last_column("working", "", 4, 8, (), statusbar.CELLS, tmux=True)
+                cells = re.sub(r"#\[[^\]]*\]", "", bar)
+                self.assertEqual(len(cells), statusbar.CELLS)
+                statusbar._write("fix-api", "fable", "working", bar, self.cfg)
+                line = self.screen(" 4/8 ")[0].rstrip()
+                self.assertTrue(line.endswith("fable orchestrates   " + cells.rstrip()), line)
 
     def test_c_a_seat_s_window_title_keeps_its_name_as_it_is(self):
         # a seat made by hand on ak's server keeps whatever name it was given

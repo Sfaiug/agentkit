@@ -44,7 +44,7 @@ is indented.
 Example:
 `your projects · 1 needs you`
 `atoll`
-`  1  atoll-fix  fable  ● working  tasks ██░░░ 2/5`.
+`  1  atoll-fix  fable  ● working  ████▒▒░░░░ 2/5`.
 
 ## The menu at rest
 
@@ -79,7 +79,7 @@ a heading seats sort needs you, then working, then done, then by name, and
 numbers stay global by seat name. The seat row's last column is the reason for
 `needs you` and `done` -- `session closed: press 2 to reopen`, the question
 the seat asked, `waiting for you`, the done summary's first line -- and for
-`working` the tasks bar (`tasks ██░░░ 2/5`) from the session's plan,
+`working` the tasks bar (see Rows are tables) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
 from (the newest wins), else from its unfinished jobs' tasks, else empty --
 except for a run recorded in the line to land: its seat shows `waiting · 3rd in line to land on main`.
@@ -384,27 +384,45 @@ Fixed columns with two-space gutters, sized once per draw from the rows on
 screen: number, name, orchestrator, state (glyph and word in the state's
 colour), and one last column. The last column takes all the remaining width;
 it wraps once at a word onto an indented continuation and is cut with ` …`
-only past that. Columns use gutters, never ` · `. Never cut inside a
+only past that. A row with fewer than ten cells left puts it on the indented
+line alone, cut there, so no line runs past the screen. Columns use gutters, never ` · `. Never cut inside a
 glyph or a colour sequence. No rendered line keeps trailing space: cell pads
 land outside the colour escapes and every row is rstripped, so the snapshots
 never pin invisible whitespace. The usage bars are one column, sized once per
 draw from the row that has the least room.
 
+A working seat's tasks bar takes all the room its last column has, never under
+8 cells, and is never wrapped or cut: one too long for the column, or a row with
+fewer than ten cells left, puts it whole on the indented line under its row. Merged tasks fill solid in the state's colour;
+each live run of the seat (`menu.seat_runs`) fills part of the next slot by its
+step -- building ¼, checks ½, review ¾, landing ⅞ -- dotted (`▒`), and a run on
+its last round turns its slot red. A tick (`▏`) parts the tasks while each has two cells or
+more; a plan with more tasks than that gives each task in flight a cell of its
+own, those on their last round first when not all fit. The `done/total` count
+is a chip of bold dark text on the fill, ending at the fill's head, or just past
+the tasks in flight while the fill is shorter; where neither has room it follows
+a bar that much shorter, so it never covers a task in flight.
+The bar carries its own background, as a seat's state chip does, so it reads
+on either background; without colour it is `███▒▒░░░ 3/8`, `###==--- 3/8`
+without UTF-8. A seat's tmux bar draws the same bar in 24 cells. No screen
+says when a seat's work will finish: its progress is its tasks bar and its count.
+
 Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`, `terminal.cells`,
 `terminal.plain`, `terminal.styled`, `terminal.state_text`,
-`terminal.state_colour`, `terminal.progress_bar`.
+`terminal.state_colour`, `terminal.plan_bar`, `menu.seat_runs`.
 
-Example: `  1  atoll-fix  fable  ● working  tasks ██░░░ 2/5`.
+Example: `  1  atoll-fix  fable  ● working  ████▒▒░░░░ 2/5`.
 
 ## Narrow screens
 
 Under 60 columns a seat row is two lines (number, name, orchestrator and
-state, then the last column indented under it). The plan bar shortens to 4
-cells. No column ever lands alone on a line.
+state, then the last column indented under it). The tasks bar takes that
+line's room and never more; a line too short for a cell of it beside its count
+shows the count alone. No column ever lands alone on a line.
 
 Example at 40 columns:
 `  1  atoll-fix  fable  ● working`
-`    tasks ██░░ 2/4`.
+`    ████████████████▒▒▒▒▒▒░░░░░░░░░░ 2/4`.
 
 ## Height
 
@@ -539,11 +557,12 @@ terminal, under `NO_COLOR` or at eight colours: there the dot stands still.
 News moves once and is then still, on the same clock. A row that turns
 `needs you` gives its `!` two soft pulses toward the light, 600 ms in all; one
 that turns `done` has its `✓` appear bright and settle to `done`'s colour over
-400 ms. A usage or tasks bar whose value changes glides to it over 300 ms, an
-eighth of a cell at a time, each cell on its own, and its last frame is the bar
-as drawn; a task bar's newly filled block lights briefly, and a bar whose value
-reaches full -- even one its rounding drew full already -- then sends one light
-across it, left to right, the only light on it. Only a change seen while the
+400 ms. A usage bar whose value changes glides to it over 300 ms, an eighth of
+a cell at a time, each cell on its own, and its last frame is the bar as drawn;
+one whose value reaches full -- even one its rounding drew full already -- then
+sends one light across it, left to right, the only light on it. A seat's tasks
+bar does not glide: its runs' steps move it often, and each draw shows it as it
+is. Only a change seen while the
 menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
 `forget`). The pointer coming onto a usage row is news the same way: one light

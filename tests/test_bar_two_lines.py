@@ -1,8 +1,8 @@
 """A seat's status bar is two lines in ak's colours, and opens with its state.
 
 Line one: the state as a chip in dark bold text on that state's colour, the seat's name in
-bold, `<model> orchestrates` in the model's company colour, and a working seat's tasks bar
-without an estimate.  Line two: why it needs you or is done, the key at its right end.  The
+bold, `<model> orchestrates` in the model's company colour, and a working seat's tasks bar,
+its own colours in it.  Line two: why it needs you or is done, the key at its right end.  The
 height is two on every write, so a seat dressed with one line gets its second at its next
 redraw and no pane resizes after; the bar is statusbar.py's alone, and no
 `@ak_runs` tally is left.  Offline: a temporary HOME, `orch.tmux_out` patched; no tmux runs.
@@ -87,16 +87,18 @@ class TwoLines(Sandbox):
             self.assertEqual(socket, "agentkit-test")
             self.assertEqual(args[:3], ("set-option", "-t", "=fix-api:"))
 
-    def test_b_a_working_seat_opens_with_its_chip_and_draws_its_tasks_bar_without_an_estimate(self):
+    def test_b_a_working_seat_opens_with_its_chip_and_draws_its_tasks_bar(self):
         self.plan(2, 5)
         self.going()
         self.assertEqual(watch.announce_state(self.seat, cfg=self.cfg)["word"], "working")
         top = self.options[statusbar.TOP]
         self.assertTrue(top.startswith(f" #[fg=#89b4fa]▐{self.chip('working')}"), top)
-        bar = f"tasks {terminal.progress_bar(2, 5)}"
-        self.assertEqual(drawn(top), f" ▐● working▌  fix-api  fable orchestrates   {bar}")
-        info = menu.v5o_seat_info(self.cfg, 1, self.seat, menu.run_records(), {}, {}, NOW)
-        self.assertEqual(menu._last_text(info), bar)                 # the row says the same
+        # the run going is a quarter into the third task; the bar keeps its own colours
+        bar = menu.last_column("working", "", 2, 5, [menu.seat_runs("fix-api")[0]],
+                               statusbar.CELLS, tmux=True)
+        self.assertTrue(top.endswith(f"orchestrates#[default]   {bar}"), top)
+        self.assertIn(f"#[fg={INK},bg=#89b4fa,bold] 2/5 ", bar)
+        self.assertEqual(drawn(top), f" ▐● working▌  fix-api  fable orchestrates   {drawn(bar)}")
         self.assertNotIn("left", top)
         self.assertEqual(self.options[statusbar.WHY], "")
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
@@ -111,6 +113,16 @@ class TwoLines(Sandbox):
         # `#` doubled, so tmux draws it as it was said; a `%` is text as it is
         self.assertEqual(why, "  Merge 50% of ##75 first?")
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
+
+    def test_c2_a_seat_waiting_to_land_names_its_target_as_text(self):
+        # a branch may hold what tmux would read as a format, a command or a time
+        target = "release/#{session_name}#(true)%Y"
+        statusbar.redress(self.seat, {"word": "working",
+                                      "reason": f"waiting · 3rd in line to land on {target}"},
+                          cfg=self.cfg)
+        top = self.options[statusbar.TOP]
+        self.assertTrue(top.endswith("   waiting · 3rd in line to land on "
+                                     "release/##{session_name}##(true)%Y"), top)
 
     def test_d_a_done_seat_carries_its_summary_and_the_close_key(self):
         top, why, key, title = statusbar.lines("fix-api", "fable", "#D97757", "done",

@@ -22,7 +22,7 @@ no project
 
 atoll
   1  atoll-job    fable  ● working
-    tasks ██░░ 3/7
+    ██████████████▒░░░▒░░░░░░░░░░░░░ 3/7
   2  atoll-solo   fable  ● working
 
   n new   x stop   c config   esc leave

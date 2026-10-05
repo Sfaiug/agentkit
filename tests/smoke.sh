@@ -5403,7 +5403,7 @@ assert any(line == "atoll" for line in lines), lines
 assert not any("seats" in line for line in lines), lines
 assert any("your projects" in line for line in lines), lines
 row = next(line for line in lines if "atoll-fix" in line)
-assert "fable" in row and "working" in row and "tasks " in row and "2/5" in row, row
+assert "fable" in row and "working" in row and row.endswith(" 2/5"), row   # the tasks bar's count
 assert not any("Teach the menu" in line for line in lines), lines
 assert not any("Smoke" in line or SMOKE in line for line in lines), lines
 status = io.StringIO()
