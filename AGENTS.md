@@ -93,3 +93,4 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - ak never spends a usage-limit reset on its own; the owner spends one by hand, from the Providers row of `c`. [2 Oct]
 - No screen estimates when work will finish; a seat's progress is its tasks bar and its count, never a percentage. [2 Oct]
 - A seat's live runs are named on one line only, its live line (the seat bar's second line, and under the highlighted dashboard row): task id, what it is doing, the model doing it. No other row names a run. [18 Sep, 2 Oct]
+- `~/code` holds only the owner's checkouts: a seat builds in a checkout under `~/.agentkit/wt/`, and ak removes it once its pull request merged and GitHub holds all of it. Seats' worktrees in `~/code` showed as projects and were never cleaned. [5 Oct]

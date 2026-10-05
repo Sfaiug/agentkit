@@ -251,9 +251,10 @@ class GcSweep(Sandbox):
         self.git(sandbox, "worktree", "add", "-q", str(smoke), "-b", "ak/smoke")
         shutil.rmtree(sandbox)
         self.aged(smoke, 2 * DAY)
-        # One registered in a repo that is still here, with no run record either.
+        # A detached one registered in a repo that is still here, the way a killed line
+        # leaves its checkout, with no run record either.
         stray = config.WT / "stray"
-        self.git(self.repo, "worktree", "add", "-q", str(stray), "-b", "ak/stray")
+        self.git(self.repo, "worktree", "add", "-q", "--detach", str(stray))
         self.aged(stray, 2 * DAY)
         fresh = config.WT / "fresh"
         self.git(self.repo, "worktree", "add", "-q", str(fresh), "-b", "ak/fresh")
@@ -304,6 +305,41 @@ class GcSweep(Sandbox):
         for wt in (fresh, recent_wt, pending_wt, writing, unreadable):
             self.assertTrue(wt.is_dir(), wt)
         self.assertIn("no eligible artifacts", self.gc())
+
+    def test_a_seats_checkout_goes_only_once_github_holds_all_of_it(self):
+        # A seat's own checkout: on a branch of a repository still here, made by no run.
+        def seat(name):
+            wt = config.WT / name
+            self.git(self.repo, "worktree", "add", "-q", str(wt), "-b", "seat/" + name)
+            (wt / "tracked").write_text(name + "\n")
+            self.git(wt, "commit", "-qam", name)
+            return wt
+        merged, open_pr, unpushed, dirty, untracked = (
+            seat(name) for name in ("merged", "open", "unpushed", "dirty", "untracked"))
+        (dirty / "tracked").write_text("not committed\n")
+        (untracked / "notes.md").write_text("never added\n")
+        # What git ignores is output, not work.
+        (self.repo / ".git" / "info" / "exclude").write_text(".ak-test-sandbox/\n")
+        (merged / ".ak-test-sandbox").mkdir()
+        (merged / ".ak-test-sandbox" / "left").write_text("a killed test's\n")
+        for wt in (merged, open_pr, unpushed, dirty, untracked):
+            self.aged(wt, 2 * DAY)
+        heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, open_pr, dirty, untracked)}
+        def github(cwd, *args, timeout=None):
+            if args[:2] == ("pr", "list"):
+                return 0, "0" if args[args.index("--head") + 1] == "seat/open" else "1"
+            return (0, "") if args[1].rsplit("/", 1)[-1] in heads else (1, "HTTP 404")
+        with patch.object(run, "gh", side_effect=github):
+            dry = self.gc("--dry-run")
+            self.assertIn(f"gc: would remove orphan-worktree {merged}: a seat's, seat/merged "
+                          "merged", dry)
+            for wt in (open_pr, unpushed, dirty, untracked):
+                self.assertNotIn(str(wt), dry)
+            self.gc()
+        self.assertFalse(merged.exists())
+        self.assertNotIn(str(merged), self.listed(self.repo))
+        for wt in (open_pr, unpushed, dirty, untracked):
+            self.assertTrue(wt.is_dir(), wt)
 
     def test_a_tree_gc_cannot_take_is_reported_once_and_never_again(self):
         if os.geteuid() == 0:

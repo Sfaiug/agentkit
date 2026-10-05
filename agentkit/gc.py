@@ -358,7 +358,9 @@ def stale_worktree(wt, now, paths, left):
 
     One whose run left no record, a day old: a smoke suite's, whose record went with its
     sandbox, or one whose run never wrote its `run.json` -- unless one is being written or
-    somebody is in the run's directory.  A record that cannot be read is still a record.
+    somebody is in the run's directory.  A seat's own checkout goes a day old too, but only
+    once GitHub holds all of it (`seat_branch`, `delivered`).  A record that cannot be read
+    is still a record.
     And a run that passed and whose delivery
     ended without a merge -- the merge failed, or none was asked for -- a week after it
     ended: its branch keeps the commits, and `from:` relaunches from it.  A pass whose
@@ -373,8 +375,13 @@ def stale_worktree(wt, now, paths, left):
     if not retention.present(directory / "run.json"):
         if (not record.writing(directory) and not retention.busy(directory, paths)
                 and retention.expired(wt.lstat().st_mtime, now, retention.EPHEMERAL_AGE)):
-            return {"action": "remove", "kind": "orphan-worktree", "path": str(wt),
-                    "why": "no run record"}
+            seat = seat_branch(wt, directory)
+            if seat is None:
+                return {"action": "remove", "kind": "orphan-worktree", "path": str(wt),
+                        "why": "no run record"}
+            if delivered(wt, *seat):
+                return {"action": "remove", "kind": "orphan-worktree", "path": str(wt),
+                        "why": f"a seat's, {seat[1]} merged"}
         return None
     state = retention.read_json(directory / "run.json")
     finished = (state or {}).get("finished_at")
@@ -387,6 +394,46 @@ def stale_worktree(wt, now, paths, left):
         return {"action": "remove", "kind": "unmerged-worktree", "path": str(wt),
                 "why": f"passed, never merged, ended {int((now - finished) // 86400)} days ago"}
     return None
+
+
+def seat_branch(wt, directory):
+    """(repository, branch, head) when a checkout is a seat's own, else None.
+
+    A seat builds its pull requests in a checkout of its own on a branch of a repository
+    that is still here.  A run's checkout has its run's directory, the line's is detached
+    and a smoke suite's repository went with its sandbox: none of those holds a seat's work.
+    """
+    repo = worktree_repo(wt)
+    if retention.present(directory) or repo is None or not retention.present(repo / ".git"):
+        return None
+    try:
+        ref = retention.read_bytes(retention.git_directory(wt) / "HEAD").decode().strip()
+        if not ref.startswith("ref: refs/heads/"):
+            return None
+        return repo, ref.removeprefix("ref: refs/heads/"), retention.git_ref(
+            retention.git_directory(repo), ref.removeprefix("ref: "))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return repo, None, None
+
+
+def delivered(wt, repo, branch, head):
+    """Whether GitHub holds everything in a seat's checkout: git sees no change and no new
+    file in it (what it ignores is output, not work), the branch's pull request merged, and
+    GitHub has its head commit, which the line may have rebased before merging.  Anything
+    unproven may exist nowhere else."""
+    if not branch or not head:
+        return False
+    code, changed, _ = run.tool_run(["git", "-C", str(wt), "--no-optional-locks", "status",
+                                     "--porcelain"], timeout=60)
+    if code != 0 or changed.strip():
+        return False
+    code, merged = run.gh(repo, "pr", "list", "--head", branch, "--state", "merged",
+                          "--json", "number", "--jq", "length", timeout=60)
+    if code != 0 or merged in ("", "0"):
+        return False
+    code, _ = run.gh(repo, "api", f"repos/{{owner}}/{{repo}}/commits/{head}", "--silent",
+                     timeout=60)
+    return code == 0
 
 
 def stale_worktrees(now, paths):
