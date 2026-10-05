@@ -5,7 +5,6 @@ import io
 import json
 import os
 from pathlib import Path
-import shlex
 import signal
 import subprocess
 import sys
@@ -18,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, host, run, watch, worktrees  # noqa: E402
+from agentkit import config, run, worktrees  # noqa: E402
 
 
 class RepoCleanup(unittest.TestCase):
@@ -117,89 +116,77 @@ class RepoCleanup(unittest.TestCase):
         [line] = self.cleanup_lines(run_dir)
         self.assertIn("timed out", line)
 
-    @unittest.skipUnless(sys.platform == "linux", "orphan reaping needs Linux's subreaper")
-    def test_timed_out_cleanup_kills_children_before_removal(self):
-        import ctypes
-        libc = ctypes.CDLL(None, use_errno=True)
-        previous = ctypes.c_int()
-        self.assertEqual(libc.prctl(37, ctypes.byref(previous), 0, 0, 0), 0)
-        self.assertEqual(libc.prctl(36, 1, 0, 0, 0), 0)
-        self.addCleanup(libc.prctl, 36, previous.value, 0, 0, 0)
-        child_file = self.root / "child.pid"
-        start = f"sleep 30 & echo $! > {shlex.quote(str(child_file))}; wait"
-        # a child of the line's own shell, and one under `timeout`, which makes its own
-        # process group
-        for name, line in (("cleanup-child", f"trap '' TERM; {start}"),
-                           ("cleanup-wrapped", f"timeout 30 bash -c {shlex.quote(start)}; :")):
-            with self.subTest(line=line):
-                child_file.unlink(missing_ok=True)
-                wt, run_dir, state = self.make_run(name, f"---\ncleanup: {line}\n---\n# acme\n")
-                child = None
-                try:
-                    # the first line's child ignores TERM as its shell does: only KILL ends it
-                    with patch.object(worktrees, "CLEANUP_LIMIT", 1), \
-                            patch.object(watch, "STALL_KILL_WAIT", 1):
-                        worktrees.run_repo_cleanup(wt, run_dir)
-                    child = int(child_file.read_text())
-                    deadline = time.monotonic() + .5
-                    while not self.gone(child) and time.monotonic() < deadline:
-                        time.sleep(.02)
-                    self.assertTrue(self.gone(child),
-                                    "cleanup timed out but its child was left running")
-                    self.assertTrue(worktrees.stop_checkout(state, lambda message: None))
-                    self.assertFalse(wt.exists())
-                    [line] = self.cleanup_lines(run_dir)
-                    self.assertIn("timed out", line)
-                finally:
-                    # Adopt and reap only this fixture's orphan, even when the old code leaks it.
-                    if child is None and child_file.exists():
-                        child = int(child_file.read_text())
-                    if child is not None and not self.gone(child):
-                        os.kill(child, signal.SIGKILL)
-                        while not self.gone(child):
-                            time.sleep(.02)
+    def marked(self):
+        """A `sleep` only this test starts: its argument is the marker its processes carry."""
+        marker = f"{30 + int.from_bytes(os.urandom(3), 'big') / 1e7:.7f}"
+        self.addCleanup(self.end_marked, marker)
+        return marker
 
-    def test_an_interrupted_cleanup_takes_its_children_with_it(self):
-        # `ak run stop` or `ak run clean` interrupted while the line runs: the line's tree
-        # goes before the interrupt goes on up, as subprocess.run's kill on any exception did
-        child_file = self.root / "child.pid"
+    @staticmethod
+    def running(marker):
+        """The processes still running whose command line names the marker."""
+        found = []
+        for entry in os.listdir("/proc"):
+            try:
+                if entry.isdigit() and marker.encode() in Path(
+                        f"/proc/{entry}/cmdline").read_bytes():
+                    found.append(int(entry))
+            except OSError:
+                pass
+        return found
+
+    def end_marked(self, marker):
+        for pid in self.running(marker):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+    def assert_none_left(self, marker):
+        deadline = time.monotonic() + 2
+        while self.running(marker) and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertEqual(self.running(marker), [], "cleanup work outlived its line")
+
+    @unittest.skipUnless(sys.platform == "linux", "reads /proc")
+    def test_a_timed_out_cleanup_leaves_nothing_of_its_line_running(self):
+        # a child of the line's shell; one that ignores TERM; one under `timeout`, which
+        # makes its own process group; and one a TERM handler would start
+        for name, line in (
+                ("cleanup-child", "sleep {m} & wait"),
+                ("cleanup-deaf", "trap '' TERM; sleep {m} & wait"),
+                ("cleanup-wrapped", "timeout 30 bash -c 'sleep {m} & wait'; :"),
+                ("cleanup-handler", "trap 'sleep {m} & exit' TERM; sleep {m} & wait")):
+            with self.subTest(line=line):
+                marker = self.marked()
+                wt, run_dir, state = self.make_run(
+                    name, f"---\ncleanup: {line.format(m=marker)}\n---\n# acme\n")
+                with patch.object(worktrees, "CLEANUP_LIMIT", 1):
+                    worktrees.run_repo_cleanup(wt, run_dir)
+                self.assert_none_left(marker)
+                self.assertTrue(worktrees.stop_checkout(state, lambda message: None))
+                self.assertFalse(wt.exists())
+                [line] = self.cleanup_lines(run_dir)
+                self.assertIn("timed out", line)
+
+    @unittest.skipUnless(sys.platform == "linux", "reads /proc")
+    def test_an_interrupted_cleanup_leaves_nothing_of_its_line_running(self):
+        # `ak run stop` or `ak run clean` interrupted while the line runs: the line goes
+        # before the interrupt goes on up, as subprocess.run's kill on any exception did
+        marker = self.marked()
         wt, run_dir, _state = self.make_run(
-            "cleanup-interrupted", "---\ncleanup: "
-            f"sleep 30 & echo $! > {shlex.quote(str(child_file))}; wait\n---\n# acme\n")
+            "cleanup-interrupted", f"---\ncleanup: sleep {marker} & wait\n---\n# acme\n")
 
         def interrupt():
             deadline = time.monotonic() + 10
-            while not child_file.exists() and time.monotonic() < deadline:
+            while len(self.running(marker)) < 2 and time.monotonic() < deadline:
                 time.sleep(.02)
             os.kill(os.getpid(), signal.SIGINT)
 
         threading.Thread(target=interrupt, daemon=True).start()
-        child = None
-        try:
-            with self.assertRaises(KeyboardInterrupt):
-                worktrees.run_repo_cleanup(wt, run_dir)
-            child = int(child_file.read_text())
-            deadline = time.monotonic() + 2
-            while not self.gone(child) and time.monotonic() < deadline:
-                time.sleep(.02)
-            self.assertTrue(self.gone(child), "an interrupted cleanup left its child running")
-        finally:
-            if child is None and child_file.exists():
-                child = int(child_file.read_text())
-            if child is not None and not self.gone(child):
-                os.kill(child, signal.SIGKILL)
-
-    @staticmethod
-    def gone(pid):
-        """Ended: reaped here as this test's orphan, or by its own parent, or a zombie."""
-        try:
-            if os.waitpid(pid, os.WNOHANG)[0] == pid:
-                return True
-        except ChildProcessError:
-            pass
-        stat = host.proc_stat(pid)
-        return stat is None or stat.exited
-
+        with self.assertRaises(KeyboardInterrupt):
+            worktrees.run_repo_cleanup(wt, run_dir)
+        self.assert_none_left(marker)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

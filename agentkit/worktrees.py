@@ -254,11 +254,11 @@ def run_repo_cleanup(wt, run_dir):
                     try:
                         proc.wait(timeout=CLEANUP_LIMIT)
                     except BaseException:
-                        # a timeout or an interrupted caller: the line's whole tree, whatever
-                        # process groups it made (`timeout` makes its own), before the
-                        # checkout goes from under it
+                        # a timeout or an interrupted caller: the line's whole tree goes, as
+                        # its shell alone went to subprocess.run's KILL, before the checkout
+                        # goes from under it
                         from . import watch
-                        if watch.kill_tree(proc.pid, lambda line: fh.write(f"{line}\n")):
+                        if watch.end_tree(proc.pid, lambda line: fh.write(f"{line}\n")):
                             proc.wait()     # an interrupted wait leaves the reaping to no one
                         raise
             except subprocess.TimeoutExpired:

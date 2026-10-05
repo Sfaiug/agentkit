@@ -3790,6 +3790,42 @@ def kill_tree(pid, log=lambda _: None):
     return not left
 
 
+def end_tree(pid, log=lambda _: None):
+    """End that process tree at once, with nothing in it left to act: stop it, then kill it.
+
+    SIGSTOP to every member, read again until a reading holds no new one -- a stopped
+    process starts nothing, so a child forked meanwhile is caught by the next reading --
+    then SIGKILL to all, so no handler of theirs runs. Whatever process group or session a
+    member made, it is still below `pid`; a daemon that left the tree before the first
+    reading is not the tree's. True when none of it is left.
+    """
+    tree = []
+    while True:
+        found = [p for p in descendants(pid) if p != os.getpid() and p not in tree]
+        if not found:
+            break
+        for member in found:
+            try:
+                os.kill(member, signal.SIGSTOP)
+            except OSError:
+                pass
+        tree += found
+    for member in tree:
+        try:
+            os.kill(member, signal.SIGKILL)
+        except OSError:
+            pass
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if all(_gone(member) for member in tree):
+            return True
+        time.sleep(0.05)
+    left = [member for member in tree if not _gone(member)]
+    if left:
+        log(f"WARN {pid}: still alive after KILL: {left[:5]}")
+    return not left
+
+
 def stop_run_scope(state, log=lambda _: None):
     """Stop a run's scope, then whatever it missed by marker; old receipts keep tree cleanup."""
     scope = state.get("scope") if isinstance(state, dict) else None
