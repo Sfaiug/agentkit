@@ -1,16 +1,17 @@
-"""The owner's unsent text reads as a draft however many rows it takes.
+"""ak never types into, or moves, a seat whose composer holds the owner's text.
 
 The draft rule reads the pane's last rows only, so a draft taller than its window puts the
-composer's prompt row above it, and the screen alone reads `at_prompt`: an account move,
-the menu or idle compaction would take the seat for idle with his text in it.  `classify`
-reads the composer whole before it answers `at_prompt`.  Offline: the claude draft capture
-with more lines typed into its composer; never a real seat, pane or ~/.claude.
+composer's prompt row above it, and the seat reads `at_prompt`.  What acts on that word --
+a line typed into the seat, an account move that reopens its pane -- reads the composer
+itself first.  Offline: the claude captures with more lines typed into the composer; never
+a real seat, pane or ~/.claude.
 """
 
 import unittest
+from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import watch
+from agentkit import config, watch
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -29,58 +30,37 @@ def taller(pane, rows):
 
 
 class LongDraft(Sandbox):
-    def test_a_draft_taller_than_the_rule_s_window_is_a_draft(self):
-        pane = watch.pane_tail(taller(DRAFT, 8))
-        self.assertNotEqual(watch.screen_state("claude", pane)[0], "draft")   # past the window
-        live = watch.classify("claude", pane, STOPPED, None, {}, NOW)
-        self.assertEqual((live["state"], live["authority"]), ("draft", "screen"))
-        # ... and what the owner reads is his own text
-        found = watch.session_state(SEAT, NOW, session={"name": SEAT, "attached": False},
-                                    cfg=self.cfg, records=[], live=live, harness="claude",
-                                    auth_out={}, gh_out={}, token_out={}, previous={})
-        self.assertEqual(found["word"], "needs you")
-        self.assertTrue(found["reason"].startswith(
-            "unsent: Fix the login redirect and step 0 of the plan and step 1"), found["reason"])
+    def at_prompt(self, pane):
+        with patch.object(watch, "seat_model", return_value=("claude", "anthropic")), \
+                patch.object(watch, "pane_text", return_value=pane), \
+                patch.object(watch, "live_state",
+                             return_value={"state": "at_prompt", "authority": "screen"}), \
+                patch.object(watch, "_turn_in_flight", return_value=(False, None)):
+            return watch.at_prompt({"name": SEAT}, cfg=self.cfg)
 
-    def test_a_screen_no_rule_reads_as_a_composer_is_no_draft(self):
-        # an empty resume picker: its bright search field reads like text after a prompt mark
-        picker = (FIX / "muse-title-resume-pane.txt").read_text(encoding="utf-8", errors="replace")
-        found = watch.classify("muse", watch.pane_tail(picker), STOPPED, None, {}, NOW)
-        self.assertNotEqual(found["state"], "draft")
+    def test_a_seat_holding_a_draft_taller_than_the_rule_s_window_is_never_typed_into(self):
+        pane = taller(DRAFT, 8)
+        found = watch.classify("claude", watch.pane_tail(pane), STOPPED, None, {}, NOW)
+        self.assertEqual(found["state"], "at_prompt")          # the rule's window misses it
+        self.assertFalse(self.at_prompt(pane))
+        self.assertTrue(self.at_prompt(PROMPT))                # an empty composer takes a line
 
-    def test_a_short_draft_still_reads_by_its_rule(self):
-        found = watch.classify("claude", watch.pane_tail(DRAFT), STOPPED, None, {}, NOW)
-        self.assertEqual((found["state"], found["rule"]), ("draft", "prompt.draft"))
-
-    def test_an_empty_composer_is_still_at_prompt(self):
-        found = watch.classify("claude", watch.pane_tail(PROMPT), STOPPED, None, {}, NOW)
-        self.assertEqual(found["state"], "at_prompt")
-
-
-    def test_a_faint_suggestion_over_two_rows_is_no_draft(self):
-        # faint set on the first row carries on to the next until reset: all of it is a
-        # suggestion or placeholder, nothing the owner typed
-        for harness, name, shown, ghost in (
-                ("claude", "claude-suggestion-pane.txt", "\x1b[39m❯\xa0\x1b[7m \x1b[0m",
-                 "\x1b[39m❯ \x1b[2mTry checking the\n  parser next\x1b[0m"),
-                ("codex", "codex-suggestion-pane.txt",
-                 "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m",
-                 "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to\n  do anything\x1b[0m")):
-            with self.subTest(harness=harness):
-                pane = (FIX / name).read_text(encoding="utf-8", errors="replace")
-                self.assertIn(shown, pane)
-                found = watch.classify(harness, watch.pane_tail(pane.replace(shown, ghost)),
-                                       {}, None, {}, NOW)
-                self.assertEqual(found["state"], "at_prompt")
+    def test_a_seat_holding_one_is_never_moved_to_another_account(self):
+        config.save_session(self.cfg, SEAT, "opus", ["opus"], {"cwd": str(self.root)})
+        provider = config.model(self.cfg, "opus")["provider"]
+        with patch.object(config, "accounts",
+                          side_effect=AssertionError("it went on to move the seat")):
+            self.assertTrue(watch.seat_account(self.cfg, {"name": SEAT}, "claude", provider,
+                                               taller(DRAFT, 8), False, lambda _: None))
 
     def test_text_typed_after_a_faint_reset_is_still_the_owner_s(self):
-        # an empty prompt row with faint padding, then a row that resets and holds typed text:
-        # whatever classify reads, the composer still holds it, so nothing is typed over it
+        # an empty prompt row with faint padding, then a row that resets and holds typed text
         pane = (FIX / "claude-suggestion-pane.txt").read_text(encoding="utf-8", errors="replace")
         shown = "\x1b[39m❯\xa0\x1b[7m \x1b[0m"
         self.assertIn(shown, pane)
         pane = pane.replace(shown, "\x1b[39m❯ \x1b[2m \n\x1b[0m  fix the parser")
         self.assertEqual(watch.composer_draft("claude", pane), "fixtheparser")
+
 
 if __name__ == "__main__":
     unittest.main()

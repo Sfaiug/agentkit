@@ -1473,13 +1473,6 @@ def classify(harness, tail, fact, opened_at, previous, now):
         # not rewritten on every draw.
         state, source, why, evidence, began = "at_prompt", "", "none", \
             "no hook fact and no screen rule matched", None
-    parts = composer_parts(harness, tail) if seen == "at_prompt" and state == "at_prompt" else None
-    if parts and parts[0].strip():
-        # a draft taller than the draft rule's window: the composer a rule found, read whole,
-        # holds the owner's text from its prompt row on -- a faint suggestion or placeholder
-        # leaves that row empty, whatever its rows under it read
-        state, source, why, evidence, began = ("draft", "screen", "composer",
-                                               " ".join(" ".join(parts).split()), None)
     if source and began is None:
         kept = previous.get("began") if previous.get("state") == state else None
         if isinstance(kept, (int, float)) and not isinstance(kept, bool):
@@ -2418,19 +2411,7 @@ def follow_title(session, log=lambda _: None):
 
 
 def composer_draft(harness, pane):
-    """The composer's whole text without whitespace, "" when empty, None where none is found."""
-    text = composer_text(harness, pane)
-    return None if text is None else re.sub(r"\s+", "", text)
-
-
-def composer_text(harness, pane):
-    """The composer's whole text as it reads, "" when empty, None where none is found."""
-    parts = composer_parts(harness, pane)
-    return None if parts is None else " ".join(" ".join(parts).split())
-
-
-def composer_parts(harness, pane):
-    """The composer's text by row, its prompt row first; None where no composer is found.
+    """The composer's whole text without whitespace, "" when empty, None where none is found.
 
     Read on any turn, from its prompt row down to the chrome under it: a wrap or a newline
     puts text on the rows below.  Found the way the draft rule finds it: a queued inbound
@@ -2442,7 +2423,7 @@ def composer_parts(harness, pane):
     if chrome["draft"]:
         # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
         # block of them, and finding none reads as empty.
-        return chrome["draft"].findall("\n".join(rows))
+        return re.sub(r"\s+", "", "".join(chrome["draft"].findall("\n".join(rows))))
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
@@ -2465,7 +2446,7 @@ def composer_parts(harness, pane):
             if boxed and plain.startswith("│") and plain.endswith("│"):
                 plain = plain[1:-1].strip()
             parts.append(plain)
-    return parts
+    return re.sub(r"\s+", "", "".join(parts))
 
 
 def sync_title(session, log=lambda _: None, *, force=False):
@@ -2584,7 +2565,10 @@ def at_prompt(session, cfg=None):
         return False
     if not found.get("authority"):
         return False            # nothing said anything: that is not a prompt, it is silence
-    return found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
+    # a composer holding text is the owner's, whatever a rule's window read: a draft taller
+    # than it reads `at_prompt`, and a line typed now would join it
+    return (found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
+            and not composer_draft(harness, pane))
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *, source="ak"):
@@ -2982,7 +2966,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     live = seat_read(name)
     if (live.get("midturn") or {}).get("line") == ACCOUNT_LINE:
         return True       # its resumed transcript may still show the previous account's refusal
-    if live.get("state") in ("draft", "asking") or owner_question(notify.last(name)):
+    # a move reopens the pane: never over the owner's text, a draft taller than the draft
+    # rule's window included
+    if (live.get("state") in ("draft", "asking") or composer_draft(harness, pane)
+            or owner_question(notify.last(name))):
         return True
     accounts = config.accounts(cfg, provider)
     current = record.get("account") or config.DEFAULT_ACCOUNT
