@@ -271,6 +271,11 @@ class RulesCapTold(unittest.TestCase):
             self.assertTrue(failure.startswith("AGENTS.md is a link"), failure)
             self.assertTrue(run.LOOP_NOTE.match(failure))
             self.assertEqual(run.repo_rules(self.repo, "HEAD"), "")
+        with self.subTest(case="added, no harness limit"), \
+                patch.object(config, "manifests", return_value=iter([("acme", {})])):
+            ok, text = run.verify_work(lp)
+            self.assertFalse(ok, text)
+            self.assertIn("AGENTS.md is a link", text)
         lp.state["base_sha"] = self.git("rev-parse", "HEAD")
         (self.repo / "deliverable").write_text("acme\n")
         self.git("add", "deliverable")
