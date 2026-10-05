@@ -170,13 +170,17 @@ def place(name, project):
     return path if written and holds(path, written) else None
 
 
-def holds(repo, commit):
+def holds(repo, commit, history=None):
     """Does that checkout's repository hold that commit -- the root its line recorded --
-    whichever branch is checked out there?"""
+    whichever branch is checked out there?  With `history`, that revision must descend from
+    it: a remote changed to another repository brings that one's history into the same
+    objects, the old root still among them, so what a check runs on is held to its own."""
     if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
         return False
+    test = (["merge-base", "--is-ancestor", commit, history] if history
+            else ["cat-file", "-e", f"{commit}^{{commit}}"])
     try:
-        return subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{commit}^{{commit}}"],
+        return subprocess.run(["git", "-C", str(repo), *test],
                               capture_output=True, timeout=30, env=git_env(),
                               stdin=subprocess.DEVNULL).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
@@ -370,7 +374,7 @@ def _verify_held(name, every):
                 try:
                     with checkout() as tree:     # its own: never another check's leftovers
                         # the repository the line recorded, in the very tree it runs in
-                        passed = ((not written or holds(tree, written))
+                        passed = ((not written or holds(tree, written, "HEAD"))
                                   and not fails(tree, found["check"], env))
                 except config.Error:
                     passed = False
@@ -450,8 +454,13 @@ def _tick(name, number):
         raise config.Error("only a --eye line can be ticked on the owner's word")
     if not text[at].lstrip().startswith("- [ ]"):
         raise config.Error(f"plan line {number} is already done")
-    line = text[at].replace("- [ ]", "- [x]", 1)
-    text[at] = line + f" · done your yes {time.strftime('%Y-%m-%d %H:%M')}"
+    # a line reopened by hand keeps the done it had: this yes replaces it
+    line = text[at].strip()
+    if found["done"] is not None:
+        line = line[:found.start("done")].removesuffix(" · done ")
+    text[at] = (text[at][:len(text[at]) - len(text[at].lstrip())]
+                + line.replace("- [ ]", "- [x]", 1)
+                + f" · done your yes {time.strftime('%Y-%m-%d %H:%M')}")
     write(name, text)
     return text[at]
 

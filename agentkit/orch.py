@@ -2229,9 +2229,9 @@ def rename(old, new, log=print, *, auto=False):
         if new in (held_names() if target == old else taken_names()):
             raise config.Error(f"the name {new!r} is already spoken for")
         locks.enter_context(notify.session_lock(old))
-        # An old name of this seat follows its pointer to the lock we already hold.
-        if target != old:
-            locks.enter_context(notify.session_lock(new))
+        # An old name of this seat follows its pointer to the lock we already hold, until its
+        # record moves back there: then a writer reaching it takes that name's own lock.
+        locks.enter_context(notify.session_lock(new) if target != old else notify.name_lock(new))
         # A legacy seat stays on its own server when renamed.
         server = seat_socket(session)
         rc, out = tmux_out("rename-session", "-t", f"={old}", new, socket=server)

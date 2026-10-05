@@ -22,7 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, menu, notify, plan, terminal, watch
+from agentkit import config, menu, notify, orch, plan, terminal, watch
 
 
 class PlanLines(Sandbox):
@@ -792,6 +792,48 @@ class PlanLines(Sandbox):
         with patch.object(plan, "default_branch", side_effect=lambda repo: branch(other)):
             self.listed()
         self.assertTrue(self.plan_lines()[0].startswith("- [ ]"))
+
+    def test_a_remote_changed_to_another_repository_never_ticks_the_line(self):
+        # its main is fetched into the same objects, the recorded root still among them
+        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
+        self.other_acme(has_feature=True)
+        self.git("remote", "set-url", "origin", str(self.root / "other-origin.git"))
+        self.listed()
+        self.assertTrue(self.plan_lines()[0].startswith("- [ ]"))
+
+    def test_a_rename_back_to_an_earlier_name_holds_that_name_until_its_files_follow(self):
+        config.rename_session("fix-api", "fix-api-2")       # fix-api is now an old name
+        renaming, real = threading.Event(), config.rename_session
+        got = threading.Event()
+
+        def writer():
+            with notify.session_lock("fix-api"):
+                got.set()
+
+        def moved(old, new):
+            real(old, new)
+            # the record is back at fix-api: a writer reaching that name waits out the rename
+            threading.Thread(target=writer, daemon=True).start()
+            renaming.set()
+            self.assertFalse(got.wait(0.5), "a writer took fix-api while the rename moved it")
+
+        with patch.object(config, "rename_session", side_effect=moved), \
+                patch.object(orch, "find", return_value={"name": "fix-api-2"}), \
+                patch.object(orch, "tmux_out", return_value=(0, "")), \
+                patch.object(watch, "title_record", return_value={}):
+            orch.rename("fix-api-2", "fix-api", log=lambda _line: None)
+        self.assertTrue(renaming.is_set())
+        self.assertTrue(got.wait(10))                       # and takes it once the rename is done
+        self.assertEqual(config.resolve_session("fix-api-2"), "fix-api")
+
+    def test_an_eye_line_reopened_by_hand_is_ticked_with_one_yes(self):
+        self.ak("add", "the hero looks calm", "--eye")
+        self.ak("tick", "1")
+        path = config.plan_path("fix-api")
+        path.write_text(path.read_text().replace("- [x]", "- [ ]", 1))
+        ticked = self.ak("tick", "1").strip()
+        self.assertEqual(ticked.count(" · done "), 1)
+        self.assertFalse(plan.is_open(ticked))
 
     def test_a_hand_kept_line_of_another_shape_keeps_its_box(self):
         config.plan_path("fix-api").write_text("# The plan\n\n- [x] b4 each session sees its project (#359)\n"

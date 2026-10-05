@@ -365,6 +365,20 @@ def session_lock(session):
                 fcntl.flock(fh, fcntl.LOCK_UN)
 
 
+@contextmanager
+def name_lock(name):
+    """The lock file of that very name, never followed to the seat it leads to: a rename back to
+    an earlier name holds it, so a writer reaching that name once its record moves there waits
+    for the files to follow."""
+    config.ensure_dirs()
+    with config.notify_path(name).with_suffix(".lock").open("a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
 def record(session, kind, text, **extra):
     """Remember the last thing a session said, so the menu can show it as the session's state."""
     config.ensure_dirs()
