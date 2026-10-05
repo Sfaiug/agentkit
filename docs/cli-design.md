@@ -423,8 +423,11 @@ and there is no overview page, since the highlight is never on it; in a pipe
 
 One row per provider under `usage left`, one column of bars: the provider's
 display name, the bar and `NN% left` of its **shared** weekly meter -- the one
-every model of it draws on, never a cap one model has to itself -- then, joined
-with ` · ` and each only when it applies: `resets <weekday> <HH:MM>` in local
+every model of it draws on, never a cap one model has to itself -- or, once that
+week is spent, the credits the account still runs on in the percentage's place
+(`62,469 credits left`, `$12.40 credits left`) wherever they fit beside a
+four-cell bar -- then, joined with ` · ` and each only when it applies: the
+credits not standing in the percentage's place; `resets <weekday> <HH:MM>` in local
 time from that meter (`resets 23 Oct` more than six days out in a window longer
 than a week, such as MiMo's 30-day plan; `resets in 3d` when only a duration is
 known); `1 reset in hand` (`2 resets in hand`) while the subscription holds
