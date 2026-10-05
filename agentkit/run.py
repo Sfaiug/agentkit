@@ -2955,6 +2955,17 @@ def record_findings(lp, out, text, submitted=None):
     lp.state["review_records"] = submitted.records
 
 
+def overridden_section(state):
+    """Why the loop failed what the reviewer passed, to lead wherever that review is shown.
+
+    It lives in the round's review record, never in the reviewer's text, whose kept tail
+    a long report would push it out of.
+    """
+    review = state.get("review")
+    why = review.get("overridden") if isinstance(review, dict) else None
+    return f"## Overridden to FAIL\n{why}\n\n" if why else ""
+
+
 def saved_findings(run_dir, state):
     """The last reviewer's whole text, for the fixer that has to work through it.
 
@@ -3802,7 +3813,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.log(f"WARN {overridden}; overriding to FAIL")
     if ok is False and verdict == "PASS":
         verdict = "FAIL"
-        overridden = "the reviewer said PASS while done-when is failing"
+        # the check that failed, by name: the reviewer's text says PASS, and it is what is read
+        checks = [line for line in (dw_log or "").splitlines() if LOOP_NOTE.match(line)]
+        overridden = "; ".join(["the reviewer said PASS while done-when is failing", *checks])
         lp.log(f"WARN {overridden}; overriding to FAIL")
     if checkout_changed or (not lp.scratch and (
             commit_identity(lp.wt) != identity or (not lp.state.get("review_pr") and
@@ -6556,6 +6569,8 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
                   entry["summary"], ""]
     if state.get("error"):
         parts += ["## Why this run stopped", "", state["error"], ""]
+    if state["verdict"] != "PASS" and overridden_section(state):
+        parts += [overridden_section(state)]
     if state["verdict"] != "PASS" and state["findings"]:
         parts += ["## Reviewer findings", "", without_followups(state["findings"]), ""]
     if state.get("notes"):
@@ -10174,7 +10189,7 @@ def post_review(lp, url, verdict):
     path = lp.run_dir / "review.md"
     path.write_text(github_body(
         f"agentkit review of {head[:12]} by {lp.reviewer} (run {lp.run_dir.name})\n\n"
-        + lp.findings.strip() + "\n", lp.run_dir.name))
+        + overridden_section(lp.state) + lp.findings.strip() + "\n", lp.run_dir.name))
     how = "COMMENT" if verdict == "PASS" or lp.state.get("own_pr") else "REQUEST_CHANGES"
     owner, repo, number = PR_PARTS.match(url).groups()
     rc, out = gh(lp.run_dir, "api", f"repos/{owner}/{repo}/pulls/{number}/reviews",
@@ -10550,6 +10565,11 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         dw_log = ("(the repository suite runs once at landing; nothing was run in this review round)"
                   if tests else "(AGENTS.md declares no `tests:` command; nothing was run)")
         log(dw_log)
+        # no suite stands in for it, and a PASS on this head is what merges
+        failure = rules_cap(lp)
+        if failure:
+            ok, dw_log = False, f"{dw_log}\n\n{failure}"
+            log(failure)
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
