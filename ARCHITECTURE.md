@@ -92,8 +92,8 @@
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
-- `update.py`: `[update]` upgrades, rollback; `go_live` once `tests/live.sh` passed.
-  Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
+- `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
+  `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
 - `history.py`: SQLite `history.db` of runs and steps; `ended_runs` for the scoreboard.
   For run, gate, harness. Leak: parses harness event logs.
 - `scoreboard.py`: two weeks of work, ak's cost, committed size, words and wrapping.
@@ -124,9 +124,9 @@
 - `adapters/<h>.toml` is the manifest: update, usage, conversation, titles, launch, hooks,
   screen rules, stall/quota/auth/resume words, compact, effort, catalog, contract-check model/effort.
 - `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
-  resume, launch, titles, usage, tokens, `tmp_rule`. `user_messages`: timed owner input
-  without notices or ak typing; `failure`: turn/seat failures in whole `[stall]` words.
-  For orch, usage, update, run, gc, menu, watch. Leak: orch imports `harness.claude`.
+  resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`. `user_messages`: timed
+  owner input without notices or ak typing; `failure`: turn/seat failures in whole `[stall]`
+  words. For orch, usage, update, run, gc, menu, watch. Leak: orch imports `harness.claude`.
 
 ## hooks/, tools/, tests/
 

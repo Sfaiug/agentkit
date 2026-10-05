@@ -332,8 +332,8 @@ return 42
 
     def test_update_skips_unavailable_account_gate_and_still_upgrades(self):
         plan = [{"name": n, "version": [n, "--version"], "upgrade": [n, "install", "latest"],
-                 "revert": [n, "install", update.VERSION_KEY], "env": {}, "cannot": "",
-                 "snapshot_dir": ""} for n in ("claude", "codex")]
+                 "revert": [n, "install", update.VERSION_KEY], "env": {}, "cannot": ""}
+                for n in ("claude", "codex")]
         calls = []
         (Path.home() / "agentkit" / ".git").mkdir(parents=True)
         with patch.object(update, "fresh_unavailable",

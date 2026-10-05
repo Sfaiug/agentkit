@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from test_audit_enforce_harness_update_pins import PinnedHome, muse, REPO
-from agentkit import config, retention, update
+from agentkit import config, harness, retention, update
 
 OLD = "1.1.1-R2514.1"
 NEW = "1.1.1-R2514.2"  # Same semantic release: the build identity must still change.
@@ -174,7 +174,7 @@ printf '%s' "$v" >"$HOME/codex.version"
         root, install, _ = self.layout
         before = contents([root / "bin/muse", *install.iterdir()])
         identity = update.version(muse())
-        with update.MuseSnapshot(muse(), identity) as snapshot:
+        with harness.load("muse").snapshot(muse(), identity, update.version) as snapshot:
             manifest = json.loads((snapshot.path / "manifest.json").read_text())
             assert manifest["identity"] == identity
             assert {e["path"] for e in manifest["files"]} == set(before)
@@ -235,7 +235,8 @@ printf '%s' "$v" >"$HOME/codex.version"
 
     def _check_unsafe_restore_is_refused_before_replacing_any_file(self, unsafe):
         root, install, _ = self.layout
-        with update.MuseSnapshot(muse(), update.version(muse())) as snapshot:
+        identity = update.version(muse())
+        with harness.load("muse").snapshot(muse(), identity, update.version) as snapshot:
             if unsafe == "changed-parent":
                 install.chmod(0o700)
             elif unsafe == "bad-copy":
@@ -283,7 +284,7 @@ printf '%s' "$v" >"$HOME/codex.version"
     def test_concurrent_updates_cannot_snapshot_the_same_install(self):
         root, install, gates = self.layout
         identity = update.version(muse())
-        with update.MuseSnapshot(muse(), identity):
+        with harness.load("muse").snapshot(muse(), identity, update.version):
             rc, output = invoke()
             assert rc == 1
             assert "nothing was upgraded; the gate was not run" in output

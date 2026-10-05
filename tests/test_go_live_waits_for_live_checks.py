@@ -498,7 +498,7 @@ try:
             (self.clone / "tests" / name).write_text("#!/bin/sh\n")
         harness = {"name": "acme", "version": ["acme", "--version"],
                    "upgrade": ["acme", "upgrade"], "revert": ["acme", "install", "{version}"],
-                   "env": {}, "cannot": "", "snapshot_dir": ""}
+                   "env": {}, "cannot": ""}
         installed, ran = ["1.0.0"], []
 
         def step(cmd, fh, env=None, timeout=None, **_kw):
