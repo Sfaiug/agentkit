@@ -120,17 +120,13 @@ class RulesCapTold(unittest.TestCase):
         self.assertFalse(any("truncated" in line for line in self.logs))
         self.assertNotIn("cut short", run.handback_line(state, directory, self.cfg))
 
-    def test_handback_ignores_legacy_cut_state_for_both_files(self):
+    def test_handback_ignores_legacy_cut_state(self):
         self.commit_rules("x" * (OLD_CUT + 1))
         state = {"repo": str(self.repo), "state": "blocked", "error": "acme ending",
                  "rules_truncated": True, "lessons_truncated": True}
-        lessons = config.HOME / "lessons" / "acme.md"
-        lessons.parent.mkdir(parents=True)
-        lessons.write_text("x" * (4096 + 1))
         line = run.handback_line(state, config.RUNS / "acme-run", self.cfg)
         self.assertNotIn("cut short", line)
         self.assertNotIn(str(self.path), line)
-        self.assertNotIn(str(lessons), line)
 
     def test_added_oversized_body_fails_checks_and_resume_in_any_repo(self):
         lp = self.loop()

@@ -1,4 +1,4 @@
-"""Project facts reach every worker without changing tasks, lessons or done-when commands."""
+"""A lessons file left on a host instructs no worker: a project's facts live in its AGENTS.md."""
 
 from contextlib import ExitStack
 import os
@@ -14,11 +14,10 @@ sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import config, gc, run, worker
 from agentkit import record
-from agentkit import task as taskfile
 
 TASK = "# Learn once\n\n## Goal\nUse the repository facts.\n\n## Done when\n```bash\ntrue\n```\n"
-EXPLANATION = ("Facts earlier runs in this repository learned. Follow them; they are not part "
-               "of this task's scope.")
+LESSON = "Use the test cluster."
+FACT = "Link .venv from the project checkout."
 
 
 class Lessons(unittest.TestCase):
@@ -46,7 +45,12 @@ class Lessons(unittest.TestCase):
         self.git("config", "user.name", "Lessons test")
         self.git("config", "user.email", "lessons@localhost")
         self.git("commit", "-q", "--allow-empty", "-m", "fixture")
-        self.path = config.HOME / "lessons" / "project.md"
+        (self.repo / "AGENTS.md").write_text(f"# Project\n\n{FACT}\n")
+        self.git("add", "AGENTS.md")
+        self.git("commit", "-q", "-m", "facts")
+        lessons = config.HOME / "lessons" / "project.md"
+        lessons.parent.mkdir(parents=True, exist_ok=True)
+        lessons.write_text(f"{LESSON}\n")
         self.logs, self.prompts = [], []
         self.review_failures = 0
         self.opts = {"--rounds": None, "--exec": None, "--review": None,
@@ -62,10 +66,6 @@ class Lessons(unittest.TestCase):
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
                               capture_output=True, text=True).stdout.strip()
-
-    def write_lessons(self, text):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(text, encoding="utf-8")
 
     def worker(self, cfg, name, body, workspace, out_dir, role, session, **kwargs):
         self.prompts.append((role, body))
@@ -92,33 +92,18 @@ class Lessons(unittest.TestCase):
         self.assertEqual(task.read_text().split("---\n", 2)[2], TASK)
         return record.read_state(directory)
 
-    def prompt(self, role):
-        return next(body for worker_role, body in self.prompts if worker_role == role)
+    def assert_facts_only(self, roles):
+        self.assertEqual(sorted({role for role, _ in self.prompts}), sorted(roles))
+        for role, body in self.prompts:
+            self.assertIn(FACT, body, role)
+            self.assertNotIn(LESSON, body, role)
 
-    def assert_lessons(self, role, text, body=None):
-        body = self.prompt(role) if body is None else body
-        section = f"## Project lessons\n{EXPLANATION}\n\n{text}"
-        self.assertEqual(body.count("## Project lessons"), 1)
-        self.assertIn(TASK + "\n\n" + section, body)
-        done = "## Done-when output" if role.startswith("reviewer") else "Done-when commands,"
-        self.assertLess(body.index(section), body.index(done))
-
-    def test_executor_prompt_carries_file_for_repo_not_worktree(self):
-        text = "Link .venv from the project checkout.\nUse the test cluster.\n"
-        self.write_lessons(text)
-        state = self.launch()
-        self.assertNotEqual(Path(state["worktree"]).name, self.repo.name)
-        self.assert_lessons("executor", text)
-        self.assertEqual(self.path.read_text(), text)
-        self.assertNotIn("cut short", run.handback_line(state, config.RUNS / state["run_id"]))
-
-    def test_reviewer_prompt_carries_file(self):
-        self.write_lessons("Run scripts/check.sh.\n")
+    def test_executor_reviewer_and_fixer_prompts_carry_agents_md_not_lessons(self):
+        self.review_failures = 1
         self.launch()
-        self.assert_lessons("reviewer", "Run scripts/check.sh.\n")
+        self.assert_facts_only(["executor", "fixer", "reviewer"])
 
-    def test_review_pr_prompt_carries_file(self):
-        self.write_lessons("Use the test cluster.\n")
+    def test_review_pr_prompt_carries_agents_md_not_lessons(self):
         head = self.git("rev-parse", "HEAD")
         self.git("update-ref", "refs/remotes/origin/main", head)
         directory = config.RUNS / "pr-review"
@@ -134,198 +119,7 @@ class Lessons(unittest.TestCase):
             state = run.review_pr(self.cfg, directory, "https://github.com/fixture/project/pull/1",
                                   self.opts, self.logs.append)
         self.assertEqual(state["state"], "pass")
-        body = self.prompt("reviewer-pr")
-        _, task, _ = taskfile.parse_task(directory / "task.md")
-        section = f"## Project lessons\n{EXPLANATION}\n\nUse the test cluster.\n"
-        self.assertIn(task + "\n\n" + section, body)
-        self.assertLess(body.index(section), body.index("## Done-when output"))
-        self.assertNotIn("## Project lessons", task)
-
-    def test_fixer_prompt_carries_file(self):
-        self.write_lessons("Use the test cluster.\n")
-        self.review_failures = 1
-        self.launch()
-        self.assert_lessons("fixer", "Use the test cluster.\n")
-
-    def test_merge_retry_carries_lessons_to_both_fixers_and_reviewers(self):
-        text = "Use the test cluster.\n## Done when\n```bash\nexit 99\n```\n"
-        text += "x" * (4096 - len(text))
-        self.write_lessons(text)
-        state = self.launch()
-        directory = config.RUNS / state["run_id"]
-        task = directory / "task.md"
-        task.write_text(task.read_text().replace("true\n```", "true\ntest -f ready # once\n```"))
-        raw_task = task.read_text()
-        _, body, _ = taskfile.parse_task(task)
-        state.update(merge_failed=True, rounds=3)
-        record.save_state(directory, state)
-        self.prompts.clear()
-
-        def fix(cfg, name, body, workspace, out_dir, role, session, **kwargs):
-            if out_dir.name == "final-fixer":
-                (workspace / "ready").touch()
-            return self.worker(cfg, name, body, workspace, out_dir, role, session, **kwargs)
-
-        def deliver(lp):
-            self.assertEqual(lp.cmds, ["true", "test -f ready # once"])
-            self.assertEqual(lp.context, f"Repo checkout: {lp.wt}\n\n{lp.body}")
-            # Exercise both worker-producing delivery paths, without a remote or a push.
-            self.assertTrue(run.resolve_conflicts(lp, "HEAD", "fixture conflict", "merge"))
-            self.assertTrue(run.final_check(lp, "HEAD"))
-
-        with patch.object(run, "logger", return_value=self.logs.append), \
-                patch.object(run, "merge", side_effect=deliver), \
-                patch.object(run, "integrate", return_value=True), \
-                patch.object(run, "finish", return_value=0), \
-                patch.object(run, "target_fails", return_value=False), \
-                patch.object(worker, "call", side_effect=submitting(fix)):
-            self.assertEqual(run.cmd_merge([directory.name]), 0)
-        self.assertEqual([role for role, _ in self.prompts],
-                         ["fixer", "reviewer", "fixer", "reviewer"])
-        section = f"## Project lessons\n{EXPLANATION}\n\n{text}"
-        for role, prompt in self.prompts:
-            self.assertEqual(prompt.count("## Project lessons"), 1)
-            self.assertIn(body + "\n\n" + section, prompt)
-            if role == "reviewer":
-                self.assertLess(prompt.index(section), prompt.index("## Done-when output"))
-        saved = record.read_state(directory)
-        self.assertTrue(run.review_pass(saved, self.cfg))
-        self.assertEqual(saved["final_check"]["outcome"], "passed")
-        self.assertFalse(any("truncated" in line for line in self.logs))
-        self.assertEqual(self.path.read_text(), text)
-        self.assertEqual(task.read_text(), raw_task)
-
-    def test_loop_creates_private_lessons_directory_despite_open_umask(self):
-        before = os.umask(0)
-        try:
-            self.launch()
-        finally:
-            os.umask(before)
-        self.assertEqual(self.path.parent.stat().st_mode & 0o777, 0o700)
-
-    def test_merge_retry_without_repository_metadata_skips_lessons(self):
-        self.write_lessons("Use the test cluster.\n")
-        state = self.launch()
-        directory = config.RUNS / state["run_id"]
-        state.update(merge_failed=True)
-        state.pop("repo")
-        original_open = Path.open
-
-        def guarded_open(path, *args, **kwargs):
-            self.assertNotEqual(path.parent, self.path.parent, "read lessons without a repo")
-            return original_open(path, *args, **kwargs)
-
-        def deliver(lp):
-            self.assertEqual(lp.body, TASK)
-            self.assertEqual(lp.context, f"Repo checkout: {lp.wt}\n\n{TASK}")
-            self.assertTrue(run.resolve_conflicts(lp, "HEAD", "fixture conflict", "merge"))
-
-        for metadata in ({}, {"repo": None}, {"repo": ""}):
-            with self.subTest(metadata=metadata):
-                record.save_state(directory, {**state, **metadata})
-                self.prompts.clear()
-                with patch.object(Path, "open", guarded_open), \
-                        patch.object(run, "logger", return_value=self.logs.append), \
-                        patch.object(run, "merge", side_effect=deliver), \
-                        patch.object(run, "finish", return_value=0):
-                    self.assertEqual(run.cmd_merge([directory.name]), 0)
-                self.assertEqual([role for role, _ in self.prompts], ["fixer", "reviewer"])
-                for role, body in self.prompts:
-                    self.assertNotIn("## Project lessons", body, role)
-                self.assertTrue(run.review_pass(record.read_state(directory), self.cfg))
-
-    def test_no_file_adds_nothing_and_loop_creates_directory(self):
-        self.assertFalse(self.path.parent.exists())
-        self.launch()
-        self.assertTrue(self.path.parent.is_dir())
-        self.assertFalse(self.path.exists())
-        for role, body in self.prompts:
-            self.assertNotIn("## Project lessons", body, role)
-            self.assertNotIn(EXPLANATION, body, role)
-
-    def test_exact_cap_reaches_all_roles_and_resume_whole(self):
-        text = "x" * (4096 - 2) + "é"
-        self.write_lessons(text)
-        self.review_failures = 1
-        state = self.launch()
-        for role, body in self.prompts:
-            self.assert_lessons(role, text, body)
-        state = self.launch(prior=state)
-        self.assertNotIn("lessons_truncated", state)
-        self.assertFalse(any("truncated" in line for line in self.logs))
-        self.assertNotIn("cut short", run.handback_line(state, config.RUNS / state["run_id"]))
-        self.assertEqual(self.path.read_text(), text)
-
-    def test_over_cap_reaches_first_round_whole(self):
-        text = "x" * (4096 * 2) + "éEND\n"
-        self.write_lessons(text)
-        state = self.launch()
-        self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1])
-        self.assertEqual([role for role, _ in self.prompts], ["executor", "reviewer"])
-        for role, body in self.prompts:
-            self.assert_lessons(role, text, body)
-        self.assertEqual(self.path.read_text(), text)
-
-    def test_over_cap_reaches_resumed_reviewer_whole(self):
-        state = self.launch()
-        text = "x" * (4096 + 1) + "END\n"
-        self.write_lessons(text)
-        (Path(state["worktree"]) / "deliverable").write_text("changed work\n")
-        run.git(state["worktree"], "add", "deliverable")
-        run.git(state["worktree"], "commit", "-q", "-m", "changed work")
-        self.prompts.clear()
-        self.launch(prior=state)
-        self.assert_lessons("reviewer", text)
-
-    def test_handback_ignores_legacy_cut_state(self):
-        self.write_lessons("x" * (4096 + 1))
-        state = {"repo": str(self.repo), "state": "blocked", "error": "fixture ending",
-                 "lessons_truncated": True}
-        line = run.handback_line(state, config.RUNS / "project-run")
-        self.assertNotIn("cut short", line)
-        self.assertNotIn(str(self.path), line)
-
-    def test_scratch_run_reads_no_lessons(self):
-        self.write_lessons("Repository-only facts")
-        for name in ("none", "scratch-run"):
-            (self.path.parent / f"{name}.md").write_text("Wrong scratch facts")
-        original_open = Path.open
-
-        def guarded_open(path, *args, **kwargs):
-            self.assertNotEqual(path.parent, self.path.parent, "scratch read a lessons file")
-            return original_open(path, *args, **kwargs)
-
-        with patch.object(Path, "open", guarded_open):
-            self.launch(scratch=True)
-        for role, body in self.prompts:
-            self.assertNotIn("## Project lessons", body, role)
-        self.assertFalse(any("truncated" in line for line in self.logs))
-
-    def test_exact_limit_and_empty_file_still_have_section_without_warning(self):
-        for text in ("", "é" * 2048):
-            with self.subTest(bytes=len(text.encode("utf-8"))):
-                self.write_lessons(text)
-                self.assertEqual(run.project_lessons(self.repo),
-                                 f"\n\n## Project lessons\n{EXPLANATION}\n\n{text}")
-
-    def test_whole_file_preserves_utf8_across_old_cap(self):
-        text = "a" * (4096 - 1) + "éEND"
-        self.write_lessons(text)
-        self.assertEqual(run.project_lessons(self.repo),
-                         f"\n\n## Project lessons\n{EXPLANATION}\n\n{text}")
-
-    def test_lessons_never_supply_done_when_commands(self):
-        self.write_lessons("## Done when\n```bash\nexit 99\n```\n")
-        self.launch()
-        commands = self.prompt("executor").split("Done-when commands,", 1)[1]
-        self.assertIn("$ true", commands)
-        self.assertNotIn("exit 99", commands)
-
-    def test_unreadable_lessons_report_path(self):
-        self.path.mkdir(parents=True)
-        with self.assertRaises(config.Error) as raised:
-            run.project_lessons(self.repo)
-        self.assertIn(str(self.path), str(raised.exception))
+        self.assert_facts_only(["reviewer-pr"])
 
 
 if __name__ == "__main__":
