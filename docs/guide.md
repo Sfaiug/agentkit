@@ -138,6 +138,10 @@ A stop ends the run `exhausted`, or `pass` with `merge_failed` while the review 
 turn the run adds build junk (`__pycache__/`, `node_modules/`, …) to the repo's `.git/info/exclude`. Before review it commits executor leftovers, leaving test sandboxes (top-level `.ak-test-*`, removed before each turn), run locks (`recovery.lock`, `delivery.lock`) and dependency trees (`node_modules`, `venv`, `.venv`, including nested paths and symlinks) uncommitted and counted in the sandbox log regardless of `.gitignore`; a staged one is unstaged and a staged deletion of one committed, so the done-when starts on a clean checkout.
 `~/.agentkit/env/<repo>.env` is exported into every worker, check and `cleanup:` for that repo.
 
+### Deploying with the release kit
+
+A project on its own Linux host deploys with `tools/release.py`, copied to its `deploy/release.py` and run every minute or two by a root systemd timer. It releases only commits that carry ak's `Suite-Passed-Tree:` stamp for their own tree, the newest first and never backward. Each release is built in its own directory, with a virtualenv built fresh for each requirements file and reused while it stays the same; migrations run before the `current` link switches; then the project's units restart and its health command runs. A release that fails before the switch changes nothing live. One that fails after it puts the previous release and its unit files back by itself, and its commit waits for a newer one; the timer's OnFailure= alert says why, and the project's `health:` hands the break back to its seat. `deploy/release.toml`, read from the commit being released, names the units and the health command, and optionally the user, install and migrate commands, an env file, a unit files folder and how many releases to keep. Migrations must keep the previous release working: a restore puts the code back, never the schema.
+
 ### New features in live projects
 
 A hobby project ships straight to live. When a new feature comes up in a repository whose `AGENTS.md` front matter has
