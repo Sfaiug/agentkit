@@ -1782,9 +1782,10 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       login no harness owns, and is said only on the seats whose runs cannot push without it;
     * a worker token dies within a fortnight or is dead -- every session says so, on any
       harness, because any seat's next turn on it can be the one that fails;
-    * a question on its screen is him even during a turn; so is typed text nobody sent while
-      no client is attached and no turn is in flight -- the question, or `unsent: <text>` --
-      whatever its runs do;
+    * a question on its screen is him even during a turn, and so is one it asked with `ak
+      notify needs` that nothing has answered; so is typed text nobody sent while no client
+      is attached and no turn is in flight -- the question, or `unsent: <text>` -- whatever
+      its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
@@ -1794,8 +1795,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * nobody is in the seat any more and its number is the way back in;
     * it said it was done itself, a job never says it for it, and nothing on its screen asks him
       -- unless a run of its own still sits parked and undecided, which is him;
-    * otherwise it is at its prompt with nothing running, which is him again -- with the
-      question it asked, or the draft it never sent, for a reason.
+    * otherwise it is at its prompt with nothing running, which is him again -- with a
+      watcher's alert, the question on its screen, or the draft it never sent, for a reason.
 
     An ended run is its orchestrator's business: the run hands its ending back to the seat
     that launched it, so no reason ever names a run or sends him to one -- unless the
@@ -2002,6 +2003,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
                 "since": found.get("began")}
+    # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
+    # asks, then gets on with the work that does not wait on the answer, so neither its runs
+    # nor its turn going says he was not asked.  A seat nobody is in names its number below,
+    # and a watcher's own alert about the seat waits for its prompt (rung 6).
+    last = notify.last(name)
+    if not gone and last and last["kind"] == "needs" and not last.get("watcher"):
+        return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
+                "since": last.get("time")}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
     # is the exception, as in the stop hook's `parked`: `going` counts it, but only
     # `ak run resume` moves one, so rung 3 has it.
@@ -2106,7 +2115,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         told = " ".join(restart.split()) if isinstance(restart, str) else ""
         return {"word": "needs you", "since": None,
                 "reason": f"{reason} · {told}" if told else reason}
-    last = notify.last(name)
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
     # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
     # seat's own standing until a newer notice, but a question on its screen, or typed text
@@ -2134,7 +2142,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                     f"run {run_dir.name} parked: {run_mod.handback_reason(state)}"}
         line = next((piece for piece in str(last["text"]).splitlines() if piece.strip()), "")
         return {"word": "done", "reason": " ".join(line.split()), "since": last.get("time")}
-    # 6. at its prompt with nothing running: the question it asked, or nothing at all
+    # 6. at its prompt with nothing running: a watcher's alert, or nothing at all
     if last:
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time")}

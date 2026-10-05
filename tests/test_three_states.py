@@ -294,6 +294,24 @@ class ThreeStates(Sandbox):
         self.assertEqual((found["word"], found["reason"]),
                          ("needs you", "Claude needs your permission to use Bash"))
 
+    def test_g_a_question_it_asked_is_his_while_its_runs_and_turn_go_on(self):
+        # it asks, then gets on with the work that does not wait on the answer: a run going
+        # and a turn in flight say nothing about whether he was asked
+        self.receipt("20260101-0900-first", state="running", finished_at=None,
+                     started_at=NOW - 900, title="Rebuild the dashboard filters")
+        self.fact("UserPromptSubmit", at=NOW - 720)
+        self.assertEqual(self.decide()["word"], "working")
+        notify.record("atoll", "needs", "Which of the two schemas should it read?")
+        found = self.decide()
+        self.assertEqual((found["word"], found["reason"]),
+                         ("needs you", "Which of the two schemas should it read?"))
+        # his answer ends it, and the seat reads as its work says again
+        notify.answered("atoll", time.time() + 1)
+        self.assertEqual(self.decide()["word"], "working")
+        # a watcher's alert about the seat waits for its prompt, as it always did
+        notify.record("atoll", "needs", "stuck with no progress for an hour", watcher=True)
+        self.assertEqual(self.decide()["word"], "working")
+
     # --- and the screens that read it ---------------------------------------
 
     def test_h_the_menu_top_line_counts_only_needs_you(self):
