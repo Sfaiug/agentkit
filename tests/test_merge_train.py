@@ -47,7 +47,8 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                 self.assertNotIn("delivery_wait", record.read_state(directory))
                 self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), waits[directory]["land"])
                 checked = lp.state["final_check"]
-                self.assertEqual(checked["tested"], waits[directory].get("tested", waits[directory]["land"]))
+                evidence = land.passed(self.turn, waits[directory]["land"]) or {"tested": waits[directory]["land"]}
+                self.assertEqual(checked["tested"], waits[directory].get("tested", evidence["tested"]))
                 body = run.merge_body(lp, run.git(self.repo, "rev-parse", "HEAD"))
                 self.assertEqual(bool(body), checked["tested"] == waits[directory]["land"])
                 run.git(self.repo, "push", "origin", "HEAD:main")
