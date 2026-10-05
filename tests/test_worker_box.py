@@ -293,6 +293,44 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual(json.loads(text)["paths"], [""] * len(paths))
         self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * len(paths))
 
+    def test_a_relative_home_hides_the_keys_where_the_turn_reads_them(self):
+        # The turn resolves HOME=home in its own directory, not in the launcher's.
+        key = self.root / "home/.ssh/id_fixture"
+        key.parent.mkdir(parents=True)
+        key.write_text("fixture-key")
+        read = ("from pathlib import Path; key = Path.home() / '.ssh/id_fixture'; "
+                "print(key.read_text() if key.exists() else '')")
+        for walls in (True, False):
+            with self.subTest(walls=walls), patch.dict(os.environ, {"HOME": "home"}):
+                with box.command([sys.executable, "-c", read], dict(os.environ), cwd=self.root,
+                                 walls=walls) as (cmd, env, _):
+                    result = subprocess.run(cmd, env=env, cwd=self.root, capture_output=True,
+                                            text=True, timeout=10)
+                self.assertEqual((result.returncode, result.stdout.strip()), (0, ""), result.stderr)
+        self.assertEqual(key.read_text(), "fixture-key")
+
+    def test_a_directory_that_hides_its_links_refuses_the_box(self):
+        ssh, keys = self.root / ".ssh", self.root / "keydir"
+        ssh.mkdir()
+        keys.mkdir()
+        (self.root / "id_outside").write_text("fixture-key")
+        (ssh / "keys").symlink_to(keys)
+        for closed in (ssh, keys):
+            (closed / "id_linked").symlink_to(self.root / "id_outside")
+            self.addCleanup(closed.chmod, 0o700)
+            with self.subTest(directory=closed.name):
+                # Entered but not listed: its links reach keys the box cannot find.
+                closed.chmod(0o111)
+                with self.assertRaisesRegex(config.Error, f"chmod u\\+r {closed}"):
+                    with box.command(["true"], dict(os.environ)):
+                        pass
+                # Not even entered: nothing is readable through it.
+                closed.chmod(0)
+                code, _, _, killed, _ = self.turn()
+                self.assertEqual((code, killed), (0, False), self.logs)
+                self.stop_child()
+                closed.chmod(0o700)
+
     def test_files_writes_identity_environment_and_exit_status_stay_the_same(self):
         with patch.dict(os.environ, {"BOX_LEAK": "0", "BOX_INSPECT": "1", "BOX_EXIT": "7",
                                      "FIXTURE_PROVIDER_TOKEN": "fixture-provider"}):

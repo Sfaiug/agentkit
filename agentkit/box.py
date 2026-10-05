@@ -31,16 +31,28 @@ SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 
 def _links(root):
     """Every link reachable from root, through linked directories too, each directory once."""
+    from . import config
     found, seen, pending = [], set(), [Path(root)]
     while pending:
         directory = pending.pop()
         try:
             real = directory.resolve(strict=True)
-            entries = [] if real in seen else list(os.scandir(directory))
         except (OSError, RuntimeError):
-            # Missing, looping, unreadable or not a directory: nothing readable through it.
+            # Missing, looping or behind a closed directory: nothing readable through it.
+            continue
+        # Nothing is readable through a directory that cannot be entered.
+        if real in seen or not os.access(real, os.X_OK):
             continue
         seen.add(real)
+        try:
+            entries = list(os.scandir(directory))
+        except PermissionError:
+            # Its files open by name, and the links among them reach keys nobody can list.
+            raise config.Error(f"{real} can be entered but not listed, so the worker box "
+                               f"cannot hide the keys it links to; run `chmod u+r {shlex.quote(str(real))}`")
+        except OSError:
+            # Not a directory.
+            continue
         for entry in entries:
             if entry.is_symlink():
                 found.append(Path(entry.path))
@@ -53,16 +65,18 @@ def _links(root):
 
 
 def _credentials(env, cwd):
-    homes = {Path(env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
+    # The turn reads a relative path in its environment from its own directory.
+    base = Path(cwd or os.getcwd())
+    homes = {base / (env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
     configs = {home / ".config" for home in homes}
     if env.get("XDG_CONFIG_HOME"):
-        configs.add(Path(env["XDG_CONFIG_HOME"]))
+        configs.add(base / env["XDG_CONFIG_HOME"])
     gh = {root / "gh" for root in configs}
     if env.get("GH_CONFIG_DIR"):
-        gh.add(Path(env["GH_CONFIG_DIR"]))
+        gh.add(base / env["GH_CONFIG_DIR"])
     caches = {home / ".cache" for home in homes}
     if env.get("XDG_CACHE_HOME"):
-        caches.add(Path(env["XDG_CACHE_HOME"]))
+        caches.add(base / env["XDG_CACHE_HOME"])
     places = {home / ".git-credential-cache" for home in homes}
     places.update(root / "git/credential" for root in caches)
     places.update(home / ".git-credentials" for home in homes)
@@ -101,7 +115,7 @@ def _credentials(env, cwd):
                     value = Template(value).safe_substitute(env)
                 path = Path(value.replace("~/", str(env.get("HOME") or Path.home()) + "/", 1)
                             if value.startswith("~/") and not literal else value)
-                places.add(path if path.is_absolute() else Path(cwd or os.getcwd()) / path)
+                places.add(base / path)
     return places
 
 
