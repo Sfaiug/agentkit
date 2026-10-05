@@ -112,10 +112,19 @@ class RedMain(unittest.TestCase):
         path.write_text(json.dumps(kept))
         before = (first / "run.json").read_bytes()
         land.check_line(self.turn)
-        self.wake.assert_not_called()
-        self.assertEqual((first / "run.json").read_bytes(), before)
         self.assertEqual(len(self.prepared), 1)
         self.assertEqual(self.checks[-1][0], [SUITE])
+        checks = len(self.checks)
+        # its repair holds the line from then on, as for a target with no pass at all
+        later = self.member("later", joined=2)
+        for _ in range(2):
+            land.check_line(self.turn)
+        self.assertEqual(len(self.checks), checks)
+        self.assertEqual(len(self.prepared), 1)
+        self.wake.assert_not_called()
+        self.assertEqual((first / "run.json").read_bytes(), before)
+        self.assertNotIn("land", self.wait(later))
+        self.assert_cleaned()
 
     def test_a_target_this_landers_code_passed_is_not_checked_again(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})

@@ -65,6 +65,8 @@ def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red
                         "checks": list(checks), "code": _code() if at is None else code}
                  for tree in trees})
     repairs.update(red or {})
+    for tree in red or {}:
+        kept.pop(tree, None)     # a target found red holds no earlier pass
     failed.update({tree: {"at": time.time(), **fix, "checks": list(checks)}
                    for tree, fix in (red_stacks or {}).items()})
     for tree in trees:
