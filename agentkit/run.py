@@ -3084,10 +3084,13 @@ def open_followup(state, text, repair=None, tip=None, split=None):
 
 
 def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
-    """A merge starts ordinary runs, once, under the same lock that closes the seat.
+    """A merge hands its follow-ups on, once, under the same lock that closes the seat.
 
-    The receipt is the duplicate guard even while admission waits. There is no collector
-    or backlog: this ending alone gets to launch its list.
+    A review follow-up becomes a line in the seat's own plan, checked by its failing command:
+    the seat builds it with the context it already has.  Anything else on the list (a flaky
+    check's evidence) starts an ordinary run.  The receipt is the duplicate guard even while
+    admission waits. There is no collector or backlog: this ending alone gets to hand on its
+    list.
 
     A target failing a check on its own tip starts one the same way, before any merge:
     `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, the
@@ -3108,25 +3111,34 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         if not (repair or split):
             current = run_record.read_state(run_dir) or state
             if "followup_runs" in current:
-                state["followup_runs"] = current["followup_runs"]
+                state.update({key: current[key] for key in ("followup_runs", "followup_plan")
+                              if key in current})
                 return None
             state["followup_runs"] = []
             run_record.save_state(run_dir, state)
         if watch.seat_closed(session):
             return None
+        request = repair or split
+        checks = {} if request else state.get("followup_checks") or {}
+        items = [request["text"]] if request else state["followups"]
+        planned = [item for item in items if item in checks]   # the seat's own, executors or not
+        repo = main_checkout(Path(state["repo"])) if planned else None
+        for item in planned:
+            plan_followup(state, run_dir, session, repo, item, checks[item], log)
         cfg = report_config(cfg)
         record = config.session_records().get(config.resolve_session(session), {})
         if record.get("workers") == []:
             return None
-        repo = main_checkout(Path(state["repo"]))
+        repo = repo or main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
         if split:
             previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
             if previous:
                 return previous
         key = repair and {"target": target, "command": repair["command"]}
-        request = repair or split
-        for item in [request["text"]] if request else state["followups"]:
+        for item in items:
+            if item in planned:
+                continue
             source = {**state, "repo": str(repo)}
             opened = open_followup(source, item, key, repair and repair["sha"],
                                    split and split["command"])
@@ -3226,6 +3238,22 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 continue
+
+
+def plan_followup(state, run_dir, session, repo, item, check, log):
+    """Write one review follow-up into the seat's plan, unless an open line already holds its
+    check in this project; the run's ending names it, or why the plan refused it."""
+    from . import plan   # here, not at the top: a seat's small verb, this the loop
+    outcome = "Fix " + item.splitlines()[0].replace("·", "-")
+    try:
+        plan.add(session, outcome, check, repo, proven=state.get("base_sha"))
+        entry = {"outcome": outcome}
+    except (config.Error, OSError) as exc:
+        entry = {"outcome": outcome, "refused": str(exc)}
+    log(f"follow-up for {session}: {outcome}" + (f" (not planned: {entry['refused']})"
+                                                if "refused" in entry else " (in its plan)"))
+    state.setdefault("followup_plan", []).append(entry)
+    run_record.save_state(run_dir, state)
 
 
 def done_when_counts(dw_log, cmds):
@@ -3798,6 +3826,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
     lp.state["followups"] = submitted.followups if verdict == "PASS" else []
+    lp.state["followup_checks"] = submitted.followup_checks if verdict == "PASS" else {}
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)
         # A landing re-review with a pending suite keeps the task's probe base.
@@ -7014,6 +7043,18 @@ def failed_check(state):
     return None
 
 
+def planned_followups(state):
+    """The review follow-ups a merge handed to its seat, as the ending's sentence about them."""
+    entries = state.get("followup_plan") or []
+    planned = [entry["outcome"] for entry in entries if "refused" not in entry]
+    refused = [f"{entry['outcome']} ({entry['refused']})" for entry in entries
+               if "refused" in entry]
+    return ((f"Review follow-ups now in your plan, yours to build: {'; '.join(planned)}. "
+             if planned else "")
+            + (f"Review follow-ups your plan refused, yours to judge: {'; '.join(refused)}. "
+               if refused else ""))
+
+
 def handback_line(state, run_dir, cfg=None):
     """The one line a finished run types into the seat that launched it.
 
@@ -7031,7 +7072,8 @@ def handback_line(state, run_dir, cfg=None):
     line = (f"run {run_dir.name} finished {handback_verdict(state, cfg)}: "
             f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace} "
             + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
-               if state.get("followup_runs") else "") + "Decide the next step.")
+               if state.get("followup_runs") else "") + planned_followups(state)
+            + "Decide the next step.")
     spent = len(state.get("round_summaries") or [])
     if (state.get("state") == "fail" and (state.get("rounds") or 0) > 0
             and spent >= (state.get("rounds") or 0) and review_failed(state)):
@@ -7398,8 +7440,9 @@ def installed_head():
 def pickup_new_code(lp, execv=None, current=None):
     """Replace this process with the installed agentkit when it has moved, at a safe boundary.
 
-    Before a round and before landing verification the run holds no gate turn, no delivery
-    lock and no child, so a process driving this one run replaces itself with `ak run resume
+    Before a round -- an own PR's review round too, once its push arrives -- and before
+    landing verification the run holds no gate turn, no delivery lock and no child, so a
+    process driving this one run replaces itself with `ak run resume
     <id>` and the resume continues in place on the new code: the pid, the scope and the slot
     stay the same, and a saved PASS is kept as a resume keeps it.  A job's threads share one
     process, and a delivery retry must stay one, so neither ever moves; any turn held or
@@ -7442,7 +7485,8 @@ def pickup_new_code(lp, execv=None, current=None):
     if children:
         return False
     try:
-        lp.state["pickup"] = {"pid": os.getpid(), "from": start, "to": now}
+        # the options this process runs with: a review reads them every round
+        lp.state["pickup"] = {"pid": os.getpid(), "from": start, "to": now, "opts": lp.opts}
         lp.write()
     except run_record.StopRequested:
         raise
@@ -8975,7 +9019,12 @@ def foreground_cli(run_dir):
 def logger(run_dir):
     def log(message):
         line = f"[{datetime.now():%H:%M:%S}] {message}"
-        print(line, flush=True)
+        try:
+            print(line, flush=True)
+        except BrokenPipeError:
+            # whoever read the launch stopped reading (`| head`): that ends the reading, never
+            # the run, whose log keeps every line; later prints go nowhere
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         if not log_is_stdout(run_dir):
             with (run_dir / "log.txt").open("a") as fh:
                 fh.write(line + "\n")
@@ -9568,6 +9617,9 @@ def resume_run(argv):
         log = logger(run_dir)
         log(f"picked up agentkit {old}..{new}; continuing on it")
         if state.get("review_pr"):
+            # a review reads its options every round, its reviewer among them: the moved
+            # process goes on with the ones it had
+            opts = pickup.get("opts") or opts
             return drive(cfg, run_dir, opts, log,
                          job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
         return drive(cfg, run_dir, opts, log, prior=state)
@@ -10305,6 +10357,14 @@ def wait_for_own_pr(cfg, run_dir, url, state, log):
         time.sleep(gate.SLOT_POLL)
 
 
+def pr_loop(cfg, run_dir, state, opts, log):
+    """A PR review's record as a loop, for the steps between its rounds: a merge, a settled
+    round, a move onto new code.  Like every loop it writes back only what it changed."""
+    _, body, _ = taskfile.parse_task(run_dir / "task.md")
+    cmds = taskfile.done_when(body, run_dir / "task.md")
+    return Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body, cmds, body, [])
+
+
 def review_pr(cfg, run_dir, url, opts, log):
     """Own PRs wait for fixes between reviews; other authors get a single review."""
     while True:
@@ -10312,15 +10372,15 @@ def review_pr(cfg, run_dir, url, opts, log):
         if state.get("own_pr_wait") and state.get("own_pr"):
             if not wait_for_own_pr(cfg, run_dir, url, state, log):
                 return state
+            # the push starts a round, and a round runs on the agentkit installed now: a wait
+            # can outlast many merges
+            pickup_new_code(pr_loop(cfg, run_dir, state, opts, log))
         summaries = state.get("round_summaries") or []
         if (state.get("waiting_on") or {}).get("line") and not state.get("merged"):
             # a merge already recorded is settled below, never sent back to a line that skips it
-            _, body, _ = taskfile.parse_task(run_dir / "task.md")
-            cmds = taskfile.done_when(body, run_dir / "task.md")
             state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)
             run_record.save_state(run_dir, state)
-            lp = Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body,
-                      cmds, body, [])
+            lp = pr_loop(cfg, run_dir, state, opts, log)
             merge_own_pr(lp, url, state["head_sha"])
             if state.get("state") != "waiting":
                 state.pop("own_pr_round_pending", None)
@@ -10329,17 +10389,13 @@ def review_pr(cfg, run_dir, url, opts, log):
                 state.update(state="pass" if state["verdict"] == "PASS" else "fail",
                              finished_at=time.time())
             lp.write()
-            write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
+            write_result(run_dir, state, lp.cmds or ["(none declared)"], log, cfg)
         elif (state.get("merged") or (state.get("own_pr") and state.get("own_pr_round_pending") and summaries
                 and summaries[-1]["round"] == state["own_pr_round_pending"])):
             # A durable verdict still owes its post and delivery, even in round three.
-            _, body, _ = taskfile.parse_task(run_dir / "task.md")
-            cmds = taskfile.done_when(body, run_dir / "task.md")
             state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)
             run_record.save_state(run_dir, state)
-            lp = Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body,
-                      cmds, body, [])
-            state = settle_pr_round(lp, url, pr_view(url))
+            state = settle_pr_round(pr_loop(cfg, run_dir, state, opts, log), url, pr_view(url))
         else:
             state = review_pr_round(cfg, run_dir, url, opts, log)
         if not state.get("own_pr_wait"):

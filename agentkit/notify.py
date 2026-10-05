@@ -349,13 +349,21 @@ def worker_blocked(kind, dry_run=False):
 
 
 @contextmanager
-def session_lock(session):
-    """Serialize repeat checks, posts, acknowledgement and project votes across concurrent ak processes."""
+def session_lock(session, wait=True):
+    """Serialize repeat checks, posts, acknowledgement and project votes across concurrent ak processes.
+
+    `wait=False` is for a caller that must never wait on it -- a harness hook, which a delivery
+    holding this lock may be typing the prompt for: it gets None at once while another has it.
+    """
     config.ensure_dirs()
     while True:
         session = config.resolve_session(session)
         with config.notify_path(session).with_suffix(".lock").open("a") as fh:
-            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                yield None
+                return
             try:
                 if config.resolve_session(session) != session:
                     continue       # a rename won while this writer waited for the lock

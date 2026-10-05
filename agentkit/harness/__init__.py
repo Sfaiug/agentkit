@@ -6,7 +6,8 @@ screen, its quota, its update and its conversation are, and the defaults here an
 A harness that needs Python puts it in `agentkit/harness/<name>.py` and implements only the
 hooks it has something to say about -- `claude.py` the transcript it writes, `codex.py` the
 launch receipt its thread is proven by, `grokbuild.py` the session directory it opens,
-`muse.py` its launcher build, its own usage probe and the session store its tokens are in,
+`muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe
+and the session store its tokens are in,
 `opencode.py` the receipt its seat plugin writes its session into and the endpoint that says
 how a model is paid.
 
@@ -30,7 +31,7 @@ FRESH_WORDS = "no conversation recorded; it starts fresh"   # `[conversation] fr
 # no `version` and `upgrade` is not one `ak update` touches.  `latest` names its newest release,
 # which the tick keeps it on in the background.
 UPDATE = {"version": None, "upgrade": None, "revert": None, "latest": None, "env": {},
-          "cannot": "", "snapshot_dir": ""}
+          "cannot": ""}
 # `[usage]`: what its usage call needs beyond `<adapter> usage`.  `none` is the harness
 # without a meter at all: no reading is a neutral provider, never a failed probe.
 # `probe_every` is how often the harness may be asked at all, in seconds: its own fact,
@@ -340,6 +341,14 @@ class Harness:
         return hook(name, record) if hook else None
 
     @property
+    def prompt_context(self):
+        """Does what its `UserPromptSubmit` hook prints as `hookSpecificOutput.additionalContext`
+        reach the model with that prompt (`context` on that event in its manifest)?"""
+        events = (config.manifest(self.name).get("hooks") or {}).get("event") or ()
+        return any(isinstance(event, dict) and event.get("name") == "UserPromptSubmit"
+                   and event.get("context") is True for event in events)
+
+    @property
     def title_facts(self):
         """The original title-hook contract; adapters can require a stored receipt instead."""
         return self._section("title", {"at_launch": True, "unreadable": True})
@@ -423,6 +432,22 @@ class Harness:
         """Its `[update] version` output as a build identity, refined where it has more to say."""
         hook = self._hook("identity")
         return hook(text, argv) if hook else text
+
+    def snapshots(self):
+        """Whether an upgrade of it is put back from a local snapshot it takes itself (`snapshot`).
+
+        False by default: its `[update] revert` puts it back, or nothing can.
+        """
+        return self._hook("snapshot") is not None
+
+    def snapshot(self, harness, identity, version):
+        """Its installed build, saved and verified before `ak update` moves it: a context
+        manager whose `restore()` puts it back.  Only for a harness that `snapshots()`.
+
+        `harness` is its `ak update` plan entry, `identity` the build installed now and
+        `version(harness)` how `ak update` reads the installed identity.
+        """
+        return self._hook("snapshot")(harness, identity, version)
 
     def usage_extra(self, out, data, state_dir):
         """After a usage probe: whatever else this harness knows about what it just said."""

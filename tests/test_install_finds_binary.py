@@ -186,7 +186,7 @@ class InstallFindsBinary(unittest.TestCase):
         plan = [{"name": "opencode", "version": ["opencode", "--version"],
                  "upgrade": ["opencode", "upgrade"],
                  "revert": ["opencode", "upgrade", "{version}"],
-                 "env": {}, "cannot": "", "snapshot_dir": ""}]
+                 "env": {}, "cannot": ""}]
         real_step = update.step
 
         def fake_step(cmd, fh, env=None, timeout=None):

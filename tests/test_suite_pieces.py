@@ -40,6 +40,9 @@ class SuitePieces(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AK_HOST_READINGS": json.dumps(ROOM),
+            # the line's checker runs this at the top CPU weight, where a turn samples the real
+            # slice beside the injected readings: in no cgroup it samples none
+            "AK_CGROUP_FILE": str(self.root / "no-cgroup"),
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
         config.ensure_dirs()
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
@@ -195,6 +198,14 @@ class SuitePieces(unittest.TestCase):
         self.assertIsNone(host.kept_cpu(whole))
         (parent / "lander-widget.scope" / "cpu.weight").unlink()
         self.assertIsNone(host.kept_cpu(whole))
+
+    def test_injected_readings_never_read_the_real_cgroups(self):
+        # A suite's own check may run at the top weight: the injected readings stay the truth.
+        whole, _ = self.cgroups({"lander-widget.scope": (host.CPU_WEIGHT_MAX, 0.5),
+                                 "agentkit-run-build.scope": (40, 0.8)})
+        root = os.environ.pop("AK_CGROUP_ROOT")     # the same tree, as the machine's own
+        with patch.object(host, "CGROUP_ROOT", root):
+            self.assertIsNone(host.kept_cpu(whole))
 
     def landing_pieces(self, used):
         """Pieces a landing check adds beside four running pieces, the slice read as `used`."""

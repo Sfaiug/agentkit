@@ -25,8 +25,7 @@ from agentkit import config, macbridge, update
 
 
 PLAN = [{"name": "echo", "version": ["echo", "1.0.0"], "upgrade": ["echo", "upgrade"],
-         "revert": None, "env": {}, "cannot": "a fixture with no installer",
-         "snapshot_dir": ""}]
+         "revert": None, "env": {}, "cannot": "a fixture with no installer"}]
 
 
 class Everyone(unittest.TestCase):

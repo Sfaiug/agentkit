@@ -162,7 +162,7 @@ class PickupNewCode(unittest.TestCase):
         self.assertEqual(order[0], "exec")
         saved = record.read_state(lp.run_dir)
         self.assertEqual(saved["pickup"],
-                         {"pid": saved["pid"], "from": OLD, "to": NEW})
+                         {"pid": saved["pid"], "from": OLD, "to": NEW, "opts": lp.opts})
         # the same pid still owns its slot: admission returns it at once, unqueued
         admitted = gate.wait_for_slot(lp.run_dir)
         self.assertEqual(admitted["state"], "running")

@@ -92,6 +92,12 @@ class Review:
         return [item_text(row) for row in self.records if row["kind"] == "follow-up"]
 
     @property
+    def followup_checks(self):
+        """Each follow-up's failing command by its text: the check of its seat's plan line."""
+        return {item_text(row): row["evidence"]["run"] for row in self.records
+                if row["kind"] == "follow-up" and "run" in row["evidence"]}
+
+    @property
     def notes(self):
         return [item_text(row) for row in self.records if row["kind"] == "note"]
 
@@ -208,6 +214,12 @@ def checked(argv, workspace, role="reviewer", findings=()):
     if kind != "follow-up" and "--before" in flags:
         raise config.Error("use follow-up for a defect that existed before the task")
     root, path, line = checked_site(site, workspace, flags.get("--quote"))
+    command = flags.get("--run")
+    # A follow-up's command becomes a plan check, run on a fresh checkout of the default branch.
+    if kind == "follow-up" and command and (len(command.strip().splitlines()) != 1
+                                            or "`" in command or str(root) in command):
+        raise config.Error("write a follow-up's --run as one shell command, without backticks, "
+                           "line breaks or this checkout's path: it becomes a plan check")
     if "--quote" in flags:
         evidence = {"quote": flags["--quote"]}
     else:

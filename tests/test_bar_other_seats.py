@@ -85,24 +85,26 @@ class OtherSeats(Sandbox):
         # the names and their lookup in one tmux command list, which no click can land inside
         whole = [args for args, _ in self.calls if statusbar.HIT in args]
         self.assertEqual({(args[3::6], args[5::6]) for args in whole},
-                         {((statusbar.SEATS, statusbar.FOLD, statusbar.HIT), (";", ";"))})
+                         {((statusbar.SEATS, statusbar.FOLD, statusbar.NEED, statusbar.HIT),
+                           (";", ";", ";"))})
         found = statusbar.seats()
         self.assertEqual(found[1], ("$1", "atlas-proxies", "needs you"))
-        named, folded, hit = statusbar.others(found, "atlas-proxies")
+        named, folded, needing, hit = statusbar.others(found, "atlas-proxies")
         self.assertEqual(drawn(named), "● 2 working   ✓ 1 done ")
-        self.assertEqual((named, hit), (folded, ""))
+        self.assertEqual((named, needing, hit), (folded, "", ""))
         # only the words there are, each only when it is not zero; no other seat, nothing
         self.assertEqual(drawn(statusbar.others([("$1", "a", "working"), ("$2", "b", None)],
                                                 "c")[0]), "● 1 working ")
         self.assertEqual(statusbar.others([("$0", "fix-api", "needs you")], "fix-api"),
-                         ("", "", ""))
+                         ("", "", "", ""))
 
     def test_b_names_are_plain_text_and_two_fold_into_one_count(self):
         found = [("$4", "a#1", "needs you"), ("$5", "b%", "needs you"), ("$6", "me", "done")]
-        named, folded, _ = statusbar.others(found, "me")
+        named, folded, needing, _ = statusbar.others(found, "me")
         self.assertIn("! a##1 needs you", named)
         self.assertIn("! b% needs you", named)
         self.assertEqual(drawn(folded), "! 2 need you ")
+        self.assertEqual(needing, folded)          # nothing else to count: `me` never counts itself
 
     def test_c_a_changed_word_reaches_every_other_bar_as_it_is_announced(self):
         answers = {name: {"word": word, "reason": "", "since": None}
@@ -275,9 +277,10 @@ class OnTmux(Sandbox):
                                                   "✓ 1 done ")
         # 88 is too narrow for the names beside the whole left part, and wide enough for the fold
         self.assertEqual(self.width(88), whole + "! 1 needs you   ● 1 working   ✓ 1 done ")
+        # narrower, only who needs you stays beside the whole left part
+        self.assertEqual(self.width(60), whole + "! 1 needs you ")
         # and narrower still, the left part is cut: one `…`, the whole line the client's width
-        self.assertEqual(self.width(60), " ▐● working▌  fix-a…"
-                                         " ! 1 needs you   ● 1 working   ✓ 1 done ")
+        self.assertEqual(self.width(40), " ▐● working▌  fix-api  f… ! 1 needs you ")
         # the name is columns 50 to 74 of line one, row 19: the wheel over it moves no window
         self.width(100)
         for button, window in ((64, "1"), (65, "0")):        # up from the second, down from the first

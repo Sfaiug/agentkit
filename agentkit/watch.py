@@ -132,7 +132,7 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
         return state in ("draft", "asking") or bool(draft)
 
     if not type_checked(session, line, log, harness, pending=stuck,
-                        guard=lambda: notify.session_lock(name), veto=veto):
+                        guard=lambda: seat_held(name), veto=veto):
         log(f"WARN could not type the question into the {name} seat")
         return 1
     log(f"asked the {name} seat: {question}")
@@ -2345,6 +2345,16 @@ def _wait_sent(session, harness, text):
     return False
 
 
+@contextmanager
+def seat_held(name):
+    """The seat's lock for typing into it, the news its next prompt carries made ready first
+    (`orch.rulebook_prepare`): that prompt's own hook never waits on this lock, and nothing
+    runs between the last look at the screen and the Enter."""
+    with notify.session_lock(name) as held:
+        orch.rulebook_prepare(held)
+        yield held
+
+
 def _send_enter(session, log):
     """One Enter into a seat; False where the send failed."""
     name = session["name"]
@@ -2459,7 +2469,7 @@ def type_into(session, text, log, stale=lambda held: False, *, source="ak"):
     seat goes by now, so what changed while the pane was read or the lock waited still counts.
     """
     return type_checked(session, text, log, None,
-                        guard=lambda: notify.session_lock(session["name"]),
+                        guard=lambda: seat_held(session["name"]),
                         veto=lambda held: owner_question(notify.last(held)) or stale(held),
                         source=source)
 
@@ -2627,7 +2637,7 @@ def sync_title(session, log=lambda _: None, *, force=False):
                               title_conversation=record.get("conversation"))
 
     sent = type_checked(session, line, log, plugin.name,
-                        guard=lambda: notify.session_lock(name), veto=veto,
+                        guard=lambda: seat_held(name), veto=veto,
                         typed=typed, pending=bool(composed))
     with notify.session_lock(name) as held:
         current = config.session_records().get(held, {})
@@ -2712,8 +2722,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     A line goes into a composer once: a second copy is read twice, whether the first was taken
     or still waits for its Enter.  `receipt` is handed a mark the moment the text is in, for the
     ending's own record to keep until its delivery is recorded; given that mark back as `typed`,
-    this only presses Enter, and only while the composer still holds the line -- read under the
-    send lock, past any dialog -- and gone from there, the seat has it.  A reopened seat is a
+    this only presses Enter, and only while the composer still holds the line alone -- read under
+    the send lock, past any dialog -- and gone from there, the seat has it.  A reopened seat is a
     new one, with an empty composer, and matches no mark.  `stale` is asked under the send lock
     too, with the name the seat goes by then, before each key: a line that has stopped being
     this seat's to have is typed no further, and `ready` before each Enter.
@@ -2724,14 +2734,16 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         except (config.Error, OSError):
             return False
-        with notify.session_lock(session["name"]) as held:
+        with seat_held(session["name"]) as held:
             pane = pane_text(session)
-            if (not pane.strip() or owner_question(notify.last(held))
+            if (not pane.strip() or owner_question(notify.last(held)) or stale(held)
                     or asking(held, harness, pane)):
                 return False    # nothing to read, or the screen is somebody else's: next pass
             if not _holds_text(pane, text):
                 return True
-            _send_enter(session, log)
+            # the line alone: an Enter would send whatever the owner has typed beside it since
+            if composer_draft(harness, pane) == re.sub(r"\s+", "", text) and ready(held):
+                _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
         return False
@@ -2755,7 +2767,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                     and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
     return type_checked(session, text, log, None,
-                        guard=lambda: notify.session_lock(session["name"]), veto=veto,
+                        guard=lambda: seat_held(session["name"]), veto=veto,
                         typed=lambda: receipt(mark), source=source, ready=ready)
 
 
@@ -5219,11 +5231,11 @@ def say(dry_run, log, text, url, session, merged=False):
     Never to Discord.  The run learns it first, where the menu and `ak run status` were
     already showing `waiting for the maintainer` -- a seat that cannot be typed into never
     holds that back -- and a live seat is typed the line, exactly as a review question is
-    put to the `inbox`.  A decision already on the run is not recorded again, so a retry
-    after a failed typing tells the seat without recording twice or starting fix runs
-    twice.  True means it has landed everywhere it goes, or that there is nowhere left
-    for it to land and following this PR is over; False means the seat is still owed its
-    line and the next tick retries it.
+    put to the `inbox`, with the review follow-ups a merge put in its plan.  A decision
+    already on the run is not recorded again, so a retry after a failed typing tells the
+    seat without recording twice or starting fix runs twice.  True means it has landed
+    everywhere it goes, or that there is nowhere left for it to land and following this PR
+    is over; False means the seat is still owed its line and the next tick retries it.
     """
     from . import run   # here, not at the top: run imports this module
     if dry_run:
@@ -5237,8 +5249,10 @@ def say(dry_run, log, text, url, session, merged=False):
         log(f"recorded on run {run_dir.name}: {text}")
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
+        planned = run.planned_followups(run_state).strip() if merged and run_dir else ""
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
-                "decision on a PR of ours, for you to act on or not.")
+                "decision on a PR of ours, for you to act on or not."
+                + (f" {planned}" if planned else ""))
         if not type_into(seat, line, log):
             return False
         log(f"told the {seat['name']} seat: {text}")

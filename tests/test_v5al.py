@@ -236,8 +236,8 @@ class UpdatePlan(Fixture):
         plan = {h["name"]: h for h in update.harnesses(self.cfg)}
         self.assertEqual(list(plan), ["claude", "codex", "muse", "opencode", "echo"])
         self.assertEqual(plan["echo"]["revert"], None)
-        self.assertEqual(plan["echo"]["snapshot_dir"], "")
-        self.assertEqual(plan["muse"]["snapshot_dir"], "launcher")
+        self.assertFalse(harness.load("echo").snapshots())
+        self.assertTrue(harness.load("muse").snapshots())
         self.assertEqual(plan["muse"]["env"], {"MUSE_LAUNCHER_INSTALL": "1"})
         self.assertEqual(plan["claude"]["revert"], ["claude", "install", update.VERSION_KEY])
         self.assertEqual(plan["opencode"]["revert"], ["opencode", "upgrade", update.VERSION_KEY])

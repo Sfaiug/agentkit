@@ -1,6 +1,9 @@
 """config.toml loading, model resolution, and every agentkit path."""
 
+from contextlib import contextmanager
 import datetime
+import fcntl
+import hashlib
 import json
 import math
 import os
@@ -745,6 +748,7 @@ SEAT_FILES = {
     "tell": "json",      # what other seats sent it with `ak tell`, until ak types it there
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
+    "rules": "md",       # the rulebook its prompt names once that one is out of date
 }
 
 
@@ -869,6 +873,19 @@ def _validate_session(cfg, name, data):
     return {**data, "orchestrator": orchestrator, "workers": workers}
 
 
+@contextmanager
+def _record_lock(path):
+    """One writer at a time for a seat's record: each reads, merges and replaces the whole
+    file, and they share the one temporary file beside it.  Always taken last, inside any
+    other lock, and held only for that write, so it orders with nothing."""
+    with path.with_name(f".{path.stem}.lock").open("a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
 def _write_json(path, data, prepare=True):
     if prepare:
         ensure_dirs()
@@ -890,7 +907,9 @@ def save_session(cfg, name, orchestrator, workers, extra=None):
                                               **({"reviewers": list(reviewers)}
                                                  if reviewers is not None else {}),
                                               **(extra or {})})
-    _write_json(session_path(name), selection)
+    ensure_dirs()
+    with _record_lock(session_path(name)):
+        _write_json(session_path(name), selection, prepare=False)
     return selection
 
 
@@ -919,20 +938,25 @@ def update_session(name, **fields):
     project, so old-record inference does not run again.
     """
     path = session_path(name)
-    data = _read_json(path)
-    if not isinstance(data, dict) or "renamed" in data:
+    if not path.parent.is_dir():
         return None
-    if all(data.get(key) == value and (key != "repo" or key in data)
-           for key, value in fields.items()):
-        return data
-    for key, value in fields.items():
-        if value is None and key != "repo":
-            data.pop(key, None)
-        else:
-            data[key] = value
-    # The record's directory already exists. In particular, project inference while
-    # listing seats must not prepare or change metadata on run/worktree directories.
-    _write_json(path, data, prepare=False)
+    # read and written under the record's lock: a concurrent writer of other fields
+    # never writes back the record as it was before this one
+    with _record_lock(path):
+        data = _read_json(path)
+        if not isinstance(data, dict) or "renamed" in data:
+            return None
+        if all(data.get(key) == value and (key != "repo" or key in data)
+               for key, value in fields.items()):
+            return data
+        for key, value in fields.items():
+            if value is None and key != "repo":
+                data.pop(key, None)
+            else:
+                data[key] = value
+        # The record's directory already exists. In particular, project inference while
+        # listing seats must not prepare or change metadata on run/worktree directories.
+        _write_json(path, data, prepare=False)
     return data
 
 
@@ -990,18 +1014,16 @@ def rename_session(old, new):
     target = resolve_session(new)
     if target not in (old, new):
         raise Error(f"{new!r} points at another session; pick a name that is not a rename")
-    selection = _read_json(session_path(old))
     ensure_dirs()
-    if isinstance(selection, dict) and "renamed" not in selection:
-        tmp = session_path(new).with_suffix(".tmp")
-        tmp.write_text(json.dumps(selection, indent=2) + "\n")
-        tmp.replace(session_path(new))
-    elif target == old:
-        # A legacy seat has no selection to overwrite its former pointer with.
-        session_path(new).unlink(missing_ok=True)
-    tmp = session_path(old).with_suffix(".tmp")
-    tmp.write_text(json.dumps({"renamed": new}) + "\n")
-    tmp.replace(session_path(old))
+    # under both records' locks: a field written to the old one meanwhile moves with it
+    with _record_lock(session_path(old)), _record_lock(session_path(new)):
+        selection = _read_json(session_path(old))
+        if isinstance(selection, dict) and "renamed" not in selection:
+            _write_json(session_path(new), selection, prepare=False)
+        elif target == old:
+            # A legacy seat has no selection to overwrite its former pointer with.
+            session_path(new).unlink(missing_ok=True)
+        _write_json(session_path(old), {"renamed": new}, prepare=False)
     # The running orchestrator keeps reading the rulebook it was started on.
     for kind in SEAT_FILES.keys() - {"session", "rulebook"}:
         was = seat_file(kind, old)
@@ -1182,6 +1204,44 @@ def rulebook_path(name):
     """The rulebook file for a seat of any name: whatever cannot be a file name becomes `-`."""
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", " ".join(str(name).split())).strip("-.") or "seat"
     return seat_file("rulebook", name)
+
+
+def rulebook_text():
+    """The rulebook a session receives: the vision, the repo's rules, then this host's own.
+
+    Only a host that has written no rules of its own has none: a rules.md that is there and
+    cannot be read is an error, never an empty one, because a session opened without rules the
+    owner did write is a session working to rules nobody chose.
+    """
+    body = (REPO / "orchestrator.md").read_text()
+    try:
+        agents = (REPO / "AGENTS.md").read_text()
+    except FileNotFoundError:
+        agents = ""
+    vision = re.search(r"(?ms)^## What ak is for(?:\n|\Z).*?(?=^## |\Z)", agents)
+    if vision:
+        body = f"{vision.group().rstrip()}\n\n{body}"
+    try:
+        local = (HOME / "rules.md").read_text()
+    except FileNotFoundError:
+        return body
+    return f"{body.rstrip()}\n\n{local}" if local.strip() else body
+
+
+def seat_rulebook(session):
+    """What `session`'s rulebook file holds when it opens now: `rulebook_text`, and an unnamed
+    seat's instruction to name itself."""
+    body = rulebook_text()
+    if session_records().get(session, {}).get("unnamed"):
+        body = (f"{body.rstrip()}\n\nThis seat is unnamed. As soon as the conversation tells you "
+                "what the job is, name this seat with `ak orch rename --auto <name>`. Choose the "
+                "shortest possible name, at most three words, saying what the work is.\n")
+    return body
+
+
+def rulebook_digest(data):
+    """sha256 of a rulebook's text or bytes: what a seat's record keeps of the one it read."""
+    return hashlib.sha256(data.encode() if isinstance(data, str) else data).hexdigest()
 
 
 def accounts(cfg, provider):

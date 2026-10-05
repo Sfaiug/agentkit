@@ -28,6 +28,7 @@ COMMANDS = {
                 "A finding's command must fail while the defect exists; ak re-runs it on commit and base.\n"
                 "A follow-up's command must run and fail on base; --before names the base or an ancestor commit, or verbatim lines in its file at base.\n"
                 "Unproven follow-ups are dropped into Notes.\n"
+                "A follow-up's --run is one line without backticks or this checkout's path.\n"
                 "Only a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\n"
                 "ak gives the next reviewer the dispute and its own proof output beside the finding.\n"
                 "Hand the finding in again to uphold it; otherwise it is dropped into result.md's Disputes.\n"
@@ -41,7 +42,8 @@ COMMANDS = {
                         "Hand in a finding for ak to weigh, with a failing command or quoted evidence.",
                         'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py"'),
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
-                          "Hand in a proven defect that existed before the task; it cannot fail this review.",
+                          "Hand in a proven defect that existed before the task; it cannot fail this review.\n"
+                          "Its command becomes the check on a line in the plan of the session that owns the work.",
                           'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py" --before "return None"'),
     "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",
                         "Dispute a blocking finding handed to this fixer, with a passing command or quoted evidence.",
@@ -94,10 +96,14 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
     "orch": ("""usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]
        ak orch list [--why] | ak orch why NAME
        ak orch stop NAME | ak orch rename [--auto] [OLD] NEW
-       ak orch project [SEAT] CHECKOUT""",
+       ak orch project [SEAT] CHECKOUT | ak orch rules CODE""",
              "Start or attach to a named orchestrator session; a new one opens only from a terminal.\n"
              "--dry-run prints the launch plan.",
              "ak orch parser-fix"),
+    "orch rules": ("usage: ak orch rules CODE",
+                   "Say this seat's conversation read the changed rulebook its prompt named,\n"
+                   "with the code that prompt gave: its prompts stop naming it until it changes.",
+                   "ak orch rules 3f2a9c81d0e4"),
     "orch list": ("usage: ak orch list [--why]",
                   "List orchestrator sessions and their selections;\n"
                   "--why adds what decided each seat's state, on what evidence, and since when.",

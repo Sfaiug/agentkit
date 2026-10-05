@@ -58,6 +58,9 @@ at_prompt = "hooks"
 [[hooks.event]]
 name = "UserPromptSubmit"
 state = "working"
+# what its hook prints as `hookSpecificOutput.additionalContext` reaches the model with the
+# prompt (Codex 0.160): a changed rulebook is named there (`orch.rulebook_news`)
+context = true
 
 [[hooks.event]]
 name = "Stop"

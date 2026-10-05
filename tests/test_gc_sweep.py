@@ -191,10 +191,11 @@ class GcSweep(Sandbox):
         self.assertTrue(retention.settle(own, False))
         self.assertTrue(own.is_dir())
         self.assertTrue(retention.read_json(retention.marker(own))["finished_at"])
-        # an older suite that signed off, or died, goes; a live one, one with no
-        # receipt, and a later one are not this suite's to take
+        # an older suite that signed off goes; one that never did -- killed, or alive
+        # outside the pid namespace this suite runs in -- one with no receipt, and a
+        # later one are not this suite's to take
         self.assertFalse(older.exists())
-        self.assertFalse(killed.exists())
+        self.assertTrue(killed.is_dir())
         self.assertTrue(live.is_dir())
         self.assertTrue(bare.is_dir())
         self.assertTrue(newer.is_dir())
