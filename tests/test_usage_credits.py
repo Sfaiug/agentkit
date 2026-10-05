@@ -7,9 +7,11 @@ are still picked on it, after every one with a window left.  With none, or 0, a 
 window stays spent.  Its usage row and `ak usage` say how many are left.
 """
 
+import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -196,6 +198,70 @@ class Picks(unittest.TestCase):
             shown = terminal.plain(usage.render(self.cfg, providers, self.order(providers)))
         self.assertIn("openai: 62,469 credits left", shown)
         self.assertNotIn("exhausted", shown)
+
+
+    def test_a_spent_weeks_credits_stand_in_its_place_only_where_they_fit(self):
+        self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]
+        providers = self.read(62469.67)
+        providers["anthropic"]["accounts"] = {
+            "default": {"meters": [self.meter(40, "weekly_all")]},
+            "second": {"meters": [self.meter(100, "weekly_all")], "credits": 1500.5,
+                       "currency": "CAD"}}
+        (config.STATE / "usage.json").write_text(json.dumps(
+            {"fetched_at": self.now, "providers": providers}))
+        for width in (28, 32, 36, 40, 100):
+            rows = [terminal.ANSI.sub("", line) for line in menu.usage_lines(self.cfg, width)]
+            self.assertTrue(all(terminal.cells(row) <= width for row in rows), (width, rows))
+            self.assertTrue(all(len(re.search("[█░]+", row).group()) >= 4 for row in rows[1:]),
+                            (width, rows))
+            # beside `  Claude II  ` and a four-cell bar, or the 0% stays where they would not
+            for label, credits in (("ChatGPT", "62,469 credits left"),
+                                   ("Claude II", "CAD 1,500.50 credits left")):
+                row = next(row for row in rows if row.lstrip().startswith(label))
+                fits = 2 + 9 + 2 + 4 + 2 + len(credits) <= width
+                self.assertRegex(row, "░ +" + (re.escape(credits) if fits else "0% left"),
+                                 (width, rows))
+
+    def test_a_spent_week_on_credits_keeps_its_bar_on_the_menu(self):
+        class Clock:                      # what draw hands its motion clock, kept to be read
+            clear = start = lambda self, *args, **kw: None
+            rise, frame = (lambda self, out: False), (lambda self: "")
+
+            def look(self, shown):
+                self.shown = {key: value[0] for key, value in shown.items()
+                              if key[0] == "usage"}
+                return {}
+
+        def drawn(session, pointer=None):
+            providers = self.read(62469.67)
+            if session is not None:
+                providers["openai"]["meters"].append(
+                    {"name": "session", "used": session, "window_secs": usage.SESSION_SECS,
+                     "resets_at": self.now + 3600})
+            (config.STATE / "usage.json").write_text(json.dumps(
+                {"fetched_at": self.now, "providers": providers}))
+            out, spots, clock = io.StringIO(), {}, Clock()
+            out.isatty = lambda: True
+            with patch("sys.stdout", out), patch.object(terminal, "_POINTER", pointer), \
+                    patch.object(terminal, "colour_depth", return_value=24), \
+                    patch.object(terminal, "width", lambda *args: 100), \
+                    patch.object(terminal, "height", lambda *args: 40):
+                menu.draw(self.cfg, [], drawn=spots, groups=([], [], 0, None), clock=clock)
+            screen = [terminal.ANSI.sub("", line) for line in out.getvalue().split("\n")]
+            return (next(line for line in screen if line.startswith("  ChatGPT")),
+                    spots["spots"], clock.shown)
+
+        number = [label for _, label, _, _ in menu.usage_rows(self.cfg)].index("ChatGPT") + 1
+        # the 5h figure on the row is never the week's: the bar the clock is handed is empty
+        for session in (None, 60, 0):
+            line, spots, shown = drawn(session)
+            self.assertRegex(line, r"░ +62,469 credits left")
+            self.assertEqual(shown.get(("usage", "ChatGPT")), 0.0, line)
+        # and under the pointer it stands its tick, as every other row with a bar does
+        row = next(at for at, (_, places) in spots.items()
+                   if places and places[0][2] == ("usage", number))
+        line, _, _ = drawn(None, terminal.Key("point", "", 5, row))
+        self.assertIn("│", line)
 
 
 class Seat(unittest.TestCase):

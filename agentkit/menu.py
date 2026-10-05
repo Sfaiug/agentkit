@@ -1282,16 +1282,20 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             if number:            # its first line is the heading
                 rows[number] = len(out)
             text = terminal.ANSI.sub("", line)
-            bar, left = re.search("[█░]+", text), re.search(r"(\d+)% left", text)
-            if bar and left:
+            bar = re.search("[█░]+", text)
+            if bar:
+                # its value is the figure beside it, or 0 where a spent week's credits stand in
+                # that figure's place (usage_lines)
+                figure = re.match(r" *(\d+)% left", text[bar.end():])
+                left = int(figure.group(1)) if figure else 0
                 # its filled cells' colour, its company's as `usage_lines` drew it; one spent
                 # has none drawn, and is red whoever's it is
-                shade = next((kind for kind in (fill(int(left.group(1)), colour(cfg, name))
+                shade = next((kind for kind in (fill(left, colour(cfg, name))
                                                 for name in cfg["providers"])
                               if terminal.styled("█", kind).removesuffix("\033[0m") in line),
-                             fill(int(left.group(1)), "accent"))
+                             fill(left, "accent"))
                 moves.append((("usage", text[:bar.start()].strip()),
-                              (int(left.group(1)) / 100, bar.group()),
+                              (left / 100, bar.group()),
                               (len(out), terminal.cells(text[:bar.start()]) + 1), False, shade))
                 bars[number] = (len(out), bar.group(), terminal.cells(text[:bar.start()]) + 1,
                                 shade)
@@ -1904,12 +1908,12 @@ def usage_lines(cfg, width):
     A row is one account's shared weekly meter -- the one every model of it draws on -- that a
     bar can be drawn from: a numeric used% in a window that has not rolled over, as a bar and
     `NN% left`, or, once that week is spent, the credits it still runs on in the percentage's
-    place (`62,469 credits left`, `usage.credits_note`), so even a phone's row says what is
-    left.  A provider that lists `accounts` has one row per account in config order, the
+    place (`62,469 credits left`, `usage.credits_note`) wherever they fit beside a four-cell
+    bar, so even a phone's row says what is left.  A provider that lists `accounts` has one row per account in config order, the
     provider's name numbered in roman numerals (`Claude I`, `Claude II`), each from its own
     reading; a provider without them keeps its single row.  After the percentage, joined with
-    ` · ` and each only when it applies: `62,469 credits left` for the credits beside a week
-    not yet spent; `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>`
+    ` · ` and each only when it applies: `62,469 credits left` for the credits not standing
+    in the percentage's place; `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>`
     more than six days out in a window longer than a week; `1 reset in hand` (`in_hand`); one
     note per scoped meter whose figure differs (`Fable 41%`); `5h 40% left` for the 5-hour
     window, or `5h spent until 14:00` once it reads 100% used; `? <reason>` when the last probe
@@ -1956,22 +1960,25 @@ def usage_lines(cfg, width):
         spent = shown_pct == 0
         five = session_note(prov, now)
         credits = usage.credits_note(prov)
+        # a spent week's credits are what it has left, so they stand where its 0% would, where
+        # they fit beside the bar's floor; elsewhere the 0% stays and they are a note like any
+        instead = bool(spent and credits) and (terminal.cells(prefix) + floor + 2 +
+                                               terminal.cells(credits) <= width)
         # In the order the row reads them, each with how much it is worth keeping (`fitting`).
         notes = [(rank, part) for rank, part in
-                 [(-1, "" if spent else credits), (0, resets_note(week, now)),
+                 [(-1, "" if instead else credits), (0, resets_note(week, now)),
                   (1, in_hand(prov)),
                   *((3, note) for note in scoped_notes(cfg, name, readable, week)),
                   *((five,) if five else ()),
                   (1, fault(prov)), (1, usage.as_of(prov, now))] if part]
-        # a spent week's credits are what it has left, so they stand where its 0% would
-        percent = credits if spent and credits else f"{shown_pct:3d}% left"
+        percent = credits if instead else f"{shown_pct:3d}% left"
         base = terminal.cells(prefix) + terminal.cells(percent) + 2   # all but bar and notes
         parts = fitting(notes, width - base - floor - 3)   # what the bar gives way to
         taken = terminal.cells(" · ".join(parts)) + 3 if parts else 0
         affordable = min(bar_width, max(1, width - base - taken))
         pending.append({"kind": "bar", "prefix": prefix,
                         "colour": fill(shown_pct, colour(cfg, name)),
-                        "left": left, "spent": spent, "dim": spent and not credits,
+                        "left": left, "spent": spent, "dim": spent and not instead,
                         "percent": percent, "base": base, "notes": notes,
                         "affordable": affordable})
     bars = [entry for entry in pending if entry["kind"] == "bar"]
