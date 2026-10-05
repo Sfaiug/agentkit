@@ -8,7 +8,8 @@ The loop derives a review's verdict from its checked hand-in records.
 
 `ak run --review-pr <url>` is the same reviewer with no executor: a PR checked out at
 its head, judged against the repo and posted back as a GitHub review. The seat's own
-PR merges on PASS with green checks; anyone else's asks the inbox.
+PR merges on PASS with green checks; anyone else's asks the inbox. The seat's own text and
+translation PRs skip review and join the line like any passed review.
 """
 
 import copy
@@ -821,6 +822,11 @@ def self_reviewed(state, cfg=None):
 def review_pass(state, cfg):
     """A verdict alone (including a legacy PASS) is not evidence of a successful review."""
     evidence = state.get("review")
+    if (state.get("review_pr") and state.get("own_pr") and isinstance(evidence, dict)
+            and evidence.get("skipped")):
+        # the seat's own wording, its review skipped for exactly the commit it was judged on
+        return (state.get("verdict") == "PASS" and evidence.get("verdict") == "PASS"
+                and all(evidence.get(key) for key in ("head_sha", "tree_sha")))
     if state.get("verdict") != "PASS" or not isinstance(evidence, dict):
         return False
     if state.get("repo") and not all(evidence.get(key) for key in ("head_sha", "tree_sha")):
@@ -5441,6 +5447,13 @@ def land_from_line(lp, upstream, deliver):
                     lp.state.pop("waiting_on", None)
                     lp.state.pop("landing_reds", None)
                     return note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
+                if saved.get("skipped") and not text_only_pr(lp.wt, tip, "HEAD"):
+                    # work not on the target yet: the target may have carried the wording onto
+                    # files that need review (a rename, say)
+                    path = lp.run_dir / "review-needed.log"
+                    path.write_text("Rebased onto the target, this wording PR now changes files "
+                                    "that need review; push the rebased branch and it is reviewed.\n")
+                    return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)})
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],
@@ -11379,6 +11392,69 @@ def pr_view(url):
     return data
 
 
+def text_only_pr(repo, base, head):
+    """Does every change between `base` and `head` touch only a prose or translation file?
+
+    Both sides of a rename count: moving code into a prose filename still needs review.
+    AGENTS.md is executable configuration: its front matter supplies shell commands.  Only a
+    regular file counts: a submodule's commit or a link names code elsewhere, and a local
+    `diff.ignoreSubmodules` hides nothing here.  A file is binary when its committed bytes hold
+    a NUL, whatever `.gitattributes` tells the diff.  Names are read byte for byte, so each is
+    looked up as the file it is, never a lookalike.  An AGENTS.md at any depth that is a link
+    makes its target executable configuration too, so then nothing skips review.
+    """
+    raw = ("--no-renames", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", "-z")
+    try:
+        trees = [git_bytes(repo, "ls-tree", "-r", "-z", ref) for ref in (base, head)]
+        if any(meta.split(" ", 1)[0] not in ("100644", "100755")
+               for tree in trees for meta, _, name in (entry.partition("\t")
+                                                       for entry in tree.split("\0") if entry)
+               if Path(name).name.upper() == "AGENTS.MD"):
+            return False        # an AGENTS.md anywhere that is a link or a submodule
+        entries = git_bytes(repo, "diff", "--raw", *raw, base, head, "--").split("\0")
+        modes = [entry.split()[:2] for entry in entries[0::2] if entry.startswith(":")]
+        entries = git_bytes(repo, "diff", "--numstat", *raw, base, head, "--").split("\0")
+    except (config.Error, Stopped):
+        return False        # a diff nobody could read cannot be shown to be wording
+    files = [entry.split("\t", 2) for entry in entries if entry]
+    extensions = {".md", ".markdown", ".rst", ".adoc", ".po", ".pot", ".xlf", ".xliff",
+                  ".strings", ".stringsdict", ".srt", ".vtt"}
+    names = {"README", "LICENSE", "COPYING", "NOTICE", "AUTHORS", "CHANGELOG"}
+    return (bool(files) and len(modes) == len(files)
+            and all(mode.lstrip(":") in ("000000", "100644", "100755")
+                    for pair in modes for mode in pair)
+            and all(len(row) == 3 and row[0].isdigit() and row[1].isdigit()
+                    and Path(row[2]).name.upper() != "AGENTS.MD"
+                    and (Path(row[2]).suffix.lower() in extensions
+                         or Path(row[2]).name.upper() in names
+                         or Path(row[2]).suffix.lower() in (".txt", ".text")
+                         and Path(row[2]).stem.upper() in names) for row in files)
+            and all(text_blob(repo, ref, row[2]) for pair, row in zip(modes, files)
+                    for mode, ref in zip(pair, (base, head)) if mode.lstrip(":") != "000000"))
+
+
+def text_blob(repo, ref, path):
+    """Do the bytes `path` names at `ref` read back, with no NUL among them?"""
+    try:
+        return "\0" not in git_bytes(repo, "cat-file", "blob", f"{ref}:{path}")
+    except (config.Error, Stopped):
+        return False
+
+
+def git_bytes(repo, *args):
+    """git's output with every byte kept (surrogateescape), names included: a carriage return or
+    a byte that is not UTF-8 stays itself, and handed back to git names the same file."""
+    try:
+        proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                              stdin=subprocess.DEVNULL, timeout=TOOL_CAP, env=tool_env())
+    except subprocess.TimeoutExpired:
+        raise Stopped(f"git {' '.join(args[:2])} ran past {TOOL_CAP:g}s in {repo}")
+    if proc.returncode:
+        raise config.Error(f"git {' '.join(args[:2])} failed in {repo}: "
+                           f"{proc.stderr.decode(errors='replace').strip()}")
+    return proc.stdout.decode("utf-8", "surrogateescape")
+
+
 def viewer_login():
     """This host's GitHub login, or None when gh cannot say.
 
@@ -11828,6 +11904,23 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         os.environ.update(env)
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
+    if is_own and text_only_pr(repo, base_sha, head):
+        # The seat's own wording needs no reviewer: it joins the line like a passed review,
+        # where the repository's suite and CI still check it.
+        summary = "Text and translation files only; review skipped."
+        # this head's verdict replaces the last one's findings: a later failure is its own
+        state.update(verdict="PASS", review_posted=True, findings="",
+                     review={**commit_identity(wt), "verdict": "PASS", "skipped": True})
+        state.pop("review_records", None)
+        state.pop("findings_file", None)
+        state["round_summaries"] = [*summaries, {"round": len(summaries) + 1, "verdict": "PASS",
+                                                 "done_when": None, "summary": summary,
+                                                 "head_sha": head}]
+        run_record.save_state(run_dir, state)
+        log(summary)
+        lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
+        lp.rnd += 1
+        return settle_pr_round(lp, url, info)
     providers = collect_usage(cfg)
     exec_for_rule = orchestrator if is_own else None
     order = reviewer_order(cfg, exec_for_rule, ready_order(cfg, providers,
