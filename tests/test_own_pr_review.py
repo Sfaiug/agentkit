@@ -64,10 +64,10 @@ class OwnPrReview(unittest.TestCase):
         return self.commit()
 
     def review(self, author="owner", seat="fix-api", background=False,
-               want_review=None, launch_only=False, worktree=None):
+               want_review=None, launch_only=False):
         directory = config.RUNS / f"review-{len(list(config.RUNS.iterdir()))}"
         directory.mkdir()
-        head = run.git(worktree or self.repo, "rev-parse", "HEAD")      # the PR's head
+        head = self.git("rev-parse", "HEAD")
         info = dict(state="OPEN", title="Mend the fence", author=author,
                     baseRefName="main", headRefOid=head, body="small fix")
 
@@ -95,7 +95,7 @@ class OwnPrReview(unittest.TestCase):
                 mocks.enter_context(patch.object(run, name, return_value=value))
             self.made = []
             mocks.enter_context(patch.object(run, "make_worktree", side_effect=lambda *args: (
-                self.made.append(args), (worktree or self.repo, "ak/pr-7"))[1]))
+                self.made.append(args), (self.repo, "ak/pr-7"))[1]))
             mocks.enter_context(patch.object(gc, "disk_pressure", return_value=False))
             for name in ("exclude_junk", "join_session_project", "restore_review_checkout",
                          "write_result", "refused"):
@@ -129,95 +129,28 @@ class OwnPrReview(unittest.TestCase):
                 run.history_finish(state)
                 self.assertEqual(history.get(state["run_id"])["changed_lines"], 5000)
 
-    def test_an_own_pr_review_carries_the_seats_open_plan_lines_on_its_repository(self):
+    def test_an_own_pr_review_carries_the_seats_open_plan_lines(self):
         here = plan.named(self.repo)
         config.plan_path("fix-api").write_text(
             f"- [x] the gate opens · your eye · {here} · written 2026-10-01 10:00"
             " · done your yes 2026-10-01 11:00\n"
             f"- [ ] the fence holds · check: `test -f fence.txt` · {here} · written 2026-10-02 12:00\n"
             "- [ ] the other site loads · check: `true` · ~/code/site#0123456789ab"
-            " · written 2026-10-02 12:00\n")
+            " · written 2026-10-02 12:00\n"
+            "- [ ] a hand-kept note\n")
         self.change(5)
         own = Path(self.review()[0]["task"]).read_text()
         self.assertIn("## The plan this PR serves", own)
         self.assertIn("- [ ] the fence holds · check: `test -f fence.txt`", own)
+        self.assertIn("- [ ] the other site loads · check: `true` · ~/code/site#", own)
         self.assertNotIn("the gate opens", own)
-        self.assertNotIn("the other site loads", own)       # another project's outcome
-        self.assertIn("a finding whose proof is that line's check, run with `--run`", own)
+        self.assertNotIn("a hand-kept note", own)
+        self.assertIn("An outcome on this repository that this PR claims to deliver but misses "
+                      "is a finding whose proof is that line's check, run with `--run`.", own)
         theirs = Path(self.review(author="acme-friend")[0]["task"]).read_text()
         self.assertNotIn("## The plan this PR serves", theirs)
 
-    def test_the_plan_lines_follow_the_pr_s_history_not_the_branch_checked_out(self):
-        here = plan.named(self.repo)
-        config.plan_path("fix-api").write_text(
-            f"- [ ] the fence holds · check: `test -f fence.txt` · {here} · written 2026-10-02 12:00\n")
-        self.change(5)
-        reviewed = self.root / "pr-7"
-        self.git("worktree", "add", "-q", "--detach", str(reviewed), "HEAD")
-        self.git("checkout", "-q", "--orphan", "gh-pages")     # the main checkout's own root
-        self.git("commit", "-q", "--allow-empty", "-m", "pages")
-        own = Path(self.review(worktree=reviewed)[0]["task"]).read_text()
-        self.assertIn("the fence holds", own)
-
-    def test_a_line_with_no_root_counts_where_its_name_resolves(self):
-        # from before lines named a root, or written before the checkout's first commit
-        config.update_session("fix-api", repo=str(self.repo))
-        unrooted = plan.parts(plan.named(self.repo))[0]
-        config.plan_path("fix-api").write_text(
-            f"- [ ] the fence holds · check: `test -f fence.txt` · {self.repo.name} · written 2026-10-02 12:00\n"
-            f"- [ ] the gate swings · your eye · {unrooted} · written 2026-10-02 12:00\n"
-            "- [ ] the site loads · check: `true` · site · written 2026-10-02 12:00\n"
-            "- [ ] the shed stands · check: `true` · ~/shed · written 2026-10-02 12:00\n"
-            "- [ ] a hand-kept note\n")
-        self.change(5)
-        own = Path(self.review()[0]["task"]).read_text()
-        self.assertIn("the fence holds", own)
-        self.assertIn("the gate swings", own)
-        self.assertNotIn("the site loads", own)
-        self.assertNotIn("the shed stands", own)
-        self.assertNotIn("a hand-kept note", own)
-
-    def test_a_line_counts_whichever_of_the_pr_s_roots_it_recorded(self):
-        self.change(5)
-        self.git("checkout", "-q", "--orphan", "imported")      # a PR bringing in a history
-        self.git("rm", "-rqf", ".")
-        (self.repo / "vendor.txt").write_text("vendor\n")
-        imported = self.commit()
-        self.git("checkout", "-q", "main")
-        self.git("merge", "-q", "--allow-unrelated-histories", "-m", "import", "imported")
-        shown = plan.parts(plan.named(self.repo))[0]
-        config.plan_path("fix-api").write_text("".join(
-            f"- [ ] the {what} holds · check: `true` · {shown}#{commit[:plan.ROOT_DIGITS]}"
-            " · written 2026-10-02 12:00\n"
-            for what, commit in (("fence", self.base), ("vendor", imported))))
-        own = Path(self.review()[0]["task"]).read_text()
-        self.assertIn("the fence holds", own)
-        self.assertIn("the vendor holds", own)
-
-    def test_a_shallow_history_that_cannot_tell_refuses_the_plan(self):
-        head = self.change(5)
-        line = plan.add("fix-api", "the fence holds", check="test -f fence.txt",
-                        repo=self.repo, proven=self.base)
-        shallow = self.root / "shallow"
-        subprocess.run(["git", "clone", "-q", "--depth", "1", f"file://{self.repo}",
-                        str(shallow)], check=True, capture_output=True)
-        with self.assertRaises(config.Error):
-            run.plan_context("fix-api", shallow, head)
-        self.assertIn(line, run.plan_context("fix-api", self.repo, head))
-
-    def test_a_hash_in_a_checkout_s_path_is_no_root(self):
-        checkout = self.root / "acme#api"
-        subprocess.run(["git", "init", "-q", "-b", "main", str(checkout)], check=True)
-        line = plan.add("fix-api", "the hero looks calm", repo=checkout)   # before any commit
-        self.assertIn(" · ~/acme#api · written ", line)
-        subprocess.run(["git", "-C", str(checkout), "-c", "user.name=Fixture", "-c",
-                        "user.email=fixture@example.invalid", "commit", "-q", "--allow-empty",
-                        "-m", "first"], check=True)
-        head = run.git(checkout, "rev-parse", "HEAD")
-        self.assertIn(line, run.plan_context("fix-api", checkout, head))
-
     def test_a_rename_while_the_plan_is_read_keeps_its_lines(self):
-        head = self.change(5)
         line = plan.add("fix-api", "the fence holds", check="test -f fence.txt",
                         repo=self.repo, proven=self.base)
         renamed, errors = threading.Event(), []
@@ -241,24 +174,18 @@ class OwnPrReview(unittest.TestCase):
             return found
 
         with patch.object(plan, "path", side_effect=rename_once_located):
-            context = run.plan_context("fix-api", self.repo, head)
+            context = run.plan_context("fix-api")
         renamer.join(5)
         self.assertEqual(errors, [])
         self.assertIn(line, plan.lines("fix-api-renamed"))
         self.assertIn(line, context)
 
-    def test_an_unreadable_plan_or_root_refuses_the_review_before_any_checkout(self):
+    def test_an_unreadable_plan_refuses_the_review_before_any_checkout(self):
         self.change(5)
-        here = plan.named(self.repo)
-        for why, written in (("plan", b"- [ ] \xff\xfe not text\n"),
-                             ("history", f"- [ ] the fence holds · check: `true` · {here}"
-                                         " · written 2026-10-02 12:00\n".encode())):
-            with self.subTest(why=why):
-                config.plan_path("fix-api").write_bytes(written)
-                with patch.object(plan, "descends", return_value=None), \
-                        self.assertRaises(config.Error):
-                    self.review()
-                self.assertEqual(self.made, [], "a checkout was made for a refused review")
+        config.plan_path("fix-api").write_bytes(b"- [ ] \xff\xfe not text\n")
+        with self.assertRaises(config.Error):
+            self.review()
+        self.assertEqual(self.made, [], "a checkout was made for a refused review")
 
     def test_another_authors_pr_and_a_review_without_a_seat_run(self):
         self.change(1000)

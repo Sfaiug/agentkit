@@ -2689,17 +2689,18 @@ def commit_identity(wt):
             "tree_sha": git(wt, "rev-parse", "HEAD^{tree}")}
 
 
-def plan_context(seat, repo, head):
-    """The seat's open plan lines on the repository under review (`plan.serving`), for the
-    review of its own PR there: the outcomes the user agreed to, each with the check that
-    proves it.  A review launched from no seat has no plan."""
+def plan_context(seat):
+    """The seat's open plan lines (`plan.open_lines`), for the review of its own PR: the
+    outcomes the user agreed to, each with the check that proves it and the project it is
+    on.  A review launched from no seat has no plan."""
     from . import plan
-    open_lines = plan.serving(seat, repo, head) if seat else []
+    open_lines = plan.open_lines(seat) if seat else []
     if not open_lines:
         return ""
     return ("## The plan this PR serves\nThe session's open plan lines, the outcomes the user "
-            "agreed to:\n" + "\n".join(open_lines) + "\nAn outcome this PR claims to deliver "
-            "but misses is a finding whose proof is that line's check, run with `--run`.\n\n")
+            "agreed to, each naming the project it is on:\n" + "\n".join(open_lines) + "\nAn "
+            "outcome on this repository that this PR claims to deliver but misses is a finding "
+            "whose proof is that line's check, run with `--run`.\n\n")
 
 
 def suite_evidence(lp, cmds, identity):
@@ -10524,7 +10525,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     target_sha = git(repo, "rev-parse", f"origin/{base}^{{commit}}")
     base_sha = git(repo, "merge-base", target_sha, head)
     # read before any checkout is made: a plan that refuses the review leaves nothing behind
-    planned = plan_context(session_at_launch, repo, head) if is_own else ""
+    planned = plan_context(session_at_launch) if is_own else ""
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
         if advancing:

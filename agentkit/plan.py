@@ -27,7 +27,6 @@ from pathlib import Path
 from . import command_help, config, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
-ROOT_DIGITS = 12     # a line's project ends `#<root>`, the root commit so abbreviated
 EYE = "your eye"
 LINE = re.compile(r"^- \[(?P<mark>[ x])\] (?P<what>.+?) · (?:check: `(?P<check>[^`]+)`|"
                   + EYE + r") · (?P<project>.+?) · written (?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
@@ -95,6 +94,14 @@ def lines(name):
         raise config.Error(f"cannot read the plan {plan}: {exc}") from None
 
 
+def open_lines(name):
+    """The plan's open lines `ak plan` wrote, each naming the project it is on, read under the
+    plan's lock so a rename never moves the plan out from under the read."""
+    with held(name) as current:
+        return [line.strip() for line in lines(current)
+                if LINE.match(line.strip()) and is_open(line)]
+
+
 def write(name, text_lines):
     path_ = path(name)
     path_.parent.mkdir(parents=True, exist_ok=True)
@@ -136,18 +143,7 @@ def root(repo, rev="HEAD"):
     except (OSError, subprocess.TimeoutExpired):
         return None
     roots = sorted(out.stdout.split()) if out.returncode == 0 else []
-    return roots[0][:ROOT_DIGITS] if roots else None
-
-
-ROOTED = re.compile(rf"(?P<shown>.+)#(?P<root>[0-9a-f]{{{ROOT_DIGITS}}})$")
-
-
-def parts(project):
-    """(The checkout a line's project names, the root commit it recorded or None) -- a line
-    from before lines named a root, or written before its checkout's first commit, has none,
-    and a `#` in a path is the path's own."""
-    found = ROOTED.match(project)
-    return (found["shown"], found["root"]) if found else (project, None)
+    return roots[0][:12] if roots else None
 
 
 def named(repo, found=None):
@@ -175,74 +171,11 @@ def place(name, project):
         except config.Error:
             return None
         return repo if project == repo.name else None
-    shown, written = parts(project)
+    shown, _, written = project.rpartition("#") if "#" in project else (project, "", "")
     path = Path(shown).expanduser()
     if not path.is_absolute() or not (path / ".git").exists():
         return None
     return path if written and holds(path, written) else None
-
-
-def serving(name, repo, head):
-    """The plan's open lines on the repository `repo` holds at `head`, read under the plan's
-    lock so a rename never moves the plan out from under the read.  A line belongs there by
-    the root commit it recorded, when `head` descends from it, whatever branch is checked out
-    in `repo` and whatever other history the PR brought in; a line with no root -- from before
-    lines named one, or written before the checkout's first commit -- by the checkout its
-    project names: its path, or a bare name the seat's checkout bears.  A line on another
-    project, or one `ak plan` did not write, serves nothing here.  A root whose place in
-    `head`'s history cannot be told is an error: a PR judged without its outcomes would pass
-    what it should not."""
-    with held(name) as current:
-        snapshot = lines(current)
-        filed = (config.session_records().get(current) or {}).get("repo")
-    found = []
-    for line in snapshot:
-        parsed = LINE.match(line.strip())
-        if parsed and is_open(line):
-            found.append((line.strip(), *parts(parsed["project"])))
-    told = {written: descends(repo, written, head) for _, _, written in found if written}
-    unknown = [written for written, known in told.items() if known is None]
-    if unknown:
-        raise config.Error(f"cannot tell whether {head[:12]} in {repo} descends from "
-                           f"{unknown[0]}, the root a plan line recorded, so the plan's lines "
-                           "cannot be matched to it; a shallow history needs its whole history "
-                           "fetched (`git fetch --unshallow`) before the review runs again")
-    target = Path(repo).resolve()
-
-    def serves(shown, written):
-        if written:
-            return told[written]
-        if "/" in shown:
-            return Path(shown).expanduser().resolve() == target
-        return bool(filed) and Path(filed).name == shown and Path(filed).resolve() == target
-
-    return [line for line, shown, written in found if serves(shown, written)]
-
-
-def descends(repo, commit, head):
-    """Whether `head` descends from `commit` in that checkout's repository: False where the
-    repository holds no such commit or holds it outside `head`'s history; None where that
-    cannot be told -- git failing, or a shallow history, which may end before the commit."""
-    def git(*args):
-        try:
-            done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
-                                  text=True, timeout=30, env=git_env(), stdin=subprocess.DEVNULL)
-        except (OSError, subprocess.TimeoutExpired):
-            return None, ""
-        return done.returncode, done.stdout.strip()
-
-    code, shallow = git("rev-parse", "--is-shallow-repository")
-    if code != 0 or shallow not in ("true", "false"):
-        return None
-    code, _ = git("merge-base", "--is-ancestor", commit, head)
-    if code == 0:
-        return True
-    if shallow == "true":
-        return None
-    if code == 1:
-        return False
-    code, _ = git("rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")
-    return False if code == 1 else None     # another repository's root, or an unread head
 
 
 def holds(repo, commit, history=None):
@@ -443,7 +376,7 @@ def _verify_held(name, every):
             for bare in group if every else ():
                 results[bare] = f"- [ ] {bare}"
             continue
-        written = parts(project_)[1]
+        written = project_.rpartition("#")[2] if "#" in project_ else None
         with default_branch(repo) as (commit, env, checkout):
             for bare, found in group.items():
                 try:
