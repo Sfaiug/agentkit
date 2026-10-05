@@ -17,6 +17,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tomllib
 import uuid
 
 from .. import config
@@ -32,6 +33,8 @@ SEAT_EVENTS = ("UserPromptSubmit", "Stop", "Interrupt", "PermissionRequest")
 # the one script on both harnesses.
 STOP_RULE = "hooks/orchestrator-stop.sh"
 FRESH = "Codex ownership unverified; starts fresh"
+BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---"
+END = "# --- end agentkit browser bridge ---"
 
 
 def path_for(record):
@@ -333,6 +336,86 @@ def trust(hooks):
             state[f"/<session-flags>/config.toml:{label}:0:{position}"] = "sha256:" + digest
     return "hooks.state={" + ",".join(f"{json.dumps(key)}={{trusted_hash={json.dumps(value)}}}"
                                       for key, value in state.items()) + "}"
+
+
+def mcp_block(servers):
+    """`servers` as the one marked block of ~/.codex/config.toml that `register_mcp` keeps."""
+    def string(value):      # a TOML basic string: paths and flags escape as JSON's do
+        return json.dumps(value)
+    lines = [BEGIN]
+    for name, server in servers.items():
+        lines.append(f"[mcp_servers.{name}]")
+        if "url" in server:
+            lines.append(f"url = {string(server['url'])}")
+        else:
+            env = ", ".join(f"{key} = {string(value)}" for key, value in sorted(server["env"].items()))
+            lines += [f"command = {string(server['command'])}",
+                      "args = [" + ", ".join(string(arg) for arg in server["args"]) + "]",
+                      "env = { " + env + " }"]
+        lines.append("")
+    return "\n".join([*lines, END]) + "\n"
+
+
+def register_mcp(servers):
+    """Keep `servers` in one marked block of ~/.codex/config.toml, and nothing else.
+
+    A block, not a rewrite: install.sh and codex itself both own keys in this file, and a
+    round trip through a TOML writer would lose their comments and their ordering.  A
+    `[mcp_servers.browser]` somebody wrote by hand outside the block is an error rather than a
+    second one appended, because two tables of the same name do not parse at all.
+    """
+    path = Path.home() / ".codex" / "config.toml"
+    raw = ""
+    if path.exists():
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise config.Error(f"cannot read {path}: {exc}") from None
+        try:
+            tomllib.loads(raw)
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+            raise config.Error(f"{path} is not valid TOML, so nothing was changed: {exc}")
+    block = mcp_block(servers)
+    start, stop = raw.find(BEGIN), raw.find(END)
+    if start != -1 and stop > start:
+        head, tail = raw[:start], raw[stop + len(END):].lstrip("\n")
+        text = head + block + ("\n" + tail if tail else "")
+    elif start != -1 or stop != -1:
+        raise config.Error(f"{path} has half of the agentkit block; repair or delete "
+                           f"the lines between {BEGIN!r} and {END!r} and run this again")
+    else:
+        parsed = tomllib.loads(raw) if raw else {}
+        clash = sorted(set(parsed.get("mcp_servers", {})) & set(servers))
+        if clash:
+            raise config.Error(f"{path} already defines mcp_servers."
+                               f"{', mcp_servers.'.join(clash)} outside the agentkit block; "
+                               "remove those tables and run this again")
+        text = (raw.rstrip("\n") + "\n\n" if raw.strip() else "") + block
+    try:
+        result = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:      # a bug here, caught before it lands on disk
+        raise config.Error(f"the block this would write does not parse: {exc}")
+    if set(result.get("mcp_servers", {})) < set(servers):
+        raise config.Error(f"{path}: the block did not take effect")
+    if text == raw:
+        return f"already registered in {path}"
+    _replace(path, text)
+    return f"registered in {path}"
+
+
+def _replace(path, text, mode=0o600):
+    """Replace a config file without ever leaving a half-written one behind."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.exists():
+        mode = path.stat().st_mode & 0o777
+    temp = path.with_name(path.name + ".ak-tmp")
+    try:
+        temp.write_text(text, encoding="utf-8")
+        temp.chmod(mode)
+        temp.replace(path)
+    except OSError as exc:
+        temp.unlink(missing_ok=True)
+        raise config.Error(f"cannot write {path}: {exc}") from None
 
 
 def main(argv, launch=None):
