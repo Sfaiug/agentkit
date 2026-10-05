@@ -91,6 +91,16 @@ class RegressionFailsBefore(unittest.TestCase):
         with patch.object(run, "call_retrying", side_effect=submitting((0, "VERDICT: PASS", None, False))):
             self.assertEqual(run.review(lp, "Fixture summary", ok, text), "FAIL")
 
+    def test_a_run_started_before_the_check_had_its_folder_keeps_its_gate(self):
+        legacy = self.directory / "regression.sh"
+        legacy.write_text("exit 0\n")
+        lp = self.loop([f"bash {shlex.quote(str(legacy))}"])
+        ok, text = run.verify_work(lp)
+        self.assertFalse(ok, "exit 0 passed the regression gate")
+        self.assertIn(f"regression.sh passes on base {self.base}: it does not show the defect", text)
+        lp.state["step"] = "reviewer"
+        self.assertIsNone(run.settled_gate(lp))
+
     def test_real_regression_is_red_then_green_and_probed_once_across_resume(self):
         (self.wt / "tests/check.py").write_text("from broken import first\nassert first([]) is None\n")
         (self.wt / "tests/check [1].py").write_text("from broken import first\nassert first([]) is None\n")

@@ -133,11 +133,12 @@ class TurnWritesStayHome(unittest.TestCase):
     def git(self, path, *args):
         return subprocess.check_output(["git", "-C", str(path), *args], text=True).strip()
 
-    def turn(self, workspace, mode, session=None, **env):
+    def turn(self, workspace, mode, session=None, places=(), **env):
         out = self.root / "out" / ("second" if session else "first")
         result = worker.turn(self.cfg, "w", "fixture task", workspace, out,
                              role="reviewer" if mode == "reviewer" else "executor",
-                             session=session, env={"WRITE_MODE": mode, **env}, limit=10)
+                             session=session, env={"WRITE_MODE": mode, **env}, limit=10,
+                             places=places)
         self.assertEqual((result[0], result[3], result[4]), (0, False, False),
                          (out / "stderr.log").read_text() if (out / "stderr.log").exists() else result)
         return json.loads(result[1]), result[2], out
@@ -157,6 +158,14 @@ class TurnWritesStayHome(unittest.TestCase):
         self.assertEqual((copy / "copy.txt").read_text(), "reviewer copy\n")
         self.assertEqual([str(path) for path in [*outside, self.wt / "via-link.txt"]
                           if path.exists()], [], "reviewer wrote outside its copy")
+
+    def test_a_place_is_writable_whatever_its_name(self):
+        # A place is a literal directory, not a manifest path to expand.
+        place = self.root / "run-$acme/regression"
+        place.mkdir(parents=True)
+        self.turn(self.wt, "reviewer", places=[place],
+                  WRITE_OUTSIDE=json.dumps([str(place / "regression.sh")]))
+        self.assertEqual((place / "regression.sh").read_text(), "reviewer write\n")
 
     def test_executor_commit_lands_on_its_worktree_branch(self):
         base = self.git(self.repo, "rev-parse", "main")

@@ -658,7 +658,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     own = out_dir / "adapter-stderr.log"
     paths = config.manifest(entry["harness"]).get("worker", {})
     with box.command(cmd, turn_env, out_dir, cwd=workspace,
-                     state=(*paths.get("state", ()), *map(str, places)),
+                     state=paths.get("state", ()), places=places,
                      logins=paths.get("logins", ())) as (cmd, turn_env, spawn), \
             own.open("wb") as err:
         code, _, killed = limited(cmd, None, silence=limit, activity=out_dir / "events.jsonl",

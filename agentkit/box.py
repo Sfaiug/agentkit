@@ -83,8 +83,12 @@ def _paths(names, env, cwd):
 
 
 @contextmanager
-def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
-    """Yield (command, environment, spawn options); wait for teardown on every exit."""
+def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()):
+    """Yield (command, environment, spawn options); wait for teardown on every exit.
+
+    `state` names a manifest's paths, expanded from the environment; `places` are literal
+    directories the command may also write.
+    """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
            "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"]
@@ -106,7 +110,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), logins=()):
     cmd.extend(["--remount-ro", "/dev"])
     scratch_at = len(cmd)
     writable = set()
-    for path in _paths(state, clean, cwd):
+    for path in [*_paths(state, clean, cwd), *map(Path, places)]:
         path = path.resolve()
         path.mkdir(parents=True, exist_ok=True)
         writable.add(path)

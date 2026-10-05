@@ -90,6 +90,12 @@ SANDBOX_PREFIX = ".ak-test-"
 # A fix run's check, in a folder of its own: the run directory is the loop's, read-only
 # to its turns, and the executor writes this one.
 REGRESSION = Path("regression", "regression.sh")
+
+
+def regression_script(run_dir):
+    """A fix run's check: in its folder, or beside the run for one started before it had one."""
+    legacy = run_dir / REGRESSION.name
+    return legacy if legacy.is_file() else run_dir / REGRESSION
 MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
 CHECKS_CAP = 60 * 60            # a check suite still running after an hour is not going to finish
 CHECKS_POLL = 10
@@ -2461,7 +2467,7 @@ def settled_gate(lp):
     """
     if lp.state.get("step") == "done-when":
         return None
-    if (lp.run_dir / REGRESSION).is_file() and not lp.state.get("regression_checked"):
+    if regression_script(lp.run_dir).is_file() and not lp.state.get("regression_checked"):
         return None
     path = lp.round_dir / "donewhen.log"
     if not path.is_file():
@@ -2745,7 +2751,7 @@ def regression_fails_before(lp):
     Keep a successful probe across rounds and resumes; a passing script must be fixed
     before it can earn that record. The probe's edits belong to neither commit.
     """
-    script = lp.run_dir / REGRESSION
+    script = regression_script(lp.run_dir)
     if not script.is_file() or lp.state.get("regression_checked"):
         return ""
     if lp.scratch:
