@@ -342,51 +342,6 @@ def sample_rss(run_id, pid=None, *, log=None):
     return mb
 
 
-def _rows(repo, field, *, finished=True, limit=20, role=None, model=None):
-    """The latest real rows (`REAL_WORK`), a repository's own while it has five."""
-    name = Path(repo).name if repo else None
-    try:
-        with _LOCK:
-            connection = _connect(readonly=True)
-            try:
-                where = [f"{field} IS NOT NULL"]
-                args = []
-                if finished:
-                    where.append("finished_at IS NOT NULL")
-                if role:
-                    where.append(f"{role} IS NOT NULL")
-                if model:
-                    where.append(f"{role}=?")
-                    args.append(model)
-                # REAL_WORK goes last: it reads a run's record, only for the rows left by then
-                scoped = connection.execute(
-                    f"SELECT * FROM runs WHERE {' AND '.join(where)} AND repo=? AND {REAL_WORK} "
-                    "ORDER BY finished_at DESC LIMIT ?", [*args, name, limit]).fetchall()
-                if field == "peak_rss_mb" or len(scoped) >= 5 or not finished:
-                    return scoped
-                return connection.execute(
-                    f"SELECT * FROM runs WHERE {' AND '.join(where)} AND {REAL_WORK} "
-                    "ORDER BY finished_at DESC LIMIT ?", [*args, limit]).fetchall()
-            finally:
-                connection.close()
-    except (OSError, sqlite3.Error, TypeError, ValueError):
-        return []
-
-
-def _index():
-    return {name: index for index, name in enumerate(("run_id", "repo", "executor", "reviewer",
-        "rounds_used", "final_state", "verdict", "started_at", "finished_at",
-        "executor_seconds", "done_when_seconds", "reviewer_seconds", "merge_seconds",
-        "total_seconds", "executor_tokens", "reviewer_tokens", "peak_rss_mb", "session",
-        "task_words", "task_points", "task_checks", "task_files", "orchestrator", "changed_lines"))}
-
-
-def active_seconds(row):
-    """The seconds a row's steps ran: its wall time less every park, slot, login and retry."""
-    ix = _index()
-    return max(0.0, sum(row[ix[column]] or 0.0 for column in STEP_COLUMNS.values()))
-
-
 def get(run_id):
     """Return one row as a plain mapping for machine-readable run status."""
     try:
@@ -400,19 +355,6 @@ def get(run_id):
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return None
-
-
-def estimate_seconds(repo):
-    """Median active seconds of the last twenty real runs that ran a step, from five of them.
-
-    A median, so the few rows an older agentkit wrote whose steps counted its waits too cannot
-    pull it far.
-    """
-    rows = _rows(repo, "started_at", limit=20)
-    if len(rows) < 5:
-        return None
-    values = [seconds for seconds in map(active_seconds, rows) if seconds]
-    return float(median(values)) if len(values) >= 5 else None
 
 
 def _ensure_migrated():

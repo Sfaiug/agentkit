@@ -13,6 +13,11 @@ effort = "low"
 state = ["~/.codex", "$CODEX_HOME", "~/.codex-$AGENTKIT_ACCOUNT"]
 logins = ["~/.codex/auth.json", "$CODEX_HOME/auth.json", "~/.codex-$AGENTKIT_ACCOUNT/auth.json"]
 
+# Codex reads at most `project_doc_max_bytes` of a project's AGENTS.md (32 KiB in 0.160) and
+# drops the rest without a word, so no project's file may grow past it.
+[instructions]
+read_limit = 32768
+
 [launch]
 seat_env = ["AGENTKIT_CODEX_RECEIPT", "AGENTKIT_CODEX_CAPTURE"]
 

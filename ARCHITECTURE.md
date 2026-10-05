@@ -78,7 +78,7 @@
   up into menu, run, watch and orch.
 - `update.py`: `[update]` upgrades, rollback; `go_live` once `tests/live.sh` passed.
   Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
-- `history.py`: SQLite `history.db` of runs/steps; active duration estimates.
+- `history.py`: SQLite `history.db` of runs/steps.
   `ended_runs` for scoreboard. For run, gate, menu, harness. Leak: harness event logs.
 - `scoreboard.py`: two weeks of work, ak's cost, committed size, words and wrapping.
   `compute`, `render` for run history.

@@ -463,6 +463,41 @@ class RunStop(Sandbox):
                                           lambda _: None)
                 self.assertEqual(task["state"], "merged")
 
+    def test_a_kept_run_taken_on_elsewhere_while_adopted_stays_the_tasks(self):
+        # a receipt naming a line starts its lander: none may run from this suite
+        self.stack.enter_context(patch.object(land, "start_line"))
+        for moved in ({"state": "running", "pid": 999999991},
+                      {"state": "queued", "slot_waiting": True, "pid": 999999991},
+                      {"state": "waiting", "waiting_on": {"line": ".merge-acme.lock",
+                                                          "joined": 1}}):
+            with self.subTest(state=moved["state"]):
+                kept = self.running(f"20260101-0900-moved-{moved['state']}", owner=None,
+                                    state="interrupted", verdict=None, pid=None, branch="ak/b",
+                                    round_summaries=[], findings="", merged=False)
+                stale = record.read_state(kept)
+                job_dir, job = self.old_job(f"20260101-090000-moved-{moved['state']}")
+                task = {"name": "b.md", "title": "B", "state": "running", "run_id": kept.name}
+                job["tasks"] = [job["tasks"][0], task]
+
+                def reap(directory, _state):
+                    # a resume or the lander takes the run on once the reap lets go of it
+                    record.save_state(directory, {**stale, **moved})
+                    return dict(stale)
+
+                followed = []
+                with patch.object(run, "reap", side_effect=reap), \
+                        patch.object(record, "process_active",
+                                     side_effect=lambda state: state.get("pid") == 999999991), \
+                        patch.object(jobs, "job_ladder",
+                                     side_effect=lambda *args: followed.append(args[5]["state"])), \
+                        patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
+                        redirect_stdout(io.StringIO()):
+                    jobs.job_adopt_worker(self.cfg, job_dir, job, task, kept, threading.Lock(),
+                                          lambda _: None)
+                self.assertEqual((task["state"], task["run_id"], followed),
+                                 ("queued", kept.name, []))
+                self.assertGreater(task["retry_after"], time.time())
+
     def test_an_old_task_whose_kept_run_was_stopped_stays_stopped(self):
         legacy = {"task": "a.md", "branch": "ak/a", "tip": "tip"}
         kept = self.running("20260101-0900-kept-stopped", owner=None, state="stopped",

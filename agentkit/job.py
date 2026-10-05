@@ -224,7 +224,7 @@ def job_create(cfg, task_paths, opts, parallel):
                                "and threads on that basename, so rename one")
         seen[info["name"]] = info["path"]
     for info in infos:
-        refusal = taskfile.launch_refusal(info["meta"])
+        refusal = taskfile.launch_refusal(info["meta"], info["cmds"])
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
         run.repo_line(info["meta"], info["path"])
@@ -686,10 +686,11 @@ def job_start_task(cfg, job_dir, task, opts, log):
     if job_legacy_refusal(task):
         raise RefusedTask(job_legacy_refusal(task))
     task_path = Path(task["task_file"])
-    meta, _, title = taskfile.parse_task(task_path)
+    meta, body, title = taskfile.parse_task(task_path)
     # the file as it reads now, which may have changed since the job began
-    if taskfile.launch_refusal(meta):
-        raise RefusedTask(taskfile.launch_refusal(meta))
+    refusal = taskfile.launch_refusal(meta, taskfile.done_when(body, task_path))
+    if refusal:
+        raise RefusedTask(refusal)
     run_dir = job_allocate_run_dir(title)
     extra = task.get("starting_branch")
     text = task_path.read_text()
@@ -1069,10 +1070,20 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
                    0 if job_classify(run_state, cfg) in ("merged", "passed") else 1, log, lock)
     except config.Error as exc:
         current = record.read_state(run_dir) or {}
-        if ((current.get("state"), current.get("merged")) != (run_state.get("state"),
-                                                              run_state.get("merged"))
-                and (current.get("merged") or current.get("state") in
-                     ("pass", "fail", "blocked", "stopped", "not_needed"))):
+        moved = ((current.get("state"), current.get("merged"))
+                 != (run_state.get("state"), run_state.get("merged")))
+        if moved and current.get("state") in ("running", "queued", "waiting"):
+            # another process took it on after this one read it -- a resume, or its delivery
+            # parked in its line -- so the resume was refused: its attempt is still the task's,
+            # looked at again at the picker's pace
+            log(f"{task['name']}: taken on elsewhere while adopted: {current.get('state')}")
+            task["retry_after"] = time.time() + JOB_PICKER_INTERVAL
+            task["state"] = "queued"
+            with lock:
+                save_job(job_dir, job)
+            return
+        if moved and (current.get("merged") or current.get("state") in
+                      ("pass", "fail", "blocked", "stopped", "not_needed")):
             # another process ended it after this one read it -- a resume or a delivery --
             # so the resume was refused: that ending is the task's, never a fresh start
             log(f"{task['name']}: ended elsewhere while adopted: {current.get('state')}")

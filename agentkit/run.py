@@ -8,7 +8,8 @@ The loop derives a review's verdict from its checked hand-in records.
 
 `ak run --review-pr <url>` is the same reviewer with no executor: a PR checked out at
 its head, judged against the repo and posted back as a GitHub review. The seat's own
-PR merges on PASS with green checks; anyone else's asks the inbox.
+PR merges on PASS with green checks; anyone else's asks the inbox. The seat's own text and
+translation PRs skip review and join the line like any passed review.
 """
 
 import copy
@@ -38,7 +39,6 @@ from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
 GITHUB_BODY_CAP = 60_000         # below GitHub's 65,536-character body limit, including UTF-8
-RULES_CAP = 8 * 1024
 # A transient answer is what a person answers by typing `continue`: the same worker session
 # again, after 1, 5, 15, 30 and 60 minutes, then hourly, indefinitely.  The run stays
 # `running` throughout, so its session reads `working`, and never ends in `error` for one.
@@ -127,7 +127,7 @@ BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
 # their say: none is a command's output, and reading one as such would make a failure that
 # never moved look new every round.  See `run_done_when`, `verify_work` and `final_check`.
 LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |outside files: "
-                       r"|AGENTS\.md body )")
+                       r"|AGENTS\.md (?:is|could not be read) )")
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
@@ -821,6 +821,11 @@ def self_reviewed(state, cfg=None):
 def review_pass(state, cfg):
     """A verdict alone (including a legacy PASS) is not evidence of a successful review."""
     evidence = state.get("review")
+    if (state.get("review_pr") and state.get("own_pr") and isinstance(evidence, dict)
+            and evidence.get("skipped")):
+        # the seat's own wording, its review skipped for exactly the commit it was judged on
+        return (state.get("verdict") == "PASS" and evidence.get("verdict") == "PASS"
+                and all(evidence.get(key) for key in ("head_sha", "tree_sha")))
     if state.get("verdict") != "PASS" or not isinstance(evidence, dict):
         return False
     if state.get("repo") and not all(evidence.get(key) for key in ("head_sha", "tree_sha")):
@@ -2717,15 +2722,30 @@ def files_scope(lp):
 
 
 def rules_cap(lp):
-    """Refuse an oversized rules body only when this branch changes the file."""
-    if lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
-                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
+    """Refuse an AGENTS.md past what a harness reads of it, only when this branch changes it."""
+    ceiling = config.instruction_ceiling()
+    if not ceiling or lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
+                                            f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
-    text = git(lp.wt, "show", "HEAD:AGENTS.md", check=False)
-    front = FRONT.match(text)
-    size = len((text[front.end():] if front else text).strip().encode("utf-8"))
-    return (f"AGENTS.md body is {size} bytes, past its {RULES_CAP}-byte cap: tighten it."
-            if size > RULES_CAP else "")
+    limit, harness = ceiling
+    if git_out(lp.wt, "cat-file", "-e", "HEAD:AGENTS.md")[0] != 0:
+        return ""       # the branch deleted it
+    # the bytes a checkout holds, Git's line-end conversion and filters applied: what a harness
+    # reads, not the stored blob, and read as bytes, since a text read would fold CRLF to LF
+    try:
+        read = subprocess.run(["git", "-C", str(lp.wt), "cat-file", "--filters", "HEAD:AGENTS.md"],
+                              capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
+                              env=tool_env())
+    except subprocess.TimeoutExpired as exc:
+        raise Stopped(f"git cat-file --filters HEAD:AGENTS.md was killed after {TOOL_CAP:g}s "
+                      f"in {lp.wt}") from exc
+    if read.returncode != 0:
+        said = read.stderr.decode("utf-8", "replace").strip()
+        return (f"AGENTS.md could not be read as a checkout holds it, so its size against the "
+                f"{limit} bytes {harness} reads of it is unknown: {said}")
+    size = len(read.stdout)
+    return (f"AGENTS.md is {size} bytes, past the {limit} bytes {harness} reads of it: "
+            "tighten it." if size > limit else "")
 
 
 def regression_fails_before(lp):
@@ -5441,6 +5461,13 @@ def land_from_line(lp, upstream, deliver):
                     lp.state.pop("waiting_on", None)
                     lp.state.pop("landing_reds", None)
                     return note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
+                if saved.get("skipped") and not text_only_pr(lp.wt, tip, "HEAD"):
+                    # work not on the target yet: the target may have carried the wording onto
+                    # files that need review (a rename, say)
+                    path = lp.run_dir / "review-needed.log"
+                    path.write_text("Rebased onto the target, this wording PR now changes files "
+                                    "that need review; push the rebased branch and it is reviewed.\n")
+                    return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)})
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],
@@ -11379,6 +11406,69 @@ def pr_view(url):
     return data
 
 
+def text_only_pr(repo, base, head):
+    """Does every change between `base` and `head` touch only a prose or translation file?
+
+    Both sides of a rename count: moving code into a prose filename still needs review.
+    AGENTS.md is executable configuration: its front matter supplies shell commands.  Only a
+    regular file counts: a submodule's commit or a link names code elsewhere, and a local
+    `diff.ignoreSubmodules` hides nothing here.  A file is binary when its committed bytes hold
+    a NUL, whatever `.gitattributes` tells the diff.  Names are read byte for byte, so each is
+    looked up as the file it is, never a lookalike.  An AGENTS.md at any depth that is a link
+    makes its target executable configuration too, so then nothing skips review.
+    """
+    raw = ("--no-renames", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", "-z")
+    try:
+        trees = [git_bytes(repo, "ls-tree", "-r", "-z", ref) for ref in (base, head)]
+        if any(meta.split(" ", 1)[0] not in ("100644", "100755")
+               for tree in trees for meta, _, name in (entry.partition("\t")
+                                                       for entry in tree.split("\0") if entry)
+               if Path(name).name.upper() == "AGENTS.MD"):
+            return False        # an AGENTS.md anywhere that is a link or a submodule
+        entries = git_bytes(repo, "diff", "--raw", *raw, base, head, "--").split("\0")
+        modes = [entry.split()[:2] for entry in entries[0::2] if entry.startswith(":")]
+        entries = git_bytes(repo, "diff", "--numstat", *raw, base, head, "--").split("\0")
+    except (config.Error, Stopped):
+        return False        # a diff nobody could read cannot be shown to be wording
+    files = [entry.split("\t", 2) for entry in entries if entry]
+    extensions = {".md", ".markdown", ".rst", ".adoc", ".po", ".pot", ".xlf", ".xliff",
+                  ".strings", ".stringsdict", ".srt", ".vtt"}
+    names = {"README", "LICENSE", "COPYING", "NOTICE", "AUTHORS", "CHANGELOG"}
+    return (bool(files) and len(modes) == len(files)
+            and all(mode.lstrip(":") in ("000000", "100644", "100755")
+                    for pair in modes for mode in pair)
+            and all(len(row) == 3 and row[0].isdigit() and row[1].isdigit()
+                    and Path(row[2]).name.upper() != "AGENTS.MD"
+                    and (Path(row[2]).suffix.lower() in extensions
+                         or Path(row[2]).name.upper() in names
+                         or Path(row[2]).suffix.lower() in (".txt", ".text")
+                         and Path(row[2]).stem.upper() in names) for row in files)
+            and all(text_blob(repo, ref, row[2]) for pair, row in zip(modes, files)
+                    for mode, ref in zip(pair, (base, head)) if mode.lstrip(":") != "000000"))
+
+
+def text_blob(repo, ref, path):
+    """Do the bytes `path` names at `ref` read back, with no NUL among them?"""
+    try:
+        return "\0" not in git_bytes(repo, "cat-file", "blob", f"{ref}:{path}")
+    except (config.Error, Stopped):
+        return False
+
+
+def git_bytes(repo, *args):
+    """git's output with every byte kept (surrogateescape), names included: a carriage return or
+    a byte that is not UTF-8 stays itself, and handed back to git names the same file."""
+    try:
+        proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                              stdin=subprocess.DEVNULL, timeout=TOOL_CAP, env=tool_env())
+    except subprocess.TimeoutExpired:
+        raise Stopped(f"git {' '.join(args[:2])} ran past {TOOL_CAP:g}s in {repo}")
+    if proc.returncode:
+        raise config.Error(f"git {' '.join(args[:2])} failed in {repo}: "
+                           f"{proc.stderr.decode(errors='replace').strip()}")
+    return proc.stdout.decode("utf-8", "surrogateescape")
+
+
 def viewer_login():
     """This host's GitHub login, or None when gh cannot say.
 
@@ -11828,6 +11918,23 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         os.environ.update(env)
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
+    if is_own and text_only_pr(repo, base_sha, head):
+        # The seat's own wording needs no reviewer: it joins the line like a passed review,
+        # where the repository's suite and CI still check it.
+        summary = "Text and translation files only; review skipped."
+        # this head's verdict replaces the last one's findings: a later failure is its own
+        state.update(verdict="PASS", review_posted=True, findings="",
+                     review={**commit_identity(wt), "verdict": "PASS", "skipped": True})
+        state.pop("review_records", None)
+        state.pop("findings_file", None)
+        state["round_summaries"] = [*summaries, {"round": len(summaries) + 1, "verdict": "PASS",
+                                                 "done_when": None, "summary": summary,
+                                                 "head_sha": head}]
+        run_record.save_state(run_dir, state)
+        log(summary)
+        lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
+        lp.rnd += 1
+        return settle_pr_round(lp, url, info)
     providers = collect_usage(cfg)
     exec_for_rule = orchestrator if is_own else None
     order = reviewer_order(cfg, exec_for_rule, ready_order(cfg, providers,
@@ -12323,7 +12430,7 @@ def main(argv):
         # says to start regardless.  A run's own child launch never runs the
         # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.launch_refusal(meta)
+        refusal = taskfile.launch_refusal(meta, cmds)
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2

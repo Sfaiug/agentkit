@@ -125,12 +125,11 @@ class Rulebook(unittest.TestCase):
 
     # --- what the file says, and whose session it is for -------------------------
 
-    def test_agents_body_fits_worker_rules_cap(self):
-        text = (REPO / "AGENTS.md").read_text(encoding="utf-8")
-        front = run.FRONT.match(text)
-        body = (text[front.end():] if front else text).strip().encode("utf-8")
-        self.assertLessEqual(len(body), run.RULES_CAP,
-                             "AGENTS.md body exceeds RULES_CAP; tighten it before committing")
+    def test_agents_md_fits_what_every_harness_reads(self):
+        ceiling = config.instruction_ceiling()
+        size = len((REPO / "AGENTS.md").read_bytes())
+        self.assertTrue(ceiling is None or size <= ceiling[0],
+                        f"AGENTS.md is {size} bytes, past what {ceiling and ceiling[1]} reads; tighten it")
 
     def test_this_host_s_own_rules_ride_along_after_the_repo_s(self):
         words = self.adapter("claude", "claude-opus-5", "high", seat="atoll")

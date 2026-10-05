@@ -1,11 +1,10 @@
 """The main screen answers every key within 100 ms, however slow the reading behind it is.
 
-`menu.loop` on scripted keys, with the seat listing, the run records, the seats' looks and the
-estimate each taking two seconds: ↓, ↑ and a wheel step move the highlight, and Esc back from
-`c`, `m`, `i` and the stop question shows the list again, each frame out within 100 ms of its
-key, drawn from what was last read; the estimate is asked once however often it is drawn.
-Offline, in a throwaway HOME: the probe is never started and the sub-screens are stand-ins that
-come back the way Esc brings them back.
+`menu.loop` on scripted keys, with the seat listing, the run records and the seats' looks each
+taking two seconds: ↓, ↑ and a wheel step move the highlight, and Esc back from `c`, `m`, `i` and
+the stop question shows the list again, each frame out within 100 ms of its key, drawn from what
+was last read.  Offline, in a throwaway HOME: the probe is never started and the sub-screens are
+stand-ins that come back the way Esc brings them back.
 """
 
 from contextlib import redirect_stdout
@@ -44,7 +43,6 @@ class MenuSpeed(Sandbox):
         (repo / ".git").mkdir(parents=True)
         self.seats = [{"name": name, "repo": str(repo), "path": str(repo), "created": 0}
                       for name in ("fix-api", "tidy-docs", "web-portal")]
-        self.estimates = []
 
         def slow(answer):
             def read(*args, **kwargs):
@@ -57,16 +55,10 @@ class MenuSpeed(Sandbox):
                 time.sleep(SLOW)          # the seat's pane captured and its hooks read
             return {"word": "working", "reason": "", "since": None}
 
-        def estimate(repo):
-            self.estimates.append(repo)
-            time.sleep(SLOW)
-            return 600
-
         for target, name, fake in (
                 (orch, "listing", slow(lambda: [dict(seat) for seat in self.seats])),
                 (menu, "run_records", slow(list)),
                 (menu, "seat_row_state", row_state),
-                (menu.history, "estimate_seconds", estimate),
                 (menu, "seat_progress", lambda name: (1, 3)),
                 (orch, "job_notices", lambda: []),
                 (menu.Live, "probe", lambda self, now=None: False),
@@ -74,7 +66,6 @@ class MenuSpeed(Sandbox):
                 (terminal, "sense", lambda: None),     # a taken keyboard's, no real terminal's
                 (terminal, "width", lambda *args: 100)):
             self.stack.enter_context(patch.object(target, name, fake))
-        self.stack.enter_context(patch.dict(menu._ESTIMATES, clear=True))
 
     def test_every_key_puts_its_frame_out_within_100_ms(self):
         out, marks, screens = io.StringIO(), [], []
@@ -124,7 +115,6 @@ class MenuSpeed(Sandbox):
                                        ("char", "x", ["tidy-docs"]),
                                        ("esc", "", ["tidy-docs"])], screens)
         self.assertEqual(marks, [(True,)])   # `c`; `m` and `i` are no keys
-        self.assertEqual(self.estimates, [str(config.CODE / "acme")])   # once, not once a draw
 
 
 if __name__ == "__main__":
