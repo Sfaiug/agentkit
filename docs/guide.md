@@ -214,7 +214,7 @@ order, while that directory is there, its seat's session exists and you did not 
 acknowledged, none was stopped, and this is not a third death within an hour; otherwise `ak run status` names `ak run
 resume <job>` under it. A run with no output for 20 minutes has its step stopped and the loop carries on; a second
 silence resumes the loop with each role re-picked from its own group and execution on another provider, trying reviewers from providers that refused nothing first and refused reviewers only as fallback; later picks use normal order. A third parks
-it `stalled` for `ak run resume <id>`. Quota `exhausted`, including a delivery retry, resumes when its window refills, a reviewer-transport one as
+it `stalled` for `ak run resume <id>`. Quota `exhausted`, including task and PR reviews and delivery retries, resumes when its window refills, a reviewer-transport one as
 below; other `exhausted` runs wait for `ak run resume <id>`; an expired login parks `waiting_login` until the harness's
 `auth` verb answers `yes`. A failed worker turn is read in its harness's own `[stall]` words and those no harness owns, whole (a `429` inside a longer number is none) and only where the harness spoke, never in the model's answer. A transient fault (`API Error`, `Overloaded`, a 5xx, an empty answer) retries the same
 session after a minute; a second failure in a row hands the role to the next model in its group, and with nobody else the same session
