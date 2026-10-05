@@ -7,11 +7,13 @@ supply their temporary-folder rules.
 from contextlib import nullcontext
 from datetime import datetime
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -434,43 +436,18 @@ def in_gone_sandbox(wt):
 
 
 def delivered(wt, branch, head):
-    """Whether GitHub holds everything in a seat's checkout: its files are its head commit's
-    with nothing new (what git ignores is output, not work), nothing is staged beyond that
-    commit, the branch's newest pull request merged, and GitHub has the head commit, which the
-    line may have rebased before merging.
-    Only a worktree added from a repository kept elsewhere qualifies: a clone holds its own
-    branches, stash and other worktrees' history, which removing it would take.  The files
-    are compared by content against a fresh index read from the head commit, so nothing the
-    checkout's own index caches or marks (stat data, assume-unchanged, skip-worktree) and no
-    setting of the repository's can hide an edit; a submodule, whose own commits GitHub may
-    lack, keeps the checkout."""
+    """Whether GitHub holds everything in a seat's checkout: it is its head commit, byte for
+    byte (`same_as_commit`), the branch's newest pull request merged, and GitHub has the head
+    commit, which the line may have rebased before merging.  Only a worktree added from a
+    repository kept elsewhere qualifies: a clone holds its own branches, stash and other
+    worktrees' history, which removing it would take."""
     if not branch or not head:
         return False
-    # The files checked are the ones gc removes, whatever core.worktree names.
-    git = ["git", "-C", str(wt), f"--work-tree={wt}", "--no-optional-locks"]
-    for setting in ("core.fsmonitor=false", "core.untrackedCache=false", "core.ignoreCase=false",
-                    "core.fileMode=true"):
-        git += ["-c", setting]
-    code, dirs, _ = run.tool_run([*git, "rev-parse", "--path-format=absolute", "--git-dir",
-                                  "--git-common-dir"], timeout=60)
+    code, dirs, _ = run.tool_run(["git", "-C", str(wt), "rev-parse", "--path-format=absolute",
+                                  "--git-dir", "--git-common-dir"], timeout=60)
     own, common = (dirs.splitlines() + ["", ""])[:2]
-    if code != 0 or not common or own == common:
+    if code != 0 or not common or own == common or not same_as_commit(wt, head):
         return False
-    code, _, _ = run.tool_run([*git, "diff", "--cached", "--quiet", "--no-ext-diff"], timeout=60)
-    if code != 0:
-        return False
-    with tempfile.TemporaryDirectory() as scratch:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
-        code, _, _ = run.tool_run([*git, "read-tree", head], timeout=60, env=env)
-        if code != 0:
-            return False
-        code, index, _ = run.tool_run([*git, "ls-files", "--stage"], timeout=60, env=env)
-        if code != 0 or any(line.split()[0] == "160000" for line in index.splitlines()):
-            return False
-        code, changed, _ = run.tool_run([*git, "status", "--porcelain", "--untracked-files=all"],
-                                        timeout=600, env=env)
-        if code != 0 or changed.strip():
-            return False
     # The branch's newest pull request, not any: a name reused after a merge has work open.
     code, state = run.gh(wt, "pr", "list", "--head", branch, "--state", "all",
                          "--json", "number,state", "--jq", "max_by(.number).state", timeout=60)
@@ -479,6 +456,58 @@ def delivered(wt, branch, head):
     code, _ = run.gh(wt, "api", f"repos/{{owner}}/{{repo}}/commits/{head}", "--silent",
                      timeout=60)
     return code == 0
+
+
+def same_as_commit(wt, head):
+    """Whether a checkout holds its commit and nothing more: its index lists exactly the
+    commit's files, each file in it hashes to the commit's blob, read raw (no filter, line
+    ending or replacement object stands in between), and git finds no new file beside them.
+    What git ignores is output, not work.  A submodule, whose own commits GitHub may lack,
+    keeps the checkout."""
+    git = ["git", "--no-replace-objects", "-C", str(wt), f"--work-tree={wt}",
+           "--no-optional-locks", "-c", "core.ignoreCase=false", "-c", "core.fsmonitor=false",
+           "-c", "core.untrackedCache=false"]
+    def ask(*args, env=None):
+        try:
+            proc = subprocess.run([*git, *args], capture_output=True, timeout=600,
+                                  env={**os.environ, **(env or {})})
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return None if proc.returncode else proc.stdout
+    fmt, tree, index = (ask("rev-parse", "--show-object-format"),
+                        ask("ls-tree", "-r", "-z", "--full-tree", head), ask("ls-files", "-s", "-z"))
+    if fmt is None or tree is None or index is None:
+        return False
+    # `<mode> blob <oid>\t<path>` and `<mode> <oid> <stage>\t<path>`, both by path
+    files = {path: (meta.split()[0], meta.split()[2])
+             for meta, _, path in (entry.partition(b"\t") for entry in tree.split(b"\0") if entry)}
+    staged = {path: (meta.split()[0], meta.split()[1], meta.split()[2])
+              for meta, _, path in (entry.partition(b"\t") for entry in index.split(b"\0") if entry)}
+    if staged != {path: (mode, oid, b"0") for path, (mode, oid) in files.items()}:
+        return False
+    for path, (mode, oid) in files.items():
+        full = os.path.join(os.fsencode(wt), path)
+        try:
+            info = os.lstat(full)
+            if mode == b"120000" and stat.S_ISLNK(info.st_mode):
+                data = os.readlink(full)
+            elif (mode in (b"100644", b"100755") and stat.S_ISREG(info.st_mode)
+                    and bool(info.st_mode & 0o111) == (mode == b"100755")):
+                with open(full, "rb") as handle:
+                    data = handle.read()
+            else:                                # a submodule, or a changed kind of entry
+                return False
+        except OSError:
+            return False
+        digest = hashlib.new(fmt.decode().strip(), b"blob %d\0" % len(data) + data)
+        if digest.hexdigest().encode() != oid:
+            return False
+    with tempfile.TemporaryDirectory() as scratch:
+        env = {"GIT_INDEX_FILE": os.path.join(scratch, "index")}
+        if ask("read-tree", head, env=env) is None:
+            return False
+        new = ask("ls-files", "--others", "--exclude-standard", "-z", env=env)
+    return new == b""
 
 
 def stale_worktrees(now, paths):

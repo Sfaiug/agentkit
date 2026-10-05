@@ -315,10 +315,11 @@ class GcSweep(Sandbox):
             self.git(wt, "commit", "-qam", name)
             return wt
         kept = ("open", "unpushed", "dirty", "untracked", "hidden-new", "unchanged", "skipped",
-                "submodule", "ignore-case", "same-stat", "mode", "staged", "mirrored")
+                "submodule", "ignore-case", "same-stat", "mode", "staged", "mirrored", "filtered",
+                "replaced", "gitlinked")
         merged, *kept = (seat(name) for name in ("merged", *kept))
         (open_pr, unpushed, dirty, untracked, hidden_new, unchanged, skipped, submodule, case,
-         same_stat, mode, staged, mirrored) = kept
+         same_stat, mode, staged, mirrored, filtered, replaced, gitlinked) = kept
         (dirty / "tracked").write_text("not committed\n")
         (untracked / "notes.md").write_text("never added\n")
         # Work git would not report: the repository hides new files, the index marks a file
@@ -344,6 +345,19 @@ class GcSweep(Sandbox):
         shutil.copytree(mirrored, mirror, ignore=shutil.ignore_patterns(".git"))
         self.git(mirrored, "config", "--worktree", "core.worktree", str(mirror))
         (mirrored / "tracked").write_text("only here\n")
+        # Notes a clean filter hides from git, an unpublished commit standing in for the head
+        # through a replacement object, and a staged gitlink git is told to ignore.
+        (self.repo / ".git" / "info" / "attributes").write_text("tracked filter=firstline\n")
+        self.git(filtered, "config", "--worktree", "filter.firstline.clean", "head -n1")
+        (filtered / "tracked").write_text("filtered\nnotes git never sees\n")
+        published = self.git(replaced, "rev-parse", "HEAD")
+        (replaced / "tracked").write_text("unpublished\n")
+        self.git(replaced, "commit", "-qam", "unpublished")
+        self.git(replaced, "replace", published, "HEAD")
+        self.git(replaced, "reset", "-q", "--soft", published)
+        vendor = self.make_repo(gitlinked / "vendor")
+        self.git(gitlinked, "add", "vendor")
+        self.git(gitlinked, "config", "--worktree", "diff.ignoreSubmodules", "all")
         # Work only the index holds: staged, then the file put back as committed.
         (staged / "tracked").write_text("staged only\n")
         self.git(staged, "add", "tracked")
@@ -359,7 +373,7 @@ class GcSweep(Sandbox):
                  "commit", "-q", "--allow-empty", "-m", "local only")
         self.git(submodule, "commit", "-qam", "component moved")
         # What git ignores is output, not work.
-        (self.repo / ".git" / "info" / "exclude").write_text(".ak-test-sandbox/\n")
+        (self.repo / ".git" / "info" / "exclude").write_text(".ak-test-sandbox/\nvendor/\n")
         (merged / ".ak-test-sandbox").mkdir()
         (merged / ".ak-test-sandbox" / "left").write_text("a killed test's\n")
         # Every layout a seat may build in is a seat's: a clone, a worktree of a bare
