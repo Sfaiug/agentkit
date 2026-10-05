@@ -137,6 +137,15 @@ class ComposerBox(Sandbox):
         self.assertEqual(watch.composer_draft("claude", pane), "")
         self.assertEqual(self.looked(pane)[1:2], (True,))
 
+    def test_a_faint_reset_on_a_blank_row_ends_the_faint(self):
+        """A draft's empty line can carry the reset that ends a faint run: the bright text
+        under it is the owner's."""
+        pane = drafted("\x1b[2m\n\x1b[0m\n  Fix the login")
+        self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane)),
+                         ("draft", "prompt.draft", "Fix the login"))
+        self.assertEqual(watch.composer_draft("claude", pane), "Fixthelogin")
+        self.assertEqual(self.looked(pane), ("needs you", False, []))
+
     def test_an_older_boxed_composer_holding_its_placeholder_is_free(self):
         pane = ('⎿ Done.\n╭──────────────────╮\n│ > Try "fix tests" │\n╰──────────────────╯\n'
                 '⏵⏵ bypass permissions on (shift+tab to cycle)   ◯ 92% context left\n')

@@ -1103,16 +1103,30 @@ def _suggestion_line(raw, plain):
     return ""
 
 
+def _content_rows(text):
+    """The non-blank rows of a capture, raw and right-stripped.  A blank row can still change
+    an attribute -- a faint suggestion's reset on the empty line of a draft -- and tmux carries
+    one on until something ends it, so a blank row's codes go on at the head of the next row."""
+    rows, carried = [], ""
+    for line in text.splitlines():
+        if strip_sgr(line).strip():
+            rows.append(carried + line.rstrip())
+            carried = ""
+        else:
+            carried += "".join(found.group(0) for found in SGR_SEQ.finditer(line))
+    return rows
+
+
 def pane_tail(text):
     """The last PANE_LINES of content; a TUI can leave blank space above its composer."""
-    lines = [line.rstrip() for line in text.splitlines() if strip_sgr(line).strip()]
+    lines = _content_rows(text)
     return "\n".join(lines[-PANE_LINES:])
 
 
 def screen_tail(harness, pane):
     """The tail that harness's screen is read from: `pane_tail`, reaching up to the top rule of
     a ruled composer's box that a long draft pushed above it, found over the whole pane."""
-    lines = [line.rstrip() for line in pane.splitlines() if strip_sgr(line).strip()]
+    lines = _content_rows(pane)
     try:
         chrome = screen(harness)
     except config.Error:
@@ -1414,7 +1428,7 @@ def _screen_rows(harness, tail):
     """
     inbound = _pattern((config.manifest(harness).get("screen") or {}).get("inbound"),
                        f"adapters/{harness}.toml")
-    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()]
+    raw_lines = _content_rows(tail)
     if inbound:
         at, end = ruled_composer(screen(harness), raw_lines)
         boxed = range(at, end) if at is not None else range(0)
