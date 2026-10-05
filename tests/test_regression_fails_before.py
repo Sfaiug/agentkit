@@ -49,7 +49,8 @@ class RegressionFailsBefore(unittest.TestCase):
         run.git(self.wt, "checkout", "-qb", "ak/fix-api")
         self.directory = self.root / "run files"
         (self.directory / "round-1").mkdir(parents=True)
-        self.script = self.directory / "regression.sh"
+        self.script = self.directory / run.REGRESSION
+        self.script.parent.mkdir()
         self.logs = []
 
     def commit(self, message):

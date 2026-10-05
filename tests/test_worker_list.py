@@ -96,7 +96,7 @@ class WorkerList(unittest.TestCase):
         """A fake worker.call: `answers` maps a model to its (code, summary, session)."""
         calls = []
 
-        def fake(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
+        def fake(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
             calls.append(name)
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             return answers.get(name, (0, "## Summary\nDone.", f"s-{name}", False))
@@ -195,7 +195,7 @@ class WorkerList(unittest.TestCase):
         calls, fake = self.turn({"alpha": (1, "usage limit reached", "s-alpha", False)})
         bodies = {}
 
-        def remember(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
+        def remember(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
             bodies[name] = body
             return fake(cfg, name, body, workspace, out_dir, role, session, env=env, limit=limit)
 
@@ -305,7 +305,7 @@ class WorkerList(unittest.TestCase):
         record.save_state(run_dir, state)
         calls = []
 
-        def fake(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
+        def fake(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
             calls.append(name)
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             text = ("VERDICT: PASS\n\n## Findings\n- none\n" if role.startswith("reviewer")

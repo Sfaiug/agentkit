@@ -87,6 +87,9 @@ JUNK = ("__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/
 # never commits these and the loop removes them before the next turn, whatever the
 # repository's .gitignore says.
 SANDBOX_PREFIX = ".ak-test-"
+# A fix run's check, in a folder of its own: the run directory is the loop's, read-only
+# to its turns, and the executor writes this one.
+REGRESSION = Path("regression", "regression.sh")
 MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
 CHECKS_CAP = 60 * 60            # a check suite still running after an hour is not going to finish
 CHECKS_POLL = 10
@@ -1374,10 +1377,14 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     worker can take it.  A move raises `TransientHandover` at once, with no wait, so the
     loop restarts the role fresh; None waits out the growing waits on the same session, as
     without it, and tries only once -- the waits after that are the run's own.
+
+    An executor or fixer of a fix run may also write the run's regression folder.
     """
     limit = 60 * run_record.SILENCE_MINUTES if limit is None else limit
     out_dir = Path(out_dir)
     run_dir = out_dir.parent.parent
+    places = [place for place in [run_dir / REGRESSION.parent]
+              if role in ("executor", "fixer") and place.is_dir()]
     note = shell_foreground_note()
     if note not in body:
         # the executor and fixer bodies already carry it in the context header; the reviewer
@@ -1412,7 +1419,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             with reviewer_checkout(workspace, target, log) if role in (
                     "reviewer", "reviewer-pr") else nullcontext(workspace) as cwd:
                 result = worker.turn(cfg, name, text.replace(str(Path(workspace).resolve()), str(cwd)), cwd,
-                                     target, role, session, env=named, limit=limit, log=log)
+                                     target, role, session, env=named, limit=limit, log=log,
+                                     places=places)
         except worker.LoginExpired as expired:
             log(f"{role} {name} cannot authenticate: {expired.why}; the run waits for that "
                 "login rather than retrying into it")
@@ -2453,7 +2461,7 @@ def settled_gate(lp):
     """
     if lp.state.get("step") == "done-when":
         return None
-    if (lp.run_dir / "regression.sh").is_file() and not lp.state.get("regression_checked"):
+    if (lp.run_dir / REGRESSION).is_file() and not lp.state.get("regression_checked"):
         return None
     path = lp.round_dir / "donewhen.log"
     if not path.is_file():
@@ -2737,7 +2745,7 @@ def regression_fails_before(lp):
     Keep a successful probe across rounds and resumes; a passing script must be fixed
     before it can earn that record. The probe's edits belong to neither commit.
     """
-    script = lp.run_dir / "regression.sh"
+    script = lp.run_dir / REGRESSION
     if not script.is_file() or lp.state.get("regression_checked"):
         return ""
     if lp.scratch:
@@ -3111,7 +3119,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 directory = config.RUNS / f"{name}-{number}"
             try:
                 directory.mkdir(parents=True)
-                check = shlex.quote(str(directory / "regression.sh"))
+                check = shlex.quote(str(directory / REGRESSION))
                 task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
                         f"# {title}\n\n{item}\n\n")
                 if split:
@@ -3134,11 +3142,12 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                         '`ak hand-in not-needed "<why>"`, with no edits or PR. '
                         "Otherwise fix it with a regression test: show it failing before the fix "
                         "and passing afterwards, and include both outputs in your summary. "
-                        f"You may write {directory / 'regression.sh'} outside the checkout "
+                        f"You may write {directory / REGRESSION} outside the checkout "
                         "to run that test from the checkout; "
                         "the loop runs it as a check. If only the owner can decide, run "
                         '`ak hand-in blocked "<question>"`.\n\n'
                         f"## Done when\n```bash\nbash {check}\n```\n")
+                    (directory / REGRESSION.parent).mkdir()
                 (directory / "task.md").write_text(task)
                 (directory / "log.txt").touch()
                 # A fix run is a new launch: the session's lists now, the discovering
