@@ -277,6 +277,8 @@ class LiveStatus(unittest.TestCase):
     def test_an_open_menu_moves_a_row_s_tasks_bar_within_two_seconds_of_a_run_s_step(self):
         # the seat stays `working` while its run goes from building to review: the bar moves at
         # once, and the row must too, though the seat's word, reason and since stay as they were
+        # -- a legacy seat's as well, whose bar no tmux job of ak's ever writes
+        self.seat["legacy"] = True
         self.plan(4, 8)
         self.hook("UserPromptSubmit")
         watch.hook_look("herdr")
@@ -296,7 +298,7 @@ class LiveStatus(unittest.TestCase):
             except BlockingIOError:
                 pass
             record.save_state(run_dir, dict(state, step="reviewer", step_at=time.time()))
-            run.publish_seat("herdr")                   # what the run's step hands to tmux
+            run.redress_seat("herdr")                   # what the run's step does, and no more
             began = time.monotonic()
             woke.append((bool(select.select([wake], [], [], 2)[0]), time.monotonic() - began))
             return None

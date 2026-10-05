@@ -322,9 +322,9 @@ class Live:
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
         word to that seat's record and to its bar in one go, and a run's step, round and ending
-        note their moment there before they move its bar (`run.publish_seat`), so a screen that
-        reads again when a record changes, as recorded, never shows a row its bar contradicts for
-        longer than this.
+        touch `config.runs_moved_path` before they move its bar (`run.redress_seat`), so a screen
+        that reads again when a record changes, as recorded, never shows a row its bar
+        contradicts for longer than this.
         The records are noted before every read, so one written while it reads is still news.
         Looking is a `stat` per file -- its inode as well as its mtime, since every write
         replaces the file -- and nothing here captures a pane.  A read on news looks at no seat
@@ -337,10 +337,12 @@ class Live:
         self.watcher.start()
 
     def recorded(self):
-        """usage.json and every seat record: each one's name, inode and mtime; and each
-        project's feature switches as its `list` last answered, so their landing is news too."""
+        """usage.json, the runs' moved mark and every seat record: each one's name, inode and
+        mtime; and each project's feature switches as its `list` last answered, so their landing
+        is news too."""
         found = []
-        for path in [config.STATE / "usage.json", *(path for _, path in config.seat_files("seat"))]:
+        for path in [config.STATE / "usage.json", config.runs_moved_path(),
+                     *(path for _, path in config.seat_files("seat"))]:
             try:
                 stat = path.stat()
             except OSError:

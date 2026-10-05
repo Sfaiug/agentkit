@@ -6791,9 +6791,17 @@ def redress_seat(session):
     update.  The job is the server's, not the run's: the run's exit, the stop of its scope and
     its marker sweep leave it be.  A seat tmux has lost, and a legacy one on the user's own
     server, is no target there, so nothing runs for it; nothing here ever raises into the run.
+
+    Every open menu hears of it first, whatever tmux holds: the run touches the one file they
+    watch (`config.runs_moved_path`), which takes no lock, so the seat's row moves with its bar
+    though the seat's word stays as it was -- a legacy seat's and a gone seat's rows included.
     """
     if not session:
         return
+    try:
+        config.runs_moved_path().touch()
+    except OSError:
+        pass   # the next draw's own read, or the menu's timer, catches up
     publish = shlex.join([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
                           "from agentkit import run; run.publish_seat(sys.argv[2])",
                           str(config.REPO), session])
@@ -6807,15 +6815,9 @@ def redress_seat(session):
 
 
 def publish_seat(session):
-    """`redress_seat`'s job: that seat's bar, if tmux still holds it on agentkit's own server.
-
-    The moment goes on the seat's record first (`runs_moved_at`): a run's step can move the
-    bar while the seat's word stays as it was, and an open menu reads again when a seat's record
-    changes, so its row moves with the bar.
-    """
+    """`redress_seat`'s job: that seat's bar, if tmux still holds it on agentkit's own server."""
     seat = orch.find(session)
     if seat is not None and orch.on_own_server(seat):
-        watch.seat_write(seat["name"], runs_moved_at=time.time())
         watch.announce_state(seat)
 
 
