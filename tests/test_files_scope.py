@@ -55,7 +55,7 @@ class FilesScope(unittest.TestCase):
         directory.mkdir()
         body = "# Fix the api\n\n## Done when\n```bash\n" + "\n".join(cmds) + "\n```\n"
         (directory / "task.md").write_text(f"---\n{front}---\n{body}" if front else body)
-        state = {"base": "main", "base_sha": self.base, "rounds": 1,
+        state = {"title": "fix api", "base": "main", "base_sha": self.base, "rounds": 1,
                  "executor": "opus", "reviewer": "astra", "round_summaries": []}
         lp = run.Loop(config.load(), directory, state, {}, lambda text: None,
                       self.repo, body, list(cmds), body, [])

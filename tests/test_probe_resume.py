@@ -107,7 +107,7 @@ class ProbeResume(unittest.TestCase):
         (self.directory / run.REGRESSION.parent).mkdir()
         (self.directory / run.REGRESSION).write_text("PYTHONPATH=. python3 tests/check.py\n")
         record.save_state(self.directory, {
-            "run_id": "probe-test", "state": "running", "step": "done-when", "base": "main",
+            "run_id": "probe-test", "title": "fix api", "state": "running", "step": "done-when", "base": "main",
             "base_sha": self.base, "branch": "ak/fix-api", "rounds": 3,
             "review": {"verdict": "PASS", "done_when": True, "head_sha": self.head},
             "executor": "opus", "reviewer": "astra", "round_summaries": []})

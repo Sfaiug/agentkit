@@ -38,7 +38,7 @@ class LeftoverJunk(unittest.TestCase):
 
     def assert_swept(self, repo, junk, expected=("app.py",), artifacts=()):
         logs = []
-        run.commit_leftovers(repo, logs.append, set(artifacts))
+        run.commit_leftovers(repo, logs.append, set(artifacts), "fix api")
         self.assertEqual(run.git(repo, "diff-tree", "--no-commit-id", "--name-only",
                                  "-r", "HEAD").splitlines(), sorted(expected))
         lines = [line for line in logs if "untracked sandbox files uncommitted" in line]
@@ -111,10 +111,17 @@ class LeftoverJunk(unittest.TestCase):
             (repo / name).write_text("")
         (repo / "venv").symlink_to(self.root)
         logs = []
-        run.commit_leftovers(repo, logs.append, set())
+        run.commit_leftovers(repo, logs.append, set(), "fix api")
         self.assertEqual(run.git(repo, "rev-parse", "HEAD"), before)
         self.assertEqual(logs, ["left 3 untracked sandbox files uncommitted: "
                                 "delivery.lock, recovery.lock, venv"])
+
+    def test_the_leftover_commit_carries_the_runs_title(self):
+        # a lone commit's headline becomes its squash merge's subject on the target
+        repo = self.repo()
+        (repo / "app.py").write_text("value = 2\n")
+        run.commit_leftovers(repo, [].append, set(), "Fix the API's rounding")
+        self.assertEqual(run.git(repo, "log", "-1", "--format=%s"), "Fix the API's rounding")
 
     def test_other_work_commits_and_artifacts_stay_out(self):
         repo = self.repo()

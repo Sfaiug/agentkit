@@ -51,7 +51,7 @@ class ChangedChecks(unittest.TestCase):
     def review_body(self, cmds=("true",), preface="", scratch=False):
         directory = self.root / "run"
         directory.mkdir()
-        state = {"base": "main", "base_sha": self.base, "rounds": 1,
+        state = {"title": "fix api", "base": "main", "base_sha": self.base, "rounds": 1,
                  "executor": "executor", "reviewer": "reviewer", "round_summaries": [],
                  "scratch": scratch}
         body = "# Fixture task\n\n## Done when\n```bash\n" + "\n".join(cmds) + "\n```"

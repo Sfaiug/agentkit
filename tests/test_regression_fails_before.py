@@ -63,7 +63,7 @@ class RegressionFailsBefore(unittest.TestCase):
             executor = workers[0]
             reviewer = next(n for n in workers if config.model(self.cfg, n)["provider"] !=
                             config.model(self.cfg, executor)["provider"])
-            state = {"run_id": "regression-test", "state": "running", "base": "main",
+            state = {"run_id": "regression-test", "title": "fix api", "state": "running", "base": "main",
                      "base_sha": self.base, "branch": "ak/fix-api", "rounds": 3,
                      "executor": executor, "reviewer": reviewer, "round_summaries": []}
             record.save_state(self.directory, state)
