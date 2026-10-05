@@ -2073,22 +2073,34 @@ def rulebook_due(name):
             if pending or holds is None or config.rulebook_digest(text) != holds else None)
 
 
-def fetch_projects():
-    """The tick's pass: the default branch of each project a seat is filed under, fetched.
-
-    A seat's rulebook carries its project's AGENTS.md as `origin/HEAD` holds it
-    (`config.seat_rulebook`), and only a fetch shows a merge there, ak's own or one made
-    anywhere else; its next prompt then names the new rules (`rulebook_news`).  A checkout
-    with no `origin/HEAD` is given one from origin (`run.default_base`).  A failed fetch waits
-    for the next tick.
-    """
+def fetch_project(repo):
+    """Bring `repo`'s `origin/HEAD` -- what `config.seat_rulebook` reads -- up to origin's default
+    branch as it is now: every branch fetched, as a run fetches before cutting its base, whatever
+    the clone's own refspec follows, then `origin/HEAD` pointed again at the branch origin calls
+    default, created where the checkout has none and moved where origin changed it."""
     from . import run
+    run.fetch(repo, "--quiet", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*",
+              check=True)
+    run.git(repo, "remote", "set-head", "origin", "--auto")
+
+
+def fetch_projects():
+    """The tick's pass: `fetch_project` for each project a seat is filed under.
+
+    Only a fetch shows a merge there, ak's own or one made anywhere else; the seat's next prompt
+    then names the new rules (`rulebook_news`).  A project that fails is named and waits for the
+    next tick, after every other project is fetched.
+    """
+    failed = []
     for repo in sorted({record["repo"] for record in config.session_records().values()
                         if record.get("repo")}):
         if Path(repo).is_dir():
-            base = run.default_base(Path(repo), lambda _: None)
-            if base.startswith("origin/"):
-                run.fetch(Path(repo), "--quiet", "origin", base.removeprefix("origin/"))
+            try:
+                fetch_project(Path(repo))
+            except config.Error as exc:
+                failed.append(str(exc))
+    if failed:
+        raise config.Error("; ".join(failed))
 
 
 def rulebook_prepare(name):
@@ -3693,6 +3705,13 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
             extra["unnamed"] = True
         if path.exists():
             before = path.read_bytes()
+        if repo:
+            # its first rulebook carries the project's rules as merged now, not as last fetched;
+            # offline, the tick fetches them and the seat's next prompt names them
+            try:
+                fetch_project(Path(repo))
+            except config.Error:
+                pass
         config.save_session(cfg, name, model, workers, extra)
     try:
         with scratch(dry_run):

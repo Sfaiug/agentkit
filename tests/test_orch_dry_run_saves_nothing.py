@@ -137,18 +137,27 @@ class DryRun(unittest.TestCase):
             subprocess.run(["git", "-C", str(cwd), "-c", "user.name=Acme", "-c",
                             "user.email=acme@example.com", *args], check=True, capture_output=True)
 
-        upstream, checkout = config.CODE / "acme-origin", config.CODE / "acme"
-        git(config.CODE.parent, "init", "-q", "-b", "main", str(upstream))
-        (upstream / "AGENTS.md").write_text("# Acme\n\nAcme release policy.\n")
-        git(upstream, "add", "AGENTS.md")
-        git(upstream, "commit", "-qm", "rules")
-        git(config.CODE.parent, "clone", "-q", str(upstream), str(checkout))
+        # a checkout pushed to its origin, never cloned from it, has no origin/HEAD; a merge
+        # made from elsewhere since is in no ref here until something fetches it
+        upstream, checkout = config.CODE / "acme-origin.git", config.CODE / "acme"
+        other = config.CODE.parent / "acme-elsewhere"
+        git(config.CODE.parent, "init", "-q", "--bare", "-b", "main", str(upstream))
+        git(config.CODE.parent, "init", "-q", "-b", "main", str(checkout))
+        (checkout / "AGENTS.md").write_text("# Acme\n\nAcme release policy one.\n")
+        git(checkout, "add", "AGENTS.md")
+        git(checkout, "commit", "-qm", "rules")
+        git(checkout, "remote", "add", "origin", str(upstream))
+        git(checkout, "push", "-qu", "origin", "main")
+        git(config.CODE.parent, "clone", "-q", str(upstream), str(other))
+        (other / "AGENTS.md").write_text("# Acme\n\nAcme release policy two.\n")
+        git(other, "commit", "-qam", "rule two")
+        git(other, "push", "-q", "origin", "main")
         self.addCleanup(os.chdir, os.getcwd())
         os.chdir(checkout)
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.main(["acme-fix"]), 0)
         self.assertEqual(orch.records()["acme-fix"]["repo"], str(checkout))
-        self.assertIn("Acme release policy.", config.rulebook_path("acme-fix").read_text())
+        self.assertIn("Acme release policy two.", config.rulebook_path("acme-fix").read_text())
         # a new seat by that name whose launch fails leaves the record it had as it was
         before = config.session_path("acme-fix").read_bytes()
         with patch.object(orch, "fresh_command", side_effect=config.Error("no harness")), \

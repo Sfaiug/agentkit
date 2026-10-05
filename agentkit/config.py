@@ -1257,8 +1257,8 @@ def agents_body(repo, ref):
 def seat_rulebook(session):
     """What `session`'s rulebook file holds when it opens now: `rulebook_text`, the AGENTS.md of
     the project it is filed under as on that project's default branch -- what its workers get,
-    as the tick last fetched it (`orch.fetch_projects`) -- and an unnamed seat's instruction to
-    name itself."""
+    as its launch or the tick last fetched it (`orch.fetch_project`) -- and an unnamed seat's
+    instruction to name itself."""
     body = rulebook_text()
     record = session_records().get(session, {})
     repo = record.get("repo")
