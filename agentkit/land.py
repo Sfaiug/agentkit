@@ -8,6 +8,7 @@ A red target gets one repair first. The lander never owns a member's process or 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
 import fcntl
+import functools
 import json
 import math
 import os
@@ -37,19 +38,32 @@ def _trees(turn, kind="trees"):
 
 
 def passed(turn, tree):
-    """The suite evidence for `tree` on `turn` -- `leader`, `tested`, `at` -- or None."""
+    """The suite evidence for `tree` on `turn` -- `leader`, `tested`, `at`, `code` -- or None."""
     return _trees(turn)[1].get(tree)
 
 
-def note(turn, trees, leader, *, checks=(), tested=None, at=None, red=None, red_stacks=None):
-    """Keep stack evidence, with the `checks` it ran, separately from target probes awaiting
-    their repair."""
+@functools.cache
+def _code():
+    """The ak commit this lander checks under: a pass another commit's lander saw may not hold."""
+    from . import run
+    try:
+        return run.git(config.REPO, "rev-parse", "HEAD")
+    except config.Error:
+        return None
+
+
+def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red=None,
+         red_stacks=None):
+    """Keep stack evidence, with the `checks` it ran and the lander `code` that ran them,
+    separately from target probes awaiting their repair.  Evidence kept again from an
+    earlier pass (`at`) keeps that pass's code."""
     path, kept = _trees(turn)
     failed = {} if red_stacks == {} else _trees(turn, "red_stacks")[1]
     repairs = _trees(turn, "red")[1]
     checked_at = time.time() if at is None else at
     kept.update({tree: {"at": checked_at, "tested": tested or tree, "leader": leader,
-                        "checks": list(checks)} for tree in trees})
+                        "checks": list(checks), "code": _code() if at is None else code}
+                 for tree in trees})
     repairs.update(red or {})
     failed.update({tree: {"at": time.time(), **fix, "checks": list(checks)}
                    for tree, fix in (red_stacks or {}).items()})
@@ -459,10 +473,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
             batched = len({(tree, checks) for _, _, _, tree, checks in stacks
                            if (tree, checks) not in answers}) > limit
 
-            def cover(index, checks, tested, at=None):
+            def cover(index, checks, tested, at=None, code=None):
                 covered = stacks[:index + 1] if batched else [stacks[index]]
                 note(turn, [stack[3] for stack in covered], directory.name,
-                     checks=checks, tested=tested, at=at)
+                     checks=checks, tested=tested, at=at, code=code)
                 for _, _, _, tree, own in covered:
                     answers[tree, own] = green_answer(tree, tested)
 
@@ -472,7 +486,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log")}}
                     evidence = green.get(tree)
                     if evidence and checked(evidence, commands(index)):
-                        cover(index, evidence["checks"], evidence["tested"], evidence["at"])
+                        cover(index, evidence["checks"], evidence["tested"], evidence["at"],
+                              evidence.get("code"))
 
             def answer_tree(index, checks, check):
                 tree, own = stacks[index][3:]
@@ -496,9 +511,13 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # one ahead may be the culprit, and removing it changes every later tree.
                     if answer is None or ("fix" in answer and index and not green_prefix):
                         break
+                    # A target another lander's code passed may fail under this one's: its
+                    # failure is the target's, never this member's.
+                    target = passed(turn, target_tree) or {}
                     if (index == 0 and not prefix and "fix" in answer
                             and not saved.get("repair")
-                            and (passed(turn, target_tree) or {}).get("tested") != target_tree):
+                            and (target.get("tested") != target_tree
+                                 or target.get("code") != _code())):
                         run.git(scratch, "reset", "--hard", tip)
                         run.git(scratch, "clean", "-fdx")
                         suite = run.declared_suite(scratch, ref=tip)

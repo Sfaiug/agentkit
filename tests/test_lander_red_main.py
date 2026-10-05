@@ -3,6 +3,7 @@
 Offline: local Git and real suites, with isolated state and fake repair launches and wakes.
 """
 
+import json
 from pathlib import Path
 import sys
 import time
@@ -98,6 +99,32 @@ class RedMain(unittest.TestCase):
         self.wake.assert_not_called()
         self.assertIn("Tree: ", (first / "target-probe.log").read_text())
         self.assert_cleaned()
+
+    def test_a_target_another_landers_code_passed_is_checked_again_before_any_blame(self):
+        # An ak change can break the checks themselves: main's pass from before it counts not.
+        first = self.member()
+        self.advance(**{"broken.txt": "target breakage\n"})
+        tree = run.git(self.repo, "rev-parse", "main^{tree}")
+        land.note(self.turn, [tree], "earlier", checks=[SUITE])
+        path = land._trees(self.turn)[0]
+        kept = json.loads(path.read_text())
+        kept["trees"][tree]["code"] = "another-commit"
+        path.write_text(json.dumps(kept))
+        before = (first / "run.json").read_bytes()
+        land.check_line(self.turn)
+        self.wake.assert_not_called()
+        self.assertEqual((first / "run.json").read_bytes(), before)
+        self.assertEqual(len(self.prepared), 1)
+        self.assertEqual(self.checks[-1][0], [SUITE])
+
+    def test_a_target_this_landers_code_passed_is_not_checked_again(self):
+        first = self.member(**{"broken.txt": "branch breakage\n"})
+        self.advance()
+        land.note(self.turn, [run.git(self.repo, "rev-parse", "main^{tree}")], "earlier",
+                  checks=[SUITE])
+        land.check_line(self.turn)
+        self.assertIn(SUITE, self.wait(first)["fix"]["line"])
+        self.assertEqual(len(self.checks), 1)
 
     def test_only_the_repair_lands_until_the_target_tree_changes(self):
         first, later, before = self.red_line()
