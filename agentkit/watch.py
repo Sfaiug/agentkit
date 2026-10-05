@@ -1881,8 +1881,9 @@ def announce_state(session, cfg=None, look=False, **facts):
     written; the bar itself is set every time, because publishing is the whole of it -- a set
     that failed, a seat that was closed and a seat given the same name again all come right on
     the next screen rather than waiting for the word to change.  The bar is the row's own
-    values, written through the one writer; the desktop notice is the card's own, sent where
-    the card is queued, never here.
+    values, written through the one writer, and a changed word reaches every other seat's bar
+    at once, since each counts this one; the desktop notice is the card's own, sent where the
+    card is queued, never here.
 
     All of it happens under `announcing`, and `look` has the seat's screen and hooks read
     there too (`look_at`), so the record and the bar always carry the same word, and it is
@@ -1899,6 +1900,8 @@ def announce_state(session, cfg=None, look=False, **facts):
             seat_write(name, word=answer["word"], reason=answer["reason"],
                        word_since=answer["since"])
         statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
+        if previous.get("word") != answer["word"]:
+            statusbar.retell(session)
     return answer
 
 

@@ -68,7 +68,8 @@
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`,
   `tally`) and a seat's last column and live runs (`seat_runs`), for watch, run, orch, notify,
   statusbar. Leaks: provider colour and name tables; reads `usage.json` itself.
-- `statusbar.py`: a seat's two tmux status lines; for orch, watch.
+- `statusbar.py`: a seat's two tmux status lines, line one ending in the owner's other seats
+  and the click that switches to one; for orch, watch.
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,
   manifests, seat records, rename chain, `SEAT_FILES`, child env. Used by nearly everything.
 - `worker.py`: headless turns, preambles, review, adapters, silence, auth, cleanup.

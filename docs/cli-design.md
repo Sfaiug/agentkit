@@ -514,6 +514,11 @@ state's dark colour, which reads on either background; the rest is the
 terminal's own text or `dim`, and the orchestrator its company's colour. tmux
 cannot say which background a client has, so a light grey company (ChatGPT's
 white) is the terminal's own foreground: its mirror tone on a light terminal.
+Line one's right end is the owner's other seats on ak's server: each that needs
+you by name in needs-you's bold colour, a click on it switching to that seat,
+then how many others are working and done in their colours. Where they do not
+fit beside the left part, the names fold into one count first (`! 2 need you`),
+and only then is the left part cut.
 
 Helpers: `terminal.sense`, `terminal.styled`, `terminal.colour_depth`.
 

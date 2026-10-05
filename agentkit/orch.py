@@ -2732,6 +2732,8 @@ def cmd_stop(argv):
                                        socket=seat_socket(session))
                     if rc != 0:
                         raise config.Error(f"could not stop the session {name}: {out}")
+                    from . import statusbar   # here, not at the top: its module imports this one
+                    statusbar.retell(session)   # no other bar names or counts it any more
                 # the owner ended this seat: a run of its that finishes later, or is still
                 # going, brings it back through neither run.announce nor the tick, until a seat
                 # is launched under the name again.  The hand-back reads `closed_by_owner` for

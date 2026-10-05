@@ -692,18 +692,18 @@ class Phone(Sandbox):
         phone.keys("Enter")
         phone.until("agentkit · new session", prompt="esc back")
         phone.keys("Enter")                  # what the last creation was given: astra
-        phone.until("new-2  astra orch", "Ctrl-b m  menu", absent=["esc leave"])
+        phone.until("new-2  a", "Ctrl-b m  menu", absent=["esc leave"])
         phone.settled()
         self.assertTrue(self.has_seat("new-2"))
         phone.keys("C-b", "m")
         phone.until("esc leave", "1  new-2", "2  phone-au", prompt="esc leave")
         phone.press("2")
-        phone.until("phone-audit  astra orch", absent=["esc leave"])
+        phone.until("▌  phone-au", absent=["esc leave"])   # its bar: line one cut on a phone
         phone.settled()
         phone.keys("C-b", "m")
         phone.until("esc leave", "1  new-2", prompt="esc leave")
         phone.press("1")
-        phone.until("new-2  astra orch", absent=["esc leave"])
+        phone.until("new-2  a", absent=["esc leave"])
         phone.settled()
         phone.keys("C-b", "m")
         phone.until("esc leave", prompt="esc leave")
@@ -736,18 +736,18 @@ class Phone(Sandbox):
         self.assertNotIn("j more", "\n".join(screen))
         # a number is answered from whichever page is up: 12 opens the twelfth seat, its two
         # digits inside half a second, and its bar says the row's own words; past the width
-        # line one is cut with one ellipsis, and line two keeps the one key whole
+        # the other seats fold into a count before line one is cut with one ellipsis, and line
+        # two keeps the one key whole
         phone.press("12")
+        # the menu's look at it publishes the words, behind the frame the key was read on
         if narrow:
-            screen = phone.until(STAND_IN, LONG_NAME[:20], "Ctrl-b m  menu")
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you▌  {LONG_NAME[:8]}…")
         else:
-            # the menu's look at it publishes the words, behind the frame the key was read on
             screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you▌  {LONG_NAME}")
         top, bar = screen[-2:]
         self.fits(screen, width, height)
         if narrow:
-            self.assertIn(LONG_NAME[:20], top)
-            self.assertTrue(top.endswith("…"), top)
+            self.assertTrue(top.endswith(f"▌  {LONG_NAME[:8]}… ! 11 need you"), top)
         else:
             # the word the row shows opens the bar, then the name and who orchestrates it
             self.assertIn(f"! needs you▌  {LONG_NAME}  astra orchestrates", top)
@@ -765,7 +765,7 @@ class Phone(Sandbox):
             self.assertNotIn("j more", "\n".join(screen))
         # the popup over a seat holds fewer rows still, and pages them the same way
         phone.press("11")                    # phone-audit, eleventh by name
-        phone.until(STAND_IN, "phone-audit  astra orch")
+        phone.until(STAND_IN, "▌  phone-au")
         phone.keys("C-b", "m")
         screen = phone.until("esc leave", "your projects", " 1/", prompt="esc leave")
         self.every_page(phone, screen, self.popup_page, 12, 8)
@@ -796,7 +796,7 @@ class Phone(Sandbox):
         self.every_page(phone, screen, lambda lines: lines, 12, 6)
         # the popup over a seat on that short screen fills it, and still pages rows
         phone.press("11")
-        phone.until(STAND_IN, "phone-audit  astra orch")
+        phone.until(STAND_IN, "▌  phone-au")
         phone.keys("C-b", "m")
         screen = phone.until("esc leave", "1/", prompt="esc leave")
         self.assertIn("no project", "\n".join(Terminal.inside(screen)))
