@@ -2135,10 +2135,11 @@ class Loop:
         self.written = copy.deepcopy(self.state)
 
     def step(self, name):
-        """Record which step this run is in, and since when, for `ak run status` and the bar."""
+        """Record which step this run is in, since when and in which round, for `ak run status`
+        and the bar: a round's first step is announced before its directory is made."""
         now = time.time()
         history.open_step(self.state.get("run_id"), name, now, log=self.log)
-        self.state.update(step=name, step_at=now)
+        self.state.update(step=name, step_at=now, step_round=self.rnd)
         self.save()
         redress_seat(launched_session(self.state))
 

@@ -2,20 +2,23 @@
 
 Merged tasks fill solid; each live run fills part of the next slot by its step, dotted; ticks
 part the tasks while each has two cells; the count is a chip on the fill, ending at its head, or
-past the tasks in flight while the fill is shorter; a last round is red; a plan bigger than the bar gives each task in flight a cell.  The rows draw it
-in the room they have, never wrapped or cut, and without colour or UTF-8 it reads in plain
-characters.  Offline: a throwaway HOME, fake plans and run records, the real renderer.
+past the tasks in flight while the fill is shorter; a last round is red from its first step; a
+plan bigger than the bar gives each task in flight a cell.  The rows draw it in the room they
+have, never wrapped or cut, and without colour or UTF-8 it reads in plain characters.  Offline:
+a throwaway HOME, fake plans and run records, the real renderer.
 """
 
 from contextlib import redirect_stdout
 import io
 import os
 import re
+import time
 import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, history, menu, terminal
+from agentkit import config, history, menu, orch, statusbar, terminal, watch
+from agentkit import run as ak_run
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -269,6 +272,85 @@ class PlanBar(Sandbox):
             with self.subTest(width=width):
                 for line in menu.v5o_seat_blocks([info], width)[0]:
                     self.assertLessEqual(terminal.cells(line), width, line)
+
+
+class FinalRound(Sandbox):
+    """A run's last round turns its slot red on the seat's bar and in an open menu at that round's
+    first step: before the sandbox sweep and the worker make the round's directory."""
+
+    def test_a_last_round_is_red_from_its_first_step(self):
+        self.stack.enter_context(patch.dict(os.environ, {
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
+        name, repo = "acme-ci", config.CODE / "acme"
+        (repo / ".git").mkdir(parents=True)
+        config.save_session(self.cfg, name, "fable", ["opus"], {"repo": str(repo), "cwd": str(repo)})
+        seat = {"name": name, "repo": str(repo), "path": str(repo), "created": 9000,
+                "legacy": False}
+        config.plan_path(name).write_text("- [x] a\n- [ ] b\n- [ ] c\n")
+        directory = config.RUNS / "20261002-1500-fix-ci"
+        for rnd in (1, 2):
+            (directory / f"round-{rnd}").mkdir(parents=True)
+        state = {"run_id": directory.name, "title": "Fix CI", "state": "running",
+                 "launched_session": name, "repo": str(repo), "rounds": 3,
+                 "round_summaries": [{"round": 1}, {"round": 2}], "started_at": 9900,
+                 "step": "reviewer", "step_at": 9990, "base": "origin/main",
+                 "executor": "opus", "reviewer": "astra"}
+        record.save_state(directory, state)
+        lp = ak_run.Loop(self.cfg, directory, state, None, lambda *a: None, repo, "", [], "", [])
+        lp.rnd = 3
+        published, seen, last, live = {}, {}, [[], None], menu.Live(self.cfg)
+
+        def tmux(*args, **_kw):
+            if args[:1] == ("set-option",):
+                published[args[3]] = args[4]
+            elif args[:1] == ("run-shell",):
+                ak_run.publish_seat(name)              # the job the run hands to tmux, run here
+            return 0, ""
+
+        def row(infos):
+            return "".join(menu.v5o_seat_blocks(infos, 100)[0])
+
+        def sweep(*_a):
+            # the round's first step is out; its directory is not made yet
+            self.assertFalse((directory / "round-3").exists())
+            time.sleep(menu.STIR + 0.3)             # the open menu has read it again
+            seat_top = published.get(statusbar.TOP, "")
+            seen.update(bar=f"fg=#{RED}" in seat_top, menu=f"38;2;{rgb(RED)}" in row(last[1][1]))
+
+        class AtWorker(Exception):
+            pass
+
+        def worker(_cfg, _model, _body, _cwd, out, *_a, **_kw):
+            out.mkdir(parents=True, exist_ok=True)
+            raise AtWorker
+
+        with patch.object(orch, "tmux_out", side_effect=tmux), \
+                patch.object(terminal, "colour_depth", return_value=24), \
+                patch.object(orch, "sessions", return_value=[seat]), \
+                patch.object(orch, "listing", return_value=[seat]), \
+                patch.object(menu.Live, "look"), \
+                patch.object(history, "open_step"), patch.object(history, "update_run"), \
+                patch.object(ak_run, "sweep_sandboxes", side_effect=sweep), \
+                patch.object(ak_run, "call_retrying", side_effect=worker), \
+                patch.object(ak_run, "history_role_tokens"), patch.object(ak_run, "record_disputes"):
+            watch.announce_state(seat, cfg=self.cfg, records=menu.run_records(), now=10000)
+            try:
+                live.watch(last)
+                time.sleep(menu.STIR + 0.1)
+                live.drain()
+                with self.assertRaises(AtWorker):
+                    ak_run.execute(lp, "executor", "Fix CI", "executor")
+            finally:
+                live.close()
+                live.watcher.join(5)
+        self.assertEqual(seen, {"bar": True, "menu": True})
+        self.assertEqual(menu.seat_runs(name)[0]["round"], 3)
+
+
+def rgb(hex6):
+    """`11aa22` as a truecolour escape's `17;170;34`."""
+    return ";".join(str(int(hex6[at:at + 2], 16)) for at in (0, 2, 4))
 
 
 if __name__ == "__main__":

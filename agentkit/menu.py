@@ -762,11 +762,13 @@ def seat_runs(name, records=None):
         if state.get("state") != "running" or _run.launched_session(state) != name:
             continue
         task = Path(state.get("task_file") or "").stem.split("-")[0] or run_dir.name
-        # the round anything last ran in: one landing, rechecked or waiting on a push is still in
-        # the round its summary closed, not the next
+        # the round anything last ran in, or a step was announced in before its directory was
+        # made: one landing, rechecked or waiting on a push is still in the round its summary
+        # closed, not the next
         runs.append({"task": task, "step": STEPS.get(state.get("step"), "building"),
                      "since": state.get("step_at") or state.get("started_at"),
-                     "round": max(1, _run.started_round(run_dir, state)),
+                     "round": max(1, _run.started_round(run_dir, state),
+                                  state.get("step_round") or 0),
                      "rounds": state.get("rounds"),
                      "executor": state.get("executor"), "reviewer": state.get("reviewer")})
     return sorted(runs, key=lambda run: -FILLS[run["step"]])
