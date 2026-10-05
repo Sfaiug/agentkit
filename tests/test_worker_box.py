@@ -368,6 +368,44 @@ class WorkerBox(unittest.TestCase):
                 pass
         self.assertEqual(json.loads(seen.read_text()), [None] * len(box.TOKENS))
 
+    def test_the_commands_own_git_is_never_asked(self):
+        # ak stands in the workspace, and PATH names `bin` and the current directory: the
+        # project's own. Git's answers decide what the box hides and opens, so ak's own Git
+        # gives them, reading configuration wherever it lives: here inside ~/.ssh.
+        ssh, store, asked = self.root / ".ssh", self.root / "named-store", self.root / "asked"
+        ssh.mkdir()
+        store.write_text("fixture-store")
+        (ssh / "git.inc").write_text(f"[credential]\n\thelper = store --file {store}\n")
+        (self.root / ".gitconfig").write_text(f"[include]\n\tpath = {ssh / 'git.inc'}\n")
+        bindir, git = self.root / "bin", shutil.which("git")
+        subprocess.run([git, "init", "-q", str(self.root)], check=True)
+        bindir.mkdir()
+        (bindir / "git").write_text(
+            f"#!{sys.executable}\nimport os, sys\nopen({str(asked)!r}, 'w')\n"
+            f"os.execv({git!r}, [{git!r}, *sys.argv[1:]])\n")
+        (bindir / "git").chmod(0o755)
+        (self.root / "git").symlink_to(bindir / "git")
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.root)
+        read = f"print(open({str(store)!r}).read())"
+        relative = f"bin{os.pathsep}{os.pathsep}"
+        with patch.dict(os.environ, {"PATH": relative + os.environ["PATH"]}):
+            # Both questions with walls, the credential one without.
+            for walls in (True, False):
+                with self.subTest(walls=walls):
+                    with box.command([sys.executable, "-c", read], dict(os.environ), cwd=self.root,
+                                     walls=walls) as (cmd, env, _):
+                        result = subprocess.run(cmd, env=env, cwd=self.root, capture_output=True,
+                                                text=True, timeout=10)
+                    self.assertEqual((result.returncode, result.stdout.strip()), (0, ""),
+                                     result.stderr)
+        # With no Git of ak's own the box refuses; it asks neither of the project's.
+        with patch.dict(os.environ, {"PATH": relative + str(ssh)}), \
+                self.assertRaisesRegex(config.Error, "needs git"):
+            with box.command(["true"], dict(os.environ), cwd=self.root):
+                pass
+        self.assertFalse(asked.exists())
+
     def test_files_writes_identity_environment_and_exit_status_stay_the_same(self):
         with patch.dict(os.environ, {"BOX_LEAK": "0", "BOX_INSPECT": "1", "BOX_EXIT": "7",
                                      "FIXTURE_PROVIDER_TOKEN": "fixture-provider"}):

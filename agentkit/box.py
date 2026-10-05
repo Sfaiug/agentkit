@@ -58,6 +58,20 @@ def _links(root):
     return found
 
 
+def _git(args, env, cwd, **kwargs):
+    """Ask ak's own Git: the first in a directory ak's own PATH names in full.
+
+    Its answers decide what a box hides and what it opens for writing. The command's PATH, a
+    relative entry and the current directory may each name the project's own `git`."""
+    git = shutil.which("git", path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
+    if git is None:
+        from . import config
+        raise config.Error("worker box needs git in a directory PATH names in full")
+    return subprocess.run([git, *args], cwd=cwd,
+                          env={**env, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"},
+                          capture_output=True, text=True, timeout=10, **kwargs)
+
+
 def _credentials(env, cwd, agent=None):
     # The turn reads a relative path in its environment from its own directory.
     base = Path(cwd or os.getcwd())
@@ -87,9 +101,7 @@ def _credentials(env, cwd, agent=None):
         places.add(Path(os.getcwd(), agent))
     # A named credential store is just as readable as the default one. Ask Git so
     # includes and repository-local settings use its own precedence and quoting.
-    result = subprocess.run(["git", "config", "--get-regexp", r"^credential(\..*)?\.helper$"],
-                            cwd=cwd, env={**env, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"},
-                            capture_output=True, text=True, timeout=10)
+    result = _git(["config", "--get-regexp", r"^credential(\..*)?\.helper$"], env, cwd)
     for line in result.stdout.splitlines():
         try:
             helper = line.split(None, 1)[1]
@@ -168,10 +180,8 @@ def _walls(cmd, clean, cwd, out_dir, state, places, logins):
         if (workspace / ".git").exists():
             git_env = {key: value for key, value in clean.items()
                        if key not in ("GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE")}
-            git_env.update(GIT_TERMINAL_PROMPT="0", GH_PROMPT_DISABLED="1")
-            result = subprocess.run(["git", "rev-parse", "--absolute-git-dir", "--git-common-dir"],
-                                    cwd=workspace, env=git_env, capture_output=True, text=True,
-                                    check=True, timeout=10)
+            result = _git(["rev-parse", "--absolute-git-dir", "--git-common-dir"], git_env,
+                          workspace, check=True)
             writable.update((workspace / path).resolve() for path in result.stdout.splitlines())
     if out_dir is not None:
         writable.add(Path(out_dir).resolve())
