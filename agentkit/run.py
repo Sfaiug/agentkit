@@ -4672,7 +4672,7 @@ def checks(lp, url):
     if not head:
         return False, "cannot verify required checks without the PR head SHA"
     deadline = time.monotonic() + CHECKS_CAP
-    rerun = set()   # a check GitHub cancelled ran nothing: it is asked again, never a verdict
+    rerun = {}      # a check GitHub cancelled ran nothing: asked again until GitHub takes it
     while True:
         # The server's gh supports REST pagination but not `pr checks --json`. Read the
         # recorded commit directly, including all check-run and legacy status pages.
@@ -4697,15 +4697,17 @@ def checks(lp, url):
                                 else "pending" if check["conclusion"] == "cancelled"
                                 else "fail" for check in matches]
                 for check in matches:
-                    if (check["conclusion"] == "cancelled" and check["id"] not in rerun
+                    if (check["conclusion"] == "cancelled" and rerun.get(check["id"]) != 0
                             and check["app"].get("slug") == "github-actions"):
-                        rerun.add(check["id"])
+                        # GitHub refuses a job's rerun while its workflow still runs: next poll
                         rc, out = gh(lp.run_dir, *api, "-X", "POST",
                                      f"repos/{owner}/{repo}/actions/jobs/{check['id']}/rerun")
                         if stopped(rc, out):
                             raise Stopped(out)
-                        lp.log(f"checks: GitHub cancelled {name}; asked it to run again"
-                               + ("" if rc == 0 else f", refused: {out.strip()[-200:]}"))
+                        if rc == 0 or check["id"] not in rerun:
+                            lp.log(f"checks: GitHub cancelled {name}; asked it to run again"
+                                   + ("" if rc == 0 else f", refused for now: {out.strip()[-200:]}"))
+                        rerun[check["id"]] = rc
                 if not (apps - {None}).issubset({check["app"]["id"] for check in matches}):
                     missing_apps.add(name)
                     states[name] = []  # a same-named check from another app cannot satisfy it

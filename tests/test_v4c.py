@@ -269,17 +269,20 @@ sys.exit(item.get("rc", 0))
         # a runner GitHub never assigned ran no code: the job is asked again, the wait goes on
         self.rules(["unit"])
         self.observations([])
-        self.reply("api -X POST repos/me/repo/actions/jobs/1/rerun", text="")
+        # GitHub refuses the first ask while the workflow still runs, and takes the second
+        rerun = "api -X POST repos/me/repo/actions/jobs/1/rerun"
+        self.responses[rerun] = [{"text": "HTTP 403: workflow is running", "rc": 1},
+                                 {"text": "", "rc": 0}]
         key = f"api --paginate repos/me/repo/commits/{SHA}/check-runs?filter=latest&per_page=100"
         self.responses[key] = [
             {"json": {"check_runs": self.check_rows([{"name": "unit", "bucket": bucket}])}}
-            for bucket in ("cancel", "cancel", "pass")]
+            for bucket in ("cancel", "cancel", "cancel", "pass")]
         (self.root / "responses").write_text(json.dumps(self.responses))
         with patch.object(run, "time", wraps=run.time) as clock:
             clock.sleep.return_value = None
             self.assertEqual(run.checks(self.lp(), URL), (True, ""))
         reruns = [call for call in self.calls() if call[-1].endswith("/rerun")]
-        self.assertEqual(reruns, [["api", "-X", "POST", "repos/me/repo/actions/jobs/1/rerun"]])
+        self.assertEqual(reruns, [["api", "-X", "POST", "repos/me/repo/actions/jobs/1/rerun"]] * 2)
 
     def test_check_registers_on_later_poll(self):
         self.rules(["unit"])
