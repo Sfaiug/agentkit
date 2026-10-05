@@ -1,8 +1,9 @@
 """`ak tell SEAT TEXT`: one seat's message to another, the same way for every harness.
 
 The sender only queues it, in the receiving seat's own file, under that seat's lock.  The tick
-types it there, once, at the seat's next quiet prompt, through the confirmed send a run's ending
-takes (`watch.type_at_prompt`): under the seat's typing lock, never onto a draft or a dialog,
+types it there, once, at the seat's next quiet prompt -- or mid-turn, where its harness holds a
+typed line for its model's next step -- through the confirmed send a run's ending takes
+(`watch.type_at_prompt`): under the seat's typing lock, never onto a draft or a dialog,
 and never while the owner's question stands, so it answers none.  ak writes the header that
 says who it is from, and the typing receipt names that seat as its source, so the line is never
 the owner's words.  Only the tick types, one tick at a time, and a message leaves the queue
@@ -161,7 +162,7 @@ def deliver_to(session, log, cfg=None):
             veto=lambda current: watch.owner_question(notify.last(current)) or stale(current))
     elif held == "empty":
         typed = watch.type_at_prompt(session, first["line"], log, cfg=cfg, ready=ready,
-                                     source=source(first["from"]), stale=stale)
+                                     source=source(first["from"]), stale=stale, midturn=True)
     else:
         return False
 
@@ -227,6 +228,6 @@ def main(argv):
         print(f"ak tell: {refused}", file=sys.stderr)
         return 1
     after = ("after the owner answers its question" if watch.owner_question(notify.last(name))
-             else "at its next quiet prompt")
+             else "as soon as it can take a line")
     print(f"{name}: queued; ak types it {after}")
     return 0
