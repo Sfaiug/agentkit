@@ -419,29 +419,34 @@ def _cpu_weight(cgroup):
         return None
 
 
-def outweighed_cpu(delay=0.1):
-    """Cores this process takes from its cgroup's siblings when it gets busy, else 0.
+def kept_cpu(slice_dir, delay=0.1):
+    """The slice's live CPU use this process cannot take for itself, or None where it takes none.
 
     The kernel shares a parent's CPU among its busy children by weight, so a cgroup at the
-    top weight gets nearly all the live use of its lower-weighted siblings.  A sibling at
-    the same weight shares alike and its own cgroup's use is its own already: neither is
-    counted.  Any lower own weight, or a cgroup that cannot be read, takes nothing.
+    top weight gets nearly all the live use of its lower-weighted siblings; the rest of the
+    slice's use stays -- siblings at its own weight share alike, its own use is its own and
+    nothing outside its parent yields.  The slice and those siblings are read in one sample
+    window, so a burst between two readings cannot erase use another holds.  None at any lower
+    own weight, or where the cgroups cannot be read.
     """
     own = process_cgroup()
-    if not own:
-        return 0.0
+    if not own or slice_dir is None:
+        return None
     path = cgroup_path(own)
     weight = _cpu_weight(path)
     if weight is None or weight < CPU_WEIGHT_MAX:
-        return 0.0
+        return None
     try:
         siblings = [sibling for sibling in path.parent.iterdir()
                     if sibling.name != path.name and sibling.is_dir()]
     except OSError:
-        return 0.0
+        return None
     lower = [sibling for sibling in siblings
              if (other := _cpu_weight(sibling)) is not None and other < weight]
-    return sum(_cpu_rates(lower, delay).values())
+    rates = _cpu_rates([Path(slice_dir), *lower], delay)
+    if Path(slice_dir) not in rates:
+        return None
+    return max(0.0, rates[Path(slice_dir)] - sum(rates.get(sibling, 0.0) for sibling in lower))
 
 
 def _slice_memory(cgroup):

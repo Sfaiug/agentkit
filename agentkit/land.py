@@ -307,7 +307,7 @@ def _check(directory, state, scratch, cmds, log_path, log):
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
     # The checker takes a heavy turn without marking any member's record.
     context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
-               "since": state["waiting_on"]["joined"]}
+               "since": state["waiting_on"]["joined"], "line": state["waiting_on"]["line"]}
     suite = next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
     with gate.gate_turn(None, log_path, log, suite, scratch, context=context):
         ok, text = gate.run_done_when(
