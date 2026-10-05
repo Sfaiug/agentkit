@@ -4886,24 +4886,31 @@ def merged(lp, url, method):
     return True
 
 
-def merged_anyway(lp, url, method):
-    """Did GitHub merge the delivered commit whatever `gh pr merge` answered?  Records it when it did.
+def is_delivery(lp, info, upstream):
+    """Is this PR view still this run's delivery: the reviewed head, aimed at `upstream`?"""
+    return (info.get("headRefOid") == lp.state["delivery_sha"]
+            and info.get("baseRefName") == upstream.removeprefix("origin/"))
+
+
+def merged_anyway(lp, url, upstream):
+    """Did GitHub merge this delivery whatever `gh pr merge` answered?  Records it when it did.
 
     A 5xx or a stopped call may have merged it, and `--delete-branch` exits non-zero on a
     merge that went through when the repository deleted the head branch first (`Reference
     does not exist`).  Only `state` says MERGED -- mergeStateStatus carries mergeability
-    (BEHIND/BLOCKED/CLEAN and the rest), never the outcome -- and only a merged head that is
-    the delivery SHA is this run's work: a head another writer replaced and merged is not.
+    (BEHIND/BLOCKED/CLEAN and the rest), never the outcome -- and only a merge of the
+    delivery into its target is this run's work: a head another writer replaced, or a PR
+    retargeted and merged elsewhere, is not.
     """
-    src, view = gh(lp.run_dir, "pr", "view", url, "--json", "state,headRefOid")
+    src, view = gh(lp.run_dir, "pr", "view", url, "--json", "state,headRefOid,baseRefName")
     if stopped(src, view):
         raise Stopped(view)
     try:
         info = json.loads(view) if src == 0 else {}
     except ValueError:
         info = {}
-    return (info.get("state") == "MERGED" and info.get("headRefOid") == lp.state["delivery_sha"]
-            and merged(lp, url, method))
+    return (info.get("state") == "MERGED" and is_delivery(lp, info, upstream)
+            and merged(lp, url, lp.state["merge_method"]))
 
 
 def do_merge(lp, url, upstream):
@@ -4968,8 +4975,7 @@ def do_merge(lp, url, upstream):
                 info = json.loads(view)
             except ValueError:
                 return note(lp, f"could not read the PR: {view[-400:]}", failed=True)
-            if (info.get("headRefOid") != lp.state["delivery_sha"]
-                    or info.get("baseRefName") != upstream.removeprefix("origin/")):
+            if not is_delivery(lp, info, upstream):
                 return note(lp, "PR head or target changed since PASS; a new run is required",
                             failed=True)
             seen, mergeable = info.get("state"), info.get("mergeable")
@@ -4999,7 +5005,7 @@ def do_merge(lp, url, upstream):
             return merged(lp, url, method)
         if lost:
             # the last attempt's 5xx may have merged too, and no re-check followed it
-            if merged_anyway(lp, url, method):
+            if merged_anyway(lp, url, upstream):
                 return True
             return park_waiting(
                 lp, f"gh pr merge --{method} failed after {MERGE_RETRIES} retries: {cause}; "
@@ -5009,7 +5015,7 @@ def do_merge(lp, url, upstream):
                       "-q", ".mergeStateStatus")
         if stopped(rc, out) or stopped(vrc, why):
             # a merge that stopped may still have gone through server-side
-            if merged_anyway(lp, url, method):
+            if merged_anyway(lp, url, upstream):
                 return True
             raise Stopped(out if stopped(rc, out) else why)
         if attempt == 2 or why not in ("BEHIND", "DIRTY"):
@@ -5025,7 +5031,7 @@ def do_merge(lp, url, upstream):
             return False
         if not refresh_pr_body(lp):
             return False
-    if merged_anyway(lp, url, method):
+    if merged_anyway(lp, url, upstream):
         return True
     return note(lp, f"gh pr merge --{method} failed"
                     f"{f' with the PR {why}' if why else ''}; the PR is open at {url}: {out[-400:]}",
@@ -10282,12 +10288,13 @@ def merge_own_pr(lp, url, head):
             raise config.Error(f"cannot verify the PR before delivery: {why}")
         remote = current["head"]
         expected = (head, lp.state.get("delivery_sha"))
-        if current.get("merged") and remote["sha"] in expected:
+        ours = (remote["sha"] in expected
+                and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
+        if current.get("merged") and ours:
             lp.state["merged"] = True
             lp.write()
             return True
-        if (current.get("state") != "open" or remote["sha"] not in expected
-                or (current.get("base") or {}).get("ref") != upstream.removeprefix("origin/")):
+        if current.get("state") != "open" or not ours:
             path = lp.run_dir / "pr-changed.log"
             path.write_text("The PR head or target changed, or the PR closed, since review.\n")
             lp.state["review_stale"] = True

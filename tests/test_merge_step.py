@@ -897,8 +897,9 @@ class MergeStep(unittest.TestCase):
             if args[:2] == ("pr", "merge"):
                 merges.append(args)
                 return 1, GITHUB_504
-            if args[:2] == ("pr", "view") and "state,headRefOid" in args:
-                return 0, json.dumps({"state": "MERGED", "headRefOid": lp.state["delivery_sha"]})
+            if args[:2] == ("pr", "view") and "state,headRefOid,baseRefName" in args:
+                return 0, json.dumps({"state": "MERGED", "headRefOid": lp.state["delivery_sha"],
+                                      "baseRefName": "main"})
             if args[:2] == ("pr", "view"):
                 return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
                                       "baseRefName": "main", "mergeable": "MERGEABLE"})
@@ -926,7 +927,8 @@ class MergeStep(unittest.TestCase):
             if args[:2] == ("pr", "view") and "-q" in args:
                 return 0, "UNKNOWN"
             if args[:2] == ("pr", "view"):
-                return 0, json.dumps({"state": "MERGED", "headRefOid": lp.state["delivery_sha"]})
+                return 0, json.dumps({"state": "MERGED", "headRefOid": lp.state["delivery_sha"],
+                                      "baseRefName": "main"})
             raise AssertionError(args)
 
         with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
@@ -936,18 +938,20 @@ class MergeStep(unittest.TestCase):
         self.assertTrue(state["merged"])
         self.assertFalse(state.get("merge_note"))
 
-    def test_a_merged_pr_whose_head_is_not_the_delivery_is_not_this_runs_merge(self):
-        # --match-head-commit refused because another writer replaced the head and merged it:
-        # the PR is MERGED, but the reviewed work never reached the target
-        for answer in ((1, "GraphQL: Head branch was modified"), (None, "timed out"),
-                       (1, GITHUB_504)):
-            with self.subTest(answer=answer):
+    def test_a_merged_pr_that_is_not_the_delivery_is_not_this_runs_merge(self):
+        # --match-head-commit refused, or the call failed, and the PR is MERGED: but another
+        # writer replaced its head, or retargeted it and merged it elsewhere, so the reviewed
+        # work never reached this run's target
+        answers = ((1, "GraphQL: Head branch was modified"), (None, "timed out"), (1, GITHUB_504),
+                   (1, "failed to delete remote branch ak/x: HTTP 404: Reference does not exist"))
+        for replaced, answer in ((r, a) for r in ("head", "target") for a in answers):
+            with self.subTest(replaced=replaced, answer=answer):
                 root = Path(tempfile.mkdtemp(dir=self.root))
                 _, _, wt = make_repos(root)
                 lp, run_dir, _ = make_loop(root, wt)
-
-                pr = {"state": "MERGED", "headRefOid": "0" * 40, "baseRefName": "main",
-                      "mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN"}
+                pr = {"state": "MERGED", "mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN",
+                      "headRefOid": "0" * 40 if replaced == "head" else lp.state["delivery_sha"],
+                      "baseRefName": "release" if replaced == "target" else "main"}
 
                 def fake_gh(cwd, *args, **kwargs):
                     if args[:2] == ("pr", "merge"):
@@ -965,6 +969,28 @@ class MergeStep(unittest.TestCase):
                         answered = False
                 self.assertFalse(answered)
                 self.assertFalse(record.read_state(run_dir).get("merged"))
+
+    def test_an_own_pr_merged_into_another_target_is_not_delivered(self):
+        # retargeted and merged elsewhere before the line reached it: the target lacks the work
+        _, _, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt)
+        lp.state["own_orchestrator"] = "opus"
+
+        def fake_gh(cwd, *args, **kwargs):
+            if args[:2] == ("api", "repos/fixture/repo/pulls/7"):
+                return 0, json.dumps({"state": "closed", "merged": True,
+                                      "head": {"sha": lp.state["delivery_sha"]},
+                                      "base": {"ref": "release"}})
+            raise AssertionError(args)
+
+        with patch.object(run, "gh", side_effect=fake_gh), \
+                patch.object(run, "checks", return_value=(True, "")), \
+                patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                             landing(lp, deliver=deliver)), \
+                patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
+                patch.object(run.time, "sleep"):
+            self.assertFalse(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
+        self.assertFalse(record.read_state(run_dir).get("merged"))
 
     def test_an_own_pr_merge_stops_when_its_recheck_stops(self):
         for answer in ((None, "timed out"), (1, "fatal: terminal prompts disabled")):
