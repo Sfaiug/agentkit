@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted
+from fixtures.hand_in import scripted, stateful
 from agentkit import gate, host, config, gc, notify, run, usage, worker
 from agentkit import record
 
@@ -117,6 +117,7 @@ sys.exit(1)
     def script(self, path, body):
         path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
+        stateful(path, self.root)
 
     def reviews(self, *answers):
         (self.root / "reviews.json").write_text(json.dumps(list(answers)))

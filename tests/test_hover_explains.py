@@ -106,7 +106,7 @@ class UsagePace(unittest.TestCase):
             with self.subTest(used=used):
                 prov = {"meters": [{"name": "weekly", "used": used, "window_secs": week,
                                     "resets_at": now + 0.6 * week}]}
-                with patch.object(menu, "usage_rows", return_value=[("acme", "Acme II", prov)]):
+                with patch.object(menu, "usage_rows", return_value=[("acme", "Acme II", prov, None)]):
                     sentence, pace = menu.usage_tip({"models": {}}, 1, now)
                 self.assertTrue(sentence.endswith(" · " + words), sentence)
                 self.assertIn(f"{100 - used}% left", sentence)
@@ -116,7 +116,7 @@ class UsagePace(unittest.TestCase):
         now, week = 1_800_000_000, 7 * 86400
         prov = {"meters": [{"name": "weekly", "used": 100, "window_secs": week,
                             "resets_at": now + 0.6 * week}]}
-        with patch.object(menu, "usage_rows", return_value=[("acme", "Acme II", prov)]):
+        with patch.object(menu, "usage_rows", return_value=[("acme", "Acme II", prov, None)]):
             sentence, pace = menu.usage_tip({"models": {}}, 1, now)
         self.assertIn("0% left", sentence)
         self.assertTrue(sentence.endswith(" (in 4 d 4 h)"), sentence)

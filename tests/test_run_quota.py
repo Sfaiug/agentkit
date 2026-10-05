@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import submitting, scripted
+from fixtures.hand_in import submitting, scripted, stateful
 from agentkit import host, config, notify, orch, run, usage, watch
 from agentkit import record
 
@@ -479,8 +479,6 @@ class QuotaDry(unittest.TestCase):
             {entry["model"]: name for name, entry in self.cfg["models"].items()}))
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
             self.script(adapters / f"{harness}.sh", ADAPTER)
-            # the manifests are the repository's own: signatures are read, never invented here
-            (adapters / f"{harness}.toml").symlink_to(REPO / f"adapters/{harness}.toml")
         self.plan({})
         self.task = self.root / "task.md"
         self.task.write_text("---\nrepo: none\nrounds: 1\n---\n# Ran dry\n\n"
@@ -492,6 +490,7 @@ class QuotaDry(unittest.TestCase):
     def script(self, path, body):
         path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
+        stateful(path, self.root)
 
     def plan(self, responses):
         """model -> list of {code, final, stderr, events} rows, consumed one call at a time."""

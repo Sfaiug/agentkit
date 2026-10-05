@@ -241,7 +241,7 @@ class LanderWakes(Sandbox):
                 with patch.object(run.jobs, "job_await", return_value=saved), redirect_stdout(io.StringIO()):
                     self.assertEqual(run.follow_run(self.directory, self.lp.cfg), result)
 
-    def test_red_repairs_outside_the_lock_and_rejoins_at_the_back(self):
+    def test_red_repairs_outside_the_lock_and_keeps_its_place(self):
         wait = self.park(broken=True)
         self.assertIn("fix", wait)
         other = config.RUNS / "other"
@@ -252,12 +252,12 @@ class LanderWakes(Sandbox):
         self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
-        self.assertGreater(state["waiting_on"]["joined"], 20)
+        self.assertEqual(state["waiting_on"]["joined"], wait["joined"])
         self.assertNotIn("fix", state["waiting_on"])
         self.assertNotIn("land", state["waiting_on"])
         self.assertEqual(self.events, [("final-fixer", 3), ("reviewer", "round-3")])
         self.assertEqual(state["landing_reds"], 1)
-        self.assertEqual([directory.name for directory, _ in land.line(self.turn)], ["other", "run"])
+        self.assertEqual([directory.name for directory, _ in land.line(self.turn)], ["run", "other"])
         self.assertEqual(record.read_state(other), original)
         self.assert_rounds(state)
         self.assertEqual(self.merges, [])
@@ -387,7 +387,7 @@ class LanderWakes(Sandbox):
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["landing_reds"], 1)
-        self.assertGreater(state["waiting_on"]["joined"], wait["joined"])
+        self.assertEqual(state["waiting_on"]["joined"], wait["joined"])
         self.assertIn(failure, self.fixer_inputs[0])
         self.assertFalse((self.wt / "broken.txt").exists())
         how = "merge" if method == "merge" else "rebase"

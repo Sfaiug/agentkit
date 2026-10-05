@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted
+from fixtures.hand_in import scripted, stateful
 from agentkit import config, notify, run, worker
 from agentkit import record
 
@@ -115,6 +115,7 @@ sys.exit(1)
     def script(self, path, body):
         path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
+        stateful(path, self.root)
 
     def launch(self, front, plan=None):
         """One scratch run, reviewed FAIL then PASS so a fixer runs, or as `plan` says; every

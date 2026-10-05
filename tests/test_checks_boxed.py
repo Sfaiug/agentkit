@@ -164,6 +164,22 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertFalse(ok, text)
                 self.assertIn(f"[exit {code}]\npartial", text)
 
+    def test_a_check_writes_where_its_project_says(self):
+        # A suite may log to /tmp or fill a cache in HOME; only worker turns are walled.
+        outside = tempfile.TemporaryDirectory(prefix="ak-test-checks-boxed-")
+        self.addCleanup(outside.cleanup)
+        for name in ("proof", "check"):
+            with self.subTest(command=name):
+                target = Path(outside.name) / name
+                command = f"echo written > {shlex.quote(str(target))}"
+                if name == "proof":
+                    result = self.proof(command)
+                    self.assertEqual(result["returncode"], 0, result)
+                else:
+                    ok, text = self.check(command)
+                    self.assertTrue(ok, text)
+                self.assertEqual(target.read_text(), "written\n")
+
     def test_a_box_that_cannot_start_proves_nothing(self):
         # bwrap exits 1 on a mount it cannot make, before its supervisor runs the command.
         bindir = self.root / "bin"

@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 
 from . import box, command_help, config, hand_in, record
+from .harness import load as harness_plugin
 
 # A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
 # the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
@@ -554,13 +555,14 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
 
 
 def boxed(cmd, limit, *, env, cwd, **kwargs):
-    """The check watchdog and status, inside the same walls as a worker turn."""
+    """The check watchdog and status, with a worker turn's credential masks and teardown."""
     with tempfile.TemporaryDirectory(dir=Path(kwargs["activity"]).parent) as out_dir, \
-            box.command(cmd, env, out_dir, cwd=cwd, drain=True) as (cmd, env, spawn):
+            box.command(cmd, env, out_dir, cwd=cwd, walls=False, drain=True) as (cmd, env, spawn):
         code, text, killed = limited(cmd, limit, env=env, cwd=cwd, **spawn, **kwargs)
         if not killed:
-            # No recorded exit: the box failed before its command ran, which proves nothing.
-            code = box.returncode(out_dir, 126)
+            # Bubblewrap exits 1 when it cannot build the box. Without the supervisor's
+            # report that is no exit of the command: it never started, the shell's 126.
+            code = box.returncode(out_dir, 126 if code == 1 else code)
     return code, text, killed
 
 
@@ -669,13 +671,17 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     # the loop's stderr and never reached the turn's diagnostics.  It is kept apart while the
     # harness writes that file, and added to the end of it once the turn is over.
     own = out_dir / "adapter-stderr.log"
-    with box.command(cmd, turn_env, out_dir, cwd=workspace) as (cmd, turn_env, spawn), \
+    paths = config.manifest(entry["harness"]).get("worker", {})
+    with box.command(cmd, turn_env, out_dir, cwd=workspace,
+                     state=paths.get("state", ()), logins=paths.get("logins", ())) as (cmd, turn_env, spawn), \
             own.open("wb") as err:
         code, _, killed = limited(cmd, None, silence=limit, activity=out_dir / "events.jsonl",
                                   abort=lambda: watching(out_dir),
                                   env=turn_env, stderr=err, **spawn)
     if not killed:
         code = box.returncode(out_dir, code)
+    harness_plugin(entry["harness"]).record_turn(out_dir, config.STATE,
+                                                turn_env.get(config.ACCOUNT_ENV, ""))
     try:
         said = own.read_bytes()
         own.unlink()

@@ -79,6 +79,8 @@ class ReviewerEdits(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-reviewer-edits-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
+        self.harness = self.root / "harness"
+        self.harness.mkdir()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
@@ -86,7 +88,7 @@ class ReviewerEdits(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "REVIEW_FIXTURE": str(self.root),
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "REVIEW_FIXTURE": str(self.harness),
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
         config.ensure_dirs()
         cfg = config.load()
@@ -97,6 +99,8 @@ class ReviewerEdits(unittest.TestCase):
             adapter = adapters / f"{harness}.sh"
             adapter.write_text(f"#!{sys.executable}\n{scripted(ADAPTER)}")
             adapter.chmod(0o755)
+            (adapters / f"{harness}.toml").write_text(
+                'version = 1\n[worker]\nstate = ["$REVIEW_FIXTURE"]\n')
         self.stack.enter_context(patch.object(worker, "auth_ok", return_value=(True, "")))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(run.usage, "account", return_value=(None, True)))
@@ -116,7 +120,7 @@ class ReviewerEdits(unittest.TestCase):
         (self.wt / "tracked.txt").write_text("executor work\n")
         self.git("commit", "-qam", "executor work")
         self.head = self.git("rev-parse", "HEAD")
-        (self.root / "head").write_text(self.head)
+        (self.harness / "head").write_text(self.head)
         (self.wt / "keep").mkdir()
         (self.wt / "keep/existing.txt").write_text("suite artifact\n")
         directory = config.RUNS / "fixture"
@@ -135,7 +139,7 @@ class ReviewerEdits(unittest.TestCase):
         return subprocess.check_output(["git", "-C", str(self.wt), *args], text=True).strip()
 
     def review(self, *responses):
-        (self.root / "responses.json").write_text(json.dumps(responses))
+        (self.harness / "responses.json").write_text(json.dumps(responses))
         return run.review(self.lp, "Executor work.", True, "$ true\n[exit 0]\n")
 
     def assert_restored(self):
@@ -180,7 +184,7 @@ class ReviewerEdits(unittest.TestCase):
         self.assert_restored()
         self.assertIn("+first edit", self.archive.read_text())
         self.assertIn("+retry edit", self.archive.read_text())
-        self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
+        self.assertEqual(json.loads((self.harness / "responses.json").read_text()), [])
 
     def test_no_verdict_ask_restores_both_turns(self):
         self.assertEqual(self.review(
@@ -379,7 +383,7 @@ class ReviewerEdits(unittest.TestCase):
              "text": "Still reviewing."}, {}), "PASS")
         self.assertIn("+module acme", self.archive.read_text())
         self.assertTrue(any("WARN" in line and "probe" in line for line in self.logs), self.logs)
-        self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
+        self.assertEqual(json.loads((self.harness / "responses.json").read_text()), [])
         self.assertFalse((self.lp.round_dir / "review-checkout").exists())
         self.assert_restored()
 
@@ -400,7 +404,7 @@ class ReviewerEdits(unittest.TestCase):
                 self.assertIn(name, saved)
                 self.assertTrue(any("WARN" in line and "skipped" in line and name in line
                                     for line in self.logs), self.logs)
-                self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
+                self.assertEqual(json.loads((self.harness / "responses.json").read_text()), [])
                 self.assertFalse((self.lp.round_dir / "review-checkout").exists())
                 self.assert_restored()
 
@@ -494,7 +498,7 @@ class ReviewerEdits(unittest.TestCase):
         self.git("add", "binary.bin")
         self.git("commit", "-qm", "executor binary")
         self.head = self.git("rev-parse", "HEAD")
-        (self.root / "head").write_text(self.head)
+        (self.harness / "head").write_text(self.head)
         self.lp.validation = run.commit_identity(self.wt)
         real_call, real_changes = worker.call, run.reviewer_changes
 
@@ -545,7 +549,7 @@ class ReviewerEdits(unittest.TestCase):
                         self.assertIn("GIT binary patch", section.split("# unmerged stage", 1)[0])
                 self.assertTrue(any("WARN" in line and "tracked.txt" in line
                                     for line in self.logs), self.logs)
-                self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
+                self.assertEqual(json.loads((self.harness / "responses.json").read_text()), [])
                 self.assert_restored()
 
     def test_unborn_head_is_archived_and_reset_before_the_next_turn(self):
@@ -557,7 +561,7 @@ class ReviewerEdits(unittest.TestCase):
         self.assertIn("+orphan edit", saved)
         self.assertIn("-executor work", saved)
         self.assertTrue(any("WARN" in line and "unborn HEAD" in line for line in self.logs), self.logs)
-        self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
+        self.assertEqual(json.loads((self.harness / "responses.json").read_text()), [])
         self.assert_restored()
 
     def test_a_role_fixture_below_a_repository_is_not_a_review_checkout(self):

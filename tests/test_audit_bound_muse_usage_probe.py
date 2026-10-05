@@ -18,6 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, muse_usage, usage, usage_probe
+from agentkit.harness import muse
 
 
 # Loaded only by fixture children. HTTPS is replaced before the real adapter imports it;
@@ -449,6 +450,7 @@ raise AssertionError("this regression needs no tmux server")
                                entry["model"], entry["effort"], str(self.fixture_repo), str(prompt), str(out)],
                               capture_output=True, text=True, timeout=3)
         self.assertEqual(proc.returncode, 1)
+        muse.record_turn(out, self.state, "")
         # Neither cache goes, and the next read, inside the snapshot's five minutes and the
         # probe's minute, is exhausted all the same.
         self.assertTrue((self.state / "usage.json").exists())

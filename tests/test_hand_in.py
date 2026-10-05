@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import stateful
 from agentkit import config, hand_in, run, worker
 
 
@@ -209,6 +210,8 @@ sys.exit(row.get("code", 0))
                 stack.enter_context(patch.object(config, key, self.root / key.lower()))
             config.ensure_dirs()
             cfg = config.load()
+            stateful(adapter, self.root, {m["harness"] for m in cfg["models"].values()})
+            stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(self.root)}))
             for module, name, value in ((config, "adapter", adapter), (worker, "auth_ok", (True, "fixture")),
                                         (worker, "marked_pids", []), (run, "collect_usage", {}),
                                         (run, "ready_order", ["spark"]), (run, "note_turn_meters", None),

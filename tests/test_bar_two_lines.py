@@ -23,8 +23,8 @@ INK = "#11111b"
 
 
 def drawn(value):
-    """An option's text as tmux draws it: styles dropped, the doubled `#` and `%` single."""
-    return re.sub(r"#\[[^\]]*\]", "", value).replace("##", "#").replace("%%", "%")
+    """An option's text as tmux draws it: styles dropped, the doubled `#` single."""
+    return re.sub(r"#\[[^\]]*\]", "", value).replace("##", "#")
 
 
 class TwoLines(Sandbox):
@@ -87,7 +87,7 @@ class TwoLines(Sandbox):
         # ak's own server and this seat's own options, never the server's or another's
         for args, socket in self.calls:
             self.assertEqual(socket, "agentkit-test")
-            self.assertEqual(args[:3], ("set-option", "-t", "fix-api"))
+            self.assertEqual(args[:3], ("set-option", "-t", "=fix-api:"))
 
     def test_b_a_working_seat_opens_with_its_chip_and_draws_its_tasks_bar_without_an_estimate(self):
         self.plan(2, 5)
@@ -110,8 +110,8 @@ class TwoLines(Sandbox):
         top, why = self.options[statusbar.TOP], self.options[statusbar.WHY]
         self.assertIn(self.chip("needs you"), top)
         self.assertEqual(drawn(top), " ▐! needs you▌  fix-api  fable orchestrates")
-        # `#` and `%` doubled, so tmux draws them as they were said
-        self.assertEqual(why, "  Merge 50%% of ##75 first?")
+        # `#` doubled, so tmux draws it as it was said; a `%` is text as it is
+        self.assertEqual(why, "  Merge 50% of ##75 first?")
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
 
     def test_d_a_done_seat_carries_its_summary_and_the_close_key(self):
@@ -148,10 +148,11 @@ class TwoLines(Sandbox):
         top, bottom = statusbar.FORMATS
         self.assertIn("client_width", top)
         self.assertIn(f"#{{w:{statusbar.KEY}}}", bottom)   # the reason stops short of the key
-        # a space between the reason and the key's alignment: a reason's last `#`, single once
-        # expanded, would otherwise turn `#[align=right]` into text
-        self.assertIn(f"{statusbar.WHY}}} #[align=right]#{{E:{statusbar.KEY}}}", bottom)
-        self.assertTrue(bottom.endswith(f"#[align=right]#{{E:{statusbar.KEY}}}"))
+        # a space between the reason and the key; each option drawn as it is, never expanded
+        self.assertIn(f"{statusbar.WHY}}} #[align=right]#{{{statusbar.KEY}}}", bottom)
+        self.assertTrue(bottom.endswith(f"#[align=right]#{{{statusbar.KEY}}}"))
+        self.assertNotIn("E:", top + bottom)
+        self.assertNotIn("E;", top + bottom)
 
     def test_h_the_bar_has_one_home_and_no_run_tally(self):
         for module, name in ((orch, "bar"), (orch, "dress"), (orch, "set_runs"),

@@ -1597,6 +1597,12 @@ printf '## Summary\nwrote retry.txt on call %s\nSMOKE_SECRET=%s\n' "$n" "${SMOKE
   >"$out/final.md"
 SH
   chmod +x "$d/$h.sh"
+  python3 - "$d/$h.sh" "$d" "$REPO/tests" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[3])
+from fixtures.hand_in import stateful
+stateful(sys.argv[1], sys.argv[2])
+PY
 }
 cat >"$WORK/retry-task.md" <<MD
 ---

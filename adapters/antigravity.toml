@@ -9,6 +9,10 @@ version = 1
 model = "gemini-3.8-flash"
 effort = "low"
 
+[worker]
+state = ["~/.gemini/antigravity-cli", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT"]
+logins = ["~/.gemini/antigravity-cli/antigravity-oauth-token", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT/antigravity-oauth-token"]
+
 # How `ak update` moves this harness: `agy update` takes the latest release and no version,
 # so nothing puts an older build back.  `latest` is the manifest `agy update` and Google's
 # installer read, for this platform named the way that installer names it.

@@ -27,23 +27,18 @@ INK = "11111b"                     # the chip's dark text, Mocha's crust
 DIM = terminal.STATE_STYLES["dim"][2]
 # Each line as tmux draws it from those options, cut with one `…` where it would run off the
 # client drawing it -- line two's a space short of the key, so the key stays whole on every
-# client, a phone's included.  tmux cuts by cells and steps over the styles.  The space after
-# the reason is what keeps a `#` it ends on from taking the key's alignment for a literal.
-FORMATS = ("#[align=left]#{E;=/#{e|-:#{client_width},1}/…:" + TOP + "}",
-           "#[align=left]#{E;=/#{e|-:#{client_width},#{e|+:#{w:" + KEY + "},2}}/…:" + WHY + "} "
-           "#[align=right]#{E:" + KEY + "}")
+# client, a phone's included.  tmux cuts by cells and steps over the styles.  An option is
+# drawn as it is and never expanded again, so its doubled `#` is one escape: a second pass
+# would halve `##` again and draw `## heading` as `# heading`.
+FORMATS = ("#[align=left]#{=/#{e|-:#{client_width},1}/…:" + TOP + "}",
+           "#[align=left]#{=/#{e|-:#{client_width},#{e|+:#{w:" + KEY + "},2}}/…:" + WHY + "} "
+           "#[align=right]#{" + KEY + "}")
 # What every write sets beside the text, so a seat dressed before this layout came has it too:
 # its two lines among them.  tmux resizes a pane only when the height changes, so a seat's
 # pane changes size once -- when it is dressed, or a seat dressed with one line at its first
 # write since -- and never later.
 LAYOUT = (("set-titles", "on"), ("status", "2"), ("status-style", "default"),
           ("status-format[0]", FORMATS[0]), ("status-format[1]", FORMATS[1]))
-
-
-def text(words):
-    """Literal text for the bar: `#` starts a format and tmux reads the bar's `%` as a time,
-    so each is doubled."""
-    return orch.tmux_text(words).replace("%", "%%")
 
 
 def company(cfg, model):
@@ -63,7 +58,8 @@ def chip(word):
     """The state as a chip: `● working` in dark bold text on the word's colour."""
     rgb = "#" + terminal.STATE_STYLES[word][2]
     left, right = ("▐", "▌") if terminal.utf8() else ("", "")
-    return (f"#[fg={rgb}]{left}#[fg=#{INK},bg={rgb},bold]{text(terminal.state_text(word))}"
+    said = orch.tmux_text(terminal.state_text(word))
+    return (f"#[fg={rgb}]{left}#[fg=#{INK},bg={rgb},bold]{said}"
             f"#[default]#[fg={rgb}]{right}#[default]")
 
 
@@ -75,15 +71,17 @@ def lines(name, model, colour, word=None, last=""):
     its first word a seat's bar is its name and who orchestrates it, and its title the name.
     """
     top = f" {chip(word)}  " if word else " "
-    top += f"#[bold]{text(name)}#[nobold]"
+    top += f"#[bold]{orch.tmux_text(name)}#[nobold]"
     if model:
-        top += f"  #[fg={colour}]{text(model)}#[fg=#{DIM}] orchestrates#[default]"
+        top += f"  #[fg={colour}]{orch.tmux_text(model)}#[fg=#{DIM}] orchestrates#[default]"
     if word == "working" and last:
-        top += f"   {text(last)}"
-    why = f"  {text(last)}" if word != "working" and last else ""
+        top += f"   {orch.tmux_text(last)}"
+    why = f"  {orch.tmux_text(last)}" if word != "working" and last else ""
     key, verb = (CLOSE_HINT if word == "done" else HINT).split("  ", 1)
     title = f"{name} · {word}" if word else name
-    return top, why, f"{key}#[fg=#{DIM}]  {verb} #[default]", text(title)
+    # tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
+    return (top, why, f"{key}#[fg=#{DIM}]  {verb} #[default]",
+            orch.tmux_text(title).replace("%", "%%"))
 
 
 def dress(name, model):
@@ -120,12 +118,13 @@ def redress(session, answer, cfg=None):
 
 
 def _write(name, model, word=None, last="", cfg=None):
-    """Set the bar on that seat's own session, never the server's: a seat gone mid-draw, or a
-    draw under test, fails its `set-option` quietly."""
+    """Set the bar on that seat's own session, never the server's or another seat's: a seat gone
+    mid-draw, or a draw under test, fails its `set-option` quietly.  `={name}:` is that session
+    alone: tmux reads a plain name as the start of any session's, so a gone `new-1` would write
+    `new-10`'s bar, and it refuses `=name` without the colon as a target."""
     cfg = config.load() if cfg is None else cfg
     top, why, key, title = lines(name, model, company(cfg, model), word, last)
     # the title last, so whoever sees it has the whole bar to read
     for option, value in (*LAYOUT, (TOP, top), (WHY, why), (KEY, key),
                           ("set-titles-string", title)):
-        # set-option takes the session name plain: it is the one target that rejects `=name`
-        orch.tmux_out("set-option", "-t", name, option, value, socket=orch.socket_name())
+        orch.tmux_out("set-option", "-t", f"={name}:", option, value, socket=orch.socket_name())

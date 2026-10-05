@@ -69,6 +69,7 @@ run)
   [ $# -ge 5 ] || { echo "muse.sh run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]" >&2; exit 2; }
   model=$1 effort=$2 ws=$3 pf=$4 out=$5 sid=${6:-}
   mkdir -p -- "$out" || exit 2
+  rm -f -- "$out/quota.json"
   [ -d "$ws" ] || { echo "muse.sh: no such workspace: $ws" >&2; exit 2; }
   home || exit 2
   prov=${AGENTKIT_MUSE_PROVIDER:-meta}
@@ -105,14 +106,12 @@ run)
     when=${when#resets }; when=${when#at }
     if date --version >/dev/null 2>&1; then epoch=$(date -u -d "$when" +%s 2>/dev/null)
     else epoch=$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$when" +%s 2>/dev/null); fi
-    if [ -n "${epoch:-}" ] && mkdir -p -- "$STATE"; then
+    if [ -n "${epoch:-}" ]; then
       secs=18000; [ $((epoch - $(date -u +%s))) -gt 18000 ] && secs=604800
       printf '{"meters":[{"name":"quota","used":100,"resets_at":%s,"window_secs":%s}]}\n' "$epoch" "$secs" \
-        >"$QUOTA"
-      # Neither cache is deleted: state/usage.json holds every other provider's reading, and
-      # usage-meta-probe.json when a paid request was last spent.  Where the provider lists no
-      # accounts, every read of the snapshot applies this file at once (`usage_recorded` in
-      # agentkit/harness/muse.py); an account's row reads its own through `usage` below.
+        >"$out/quota.json"
+      # The plugin imports this after the box closes: ak's records remain read-only
+      # during the turn, and the other providers' caches are left alone.
     fi
   fi
   exit $rc ;;

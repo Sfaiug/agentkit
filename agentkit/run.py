@@ -5397,12 +5397,12 @@ def release_line(run_dir, log):
     landing.start_line(config.RUNS / state["waiting_on"]["line"], log)
 
 
-def rejoin_line(lp, upstream, reason, *, back=False):
-    """A changed target keeps its place; repaired work rejoins at its priority group's back."""
+def rejoin_line(lp, upstream, reason):
+    """A rejoining run keeps its place, repaired work included: checked again soon, it meets
+    the target it was fixed against, not one moved by every landing a lap at the back takes."""
     wait = lp.state["waiting_on"]
     lp.state.update(state="waiting", error=reason, merge_failed=False, merge_note=reason,
-                    waiting_on={"line": turn_path(lp, upstream).name,
-                                "joined": time.time() if back else wait["joined"]})
+                    waiting_on={"line": turn_path(lp, upstream).name, "joined": wait["joined"]})
     lp.state.pop("recovery_pending", None)
     lp.write()
     return False
@@ -5484,7 +5484,7 @@ def land_from_line(lp, upstream, deliver):
             lp.state.pop("waiting_on", None)
             lp.write()
             return False
-    return rejoin_line(lp, upstream, "landing fixes passed review", back=True)
+    return rejoin_line(lp, upstream, "landing fixes passed review")
 
 
 def land(lp, upstream, verify, deliver, execv=None):
@@ -11740,11 +11740,15 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
                                    or prior.get("own_pr_wait"))
                      and prior.get("head_sha") != info["headRefOid"])
-    if prior.get("worktree") and (
-            git(prior["worktree"], "rev-parse", "HEAD") != ((prior.get("review") or {}).get("head_sha")
-                                                         or prior.get("head_sha"))
-            or (prior.get("head_sha") != info["headRefOid"] and not advancing)):
-        raise config.Error("the PR head or review checkout changed; existing work is kept for inspection")
+    if prior.get("worktree"):
+        at = git(prior["worktree"], "rev-parse", "HEAD")
+        recorded = (prior.get("review") or {}).get("head_sha") or prior.get("head_sha")
+        # a reset to the head this round moves to may have finished just before a crash
+        moved = advancing and at == info["headRefOid"]
+        if ((at != recorded and not moved)
+                or (prior.get("head_sha") != info["headRefOid"] and not advancing)):
+            raise config.Error("the PR head or review checkout changed; existing work is kept "
+                               "for inspection")
     previous = saved_findings(run_dir, prior) if is_own else ""
     # Persist before fetch/checkout/provider work: the PR can move at any of those steps.
     receipt = stamp_origin({**(run_record.read_state(run_dir) or {}), "run_id": run_dir.name,
@@ -11799,7 +11803,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
              "worktree": str(wt), "executor": None, "reviewer": None, "rounds": n_rounds,
              "state": "running", "verdict": None, **run_record.process_owner(), "started_at": receipt["started_at"],
              "finished_at": None, "round_summaries": summaries, "findings": previous, "merge_method": "squash",
-             "no_merge": not is_own, "merged": False, "merge_note": None, "reported": False})
+             "no_merge": not is_own or bool(opts.get("--no-merge")), "merged": False,
+             "merge_note": None, "reported": False})
     # a review is a run like any other: its history row carries its task's size, measured
     # off the same body the task file on disk holds
     sized_words, sized_points, sized_checks = taskfile.task_size(
@@ -11921,7 +11926,10 @@ def settle_pr_round(lp, url, info):
         write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
         log(f"ERROR {state['error']}")
         return state
-    if verdict == "PASS" and posted and not state.get("merged"):
+    if is_own and state.get("no_merge") and verdict == "PASS" and posted:
+        # launched with --no-merge: the verdict is the whole delivery
+        state["merge_note"] = "not merged: the review was launched with --no-merge"
+    elif verdict == "PASS" and posted and not state.get("merged"):
         if is_own:
             # the verdict owes its delivery until it lands, fails or goes back to its writer:
             # a delivery that errors keeps the mark, and with it the checkout a retry needs

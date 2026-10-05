@@ -485,5 +485,21 @@ class OwnPrRounds(unittest.TestCase):
         self.assertTrue(state["merged"])
         self.assertEqual(len(self.prompts), 2)
 
+    def test_a_crash_right_after_checking_out_the_new_head_is_resumed(self):
+        git = run.git
+
+        def dies_after_reset(cwd, *args, **kw):
+            result = git(cwd, *args, **kw)
+            if args == ("reset", "--hard", self.heads[1]):
+                raise InterruptedError("the process died after the reset, before recording it")
+            return result
+
+        with patch.object(run, "git", side_effect=dies_after_reset), \
+                self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        state = self.review(["FAIL", "PASS"])
+        self.assertEqual(state["head_sha"], self.heads[1])
+        self.assertTrue(state["merged"])
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

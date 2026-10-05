@@ -125,8 +125,7 @@ class HarnessUpdatePins(PinnedHome):
         self.enterContext(patch.object(orch, "tmux_conf", lambda: conf))
         self.enterContext(patch.object(statusbar, "dress", lambda *a, **kw: None))
         # The private tmux server needs no unit in the host's real systemd manager.
-        self.enterContext(patch.object(orch, "in_slice",
-                                       lambda argv, unit, socket=None, env=None, **_kw: (argv, env)))
+        self.enterContext(patch.object(orch, "user_manager", return_value=False))
         cmd, conversation = orch.fresh_command(cfg, "fixture")
         assert conversation is None
         # This checkout's absolute path exceeds Unix's socket length limit. A relative -S

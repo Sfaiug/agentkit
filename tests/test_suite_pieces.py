@@ -91,7 +91,7 @@ class SuitePieces(unittest.TestCase):
             self.assertEqual(Path(activity).read_bytes(), raw[shard])
             return 1, "", False
 
-        with patch.object(worker, "limited", side_effect=limited):
+        with patch.object(worker, "boxed", side_effect=limited):
             code, text, killed = gate.run_suite(
                 SUITE, 10, cwd=self.root, activity=self.run_dir / "live.log",
                 output=live, run_dir=self.run_dir)

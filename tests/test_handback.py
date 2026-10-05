@@ -21,7 +21,7 @@ from unittest.mock import patch
 from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
-from fixtures.hand_in import records, scripted
+from fixtures.hand_in import records, scripted, stateful
 from agentkit import gate, host, browser, config, gc, job as jobs, land, menu, notify, orch, run, terminal, watch
 from agentkit import record
 
@@ -1266,6 +1266,7 @@ class BlockedRuns(unittest.TestCase):
     def script(self, path, body):
         path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
+        stateful(path, self.root)
 
     def plan(self, **answers):
         (self.root / "plan.json").write_text(json.dumps(answers))
