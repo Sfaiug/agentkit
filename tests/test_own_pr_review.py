@@ -63,10 +63,10 @@ class OwnPrReview(unittest.TestCase):
         return self.commit()
 
     def review(self, author="owner", seat="fix-api", background=False,
-               want_review=None, launch_only=False):
+               want_review=None, launch_only=False, worktree=None):
         directory = config.RUNS / f"review-{len(list(config.RUNS.iterdir()))}"
         directory.mkdir()
-        head = self.git("rev-parse", "HEAD")
+        head = run.git(worktree or self.repo, "rev-parse", "HEAD")      # the PR's head
         info = dict(state="OPEN", title="Mend the fence", author=author,
                     baseRefName="main", headRefOid=head, body="small fix")
 
@@ -88,7 +88,7 @@ class OwnPrReview(unittest.TestCase):
             run.capture_launch(directory, {"--review-pr": URL})
             for name, value in (("pr_view", info), ("viewer_login", "owner"),
                                 ("checkout_for", self.repo), ("fetch", (0, "")),
-                                ("make_worktree", (self.repo, "ak/pr-7")),
+                                ("make_worktree", (worktree or self.repo, "ak/pr-7")),
                                 ("collect_usage", {}),
                                 ("ready_order", ["astra"]), ("post_review", True),
                                 ("checks", (True, "")), ("gh_json", (info, ""))):
@@ -143,6 +143,36 @@ class OwnPrReview(unittest.TestCase):
         self.assertIn("a finding whose proof is that line's check, run with `--run`", own)
         theirs = Path(self.review(author="acme-friend")[0]["task"]).read_text()
         self.assertNotIn("## The plan this PR serves", theirs)
+
+    def test_the_plan_lines_follow_the_pr_s_history_not_the_branch_checked_out(self):
+        here = plan.named(self.repo)
+        config.plan_path("fix-api").write_text(
+            f"- [ ] the fence holds · check: `test -f fence.txt` · {here} · written 2026-10-02 12:00\n")
+        self.change(5)
+        reviewed = self.root / "pr-7"
+        self.git("worktree", "add", "-q", "--detach", str(reviewed), "HEAD")
+        self.git("checkout", "-q", "--orphan", "gh-pages")     # the main checkout's own root
+        self.git("commit", "-q", "--allow-empty", "-m", "pages")
+        own = Path(self.review(worktree=reviewed)[0]["task"]).read_text()
+        self.assertIn("the fence holds", own)
+
+    def test_a_line_from_before_roots_counts_where_its_name_resolves(self):
+        config.update_session("fix-api", repo=str(self.repo))
+        config.plan_path("fix-api").write_text(
+            f"- [ ] the fence holds · check: `test -f fence.txt` · {self.repo.name} · written 2026-10-02 12:00\n"
+            "- [ ] the site loads · check: `true` · site · written 2026-10-02 12:00\n"
+            "- [ ] a hand-kept note\n")
+        self.change(5)
+        own = Path(self.review()[0]["task"]).read_text()
+        self.assertIn("the fence holds", own)
+        self.assertNotIn("the site loads", own)
+        self.assertNotIn("a hand-kept note", own)
+
+    def test_an_unreadable_plan_refuses_the_review(self):
+        config.plan_path("fix-api").write_bytes(b"- [ ] \xff\xfe not text\n")
+        self.change(5)
+        with self.assertRaises(config.Error):
+            self.review()
 
     def test_another_authors_pr_and_a_review_without_a_seat_run(self):
         self.change(1000)
