@@ -2935,16 +2935,17 @@ def review_records(out, text):
     return hand_in.read(written_answer(out, text).parent / hand_in.FILE)
 
 
-def record_findings(lp, out, text, submitted=None):
-    """What the reviewer said, and where the whole of it is.
+def record_findings(lp, out, text, submitted=None, overridden=None):
+    """What the reviewer said, and where the whole of it is, led by why the loop failed a PASS.
 
     Written together everywhere, because a `findings_file` left pointing at another answer
-    would hand the next fixer the wrong review -- worse than the tail it replaces.
+    would hand the next fixer the wrong review -- worse than the tail it replaces.  The
+    published review, the result and the hand-back all read this text.
     """
     source = written_answer(out, text)
     if submitted is None:
         submitted = hand_in.read(source.parent / hand_in.FILE) or hand_in.Review([])
-    text = submitted.text
+    text = (f"## Overridden to FAIL\n{overridden}\n\n" if overridden else "") + submitted.text
     source = source.parent / hand_in.REPORT
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(text)
@@ -3802,7 +3803,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.log(f"WARN {overridden}; overriding to FAIL")
     if ok is False and verdict == "PASS":
         verdict = "FAIL"
-        overridden = "the reviewer said PASS while done-when is failing"
+        # the check that failed, by name: the reviewer's text says PASS, and it is what is read
+        checks = [line for line in (dw_log or "").splitlines() if LOOP_NOTE.match(line)]
+        overridden = "; ".join(["the reviewer said PASS while done-when is failing", *checks])
         lp.log(f"WARN {overridden}; overriding to FAIL")
     if checkout_changed or (not lp.scratch and (
             commit_identity(lp.wt) != identity or (not lp.state.get("review_pr") and
@@ -3810,7 +3813,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         verdict = "FAIL"
         overridden = "the checkout changed after verification"
         lp.log(f"WARN {overridden}; overriding to FAIL")
-    record_findings(lp, out, text, submitted=submitted)
+    record_findings(lp, out, text, submitted=submitted, overridden=overridden)
     lp.state["notes"] = submitted.notes
     lp.state["followups"] = submitted.followups if verdict == "PASS" else []
     if verdict == "PASS":
@@ -10550,6 +10553,11 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         dw_log = ("(the repository suite runs once at landing; nothing was run in this review round)"
                   if tests else "(AGENTS.md declares no `tests:` command; nothing was run)")
         log(dw_log)
+        # no suite stands in for it, and a PASS on this head is what merges
+        failure = rules_cap(lp)
+        if failure:
+            ok, dw_log = False, f"{dw_log}\n\n{failure}"
+            log(failure)
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
