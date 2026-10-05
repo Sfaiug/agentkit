@@ -26,10 +26,22 @@ PROCESSES = "box-processes.json"
 
 
 def _links(root):
-    found = []
-    for directory, subdirs, names in os.walk(root):
-        found.extend(path for path in (Path(directory, name) for name in subdirs + names)
-                     if path.is_symlink())
+    """Every link reachable from root, through linked directories too, each directory once."""
+    found, seen, pending = [], set(), [Path(root)]
+    while pending:
+        directory = pending.pop()
+        if directory.resolve() in seen:
+            continue
+        seen.add(directory.resolve())
+        try:
+            entries = list(os.scandir(directory))
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.is_symlink():
+                found.append(Path(entry.path))
+            if entry.is_dir():
+                pending.append(Path(entry.path))
     return found
 
 

@@ -239,16 +239,24 @@ class WorkerBox(unittest.TestCase):
         keys.mkdir()
         (vault / "id_linked").write_text("fixture-key")
         (keys / "id_dir").write_text("fixture-key")
+        # Links inside a linked directory, and a loop that must not trap the walk.
+        outside = self.root / "outside"
+        (outside / "keydir").mkdir(parents=True)
+        (outside / "id_file").write_text("fixture-key")
+        (outside / "keydir/id_dir").write_text("fixture-key")
+        (keys / "id_file").symlink_to(outside / "id_file")
+        (keys / "keydir").symlink_to(outside / "keydir")
+        (keys / "loop").symlink_to(keys)
         ssh = self.root / ".ssh"
         ssh.mkdir()
         (ssh / "id_linked").symlink_to("../vault/id_linked")
         (ssh / "keys").symlink_to(keys)
-        paths = [vault / "id_linked", keys / "id_dir"]
+        paths = [vault / "id_linked", keys / "id_dir", outside / "id_file", outside / "keydir/id_dir"]
         with patch.dict(os.environ, {"BOX_PATHS": json.dumps([str(path) for path in paths])}):
             code, text, _, killed, _ = self.turn()
         self.assertEqual((code, killed), (0, False))
-        self.assertEqual(json.loads(text)["paths"], ["", ""])
-        self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * 2)
+        self.assertEqual(json.loads(text)["paths"], [""] * len(paths))
+        self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * len(paths))
 
     def test_files_writes_identity_environment_and_exit_status_stay_the_same(self):
         with patch.dict(os.environ, {"BOX_LEAK": "0", "BOX_INSPECT": "1", "BOX_EXIT": "7",
