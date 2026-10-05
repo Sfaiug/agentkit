@@ -248,9 +248,11 @@ def run_repo_cleanup(wt, run_dir):
             try:
                 repo = (run_record.read_state(Path(run_dir)) or {}).get("repo")
                 env = {**os.environ, **(config.repo_env(repo) if repo else {})}
+                # its own session: a Ctrl+C at the caller's terminal reaches the caller
+                # alone, so the line is still there, whole, for the teardown below
                 with subprocess.Popen(["bash", "-c", cmd], cwd=str(wt), stdout=fh,
                                       stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                      env=env) as proc:
+                                      start_new_session=True, env=env) as proc:
                     try:
                         proc.wait(timeout=CLEANUP_LIMIT)
                     except BaseException:

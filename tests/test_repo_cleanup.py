@@ -9,7 +9,6 @@ import signal
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -170,22 +169,23 @@ class RepoCleanup(unittest.TestCase):
                 self.assertIn("timed out", line)
 
     @unittest.skipUnless(sys.platform == "linux", "reads /proc")
-    def test_an_interrupted_cleanup_leaves_nothing_of_its_line_running(self):
-        # `ak run stop` or `ak run clean` interrupted while the line runs: the line goes
-        # before the interrupt goes on up, as subprocess.run's kill on any exception did
+    def test_a_ctrl_c_mid_cleanup_leaves_nothing_of_its_line_running(self):
+        # `ak run stop` or `ak run clean` stopped with Ctrl+C while the line runs: the
+        # terminal signals its whole foreground group, here a caller in a group of its own
         marker = self.marked()
         wt, run_dir, _state = self.make_run(
             "cleanup-interrupted", f"---\ncleanup: sleep {marker} & wait\n---\n# acme\n")
-
-        def interrupt():
-            deadline = time.monotonic() + 10
-            while len(self.running(marker)) < 2 and time.monotonic() < deadline:
-                time.sleep(.02)
-            os.kill(os.getpid(), signal.SIGINT)
-
-        threading.Thread(target=interrupt, daemon=True).start()
-        with self.assertRaises(KeyboardInterrupt):
-            worktrees.run_repo_cleanup(wt, run_dir)
+        caller = subprocess.Popen(
+            [sys.executable, "-c",
+             f"import sys; sys.path.insert(0, {str(REPO)!r})\n"
+             "from agentkit import worktrees\n"
+             f"worktrees.run_repo_cleanup({str(wt)!r}, {str(run_dir)!r})\n"],
+            start_new_session=True, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 10
+        while len(self.running(marker)) < 2 and time.monotonic() < deadline:
+            time.sleep(.02)
+        os.killpg(caller.pid, signal.SIGINT)
+        self.assertNotEqual(caller.wait(timeout=30), 0)    # the interrupt went on up
         self.assert_none_left(marker)
 
 if __name__ == "__main__":
