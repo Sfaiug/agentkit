@@ -203,6 +203,14 @@ class Lander(LanderFixture, unittest.TestCase):
         self.wake.assert_called_once()
         self.assert_cleaned()
 
+    def test_the_checks_get_the_repositorys_env_file(self):
+        (config.ENV / "acme.env").write_text("ACME_LANDING=from-env\n")
+        directory = self.member(once='test "$ACME_LANDING" = from-env')
+        self.advance()
+        land.check_line(self.turn)
+        self.assertNotIn("fix", self.wait(directory))
+        self.assertIn("land", self.wait(directory))
+
     def test_a_failing_declared_suite_wakes_a_fix(self):
         directory = self.member(**{"broken.txt": "broken\n"})
         self.advance()
