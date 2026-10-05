@@ -52,7 +52,7 @@ watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None,
 }
 
 seat_state() {
-  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner
+  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner since latch
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
@@ -149,18 +149,33 @@ sys.exit(0 if passive else 1)
       <<<"$payload" >/dev/null 2>&1; then
     peer=true
   fi
+  # So does a line another seat sent with `ak tell`: ak writes its typing receipt, source
+  # `seat:<sender>`, before the text goes in, so it was written since the turn before this one
+  # began.  The owner's own later prompt with the same words comes after a newer turn's start.
+  latch="$dir/stop-$seat.json"
+  if [[ $peer = false && -r $dir/input-$row.jsonl ]]; then
+    since=$("$jq" -r '.turn | numbers' "$latch" 2>/dev/null) || since=''
+    if "$jq" -Rse --argjson p "$payload" --argjson since "${since:-0}" '
+        [split("\n")[] | fromjson? | objects] as $sent
+        | [($p.prompt // empty), ($p.message // empty)] | map(strings | gsub("\\s"; "")) as $said
+        | any($sent[]; (.source | strings | startswith("seat:")) and ((.at | numbers) > $since)
+                       and ((.text | strings | gsub("\\s"; "")) as $t | any($said[]; . == $t)))' \
+        "$dir/input-$row.jsonl" >/dev/null 2>&1; then
+      peer=true
+    fi
+  fi
   asked=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
                | any(test("\\?([[:space:]]|$)"))' \
       <<<"$payload" >/dev/null 2>&1; then
     asked=true
   fi
-  tmp="$dir/stop-$seat.json.tmp.$$"
+  tmp="$latch.tmp.$$"
   "$jq" -n --arg session "$seat" --argjson turn "$ts" --argjson peer "$peer" \
     --argjson asked "$asked" \
     '{session: $session, turn: $turn, blocks: 0, peer: $peer, asked: $asked}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
-  /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
+  /bin/mv -f -- "$tmp" "$latch" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question, once the background look checks its pane.
   # The launch name still resolves after a rename; messages and slash commands answer nothing.
   # Background reports keep the normal stop rules, so they must not set the peer latch.

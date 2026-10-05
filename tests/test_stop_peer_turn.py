@@ -29,6 +29,8 @@ ACK = "Noted -- nothing new on my side."      # the seat acknowledges the messag
 PEER_PROMPT = ('<cross-session-message from="acme-fix-api" to="peer-seat">'
                "Finished the parser; over to you.</cross-session-message>")
 SPENT = "three rounds spent: split or re-scope the task"
+TOLD = ("[from seat acme-fix-api at 10:12, not the owner; reply with ak tell acme-fix-api] "
+        "Finished the parser; over to you.")
 
 
 class StopPeerTurn(unittest.TestCase):
@@ -95,6 +97,12 @@ class StopPeerTurn(unittest.TestCase):
         self.assertTrue(output.strip(), "the hook allowed the stop")
         return json.loads(output)
 
+    def typed(self, text, source):
+        """ak's typing receipt for a line it is about to type into the seat, as watch writes it."""
+        with (self.state / f"input-{SEAT}.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"at": time.time(), "text": text, "source": source,
+                                 "harness": "claude", "conversation": "fake", "after": 0}) + "\n")
+
     # --- the standing done ----------------------------------------------------
 
     def test_a_peer_opened_turn_with_a_standing_undropped_done_is_not_held(self):
@@ -113,6 +121,31 @@ class StopPeerTurn(unittest.TestCase):
                 self.notified("done", self.done_at)
                 latch = self.prompt(opened)
                 self.assertFalse(latch["peer"])
+                self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
+    def test_a_line_told_with_ak_tell_opens_a_peer_turn(self):
+        """Its receipt names the seat that sent it; wrapped rows join with other whitespace."""
+        self.notified("done", self.done_at)
+        self.typed(TOLD, "seat:acme-fix-api")
+        latch = self.prompt(TOLD.replace("; over", ";\nover"))
+        self.assertTrue(latch["peer"])
+        self.assertEqual(self.stop(), "")
+
+    def test_the_owners_later_prompt_with_the_told_words_is_the_owners(self):
+        """A receipt counts for the one prompt it typed: the first after it was written."""
+        self.notified("done", self.done_at)
+        self.typed(TOLD, "seat:acme-fix-api")
+        self.assertTrue(self.prompt(TOLD)["peer"])
+        self.assertFalse(self.prompt(TOLD)["peer"])
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
+    def test_a_line_ak_types_for_itself_or_the_owner_opens_no_peer_turn(self):
+        for source in ("ak", "owner"):
+            with self.subTest(source=source):
+                self.setUp()
+                self.notified("done", self.done_at)
+                self.typed("run 20260101-0900-parser finished: PASS", source)
+                self.assertFalse(self.prompt("run 20260101-0900-parser finished: PASS")["peer"])
                 self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_a_peer_opened_turn_whose_last_done_was_dropped_is_held(self):

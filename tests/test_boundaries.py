@@ -113,7 +113,7 @@ RULES = [
                 r"(\{[^}]*\}|\$\{?[A-Za-z_]+\}?|\*)\.(json|md)"
                 r"|len\([\"'](session|notify|card|seat|hook|compact|stop|plan)-[\"']\)",
      "home": ("agentkit/config.py",),
-     "max": 11},
+     "max": 10},
     # A task file's format is read in one module: a pattern for its front-matter fence
     # (`^---\n`) or its `## Done when` heading is a second reader to keep in step.  A task
     # written out (`## Done when\n```bash`) is no reader, and `FRONT` reads AGENTS.md's front
