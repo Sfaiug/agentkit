@@ -1473,10 +1473,11 @@ def classify(harness, tail, fact, opened_at, previous, now):
         # not rewritten on every draw.
         state, source, why, evidence, began = "at_prompt", "", "none", \
             "no hook fact and no screen rule matched", None
-    if state == "at_prompt" and composer_draft(harness, tail):
-        # a draft taller than the draft rule's window: the composer read whole still holds it
-        state, source, why, evidence, began = "draft", "screen", "composer", \
-            "the composer holds text above the draft rule's window", None
+    typed = composer_text(harness, tail) if seen == "at_prompt" and state == "at_prompt" else ""
+    if typed:
+        # a draft taller than the draft rule's window: the composer a rule found, read whole,
+        # still holds the owner's text
+        state, source, why, evidence, began = "draft", "screen", "composer", typed, None
     if source and began is None:
         kept = previous.get("began") if previous.get("state") == state else None
         if isinstance(kept, (int, float)) and not isinstance(kept, bool):
@@ -2415,7 +2416,13 @@ def follow_title(session, log=lambda _: None):
 
 
 def composer_draft(harness, pane):
-    """The composer's whole text without whitespace, "" when empty, None where none is found.
+    """The composer's whole text without whitespace, "" when empty, None where none is found."""
+    text = composer_text(harness, pane)
+    return None if text is None else re.sub(r"\s+", "", text)
+
+
+def composer_text(harness, pane):
+    """The composer's whole text as it reads, "" when empty, None where none is found.
 
     Read on any turn, from its prompt row down to the chrome under it: a wrap or a newline
     puts text on the rows below.  Found the way the draft rule finds it: a queued inbound
@@ -2427,7 +2434,7 @@ def composer_draft(harness, pane):
     if chrome["draft"]:
         # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
         # block of them, and finding none reads as empty.
-        return re.sub(r"\s+", "", "".join(chrome["draft"].findall("\n".join(rows))))
+        return " ".join(chrome["draft"].findall("\n".join(rows)))
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
@@ -2450,7 +2457,7 @@ def composer_draft(harness, pane):
             if boxed and plain.startswith("│") and plain.endswith("│"):
                 plain = plain[1:-1].strip()
             parts.append(plain)
-    return re.sub(r"\s+", "", "".join(parts))
+    return " ".join(" ".join(parts).split())
 
 
 def sync_title(session, log=lambda _: None, *, force=False):

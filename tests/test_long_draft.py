@@ -13,6 +13,7 @@ from test_v4n import REPO, Sandbox
 from agentkit import watch
 
 NOW = 1_800_000_000
+SEAT = "fix-api"
 FIX = REPO / "tests/fixtures"
 DRAFT = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8", errors="replace")
 PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8", errors="replace")
@@ -31,8 +32,21 @@ class LongDraft(Sandbox):
     def test_a_draft_taller_than_the_rule_s_window_is_a_draft(self):
         pane = watch.pane_tail(taller(DRAFT, 8))
         self.assertNotEqual(watch.screen_state("claude", pane)[0], "draft")   # past the window
-        found = watch.classify("claude", pane, STOPPED, None, {}, NOW)
-        self.assertEqual((found["state"], found["authority"]), ("draft", "screen"))
+        live = watch.classify("claude", pane, STOPPED, None, {}, NOW)
+        self.assertEqual((live["state"], live["authority"]), ("draft", "screen"))
+        # ... and what the owner reads is his own text
+        found = watch.session_state(SEAT, NOW, session={"name": SEAT, "attached": False},
+                                    cfg=self.cfg, records=[], live=live, harness="claude",
+                                    auth_out={}, gh_out={}, token_out={}, previous={})
+        self.assertEqual(found["word"], "needs you")
+        self.assertTrue(found["reason"].startswith(
+            "unsent: Fix the login redirect and step 0 of the plan and step 1"), found["reason"])
+
+    def test_a_screen_no_rule_reads_as_a_composer_is_no_draft(self):
+        # an empty resume picker: its bright search field reads like text after a prompt mark
+        picker = (FIX / "muse-title-resume-pane.txt").read_text(encoding="utf-8", errors="replace")
+        found = watch.classify("muse", watch.pane_tail(picker), STOPPED, None, {}, NOW)
+        self.assertNotEqual(found["state"], "draft")
 
     def test_a_short_draft_still_reads_by_its_rule(self):
         found = watch.classify("claude", watch.pane_tail(DRAFT), STOPPED, None, {}, NOW)
