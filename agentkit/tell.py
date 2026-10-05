@@ -110,9 +110,9 @@ def composer_holds(name, session, line):
     return "line" if held == re.sub(r"\s+", "", line) else "other"
 
 
-def refusal(name, seat):
-    """Why nothing can be queued for that seat, asked under its lock, else None."""
-    if name == config.current_session():
+def refusal(name, seat, sender):
+    """Why nothing can be queued for that seat from `sender`, asked under its lock, else None."""
+    if name == sender:
         return f"{name} is this seat"
     if name not in config.session_records():
         return f"no session {name!r}; `ak orch list` shows them"
@@ -134,7 +134,7 @@ def queue(name, line, sender=""):
                 "write the rest to a file and tell its path")
     with notify.session_lock(name) as name:
         seat = seat_of(name)
-        refused = refusal(name, seat)
+        refused = refusal(name, seat, sender)
         if refused:
             return refused
         try:

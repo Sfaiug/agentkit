@@ -77,12 +77,19 @@ def line(project, row):
 
 
 def projects():
-    """{main checkout: its checkouts under ~/code}, for each repository that names switches."""
+    """{checkout: its repository's checkouts under ~/code}, for each repository that names
+    switches, keyed on its main working tree where that is one of them. A repository is its git
+    directory, wherever that lives: the main tree's own, which a linked worktree's shares."""
     from . import menu, run   # here, not at the top: both are the whole screen and loop
     found = {}
     for checkout in orch.checkouts():
-        found.setdefault(run.main_checkout(checkout), []).append(checkout)
-    return {home: checkouts for home, checkouts in found.items() if menu.switches_command(home)}
+        code, out, _ = run.tool_run(["git", "-C", str(checkout), "rev-parse",
+                                     "--path-format=absolute", "--git-dir", "--git-common-dir"])
+        dirs = out.splitlines() if code == 0 else []
+        own, common = dirs if len(dirs) == 2 else (checkout, checkout)
+        found.setdefault(common, []).append((own != common, checkout))
+    homes = {min(group)[1]: [checkout for _, checkout in group] for group in found.values()}
+    return {home: checkouts for home, checkouts in homes.items() if menu.switches_command(home)}
 
 
 def seat_for(checkouts):

@@ -222,6 +222,25 @@ class Retire(unittest.TestCase):
         self.assertEqual(self.lists(), 1)
         self.assertEqual(len(self.queued("acme-wt")), 1)
 
+    def test_a_repository_whose_git_directory_lives_elsewhere_is_one_project(self):
+        subprocess.run(["git", "-C", str(self.acme), "init", "-q",
+                        f"--separate-git-dir={self.root / 'acme.git'}"], check=True)
+        subprocess.run(["git", "-C", str(self.acme), "worktree", "add", "-q",
+                        str(config.CODE / "ACME-wt"), "-b", "wt"], check=True)
+        self.seat("acme-wt", config.CODE / "ACME-wt", created=10)
+        self.switches(row("older", 60))
+        self.hand()
+        self.assertEqual(self.lists(), 1)
+        self.assertIn(str(self.acme), retire.read())
+        self.assertEqual(len(self.queued("acme-wt")), 1)
+
+    def test_the_seat_the_tick_runs_in_takes_ak_lines_too(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(row("older", 60))
+        with patch.dict(os.environ, {"AGENTKIT_SESSION": "acme"}):
+            self.hand()
+        self.assertEqual(len(self.queued("acme")), 1)
+
     def test_nothing_is_handed_without_an_open_seat_or_a_list(self):
         self.switches(row("older", 60))
         self.hand()
