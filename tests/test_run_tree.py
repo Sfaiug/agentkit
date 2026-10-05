@@ -148,12 +148,15 @@ class RunTree(unittest.TestCase):
                 warnings.catch_warnings():
             warnings.simplefilter("ignore", ResourceWarning)
             run.stop_run_tree(state, log=lambda _: None)
+        # The stop is not waited for, and its shell makes the receipt before printf fills it.
+        unit = f"agentkit-run-{self.run_id}.scope"
+        argv = []
         deadline = time.monotonic() + 5
-        while time.monotonic() < deadline and not calls.exists():
+        while time.monotonic() < deadline and unit not in argv:
             time.sleep(0.05)
-        argv = calls.read_text().split()
+            argv = calls.read_text().split() if calls.exists() else []
         self.assertIn("stop", argv)
-        self.assertIn(f"agentkit-run-{self.run_id}.scope", argv)
+        self.assertIn(unit, argv)
         self.assertEqual(worker.marked_pids(self.marker), [])
         for pid in found:
             self.assertTrue(wait_gone(pid), f"{pid} outlived the run")
