@@ -376,6 +376,31 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertIn("test ! -f broken.txt", self.wait(first)["fix"]["line"])
         self.assertIn("land", self.wait(second), self.wait(second))
 
+    def test_a_change_past_the_ceiling_alone_lands_behind_one_that_shortens_the_rules(self):
+        # each fits its base; the target grows after, so the longer one is past the ceiling on
+        # the target alone and fits on the stack it lands on
+        rules = "---\nusers: none\ntests: true\n---\n" + "".join(
+            f"rule {i}: acme{'x' * 20 if i == 0 else ''}.\n" for i in range(10))
+        self.on_main(lambda: (self.repo / "AGENTS.md").write_text(rules), "acme rules")
+        limit = len(rules.encode()) + 30
+        prs = []
+        with patch.object(run.config, "instruction_ceiling", return_value=(limit, "fixture")):
+            for name, number, old, changed in (
+                    ("shorter", 1, f"rule 0: acme{'x' * 20}.", "rule 0: acme."),
+                    ("longer", 2, "rule 9: acme.", f"rule 9: acme{'x' * 20}.")):
+                directory, url = self.own_pr(name, number)
+                (self.repo / "AGENTS.md").write_text(rules.replace(old, changed))
+                self.pushed(url, "change a rule")
+                self.assertEqual(self.review(directory, url)["state"], "waiting")
+                prs.append((directory, url))
+            self.on_main(lambda: (self.repo / "AGENTS.md").write_text(
+                rules.replace("rule 5: acme.", f"rule 5: acme{'x' * 20}.")), "a longer rule")
+            land.check_line(self.turn)
+            for directory, url in prs:
+                self.assertIn("land", self.wait(directory), self.wait(directory))
+                self.assertTrue(self.review(directory, url)["merged"])
+        self.assertLessEqual(len(run.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
+
     def test_a_red_tree_goes_back_to_its_seat_and_the_push_is_checked(self):
         directory, url = self.own_pr("second", 1)
         self.review(directory, url)
