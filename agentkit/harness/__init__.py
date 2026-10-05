@@ -340,6 +340,14 @@ class Harness:
         return hook(name, record) if hook else None
 
     @property
+    def prompt_context(self):
+        """Does what its `UserPromptSubmit` hook prints as `hookSpecificOutput.additionalContext`
+        reach the model with that prompt (`context` on that event in its manifest)?"""
+        events = (config.manifest(self.name).get("hooks") or {}).get("event") or ()
+        return any(isinstance(event, dict) and event.get("name") == "UserPromptSubmit"
+                   and event.get("context") is True for event in events)
+
+    @property
     def title_facts(self):
         """The original title-hook contract; adapters can require a stored receipt instead."""
         return self._section("title", {"at_launch": True, "unreadable": True})

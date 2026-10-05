@@ -22,6 +22,10 @@
 # the same hooks, and a seat's row must never be moved by one.  No $AGENTKIT_SESSION, or
 # AK_RUN_ROLE=worker, and this writes nothing and exits 0.
 #
+# On a prompt it passes on the one thing a seat is told with one: that its rulebook changed
+# since it was handed one (`orch.rulebook_news`), printed as the harness's prompt context until
+# the seat says it read it (`ak orch rules`).  That is all it ever prints.
+#
 # Every failure is exit 0 with nothing written: a hook that fails loudly is a harness that stops.
 
 set -u
@@ -258,9 +262,8 @@ idle_compact() {
 
 main() {
   umask 077
-  local jq payload event
+  local payload=$1 jq event
   jq=$(command -v jq) || return 0
-  payload=$(/bin/cat) || payload=''
   seat_state "$payload" "$jq"
   # the compaction stamp belongs to the end of a turn; an event that is not one leaves it alone
   event=$("$jq" -r '.hook_event_name // "Stop"' <<<"$payload" 2>/dev/null) || event=Stop
@@ -268,5 +271,29 @@ main() {
   idle_compact "$payload" "$jq"
 }
 
-main >/dev/null 2>&1 || true
+# A seat's prompt carries the news that its rulebook changed, as the context its harness adds
+# to that prompt, until the seat says it read it; a harness that takes no context, a worker, a
+# client that is not the seat's own conversation and every other event print nothing.
+news() {
+  local payload=$1 jq event
+  [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || return 0
+  jq=$(command -v jq) || return 0
+  event=$("$jq" -r '.hook_event_name // empty' <<<"$payload")
+  [[ $event = UserPromptSubmit ]] || return 0
+  /usr/bin/env python3 -c '
+import json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+from agentkit import orch
+payload = json.loads(sys.stdin.read())
+news = orch.rulebook_news(sys.argv[2], payload.get("session_id"))
+if news:
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                             "additionalContext": news}}))
+' "${BASH_SOURCE[0]}" "$AGENTKIT_SESSION" <<<"$payload"
+}
+
+payload=$(/bin/cat 2>/dev/null) || payload=''
+main "$payload" >/dev/null 2>&1 || true
+news "$payload" 2>/dev/null || true
 exit 0

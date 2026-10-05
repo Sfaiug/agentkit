@@ -15,33 +15,13 @@ harness by whatever means that harness has.
 """
 import os
 from pathlib import Path
-import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config
 
 
-def text():
-    """The rulebook a session receives: the vision, the repo's rules, then this host's own.
-
-    Only a host that has written no rules of its own has none: a rules.md that is there and
-    cannot be read is an error, never an empty one, because a session opened without rules the
-    owner did write is a session working to rules nobody chose.
-    """
-    body = (config.REPO / "orchestrator.md").read_text()
-    try:
-        agents = (config.REPO / "AGENTS.md").read_text()
-    except FileNotFoundError:
-        agents = ""
-    vision = re.search(r"(?ms)^## What ak is for(?:\n|\Z).*?(?=^## |\Z)", agents)
-    if vision:
-        body = f"{vision.group().rstrip()}\n\n{body}"
-    try:
-        local = (config.HOME / "rules.md").read_text()
-    except FileNotFoundError:
-        return body
-    return f"{body.rstrip()}\n\n{local}" if local.strip() else body
+text = config.rulebook_text
 
 
 def write(session):
@@ -50,12 +30,7 @@ def write(session):
     if os.environ.get(config.RULEBOOK_DIR_ENV):
         path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
     path.parent.mkdir(parents=True, exist_ok=True)
-    body = text()
-    if config.session_records().get(session, {}).get("unnamed"):
-        body = (f"{body.rstrip()}\n\nThis seat is unnamed. As soon as the conversation tells you "
-                "what the job is, name this seat with `ak orch rename --auto <name>`. Choose the "
-                "shortest possible name, at most three words, saying what the work is.\n")
-    path.write_text(body)
+    path.write_text(config.seat_rulebook(session))
     return path
 
 

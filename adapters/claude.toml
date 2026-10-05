@@ -48,6 +48,9 @@ at_prompt = "hooks"
 [[hooks.event]]
 name = "UserPromptSubmit"
 state = "working"
+# what its hook prints as `hookSpecificOutput.additionalContext` reaches the model with the
+# prompt (Claude Code): a changed rulebook is named there (`orch.rulebook_news`)
+context = true
 
 # hooks/orchestrator-stop.sh writes each Stop down once it has judged it.  A Stop is a turn that
 # ended, except two: one with background work the seat started still in flight (`background_tasks`
