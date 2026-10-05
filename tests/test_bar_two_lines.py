@@ -85,7 +85,9 @@ class TwoLines(Sandbox):
         # ak's own server and this seat's own options, never the server's or another's
         for args, socket in self.calls:
             self.assertEqual(socket, "agentkit-test")
-            self.assertEqual(args[:3], ("set-option", "-t", "=fix-api:"))
+            # beside the read of the other seats it counts, and the click on their names
+            if args != statusbar.CLICK and args[0] != "list-sessions":
+                self.assertEqual(args[:3], ("set-option", "-t", "=fix-api:"))
 
     def test_b_a_working_seat_opens_with_its_chip_and_draws_its_tasks_bar(self):
         self.plan(2, 5)
