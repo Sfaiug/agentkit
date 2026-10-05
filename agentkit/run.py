@@ -2696,8 +2696,11 @@ def plan_context(seat, repo, head):
     in `repo` whatever branch is checked out there; one from before lines named a root, by
     the checkout its project name resolves to.  A line on another project, or one `ak plan`
     did not write, is no outcome of this PR.  A plan, or a root, that cannot be read refuses
-    the review: judged without the agreed outcomes, it would pass what it should not."""
+    the review: judged without the agreed outcomes, it would pass what it should not.  A
+    review launched from no seat has no plan."""
     from . import plan
+    if not seat:
+        return ""
     found = [line for line in map(plan.LINE.match, map(str.strip, plan.lines(seat)))
              if line and plan.is_open(line.string)]
     rooted = any("#" in line["project"] for line in found)
