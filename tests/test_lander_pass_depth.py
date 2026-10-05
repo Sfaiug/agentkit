@@ -344,7 +344,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
     def test_a_red_suffix_is_not_blamed_while_a_stack_ahead_is_unanswered(self):
         suite = "test ! -f bad.txt || { test -f mitigation.txt && test ! -f tail.txt; }"
         head = self.member("head", joined=1, once="true", **{"bad.txt": "bad\n"})
-        self.member("mitigation", joined=2, once="true", **{"mitigation.txt": "ok\n"})
+        mitigation = self.member("mitigation", joined=2, once="true", **{"mitigation.txt": "ok\n"})
         tail = self.member("tail", joined=3, once="true", **{"tail.txt": "ok\n"})
         self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
         self.capacity.return_value = 6
@@ -358,7 +358,10 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
             land.check_line(self.turn)
         self.assertIn("fix", self.wait(head))
         self.assertNotIn("fix", self.wait(tail))
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [head.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [head.name, mitigation.name, tail.name])
+        self.assertIn("land", self.wait(mitigation))
+        self.assertIn("land", self.wait(tail))
         self.assert_cleaned()
 
     def test_a_green_delivery_stays_ahead_of_earlier_waiting_members(self):
