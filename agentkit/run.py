@@ -5537,17 +5537,30 @@ def merge_lock(lp, upstream):
     held = getattr(_PICKUP_HELD, "count", 0)
     _PICKUP_HELD.count = held + 1
     try:
-        with turn_path(lp, upstream).open("a") as lock:
+        turn = turn_path(lp, upstream)
+        with turn.open("a") as lock:
             try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                # Another delivery can spend an hour on PR checks; its waiter is not stalled.
-                lp.state["delivery_wait"] = os.getpid()
-                try:
+                while True:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        # Another delivery can spend an hour on PR checks; its waiter is not stalled.
+                        lp.state["delivery_wait"] = os.getpid()
+                        lp.write()
+                        fcntl.flock(lock, fcntl.LOCK_EX)
+                    members = landing.line(turn) if landing.green_delivery(
+                        lp.state.get("waiting_on") or {}) else []
+                    if (not members or members[0][0] == lp.run_dir
+                            or not landing.green_delivery(members[0][1]["waiting_on"])):
+                        break
+                    # Flock does not order contenders; a checked suffix needs its prefix delivered.
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                    lp.state["delivery_wait"] = os.getpid()
                     lp.write()
-                    fcntl.flock(lock, fcntl.LOCK_EX)
-                finally:
-                    lp.state.pop("delivery_wait", None)
+                    run_record.stop_check(lp.run_dir)
+                    time.sleep(SLOT_POLL)
+            finally:
+                if lp.state.pop("delivery_wait", None) is not None:
                     lp.write()
             yield
     finally:

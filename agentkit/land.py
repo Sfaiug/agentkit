@@ -467,7 +467,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 _repair(turn, member, saved, target_tree, red, log)
                                 target_red = True
                                 return
-                    if (member == directory or "fix" in answer) and member not in verdicts:
+                    if member not in verdicts:
                         verdicts[member] = answer
                         ready({member: answer})
                     green_prefix = "land" in answer
