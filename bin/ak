@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""agentkit entry point: `ak` is the menu; `ak <usage|worker|run|notify|orch|attach|update|watch|browser> [args]`"""
+"""agentkit entry point: `ak` is the menu; `ak <usage|worker|run|notify|tell|orch|attach|update|watch|browser> [args]`"""
 
 import sys
 from pathlib import Path
@@ -8,8 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agentkit import command_help, config  # noqa: E402
 
-SUBS = ("usage", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch",
-        "browser", "fetch", "macbridge", "doctor", "hand-in", "plan")
+SUBS = ("usage", "worker", "run", "notify", "wait", "tell", "orch", "attach", "update",
+        "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan")
 # `ak attach` is the menu under the name the phone key uses; a bare `ak` is the menu too, and
 # `ak doctor` is the tick's own check-up, which is where the tick lives, and so is `ak wait`,
 # beside the ladder that reads it
