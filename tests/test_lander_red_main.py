@@ -121,8 +121,9 @@ class RedMain(unittest.TestCase):
         self.wake.reset_mock()
         land.check_line(self.turn)
         self.assertEqual(self.wait(first)["land"], tree)
-        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
-        self.assertEqual((later / "run.json").read_bytes(), before[later])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [first.name, later.name])
+        self.assertEqual(self.wait(later)["land"], tree)
         # The repair's green tree is first's too, but first's own `# once` check still runs.
         self.assertEqual(len(self.checks), checks + 1)
         self.assertIn("true", self.checks[-1][0])
@@ -189,8 +190,8 @@ class RedMain(unittest.TestCase):
         else:
             self.assertIn(SUITE, self.wait(later)["fix"]["line"])
             self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
-                                  [first.name, later.name])
-            self.assertEqual((last / "run.json").read_bytes(), before[last])
+                                  [first.name, later.name, last.name])
+            self.assertIn("land", self.wait(last))
             self.assertEqual(self.prepared, [])
         self.assert_cleaned()
 
@@ -243,7 +244,6 @@ class RedMain(unittest.TestCase):
         later = self.member("later", joined=2)
         self.advance()
         tree = run.git(self.repo, "rev-parse", "HEAD^{tree}")
-        before = (later / "run.json").read_bytes()
         flake = config.WT / "flake"
         config.WT.mkdir(parents=True, exist_ok=True)
         flake.write_text("transient\n")
@@ -255,11 +255,12 @@ class RedMain(unittest.TestCase):
             state.update(state="not_needed", slot_waiting=False)
         land.check_line(self.turn)
         self.assertIn("land", self.wait(first))
-        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [first.name, later.name])
         self.assertEqual(len(self.prepared), 1)
         self.assertEqual(len(self.checks), 3)
         self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), tree)
-        self.assertEqual((later / "run.json").read_bytes(), before)
+        self.assertEqual(self.wait(later)["land"], self.wait(first)["land"])
         self.assert_cleaned()
 
     def test_a_reverted_target_tree_gets_a_new_repair_after_the_old_one_merged(self):
@@ -310,15 +311,16 @@ class RedMain(unittest.TestCase):
         self.wake.assert_not_called()
 
     def test_a_changed_target_releases_the_line_while_the_repair_is_still_open(self):
-        first, later, before = self.red_line()
+        first, later, _ = self.red_line()
         run.git(self.repo, "rm", "broken.txt")
         self.commit("target repaired externally")
         run.git(self.repo, "push", "origin", "main")
         land.check_line(self.turn)
         self.assertIn("land", self.wait(first))
-        self.assertEqual((later / "run.json").read_bytes(), before[later])
+        self.assertEqual(self.wait(later)["land"], self.wait(first)["land"])
         self.assertEqual(len(self.prepared), 1)
-        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [first.name, later.name])
 
 
 if __name__ == "__main__":

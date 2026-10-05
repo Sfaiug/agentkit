@@ -50,8 +50,9 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.capacity.assert_called_once_with()
         self.assertEqual(self.checked_members(), {
             frozenset({"member-1.txt"}), frozenset({"member-1.txt", "member-2.txt"})})
-        self.wake.assert_called_once_with(members[0].name, unittest.mock.ANY)
-        self.assertTrue(all("land" not in self.wait(member) for member in members[1:]))
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [member.name for member in members[:2]])
+        self.assertTrue(all("land" not in self.wait(member) for member in members[2:]))
         second_tree = next(tree for tree, files in self.checked if "member-2.txt" in files)
 
         # An explicit resume keeps the old parked death while its fresh loop delivers.
@@ -62,7 +63,8 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") == 5678):
             land.check_line(self.turn)
         self.assertEqual(self.wait(members[1])["land"], second_tree)
-        self.wake.assert_called_once_with(members[1].name, unittest.mock.ANY)
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [member.name for member in members[1:4]])
         self.assertEqual(self.checked_members(), {
             frozenset({"member-1.txt", "member-2.txt", "member-3.txt"}),
             frozenset({"member-1.txt", "member-2.txt", "member-3.txt", "member-4.txt"})})
@@ -81,9 +83,10 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
             return self.check(cmds, cwd, log_path, *args, **kw)
 
         def wake(name, _log):
-            self.assertEqual(name, members[0].name)
-            self.assertIn("land", self.wait(members[0]))
-            woken.set()
+            self.assertIn(name, [member.name for member in members[:2]])
+            self.assertIn("land", self.wait(config.RUNS / name))
+            if name == members[0].name:
+                woken.set()
             return 999
 
         self.wake.side_effect = wake
@@ -184,7 +187,9 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
             self.assertIn("fix", self.wait(member))
             self.assertTrue(self.wait(member)["fixing"])
         self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
-                              [members[0].name, members[1].name, members[3].name])
+                              [member.name for member in members])
+        for member in (members[2], members[4]):
+            self.assertIn("land", self.wait(member))
         self.assert_cleaned()
 
     def test_a_changed_or_stopped_prefix_still_invalidates_the_red_verdict(self):
@@ -238,6 +243,10 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
                 with record.record(members[0]) as current:
                     current.clear()
                     current.update(first, pid=None, process_identity=None, **change)
+                # Delivery reparks the follower when its tested prefix leaves the line.
+                with record.record(members[1]) as current:
+                    current["waiting_on"].pop("land", None)
+                    current["waiting_on"].pop("after", None)
                 for _ in range(3):
                     self.wake.reset_mock()
                     land.check_line(self.turn)
@@ -247,6 +256,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
                     self.wake.assert_called_once_with(members[1].name, unittest.mock.ANY)
                     with record.record(members[1]) as current:
                         current["waiting_on"].pop("land")
+                        current["waiting_on"].pop("after")
                 self.assert_cleaned()
 
     def test_a_live_rejoiner_behind_a_green_prefix_prevents_a_pass(self):
@@ -256,6 +266,8 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
             current.update(state="running", pid=5678)
         with record.record(members[1]) as current:
             current.update(pid=4321)
+            current["waiting_on"].pop("land")
+            current["waiting_on"].pop("after")
         self.checks.clear()
         self.wake.reset_mock()
         with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") in (5678, 4321)):
@@ -299,7 +311,9 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.assertIn("land", self.wait(members[0]))
         self.assertIn("fix", self.wait(members[4]))
         self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
-                              [members[0].name, members[4].name])
+                              [member.name for member in members])
+        for member in members[:4]:
+            self.assertIn("land", self.wait(member))
         self.assert_cleaned()
 
     def test_one_stack_checks_when_the_gate_has_room_for_only_one(self):
@@ -333,7 +347,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
     def test_a_red_suffix_is_not_blamed_while_a_stack_ahead_is_unanswered(self):
         suite = "test ! -f bad.txt || { test -f mitigation.txt && test ! -f tail.txt; }"
         head = self.member("head", joined=1, once="true", **{"bad.txt": "bad\n"})
-        self.member("mitigation", joined=2, once="true", **{"mitigation.txt": "ok\n"})
+        mitigation = self.member("mitigation", joined=2, once="true", **{"mitigation.txt": "ok\n"})
         tail = self.member("tail", joined=3, once="true", **{"tail.txt": "ok\n"})
         self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
         self.capacity.return_value = 6
@@ -347,7 +361,10 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
             land.check_line(self.turn)
         self.assertIn("fix", self.wait(head))
         self.assertNotIn("fix", self.wait(tail))
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [head.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [head.name, mitigation.name, tail.name])
+        self.assertIn("land", self.wait(mitigation))
+        self.assertIn("land", self.wait(tail))
         self.assert_cleaned()
 
     def test_a_green_delivery_stays_ahead_of_earlier_waiting_members(self):

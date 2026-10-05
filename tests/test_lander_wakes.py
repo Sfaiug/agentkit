@@ -59,6 +59,7 @@ class LanderWakes(Sandbox):
         self.stack.enter_context(patch.object(run, "checks", side_effect=lambda *a: self.check_result))
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
+        self.stack.enter_context(patch.object(run.box, "check"))
         self.stack.enter_context(patch.object(run, "launcher_world", return_value=nullcontext(True)))
         self.stack.enter_context(patch.object(run, "place_here", return_value=None))
         self.stack.enter_context(patch.object(run, "stop_run_tree"))
