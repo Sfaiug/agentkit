@@ -32,7 +32,10 @@ class JoinLine(Sandbox):
         (self.directory / "task.md").write_text(
             "# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
         self.start = self.stack.enter_context(patch.object(land, "start_line", return_value=False))
-        self.stack.enter_context(patch.object(run.shutil, "which", return_value="/fixture/gh"))
+        # Only gh is a fixture: the worker box finds its own git with the real lookup.
+        which = run.shutil.which
+        self.stack.enter_context(patch.object(run.shutil, "which", side_effect=lambda name, **kw: (
+            "/fixture/gh" if name == "gh" else which(name, **kw))))
         self.rights = self.stack.enter_context(patch.object(
             run, "rights", return_value=("acme/widget", "WRITE")))
         self.stop = self.stack.enter_context(patch.object(run, "stop_run_tree"))

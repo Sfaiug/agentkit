@@ -68,8 +68,11 @@ class DeliveryRetryDry(unittest.TestCase):
             self.assertEqual(role, "reviewer")
             raise exc
 
+        # Only gh is a fixture: the worker box finds its own git with the real lookup.
+        which = run.shutil.which
         with patch.object(run, "rights", return_value=("acme/widget", "WRITE")), \
-                patch.object(run.shutil, "which", return_value="/fixture/gh"), \
+                patch.object(run.shutil, "which", side_effect=lambda name, **kw: (
+                    "/fixture/gh" if name == "gh" else which(name, **kw))), \
                 patch.object(run.landing, "start_line"), \
                 patch.object(run, "fix_final_check", side_effect=landing_review), \
                 patch.object(run, "gh", side_effect=AssertionError("GitHub delivery")), \
