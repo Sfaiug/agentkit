@@ -1370,13 +1370,17 @@ def checkouts():
 
 def listed():
     """{every checkout that stands for a project: the project's checkout}, a second clone of
-    agentkit standing for agentkit's own (`checkouts`)."""
+    agentkit standing for agentkit's own (`checkouts`).  A repository's own checkout stands
+    for it, and so does agentkit's, whatever its layout; a worktree of a repository that
+    one stands for is not listed."""
     found = ([path for path in config.CODE.iterdir() if path.is_dir() and (path / ".git").exists()]
              if config.CODE.is_dir() else [])
     own = update.agentkit_dir()
     dirs = {path: git_dirs(path) for path in (*found, own)}
-    mains = {known[0] for known in dirs.values() if known and not known[1]}
-    found = [path for path in found if not (dirs[path] and dirs[path][1] and dirs[path][0] in mains)]
+    stands = {path for path, known in dirs.items()
+              if known and (not known[1] or path == own or path.name == own.name)}
+    mains = {dirs[path][0] for path in stands}
+    found = [path for path in found if path in stands or not (dirs[path] and dirs[path][0] in mains)]
     if (own / ".git").exists() and all(path.resolve() != own.resolve() for path in found):
         return {path: own if path.name == own.name else path for path in (*found, own)}
     return {path: path for path in found}

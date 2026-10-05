@@ -273,6 +273,21 @@ class NewSession(Sandbox):
                 for path in (clone, linked, self.root / "clone.git"):
                     shutil.rmtree(path, ignore_errors=True)
 
+    def test_agentkit_stands_for_its_repository_even_as_a_worktree(self):
+        # ~/agentkit and ~/code/agentkit both worktrees of a repository kept elsewhere, each
+        # with a worktree of its own under ~/code: all of them are agentkit's own.
+        base = self.checkout("agentkit-base", self.root)
+        own, clone = Path.home() / "agentkit", config.CODE / "agentkit"
+        linked, cloned = config.CODE / ".agentkit-fix", config.CODE / ".agentkit-clone-fix"
+        for number, (source, path) in enumerate(((base, own), (base, clone), (own, linked),
+                                                  (clone, cloned))):
+            subprocess.run(["git", "-C", str(source), "worktree", "add", "-q", "-b",
+                            f"tree-{number}", str(path)], check=True)
+        self.assertEqual(orch.checkouts().count(own), 1)
+        for path in (clone, linked, cloned):
+            self.assertNotIn(path, orch.checkouts())
+            self.assertEqual(orch.checkout_of(str(path)), own)
+
     def test_scratch_run_keeps_session_projectless(self):
         config.save_session(self.cfg, "seat", "fable", ["opus"], {"cwd": str(config.CODE), "repo": None})
         before = config.session_path("seat").read_bytes()
