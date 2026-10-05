@@ -78,8 +78,7 @@ class StatusBar(Sandbox):
         top = self.line(statusbar.TOP)
         self.assertIn("herdr  fable orchestrates", top)
         self.assertIn("● working", top)
-        self.assertIn("tasks ", top)
-        self.assertIn("2/5", top)
+        self.assertIn(" 2/5 ", top)                       # the count, a chip on the fill
         self.assertEqual(self.options["set-titles-string"], "herdr · working")
         self.assertNotIn("idle", top)
 

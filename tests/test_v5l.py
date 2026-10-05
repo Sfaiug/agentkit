@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import finding_count, reported, scripted, stateful
-from agentkit import host, config, notify, run, worker
+from agentkit import gate, host, config, notify, run, status, worker
 from agentkit import record
 
 
@@ -113,7 +113,7 @@ sys.exit(1)
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
-        self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", .01))
         config.ensure_dirs()
         self.cfg = config.load()
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
@@ -158,7 +158,7 @@ sys.exit(1)
     def status(self, *argv):
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status(list(argv)), 0)
+            self.assertEqual(status.cmd_status(list(argv)), 0)
         return out.getvalue()
 
     # --- (a) a shrinking last round buys nothing ----------------------------

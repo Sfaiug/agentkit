@@ -606,6 +606,8 @@ def screen(harness):
     built = {"composer": _pattern(block.get("composer"), path),
              "footer": _pattern(f"(?:{footer})$" if footer else None, path, re.I),
              "ruled": bool(block.get("ruled")),
+             "folds_over": block.get("folds_over") if isinstance(block.get("folds_over"), int)
+             else None,
              "draft": _pattern(block.get("draft"), path, re.M),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
@@ -1010,28 +1012,54 @@ def strip_sgr(text):
     return SGR_ALL.sub("", text)
 
 
-def has_dim(line):
-    """Does that raw `-e` line carry a faint (SGR 2) span: a suggestion, never a draft.
+def _sgr_codes(params):
+    """The plain attribute codes of one SGR sequence's parameters; a bare `m` is a reset.
 
     Extended colours ride along as parameter runs -- `38;5;n`, `38;2;r;g;b` and
     their background `48` twins -- and the `2` inside one names a colour, never
-    faint. Only a bare 2, outside those runs, counts.
+    faint.
     """
-    for found in SGR_SEQ.finditer(line):
-        params = found.group(1).split(";") if found.group(1) else []
-        i = 0
-        while i < len(params):
-            if params[i] in ("38", "48") and i + 1 < len(params):
-                if params[i + 1] == "5":
-                    i += 3
-                    continue
-                if params[i + 1] == "2":
-                    i += 5
-                    continue
-            if params[i].isdigit() and int(params[i]) == 2:
-                return True
-            i += 1
-    return False
+    params = params.split(";") if params else ["0"]
+    i = 0
+    while i < len(params):
+        if params[i] in ("38", "48") and i + 1 < len(params) and params[i + 1] in ("5", "2"):
+            i += 3 if params[i + 1] == "5" else 5
+            continue
+        if params[i].isdigit():
+            yield int(params[i])
+        i += 1
+
+
+def _faint_drawn(raw, faint=False):
+    """(whether faint text is drawn in that raw `-e` row, whether faint is on at its end), from
+    whether it was on at its start: a code that turns faint on and another that ends it before
+    any visible text draws nothing faint."""
+    drawn, at = False, 0
+    for found in SGR_SEQ.finditer(raw):
+        drawn = drawn or (faint and bool(raw[at:found.start()].strip()))
+        for code in _sgr_codes(found.group(1)):
+            faint = True if code == 2 else False if code in (0, 22) else faint
+        at = found.end()
+    return drawn or (faint and bool(raw[at:].strip())), faint
+
+
+def has_dim(line):
+    """Does that raw `-e` line draw faint (SGR 2) text: a suggestion, never a draft."""
+    return _faint_drawn(line)[0]
+
+
+def dim_rows(raws):
+    """For each raw `-e` row, whether faint text is drawn in it.
+
+    tmux writes an attribute once, where it starts, and carries it on to the rows under it
+    until something ends it: a faint suggestion wrapped onto more rows has its SGR 2 on the
+    first alone.  So faint is carried from row to row, as `in_colour` carries a colour.
+    """
+    faint, dims = False, []
+    for raw in raws:
+        drawn, faint = _faint_drawn(raw, faint)
+        dims.append(drawn)
+    return dims
 
 
 def in_colour(text):
@@ -1085,9 +1113,23 @@ def _suggestion_line(raw, plain):
     return ""
 
 
+def _content_rows(text):
+    """The non-blank rows of a capture, raw and right-stripped.  A blank row can still change
+    an attribute -- a faint suggestion's reset on the empty line of a draft -- and tmux carries
+    one on until something ends it, so a blank row's codes go on at the head of the next row."""
+    rows, carried = [], ""
+    for line in text.splitlines():
+        if strip_sgr(line).strip():
+            rows.append(carried + line.rstrip())
+            carried = ""
+        else:
+            carried += "".join(found.group(0) for found in SGR_SEQ.finditer(line))
+    return rows
+
+
 def pane_tail(text):
     """The last PANE_LINES of content; a TUI can leave blank space above its composer."""
-    lines = [line.rstrip() for line in text.splitlines() if strip_sgr(line).strip()]
+    lines = _content_rows(text)
     return "\n".join(lines[-PANE_LINES:])
 
 
@@ -1102,10 +1144,26 @@ def content_lines(harness, tail):
     # The composer box and key hints are chrome, not progress. Strip only known harness
     # chrome at the bottom; arbitrary output below an old error still means it has moved on.
     chrome = screen(harness)
-    lines = lines[:chrome_below(chrome, lines)]
+    lines = lines[:chrome_below(chrome, [line for line in tail.splitlines()
+                                         if strip_sgr(line).strip()])]
     while lines and chrome_line(chrome, lines[-1]):
         lines.pop()
     return lines
+
+
+def prompt_rows(rows):
+    """The rows a composer's prompt mark can open, bottom-most first: of those that open on a
+    mark, only the ones whose mark sits furthest left.  A draft's wrapped or later rows are
+    indented past its prompt mark, so a mark at the head of one is text, never the composer.
+    Rows keep their leading spaces (raw or plain); plain stripped rows all sit at the left.
+    """
+    marks = {}
+    for at, row in enumerate(rows):
+        found = re.match(r"\s*(?:│\s*)?([❯›⟩])", strip_sgr(row).rstrip())
+        if found:
+            marks[at] = found.start(1)
+    left = min(marks.values(), default=None)
+    return [at for at in sorted(marks, reverse=True) if marks[at] == left]
 
 
 def ruled_composer(chrome, rows):
@@ -1113,15 +1171,21 @@ def ruled_composer(chrome, rows):
 
     It is the bottom-most prompt row whose first chrome row under it is a bare rule, so a
     user's status line under that rule is never the composer, even where it starts with a
-    prompt mark.
+    prompt mark.  The box's prompt row and rules start at the pane's left edge and a draft's
+    rows under its prompt row are indented, so `rows` keep their leading spaces (raw or plain)
+    and only rows at the left edge are its prompt row and its chrome: nothing typed -- a run
+    of rule glyphs, `---`, a prompt mark -- is ever the box, and every row between is the
+    composer's.
     """
     if not chrome["ruled"]:
         return None, None
-    for at in range(len(rows) - 1, -1, -1):
-        if re.match(r"(?:│\s*)?[❯›⟩]", rows[at]):
-            end = next((row for row in range(at + 1, len(rows))
-                        if chrome_line(chrome, rows[row])), len(rows))
-            if end < len(rows) and re.fullmatch(RULE, rows[end].strip()):
+    cells = [strip_sgr(row).rstrip() for row in rows]
+    for at in range(len(cells) - 1, -1, -1):
+        if re.match(r"(?:│\s*)?[❯›⟩]", cells[at]):
+            end = next((row for row in range(at + 1, len(cells))
+                        if not cells[row].startswith(" ") and chrome_line(chrome, cells[row])),
+                       len(cells))
+            if end < len(cells) and re.fullmatch(RULE, cells[end]):
                 return at, end
     return None, None
 
@@ -1362,12 +1426,19 @@ def hook_state(harness, fact):
 
 
 def _screen_rows(harness, tail):
-    """(raw, plain) non-blank rows of that tail, without the harness's queued inbound messages."""
-    # A queued inbound message is below the active UI, not part of its dialog or composer.
+    """(raw, plain) non-blank rows of that tail, without the harness's queued inbound messages.
+
+    A queued inbound message is below the active UI, not part of its dialog or composer: a row
+    that reads like one inside a ruled composer's box is what the owner typed there, and stays.
+    """
     inbound = _pattern((config.manifest(harness).get("screen") or {}).get("inbound"),
                        f"adapters/{harness}.toml")
-    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()
-                 and not (inbound and inbound.fullmatch(strip_sgr(line).strip()))]
+    raw_lines = _content_rows(tail)
+    if inbound:
+        at, end = ruled_composer(screen(harness), raw_lines)
+        boxed = range(at, end) if at is not None else range(0)
+        raw_lines = [line for index, line in enumerate(raw_lines)
+                     if index in boxed or not inbound.fullmatch(strip_sgr(line).strip())]
     return raw_lines, [strip_sgr(line).strip() for line in raw_lines]
 
 
@@ -1403,7 +1474,18 @@ def screen_state(harness, tail):
             prompt = r"(?:│\s*)?[❯›⟩]"
             marked = [index for index in range(len(region) - 1, -1, -1)
                       if re.match(prompt, region[index])]
-            if rule["chrome"]:
+            end = None
+            if rule["chrome"] and chrome["ruled"]:
+                # Its composer is the box `ruled_composer` finds in the rule's own rows, every
+                # row of it down to its closing rule, under the footer at the pane's bottom --
+                # or, with none drawn, a prompt row right on that bottom.
+                at, end = ruled_composer(chrome, raws)
+                if at is not None and not chrome_line(chrome, region[-1]):
+                    at = None
+                elif at is None and re.match(prompt, region[-1]):
+                    at, end = len(region) - 1, len(region)
+                marked = [] if at is None else [at]
+            elif rule["chrome"]:
                 # The composer's own rule sits right under it and the footer at the bottom;
                 # what the harness draws between them, a user's status line, is not the draft
                 # even where it starts with a prompt mark, over a line that reads like chrome:
@@ -1420,8 +1502,9 @@ def screen_state(harness, tail):
             at = next(iter(marked), None)
             if at is None:
                 continue
+            end = at + 1 if end is None else end
             if rule["id"] == "prompt.draft":
-                draft = _draft_text(raws[at], region[at], chrome["composer"])
+                draft = " ".join(_composer_parts(chrome, raws, region, at, end))
                 if draft:
                     return rule["state"], rule["id"], draft[:160]
             elif _suggestion_line(raws[at], region[at]):
@@ -1814,7 +1897,7 @@ def announce_state(session, cfg=None, look=False, **facts):
                 or previous.get("word_since") != answer["since"]):
             seat_write(name, word=answer["word"], reason=answer["reason"],
                        word_since=answer["since"])
-        statusbar.redress(session, answer, cfg=cfg)
+        statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
     return answer
 
 
@@ -1865,6 +1948,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     The seat's own runs are gathered before the first rung, because a login the top rung
     reports may be one a run of this seat's parked on rather than the seat's own.
     """
+    from . import status as status_mod    # status imports run, which imports this module
     if records is None:
         try:
             records = menu_mod.run_records()
@@ -1960,7 +2044,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         starts = [s.get("started_at") for _, s in going
                   if isinstance(s.get("started_at"), (int, float))
                   and not isinstance(s.get("started_at"), bool)]
-        reason = (run_mod.parked_line(newest[1]) if run_mod.landing_line(newest[1])
+        reason = (status_mod.parked_line(newest[1]) if run_mod.landing_line(newest[1])
                   else " · ".join(parts))
         return {"word": "working", "reason": reason,
                 "since": min(starts) if starts else None}
@@ -2011,7 +2095,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             elif first.get("state") == "waiting":
                 reason = f"run {name} waits to merge: {reason}"
             else:
-                reason = run_mod.parked_line(first, name, now=at) or f"run {name} parked: {reason}"
+                reason = (status_mod.parked_line(first, name, now=at)
+                          or f"run {name} parked: {reason}")
             return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 4. nobody is in it: its number is the way back into the conversation.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
@@ -2205,6 +2290,12 @@ def keystroke(harness, tail):
     return "continue"
 
 
+def asking(name, harness, pane):
+    """Does that pane, with its seat's hook facts, put a question to the owner?  Read without
+    writing anything, so it may be asked under the seat's typing lock."""
+    return _decided_state(name, harness, pane) == "asking"
+
+
 def _decided_state(name, harness, pane):
     """The live state positively read off that pane, or None where nothing decides one."""
     if not pane.strip():
@@ -2241,9 +2332,12 @@ def _pane_sent(session, harness, pane, text):
     if state == "asking":
         # A dialog owns the screen: the line landed, and no Enter goes into it blind.
         return True
-    # ... and read whole as well: a long line wraps up past the bottom rows `_holds_text` reads
-    return not (_holds_text(pane, text)
-                or re.sub(r"\s+", "", text) in (composer_draft(harness, pane) or ""))
+    # read whole where the composer can be read: a long line wraps past the bottom rows, and
+    # a line the harness took may be echoed above its empty composer
+    held = composer_draft(harness, pane) if harness is not None else None
+    if held is not None:
+        return re.sub(r"\s+", "", text) not in held
+    return not _holds_text(pane, text)
 
 
 def _wait_sent(session, harness, text):
@@ -2297,7 +2391,8 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None
 
 
 def type_checked(session, text, log, harness=None, guard=nullcontext,
-                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak"):
+                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak",
+                 ready=lambda name: True):
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Text, a KEY_GAP pause, then Enter; within SENT_WAIT the typed text has to be gone
@@ -2310,6 +2405,8 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
+    `ready` is asked under the guard right before each Enter, after the gap: the owner can
+    type in it, and an Enter it refuses is never sent.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -2343,12 +2440,13 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not _send_line(seat, text, log, typed, source=source):
                 return False
             time.sleep(KEY_GAP)
-        if not _send_enter(seat, log):
+        if not ready(held if held is not None else name) or not _send_enter(seat, log):
             return False
     if not confirm or _wait_sent(seat, harness, text):
         return True
     with guard() as held:
-        if veto(held if held is not None else name):
+        if (veto(held if held is not None else name)
+                or not ready(held if held is not None else name)):
             return False
         if not _send_enter(seat, log):
             return False
@@ -2422,31 +2520,46 @@ def composer_draft(harness, pane):
     raws, rows = _screen_rows(harness, pane_tail(pane))
     if chrome["draft"]:
         # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
-        # block of them, and finding none reads as empty.
-        return re.sub(r"\s+", "", "".join(chrome["draft"].findall("\n".join(rows))))
+        # block of them, and finding none reads as empty -- where the composer itself is on the
+        # screen, a row its pattern names; with none there, a blank capture above all, nothing
+        # was read.
+        found = chrome["draft"].findall("\n".join(rows))
+        if not found and not (chrome["composer"]
+                              and any(chrome["composer"].fullmatch(row) for row in rows)):
+            return None
+        return re.sub(r"\s+", "", "".join(found))
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
                     len(rows))
 
-    marked = [at for at in range(len(rows) - 1, -1, -1) if re.match(r"(?:│\s*)?[❯›⟩]", rows[at])]
-    if chrome["ruled"]:
-        # A pane's bottom row stands in where no composer has its own rule under it.
-        closed = ruled_composer(chrome, rows)[0]
-        marked = [closed] if closed is not None else [at for at in marked if at + 1 == len(rows)]
+    marked = prompt_rows(raws)
     at = next(iter(marked), None)
+    stop = None if at is None else end(at)
+    if chrome["ruled"]:
+        # Its box between its own rules; a pane's bottom row stands in where none is drawn.
+        at, stop = ruled_composer(chrome, raws)
+        if at is None and marked and marked[0] + 1 == len(rows):
+            at, stop = marked[0], len(rows)
     if at is None:
         return None
+    return re.sub(r"\s+", "", "".join(_composer_parts(chrome, raws, rows, at, stop)))
+
+
+def _composer_parts(chrome, raws, rows, at, stop):
+    """What is typed in a composer from its prompt row `at` down to `stop`, a part a row, none
+    empty: the draft rule and `composer_draft` both read it here.  Bright rows only, and a boxed
+    composer's edges -- chrome on every row of it -- left out."""
     boxed = rows[at].startswith("│") and rows[at].endswith("│")
-    # A boxed composer's edges are chrome, including on continuation rows.
     parts = [_draft_text(raws[at], rows[at][:-1].rstrip() if boxed else rows[at],
                          chrome["composer"])]
-    for raw, plain in zip(raws[at + 1:end(at)], rows[at + 1:end(at)]):
-        if not has_dim(raw):
+    dims = dim_rows(raws)
+    for dim, plain in zip(dims[at + 1:stop], rows[at + 1:stop]):
+        if not dim:
             if boxed and plain.startswith("│") and plain.endswith("│"):
                 plain = plain[1:-1].strip()
             parts.append(plain)
-    return re.sub(r"\s+", "", "".join(parts))
+    return [part for part in parts if part]
 
 
 def sync_title(session, log=lambda _: None, *, force=False):
@@ -2537,7 +2650,7 @@ def sync_title(session, log=lambda _: None, *, force=False):
     return False
 
 
-def at_prompt(session, cfg=None):
+def at_prompt(session, cfg=None, pane=None):
     """Is that seat's harness sitting at its own prompt, waiting to be typed into?
 
     The tick's own test before it nudges a stalled seat, off one fresh capture: a line typed
@@ -2557,7 +2670,7 @@ def at_prompt(session, cfg=None):
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         if not harness:
             return False
-        pane = pane_text(session)
+        pane = pane_text(session) if pane is None else pane
         if not pane.strip():
             return False        # a failed or blank capture is no evidence that it is free
         found = live_state(session, harness, pane=pane, cfg=cfg)
@@ -2568,12 +2681,14 @@ def at_prompt(session, cfg=None):
     return found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
 
 
-def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *, source="ak"):
+def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
+                   source="ak", stale=lambda held: False, ready=lambda held: True):
     """One line into a seat, and only while its harness sits at its own prompt.
 
     The prompt is tested twice: once here, and once more inside the send lock, because two
     runs ending together would both find the seat free and the second would then type into
-    the turn the first had just started.  Only the first send is gated that way -- past it
+    the turn the first had just started; and inside the lock, off that one capture, a composer
+    that is not read empty -- holding any text, under a dialog, or unreadable -- gets no keys.  Only the first send is gated that way -- past it
     the line is already in the composer, and the seat working is what sending it did.
 
     A line goes into a composer once: a second copy is read twice, whether the first was taken
@@ -2581,7 +2696,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     ending's own record to keep until its delivery is recorded; given that mark back as `typed`,
     this only presses Enter, and only while the composer still holds the line -- read under the
     send lock, past any dialog -- and gone from there, the seat has it.  A reopened seat is a
-    new one, with an empty composer, and matches no mark.
+    new one, with an empty composer, and matches no mark.  `stale` is asked under the send lock
+    too, with the name the seat goes by then, before each key: a line that has stopped being
+    this seat's to have is typed no further, and `ready` before each Enter.
     """
     mark = {"line": text, "seat": session.get("created")}
     if typed == mark:
@@ -2592,7 +2709,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         with notify.session_lock(session["name"]) as held:
             pane = pane_text(session)
             if (not pane.strip() or owner_question(notify.last(held))
-                    or _decided_state(held, harness, pane) == "asking"):
+                    or asking(held, harness, pane)):
                 return False    # nothing to read, or the screen is somebody else's: next pass
             if not _holds_text(pane, text):
                 return True
@@ -2603,16 +2720,25 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     composed = []
 
     def veto(held):
-        if owner_question(notify.last(held)):
+        if owner_question(notify.last(held)) or stale(held):
             return True
         if composed:
             return False        # the text is typed; what is left is the Enter that sends it
         composed.append(True)
-        return not at_prompt(session, cfg=cfg)
+        # one capture under the lock, right before the first key, says all of it: the seat at
+        # its prompt, no question up, and its composer read empty -- never onto the owner's
+        # draft, short or wrapped, a dialog, or a screen whose composer cannot be read
+        pane = pane_text(session)
+        try:
+            harness = seat_model(config.load() if cfg is None else cfg, held)[0]
+        except (config.Error, OSError):
+            return True
+        return not (harness and at_prompt(session, cfg=cfg, pane=pane)
+                    and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
     return type_checked(session, text, log, None,
                         guard=lambda: notify.session_lock(session["name"]), veto=veto,
-                        typed=lambda: receipt(mark), source=source)
+                        typed=lambda: receipt(mark), source=source, ready=ready)
 
 
 # --- a seat whose process died under its runs ------------------------------
@@ -4451,8 +4577,9 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                             f"{wt or '(none)'} is gone; leaving it for an explicit resume")
                     continue
                 saved = state.get("executor")
-                if transport:
-                    if (isinstance(last, (int, float)) and not isinstance(last, bool)
+                # a PR review runs no executor: its reviewer is all it waits for
+                if transport or state.get("review_pr"):
+                    if (transport and isinstance(last, (int, float)) and not isinstance(last, bool)
                             and 0 <= now - last < run_mod.ERROR_RETRY_CAP):
                         continue  # re-resumed within the hour: a dead reviewer gets an
                         # hour like an error, not a reviewer turn every ten minutes
@@ -4460,7 +4587,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                                                           executor=saved)
                     if not reviewers:
                         continue  # no reviewer is eligible yet; the run keeps waiting, silently
-                    # the executor never died, so it stays: the resume re-picks the
+                    # the executor, if any, never died, so it stays: the resume re-picks the
                     # reviewer, which is the one this run waited for.
                     chosen, why = saved, f"reviewer {reviewers[0][0]} eligible again"
                     reviewer = None
@@ -5847,6 +5974,13 @@ def main(argv):
                 tell_waits(config.load(), log)
             except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
                 log(f"WARN the wait pass did not run: {exc}")
+            # ... and what another seat sent one with `ak tell` is typed into it, at its next
+            # quiet prompt, oldest first.
+            try:
+                from . import tell
+                tell.deliver(config.load(), log)
+            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
+                log(f"WARN the message pass did not run: {exc}")
             # Cards are derived from every session's current three-state word, including
             # seats whose panes were not available to the health pass.
             try:

@@ -44,7 +44,7 @@ is indented.
 Example:
 `your projects · 1 needs you`
 `atoll`
-`  1  atoll-fix  fable  ● working  tasks ██░░░ 2/5`.
+`  1  atoll-fix  fable  ● working  ████▒▒░░░░ 2/5`.
 
 ## The menu at rest
 
@@ -79,7 +79,7 @@ a heading seats sort needs you, then working, then done, then by name, and
 numbers stay global by seat name. The seat row's last column is the reason for
 `needs you` and `done` -- `session closed: press 2 to reopen`, the question
 the seat asked, `waiting for you`, the done summary's first line -- and for
-`working` the tasks bar (`tasks ██░░░ 2/5`) from the session's plan,
+`working` the tasks bar (see Rows are tables) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
 from (the newest wins), else from its unfinished jobs' tasks, else empty --
 except for a run recorded in the line to land: its seat shows `waiting · 3rd in line to land on main`.
@@ -262,7 +262,7 @@ UTF-8 key (`enter` is `⏎`):
 - a model, on `c` and `n`: `{name}: {model} through {harness}, at {effort} effort`
 - its id, on its own screen: `model id: what {harness} is asked to run, one its catalog lists`
 - `orch`: `orch: the model the session's orchestrator runs on, one only`
-- `exec`: `exec: a model the session's runs may execute with; one at least`
+- `exec`: `exec: a model that builds pieces beside the orchestrator; none, and it builds all`
 - `review`: `review: a model that may review the session's runs; one at least`
 - an effort: `effort: how hard {name} thinks, one of the efforts its harness takes for it`
 - a provider, or in `− remove` a subscription: `{name}: your subscription; its seats, runs and usage row use its login`
@@ -306,20 +306,20 @@ Example:
 `c` is a sub-screen in the same frame, headed `agentkit · config`. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
-accent, a row of label, harness (dim), then `orchestrator` (`●` on the highlighted
-session's, `○` dim elsewhere), `worker` (`■`/`□`) and `effort` (`‹ xhigh ›`),
+accent, a row of label, harness (dim), then `orch` (`●` on the highlighted
+session's, `○` dim elsewhere), `exec` and `review` (`■`/`□`) and `effort` (`‹ xhigh ›`),
 then its strength: a bar for each level that model offers, rising in height
 (`▂▃▅▆█` for five), filled up to its effort and the rest dim -- blank where
 nothing can dim them, and without UTF-8 a `|` for each filled one alone. A model
 with one effort shows its word alone, with no bars and no arrows. The columns
-are `orch` and `work` where the full words do not fit, then the harness gives
-way, then the bars, then the label. ↑/↓, k/j and the wheel move between rows,
-←/→ between all three columns; Enter or space on an effort steps it up through
+stay visible; the harness gives way, then the bars, then the label.
+↑/↓, k/j and the wheel move between rows,
+←/→ between all four columns; Enter or space on an effort steps it up through
 that model's own efforts (`config.efforts`), from the highest round to the
 lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
-drawn at once, the orchestrator only moves, and the last worker stays, saying
+drawn at once, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). Under the models `+ add a model`, `Providers` (the config's
 providers in their colours, then `+ add` and `− remove`, and `↻ spend a reset`
 while a subscription holds one, ←/→ choosing between them, ↓ landing on none
@@ -361,8 +361,9 @@ a spent model reads dim with `spent · resets <day HH:MM>`, on a line of its own
 where the row does not fit, and is never chosen for him. ↑/↓, k/j and the wheel move between
 models and scroll them on a short screen, the role headings kept visible; ←/→ choose the role.
 Space or a click chooses, Enter starts from anywhere -- or, with every model spent and a role
-still empty, takes the highlight to it -- Esc goes back, and each role group keeps its last
-model, its mark shaking (Motion). At the Name question, a taken
+still empty, takes the highlight to it -- Esc goes back, and reviewers keep their last
+model, its mark shaking (Motion). Executors may be left empty: the orchestrator builds
+everything, its own `exec` mark filled and dim on both `n` and `c`. At the Name question, a taken
 name asks again and Esc goes back. Enter leaves `new`, then `new-2`, unnamed until its
 orchestrator knows the job and gives it the shortest name, at most three words, with
 `ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints the current name and exits 0;
@@ -383,27 +384,45 @@ Fixed columns with two-space gutters, sized once per draw from the rows on
 screen: number, name, orchestrator, state (glyph and word in the state's
 colour), and one last column. The last column takes all the remaining width;
 it wraps once at a word onto an indented continuation and is cut with ` …`
-only past that. Columns use gutters, never ` · `. Never cut inside a
+only past that. A row with fewer than ten cells left puts it on the indented
+line alone, cut there, so no line runs past the screen. Columns use gutters, never ` · `. Never cut inside a
 glyph or a colour sequence. No rendered line keeps trailing space: cell pads
 land outside the colour escapes and every row is rstripped, so the snapshots
 never pin invisible whitespace. The usage bars are one column, sized once per
 draw from the row that has the least room.
 
+A working seat's tasks bar takes all the room its last column has, never under
+8 cells, and is never wrapped or cut: one too long for the column, or a row with
+fewer than ten cells left, puts it whole on the indented line under its row. Merged tasks fill solid in the state's colour;
+each live run of the seat (`menu.seat_runs`) fills part of the next slot by its
+step -- building ¼, checks ½, review ¾, landing ⅞ -- dotted (`▒`), and a run on
+its last round turns its slot red. A tick (`▏`) parts the tasks while each has two cells or
+more; a plan with more tasks than that gives each task in flight a cell of its
+own, those on their last round first when not all fit. The `done/total` count
+is a chip of bold dark text on the fill, ending at the fill's head, or just past
+the tasks in flight while the fill is shorter; where neither has room it follows
+a bar that much shorter, so it never covers a task in flight.
+The bar carries its own background, as a seat's state chip does, so it reads
+on either background; without colour it is `███▒▒░░░ 3/8`, `###==--- 3/8`
+without UTF-8. A seat's tmux bar draws the same bar in 24 cells. No screen
+says when a seat's work will finish: its progress is its tasks bar and its count.
+
 Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`, `terminal.cells`,
 `terminal.plain`, `terminal.styled`, `terminal.state_text`,
-`terminal.state_colour`, `terminal.progress_bar`.
+`terminal.state_colour`, `terminal.plan_bar`, `menu.seat_runs`.
 
-Example: `  1  atoll-fix  fable  ● working  tasks ██░░░ 2/5`.
+Example: `  1  atoll-fix  fable  ● working  ████▒▒░░░░ 2/5`.
 
 ## Narrow screens
 
 Under 60 columns a seat row is two lines (number, name, orchestrator and
-state, then the last column indented under it). The plan bar shortens to 4
-cells. No column ever lands alone on a line.
+state, then the last column indented under it). The tasks bar takes that
+line's room and never more; a line too short for a cell of it beside its count
+shows the count alone. No column ever lands alone on a line.
 
 Example at 40 columns:
 `  1  atoll-fix  fable  ● working`
-`    tasks ██░░ 2/4`.
+`    ████████████████▒▒▒▒▒▒░░░░░░░░░░ 2/4`.
 
 ## Height
 
@@ -422,8 +441,11 @@ and there is no overview page, since the highlight is never on it; in a pipe
 
 One row per provider under `usage left`, one column of bars: the provider's
 display name, the bar and `NN% left` of its **shared** weekly meter -- the one
-every model of it draws on, never a cap one model has to itself -- then, joined
-with ` · ` and each only when it applies: `resets <weekday> <HH:MM>` in local
+every model of it draws on, never a cap one model has to itself -- or, once that
+week is spent, the credits the account still runs on in the percentage's place
+(`62,469 credits left`, `$12.40 credits left`) wherever they fit beside a
+four-cell bar -- then, joined with ` · ` and each only when it applies: the
+credits not standing in the percentage's place; `resets <weekday> <HH:MM>` in local
 time from that meter (`resets 23 Oct` more than six days out in a window longer
 than a week, such as MiMo's 30-day plan; `resets in 3d` when only a duration is
 known); `1 reset in hand` (`2 resets in hand`) while the subscription holds
@@ -535,11 +557,12 @@ terminal, under `NO_COLOR` or at eight colours: there the dot stands still.
 News moves once and is then still, on the same clock. A row that turns
 `needs you` gives its `!` two soft pulses toward the light, 600 ms in all; one
 that turns `done` has its `✓` appear bright and settle to `done`'s colour over
-400 ms. A usage or tasks bar whose value changes glides to it over 300 ms, an
-eighth of a cell at a time, each cell on its own, and its last frame is the bar
-as drawn; a task bar's newly filled block lights briefly, and a bar whose value
-reaches full -- even one its rounding drew full already -- then sends one light
-across it, left to right, the only light on it. Only a change seen while the
+400 ms. A usage bar whose value changes glides to it over 300 ms, an eighth of
+a cell at a time, each cell on its own, and its last frame is the bar as drawn;
+one whose value reaches full -- even one its rounding drew full already -- then
+sends one light across it, left to right, the only light on it. A seat's tasks
+bar does not glide: its runs' steps move it often, and each draw shows it as it
+is. Only a change seen while the
 menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
 `forget`). The pointer coming onto a usage row is news the same way: one light
@@ -556,7 +579,7 @@ left to right, over 600 ms -- once for each step onto it (`motion.rising`,
 Every mark -- on `c`, on `n` and on a project's switches -- fills when set and
 empties when cleared over two frames, 80 ms in all: `□ ▣ ■`, `○ ◉ ●` and back,
 the new state saved at the key; without UTF-8 it lands at once. A change ak
-refuses -- the last executor or reviewer, a pair that is not allowed, a switch
+refuses -- the last reviewer, a pair that is not allowed, a switch
 the project refused -- nudges its mark a cell left, right, left and back over
 240 ms, the reason under the rows. A model, provider or subscription just added
 on `c` returns highlighted on a soft glow of the accent that fades into the

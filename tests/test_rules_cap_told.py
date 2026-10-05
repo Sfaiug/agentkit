@@ -120,17 +120,13 @@ class RulesCapTold(unittest.TestCase):
         self.assertFalse(any("truncated" in line for line in self.logs))
         self.assertNotIn("cut short", run.handback_line(state, directory, self.cfg))
 
-    def test_handback_ignores_legacy_cut_state_for_both_files(self):
+    def test_handback_ignores_legacy_cut_state(self):
         self.commit_rules("x" * (OLD_CUT + 1))
         state = {"repo": str(self.repo), "state": "blocked", "error": "acme ending",
                  "rules_truncated": True, "lessons_truncated": True}
-        lessons = config.HOME / "lessons" / "acme.md"
-        lessons.parent.mkdir(parents=True)
-        lessons.write_text("x" * (4096 + 1))
         line = run.handback_line(state, config.RUNS / "acme-run", self.cfg)
         self.assertNotIn("cut short", line)
         self.assertNotIn(str(self.path), line)
-        self.assertNotIn(str(lessons), line)
 
     def test_added_oversized_body_fails_checks_and_resume_in_any_repo(self):
         lp = self.loop()
@@ -233,6 +229,20 @@ class RulesCapTold(unittest.TestCase):
         failure = run.rules_cap(lp)
         self.assertTrue(failure.startswith("AGENTS.md could not be read as a checkout holds it"),
                         failure)
+        self.assertTrue(run.LOOP_NOTE.match(failure))
+
+    def test_unavailable_tracked_rules_fail_the_check(self):
+        lp = self.loop()
+        self.commit_rules("x" * 40000)
+        blob = self.git("rev-parse", "HEAD:AGENTS.md")
+        (self.repo / ".git" / "objects" / blob[:2] / blob[2:]).unlink()
+        self.assertEqual(self.path.stat().st_size, 40000)
+        self.assertEqual(self.git("ls-tree", "--name-only", "HEAD", "--", "AGENTS.md"),
+                         "AGENTS.md")
+        failure = run.rules_cap(lp)
+        self.assertTrue(failure.startswith("AGENTS.md could not be read as a checkout holds it"),
+                        f"Tracked AGENTS.md with an unavailable blob passed: {failure!r}")
+        self.assertIn(f"{LIMIT} bytes acme reads of it is unknown", failure)
         self.assertTrue(run.LOOP_NOTE.match(failure))
 
     def test_removed_oversized_rules_pass_checks(self):

@@ -61,8 +61,7 @@ def note(turn, trees, leader, *, checks=(), red=None, red_stacks=None):
 
 
 def line(turn):
-    """Members including green deliveries that continue themselves: green deliveries first,
-    then the rest, each group in join order."""
+    """Green deliveries in tested stack order, then the rest in join order."""
     from . import run
     members = []
     for directory in record.run_dirs():
@@ -77,9 +76,16 @@ def line(turn):
                 and wait.get("line") == turn.name
                 and type(wait.get("joined")) in (int, float)):
             members.append((directory, state))
-    return sorted(members, key=lambda member: (not green_delivery(member[1]["waiting_on"]),
-                                              member[1]["waiting_on"]["joined"],
-                                              member[0].name))
+    deliveries = {directory.name: state["waiting_on"]["land"] for directory, state in members
+                  if green_delivery(state["waiting_on"])}
+    # A repaired member keeps its join place behind the deliveries its tree includes.
+    # A predecessor's replacement verdict does not stand in for its earlier tested tree.
+    return sorted(members, key=lambda member: (
+        not green_delivery(member[1]["waiting_on"]),
+        sum(deliveries.get(name) == tree
+            for name, tree in member[1]["waiting_on"].get("after", {}).items())
+        if green_delivery(member[1]["waiting_on"]) else 0,
+        member[1]["waiting_on"]["joined"], member[0].name))
 
 
 def green_delivery(wait):
@@ -467,7 +473,11 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 _repair(turn, member, saved, target_tree, red, log)
                                 target_red = True
                                 return
-                    if (member == directory or "fix" in answer) and member not in verdicts:
+                    if member not in verdicts:
+                        if "land" in answer:
+                            answer = {**answer, "after": {
+                                m.name: s["waiting_on"]["land"] for m, s in prefix} | {
+                                previous[0].name: previous[3] for previous in stacks[:index]}}
                         verdicts[member] = answer
                         ready({member: answer})
                     green_prefix = "land" in answer

@@ -16,7 +16,7 @@ from unittest.mock import patch
 import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
-from agentkit import config, menu, orch, run, terminal, watch
+from agentkit import config, menu, orch, run, status, terminal, watch
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -205,7 +205,7 @@ class V5oMenu(Sandbox):
         # A working seat without a plan reads its unfinished job's bar: short, never wrapped.
         screen, _ = self.draw(100, 30)
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
-        self.assertIn("tasks ", job)
+        self.assertRegex(job, r"█+[▒░]+ 3/7$")
         self.assertNotIn("2 running", job)
         # A last column too long for two lines is cut with … on the continuation.
         info = {"number": "1", "name": "atoll-job", "count": "needs you",
@@ -233,7 +233,7 @@ class V5oMenu(Sandbox):
         # A working seat without a plan reads its unfinished job's bar, the orchestrator,
         # no title.
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
-        self.assertRegex(job, r"tasks █+░+\s+3/7")
+        self.assertRegex(job, r"█+[▒░]+ 3/7$")
         self.assertIn("fable", job)
         self.assertNotIn("Rebuild the dashboard filters", screen)
         # A plan draws the bar; without a plan or a job there is no bar and no fake one.
@@ -241,14 +241,10 @@ class V5oMenu(Sandbox):
                                                         "- [ ] d\n- [ ] e\n- [ ] f\n"
                                                         "- [ ] g\n")
         screen, _ = self.draw(100, 30)
-        self.assertIn("tasks ", screen)
-        self.assertIn("3/7", screen)
-        self.assertRegex(screen, r"tasks █+░+\s+3/7")
-        solo_idx = screen.index("atoll-solo")
-        solo_block = screen[solo_idx:solo_idx + 300]
-        self.assertNotIn("2 running", solo_block)
-        self.assertNotIn("tasks ", solo_block)
-        self.assertNotIn("0/0", solo_block)
+        self.assertRegex(screen, r"█+[▒░]+ 3/7")
+        solo = next(line for line in screen.splitlines() if "atoll-solo" in line)
+        self.assertNotIn("2 running", solo)
+        self.assertTrue(solo.rstrip().endswith("● working"))
         solo_lines = [line for line in screen.splitlines() if "atoll-solo" in line]
         self.assertTrue(solo_lines and "/" not in solo_lines[0])
 
@@ -377,7 +373,7 @@ class V5oMenu(Sandbox):
                                state="fail", verdict="FAIL", finished_at=NOW - 2 * 3600,
                                started_at=NOW - 2 * 3600 - 1800)
         with redirect_stdout(io.StringIO()):
-            run.cmd_status(["herdr-second-pass"])
+            status.cmd_status(["herdr-second-pass"])
         self.assertTrue(record.read_state(second).get("recovery_acknowledged_at"))
         third = self.touching("herdr-third-pass", owner="herdr-quiet",
                               repo=str(config.CODE / "agentkit"), title="Herdr third pass",
@@ -392,7 +388,7 @@ class V5oMenu(Sandbox):
         self.assertIn("session closed: press 3 to reopen", screen)
         self.assertNotIn("press r", screen)
         with redirect_stdout(io.StringIO()):
-            run.cmd_status(["herdr-fourth-pass"])
+            status.cmd_status(["herdr-fourth-pass"])
         self.assertTrue(record.read_state(fourth).get("recovery_acknowledged_at"))
         for run_id in ("herdr-second-pass", "herdr-third-pass", "herdr-fourth-pass"):
             state = record.read_state(config.RUNS / run_id)
@@ -453,7 +449,7 @@ class V5oMenu(Sandbox):
         # A seat row is two lines on a phone: head plus its last column indented.
         idx = next(i for i, line in enumerate(screen.splitlines()) if "atoll-job" in line)
         self.assertTrue(screen.splitlines()[idx + 1].startswith("    "))
-        self.assertIn("tasks ", screen.splitlines()[idx + 1])
+        self.assertRegex(screen.splitlines()[idx + 1], r"^    █+[▒░]+ 3/7$")
 
     def test_v5o_n_no_age_in_seconds(self):
         for width in (40, 100, 170):
@@ -498,7 +494,7 @@ class V5oMenu(Sandbox):
         self.assertTrue(doc.strip())
         for helper in ("header_line", "rule_line", "key_line", "layout_width",
                        "cut", "wrap", "pad", "cells", "plain", "styled",
-                       "state_text", "state_colour", "progress_bar",
+                       "state_text", "state_colour", "plan_bar",
                        "format_age", "STATES"):
             self.assertIn(helper, doc, helper)
             self.assertIn(helper, (REPO / "agentkit/menu.py").read_text(), helper)

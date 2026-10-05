@@ -1,4 +1,4 @@
-"""Check commands and the host-wide heavy-suite turn."""
+"""Run admission, check commands and the host-wide heavy-suite turn."""
 
 import fcntl
 import hashlib
@@ -16,15 +16,319 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import config, history, host, orch, run, watch, worker
+from . import land as landing
 from . import record as run_record
 
 _GATE_HELD = threading.local()     # the gate turn this thread holds now, if any
+
+
+try:
+    SLOT_POLL = float(os.environ.get("AK_SLOT_POLL", "30"))
+except ValueError:
+    SLOT_POLL = 30
 
 
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
 HEAVY_CPUS = 0.7      # initial measured estimates; a repository's pieces may cost more
 HEAVY_MEM_MB = 410
 SUITE_BUSY = 75       # sysexits' EX_TEMPFAIL: a heavy suite's own host-wide lock is another copy's
+
+
+@contextmanager
+def slot_lock():
+    """One atomic count-and-claim across seats, processes and job threads."""
+    config.RUNS.mkdir(parents=True, exist_ok=True)
+    with (config.RUNS / ".slots.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def slot_order(state):
+    # A green member only needs delivery before the target moves.
+    wait = state.get("waiting_on") or {}
+    return (not (state.get("first") or "land" in wait or "fix" in wait),
+            not landing.green_delivery(wait),
+            state.get("queued_at") or state.get("started_at") or 0,
+            state.get("run_id") or "")
+
+
+CPU_PRESSURE_LIMIT = 40   # ak's own processes are stalled on CPU nearly half the time
+
+
+def resource_limits(readings):
+    """Resolve configured gates against one host-reading snapshot."""
+    total = host._reading(readings, "mem_total_mb", "total_mb", "mem_total")
+    cpus = host._reading(readings, "cpus", "nproc") or 1
+    return config.min_free_mb(total if total is not None else 0), config.max_load(cpus)
+
+
+def _load(value):
+    return "?" if value is None else f"{value:g}"
+
+
+def _pct(value):
+    return "?" if value is None else f"{value:g}%"
+
+
+def host_status_line():
+    """The host-admission header at the top of human ``ak run status`` output.
+
+    Two lines: the admission gates, then the heavy-suite turns in force and whether
+    an explicit `max_gates` pins them or the slice's headroom derives them.  A
+    positive `max_runs` is a gate like the other two, so the first line names it:
+    `at most 4 runs at once`.  A pinned `max_load` keeps the old load wording;
+    otherwise the CPU gate is the slice's own pressure.
+    """
+    readings = host.host_readings(slice_dir=orch.slice_cgroup)
+    minimum, maximum = resource_limits(readings)
+    cpus = host._reading(readings, "cpus", "nproc") or 1
+    gates = []
+    if minimum:
+        gates.append(f"≥ {host._g(minimum)} G free")
+    if config.max_load_is_set():
+        if maximum:
+            gates.append(f"load ≤ {_load(maximum)}")
+        admitted = ("a run is admitted while " + " and ".join(gates) if gates else
+                    "a run is admitted (host memory and load gates off)")
+        signal = f"load {_load(host._reading(readings, 'load', 'load1'))}"
+    else:
+        gates.append(f"ak cpu ≤ {CPU_PRESSURE_LIMIT}%")
+        admitted = "a run is admitted while " + " and ".join(gates)
+        signal = f"ak cpu {_pct(host._reading(readings, 'slice_cpu_pressure'))}"
+    try:
+        limit = config.max_runs()
+    except config.Error:
+        limit = 0
+    if limit:
+        admitted += f" · at most {limit} run{'s' if limit != 1 else ''} at once"
+    try:
+        pinned = config.max_gates()
+    except config.Error:
+        pinned = None
+    if pinned is not None:
+        heavy = ("heavy suites: no cap (pinned)" if not pinned else
+                 f"heavy suites: {pinned} at once (pinned)")
+    else:
+        heavy = f"heavy suites: {derived_heavy_limit(readings)} at once (derived)"
+    segment = ""
+    unit = host._unit_memory(readings)
+    if unit and len(unit) > 3 and unit[3]:
+        segment = f" · {unit[3]} {host._g(unit[0])} of {host._g(unit[1])} G in use"
+    first = (f"host: {int(cpus)} cpus · {signal} · "
+             f"{host._g(host._reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
+             f"{admitted}")
+    return f"{first}\n{heavy}"
+
+
+def slot_counts(state):
+    """Live slot owners, and top-level receipts ahead of this one (including dead waiters)."""
+    running, ahead = 0, 0
+    for directory in run_record.run_dirs():
+        other = run_record.read_state(directory) or {}
+        if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
+            continue
+        if other.get("state") == "running" and run_record.process_active(other):
+            running += 1
+        elif (other.get("state") == "queued" and other.get("slot_waiting") and
+              slot_order(other) < slot_order(state)):
+            ahead += 1
+    return running, ahead
+
+
+def frozen_runs(state):
+    """Admitted runs the host has frozen: slot owners whose process is held.
+
+    A frozen run adds no load, so the load gate keeps refilling behind it and the
+    thaw lands every run at once. The same owners slot_counts counts, asked of the
+    process itself, so a dead run and a reused pid count nothing.
+    """
+    frozen = 0
+    for directory in run_record.run_dirs():
+        other = run_record.read_state(directory) or {}
+        if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
+            continue
+        if (other.get("state") == "running" and run_record.process_active(other)
+                and host.frozen_cgroup(other.get("pid"))):
+            frozen += 1
+    return frozen
+
+
+def slot_line(running, ahead, limit, first=False):
+    """The count wait's sentence: "ahead" is only the runs queued before this one.
+
+    Running runs are no queue, so a full limit says so by itself; a `first` run
+    skips the count cap and waits only on the queue.
+    """
+    if limit and running >= limit and not first:
+        return f"waiting for a slot · limit full ({running} running) · {ahead} ahead"
+    return f"waiting for a slot · {ahead} ahead"
+
+
+def slot_note(state):
+    return state.get("slot_wait_reason") or slot_line(
+        *slot_counts(state), config.max_runs(), not slot_order(state)[0])
+
+
+def _slice_cpu_reason(readings):
+    """(reason, kind) while ak's own slice is CPU-saturated, else (None, None).
+
+    Unreadable fails open with the rest: a host that cannot answer must not
+    queue every run forever.
+    """
+    pressure = host._reading(readings, "slice_cpu_pressure")
+    if pressure is not None and pressure > CPU_PRESSURE_LIMIT:
+        return (f"waiting for ak's CPU · pressure {pressure:g}%, "
+                f"limit {CPU_PRESSURE_LIMIT}%", "cpu")
+    return None, None
+
+
+def _wait_reason(readings, minimum, maximum, frozen=0):
+    # An unreadable gate fails open, as the memory check before it did: a host
+    # that cannot answer (no /proc on macOS, no cgroup file in a container)
+    # must not queue every run forever.
+    free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
+    if minimum and free is not None and free < minimum:
+        return f"waiting for memory · {host._g(free)} G free, needs {host._g(minimum)} G", "memory"
+    load = host._reading(readings, "load", "load1", "load_1m")
+    if maximum and load is not None and load + frozen > maximum:
+        if frozen:
+            noun = "run" if frozen == 1 else "runs"
+            return (f"waiting for the host to calm · load {_load(load)} + {frozen} "
+                    f"frozen {noun}, limit {_load(maximum)}", "load")
+        return f"waiting for the host to calm · load {_load(load)}, limit {_load(maximum)}", "load"
+    unit = host._unit_memory(readings)
+    if unit and unit[0] > unit[1] * .75:
+        raw = unit[2] if len(unit) > 2 else None
+        if raw is not None:
+            return (f"waiting for the unit's memory · {host._g(unit[0])} of {host._g(unit[1])} G "
+                    f"in use ({host._g(raw)} with cache)", "unit memory")
+        return (f"waiting for the unit's memory · {host._g(unit[0])} of {host._g(unit[1])} G",
+                "unit memory")
+    return None, None
+
+
+def claim_slot(state, limit, readings=None):
+    """Called under slot_lock: count, FIFO and two steady host polls decide admission."""
+    running, ahead = slot_counts(state)
+    # AK_MAX_RUNS=0 is the test-suite escape hatch: it disables count and host gates together.
+    ungated = os.environ.get("AK_MAX_RUNS") == "0"
+    if state.get("run_depth", 0) or ungated:
+        state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
+                     **run_record.process_owner())
+        state.pop("resume_from", None)
+        return True
+    is_first = not slot_order(state)[0]
+    if ahead or (limit and running >= limit and not is_first):
+        state["slot_waited"] = True
+        state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
+        state["slot_wait_kind"] = "count"
+        state["slot_healthy_polls"] = 0
+        return False
+    readings = host.host_readings(slice_dir=orch.slice_cgroup) if readings is None else readings
+    minimum, maximum = resource_limits(readings)
+    if is_first:
+        maximum = 0
+    pinned = config.max_load_is_set()
+    if pinned:
+        frozen = 0
+        load = host._reading(readings, "load", "load1", "load_1m")
+        if maximum and load is not None and load <= maximum:
+            # A frozen run adds no load, so the gate reads low behind it; each one
+            # counts 1 against the limit. Counted only while the load alone passes:
+            # past the limit the wait says so already, and no cgroup is read.
+            frozen = frozen_runs(state)
+        reason, kind = _wait_reason(readings, minimum, maximum, frozen)
+    else:
+        # The slice's own pressure gates now; the host load goes unread.
+        reason, kind = _wait_reason(readings, minimum, 0)
+        if reason is None and not is_first:
+            reason, kind = _slice_cpu_reason(readings)
+    if reason:
+        state["slot_waited"] = True
+        state["slot_wait_reason"], state["slot_wait_kind"] = reason, kind
+        state["slot_healthy_polls"] = 0
+        return False
+    polls = state.get("slot_healthy_polls", 0) + 1
+    if polls < 2:
+        state["slot_healthy_polls"] = polls
+        # The gates pass but steadiness is still owed: say that, with the
+        # readings behind it, rather than the count sentence nothing waits on.
+        # The kind stays whatever gate (if any) actually delayed this wait.
+        free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
+        if pinned:
+            load = host._reading(readings, "load", "load1", "load_1m")
+            state["slot_wait_reason"] = (
+                f"waiting for steady readings · {host._g(free)} G free, load {_load(load)}")
+        else:
+            pressure = host._reading(readings, "slice_cpu_pressure")
+            state["slot_wait_reason"] = (
+                f"waiting for steady readings · {host._g(free)} G free, "
+                f"ak cpu pressure {_pct(pressure)}")
+        return False
+    state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
+                 **run_record.process_owner())
+    for key in ("resume_from", "slot_healthy_polls", "reservation_pending",
+                "slot_wait_reason", "slot_wait_kind"):
+        state.pop(key, None)
+    return True
+
+
+def reserve_slot(state, limit):
+    claim_slot(state, limit)
+    # Steadiness is counted by the waiter's own polls, not banked here: the
+    # launch check only records an early reason, and admission still needs
+    # two consecutive healthy polls from the waiter itself.
+    state.pop("slot_healthy_polls", None)
+
+
+def wait_for_slot(run_dir):
+    """Reserve a slot in run.json before work starts; no process-local semaphore can do this."""
+    announced = False
+    first_poll = True
+    wait_kind = None
+    while True:
+        limit = config.max_runs()
+        with slot_lock(), run_record.recovery_lock(run_dir):
+            state = run_record.read_state(run_dir) or {}
+            if state.get("state") == "running" and state.get("pid") == os.getpid():
+                return state
+            if first_poll and state.get("state") != "queued" and not run_record.process_active(state):
+                # drive also accepts a saved receipt directly (the job/recovery API).
+                state.update(run_id=run_dir.name, state="queued", slot_waiting=True,
+                             queued_at=time.time(), **run_record.process_owner())
+                state.setdefault("run_depth", run.run_depth())
+                # A new queue episode starts with no memory of the last one's wait.
+                for key in ("slot_waited", "slot_wait_reason", "slot_wait_kind"):
+                    state.pop(key, None)
+                run_record.save_state(run_dir, state)
+            if state.get("state") != "queued" or state.get("pid") != os.getpid():
+                raise config.Error(f"{run_dir.name}: another process owns this launch")
+            first_poll = False
+            if claim_slot(state, limit):
+                run_record.save_state(run_dir, state)
+                break
+            # Admission clears the kind, so the receipt below reads this copy.
+            wait_kind = state.get("slot_wait_kind") or wait_kind
+            run_record.save_state(run_dir, state)
+        if not announced:
+            print(slot_note(state), flush=True)
+            run.redress_seat(state.get("launched_session"))
+            announced = True
+        time.sleep(SLOT_POLL)
+    if state.get("slot_waited"):
+        minutes = max(0, int((time.time() - state["queued_at"]) / 60))
+        kind = wait_kind or "count"
+        line = f"waited {minutes} min for a slot ({kind})\n"
+        # Preflight and a detached waiter's stdout already live here. Keep the waiting
+        # receipt first, without replacing the inode the background child's stdout owns.
+        path = run_dir / "log.txt"
+        with path.open("r+", encoding="utf-8") as fh:
+            content = fh.read()
+            fh.seek(0)
+            fh.write(line + content)
+        print(line.rstrip(), flush=True)
+    run.redress_seat(state.get("launched_session"))
+    return state
 
 
 def gate_lock(repo, slot):

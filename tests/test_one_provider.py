@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, job as jobs, run, terminal, usage
+from agentkit import config, job as jobs, run, status, terminal, usage
 from agentkit import record
 
 
@@ -394,7 +394,7 @@ class OneProvider(unittest.TestCase):
             # No task file: the fallback writer must use the same config as the full report.
             run.record_result(lp.run_dir, state, cfg=self.cfg)
             self.assertTrue((lp.run_dir / "result.md").read_text().startswith("# PASS, delivered"))
-            self.assertEqual(run.status_word(state, self.cfg), "delivered")
+            self.assertEqual(status.status_word(state, self.cfg), "delivered")
             self.assertEqual(jobs.job_classify(state, self.cfg), "passed")
             with patch.object(run, "announce") as announce:
                 self.assertEqual(run.finish(state, lp.run_dir, self.logs.append, self.cfg), 0)

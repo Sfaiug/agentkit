@@ -111,6 +111,25 @@ def _reading(readings, *names):
     return None
 
 
+def _g(value):
+    if value is None:
+        return "?"
+    value = value / 1024
+    return f"{value:.1f}".rstrip("0").rstrip(".")
+
+
+def _marked_rss(pid, proc_root="/proc"):
+    """Resident bytes for one pid from its statm, or None where unread."""
+    try:
+        resident = int((Path(proc_root) / str(pid) / "statm").read_text().split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    try:
+        return resident * os.sysconf("SC_PAGE_SIZE")
+    except (OSError, ValueError):
+        return None
+
+
 def _unit_memory(readings):
     """(used, high, raw, name) for the cgroup the gate reads, or None.
 

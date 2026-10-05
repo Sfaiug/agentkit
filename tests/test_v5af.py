@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
-from agentkit import host, config, gc, run, task, usage
+from agentkit import host, config, gc, run, status, task, usage
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/1"
@@ -217,7 +217,7 @@ class V5af(unittest.TestCase):
         self.assertNotIn("runs these once at landing", prompt)
         self.assertIn("final check: none (no once-commands)",
                       (self.directory / "result.md").read_text())
-        self.assertEqual(run.status_final_check(self.directory, state),
+        self.assertEqual(status.status_final_check(self.directory, state),
                          "final check: none (no once-commands)")
 
     def test_v5af_no_merge_fails_when_a_task_once_check_fails(self):

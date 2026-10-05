@@ -23,7 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
-from agentkit import gate, host, config, gc, notify, orch, run, usage, watch, worker
+from agentkit import gate, host, config, gc, notify, orch, run, status, usage, watch, worker
 from agentkit import record as run_record
 from agentkit import task as taskfile
 
@@ -451,7 +451,7 @@ class Limits(unittest.TestCase):
                                        **run_record.process_owner()})
         out = io.StringIO()
         with patch.object(run.time, "time", return_value=now), redirect_stdout(out):
-            self.assertEqual(run.cmd_status([]), 0)
+            self.assertEqual(status.cmd_status([]), 0)
         printed = out.getvalue()
         for name in ("20260914-1000-a", "20260914-1001-b", "20260914-1002-c", "20260914-1003-d"):
             self.assertRegex(printed, rf"(?m)^{name} +{name} +.* working +opus/astra  "
@@ -459,7 +459,7 @@ class Limits(unittest.TestCase):
         # --plain keeps today's words: each live run names its step and its age
         plain_out = io.StringIO()
         with patch.object(run.time, "time", return_value=now), redirect_stdout(plain_out):
-            self.assertEqual(run.cmd_status(["--plain"]), 0)
+            self.assertEqual(status.cmd_status(["--plain"]), 0)
         plain = plain_out.getvalue()
         for name, step, age in (("20260914-1000-a", "executor", "41m"),
                                 ("20260914-1001-b", "done-when", "12m"),
@@ -470,7 +470,7 @@ class Limits(unittest.TestCase):
         # a finished run's step is over, and still is: step_word says nothing
         done = config.RUNS / "20260914-1003-d"
         state = run_record.read_state(done)
-        self.assertEqual(run.step_word({**state, "state": "pass", "finished_at": now}), "")
+        self.assertEqual(status.step_word({**state, "state": "pass", "finished_at": now}), "")
 
     def test_v5f_the_step_is_recorded_in_run_json_as_it_changes(self):
         self.repo()
@@ -785,7 +785,7 @@ class Limits(unittest.TestCase):
         self.assertEqual(seen["state"], "running")
         self.assertEqual(seen["pid"], os.getpid())
         self.assertEqual(seen["step"], "merge")
-        self.assertTrue(run.step_word(seen).startswith("merge "))
+        self.assertTrue(status.step_word(seen).startswith("merge "))
         self.assertIsNone(seen["finished_at"])
         # so once that process is gone, the reaper picks it up instead of ignoring a PASS
         gone = subprocess.Popen([sys.executable, "-c", "pass"])
@@ -796,7 +796,7 @@ class Limits(unittest.TestCase):
         state = run.reap(directory, run_record.read_state(directory))
         self.assertEqual(state["state"], "interrupted")
         self.assertTrue(run.needs_recovery(state))
-        self.assertTrue(run.actionable(state))
+        self.assertTrue(status.actionable(state))
 
     def test_v5f_a_stop_is_reported_even_when_the_report_cannot_read_git(self):
         self.repo()

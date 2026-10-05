@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, history, job as jobs, run, task
+from agentkit import config, gc, history, job as jobs, run, status, task
 from agentkit import record
 
 SEAT = "size-check"
@@ -195,14 +195,14 @@ class Sandbox(unittest.TestCase):
         self.finished("r4", "atoll", 10, 100, 4, 400)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status(["--history"]), 0)
+            self.assertEqual(status.cmd_status(["--history"]), 0)
         self.assertIn("atoll: last 20 tasks: median 6 rounds · over 400 words: "
                       "median 8 rounds · over 3 points: median 10 rounds",
                       out.getvalue())
         # ... and the default view stays quiet about it
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status([]), 0)
+            self.assertEqual(status.cmd_status([]), 0)
         self.assertNotIn("last 20 tasks", out.getvalue())
 
     def test_summary_reads_a_database_from_before_the_size_columns(self):
@@ -222,7 +222,7 @@ class Sandbox(unittest.TestCase):
         connection.close()
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status(["--history"]), 0)
+            self.assertEqual(status.cmd_status(["--history"]), 0)
         self.assertIn("atoll: last 20 tasks: median 3 rounds", out.getvalue())
         with closing(sqlite3.connect(database)) as connection:
             columns = [row[1] for row in connection.execute("PRAGMA table_info(runs)")]

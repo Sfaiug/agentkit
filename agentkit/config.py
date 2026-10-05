@@ -361,6 +361,7 @@ def load():
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
+    written = "workers" in defaults        # an empty group nobody wrote is no choice of one
     workers = defaults.setdefault("workers", [])
     if (not isinstance(workers, list) or any(not isinstance(name, str) for name in workers)
             or len(set(workers)) != len(workers)):
@@ -376,7 +377,7 @@ def load():
     # Only a creation writes [defaults], so one may name a model removed since: passed over
     # here, as a default nobody named is, and the first model takes a place it empties, so a
     # seat can still start with Enter.
-    _fall_back(defaults, names)
+    _fall_back(defaults, names, written)
     for name, entry in cfg["providers"].items():
         listed = entry.get("accounts", []) if isinstance(entry, dict) else []
         # each name is a path component: the adapters keep that account's login under it
@@ -460,12 +461,14 @@ def shipped():
         return {}
 
 
-def _fall_back(defaults, left):
-    """[defaults] kept to the models `left`, in memory: one it empties takes the first."""
+def _fall_back(defaults, left, written=True):
+    """Keep defaults to models `left`; executors written empty beside reviewers stay empty,
+    and a `[defaults]` that never named its executors falls back to the first model."""
     if defaults.get("orchestrator") not in left:
         defaults["orchestrator"] = left[0]
-    defaults["workers"] = [model for model in defaults.get("workers") or []
-                           if model in left] or [left[0]]
+    named = defaults.get("workers") or []
+    defaults["workers"] = [model for model in named if model in left] or (
+        [] if not named and written and "reviewers" in defaults else [left[0]])
     if "reviewers" in defaults:
         defaults["reviewers"] = [model for model in defaults["reviewers"]
                                 if model in left] or [left[0]]
@@ -739,6 +742,7 @@ SEAT_FILES = {
     "stop": "json",      # this turn's start, for the stop hook's rule
     "title": "json",     # the title last read from its conversation
     "input": "jsonl",    # each line ak typed, with its source and conversation
+    "tell": "json",      # what other seats sent it with `ak tell`, until ak types it there
     "rulebook": "md",    # the rulebook its orchestrator was started on
 }
 
@@ -829,7 +833,7 @@ def check_stop_owner(owner):
     if caller and isinstance(owner, str) and owner:
         owner = resolve_session(owner)
         if owner != caller:
-            raise Error(f"owned by seat {owner}; message that seat instead")
+            raise Error(f"owned by seat {owner}; tell it instead: ak tell {owner} \"...\"")
 
 
 def _validate_session(cfg, name, data):
@@ -846,7 +850,9 @@ def _validate_session(cfg, name, data):
         if role == "reviewers" and role not in data:
             continue
         listed = data.get(role)
-        if (not isinstance(listed, list) or not listed
+        # no executor is a choice once reviewers are named: the orchestrator builds everything
+        empty_ok = role == "workers" and "reviewers" in data
+        if (not isinstance(listed, list) or not (listed or empty_ok)
                 or any(not isinstance(worker, str) for worker in listed)):
             raise Error(f"{session_path(name)}: {role} must be a non-empty list of model names")
         for worker in listed:
@@ -1153,6 +1159,12 @@ def compact_path(name):
 def plan_path(name):
     """The session's plan, a markdown list the menu row reads its bar from."""
     return seat_file("plan", name)
+
+
+def runs_moved_path():
+    """Touched whenever a seat's run moves -- a step, a round, an ending -- so an open menu, which
+    watches it, reads its rows again."""
+    return STATE / "runs-moved"
 
 
 def stop_path(name):

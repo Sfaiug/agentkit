@@ -5058,7 +5058,7 @@ DEL=0
 HOME="$DELH" PYTHONPATH="$REPO" python3 - >"$WORK/delivered.log" 2>&1 <<'PY' || DEL=1
 import time
 
-from agentkit import config, run, record
+from agentkit import config, run, status, record
 
 config.ensure_dirs()
 now = time.time()
@@ -5089,15 +5089,15 @@ for name, extra in made.items():
 was = {name: record.read_state(config.RUNS / name) for name in made}
 scratch = was["20260101-0900-scratch"]
 assert run.delivery(scratch) == "PASS, delivered", run.delivery(scratch)
-assert run.status_word(scratch) == "delivered", run.status_word(scratch)
+assert status.status_word(scratch) == "delivered", status.status_word(scratch)
 # ... and `merged` / `not merged: <reason>` are still the repository run's answer
 assert run.delivery(was["20260101-0901-merged"]) == "PASS, merged"
 assert run.delivery(was["20260101-0902-waiting"]) == "PASS, not merged: waiting for the maintainer"
 assert run.delivery(was["20260101-0903-nomerge"]) == "PASS, not merged: --no-merge"
-assert run.status_word(was["20260101-0903-nomerge"]) == "not merged: --no-merge"
+assert status.status_word(was["20260101-0903-nomerge"]) == "not merged: --no-merge"
 # a run that is still going has become nothing yet
 going = dict(scratch, state="running", finished_at=None)
-assert run.status_word(going) == "", run.status_word(going)
+assert status.status_word(going) == "", status.status_word(going)
 print("ok")
 PY
 HOME="$DELH" ak run status --plain >"$WORK/delivered-status.log" 2>&1 || DEL=1
@@ -5353,7 +5353,7 @@ import sys
 import time
 from contextlib import redirect_stdout
 
-from agentkit import config, menu, orch, run, watch, record
+from agentkit import config, menu, orch, run, status, watch, record
 
 config.ensure_dirs()
 now = time.time()
@@ -5410,13 +5410,13 @@ assert any(line == "atoll" for line in lines), lines
 assert not any("seats" in line for line in lines), lines
 assert any("your projects" in line for line in lines), lines
 row = next(line for line in lines if "atoll-fix" in line)
-assert "fable" in row and "working" in row and "tasks " in row and "2/5" in row, row
+assert "fable" in row and "working" in row and row.endswith(" 2/5"), row   # the tasks bar's count
 assert not any("Teach the menu" in line for line in lines), lines
 assert not any("Smoke" in line or SMOKE in line for line in lines), lines
-status = io.StringIO()
-with redirect_stdout(status):
-    assert run.cmd_status([]) == 0
-assert SMOKE in status.getvalue(), status.getvalue()
+printed = io.StringIO()
+with redirect_stdout(printed):
+    assert status.cmd_status([]) == 0
+assert SMOKE in printed.getvalue(), printed.getvalue()
 assert "Merge the MOV helper" in "\n".join(lines), lines
 assert "hero swapped" in "\n".join(lines), lines
 assert not any("press r" in line for line in lines), lines

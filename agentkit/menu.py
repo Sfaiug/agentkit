@@ -11,7 +11,7 @@ the moment it is pressed, and from a pipe it is a line.
 
     atoll
     › 1  atoll-speed-check   fable   ! needs you   Merge the MOV helper before or after?
-      2  fix-api             fable   ● working     tasks ██░░░ 2/5
+      2  fix-api             fable   ● working     ████▒▒░░░░ 2/5
       3  web-portal          fable   ✓ done        hero swapped and published
 
       ↑↓ move   ⏎ open   n new   x stop   c config   s solo   esc leave
@@ -29,10 +29,11 @@ one answer: the row, the top line, `ak orch list`, `ak orch why`, the
 seat's own status bar and its window title.  `ak orch why <seat>` says what decided it.
 
 A row is number, name, orchestrator, state, and one last column: for `needs you` the reason
-from the state function, for `working` the tasks bar (`tasks ██░░░ 2/5` from
-`~/.agentkit/state/plan-<session>.md`, under any name a rename led from, else from its
-unfinished jobs), else empty, for `done` the first line of the done summary. Never two
-state words on one row, and never `N running`.
+from the state function, for `working` the tasks bar in the room the row has
+(`terminal.plan_bar`, from `~/.agentkit/state/plan-<session>.md`, under any name a rename led
+from, else from its unfinished jobs, and each live run of the seat by its step: `seat_runs`),
+else empty, for `done` the first line of the done summary.  Never two state words on one row,
+never `N running`, and never a time estimate.
 
 `ak orch list` carries, after the word, a tally of the runs that seat launched, read from
 their run.json records and nothing else: `<n> running`, then one finished figure -- `<n> needs
@@ -70,9 +71,10 @@ draw; Muse's adapter keeps its own ten-minute cache, because its probe is a bill
 Those ten seconds hold whatever stdin is, a script's half-written line included, and a key typed
 during a draw is read by the next wait.  At rest one thing moves: on a terminal of 256 colours or
 more each working seat's `●` breathes, all in one phase, on `motion`'s clock (`moving`); and
-news seen while the menu is up moves once on it -- a `!` pulses, a `✓` settles, a bar glides --
-then is still.  The sub-screens are not live: they are read once, like any other question --
-but a project's feature switches, which draw again within a second of their `list` landing.
+news seen while the menu is up moves once on it -- a `!` pulses, a `✓` settles, a usage bar
+glides -- then is still.  The sub-screens are not live: they are read once, like any other
+question -- but a project's feature switches, which draw again within a second of their `list`
+landing.
 
 Six keys: the numbers, `n`, `x`, `c` (the highlighted seat's models, every model's effort,
 providers, discord, version), `s` (toggle solo), and Esc, which leaves, as it goes back from every
@@ -319,8 +321,10 @@ class Live:
         changing, or when asked (`ask`): the seats and their groups, for each draw to draw.
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
-        word to that seat's record and to its bar in one go, so a screen that reads again when a
-        record changes, as recorded, never shows a row its bar contradicts for longer than this.
+        word to that seat's record and to its bar in one go, and a run's step, round and ending
+        touch `config.runs_moved_path` before they move its bar (`run.redress_seat`), so a screen
+        that reads again when a record changes, as recorded, never shows a row its bar
+        contradicts for longer than this.
         The records are noted before every read, so one written while it reads is still news.
         Looking is a `stat` per file -- its inode as well as its mtime, since every write
         replaces the file -- and nothing here captures a pane.  A read on news looks at no seat
@@ -333,10 +337,12 @@ class Live:
         self.watcher.start()
 
     def recorded(self):
-        """usage.json and every seat record: each one's name, inode and mtime; and each
-        project's feature switches as its `list` last answered, so their landing is news too."""
+        """usage.json, the runs' moved mark and every seat record: each one's name, inode and
+        mtime; and each project's feature switches as its `list` last answered, so their landing
+        is news too."""
         found = []
-        for path in [config.STATE / "usage.json", *(path for _, path in config.seat_files("seat"))]:
+        for path in [config.STATE / "usage.json", config.runs_moved_path(),
+                     *(path for _, path in config.seat_files("seat"))]:
             try:
                 stat = path.stat()
             except OSError:
@@ -735,6 +741,39 @@ def seat_progress(name):
     return (job[0], job[1]) if job else (0, 0)
 
 
+# A live run's step, as `Loop.step` records it, in the words a seat's bar reads: the steps of a
+# round, and the wait on the seat's own push, which is its review's; one not stepped yet builds.
+STEPS = {"executor": "building", "done-when": "checks", "reviewer": "review",
+         "waiting for the seat's push": "review", "merge": "landing"}
+FILLS = {"building": 1 / 4, "checks": 1 / 2, "review": 3 / 4, "landing": 7 / 8}   # of its slot
+
+
+def seat_runs(name, records=None):
+    """Each live run that seat launched, furthest on first: its `task` id -- its task file's name
+    up to the first `-`, else the run's id -- its `step` (`STEPS`) and `since` when, its `round`
+    of its `rounds`, its `executor` and its `reviewer`.
+
+    `records` are the draw's own `run_records`, read here when they are not handed in.  The
+    menu row and the seat's own status bar both read this, as they read `seat_progress`.
+    """
+    from . import run as _run
+    runs = []
+    for run_dir, state in run_records() if records is None else records:
+        if state.get("state") != "running" or _run.launched_session(state) != name:
+            continue
+        task = Path(state.get("task_file") or "").stem.split("-")[0] or run_dir.name
+        # the round anything last ran in, or a step was announced in before its directory was
+        # made: one landing, rechecked or waiting on a push is still in the round its summary
+        # closed, not the next
+        runs.append({"task": task, "step": STEPS.get(state.get("step"), "building"),
+                     "since": state.get("step_at") or state.get("started_at"),
+                     "round": max(1, _run.started_round(run_dir, state),
+                                  state.get("step_round") or 0),
+                     "rounds": state.get("rounds"),
+                     "executor": state.get("executor"), "reviewer": state.get("reviewer")})
+    return sorted(runs, key=lambda run: -FILLS[run["step"]])
+
+
 def silent_for_run(run_dir, state, now=None):
     """`2h` when a running run has had no write for more than an hour, else None.
 
@@ -836,7 +875,8 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
     `done`. The last column is the reason for `needs you` and `done`, and for `working`
     its place in the landing line, else the tasks bar from `seat_progress` -- its plan,
-    else its unfinished jobs -- else empty. Every seat `orch.listing` offers gets
+    else its unfinished jobs -- and `seat_runs`, else empty -- never two state words on one
+    row. Every seat `orch.listing` offers gets
     a row: the ones tmux holds, and the ones only their record does -- a seat whose tmux
     instance is gone keeps its row and its number opens the conversation where it stopped.
     Seats with nothing to resume into never reach `found`. `jobs_cache` and `run_numbers`
@@ -859,7 +899,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "solo": bool(selection and selection.get("solo")),
-            "sentence": sentence, "bar": bar,
+            "sentence": sentence, "bar": bar, "runs": seat_runs(name, records) if bar else [],
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
 
@@ -949,35 +989,40 @@ def _styled_cell(plain_text, width, kind=None, right=False):
     return space + styled if right else styled + space
 
 
-def last_column(word, reason, done, total, narrow=False):
+def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=False):
     """The one last column of a seat's row, and of its status bar.
 
-    For `needs you` and `done` the reason from the state function; for `working`
-    its place in the landing line, else `tasks ` plus the bar plus ` <done>/<total>`
-    when `seat_progress` finds a plan or an unfinished job, else empty -- never `N running`.
-    The bar shortens to 4 cells on a narrow screen.  No estimate of when the work will
-    finish: the bar and its count are a seat's progress.
-    The row and the bar read this one function, so the two can never disagree.
+    For `needs you` and `done` the reason from the state function; for `working` its place
+    in the landing line, else the tasks bar (`terminal.plan_bar`) in `room` cells when
+    `seat_progress` finds a plan or an unfinished job, each of `runs` (`seat_runs`) part of a
+    slot by its step, red on its last round; else empty -- never `N running`.  The bar keeps 8
+    cells at least, which a row too short for them draws under itself; a `narrow` screen's line
+    is all the room there is, so there it takes that room and never more.  `tmux` draws it for
+    a seat's bar.  The row and the bar read this one function, so the two can never disagree.
+    Never two state words on one row.
     """
-    if word != "working" or (reason or "").startswith("waiting · "):
+    if not tasks_bar(word, reason):
         return terminal.plain(reason or "")
-    if total > 0:
-        return f"tasks {terminal.progress_bar(done, total, narrow=narrow)}"
-    return ""
+    fills = [(FILLS[run["step"]], bool(run["rounds"]) and run["round"] >= run["rounds"])
+             for run in runs]
+    return terminal.plan_bar(done, total, fills, room, 0 if narrow else 8, word, tmux)
 
 
-def _last_text(info, narrow=False):
-    """The row's one last column: reason, tasks bar, or empty.
+def tasks_bar(word, reason):
+    """Is a seat's last column its tasks bar (`last_column`), not a sentence?  A working seat's
+    is, but while it waits in the landing line, which its reason says."""
+    return word == "working" and not (reason or "").startswith("waiting · ")
 
-    For `needs you` and `done` the reason from the state function; for `working`
-    its place in the landing line, else `tasks ` plus the bar plus ` <done>/<total>`
-    when `seat_progress` finds a plan or an unfinished job, else empty. The bar shortens to 4
-    cells on a narrow screen.
-    """
+
+def _last_text(info, room, narrow=False):
+    """The row's one last column in `room` cells: reason, tasks bar, or empty, after `solo`
+    on a solo seat (`last_column`)."""
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
-    text = last_column(info.get("word"), info.get("sentence"), done, total, narrow)
-    return " · ".join(part for part in ("solo" if info.get("solo") else "", text) if part)
+    solo = "solo" if info.get("solo") else ""
+    text = last_column(info.get("word"), info.get("sentence"), done, total, info.get("runs", ()),
+                       room - (len(solo) + 3 if solo else 0), narrow)
+    return " · ".join(part for part in (solo, text) if part)
 
 
 def v5o_column_widths(infos, term_width):
@@ -1001,7 +1046,7 @@ def v5o_column_widths(infos, term_width):
     name_narrow = max(1, min(name_w, room - 2 - num_w - 2 - orch_w - 2 - count_w - 2))
     return {"room": room, "narrow": term_width < 60, "num": num_w, "name": name_w,
             "orch": orch_w, "count": count_w, "worker": orch_w, "bar": 0,
-            "name_narrow": name_narrow, "sent": max(10, room - fixed)}
+            "name_narrow": name_narrow, "sent": max(10, room - fixed), "free": room - fixed}
 
 
 def v5o_seat_blocks(infos, term_width, widths=None):
@@ -1010,9 +1055,9 @@ def v5o_seat_blocks(infos, term_width, widths=None):
     Fixed columns with two-space gutters, from `widths` (one `v5o_column_widths`
     per draw): number, name, orchestrator, state, and one last column. Content is
     capped at 100 columns. A long last column wraps at word boundaries onto one
-    indented line, ending in ` …` only when more was cut. On a narrow phone the
-    last column goes on its own line and the bar shortens to 4 cells. Never cut
-    inside a glyph or a colour sequence.
+    indented line, ending in ` …` only when more was cut. A working seat's tasks bar takes
+    the room the last column has. On a narrow phone the last column goes on its own line.
+    Never cut inside a glyph or a colour sequence.
     """
     if widths is None:
         widths = v5o_column_widths(infos, term_width)
@@ -1033,14 +1078,17 @@ def v5o_seat_blocks(infos, term_width, widths=None):
                                       terminal.state_colour(info["count"]))
             head = "  " + num + "  " + name_cell + "  " + orch_cell + "  " + count_cell
             block = [head]
-            tail = _last_text(info, narrow=True)
+            second_room = max(1, room - 4)
+            tail = _last_text(info, second_room, narrow=True)
             if tail:
-                second_room = max(1, room - 4)
-                block.append("    " + terminal.cut(tail, second_room))
+                # a tasks bar is drawn in the room, so what is cut is a sentence
+                block.append("    " + (tail if terminal.cells(tail) <= second_room
+                                       else terminal.cut(tail, second_room)))
             blocks.append(block)
         return [[line.rstrip() for line in block] for block in blocks]
-    # Wide: fixed columns, the last column gets the remaining width.
-    sent_room = widths["sent"]
+    # Wide: fixed columns, the last column gets what the row has left; a sentence too long for
+    # that wraps in ten cells at least.
+    sent_room, free = widths["sent"], widths["free"]
     for info in infos:
         block = []
         num = _styled_cell(info["number"], num_w, "dim", right=True)
@@ -1049,7 +1097,7 @@ def v5o_seat_blocks(infos, term_width, widths=None):
                                  orch_w, "dim")
         count_cell = _styled_cell(terminal.state_text(info["count"]), count_w,
                                   terminal.state_colour(info["count"]))
-        last = _last_text(info, narrow=False)
+        last = _last_text(info, free)
         if not last:
             line = "  " + num + "  " + name_cell + "  " + orch_cell + "  " + count_cell
             line = line.rstrip()
@@ -1061,18 +1109,28 @@ def v5o_seat_blocks(infos, term_width, widths=None):
             block.append(line)
             blocks.append(block)
             continue
-        if terminal.cells(last) <= sent_room:
+        if sent_room <= free and terminal.cells(last) <= free:
             line = ("  " + num + "  " + name_cell + "  " + orch_cell + "  " +
                     count_cell + "  " + last)
             block.append(line)
             blocks.append(block)
+            continue
+        cont_room = max(1, room - 4)
+        bar = tasks_bar(info.get("word"), info.get("sentence"))
+        if bar or free < sent_room:
+            # a tasks bar too long for the column is never wrapped, which drops its colours, and
+            # a row without ten cells left starts nothing: either goes under its row, the bar
+            # drawn in that line's room and a sentence cut to it
+            under = _last_text(info, cont_room)
+            blocks.append(["  " + num + "  " + name_cell + "  " + orch_cell + "  " + count_cell,
+                           "    " + (under if terminal.cells(under) <= cont_room
+                                     else terminal.cut(under, cont_room))])
             continue
         wrapped = terminal.wrap(last, sent_room)
         first, rest = wrapped[0], " ".join(wrapped[1:])
         line = ("  " + num + "  " + name_cell + "  " + orch_cell + "  " +
                 count_cell + "  " + first)
         block.append(line)
-        cont_room = max(1, room - 4)
         cont = terminal.cut(rest, cont_room) if terminal.cells(rest) > cont_room else rest
         if cont:
             block.append("    " + cont)
@@ -1119,7 +1177,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
 
     `clock`, the menu's `motion.Clock`, is handed each working seat's `●` to breathe while the
     menu has the keyboard, and the news since the draw before: a `!` that turned `needs you`
-    pulses, a `✓` that turned `done` settles and a usage or tasks bar that moved glides.  Their
+    pulses, a `✓` that turned `done` settles and a usage bar that moved glides.  Their
     first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
     the screen is drawn over.  While a popup's content fades in, the whole screen is handed to
     it, to come up out of the background (`motion.Clock.rise`).
@@ -1282,16 +1340,20 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             if number:            # its first line is the heading
                 rows[number] = len(out)
             text = terminal.ANSI.sub("", line)
-            bar, left = re.search("[█░]+", text), re.search(r"(\d+)% left", text)
-            if bar and left:
+            bar = re.search("[█░]+", text)
+            if bar:
+                # its value is the figure beside it, or 0 where a spent week's credits stand in
+                # that figure's place (usage_lines)
+                figure = re.match(r" *(\d+)% left", text[bar.end():])
+                left = int(figure.group(1)) if figure else 0
                 # its filled cells' colour, its company's as `usage_lines` drew it; one spent
                 # has none drawn, and is red whoever's it is
-                shade = next((kind for kind in (fill(int(left.group(1)), colour(cfg, name))
+                shade = next((kind for kind in (fill(left, colour(cfg, name))
                                                 for name in cfg["providers"])
                               if terminal.styled("█", kind).removesuffix("\033[0m") in line),
-                             fill(int(left.group(1)), "accent"))
+                             fill(left, "accent"))
                 moves.append((("usage", text[:bar.start()].strip()),
-                              (int(left.group(1)) / 100, bar.group()),
+                              (left / 100, bar.group()),
                               (len(out), terminal.cells(text[:bar.start()]) + 1), False, shade))
                 bars[number] = (len(out), bar.group(), terminal.cells(text[:bar.start()]) + 1,
                                 shade)
@@ -1340,11 +1402,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             moves.append((("word", name), word, (len(out), first), lit, None))
             explains[len(out)] = [(first, first + terminal.cells(terminal.state_text(word)) - 1,
                                    ("state", word))]
-        tasks = re.search(r"tasks ([█░]+|[#-]+) (\d+)/(\d+)", text)
-        if tasks and word == "working":
-            moves.append((("tasks", name), (int(tasks.group(2)) / int(tasks.group(3)),
-                                            tasks.group(1)),
-                          (len(out), terminal.cells(text[:tasks.start(1)]) + 1), lit, None))
     if not compact:
         out.append("")
     keys_top = len(out)
@@ -1903,11 +1960,13 @@ def usage_lines(cfg, width):
 
     A row is one account's shared weekly meter -- the one every model of it draws on -- that a
     bar can be drawn from: a numeric used% in a window that has not rolled over, as a bar and
-    `NN% left`.  A provider that lists `accounts` has one row per account in config order, the
+    `NN% left`, or, once that week is spent, the credits it still runs on in the percentage's
+    place (`62,469 credits left`, `usage.credits_note`) wherever they fit beside a four-cell
+    bar, so even a phone's row says what is left.  A provider that lists `accounts` has one row per account in config order, the
     provider's name numbered in roman numerals (`Claude I`, `Claude II`), each from its own
     reading; a provider without them keeps its single row.  After the percentage, joined with
-    ` · ` and each only when it applies: `62,469 credits left` for the credits it can spend
-    past a spent window; `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>`
+    ` · ` and each only when it applies: `62,469 credits left` for the credits not standing
+    in the percentage's place; `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>`
     more than six days out in a window longer than a week; `1 reset in hand` (`in_hand`); one
     note per scoped meter whose figure differs (`Fable 41%`); `5h 40% left` for the 5-hour
     window, or `5h spent until 14:00` once it reads 100% used; `? <reason>` when the last probe
@@ -1953,21 +2012,26 @@ def usage_lines(cfg, width):
         shown_pct = percent_left(week)
         spent = shown_pct == 0
         five = session_note(prov, now)
+        credits = usage.credits_note(prov)
+        # a spent week's credits are what it has left, so they stand where its 0% would, where
+        # they fit beside the bar's floor; elsewhere the 0% stays and they are a note like any
+        instead = bool(spent and credits) and (terminal.cells(prefix) + floor + 2 +
+                                               terminal.cells(credits) <= width)
         # In the order the row reads them, each with how much it is worth keeping (`fitting`).
         notes = [(rank, part) for rank, part in
-                 [(-1, usage.credits_note(prov)), (0, resets_note(week, now)),
+                 [(-1, "" if instead else credits), (0, resets_note(week, now)),
                   (1, in_hand(prov)),
                   *((3, note) for note in scoped_notes(cfg, name, readable, week)),
                   *((five,) if five else ()),
                   (1, fault(prov)), (1, usage.as_of(prov, now))] if part]
-        percent = f"{shown_pct:3d}% left"
-        base = terminal.cells(prefix) + len(percent) + 2   # all but the bar and the notes
+        percent = credits if instead else f"{shown_pct:3d}% left"
+        base = terminal.cells(prefix) + terminal.cells(percent) + 2   # all but bar and notes
         parts = fitting(notes, width - base - floor - 3)   # what the bar gives way to
         taken = terminal.cells(" · ".join(parts)) + 3 if parts else 0
         affordable = min(bar_width, max(1, width - base - taken))
         pending.append({"kind": "bar", "prefix": prefix,
                         "colour": fill(shown_pct, colour(cfg, name)),
-                        "left": left, "spent": spent,
+                        "left": left, "spent": spent, "dim": spent and not instead,
                         "percent": percent, "base": base, "notes": notes,
                         "affordable": affordable})
     bars = [entry for entry in pending if entry["kind"] == "bar"]
@@ -1991,7 +2055,7 @@ def usage_lines(cfg, width):
         bar = (terminal.styled("█" * filled, entry["colour"]) +
                terminal.styled("░" * (shared - filled), "dim"))
         line = (entry["prefix"] + bar + "  " +
-                (terminal.styled(entry["percent"], "dim") if entry["spent"] else entry["percent"]))
+                (terminal.styled(entry["percent"], "dim") if entry["dim"] else entry["percent"]))
         for part in parts:
             line += terminal.styled(" · ", "dim") + _note_styled(part)
         lines.append(line)
@@ -2186,10 +2250,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
         lines.append(model_heading(provider))
         for name in (name for name in names if models[name]["provider"] == provider):
-            texts = ((marks[0] if selected["orchestrator"] == name else marks[1],
-                      marks[2] if name in selected["workers"] else marks[3],
-                      marks[2] if name in selected.get("reviewers", selected["workers"])
-                      else marks[3]) if selected else ()) + (efforts[name],)
+            texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
+            texts += (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""
             shown = model_label(name, label)
             kind = "reverse" if at == ("model", name) and column < 0 else "dim" if note else None
@@ -2201,7 +2263,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                                                             harness), "dim")
             for number, text, width in zip(range(4 - len(texts), 4), texts, widths):
                 kind = ("reverse" if at == ("model", name) and number == column else
-                        "dim" if note or text in (marks[1], marks[3]) else None)
+                        "dim" if note or text in (marks[1], marks[3]) or builds and number == 1
+                        else None)
                 line += "  " + (terminal.toggle(text, width, kind) if number < 3 else
                                 (terminal.styled(text, kind) if kind else text)
                                 + " " * (width - terminal.cells(text)))
@@ -2611,7 +2674,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     provider or a subscription was just added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
     On a screen too short for every row the part the highlight is on is shown, and what the
-    last key could not do -- the last worker, a switch, a save or a catalog that failed -- has
+    last key could not do -- the last reviewer, a switch, a save or a catalog that failed -- has
     lines of its own under it, whatever the height, until the next key; `note` is said so
     before the first.  With the pointer on a model, a mark, an effort or a provider's name the
     key line says what it is (config_tips); the worker token's date is said of its provider's,
@@ -3177,8 +3240,8 @@ def session_mark(cfg, name, selected, model, column, providers):
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
     under the same name, and a harness that is not installed or not logged in, or a meter
-    that is spent, is refused in one line with the seat as it was. Each role group keeps
-    one model, and a flip leaving no allowed executor/reviewer pair is refused. A run
+    that is spent, is refused in one line with the seat as it was. Reviewers keep one
+    model, executors may be empty, and a flip leaving no allowed pair is refused. A run
     launched afterwards reads the record as left here; one already going keeps the groups
     its receipt saved. A refusal or a save that fails leaves the record, and `selected`,
     alone. What to say under the rows, or "".

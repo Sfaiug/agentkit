@@ -27,26 +27,26 @@ class Slots(unittest.TestCase):
         self.owner = patch.object(record, "process_owner", return_value={"pid": 1})
         self.owner.start()
         self.addCleanup(self.owner.stop)
-        self.counts = patch.object(run, "slot_counts", return_value=(0, 0))
+        self.counts = patch.object(gate, "slot_counts", return_value=(0, 0))
         self.counts.start()
         self.addCleanup(self.counts.stop)
-        self.held = patch.object(run, "frozen_runs", return_value=0)
+        self.held = patch.object(gate, "frozen_runs", return_value=0)
         self.held.start()
         self.addCleanup(self.held.stop)
 
     def claim(self, readings, state=None):
         state = {"run_id": "r", "run_depth": 0, **(state or {})}
         with patch.object(host, "host_readings", return_value=readings):
-            return run.claim_slot(state, 1), state
+            return gate.claim_slot(state, 1), state
 
     def test_memory_low_waits_then_admits_after_two_healthy_polls(self):
         state = {"run_id": "r", "run_depth": 0}
         low = {**HEALTHY, "free_mb": 1024}
         with patch.object(host, "host_readings", side_effect=[low, HEALTHY, HEALTHY]):
-            self.assertFalse(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))
             self.assertEqual(state["slot_wait_reason"], "waiting for memory · 1 G free, needs 3 G")
-            self.assertFalse(run.claim_slot(state, 1))
-            self.assertTrue(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))
+            self.assertTrue(gate.claim_slot(state, 1))
         self.assertEqual(state["state"], "running")
 
     def test_high_load_explains_wait(self):
@@ -64,60 +64,60 @@ class Slots(unittest.TestCase):
     def test_depth_one_is_never_host_gated(self):
         state = {"run_id": "worker", "run_depth": 1}
         with patch.object(host, "host_readings", side_effect=AssertionError("must not read")):
-            self.assertTrue(run.claim_slot(state, 1))
+            self.assertTrue(gate.claim_slot(state, 1))
 
     def test_fifo_waiter_cannot_overtake(self):
         state = {"run_id": "behind", "run_depth": 0}
-        with patch.object(run, "slot_counts", return_value=(0, 1)), \
+        with patch.object(gate, "slot_counts", return_value=(0, 1)), \
                 patch.object(host, "host_readings", side_effect=AssertionError("must not read")):
-            self.assertFalse(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))
         self.assertEqual(state["slot_wait_kind"], "count")
 
     def test_zero_max_runs_disables_all_gates(self):
         state = {"run_id": "r", "run_depth": 0}
         with patch.dict(os.environ, {"AK_MAX_RUNS": "0"}), \
                 patch.object(host, "host_readings", side_effect=AssertionError("must not read")):
-            self.assertTrue(run.claim_slot(state, 1))
+            self.assertTrue(gate.claim_slot(state, 1))
 
     def test_zero_minimum_disables_memory_gate(self):
         state = {"run_id": "r", "run_depth": 0}
         with patch.dict(os.environ, {"AK_MIN_FREE_MB": "0", "AK_MAX_LOAD": "8"}), \
                 patch.object(host, "host_readings", return_value={**HEALTHY, "free_mb": 0}):
-            self.assertFalse(run.claim_slot(state, 1))  # first steady poll
-            self.assertTrue(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))  # first steady poll
+            self.assertTrue(gate.claim_slot(state, 1))
 
     def test_zero_maximum_disables_load_gate(self):
         state = {"run_id": "r", "run_depth": 0}
         with patch.dict(os.environ, {"AK_MIN_FREE_MB": "3072", "AK_MAX_LOAD": "0"}), \
                 patch.object(host, "host_readings", return_value={**HEALTHY, "load": 400}):
-            self.assertFalse(run.claim_slot(state, 1))  # first steady poll
-            self.assertTrue(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))  # first steady poll
+            self.assertTrue(gate.claim_slot(state, 1))
 
     def test_unknown_readings_fail_open(self):
         state = {"run_id": "r", "run_depth": 0}
         with patch.object(host, "host_readings", return_value={}):
-            self.assertFalse(run.claim_slot(state, 1))  # first steady poll
-            self.assertTrue(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))  # first steady poll
+            self.assertTrue(gate.claim_slot(state, 1))
         self.assertEqual(state["state"], "running")
 
     def test_healthy_first_poll_names_steadiness(self):
         state = {"run_id": "r", "run_depth": 0}
         with patch.object(host, "host_readings", return_value=HEALTHY):
-            self.assertFalse(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))
             self.assertEqual(state["slot_wait_reason"],
                              "waiting for steady readings · 4 G free, load 1")
             self.assertNotIn("slot_wait_kind", state)
-            self.assertTrue(run.claim_slot(state, 1))
+            self.assertTrue(gate.claim_slot(state, 1))
         self.assertEqual(state["state"], "running")
 
     def test_admission_clears_wait_reason(self):
         state = {"run_id": "r", "run_depth": 0}
         low = {**HEALTHY, "free_mb": 1024}
         with patch.object(host, "host_readings", side_effect=[low, HEALTHY, HEALTHY]):
-            self.assertFalse(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))
             self.assertEqual(state["slot_wait_kind"], "memory")
-            self.assertFalse(run.claim_slot(state, 1))
-            self.assertTrue(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))
+            self.assertTrue(gate.claim_slot(state, 1))
         self.assertNotIn("slot_wait_reason", state)
         self.assertNotIn("slot_wait_kind", state)
 
@@ -126,7 +126,7 @@ class Slots(unittest.TestCase):
                 patch.object(host, "host_readings", return_value=HEALTHY), \
                 patch.object(gate, "_heavy_running", return_value=0), \
                 patch.object(config, "max_gates", return_value=None):
-            self.assertEqual(run.host_status_line(),
+            self.assertEqual(gate.host_status_line(),
                              "host: 8 cpus · load 1 · 4 G free · "
                              "a run is admitted (host memory and load gates off)"
                              " · at most 1 run at once\nheavy suites: 2 at once (derived)")
@@ -134,7 +134,7 @@ class Slots(unittest.TestCase):
                 patch.object(host, "host_readings", return_value=HEALTHY), \
                 patch.object(gate, "_heavy_running", return_value=0), \
                 patch.object(config, "max_gates", return_value=None):
-            self.assertEqual(run.host_status_line(),
+            self.assertEqual(gate.host_status_line(),
                              "host: 8 cpus · load 1 · 4 G free · "
                              "a run is admitted while ≥ 3 G free · at most 1 run at once\n"
                              "heavy suites: 2 at once (derived)")
@@ -161,8 +161,8 @@ class Slots(unittest.TestCase):
             root = Path(temp)
             runs = root / "runs"
             runs.mkdir()
-            with patch.object(config, "RUNS", runs), patch.object(run, "SLOT_POLL", .001), \
-                    patch.object(run, "slot_counts", return_value=(0, 0)), \
+            with patch.object(config, "RUNS", runs), patch.object(gate, "SLOT_POLL", .001), \
+                    patch.object(gate, "slot_counts", return_value=(0, 0)), \
                     patch.object(host, "host_readings",
                                  side_effect=[{**HEALTHY, "free_mb": 1024}, HEALTHY, HEALTHY]), \
                     patch.object(run, "redress_seat"):
@@ -172,7 +172,7 @@ class Slots(unittest.TestCase):
                 record.save_state(directory, {"run_id": "r", "state": "queued",
                                             "slot_waiting": True, "queued_at": time.time(),
                                             "pid": os.getpid(), "run_depth": 0})
-                run.wait_for_slot(directory)
+                gate.wait_for_slot(directory)
                 content = (directory / "log.txt").read_text()
                 self.assertRegex(content.splitlines()[0],
                                  r"^waited \d+ min for a slot \(memory\)$")

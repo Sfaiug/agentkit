@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import gate as suite_gate, config, gc, run, worker
+from agentkit import gate as suite_gate, config, gc, run, status, worker
 from agentkit import record as run_record
 
 SUITE = "test -f AGENTS.md"
@@ -120,7 +120,7 @@ class SuiteInRound(unittest.TestCase):
         self.assertEqual([cmds for name, cmds in self.gates if name == "donewhen.log"],
                          [["true"], ["true"]])
         self.assertFalse(list(directory.glob("round-*/once.log")))
-        self.assertIn("at landing", run.status_final_check(directory, state))
+        self.assertIn("at landing", status.status_final_check(directory, state))
         self.assertEqual(state["final_check"]["where"], "landing")
         self.assertIn("final check: passed at landing on ",
                       (directory / "result.md").read_text())
@@ -143,7 +143,7 @@ class SuiteInRound(unittest.TestCase):
         result = (directory / "result.md").read_text()
         self.assertIn(f"{SUITE} (once, at landing)", result)
         self.assertIn("final check: passed at landing on ", result)
-        self.assertIn("at landing", run.status_final_check(directory, state))
+        self.assertIn("at landing", status.status_final_check(directory, state))
         log = "\n".join(self.logs)
         self.assertIn("final check: all passed", log)
 
@@ -167,7 +167,7 @@ class SuiteInRound(unittest.TestCase):
         self.assertEqual(state["state"], "pass", self.logs)
         self.assertEqual(self.gates, [("donewhen.log", ["true"])])
         self.assertNotIn("final_check", state)
-        self.assertEqual(run.status_final_check(directory, state),
+        self.assertEqual(status.status_final_check(directory, state),
                          "final check: none (no once-commands)")
         self.assertNotIn("runs these once at landing", "\n".join(body for _, body in self.prompts))
         self.assertNotIn(SUITE, (directory / "result.md").read_text())
@@ -198,7 +198,7 @@ class SuiteInRound(unittest.TestCase):
         self.assertNotIn("final_check", state)
         self.assertNotIn("run once at landing", "\n".join(body for _, body in self.prompts))
         self.assertIn("false", (directory / "result.md").read_text())
-        self.assertEqual(run.status_final_check(directory, state),
+        self.assertEqual(status.status_final_check(directory, state),
                          "final check: none (no once-commands)")
 
     def test_reviewer_is_told_the_suite_runs_at_landing(self):
@@ -405,7 +405,7 @@ class SuiteInRound(unittest.TestCase):
         subprocess.run(["git", "clone", "-q", str(self.repo), str(wt)], check=True,
                        capture_output=True, text=True)
         state = {"worktree": str(wt), "target": "origin/main", "base": "main"}
-        line = run.status_final_check(directory, state)
+        line = status.status_final_check(directory, state)
         self.assertEqual(line, "final check: not run")
 
 

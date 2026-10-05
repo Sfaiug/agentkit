@@ -3,15 +3,16 @@
 Line one opens with the seat's state as a chip -- `● working`, `! needs you` or `✓ done`, in
 dark bold text on that word's colour -- then the seat's name in bold, then `<model>
 orchestrates` with the model in its company's colour, then a working seat's tasks bar, as its
-menu row draws it.  Line two carries why a seat needs you or is done, the question or the
-summary, with the one key at its right end: `Ctrl-b m  menu`, or `Ctrl-b m  x close` once done.
+menu row draws it, in CELLS cells.  Line two carries why a seat needs you or is done, the
+question or the summary, with the one key at its right end: `Ctrl-b m  menu`, or `Ctrl-b m  x
+close` once done.
 
 The bar draws on the terminal's own background and foreground and never tmux's green.  The
-chips carry their own background, so they read on any terminal; the rest is the terminal's
-foreground or ak's dim, which read on a dark one and a light one alike.  tmux cannot say which
-a client is, and the tick that writes most bars has no terminal to ask, so a company colour
-that a light terminal draws in its mirror tone (a white one) is the terminal's own foreground,
-which is that tone wherever the bar is drawn.
+chips and the tasks bar carry their own background, so they read on any terminal; the rest is
+the terminal's foreground or ak's dim, which read on a dark one and a light one alike.  tmux
+cannot say which a client is, and the tick that writes most bars has no terminal to ask, so a
+company colour that a light terminal draws in its mirror tone (a white one) is the terminal's
+own foreground, which is that tone wherever the bar is drawn.
 
 The text is data: each write puts it in the session's own options (`@ak_top`, `@ak_why`,
 `@ak_key`), and two fixed formats draw them, so nothing a reason says is ever read as a format
@@ -23,7 +24,8 @@ from . import config, orch, terminal
 HINT = "Ctrl-b m  menu"            # line two's right end: the one key
 CLOSE_HINT = "Ctrl-b m  x close"   # ... and a done seat's, which that menu's `x` closes at once
 TOP, WHY, KEY = "@ak_top", "@ak_why", "@ak_key"   # line one, line two, and line two's key
-INK = "11111b"                     # the chip's dark text, Mocha's crust
+INK = terminal.BAR_TONES["ink"][0]  # the chip's dark text, Mocha's crust
+CELLS = 24                         # a working seat's tasks bar, its ticks there up to twelve tasks
 DIM = terminal.STATE_STYLES["dim"][2]
 # Each line as tmux draws it from those options, cut with one `…` where it would run off the
 # client drawing it -- line two's a space short of the key, so the key stays whole on every
@@ -66,16 +68,18 @@ def chip(word):
 def lines(name, model, colour, word=None, last=""):
     """(line one, line two, its key, the window title): the seat's bar, as tmux text.
 
-    `last` is the seat's last column (`menu.last_column`): a working seat's tasks bar, which
-    line one carries, or the reason a seat needs you or is done, which line two does.  Before
-    its first word a seat's bar is its name and who orchestrates it, and its title the name.
+    `last` is the seat's last column (`menu.last_column`): a working seat's tasks bar, tmux text
+    already, or its place in the landing line, which line one carries, or the reason a seat
+    needs you or is done, which line two does; a sentence is made text here.  Before its first
+    word a seat's bar is its name and who orchestrates it, and its title the name.
     """
     top = f" {chip(word)}  " if word else " "
     top += f"#[bold]{orch.tmux_text(name)}#[nobold]"
     if model:
         top += f"  #[fg={colour}]{orch.tmux_text(model)}#[fg=#{DIM}] orchestrates#[default]"
+    from . import menu   # here, not at the top: the menu draws seats, which write this bar
     if word == "working" and last:
-        top += f"   {orch.tmux_text(last)}"
+        top += f"   {last if menu.tasks_bar(word, last) else orch.tmux_text(last)}"
     why = f"  {orch.tmux_text(last)}" if word != "working" and last else ""
     key, verb = (CLOSE_HINT if word == "done" else HINT).split("  ", 1)
     title = f"{name} · {word}" if word else name
@@ -92,13 +96,14 @@ def dress(name, model):
         pass
 
 
-def redress(session, answer, cfg=None):
+def redress(session, answer, cfg=None, records=None):
     """Write that seat's bar and window title from its row's own values; never raises.
 
     The one writer: the watch tick, every menu draw and a seat's own hook come through here --
     all call `watch.announce_state` -- so the bar says what the row says: the state function's
-    word and reason, and `menu.last_column` over `menu.seat_progress`.  A legacy seat lives on
-    the user's own server, where nothing is written.
+    word and reason, and `menu.last_column` over `menu.seat_progress` and `menu.seat_runs`, from
+    the caller's run `records` where it has them.  A legacy seat lives on the user's own server,
+    where nothing is written.
     """
     try:
         if not orch.on_own_server(session):
@@ -111,7 +116,9 @@ def redress(session, answer, cfg=None):
         except config.Error:
             selection = None
         word = answer.get("word")
-        last = menu.last_column(word, answer.get("reason"), *menu.seat_progress(name))
+        last = menu.last_column(word, answer.get("reason"), *menu.seat_progress(name),
+                                menu.seat_runs(name, records) if word == "working" else (),
+                                CELLS, tmux=True)
         _write(name, selection["orchestrator"] if selection else None, word, last, cfg)
     except Exception:  # noqa: BLE001 - dressing a bar never breaks the draw or the tick beneath it
         pass

@@ -26,6 +26,39 @@ Every change to ak is judged by what it does for what you build with it, and by 
 - `orchestrator.md` is the rulebook an agentkit session is launched with, not a file for here.
 - Tests driving `menu.loop` mock `menu.wait_key` beside `menu.read`: the real wait selects on stdin, and a stdin that never delivers EOF redraws forever instead of finishing. They leave `menu.Live`'s probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
 
+## Lessons
+
+Mistakes earlier work here made that no check catches yet. One that becomes a check leaves this list.
+
+- `python3.11 -m py_compile` what you touch: ak supports 3.11, and a newer `python3` accepts syntax 3.11 rejects.
+- Never start the landing suite (`tests/landing.py`, its `tests/smoke.sh` or `tests/every_file.py`): it runs every test at landing, so when you change a sentence, rule, order or name, grep tests/ and fix each test pinning it.
+- Comments say why. Listing screens go through `agentkit/terminal.py` (`docs/cli-design.md`).
+- Each run has a memory cap (exit 137). Commit before a test sweep; run only the files your change touches, three at most at once; background one only under `timeout -k 30 20m`, read before your turn ends.
+- `ak hand-in blocked` only when the task can't be done as written, never for a provider failure or the `# once` suite.
+- Tests never touch real processes, units, seats, transcripts or state: fake process tables and tmux, injected kill/systemctl (`_proc_table()`, `AK_HOST_READINGS`), a temporary HOME. A test calling `run.review`, `run.execute` or a sweep in-process clears `AGENTKIT_RUN`, `AK_PARENT_RUN`, `AK_RUN_LOG` and sets `AK_RUN_DEPTH=0`, `AK_MAX_RUNS=0`, or a refusal SIGTERMs your own run.
+- A sandbox HOME links (never copies) the caller's credential files and `*-probe.lock`/`*-probe.retry`, never a directory harnesses or install.sh write into (.claude, .codex, .grok, .config, .opencode, .local).
+- Automatic resumes take only what a seat still waits on: not handed back, live session, under a day old, never by-hand.
+- Commands call `bin/ak`, never bare `ak`. A changed signature: update every mock and fake of it in tests/; a fake takes `**_kw` for what it ignores.
+- agentkit is public: tests, docs and commits use invented names (`acme`, `fix-api`), never a real checkout, product or seat.
+- Never depend on when a seat's turn began; decide from recorded notices, runs and the screen. A new fact gets its own field (`stopped_at` means closed).
+- tmux targets are `={name}:`; a fake tmux answers only what real tmux 3.5a does; every tmux client call on a run's path has a timeout.
+- Usage display work never changes which meters `collect` keeps (`_without_past` drops past-reset ones on purpose).
+- A model entry names its model id, never `model = "default"`.
+- In-checkout test sandboxes use the `.ak-test-` prefix, the only one the loop never commits.
+- A removed `.gitignore` pattern leaves its matches untracked on the live checkout and stops `go_live` pulling: keep it or delete them too.
+- A final check stopped for silence names the hung process after `still running:`: fix the hang on your branch, or hand in blocked if origin/main hangs too; gate changes are their own task.
+- A repairing tick re-derives placement or state from what it finds; findings remembered between ticks lose races.
+- A run's CPU and memory come from its cgroup (`cpu.stat`, `memory.current`), which counts killed and orphaned processes; process-tree sampling misses them. Put a process in its cgroup at start (its own scope, as `in_slice` does); moving it later races.
+- To end a detached script's work, hold its process group (a holder leader, reaped last) and signal the group; `ps` never proves a group empty. Some macOS Pythons lack `os.waitid`.
+- One process never takes over another run's record (its pid, its stop, its ending): leave a verdict in its record and wake it to act.
+- Work outliving a run goes to the tmux server (`run-shell -b`): a run's threads and children die with its scope.
+- Decide from exit codes and files, never another program's output text, which catches proofs and verdicts it shouldn't.
+- A test never asserts a plain word is absent from output that prints paths: worktree paths carry the run's title.
+- A rule on what may merge belongs in both merge paths: `do_merge` (task runs) and `merge_own_pr` (a seat's own PR, now the main path); a guard on one alone is a bypass.
+- Typing into a seat has one typer per kind of line: the tick, under its lock. A second typer (a sender trying first) needs claims and delivery reports that each review round finds a new race in (#439, 3 rounds).
+- A fix that reads the screen adds no fallback for shapes it did not set out to read: every such fallback (an at_prompt backstop, an "empty composer" pattern) misread another real screen and cost a review round (#501, 3 rounds).
+- A line typed into a seat is delivered at least once: no mark, receipt or transcript read closes every crash window between its Enter and the queue rewrite (#439, #502: six rounds). Say so in the task and the PR; never promise exactly once.
+
 ## Owner rules
 
 - Adding a model or harness is an adapter, its toml and a `models.toml` entry, never a name hard-coded in code; `n` keeps the orchestrator question so the owner can switch freely. [18 Sep]
@@ -49,7 +82,7 @@ Every change to ak is judged by what it does for what you build with it, and by 
 - No `ak trial`, leaderboard or in-house skill test of models: public benchmarks judge general strength. [28 Sep, 29 Sep]
 - Every provider takes more than one subscription. A subscription is always shown by its provider's name, with a roman numeral as its number when there are several (Claude I, Claude II), never by its account name. [29 Sep]
 - The features screen has only `you` and `everyone`; grants for specific users live on the project's own owner page, never in ak. [23 Sep]
-- The orchestrator rulebook has no length cap: each line explains something ak checks or a judgement no check can make, and a rule ak comes to enforce shrinks to a mention. [1 Oct]
+- Instructions have four homes: `orchestrator.md` and the worker rules (ak's), the host's `~/.agentkit/rules.md` (the owner's), and a project's `AGENTS.md` (its knowledge and the owner's product rules), each handed whole to every session and worker it concerns; nothing else instructs a model ak runs, no harness memory and no lessons file. None has a length cap beyond the harness ceiling above; in each, a line explains something ak checks or a judgement no check can make, and a rule ak comes to enforce shrinks to a mention. [1 Oct, 4 Oct]
 - Credits a provider account still holds (ChatGPT credits first, any provider that reports a balance) count as usage left. [2 Oct]
 - ak never spends a usage-limit reset on its own; the owner spends one by hand, from the Providers row of `c`. [2 Oct]
 - No screen estimates when work will finish; a seat's progress is its tasks bar and its count, never a percentage. [2 Oct]

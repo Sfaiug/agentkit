@@ -150,20 +150,25 @@ class Lander(LanderFixture, unittest.TestCase):
     def test_join_order_one_check_and_only_the_parked_verdict_changes(self):
         later = self.member("a-later", 20)
         first = self.member("z-first", 10.5)
-        original = record.read_state(first)
+        originals = {d: record.read_state(d) for d in (first, later)}
         self.advance()
         run.git(self.repo, "config", "rebase.updateRefs", "true")
         land.check_line(self.turn)
         self.assertEqual([cmds for cmds, _, _ in self.checks], [[ONCE, SUITE]])
-        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
-        self.assertNotIn("land", self.wait(later))
-        current = record.read_state(first)
-        tree = current["waiting_on"].pop("land")
-        self.assertEqual(current, original)
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [first.name, later.name])
+        tree = self.wait(first)["land"]
+        self.assertEqual(self.wait(later)["land"], tree)
+        for directory, original in originals.items():
+            current = record.read_state(directory)
+            current["waiting_on"].pop("land")
+            self.assertEqual(current["waiting_on"].pop("after"),
+                             {} if directory == first else {first.name: tree})
+            self.assertEqual(current, original)
+            self.assertEqual(run.git(self.repo, "rev-parse", original["branch"]),
+                             original["review"]["head_sha"])
         self.assertEqual(land.passed(self.turn, tree)["tested"], tree)
         self.assertEqual(land.passed(self.turn, tree)["leader"], first.name)
-        self.assertEqual(run.git(self.repo, "rev-parse", original["branch"]),
-                         original["review"]["head_sha"])
         self.assert_cleaned()
 
     def test_running_live_and_other_line_records_are_never_written(self):
@@ -460,6 +465,7 @@ class Lander(LanderFixture, unittest.TestCase):
         self.assertEqual(sorted(pieces.read_text().splitlines()), ["1/2", "2/2"])
         current = record.read_state(directory)
         tree = current["waiting_on"].pop("land")
+        self.assertEqual(current["waiting_on"].pop("after"), {})
         self.assertEqual(current, original)
         self.assertEqual(land.passed(self.turn, tree)["tested"], tree)
         self.assertEqual(gate._heavy_running(), 0)

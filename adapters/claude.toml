@@ -98,6 +98,10 @@ footer = [
 # its composer always has its own rule under it: a prompt-marked line right on the footer is a
 # user's status line, never the composer, even with no composer drawn, as under a picker
 ruled = true
+# A typed line longer than this many characters is folded into `[Pasted text #N]` (2.1.289,
+# at any width: 800 showed whole, 900 folded), which no screen read can tell from the owner's
+# own paste.  A line ak types to be read back stays within it.
+folds_over = 800
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.

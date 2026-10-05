@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, gc, menu, orch, run, terminal, usage
+from agentkit import host, config, gc, menu, orch, run, status, terminal, usage
 from agentkit import record as run_record
 from agentkit.harness import codex as codex_plugin
 from fixtures.hand_in import records
@@ -110,7 +110,7 @@ class RunReporting(Sandbox):
         self.assertFalse(run_record.read_state(later)["reported"])
         # `ak run status <id>` marks one ending looked at.
         with redirect_stdout(io.StringIO()):
-            run.cmd_status(["visible"])
+            status.cmd_status(["visible"])
         self.assertTrue(run_record.read_state(visible).get("recovery_acknowledged_at"))
 
 

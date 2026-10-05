@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import host, config, gc, history, job as jobs, land, notify, orch, retention, run, worker
+from agentkit import gate, host, config, gc, history, job as jobs, land, notify, orch, retention, run, status, worker
 from agentkit import record
 
 ADAPTER = '''import json, os, pathlib, sys, time
@@ -99,7 +99,7 @@ sys.exit(1)
         self.stack.enter_context(patch.object(orch, "watching", return_value=True))
         self.stack.enter_context(patch.object(jobs, "JOB_TICK", 0.05))
         self.stack.enter_context(patch.object(jobs, "JOB_PICKER_INTERVAL", 0))
-        self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", .01))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -377,7 +377,7 @@ sys.exit(1)
             run.main([a, b, "--exec", self.executor, "--review", self.reviewer])
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status([]), 0)
+            self.assertEqual(status.cmd_status([]), 0)
         text = out.getvalue()
         job_id = self.job_dirs()[0].name
         self.assertIn(f"job {job_id}:", text)
@@ -854,7 +854,7 @@ sys.exit(1)
             run.main([a, b, "--exec", self.executor, "--review", self.reviewer])
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_status([self.job_dirs()[0].name, "--json"]), 0)
+            self.assertEqual(status.cmd_status([self.job_dirs()[0].name, "--json"]), 0)
         payload = json.loads(out.getvalue())
         self.assertEqual(payload["job_id"], self.job_dirs()[0].name)
         self.assertEqual([t["state"] for t in payload["tasks"]], ["passed", "passed"])

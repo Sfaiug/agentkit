@@ -12,7 +12,7 @@ from unittest.mock import patch
 import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
-from agentkit import config, macbridge, menu, orch, run, terminal, usage
+from agentkit import config, macbridge, menu, orch, run, status, terminal, usage
 from agentkit import record as run_record
 
 
@@ -317,7 +317,7 @@ class UsageLeft(Sandbox):
         self.assertFalse(hasattr(menu, "runs"))
         # `ak run status` is where runs are listed now.
         with redirect_stdout(io.StringIO()) as out:
-            run.cmd_status([])
+            status.cmd_status([])
         self.assertIn("Hidden active work-run", out.getvalue())
         self.assertIn("Hidden unfinished work-run", out.getvalue())
 

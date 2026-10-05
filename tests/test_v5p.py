@@ -39,8 +39,8 @@ def held(harness):
         return pane.replace("\u276f\u00a0", "\u276f continue")
     if harness == "muse":
         return pane.replace("\n\u27e9\n", "\n\u27e9 continue\n")
-    return pane.replace("\u203a Ask Codex to do anything\n",
-                        "\u203a Ask Codex to do anything continue\n")
+    # typed text takes the placeholder's place
+    return pane.replace("\u203a Ask Codex to do anything\n", "\u203a continue\n")
 
 
 class V5p(unittest.TestCase):

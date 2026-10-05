@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted, stateful
-from agentkit import host, config, notify, orch, run, usage, watch
+from agentkit import gate, host, config, notify, orch, run, status, usage, watch
 from agentkit import record
 
 WEEK = 604800
@@ -88,7 +88,7 @@ class Quota(unittest.TestCase):
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
-        self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", .01))
         config.ensure_dirs()
         self.cfg = scope_defaults(config.load())
         self.now = time.time()
@@ -278,6 +278,7 @@ class Quota(unittest.TestCase):
                 patch.object(run.worker, "call", side_effect=submitting(turn)), \
                 patch.object(usage, "collect", return_value=providers), \
                 patch.object(run, "time", Clock(sleeps.append)), \
+                patch.object(gate, "time", run.time), \
                 patch.object(notify, "shaped",
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 patch.object(notify, "post", return_value=None), \
@@ -288,7 +289,7 @@ class Quota(unittest.TestCase):
         self.assertEqual(saved["state"], "pass")
         self.assertNotIn("quota_dry", saved)
         self.assertEqual(sent, [])
-        self.assertEqual(sleeps, [run.SLOT_POLL])
+        self.assertEqual(sleeps, [gate.SLOT_POLL])
 
     def test_quota_merge_retry_on_a_marked_pass_stops_clean(self):
         # the reviewer's repro: a PASS carrying a leftover mark whose gh call stops
@@ -451,6 +452,7 @@ class QuotaDry(unittest.TestCase):
                                               side_effect=AssertionError("notification")))
         self.sleep = MagicMock()
         self.stack.enter_context(patch.object(run, "time", Clock(self.sleep)))
+        self.stack.enter_context(patch.object(gate, "time", run.time))
         self.now = time.mktime(time.strptime("2026-09-15 07:00", "%Y-%m-%d %H:%M"))
         self.stack.enter_context(patch.object(usage.time, "time", side_effect=lambda: self.now))
 
@@ -623,7 +625,7 @@ class QuotaDry(unittest.TestCase):
         self.assertEqual(state["executor_history"],
                          [{"from": "spark", "to": "astra", "reason": "dry",
                            "model": "spark", "rounds": [1], "why": "ran dry"}])
-        self.assertEqual(run.executor_line(state), "spark \u2192 astra (ran dry)")
+        self.assertEqual(status.executor_line(state), "spark \u2192 astra (ran dry)")
 
     def test_v5i_each_harness_is_recognised_from_its_event_log_alone(self):
         """The invariant: each harness's terminal record plus an empty final.md is a quota."""
@@ -756,11 +758,11 @@ class QuotaDry(unittest.TestCase):
         self.assertEqual(state["executor_history"],
                          [{"from": "astra", "to": "spark", "reason": "dry",
                            "model": "astra", "rounds": [1], "why": "ran dry"}])
-        self.assertEqual(run.executor_line(state), "astra \u2192 spark (ran dry)")
+        self.assertEqual(status.executor_line(state), "astra \u2192 spark (ran dry)")
         # the table carries executor/reviewer; the handover sentence lives on
         # in --plain, which keeps today's lines for scripts
         with redirect_stdout(io.StringIO()) as out:
-            run.cmd_status(["--plain", directory.name])
+            status.cmd_status(["--plain", directory.name])
         self.assertIn("astra \u2192 spark (ran dry)/opus", out.getvalue())
 
     # --- (e): the reviewer's own refusal takes the spares road -----------------------------
@@ -930,7 +932,7 @@ class QuotaDry(unittest.TestCase):
                            "model": "spark", "rounds": [1], "why": "ran dry"},
                           {"from": "opus", "to": "astra", "reason": "dry",
                            "model": "opus", "rounds": [1], "why": "ran dry"}])
-        self.assertEqual(run.executor_line(state),
+        self.assertEqual(status.executor_line(state),
                          "astra \u2192 spark \u2192 opus \u2192 astra (ran dry)")
 
     def test_v5i_a_tick_handover_still_names_its_models_and_rounds(self):
@@ -940,11 +942,11 @@ class QuotaDry(unittest.TestCase):
         state = {"executor": "spark",
                  "executor_history": [{"at": self.now, "from": "astra", "to": "spark",
                                        "reason": "stalled"}]}
-        self.assertEqual(run.executor_line(state), "astra \u2192 spark (stalled)")
+        self.assertEqual(status.executor_line(state), "astra \u2192 spark (stalled)")
         run.note_handover(state, "spark", "ran dry", 3, to="opus", reason="dry")
         self.assertEqual(state["executor_history"][-1]["rounds"], [3])
         state["executor"] = "opus"
-        self.assertEqual(run.executor_line(state), "astra \u2192 spark \u2192 opus (ran dry)")
+        self.assertEqual(status.executor_line(state), "astra \u2192 spark \u2192 opus (ran dry)")
 
     def test_v5i_an_undated_refusal_still_parks_and_a_handover_cannot_circle(self):
         """Nothing naming a time is still a refusal; without a mark the work would come back."""

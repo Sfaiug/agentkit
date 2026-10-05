@@ -61,7 +61,7 @@ sys.path.insert(0, sys.argv[1])
 from agentkit import record, run
 run_dir = Path(sys.argv[2])
 state = record.read_state(run_dir)
-run.Loop.step(types.SimpleNamespace(state=state, log=print,
+run.Loop.step(types.SimpleNamespace(state=state, log=print, rnd=1,
                                     save=lambda: record.save_state(run_dir, state)), "merge")
 """
 CALLER = STEP + '\nrun.mark_state(run_dir, "error", error="the api is down")\n'
@@ -87,7 +87,7 @@ class BarFollowsRuns(unittest.TestCase):
                       "reviewer": "astra", "rounds": 3, "round_summaries": [], "started_at": 1}
         record.save_state(self.run_dir, self.state)
         self.loop = types.SimpleNamespace(
-            state=self.state, log=lambda *_a, **_kw: None,
+            state=self.state, log=lambda *_a, **_kw: None, rnd=1,
             save=lambda: record.save_state(self.run_dir, self.state))
 
     def seats(self, own=(), legacy=()):

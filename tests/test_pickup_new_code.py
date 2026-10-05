@@ -164,7 +164,7 @@ class PickupNewCode(unittest.TestCase):
         self.assertEqual(saved["pickup"],
                          {"pid": saved["pid"], "from": OLD, "to": NEW})
         # the same pid still owns its slot: admission returns it at once, unqueued
-        admitted = run.wait_for_slot(lp.run_dir)
+        admitted = gate.wait_for_slot(lp.run_dir)
         self.assertEqual(admitted["state"], "running")
         self.assertFalse(admitted.get("slot_waiting"))
         # and the resume it exec'd to continues in place, on the new code

@@ -25,7 +25,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import gate, host, config, gc, menu, notify, orch, run, terminal, usage, watch
+from agentkit import gate, host, config, gc, menu, notify, orch, run, status, terminal, usage, watch
 from agentkit import record
 
 SEAT = "seat-v5m"          # the seat every one of these runs is launched from
@@ -243,7 +243,7 @@ class MenuOpensOnTheSeats(Sandbox):
             menu.draw(self.cfg, [])
         self.assertFalse(record.read_state(listed)["reported"])
         with redirect_stdout(io.StringIO()):
-            run.cmd_status([listed.name])
+            status.cmd_status([listed.name])
         self.assertTrue(record.read_state(listed).get("recovery_acknowledged_at"))
 
 

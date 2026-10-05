@@ -59,6 +59,7 @@ class LanderWakes(Sandbox):
         self.stack.enter_context(patch.object(run, "checks", side_effect=lambda *a: self.check_result))
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
+        self.stack.enter_context(patch.object(run.box, "check"))
         self.stack.enter_context(patch.object(run, "launcher_world", return_value=nullcontext(True)))
         self.stack.enter_context(patch.object(run, "place_here", return_value=None))
         self.stack.enter_context(patch.object(run, "stop_run_tree"))
@@ -334,7 +335,8 @@ class LanderWakes(Sandbox):
             with patch.object(run.time, "time", return_value=10000 + red):
                 self.assertEqual(run.cmd_resume([self.directory.name]), 0 if red < 4 else 1)
             state = record.read_state(self.directory)
-            self.assertEqual(state["landing_reds"], red)
+            # The ending spends the count: a resume of the failed run counts its reds afresh.
+            self.assertEqual(state.get("landing_reds"), red if red < 4 else None)
             self.assert_rounds(state)
             if red < 4:
                 self.assertEqual(state["state"], "waiting")

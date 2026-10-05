@@ -11,7 +11,7 @@
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words leak into some twenty files.
-- `run.py` (12.3k lines) holds most of the run side.
+- `run.py` (11.4k lines) holds most of the run side.
 
 ## Entry points
 
@@ -21,13 +21,19 @@
 
 ## agentkit/
 
-- `run.py`: staffing, review, landing, hand-back, failures, slots, worktrees and delivery locks.
+- `run.py`: staffing, review, landing, hand-back, failures, worktrees and delivery locks.
   Passed writable workers and automatic review-PR merges park in the line and exit;
   foreground callers and jobs follow records. Forks keep `land`. API: `main`, `going`,
-  `pick_models`; for watch, job, gc, orch, menu, notify, usage, worker and a hook.
-- `gate.py`: check commands and host-wide heavy-suite turns; `run_done_when`, turn/env
-  helpers and wait notes. For run and tests. Leaks: run's `run_child_env`, `memory_cap_note`,
-  `dirty_paths`, `OUT_CAP`.
+  `pick_models`; for watch, status, job, gc, orch, menu, notify, usage, worker and a hook.
+- `gate.py`: run admission (the slot queue and host gates), check commands and host-wide
+  heavy-suite turns. API: `slot_lock`, `claim_slot`, `wait_for_slot`, `slot_note`,
+  `host_status_line`, `run_done_when`, turn/env helpers and wait notes. For run, land and
+  tests. Leaks: run's `run_child_env`, `memory_cap_note`, `dirty_paths`, `OUT_CAP`,
+  `redress_seat`, `run_depth`.
+- `status.py`: `ak run status`: the run table, one run's details and their dim lines
+  (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
+  watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
+  `own_pr_wait_note`). Leak: run's private `_cached_providers`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member
   leaves to fix itself or hand the failure to its PR's seat. Record changes and the tick
@@ -48,13 +54,16 @@
   after-merge checks, `health:` probes, `doctor`. For run, job, orch, menu, notify,
   update, usage, worker, hooks.
   Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
+- `tell.py`: `ak tell`, one seat's message to another for every harness: queued in the
+  receiver's `tell` seat file under the seat's own lock, typed only by the tick through
+  `watch.type_at_prompt`, its receipt naming `seat:<sender>`. For bin/ak and the tick.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`,
-  `tally`) and a seat's last column, for watch, run, orch, notify, statusbar. Leaks:
-  provider colour and name tables; reads `usage.json` itself.
+  `tally`) and a seat's last column and live runs (`seat_runs`), for watch, run, orch, notify,
+  statusbar. Leaks: provider colour and name tables; reads `usage.json` itself.
 - `statusbar.py`: a seat's two tmux status lines; for orch, watch.
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,
   manifests, seat records, rename chain, `SEAT_FILES`, child env. Used by nearly everything.
@@ -78,8 +87,8 @@
   up into menu, run, watch and orch.
 - `update.py`: `[update]` upgrades, rollback; `go_live` once `tests/live.sh` passed.
   Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
-- `history.py`: SQLite `history.db` of runs/steps.
-  `ended_runs` for scoreboard. For run, gate, menu, harness. Leak: harness event logs.
+- `history.py`: SQLite `history.db` of runs and steps; `ended_runs` for the scoreboard.
+  For run, gate, harness. Leak: parses harness event logs.
 - `scoreboard.py`: two weeks of work, ak's cost, committed size, words and wrapping.
   `compute`, `render` for run history.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
@@ -94,7 +103,8 @@
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. For
   bin/ak, menu, install.sh.
 - `host.py`: memory, load, CPUs, pressure, process/cgroup counters, `alive`, `process_identity`;
-  reads only, no agentkit imports. For config, orch, run, gate, job, watch, gc and record.
+  reads only, no agentkit imports. For config, orch, run, gate, status, job, watch,
+  gc and record.
 - `proc_snapshot.py`: read-only /proc inventory; no agentkit imports, so it runs under sudo.
   For gc.
 - `__init__.py`: empty.
@@ -136,7 +146,6 @@ Run side, out of `run.py`:
 - `record`: transition table.
 - `turn`: model calls and harness failures.
 - `staffing`: executor and reviewer budgets.
-- `gate`: admission.
 - `prompts`: preambles and review contract.
 - `rounds`: loop calling the rest.
 - `land`: PR, checks, merge.

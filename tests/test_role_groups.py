@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import test_worker_list as fixtures
 from fixtures.hand_in import smoke, submitting
-from agentkit import config, gc, run, usage, watch
+from agentkit import gate, config, gc, run, status, usage, watch
 from agentkit import record as run_record
 
 
@@ -33,7 +33,7 @@ class RoleGroups(unittest.TestCase):
         directory = config.RUNS / name
         directory.mkdir()
         with patch.object(run, "redress_seat"), \
-                patch.object(run, "history_start"), patch.object(run, "claim_slot"):
+                patch.object(run, "history_start"), patch.object(gate, "claim_slot"):
             run.capture_launch(directory, cfg=self.cfg)
         return directory, run_record.read_state(directory)
 
@@ -221,8 +221,8 @@ class RoleGroups(unittest.TestCase):
             opts = {"--review-pr": None, "--no-merge": True, "--no-worktree": True}
             with redirect_stdout(io.StringIO()):
                 run.preflight(directory, opts, run.logger(directory))
-            with patch.object(run, "alive_line", return_value=""):
-                details = "\n".join(run.status_details(directory, state))
+            with patch.object(status, "alive_line", return_value=""):
+                details = "\n".join(status.status_details(directory, state))
             for output in ((directory / "log.txt").read_text(), details):
                 if separate:
                     self.assertIn("workers: alpha, beta", output)

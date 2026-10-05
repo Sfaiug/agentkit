@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, orch, run, watch  # noqa: E402
+from agentkit import gate, host, config, orch, watch  # noqa: E402
 from agentkit import record
 
 HEALTHY = {"free_mb": 4096, "mem_total_mb": 16384, "load": 2, "cpus": 8,
@@ -86,7 +86,7 @@ class FrozenAdmission(unittest.TestCase):
     def test_frozen_runs_hold_the_load_gate(self):
         self.hold(7)
         state = record.read_state(self.queued("20250925-1300-waiter"))
-        self.assertFalse(run.claim_slot(state, 32))
+        self.assertFalse(gate.claim_slot(state, 32))
         self.assertEqual(state["slot_wait_reason"],
                          "waiting for the host to calm · load 2 + 7 frozen runs, limit 8")
         self.assertEqual(state["slot_wait_kind"], "load")
@@ -94,20 +94,20 @@ class FrozenAdmission(unittest.TestCase):
     def test_thawed_runs_admit_as_usual(self):
         self.hold(7)
         state = record.read_state(self.queued("20250925-1300-waiter"))
-        self.assertFalse(run.claim_slot(state, 32))
+        self.assertFalse(gate.claim_slot(state, 32))
         self.assertEqual(state["slot_wait_kind"], "load")
         for n in range(7):
             self.thaw(f"20250925-120{n}-held")
-        self.assertFalse(run.claim_slot(state, 32))  # first steady poll
-        self.assertTrue(run.claim_slot(state, 32))
+        self.assertFalse(gate.claim_slot(state, 32))  # first steady poll
+        self.assertTrue(gate.claim_slot(state, 32))
         self.assertEqual(state["state"], "running")
 
     def test_first_ignores_frozen_runs(self):
         self.hold(7)
         state = record.read_state(self.queued("20250925-1300-first", first=True))
-        self.assertFalse(run.claim_slot(state, 32))  # first steady poll
+        self.assertFalse(gate.claim_slot(state, 32))  # first steady poll
         self.assertNotIn("slot_wait_kind", state)
-        self.assertTrue(run.claim_slot(state, 32))
+        self.assertTrue(gate.claim_slot(state, 32))
         self.assertEqual(state["state"], "running")
 
     def test_one_frozen_run_reads_singular(self):
@@ -115,7 +115,7 @@ class FrozenAdmission(unittest.TestCase):
         with patch.dict(os.environ,
                         {"AK_HOST_READINGS": json.dumps({**HEALTHY, "load": 8})}):
             state = record.read_state(self.queued("20250925-1300-waiter"))
-            self.assertFalse(run.claim_slot(state, 32))
+            self.assertFalse(gate.claim_slot(state, 32))
         self.assertEqual(state["slot_wait_reason"],
                          "waiting for the host to calm · load 8 + 1 frozen run, limit 8")
 
@@ -124,7 +124,7 @@ class FrozenAdmission(unittest.TestCase):
         with patch.dict(os.environ,
                         {"AK_HOST_READINGS": json.dumps({**HEALTHY, "load": 41})}):
             state = record.read_state(self.queued("20250925-1300-waiter"))
-            self.assertFalse(run.claim_slot(state, 32))
+            self.assertFalse(gate.claim_slot(state, 32))
         self.assertEqual(state["slot_wait_reason"],
                          "waiting for the host to calm · load 41, limit 8")
 

@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, gc, land, menu, orch, run, watch
+from agentkit import host, config, gc, land, menu, orch, run, status, watch
 from agentkit import record
 
 WEEK = 604800
@@ -321,7 +321,7 @@ class Parked(unittest.TestCase):
                 run.park_waiting(lp, reason, "origin/main", old)
                 # the retry is scheduled, and status says when
                 with redirect_stdout(io.StringIO()) as out:
-                    self.assertEqual(run.cmd_status([run_dir.name]), 0)
+                    self.assertEqual(status.cmd_status([run_dir.name]), 0)
                 self.assertIn("waiting · retry after the next merge to origin/main",
                               out.getvalue())
                 with patch.object(run, "upstream_sha", return_value=old), \
@@ -355,10 +355,10 @@ class Parked(unittest.TestCase):
         admission = ("session seat exists; ending under 24h old; "
                      "not handed back, carded or acknowledged")
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status([]), 0)
+            self.assertEqual(status.cmd_status([]), 0)
         self.assertIn(f"{want} · {admission}", out.getvalue())
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status([run_dir.name]), 0)
+            self.assertEqual(status.cmd_status([run_dir.name]), 0)
         self.assertIn(f"{want} · {admission}", out.getvalue())
         self.assertFalse(record.read_state(run_dir).get("recovery_acknowledged_at"))
         with patch.object(run, "spawn_bg", return_value=0) as spawn:
@@ -369,17 +369,17 @@ class Parked(unittest.TestCase):
                               error=CONFLICT_NOTE, merge_note=CONFLICT_NOTE,
                               waiting_on={"ref": "origin/main", "sha": "0" * 40})
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status([waiter.name]), 0)
+            self.assertEqual(status.cmd_status([waiter.name]), 0)
         self.assertIn("waiting · retry after the next merge to origin/main", out.getvalue())
         self.assertIn(admission, out.getvalue())
         reviewer = self.receipt("20260922-1212-review", state="exhausted",
                                 error=TRANSPORT_DEATH)
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status([reviewer.name]), 0)
+            self.assertEqual(status.cmd_status([reviewer.name]), 0)
         self.assertIn("exhausted · resumes when a reviewer is eligible", out.getvalue())
         # ... and the default listing carries the same dim lines under each row
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status([]), 0)
+            self.assertEqual(status.cmd_status([]), 0)
         table = out.getvalue()
         self.assertIn(want, table)
         self.assertIn("waiting · retry after the next merge to origin/main", table)
@@ -395,7 +395,7 @@ class Parked(unittest.TestCase):
         self.assertNotIn("error_retry_at", state)
         want = f"run {run_dir.name} parked: task.md: no `## Done when` section"
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status([run_dir.name]), 0)
+            self.assertEqual(status.cmd_status([run_dir.name]), 0)
         screen = out.getvalue()
         self.assertIn("needs you", screen)
         self.assertIn(want, screen)
@@ -536,7 +536,7 @@ class Parked(unittest.TestCase):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
         self.assertEqual(self.logs, [])
         self.assertEqual(record.read_state(run_dir)["state"], "exhausted")
-        self.assertEqual(run.parked_line(record.read_state(run_dir), run_dir.name), "")
+        self.assertEqual(status.parked_line(record.read_state(run_dir), run_dir.name), "")
 
     def test_parked_scheduled_error_is_never_announced(self):
         owned = self.receipt("20260922-1307-quiet", error_retry_at=self.now + 300,
@@ -624,8 +624,8 @@ class Parked(unittest.TestCase):
                     self.assertFalse(run.going(original))
                     self.assertEqual(menu.run_state_word(original), "needs you")
                     self.assertIn(f"run {directory.name} parked:",
-                                  run.parked_line(original, now=self.now))
-                    self.assertNotIn("retry", run.parked_line(original, now=self.now))
+                                  status.parked_line(original, now=self.now))
+                    self.assertNotIn("retry", status.parked_line(original, now=self.now))
                     self.logs.clear()
                     with patch.object(run, "spawn_bg",
                                       side_effect=AssertionError("history stays stopped")):
@@ -658,7 +658,7 @@ class Parked(unittest.TestCase):
                 self.assertNotIn("error_retries", state)
                 self.assertFalse(run.going(state))
                 self.assertEqual(menu.run_state_word(state), "needs you")
-                self.assertEqual(run.parked_line(state),
+                self.assertEqual(status.parked_line(state),
                                  f"run {directory.name} parked: transport failed")
 
     def test_parked_explicit_acknowledgement_cancels_error_retry(self):
@@ -675,7 +675,7 @@ class Parked(unittest.TestCase):
             watch.resume_errored(log=self.log, now=self.now)
         self.assertEqual(self.logs, [])
         with redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(run.cmd_status([directory.name]), 0)
+            self.assertEqual(status.cmd_status([directory.name]), 0)
         self.assertIn(f"run {directory.name} parked:", out.getvalue())
         self.assertNotIn("retry due", out.getvalue())
 
@@ -704,7 +704,7 @@ class Parked(unittest.TestCase):
                 self.assertFalse(run.going(state))
                 self.assertEqual(menu.run_state_word(state), "done")
                 self.assertFalse(menu.v5o_needs_look(state, now=self.now))
-                self.assertEqual(run.parked_line(state, now=self.now),
+                self.assertEqual(status.parked_line(state, now=self.now),
                                  f"run {directory.name} parked: {CONFLICT_NOTE}")
 
                 # A line member is unfinished work even when this ending's retry
@@ -715,7 +715,7 @@ class Parked(unittest.TestCase):
                 record.save_state(directory, state)
                 self.assertTrue(run.going(state, now=self.now))
                 self.assertEqual(menu.run_state_word(state), "working")
-                self.assertIn("in line to land on main", run.parked_line(state, now=self.now))
+                self.assertIn("in line to land on main", status.parked_line(state, now=self.now))
                 before = (directory / "run.json").read_bytes()
                 self.lander.reset_mock()
                 with patch.object(run, "spawn_bg", side_effect=AssertionError("only the lander")):
@@ -772,7 +772,7 @@ class Parked(unittest.TestCase):
                             self.assertFalse(any(call.args[1] == "needs"
                                                  for call in send.call_args_list))
             with redirect_stdout(io.StringIO()) as out:
-                self.assertEqual(run.cmd_status([directory.name]), 0)
+                self.assertEqual(status.cmd_status([directory.name]), 0)
             self.assertIn(f"run {directory.name} parked: {CONFLICT_NOTE}", out.getvalue())
             self.assertNotIn("needs you", out.getvalue())
 
@@ -837,16 +837,16 @@ class Parked(unittest.TestCase):
                     records=[(directory, state)], live={}, auth_out={}, gh_out={},
                     token_out={}, previous={})
                 self.assertEqual(found["word"], "needs you")
-                self.assertEqual(found["reason"], run.parked_line(state, now=self.now)
+                self.assertEqual(found["reason"], status.parked_line(state, now=self.now)
                                  if word == "error" else f"run {directory.name} waits to "
                                  f"merge: {run.handback_reason(state)}")
                 self.assertEqual(menu.v5o_needs_look(state, now=self.now), word == "error")
                 record.save_state(directory, {**state, "finished_at": self.now - gc.GC_AGE - 1})
                 with redirect_stdout(io.StringIO()) as out:
-                    self.assertEqual(run.cmd_status([]), 0)
+                    self.assertEqual(status.cmd_status([]), 0)
                 self.assertNotIn(directory.name, out.getvalue())
                 with redirect_stdout(io.StringIO()) as out:
-                    self.assertEqual(run.cmd_status([directory.name]), 0)
+                    self.assertEqual(status.cmd_status([directory.name]), 0)
                 self.assertIn(f"run {directory.name} parked:", out.getvalue())
                 self.assertNotIn("retry due", out.getvalue())
                 if word == "error":
@@ -865,7 +865,7 @@ class Parked(unittest.TestCase):
         state = record.read_state(directory)
         self.assertEqual(state["state"], "waiting")
         self.assertNotIn("handback_pending", state)
-        self.assertIn("session renamed exists", run.parked_line(state, now=self.now))
+        self.assertIn("session renamed exists", status.parked_line(state, now=self.now))
 
     def test_parked_tick_resume_keeps_the_sessions_worker_pair(self):
         config.save_session(self.cfg, "seat", "fable", ["astra", "spark"])
@@ -903,7 +903,6 @@ class Parked(unittest.TestCase):
                         patch.object(gc, "disk_pressure", return_value=False), \
                         patch.object(run, "exclude_junk"), \
                         patch.object(run, "join_session_project"), \
-                        patch.object(run, "project_lessons", return_value=""), \
                         patch.object(run, "rounds", side_effect=Picked):
                     if word == "error":
                         watch.resume_errored(log=self.log, now=self.now)

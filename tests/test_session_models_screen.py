@@ -1,5 +1,5 @@
-"""A session's models live on `c`: a role flip saves to the session's record at once, each
-group keeps one model, and a choice leaving no allowed pair is refused in one line.
+"""A session's models live on `c`: a role flip saves to the session's record at once,
+reviewers keep one model, and a choice leaving no allowed pair is refused in one line.
 
 Offline: `menu.session_mark` flips against session records in a throwaway HOME, proving the
 run boundary -- a run launched next reads the new groups, one already going keeps the groups
@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from test_v4n import Sandbox
-from agentkit import config, menu, run, terminal, update, usage
+from agentkit import gate, config, menu, run, terminal, update, usage
 from agentkit import record as run_record
 
 
@@ -78,14 +78,14 @@ class SessionModels(Sandbox):
         self.assertEqual(record["workers"], ["astra"])
         self.assertEqual(record["reviewers"], ["opus", "astra"])
 
-    def test_each_group_keeps_one_model_and_no_pair_is_refused_without_a_save(self):
+    def test_reviewers_keep_one_model_executors_may_go_and_no_pair_is_refused_without_a_save(self):
         config.save_session(self.cfg, "solo", "opus", ["opus"], {"reviewers": ["astra"]})
         selected = self.selected("solo")
-        self.assertEqual(menu.session_mark(self.cfg, "solo", selected, "opus", 1, {}),
-                         "exec needs one model")
+        with patch.object(usage, "unready", return_value=""):
+            self.assertEqual(menu.session_mark(self.cfg, "solo", selected, "opus", 1, {}), "")
         self.assertEqual(menu.session_mark(self.cfg, "solo", selected, "astra", 2, {}),
                          "review needs one model")
-        self.assertEqual(config.load_session(self.cfg, "solo")["workers"], ["opus"])
+        self.assertEqual(config.load_session(self.cfg, "solo")["workers"], [])
         config.save_session(self.cfg, "tight", "opus", ["opus"],
                             {"reviewers": ["opus", "astra"]})
         selected = self.selected("tight")
@@ -126,7 +126,7 @@ class SessionModels(Sandbox):
         menu.session_mark(self.cfg, "fix-api", selected, "fable", 1, {})
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}), \
                 patch.object(run, "redress_seat"), \
-                patch.object(run, "history_start"), patch.object(run, "claim_slot"):
+                patch.object(run, "history_start"), patch.object(gate, "claim_slot"):
             directory = config.RUNS / "next-run"
             directory.mkdir()
             run.capture_launch(directory, cfg=self.cfg)

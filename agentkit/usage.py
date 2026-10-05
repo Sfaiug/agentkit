@@ -19,7 +19,9 @@ ignores both numbers and takes the default orchestrator while it still has somet
 
 Credits an adapter reports (`"credits": <number left>`) are usage left past a spent window:
 such a provider is not spent, only ranked after every one with a window left (`on_credits`),
-because credits cost money and the subscription is already paid.
+because credits cost money and the subscription is already paid.  A `"currency"` beside them,
+an ISO code, says they are money in that currency; `"unlimited"` in place of the number says
+nothing bounds them.
 """
 
 import fcntl
@@ -169,8 +171,11 @@ def _probe(cfg, provider, now, account=None):
     out = {"provider": provider, "harness": harness, "via": via, "meters": [],
            "error": data.get("error"), "pace": None, "resets": _resets(harness, account),
            "exhausted": False, "probed_at": now}
-    if _number(data.get("credits")) is not None:
-        out["credits"] = _number(data["credits"])
+    credits = "unlimited" if data.get("credits") == "unlimited" else _number(data.get("credits"))
+    if credits is not None:
+        out["credits"] = credits
+        if isinstance(data.get("currency"), str) and data["currency"]:
+            out["currency"] = data["currency"]
     retry = _number(data.get("retry_after"))
     if retry is not None and retry > 0:
         # The endpoint's own not-before, in seconds: `_probe_gently` writes it down beside
@@ -323,12 +328,14 @@ def _kept(cached, fresh, now):
         return fresh
     cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
-    keys = ("meters", "fetched_at", "resets", "credits", "error", "notes", "none", "none_reason")
+    keys = ("meters", "fetched_at", "resets", "credits", "currency", "error", "notes", "none",
+            "none_reason")
     if cached.get("none") or not cached.get("meters"):
         # No reading to keep, so nothing overwrites the ask's own error: dropping none here
         # is how a meterless row came to say `window reset`, and keeping an old error here
         # is how a 429 came to still say 401.
-        keys = ("meters", "fetched_at", "resets", "credits", "notes", "none", "none_reason")
+        keys = ("meters", "fetched_at", "resets", "credits", "currency", "notes", "none",
+                "none_reason")
     kept = {key: cached[key] for key in keys if key in cached}
     if "fetched_at" not in kept:
         # The ask that follows is this moment's; the measurement is not, so it is written down
@@ -1202,15 +1209,31 @@ def _budget(prov, weekly, now=None):
 
 
 def credits_left(prov):
-    """The credits this provider -- or account -- still holds, 0.0 for none or none known."""
+    """The credits this provider -- or account -- still holds, inf for `unlimited`, 0.0 for none
+    or none known."""
+    if isinstance(prov, dict) and prov.get("credits") == "unlimited":
+        return math.inf
     value = _number(prov.get("credits")) if isinstance(prov, dict) else None
     return value if value is not None and value > 0 else 0.0
 
 
+# the sign of a currency nobody misreads by it, else its ISO code: `CAD 12.40 credits left`
+SIGNS = {"USD": "$", "EUR": "€", "GBP": "£"}
+
+
 def credits_note(prov):
-    """`62,469 credits left`, the row's words for them, or "" for none."""
+    """`62,469 credits left`, or `$12.40 credits left` in a `currency`, `unlimited credits`, or
+    "" for none."""
+    if not credits_left(prov):
+        return ""
+    if credits_left(prov) == math.inf:
+        return "unlimited credits"
+    unit = prov.get("currency")
+    if unit:
+        sign = SIGNS.get(unit, f"{unit} ")
+        return f"{sign}{credits_left(prov):,.2f}".removesuffix(".00") + " credits left"
     left = int(credits_left(prov))
-    return f"{left:,} credit{'' if left == 1 else 's'} left" if credits_left(prov) else ""
+    return f"{left:,} credit{'' if left == 1 else 's'} left"
 
 
 def on_credits(cfg, name, providers):
