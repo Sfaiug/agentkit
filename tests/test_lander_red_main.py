@@ -168,17 +168,29 @@ class RedMain(unittest.TestCase):
             land.check_line(self.turn)
         tree = self.wait(first)["land"]
         self.assertNotEqual(land.passed(self.turn, tree)["tested"], tree)
+        with record.record(second) as state:
+            state.update(state="stopped")
+            state.pop("waiting_on")
+        with record.record(first) as state:
+            state.update(state="running", pid=5678)
+        third = self.member("third", joined=3, **{"c.txt": "c\n"})
+        before = {third: (third / "run.json").read_bytes()}
+        self.checks.clear()
+        self.wake.reset_mock()
+        with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") == 5678):
+            land.check_line(self.turn)
+        self.assertEqual(self.checks, [])
+        self.assert_parked(before)
+        self.assertEqual(self.prepared, [])
+        # Once the covered prefix delivers, the target itself can be probed and repaired.
         run.git(self.repo, "checkout", "ak/first")
         run.git(self.repo, "rebase", "origin/main")
         self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), tree)
         run.git(self.repo, "push", "origin", "HEAD:main")
         run.git(self.repo, "checkout", "main")
-        for member in (first, second):
-            with record.record(member) as state:
-                state.update(state="pass" if member == first else "stopped", merged=member == first)
-                state.pop("waiting_on")
-        third = self.member("third", joined=3, **{"c.txt": "c\n"})
-        before = {third: (third / "run.json").read_bytes()}
+        with record.record(first) as state:
+            state.update(state="pass", merged=True)
+            state.pop("waiting_on")
         self.checks.clear()
         self.wake.reset_mock()
         land.check_line(self.turn)
