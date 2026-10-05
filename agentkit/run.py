@@ -9017,7 +9017,12 @@ def foreground_cli(run_dir):
 def logger(run_dir):
     def log(message):
         line = f"[{datetime.now():%H:%M:%S}] {message}"
-        print(line, flush=True)
+        try:
+            print(line, flush=True)
+        except BrokenPipeError:
+            # whoever read the launch stopped reading (`| head`): that ends the reading, never
+            # the run, whose log keeps every line; later prints go nowhere
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         if not log_is_stdout(run_dir):
             with (run_dir / "log.txt").open("a") as fh:
                 fh.write(line + "\n")
