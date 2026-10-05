@@ -341,6 +341,12 @@ class WorkerBox(unittest.TestCase):
                 self.assertRaisesRegex(config.Error, "sudo sysctl -w kernel.unprivileged_userns_clone=1"):
             run.main([str(self.root / "task.md")])
 
+    def test_a_slow_probe_on_a_busy_host_is_no_refusal(self):
+        # bubblewrap works here; under landing load its probe can outlast the wait.
+        slow = box.subprocess.TimeoutExpired("bwrap", 10)
+        with patch.object(box.subprocess, "run", side_effect=slow):
+            self.assertIsNone(box.check())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

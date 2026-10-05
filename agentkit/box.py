@@ -284,6 +284,10 @@ def check():
         if result.returncode == 0:
             return
         why = result.stderr.strip() or f"exit {result.returncode}"
+    except subprocess.TimeoutExpired:
+        # A host that cannot nest a box says so at once; a slow probe is load, and every
+        # turn keeps its own silence and ceiling limits.
+        return
     except (OSError, subprocess.SubprocessError) as exc:
         why = str(exc)
     for path, setting in (("/proc/sys/kernel/unprivileged_userns_clone",
