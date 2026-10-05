@@ -254,6 +254,33 @@ class NewSession(Sandbox):
             self.assertNotIn(linked, orch.checkouts())
             self.assertEqual(orch.checkout_of(str(linked)), main)
 
+    def test_a_worktree_stays_its_checkouts_after_the_repository_moves(self):
+        # `.git` a link to a git file elsewhere; the repository moves and that file is
+        # rewritten in place behind the link, the link untouched: the next listing reads it
+        # afresh.
+        main, linked = config.CODE / "acme", config.CODE / ".acme-fix"
+        def git(where, *args):
+            subprocess.run(["git", "-C", str(where), "-c", "user.name=Fixture", "-c",
+                            "user.email=fixture@localhost", *args], check=True,
+                           capture_output=True)
+        git(self.root, "init", "-q", "-b", "main", "--separate-git-dir",
+            str(self.root / "first.git"), str(main))
+        git(main, "commit", "-q", "--allow-empty", "-m", "x")
+        git(main, "worktree", "add", "-q", "-b", "fix", str(linked))
+        gitfile = self.root / "fix.gitfile"
+        (linked / ".git").rename(gitfile)
+        (linked / ".git").symlink_to(gitfile)
+        self.assertEqual(orch.checkout_of(str(linked)), main)
+        git(main, "init", "-q", "--separate-git-dir", str(self.root / "moved.git"))
+        admin = self.root / "moved.git" / "worktrees" / "-acme-fix"
+        with gitfile.open("r+b") as handle:                 # the same file, written anew
+            handle.truncate(0)
+            handle.write(b"gitdir: " + os.fsencode(admin) + b"\n")
+        (admin / "gitdir").write_bytes(os.fsencode(linked / ".git") + b"\n")
+        git(linked, "status", "-s")
+        self.assertNotIn(linked, orch.checkouts())
+        self.assertEqual(orch.checkout_of(str(linked)), main)
+
     def test_a_worktree_of_a_second_agentkit_clone_is_agentkit(self):
         own = self.checkout("agentkit", Path.home())
         for layout in ([], ["--separate-git-dir", str(self.root / "clone.git")]):
