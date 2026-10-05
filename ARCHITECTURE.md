@@ -102,9 +102,9 @@
   watch. Leak: registers its MCP per harness by name.
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. For
   bin/ak, menu, install.sh.
-- `host.py`: memory, load, CPUs, pressure, process/cgroup counters, `alive`, `process_identity`;
-  reads only, no agentkit imports. For config, orch, run, gate, status, job, watch,
-  gc and record.
+- `host.py`: memory, load, CPUs, pressure, process/cgroup counters, `alive`, `process_identity`,
+  and a process's stat and statm (`proc_stat`, `resident_bytes`); reads only, no agentkit
+  imports. For config, orch, run, gate, status, job, watch, gc, record, history and worker.
 - `proc_snapshot.py`: read-only /proc inventory; no agentkit imports, so it runs under sudo.
   For gc.
 - `__init__.py`: empty.

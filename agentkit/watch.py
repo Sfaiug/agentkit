@@ -3675,18 +3675,15 @@ def _proc_table():
         return table
     for entry in pids:
         pid = int(entry)
-        try:
-            text = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-            ppid = int(text[1])
-            state = text[0]
-        except (OSError, ValueError, IndexError):
+        stat = host.proc_stat(pid)
+        if stat is None:
             continue
         try:
             raw = Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace")
             args = [part for part in raw.split("\0") if part]
         except OSError:
             args = []
-        table[pid] = (ppid, state, args)
+        table[pid] = (stat.ppid, stat.state, args)
     return table
 
 
@@ -3727,11 +3724,8 @@ def _gone(pid):
         return False
     except OSError:
         return False
-    try:
-        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
-        return state in ("Z", "X")
-    except (OSError, IndexError):
-        return False
+    stat = host.proc_stat(pid)
+    return stat is not None and stat.exited
 
 
 def kill_tree(pid, log=lambda _: None):
