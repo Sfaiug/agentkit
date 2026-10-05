@@ -4088,8 +4088,9 @@ def fix_after_failed_review(lp, upstream, how):
     none at all; a done-when that failed it comes with its output, so a PASS the gate
     overrode is fixed on what the gate said.
     """
-    if (lp.state.get("waiting_on") or {}).get("line"):
-        return False
+    wait = lp.state.get("waiting_on") or {}
+    if wait.get("line") and "fix" not in wait:
+        return False    # a green delivery pushes the tree the lander tested, never a new one
     what = f"the {how} of {upstream}"
     while lp.rnd < lp.rounds:
         fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"

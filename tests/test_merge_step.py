@@ -292,6 +292,50 @@ class MergeStep(unittest.TestCase):
         self.assertEqual(state["final_check"]["outcome"], "passed")
         self.assertTrue(run.current_review(lp))
 
+    def test_a_line_members_landing_fix_re_review_fail_with_rounds_left_runs_a_fixer(self):
+        # woken from the line on a red verdict: the re-review after its landing fix FAILs
+        # with rounds left, so a fixer round spends one; the run rejoins the line afterwards
+        _, owner, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt, rounds=3, spent=1)
+        lp.state["waiting_on"] = {"line": ".merge-fixture", "joined": 1, "fixing": True,
+                                  "fix": {"line": "FAIL  2 the gate", "log": str(run_dir / "red.log")}}
+        turns = []
+
+        def checks(cmds, cwd, out, *args, **kwargs):
+            out.parent.mkdir(parents=True, exist_ok=True)
+            return True, "$ true\n[exit 0]\n"
+
+        def fixer(lp2, role, text, name):
+            turns.append((name, lp2.rnd))
+            (wt / f"fix{len(turns)}.txt").write_text("fixed\n")
+            run.git(wt, "add", ".")
+            run.git(wt, "commit", "-m", "fix")
+            return "## Summary\nFixed."
+
+        verdicts = iter(["FAIL", "PASS"])
+
+        def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
+            verdict = next(verdicts)
+            answer = (f"VERDICT: {verdict}\n\n## Findings\n"
+                      + ("- fix1.txt:1 - a second home for the count\n" if verdict == "FAIL"
+                         else "- none\n"))
+            out.mkdir(parents=True)
+            (out / "final.md").write_text(answer)
+            return 0, answer, session, False
+
+        with patch.object(gate, "run_done_when", side_effect=checks), \
+                patch.object(run, "execute", side_effect=fixer), \
+                patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
+            self.assertTrue(run.fix_final_check(lp, "origin/main", "FAIL  2 the gate"))
+        self.assertEqual(turns, [("final-fixer", 1), ("executor", 2)])
+
+    def test_a_green_line_delivery_never_spends_a_round_on_a_failed_review(self):
+        _, owner, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt, rounds=3, spent=1)
+        lp.state["waiting_on"] = {"line": ".merge-fixture", "joined": 1, "land": "tree"}
+        with patch.object(run, "execute", side_effect=AssertionError("execute")):
+            self.assertFalse(run.fix_after_failed_review(lp, "origin/main", "rebase"))
+
     def test_a_final_check_re_review_fail_at_the_budget_is_a_review_fail(self):
         # the re-review after a final-check fix FAILs with the budget spent: no fixer is
         # left to run, and the run hands back a review FAIL with its findings, never a wait.
