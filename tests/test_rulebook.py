@@ -23,7 +23,9 @@ from tools import rulebook
 RULEBOOK = (REPO / "orchestrator.md").read_text()
 MINIMUM = "Minimum change that solves the task completely; the best part is no part."
 # The owner's own words, and the standing rules each in the section of the rulebook it belongs to.
-PHRASES = ("the best part is no part", "Less is more", "brutal elimination", "the least possible steps")
+PHRASES = ("the best part is no part", "Less is more", "brutal elimination", "the least possible steps",
+           "each piece of knowledge in one home", "no special case inside general code",
+           "nothing callers must do that a module could", "what the change makes dead deleted")
 RULES = (("Understand first", "unknown knowns, "),
          ("Understand first", "show options or a small prototype and let them react"),
          ("Decide and delegate", "Three rounds is the budget; ak refuses more."),
@@ -152,7 +154,7 @@ class Rulebook(unittest.TestCase):
         self.assertIn(MINIMUM, worker.PREAMBLES["executor"])
         self.assertIn(MINIMUM, worker.PREAMBLES["fixer"])
 
-    def test_every_executor_and_fixer_carries_the_owner_s_four_phrases(self):
+    def test_every_executor_and_fixer_carries_the_owner_s_words(self):
         for role in ("executor", "fixer", "executor-scratch", "fixer-scratch"):
             for words in PHRASES:
                 with self.subTest(role=role, words=words):
