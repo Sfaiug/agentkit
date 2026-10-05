@@ -429,9 +429,9 @@ def pointer_gone(wt):
 
 def delivered(wt, branch, head):
     """Whether GitHub holds everything in a seat's checkout: git sees no change and no new
-    file in it (what it ignores is output, not work), the branch's pull request merged, and
-    GitHub has its head commit, which the line may have rebased before merging.  Anything
-    unproven may exist nowhere else: a file the index marks assume-unchanged or
+    file in it (what it ignores is output, not work), the branch's newest pull request
+    merged, and GitHub has its head commit, which the line may have rebased before merging.
+    Anything unproven may exist nowhere else: a file the index marks assume-unchanged or
     skip-worktree, whose edits git no longer reports, and a submodule, whose own commits
     GitHub may lack, keep the checkout; the repository's settings cannot hide a new file."""
     if not branch or not head:
@@ -445,9 +445,10 @@ def delivered(wt, branch, head):
                                     timeout=60)
     if code != 0 or changed.strip():
         return False
-    code, merged = run.gh(wt, "pr", "list", "--head", branch, "--state", "merged",
-                          "--json", "number", "--jq", "length", timeout=60)
-    if code != 0 or merged in ("", "0"):
+    # The branch's newest pull request, not any: a name reused after a merge has work open.
+    code, state = run.gh(wt, "pr", "list", "--head", branch, "--state", "all",
+                         "--json", "number,state", "--jq", "max_by(.number).state", timeout=60)
+    if code != 0 or state != "MERGED":
         return False
     code, _ = run.gh(wt, "api", f"repos/{{owner}}/{{repo}}/commits/{head}", "--silent",
                      timeout=60)

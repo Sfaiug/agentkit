@@ -368,8 +368,8 @@ class GcSweep(Sandbox):
         heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, merged_clone, *kept)
                  if wt != unpushed}
         def github(cwd, *args, timeout=None):
-            if args[:2] == ("pr", "list"):
-                return 0, "0" if args[args.index("--head") + 1] == "seat/open" else "1"
+            if args[:2] == ("pr", "list"):     # the branch's newest pull request
+                return 0, "OPEN" if args[args.index("--head") + 1] == "seat/open" else "MERGED"
             return (0, "") if args[1].rsplit("/", 1)[-1] in heads else (1, "HTTP 404")
         with patch.object(run, "gh", side_effect=github):
             dry = self.gc("--dry-run")
