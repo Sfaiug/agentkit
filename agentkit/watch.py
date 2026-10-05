@@ -1479,11 +1479,7 @@ def screen_state(harness, tail):
                 continue
             end = at + 1 if end is None else end
             if rule["id"] == "prompt.draft":
-                dims = dim_rows(raws)
-                draft = " ".join(part for part in [
-                    _draft_text(raws[at], region[at], chrome["composer"]),
-                    *(row for dim, row in zip(dims[at + 1:end], region[at + 1:end])
-                      if not dim)] if part)
+                draft = " ".join(_composer_parts(chrome, raws, region, at, end))
                 if draft:
                     return rule["state"], rule["id"], draft[:160]
             elif _suggestion_line(raws[at], region[at]):
@@ -2504,8 +2500,14 @@ def composer_draft(harness, pane):
             at, stop = marked[0], len(rows)
     if at is None:
         return None
+    return re.sub(r"\s+", "", "".join(_composer_parts(chrome, raws, rows, at, stop)))
+
+
+def _composer_parts(chrome, raws, rows, at, stop):
+    """What is typed in a composer from its prompt row `at` down to `stop`, a part a row, none
+    empty: the draft rule and `composer_draft` both read it here.  Bright rows only, and a boxed
+    composer's edges -- chrome on every row of it -- left out."""
     boxed = rows[at].startswith("│") and rows[at].endswith("│")
-    # A boxed composer's edges are chrome, including on continuation rows.
     parts = [_draft_text(raws[at], rows[at][:-1].rstrip() if boxed else rows[at],
                          chrome["composer"])]
     dims = dim_rows(raws)
@@ -2514,7 +2516,7 @@ def composer_draft(harness, pane):
             if boxed and plain.startswith("│") and plain.endswith("│"):
                 plain = plain[1:-1].strip()
             parts.append(plain)
-    return re.sub(r"\s+", "", "".join(parts))
+    return [part for part in parts if part]
 
 
 def sync_title(session, log=lambda _: None, *, force=False):

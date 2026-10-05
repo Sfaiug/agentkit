@@ -94,6 +94,18 @@ class ComposerBox(Sandbox):
                 self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane))[0], "draft")
                 self.assertEqual(self.looked(pane), ("needs you", False, []))
 
+    def test_an_empty_row_in_a_box_with_corners_is_no_draft(self):
+        """Its edges are chrome on every row: both readers agree the composer is empty."""
+        for top, closing in (("╭╮", "╰╯"), ("┌┐", "└┘")):
+            pane = (f"⏺ Done.\n{top[0]}{'─' * 30}{top[1]}\n│ ❯                         │\n"
+                    f"│                           │\n{closing[0]}{'─' * 30}{closing[1]}\n"
+                    "⏵⏵ bypass permissions on (shift+tab to cycle)\n")
+            with self.subTest(corners=top):
+                self.assertNotEqual(watch.screen_state("claude", watch.pane_tail(pane))[0],
+                                    "draft")
+                self.assertEqual(watch.composer_draft("claude", pane), "")
+                self.assertEqual(self.looked(pane)[1], True)
+
     def test_a_draft_longer_than_the_tail_is_read_whole(self):
         """Thirteen rows push the box's top rule above the last 15 rows; the pane still has it."""
         rows = [f"step {n} of the acme migration" for n in range(1, 14)]
