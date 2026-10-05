@@ -1926,7 +1926,8 @@ def usage_tip(cfg, number, now=None):
     had it been spent as fast as time passes, from the meter's window and reset, or None where
     there is no such week: `Acme II · 68% left · resets Thu
     20:00 (in 2 d 6 h) · lasts at this pace`, more left than that share lasting the week; a
-    spent meter has nothing left to pace."""
+    spent meter has nothing left to pace, and its credits, where it has any, stand in its 0%'s
+    place as on the row (`Acme II · 62,469 credits left · resets …`)."""
     now = time.time() if now is None else now
     rows = usage_rows(cfg)
     if not 0 < number <= len(rows):
@@ -1951,7 +1952,8 @@ def usage_tip(cfg, number, now=None):
                              else f"{max(1, secs // 60)} min") + ")"
     spent = None if pace is None or not left else terminal.TIPS[
         "slower" if left > round(100 * pace) else "faster" if left < round(100 * pace) else "even"]
-    return " · ".join(part for part in (terminal.plain(label), f"{left}% left", resets, spent)
+    shown = (not left and usage.credits_note(prov)) or f"{left}% left"
+    return " · ".join(part for part in (terminal.plain(label), shown, resets, spent)
                       if part), pace
 
 
