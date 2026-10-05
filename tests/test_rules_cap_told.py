@@ -47,6 +47,7 @@ class RulesCapTold(unittest.TestCase):
         self.path = self.repo / "AGENTS.md"
         self.logs, self.prompts = [], []
         self.review_failures = 0
+        self.review_extra = ""
         for module, name, value in (
                 (gc, "disk_pressure", False), (run, "launch_session", None),
                 (run, "collect_usage", {}), (run, "pick_models", ("opus", "astra")),
@@ -72,7 +73,7 @@ class RulesCapTold(unittest.TestCase):
             verdict = "FAIL" if self.review_failures else "PASS"
             self.review_failures = max(0, self.review_failures - 1)
             finding = "deliverable:1 - acme defect - breaks callers" if verdict == "FAIL" else "none"
-            text = f"VERDICT: {verdict}\n## Findings\n- {finding}\n"
+            text = f"VERDICT: {verdict}\n## Findings\n- {finding}\n{self.review_extra}"
         else:
             text = "## Summary\nAcme work.\n"
         (workspace / "deliverable").write_text("acme\n")
@@ -229,18 +230,19 @@ class RulesCapTold(unittest.TestCase):
                 "--no-merge": True}
         published = []
 
-        def post(lp, url, verdict):
-            published.append(lp.findings)
-            lp.state["review_posted"] = True
-            return True
+        def github(run_dir, *args):
+            published.append(Path(args[-1].removeprefix("body=@")).read_text())
+            return 0, ""
 
+        # a long report: its kept tail no longer reaches the top
+        self.review_extra = "## Follow-ups\n- acme.py:1 - " + "acme detail " * 1000 + "\n"
         for own in (False, True):
             with self.subTest(own=own), \
                     patch.object(run, "own_pr_orchestrator", return_value=(own, "opus" if own else None)), \
                     patch.object(run, "pr_view", return_value=info), \
                     patch.object(run, "checkout_for", return_value=self.repo), \
                     patch.object(run, "fetch", return_value=(0, "")), \
-                    patch.object(run, "post_review", side_effect=post), \
+                    patch.object(run, "gh", side_effect=github), \
                     patch.object(run, "checks", return_value=(True, "")), \
                     patch.object(run.watch, "ask_inbox", return_value=0), \
                     patch.object(run, "merge_own_pr", side_effect=AssertionError("merged")), \
@@ -253,7 +255,7 @@ class RulesCapTold(unittest.TestCase):
                 why = f"AGENTS.md is {LIMIT + 1} bytes"
                 self.assertEqual(state["verdict"], "FAIL")
                 self.assertIn(why, published[-1])
-                self.assertIn(why, state["findings"])
+                self.assertIn(why, (directory / "result.md").read_text())
                 self.assertIn(why, run.handback_reason(state))
 
     def test_a_read_that_fails_fails_the_check(self):

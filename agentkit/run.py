@@ -2935,17 +2935,16 @@ def review_records(out, text):
     return hand_in.read(written_answer(out, text).parent / hand_in.FILE)
 
 
-def record_findings(lp, out, text, submitted=None, overridden=None):
-    """What the reviewer said, and where the whole of it is, led by why the loop failed a PASS.
+def record_findings(lp, out, text, submitted=None):
+    """What the reviewer said, and where the whole of it is.
 
     Written together everywhere, because a `findings_file` left pointing at another answer
-    would hand the next fixer the wrong review -- worse than the tail it replaces.  The
-    published review, the result and the hand-back all read this text.
+    would hand the next fixer the wrong review -- worse than the tail it replaces.
     """
     source = written_answer(out, text)
     if submitted is None:
         submitted = hand_in.read(source.parent / hand_in.FILE) or hand_in.Review([])
-    text = (f"## Overridden to FAIL\n{overridden}\n\n" if overridden else "") + submitted.text
+    text = submitted.text
     source = source.parent / hand_in.REPORT
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(text)
@@ -2954,6 +2953,17 @@ def record_findings(lp, out, text, submitted=None, overridden=None):
     lp.state["findings"] = text.strip()[-8000:]
     lp.state["findings_file"] = str(source)
     lp.state["review_records"] = submitted.records
+
+
+def overridden_section(state):
+    """Why the loop failed what the reviewer passed, to lead wherever that review is shown.
+
+    It lives in the round's review record, never in the reviewer's text, whose kept tail
+    a long report would push it out of.
+    """
+    review = state.get("review")
+    why = review.get("overridden") if isinstance(review, dict) else None
+    return f"## Overridden to FAIL\n{why}\n\n" if why else ""
 
 
 def saved_findings(run_dir, state):
@@ -3813,7 +3823,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         verdict = "FAIL"
         overridden = "the checkout changed after verification"
         lp.log(f"WARN {overridden}; overriding to FAIL")
-    record_findings(lp, out, text, submitted=submitted, overridden=overridden)
+    record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
     lp.state["followups"] = submitted.followups if verdict == "PASS" else []
     if verdict == "PASS":
@@ -6559,6 +6569,8 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
                   entry["summary"], ""]
     if state.get("error"):
         parts += ["## Why this run stopped", "", state["error"], ""]
+    if state["verdict"] != "PASS" and overridden_section(state):
+        parts += [overridden_section(state)]
     if state["verdict"] != "PASS" and state["findings"]:
         parts += ["## Reviewer findings", "", without_followups(state["findings"]), ""]
     if state.get("notes"):
@@ -10177,7 +10189,7 @@ def post_review(lp, url, verdict):
     path = lp.run_dir / "review.md"
     path.write_text(github_body(
         f"agentkit review of {head[:12]} by {lp.reviewer} (run {lp.run_dir.name})\n\n"
-        + lp.findings.strip() + "\n", lp.run_dir.name))
+        + overridden_section(lp.state) + lp.findings.strip() + "\n", lp.run_dir.name))
     how = "COMMENT" if verdict == "PASS" or lp.state.get("own_pr") else "REQUEST_CHANGES"
     owner, repo, number = PR_PARTS.match(url).groups()
     rc, out = gh(lp.run_dir, "api", f"repos/{owner}/{repo}/pulls/{number}/reviews",
