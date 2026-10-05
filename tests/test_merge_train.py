@@ -133,6 +133,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                             for tree in land._trees(self.turn)[1]))
         current = record.read_state(later)
         current["waiting_on"].pop("land")
+        self.assertEqual(current["waiting_on"].pop("after"), [first.name])
         self.assertEqual(current, original)
         self.assertEqual(run.git(other, "rev-parse", original["branch"]), head)
         self.assertEqual(run.git(other, "worktree", "list", "--porcelain").count("worktree "), 1)
@@ -223,6 +224,9 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         for directory, key in ((first, "land"), (red, "fix"), (later, "land")):
             current = record.read_state(directory)
             current["waiting_on"].pop(key)
+            if key == "land":
+                self.assertEqual(current["waiting_on"].pop("after"),
+                                 [] if directory == first else [first.name])
             self.assertEqual(current, originals[directory])
         self.assert_cleaned()
 
@@ -379,6 +383,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assertEqual([checked for checked, _ in self.trees].count(tree), 1)
         current = record.read_state(later)
         current["waiting_on"].pop("land")
+        self.assertEqual(current["waiting_on"].pop("after"), [head.name])
         self.assertEqual(current, original)
         with record.record(head) as current:
             current["state"] = "running"
@@ -468,6 +473,95 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                             and run.git(self.repo, "show", f"{tree}:base.txt") == "clash"
                             for tree in land._trees(self.turn)[1]))
         self.assert_cleaned()
+
+    def assert_rejoining_member_follows_its_tested_prefix(self, kind):
+        oldest = self.member("oldest", joined=1, **{
+            "oldest.txt": "oldest\n",
+            **({"broken.txt": "broken\n"} if kind == "red" else {}),
+            **({"base.txt": "branch\n"} if kind == "conflict" else {})})
+        later = self.member("later", joined=2, **{"later.txt": "later\n"})
+        last = self.member("last", joined=3, **{"last.txt": "last\n"})
+        if kind == "unavailable":
+            with record.record(oldest) as current:
+                current["review"]["head_sha"] = "f" * 40
+        self.advance(**({"base.txt": "target\n"} if kind == "conflict" else {}))
+        with patch.object(gate, "derived_heavy_limit", return_value=5):
+            land.check_line(self.turn)
+        self.assertIn("fix", self.wait(oldest))
+        self.assertIn("land", self.wait(later))
+        self.assertIn("land", self.wait(last))
+        for directory in (later, last):
+            with record.record(directory) as current:
+                current.update(state="running", pid=5678)
+        run.git(self.repo, "checkout", "ak/oldest")
+        if kind == "red":
+            run.git(self.repo, "rm", "broken.txt")
+            self.commit("repair the reviewed change")
+        elif kind == "conflict":
+            code, _ = run.git_out(self.repo, "rebase", "origin/main")
+            self.assertNotEqual(code, 0)
+            (self.repo / "base.txt").write_text("target\n")
+            run.git(self.repo, "add", "base.txt")
+            run.git(self.repo, "-c", "core.editor=true", "rebase", "--continue")
+        with record.record(oldest) as current:
+            current["review"].update(run.commit_identity(self.repo))
+            current["waiting_on"] = {"line": self.turn.name, "joined": 1}
+        run.git(self.repo, "checkout", "main")
+        with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") == 5678):
+            land.check_line(self.turn)
+            self.assertEqual([d for d, _ in land.line(self.turn)], [later, last, oldest])
+            wait = self.wait(oldest)
+            self.assertEqual(wait["joined"], 1)
+            self.assertEqual(wait["after"], [later.name, last.name])
+            self.assertTrue({"later.txt", "last.txt"} <= self.stacked_files(wait["land"]))
+            loops, merged = {}, []
+            for directory in (oldest, later, last):
+                state = record.read_state(directory)
+                state.update(state="running", pid=5678)
+                lp = SimpleNamespace(state=state, wt=self.repo, run_dir=directory,
+                                     base_sha=self.base, target="main", log=lambda _: None)
+                lp.write = lambda lp=lp: record.save_state(lp.run_dir, lp.state)
+                lp.write()
+                loops[directory] = lp
+
+            def attempt(directory):
+                lp = loops[directory]
+                tree = lp.state["waiting_on"]["land"]
+                run.git(self.repo, "checkout", lp.state["branch"])
+
+                def deliver():
+                    self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), tree)
+                    run.git(self.repo, "push", "origin", "HEAD:main")
+                    lp.state.update(state="pass", merged=True)
+                    merged.append(directory)
+                    return True
+
+                self.assertTrue(run.land_from_line(lp, "origin/main", deliver))
+
+            def wait_for_prefix(_seconds):
+                self.assertEqual(self.wait(oldest), wait)
+                self.assertIn("delivery_wait", record.read_state(oldest))
+                clock.sleep.side_effect = AssertionError("a predecessor waited for its dependent")
+                attempt(later)
+                attempt(last)
+                run.git(self.repo, "checkout", loops[oldest].state["branch"])
+
+            with patch.object(run, "time", wraps=run.time) as clock:
+                clock.sleep.side_effect = wait_for_prefix
+                attempt(oldest)
+            clock.sleep.assert_called_once_with(run.SLOT_POLL)
+            self.assertEqual(merged, [later, last, oldest])
+            self.assertEqual(land.line(self.turn), [])
+        self.assert_cleaned()
+
+    def test_a_repaired_red_member_follows_its_tested_prefix(self):
+        self.assert_rejoining_member_follows_its_tested_prefix("red")
+
+    def test_a_repaired_conflicting_member_follows_its_tested_prefix(self):
+        self.assert_rejoining_member_follows_its_tested_prefix("conflict")
+
+    def test_an_unavailable_member_rejoins_behind_its_tested_prefix(self):
+        self.assert_rejoining_member_follows_its_tested_prefix("unavailable")
 
     def test_a_member_claimed_during_a_stack_check_is_never_sent_a_fix(self):
         first = self.member("first")

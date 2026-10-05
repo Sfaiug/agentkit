@@ -246,6 +246,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
                 # Delivery reparks the follower when its tested prefix leaves the line.
                 with record.record(members[1]) as current:
                     current["waiting_on"].pop("land", None)
+                    current["waiting_on"].pop("after", None)
                 for _ in range(3):
                     self.wake.reset_mock()
                     land.check_line(self.turn)
@@ -255,6 +256,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
                     self.wake.assert_called_once_with(members[1].name, unittest.mock.ANY)
                     with record.record(members[1]) as current:
                         current["waiting_on"].pop("land")
+                        current["waiting_on"].pop("after")
                 self.assert_cleaned()
 
     def test_a_live_rejoiner_behind_a_green_prefix_prevents_a_pass(self):
@@ -265,6 +267,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         with record.record(members[1]) as current:
             current.update(pid=4321)
             current["waiting_on"].pop("land")
+            current["waiting_on"].pop("after")
         self.checks.clear()
         self.wake.reset_mock()
         with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") in (5678, 4321)):
