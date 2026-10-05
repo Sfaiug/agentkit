@@ -1361,16 +1361,34 @@ def listing(reconcile=True):
 
 
 def checkouts():
-    """Named checkouts directly under ~/code and agentkit's own checkout ~/agentkit, which
-    lives beside ~/code rather than in it. A git worktree added beside one (.git is a file)
-    is not listed: `checkout_of` files it under the checkout it was added from, and a second
-    clone at ~/code/agentkit under agentkit's own."""
-    found = ([path for path in config.CODE.iterdir() if (path / ".git").is_dir()]
+    """Named checkouts directly under ~/code, including git worktrees (.git is a file), and
+    agentkit's own checkout ~/agentkit, which lives beside ~/code rather than in it. A
+    worktree added from another of them is not listed: `checkout_of` files it under that
+    one, and a second clone at ~/code/agentkit under agentkit's own."""
+    found = ([path for path in config.CODE.iterdir() if path.is_dir() and (path / ".git").exists()]
              if config.CODE.is_dir() else [])
     own = update.agentkit_dir()
     if (own / ".git").exists() and all(path.resolve() != own.resolve() for path in found):
         found = [path for path in found if path.name != own.name] + [own]
+    mains = {path.resolve() for path in found}
+    found = [path for path in found
+             if not ((added := added_from(path)) and added.resolve() in mains)]
     return sorted(found, key=lambda path: path.name)
+
+
+def added_from(path, read=Path.read_text):
+    """The checkout a git worktree at `path` was added from: its `.git` file names
+    `<checkout>/.git/worktrees/<name>`, as `git worktree add` writes it.  None for a main
+    checkout, anything else, or a `.git` that `read` cannot read."""
+    try:
+        prefix, sep, value = read(Path(path) / ".git").strip().partition(": ")
+    except (OSError, UnicodeDecodeError):
+        return None
+    gitdir = Path(value)
+    if (prefix != "gitdir" or not sep or not gitdir.is_absolute()
+            or gitdir.parent.name != "worktrees" or gitdir.parents[1].name != ".git"):
+        return None
+    return gitdir.parents[2]
 
 
 def checkout_of(repo):
@@ -1378,8 +1396,8 @@ def checkout_of(repo):
 
     A project is a named checkout under `~/code` or agentkit's own, so only a repo
     that is one of `checkouts()` names one: a throwaway repo under ~/.agentkit/tmp, any
-    other path outside ~/code and an unset repo are all no project. A git worktree is the
-    checkout it was added from, wherever it lies.
+    other path outside ~/code and an unset repo are all no project. A git worktree added
+    from one of them is that one, wherever it lies.
     A path under ~/code named like agentkit's own is agentkit's own: a second clone of a
     project is that project, never another heading with the same name.
     """
@@ -1387,18 +1405,16 @@ def checkout_of(repo):
         return None
     try:
         path = Path(repo).resolve()
-        if (path / ".git").is_file():
-            from . import run   # here, not at the top: run imports this module
-            path = run.main_checkout(path)
     except (OSError, ValueError):
         return None
     found = checkouts()
-    for checkout in found:
-        try:
-            if checkout.resolve() == path:
-                return checkout
-        except OSError:
-            continue
+    for candidate in (path, added_from(path)):
+        for checkout in found if candidate else ():
+            try:
+                if checkout.resolve() == candidate.resolve():
+                    return checkout
+            except OSError:
+                continue
     if path.parent == config.CODE.resolve():
         return next((checkout for checkout in found if checkout.name == path.name), None)
     return None
