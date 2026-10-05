@@ -158,7 +158,7 @@ class LeftoverStagedAndSandboxes(unittest.TestCase):
             (repo / name).mkdir()
             (repo / name / "tool").write_text("stub\n")
         (repo / "app.py").write_text("value = 2\n")
-        run.commit_leftovers(repo, self.logs.append, set(), "fix api")
+        run.commit_leftovers(repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(self.committed(repo), ["app.py"])
         run.sweep_sandboxes(repo, self.logs.append)
         self.assertEqual([name for name in names if (repo / name).exists()], [])

@@ -1828,7 +1828,7 @@ def leftover_junk(path):
                    for part in parts))
 
 
-def commit_leftovers(wt, log, artifacts, title):
+def commit_leftovers(wt, log, artifacts, state):
     """Commit whatever the executor left uncommitted, so the reviewer sees a real diff.
 
     The commit carries the run's title: a lone commit's headline becomes its squash merge's
@@ -1887,7 +1887,7 @@ def commit_leftovers(wt, log, artifacts, title):
                 git(wt, "add", "--", *real, env=index)
             if gone:
                 git(wt, "rm", "-q", "--cached", "--", *gone, env=index)
-            git(wt, "commit", "-m", title, env=index)
+            git(wt, "commit", "-m", state["title"], env=index)
     except Stopped:
         # a git that stopped verifies nothing: the round ends on the stop, never on a review
         # of a diff the loop did not pin
@@ -2796,7 +2796,7 @@ def verify_work(lp, cmds=None):
         cmds = lp.every
     lp.step("done-when")
     if not lp.scratch and not lp.state.get("review_pr"):
-        commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state["title"])
+        commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
     checks = (files_scope(lp), rules_cap(lp))
     lp.validation = {} if lp.scratch else commit_identity(lp.wt)
     clean = lp.scratch or lp.state.get("review_pr") or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
@@ -3621,7 +3621,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             head = lp.state["head_sha"]
             restore_review_checkout(lp, "tests")
         else:
-            commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state["title"])
+            commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
         diff = git(lp.wt, "diff", f"{lp.base_sha}...{head}", check=False)
         if len(diff) > DIFF_CAP:
             diff = diff[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
@@ -5707,7 +5707,7 @@ def end_on_dependency(cfg, run_dir, state, log, why):
                         f"and is kept with that work")
                 state["checkout_kept"] = True
             else:
-                commit_leftovers(wt, log, set(), state["title"])
+                commit_leftovers(wt, log, set(), state)
                 if any(not leftover_junk(path) for path in dirty_paths(wt)):
                     why += (f"; its uncommitted work could not be committed, so its checkout "
                             f"{wt} is kept")

@@ -51,7 +51,7 @@ class NoSandboxCommit(unittest.TestCase):
         before = self.head()
         self.write_sandbox(".ak-test-acceptance-xyz", "stub/git", "stub/ssh")
         self.write_sandbox(".ak-test-phone-abc", "adapters/echo.sh")
-        run.commit_leftovers(self.repo, self.logs.append, set(), "fix api")
+        run.commit_leftovers(self.repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(self.head(), before)
         self.assertTrue((self.repo / ".ak-test-acceptance-xyz" / "stub" / "git").exists())
 
@@ -61,13 +61,13 @@ class NoSandboxCommit(unittest.TestCase):
         run.git(self.repo, "commit", "-m", "ignore logs")
         (self.repo / "debug.log").write_text("noise\n")
         (self.repo / "app.py").write_text("value = 2\n")
-        run.commit_leftovers(self.repo, self.logs.append, set(), "fix api")
+        run.commit_leftovers(self.repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(self.committed(), ["app.py"])
         self.assertTrue((self.repo / "debug.log").exists())
 
     def test_real_untracked_source_file_is_committed(self):
         (self.repo / "feature.py").write_text("new = True\n")
-        run.commit_leftovers(self.repo, self.logs.append, set(), "fix api")
+        run.commit_leftovers(self.repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(self.committed(), ["feature.py"])
         self.assertEqual(self.sandbox_lines(), [])
         self.assertTrue(any("committed uncommitted executor changes" in line
@@ -78,7 +78,7 @@ class NoSandboxCommit(unittest.TestCase):
         self.write_sandbox(".ak-test-acceptance-two", "c")
         self.write_sandbox(".ak-test-phone-three", "d")
         self.write_sandbox(".ak-test-smoke-four", "e")
-        run.commit_leftovers(self.repo, self.logs.append, set(), "fix api")
+        run.commit_leftovers(self.repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(len(self.sandbox_lines()), 1)
         line = self.sandbox_lines()[0]
         self.assertIn("left 5 untracked sandbox files uncommitted", line)
@@ -94,7 +94,7 @@ class NoSandboxCommit(unittest.TestCase):
         (self.repo / "debug.log").write_text("noise\n")
         (self.repo / "feature.py").write_text("new = True\n")
         with patch.object(run, "dirty_paths", return_value=["debug.log", "feature.py"]):
-            run.commit_leftovers(self.repo, self.logs.append, set(), "fix api")
+            run.commit_leftovers(self.repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(self.committed(), ["feature.py"])
 
     def test_sweep_removes_a_killed_tests_sandbox(self):
@@ -111,7 +111,7 @@ class NoSandboxCommit(unittest.TestCase):
         run.git(self.repo, "commit", "-m", "ignore phone sandboxes")
         before = self.head()
         self.write_sandbox(".ak-test-phone-xyz", "stub/git", "stub/ssh")
-        run.commit_leftovers(self.repo, self.logs.append, set(), "fix api")
+        run.commit_leftovers(self.repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(self.head(), before)
         self.assertEqual(len(self.sandbox_lines()), 1)
         line = self.sandbox_lines()[0]
@@ -125,7 +125,7 @@ class NoSandboxCommit(unittest.TestCase):
         run.git(self.repo, "commit", "-m", "ignore smoke sandboxes")
         self.write_sandbox(".ak-test-smoke-xyz", "stub/git")
         (self.repo / "feature.py").write_text("new = True\n")
-        run.commit_leftovers(self.repo, self.logs.append, set(), "fix api")
+        run.commit_leftovers(self.repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(self.committed(), ["feature.py"])
         self.assertEqual(len(self.sandbox_lines()), 1)
         self.assertIn("left 1 untracked sandbox files uncommitted", self.sandbox_lines()[0])
@@ -134,7 +134,7 @@ class NoSandboxCommit(unittest.TestCase):
         path = self.repo / "src" / ".ak-test-keep" / "note.txt"
         path.parent.mkdir(parents=True)
         path.write_text("real work\n")
-        run.commit_leftovers(self.repo, self.logs.append, set(), "fix api")
+        run.commit_leftovers(self.repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(self.committed(), ["src/.ak-test-keep/note.txt"])
         self.assertEqual(self.sandbox_lines(), [])
 

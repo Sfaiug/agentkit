@@ -148,14 +148,14 @@ class ReviewerEdits(unittest.TestCase):
         self.assertEqual((self.wt / "tracked.txt").read_text(), "executor work\n")
         self.assertEqual(run.dirty_paths(self.wt), ["keep/existing.txt"])
         self.assertEqual((self.wt / "keep/existing.txt").read_text(), "suite artifact\n")
-        run.commit_leftovers(self.wt, self.logs.append, self.lp.artifacts, "fix api")
+        run.commit_leftovers(self.wt, self.logs.append, self.lp.artifacts, self.lp.state)
         self.assertEqual(self.git("rev-parse", "HEAD"), self.head)
 
     def test_new_file_never_reaches_next_round(self):
         self.assertEqual(self.review({"files": {"keep/reviewer.txt": "reviewer file\n"},
                                       "text": "VERDICT: FAIL\n## Findings\n"
                                               "- tracked.txt:1 - wrong outcome - correctness"}), "FAIL")
-        run.commit_leftovers(self.wt, self.logs.append, self.lp.artifacts, "fix api")
+        run.commit_leftovers(self.wt, self.logs.append, self.lp.artifacts, self.lp.state)
         self.assertEqual(self.git("rev-parse", "HEAD"), self.head,
                          "the next round committed the reviewer's untracked file")
         self.assert_restored()
@@ -476,7 +476,7 @@ class ReviewerEdits(unittest.TestCase):
                     self.assert_restored()
                     self.assertIn("# checkout:", self.archive.read_text())
                     (self.wt / "fixer.txt").write_text("fixer work\n")
-                    run.commit_leftovers(self.wt, self.logs.append, self.lp.artifacts, "fix api")
+                    run.commit_leftovers(self.wt, self.logs.append, self.lp.artifacts, self.lp.state)
                     self.assertNotEqual(self.git("rev-parse", "ak/fix-api"), self.head)
                     self.assertEqual(self.git("rev-parse", "ak/fix-api"),
                                      self.git("rev-parse", "HEAD"))
