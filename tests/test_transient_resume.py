@@ -369,7 +369,6 @@ class TransientResume(unittest.TestCase):
                 patch.object(run, "history_start"), \
                 patch.object(run, "exclude_junk"), \
                 patch.object(run, "collect_usage", return_value={}), \
-                patch.object(run, "project_lessons", return_value=""), \
                 patch.object(run, "review", side_effect=run.CannotRun("mimo", line)), \
                 patch.object(run, "post_review", side_effect=AssertionError("posted")):
             state = run.review_pr(self.cfg, run_dir, "https://github.com/o/r/pull/1",

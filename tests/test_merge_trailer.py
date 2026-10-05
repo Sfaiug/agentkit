@@ -304,7 +304,7 @@ class MergeTrailer(unittest.TestCase):
                                 ("fetch", (0, "")), ("make_worktree", (self.repo, "ak/fix-api")),
                                 ("collect_usage", {}), ("post_review", True),
                                 ("checks", (True, "")),
-                                ("join_session_project", None), ("project_lessons", "")):
+                                ("join_session_project", None)):
                 mocks.enter_context(patch.object(run, name, return_value=value))
             mocks.enter_context(patch.object(gc, "disk_pressure", return_value=False))
             mocks.enter_context(patch.object(run, "gh_json", side_effect=gh_json))

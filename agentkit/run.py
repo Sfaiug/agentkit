@@ -393,25 +393,6 @@ def gh(cwd, *args, timeout=None):
     return code, (out + err).strip()
 
 
-def project_lessons(repo):
-    """Read the orchestrator's repository facts once for this loop's worker prompts."""
-    if repo is None:
-        return ""
-    directory = config.HOME / "lessons"
-    path = directory / f"{Path(repo).name}.md"
-    try:
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        data = path.read_bytes()
-    except FileNotFoundError:
-        return ""
-    except OSError as exc:
-        raise config.Error(f"cannot read {path}: {exc}") from exc
-    text = data.decode("utf-8", errors="ignore")
-    return ("\n\n## Project lessons\n"
-            "Facts earlier runs in this repository learned. Follow them; they are not part "
-            f"of this task's scope.\n\n{text}")
-
-
 def repo_rules(wt, ref):
     """The body of the repository's AGENTS.md at `ref`, for every worker prompt.
 
@@ -6014,7 +5995,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     else:
         cmds = with_suite(cmds, wt, target, landing=not state.get("no_merge"))
     every, once = taskfile.group_commands(cmds)
-    body += project_lessons(repo) + repo_rules(wt, state.get("base_sha"))
+    body += repo_rules(wt, state.get("base_sha"))
     run_record.save_state(run_dir, state)
     context = (f"{where}\n\n{body}\n\n"
                f"{shell_foreground_note()}\n\n"
@@ -10511,8 +10492,7 @@ def cmd_merge(argv):
     _, body, _ = taskfile.parse_task(run_dir / "task.md")
     cmds = with_suite(taskfile.done_when(body, run_dir / "task.md"), state["worktree"],
                       state.get("target") or state.get("base"))
-    body += (project_lessons(state.get("repo") or None)
-             + repo_rules(state["worktree"], state.get("base_sha")))
+    body += repo_rules(state["worktree"], state.get("base_sha"))
     run_record.save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
@@ -11679,7 +11659,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         print(launch_line(run_dir.name, title, None, reviewer,
                           self_review=bool(is_own and same_model(cfg, orchestrator,
                                                                  reviewer))))
-    body += project_lessons(repo) + repo_rules(wt, base_sha)
+    body += repo_rules(wt, base_sha)
     run_record.save_state(run_dir, state)
     context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)
