@@ -249,6 +249,27 @@ class PlanBar(Sandbox):
                     self.assertIn("1/9", terminal.plain("".join(bar)))
                     self.assertIn("Merge #75 first?", terminal.plain(" ".join(ask)))
 
+    def test_a_row_s_head_never_runs_past_the_screen(self):
+        # the widest number, name, model and state at once: the name and the model share what
+        # the number and the state leave, so every head fits and the states start in one column
+        narrow = {"number": "1", "name": "acme", "orchestrator": "gpt-astra", "count": "working",
+                  "word": "working", "sentence": "", "bar": (3, 7), "runs": []}
+        wide = {"number": "1234", "name": "acme-integration-testing",
+                "orchestrator": "acme-model-max", "count": "needs you", "word": "needs you",
+                "sentence": "Merge first?", "bar": None, "runs": []}
+        for width in range(6, 131):
+            for depth in (0, 24):
+                with self.subTest(width=width, depth=depth), \
+                        patch.object(terminal, "colour_depth", return_value=depth):
+                    rows = [menu.v5o_seat_blocks(infos, width) for infos in
+                            ([narrow], [wide], [dict(wide, sentence="")], [narrow, wide])]
+                    for line in (line for blocks in rows for block in blocks for line in block):
+                        self.assertLessEqual(terminal.cells(line), min(width, 100), line)
+                    if width >= 30 and not depth:
+                        heads = [block[0] for block in rows[-1]]
+                        self.assertEqual(heads[0].index("● working"), heads[1].index("! needs you"),
+                                         heads)
+
     def test_a_phone_s_tasks_line_never_runs_past_the_screen(self):
         # the line under a narrow row is all the room there is: beside `solo` and a long count
         for width, done, total in ((22, 127, 143), (24, 4999, 9999), (30, 3, 7), (40, 3, 7)):
