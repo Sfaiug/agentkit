@@ -100,8 +100,8 @@
 - `scoreboard.py`: two weeks of work, ak's cost, committed size, words and wrapping.
   `compute`, `render` for run history.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
-  cleanup, compression. For gc, run, orch, update, notify. Leaks: Claude and Codex
-  config formats.
+  cleanup, compression; a harness config's stale trust and MCP entries, where its plugin
+  says they are (`config_entries`). For gc, run, orch, update, notify.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
   every listing screen. Used by menu, usage, orch, watch, run, motion.
 - `motion.py`: one clock: time, easing, what moves; for menu, orch, terminal.
@@ -126,8 +126,9 @@
   screen rules, stall/quota/auth/resume words, compact, effort, catalog, contract-check model/effort.
 - `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
   resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`, `register_mcp`.
-  `user_messages`: timed owner input without notices or ak typing; `failure`: turn/seat
-  failures in whole `[stall]` words. For orch, usage, update, run, gc, menu, watch, browser.
+  `config_entries`: every plugin's trust and MCP tables. `user_messages`: timed owner input
+  without notices or ak typing; `failure`: turn/seat failures in whole `[stall]` words. For
+  orch, usage, update, run, gc, menu, watch, browser, retention.
   Leak: orch imports `harness.claude`.
 
 ## hooks/, tools/, tests/

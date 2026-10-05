@@ -390,6 +390,11 @@ def _write(path, data):
         raise
 
 
+def config_entries():
+    """The user-scope ~/.claude.json: `register_mcp` and tools/trust.py write there."""
+    return {"file": Path.home() / ".claude.json", "trust": "projects", "mcp": "mcpServers"}
+
+
 def register_mcp(servers):
     """Put `servers` into ~/.claude.json's top-level mcpServers, user scope, in place.
 
@@ -397,7 +402,7 @@ def register_mcp(servers):
     from before is replaced whole, leaving no stale command behind.
     """
     from .. import config
-    path = Path.home() / ".claude.json"      # user scope lives at the top level
+    path = config_entries()["file"]      # user scope lives at the top level
     data = {}
     if path.exists():
         try:
