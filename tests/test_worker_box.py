@@ -222,6 +222,34 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual((seen["paths"], seen["agent"]), ([""], False))
         self.assertEqual(key.read_text(), "fixture-key")
 
+    def test_an_agent_socket_inside_a_hidden_directory_still_starts(self):
+        for place in (".ssh/agent", ".git-credential-cache/agent", ".cache/git/credential/agent"):
+            with self.subTest(place=place):
+                sock = self.root / place
+                sock.parent.mkdir(parents=True, exist_ok=True)
+                sock.write_text("")
+                with patch.dict(os.environ, {"SSH_AUTH_SOCK": str(sock)}):
+                    code, _, _, killed, _ = self.turn()
+                self.assertEqual((code, killed), (0, False), self.logs)
+                self.stop_child()
+
+    def test_keys_linked_into_ssh_stay_out_of_reach(self):
+        vault, keys = self.root / "vault", self.root / "keydir"
+        vault.mkdir()
+        keys.mkdir()
+        (vault / "id_linked").write_text("fixture-key")
+        (keys / "id_dir").write_text("fixture-key")
+        ssh = self.root / ".ssh"
+        ssh.mkdir()
+        (ssh / "id_linked").symlink_to("../vault/id_linked")
+        (ssh / "keys").symlink_to(keys)
+        paths = [vault / "id_linked", keys / "id_dir"]
+        with patch.dict(os.environ, {"BOX_PATHS": json.dumps([str(path) for path in paths])}):
+            code, text, _, killed, _ = self.turn()
+        self.assertEqual((code, killed), (0, False))
+        self.assertEqual(json.loads(text)["paths"], ["", ""])
+        self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * 2)
+
     def test_files_writes_identity_environment_and_exit_status_stay_the_same(self):
         with patch.dict(os.environ, {"BOX_LEAK": "0", "BOX_INSPECT": "1", "BOX_EXIT": "7",
                                      "FIXTURE_PROVIDER_TOKEN": "fixture-provider"}):

@@ -25,6 +25,14 @@ TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_
 PROCESSES = "box-processes.json"
 
 
+def _links(root):
+    found = []
+    for directory, subdirs, names in os.walk(root):
+        found.extend(path for path in (Path(directory, name) for name in subdirs + names)
+                     if path.is_symlink())
+    return found
+
+
 def _credentials(env, cwd):
     homes = {Path(env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
     configs = {home / ".config" for home in homes}
@@ -38,11 +46,15 @@ def _credentials(env, cwd):
         caches.add(Path(env["XDG_CACHE_HOME"]))
     directories = {home / ".git-credential-cache" for home in homes}
     directories.update(root / "git/credential" for root in caches)
-    # A worker reaches no server: only the orchestrator's own shell holds SSH keys and agent.
-    directories.update(home / ".ssh" for home in homes)
     files = {home / ".git-credentials" for home in homes}
     files.update(root / "git/credentials" for root in configs)
     files.update(root / "hosts.yml" for root in gh)
+    # A worker reaches no server: only the orchestrator's own shell holds SSH keys and agent.
+    for ssh in (home / ".ssh" for home in homes):
+        directories.add(ssh)
+        # A key linked in from elsewhere stays readable at its target unless that is hidden too.
+        for link in _links(ssh):
+            (directories if link.is_dir() else files).add(link)
     if env.get("SSH_AUTH_SOCK"):
         files.add(Path(env["SSH_AUTH_SOCK"]))
     # A named credential store is just as readable as the default one. Ask Git so
@@ -149,10 +161,14 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             continue
         cmd.extend(["--bind", str(path), str(path)])
     directories, files = _credentials(clean, cwd)
+    hidden = {path.resolve() for path in directories if path.exists()}
     for paths, option in ((directories, "--tmpfs"), (files, "--dev-bind")):
         # Mount the real target too: a sandbox HOME often links the account's login.
         targets = {path.resolve() for path in paths if path.exists()}
         for path in sorted(targets):
+            # Inside a hidden directory it is gone already, and no mount point can be made there.
+            if any(parent in hidden for parent in path.parents):
+                continue
             cmd.extend([option, str(path), "--remount-ro", str(path)] if option == "--tmpfs" else
                        [option, "/dev/null", str(path)])
     if out_dir is None:
