@@ -258,6 +258,33 @@ class RulesCapTold(unittest.TestCase):
                 self.assertIn(why, (directory / "result.md").read_text())
                 self.assertIn(why, run.handback_reason(state))
 
+    def test_a_linked_agents_md_is_refused_never_read_as_rules(self):
+        (self.repo / "acme-rules.md").write_text("Acme rules.\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "rules beside no AGENTS.md")
+        lp = self.loop()
+        self.path.symlink_to("acme-rules.md")
+        self.git("add", ".")
+        self.git("commit", "-qm", "linked AGENTS.md")
+        with self.subTest(case="added"):
+            failure = run.rules_cap(lp)
+            self.assertTrue(failure.startswith("AGENTS.md is a link"), failure)
+            self.assertTrue(run.LOOP_NOTE.match(failure))
+            self.assertEqual(run.repo_rules(self.repo, "HEAD"), "")
+        lp.state["base_sha"] = self.git("rev-parse", "HEAD")
+        (self.repo / "deliverable").write_text("acme\n")
+        self.git("add", "deliverable")
+        self.git("commit", "-qm", "leave the rules alone")
+        with self.subTest(case="untouched"):
+            self.assertEqual(run.rules_cap(lp), "")
+        self.path.unlink()
+        self.path.write_text("Acme rules.\n")
+        self.git("add", "AGENTS.md")
+        self.git("commit", "-qm", "rules in AGENTS.md itself")
+        with self.subTest(case="made a file"):
+            self.assertEqual(run.rules_cap(lp), "")
+            self.assertTrue(run.repo_rules(self.repo, "HEAD").endswith("Acme rules.\n"))
+
     def test_a_read_that_fails_fails_the_check(self):
         # only a deleted file counts as nothing: a smudge filter that fails leaves the size unknown
         (self.repo / ".gitattributes").write_text("AGENTS.md filter=broken\n")
