@@ -3080,7 +3080,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             return None
         cfg = report_config(cfg)
         record = config.session_records().get(config.resolve_session(session), {})
-        if record.get("solo") or record.get("workers") == []:
+        if record.get("workers") == []:
             return None
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
@@ -11251,9 +11251,6 @@ def main(argv):
     # a --bg child carries on the receipt its launch prepared, with the executors it saved
     if not opts["--review-pr"] and not (queued_child and queued(Path(queued_child))):
         selection = config.active_session(cfg)
-        if selection and selection.get("solo"):
-            command = shlex.join(["ak", "orch", "solo", selection["name"], "off"])
-            raise config.Error(f"solo is on for {selection['name']!r}; turn it off with `{command}`.")
         if selection and selection.get("workers") == []:
             raise config.Error(f"{selection['name']} has no executor: build it in the session, "
                                "or add an executor on its models screen.")

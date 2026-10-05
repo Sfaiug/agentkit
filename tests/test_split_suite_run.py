@@ -191,13 +191,14 @@ class SplitSuiteRun(unittest.TestCase):
         self.assertEqual(len(self.prepared), 1)
         self.assertTrue(any("fixture launch failure" in line for line in self.logs))
 
-    def test_closed_solo_and_seatless_runs_do_not_consume_the_line(self):
+    def test_closed_executorless_and_seatless_runs_do_not_consume_the_line(self):
         path = self.measure()
         with patch.object(watch, "seat_closed", return_value=True):
             self.start()
-        config.update_session("seat", solo=True)
+        workers = config.session_records()["seat"].get("workers")
+        config.update_session("seat", workers=[])          # it launches no task
         self.start()
-        config.update_session("seat", solo=False)
+        config.update_session("seat", workers=workers)
         self.lp.state["launched_session"] = None
         self.start()
         self.assertEqual(self.spawned, [])

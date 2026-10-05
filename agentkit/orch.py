@@ -2860,30 +2860,10 @@ def changed_files(state, directory):
         return []
 
 
-def set_solo(name, enabled=None):
-    """Save the seat's solo switch; None toggles it under the same lock as other seat writes."""
-    from . import notify
-    with notify.session_lock(name) as name:
-        record = config.load_session(config.load(), name, required=False)
-        if record is None:
-            raise config.Error(f"no orchestrator session {name!r}")
-        enabled = not record.get("solo", False) if enabled is None else enabled
-        config.update_session(name, solo=enabled)
-    return name, enabled
-
-
-def cmd_solo(argv):
-    if len(argv) != 2 or argv[1] not in ("on", "off"):
-        raise config.Error("usage: ak orch solo <session> on|off")
-    name, enabled = set_solo(argv[0], argv[1] == "on")
-    print(f"solo {name}: {'on' if enabled else 'off'}")
-    return 0
-
-
 USAGE = ("usage: ak orch [name] [--model NAME] [--workers A,B] [--dry-run] | "
          "ak orch list [--why] | ak orch why NAME | "
          "ak orch stop <name> | ak orch rename [--auto] [OLD] NEW | "
-         "ak orch project [<seat>] <checkout> | ak orch solo <session> on|off")
+         "ak orch project [<seat>] <checkout>")
 
 
 def parse(argv):
@@ -3612,8 +3592,6 @@ def main(argv):
         return cmd_rename(argv[1:])
     if argv[:1] == ["project"]:
         return cmd_project(argv[1:])
-    if argv[:1] == ["solo"]:
-        return cmd_solo(argv[1:])
     name, forced, forced_workers, dry_run = parse(argv)
     if not dry_run:
         maintenance()

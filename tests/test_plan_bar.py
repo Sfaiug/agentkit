@@ -214,19 +214,19 @@ class PlanBar(Sandbox):
         self.assertEqual(terminal.cells(tail), 50)
         for line in self.draw(100) + lines:
             self.assertNotRegex(line, r"~\d+[mhd] left")
-        # eleven cells hold the bar and its chip; a column too short for it, beside `solo`,
-        # draws it whole under the row: never wrapped or cut, its colours kept
+        # eleven cells hold the bar and its chip; a column too short for it draws it whole
+        # under the row: never wrapped or cut, its colours kept
         info = {"number": "1", "name": "acme-progress-checks", "orchestrator": "gpt-astra",
                 "count": "working", "word": "working", "sentence": "", "bar": (0, 6),
                 "runs": [run("building")]}
         with patch.object(terminal, "colour_depth", return_value=24):
             [line] = menu.v5o_seat_blocks([info], 60)[0]
-            head, under = menu.v5o_seat_blocks([dict(info, solo=True)], 60)[0]
-        for drawn in (line, under):
-            self.assertEqual(terminal.cells(drawn), 60)
+            head, under = menu.v5o_seat_blocks([info], 59)[0]
+        for drawn, width in ((line, 60), (under, 59)):
+            self.assertEqual(terminal.cells(drawn), width)
             self.assertIn("48;2;137;180;250m 0/6 ", drawn)          # the chip, on the fill
         self.assertTrue(terminal.plain(head).endswith("● working"), head)
-        self.assertTrue(under.startswith("    solo · "), under)
+        self.assertTrue(under.startswith("    "), under)
         self.assertFalse(hasattr(menu, "seat_estimate"))
         self.assertFalse(hasattr(history, "estimate_seconds"))
 
