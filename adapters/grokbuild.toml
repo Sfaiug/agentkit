@@ -2,7 +2,7 @@
 # The captures behind the screen rules are tests/fixtures/grok-*.txt; the trust dialog's
 # words are the executable's own strings (1.0.40), because no fresh folder on this host was
 # still untrusted enough to paint it.  Every other string here was seen on the wire.
-# A worker turn still loads AGENTS.md, a top-level CLAUDE.md and ~/.grok/AGENTS.md: grok 1.0.40 has no switch for them.
+# A worker turn or seat still loads AGENTS.md, a top-level CLAUDE.md and ~/.grok/AGENTS.md: grok 1.0.40 has no switch for them.
 version = 1
 
 [check]

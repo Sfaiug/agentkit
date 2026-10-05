@@ -298,6 +298,23 @@ class OneRulebook(unittest.TestCase):
             self.assertEqual(others, [], f"{harness} names another state file: {others}")
             self.seat_wrapper_passes_the_rulebook_through(harness, words, paths)
 
+    def test_a_seat_loads_no_instruction_file_or_memory_its_worker_switches_off(self):
+        # each adapter's worker switches, as its `run` sets them: a seat's rules are its
+        # rulebook, the project's AGENTS.md in it, and nothing its harness finds on disk
+        switches = {"claude": ("CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"),
+                    "codex": ("project_doc_max_bytes=0",),
+                    "grokbuild": tuple(f"GROK_{name}_ENABLED=false" for name in (
+                        "CLAUDE_AGENTS", "CLAUDE_RULES", "CLAUDE_SKILLS", "CURSOR_RULES",
+                        "CURSOR_SKILLS")),
+                    "opencode": ("OPENCODE_DISABLE_PROJECT_CONFIG=1",
+                                 "OPENCODE_CONFIG_PROJECT_DISABLE=1")}
+        for harness, wanted in switches.items():
+            script = (REPO / f"adapters/{harness}.sh").read_text()
+            words = self.interactive(harness)
+            for switch in wanted:
+                self.assertIn(switch, script.partition("interactive)")[0], f"{harness} worker")
+                self.assertIn(switch, words, f"{harness} seat")
+
     def seat_wrapper_passes_the_rulebook_through(self, harness, words, paths):
         """Where the rulebook reaches the harness through a seat wrapper -- a program
         on the line whose own arguments name the rulebook file -- the wrapper is run

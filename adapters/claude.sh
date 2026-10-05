@@ -147,8 +147,10 @@ interactive)
   # CLAUDE_CODE_DISABLE_AGENT_VIEW keeps the conversation in this seat: with Claude's
   # background daemon on, `/background` moved a seat's conversation into a daemon process that
   # carried whichever seat had started the daemon, so its hooks and `ak` commands spoke for
-  # that other seat and its resume reopened the conversation from before the move.
-  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 '
+  # that other seat and its resume reopened the conversation from before the move.  No
+  # CLAUDE.md or .claude/rules and no auto-memory reach a seat either, as none reach a worker:
+  # its rules are its rulebook, the project's AGENTS.md included (`config.seat_rulebook`).
+  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 '
   # Seat preparation runs in the seat's actual cwd before the TUI, on either login: bypass
   # permissions, and the first-run questions answered, trust in this directory among them.
   printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"

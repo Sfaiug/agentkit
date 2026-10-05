@@ -158,8 +158,10 @@ interactive)
   # instead of the "do you trust the contents of this directory?" dialog (whose default is
   # "No, quit"); --always-approve is the seat's standing permission mode.  The printed
   # command runs later, outside this adapter's environment, so an account's home rides it.
+  # The instruction files it reads for Claude and Cursor are off, as for a worker: the seat's
+  # rulebook carries its project's AGENTS.md (`config.seat_rulebook`).
   [ -z "$ACCOUNT" ] || printf 'env -u XAI_API_KEY GROK_HOME=%q ' "$GROK_HOME"
-  printf 'python3 %q --harness grokbuild -- grok %s%s--trust --always-approve --model %q --reasoning-effort %q\n' \
+  printf 'python3 %q --harness grokbuild -- env GROK_CLAUDE_AGENTS_ENABLED=false GROK_CLAUDE_RULES_ENABLED=false GROK_CLAUDE_SKILLS_ENABLED=false GROK_CURSOR_RULES_ENABLED=false GROK_CURSOR_SKILLS_ENABLED=false grok %s%s--trust --always-approve --model %q --reasoning-effort %q\n' \
       "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" ;;
 usage)
   # No login is a failed probe, not a missing meter: without one an unauthenticated xai

@@ -164,7 +164,9 @@ interactive)
   if [ -n "$ACCOUNT" ]; then
     printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME=%q ' "$CODEX_HOME"
   fi
-  printf "python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"'\n" \
+  # project_doc_max_bytes=0 keeps the repository's AGENTS.md out, as it does for a worker:
+  # the seat's rulebook carries its project's (`config.seat_rulebook`).
+  printf "python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"' -c project_doc_max_bytes=0\n" \
       "$REPO/tools/idle-compact.py" "$REPO/tools/codex-seat.py" "$rules" \
       "$resume" "$mflag" "$2" ;;
 usage)
