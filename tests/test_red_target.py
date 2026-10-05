@@ -177,7 +177,7 @@ class RedTarget(unittest.TestCase):
         state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["round_summaries"], history)
-        self.assertGreater(state["waiting_on"]["joined"], 1)
+        self.assertEqual(state["waiting_on"]["joined"], 1)
         self.assertNotIn("repair", state["waiting_on"])
         self.assertFalse((run_dir / "target-probe.log").exists())
 
