@@ -58,7 +58,9 @@ def compute(now=None):
         run_time = sum(row["total_seconds"] for row in recorded)
         waits.append({"compute": sum(row["slot_wait_seconds"] + row["suite_wait_seconds"]
                                      for row in recorded) / run_time,
-                      "merge_hours": sum(row["merge_wait_seconds"] for row in recorded) / 3600}
+                      "merge_hours": sum(row["merge_wait_seconds"] for row in recorded) / 3600,
+                      "lander_hours": sum(row.get("lander_wait_seconds") or 0.0
+                                          for row in recorded) / 3600}
                      if run_time else None)
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
@@ -130,7 +132,8 @@ def render():
         if stats is None:
             return "not recorded"
         return (f"{stats['compute']:.0%} of run time waiting for a slot or its own suite turn; "
-                f"{stats['merge_hours']:.1f} hours in a landing line")
+                f"{stats['merge_hours']:.1f} hours in a landing line, where checks waited "
+                f"{stats['lander_hours']:.1f} hours for a suite turn")
 
     def size(stats):
         if stats is None:

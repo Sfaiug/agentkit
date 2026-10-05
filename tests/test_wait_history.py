@@ -573,6 +573,88 @@ class WaitHistory(unittest.TestCase):
                 record.save_state(directory, state)
                 self.assertEqual(self.waits(directory.name), (0.0, 0.0, 685.0))
 
+    def test_a_landing_checks_wait_for_a_heavy_turn_is_kept_beside_the_line_wait(self):
+        clock = [1000.0]
+        for target, value in ((time, "time"), (time, "monotonic")):
+            self.stack.enter_context(patch.object(target, value, lambda: clock[0]))
+        self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
+        for module, name, options in (
+                (config, "max_gates", {"return_value": 1}),
+                (run, "commit_identity", {"return_value": {"head_sha": "a", "tree_sha": "b"}}),
+                (run, "git_out", {"return_value": (0, "")}),
+                (gate, "run_done_when", {"return_value": (True, "passed")}),
+                (land, "start_line", {"return_value": False})):
+            self.stack.enter_context(patch.object(module, name, **options))
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        directory = config.RUNS / "fix-api"
+        directory.mkdir()
+        history.start_run(directory.name, repo="acme", started_at=clock[0])
+        state = {"run_id": directory.name, "state": "waiting", "pid": None,
+                 "repo": str(self.root / "acme"), "started_at": clock[0],
+                 "waiting_on": {"line": ".merge-fixture.lock", "joined": clock[0]}}
+        record.save_state(directory, state)
+        with gate.gate_lock(None, 0).open("a") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+
+            def release(_seconds):
+                clock[0] += 1800
+                # The lander counts it as it polls, beside the line time the record keeps.
+                self.assertEqual(history.get(directory.name)["lander_wait_seconds"], 0.0)
+                fcntl.flock(holder, fcntl.LOCK_UN)
+            with patch.object(time, "sleep", release):
+                self.assertTrue(land._check(directory, state, scratch, ["true"],
+                                            directory / "lander.log", lambda _: None)[0])
+        self.assertEqual(history.get(directory.name)["lander_wait_seconds"], 1800.0)
+        clock[0] += 1800
+        with record.record(directory) as current:
+            current.update(state="pass", merged=True, finished_at=clock[0])
+        history.finish_run(directory.name, final_state="pass", finished_at=clock[0])
+        self.assertEqual(self.waits(directory.name), (0.0, 0.0, 3600.0))
+        self.assertEqual(history.get(directory.name)["lander_wait_seconds"], 1800.0)
+        with patch.object(time, "time", return_value=clock[0]):
+            self.assertIn("1.0 hours in a landing line, where checks waited 0.5 hours for a suite turn",
+                          self.board_row())
+
+    def test_a_landing_check_stops_counting_once_its_member_leaves_the_line(self):
+        clock = [1000.0]
+        for target, value in ((time, "time"), (time, "monotonic")):
+            self.stack.enter_context(patch.object(target, value, lambda: clock[0]))
+        self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
+        for module, name, options in (
+                (config, "max_gates", {"return_value": 1}),
+                (run, "commit_identity", {"return_value": {"head_sha": "a", "tree_sha": "b"}}),
+                (run, "git_out", {"return_value": (0, "")}),
+                (gate, "run_done_when", {"return_value": (True, "passed")}),
+                (land, "start_line", {"return_value": False})):
+            self.stack.enter_context(patch.object(module, name, **options))
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        directory = config.RUNS / "fix-api"
+        directory.mkdir()
+        history.start_run(directory.name, repo="acme", started_at=clock[0])
+        state = {"run_id": directory.name, "state": "waiting", "pid": None,
+                 "repo": str(self.root / "acme"), "started_at": clock[0],
+                 "waiting_on": {"line": ".merge-fixture.lock", "joined": clock[0]}}
+        record.save_state(directory, state)
+        polls = []
+        with gate.gate_lock(None, 0).open("a") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+
+            def poll(_seconds):
+                polls.append(clock[0])
+                if len(polls) == 2:
+                    # stopped from the line: its check no longer waits for finished work
+                    record.save_state(directory, {**state, "state": "stopped"})
+                clock[0] += 1800 if len(polls) == 1 else 600
+                if len(polls) == 3:
+                    fcntl.flock(holder, fcntl.LOCK_UN)
+            with patch.object(time, "sleep", poll):
+                land._check(directory, state, scratch, ["true"], directory / "lander.log",
+                            lambda _: None)
+        self.assertEqual(len(polls), 3)
+        self.assertEqual(history.get(directory.name)["lander_wait_seconds"], 1800.0)
+
     def test_stopping_a_parked_member_closes_its_wait_once(self):
         lp, _ = self.line_loop()
         run.join_line(lp, "origin/main", lambda: True)

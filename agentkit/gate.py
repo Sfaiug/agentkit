@@ -805,12 +805,13 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     log_path.write_text(said + "\n")
                     run_record.stop_check(run_dir)
                     time.sleep(GATE_POLL)
-                    if run_dir:
-                        counted = count_wait(run_dir.name, "suite", counted)
                     if is_landing and not _still_landing(context):
                         # Its members left the line: this check waits as a round check now.
                         is_landing, waited_since = False, time.time()
                         waiting.close()
+                    # a checker's wait is its member's, kept beside that member's line time
+                    if run_dir or is_landing:
+                        counted = count_wait(self_id, "suite" if run_dir else "lander", counted)
                     slot, limit, held = admit()
                     if not limit:
                         uncapped = True
@@ -827,7 +828,8 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             finally:
                 if run_dir:
                     mark_gate_wait(run_dir, None)
-                    count_wait(run_dir.name, "suite", counted)
+                if run_dir or is_landing:
+                    count_wait(self_id, "suite" if run_dir else "lander", counted)
             if run_dir:
                 history.open_step(run_dir.name, step)
             if uncapped:
@@ -859,7 +861,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     `max_gates` pins the count instead.  A turn is a flock on one of the host's
     slot files, which the kernel lets go of when its holder dies, so a killed
     suite never blocks the next.  With no `run_dir`, a read-only `context` lets a checker
-    take a turn without marking or changing any member's record or history.
+    take a turn without marking or changing any member's record; the member's history
+    row keeps how long the checker waited.
     A waiting suite rewrites its own log every poll,
     so the stall ladder reads the wait as life, and says so on its record for `ak
     run status`; the ceiling starts once the turn is its own, and a stop lands
