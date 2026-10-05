@@ -5558,7 +5558,7 @@ def merge_lock(lp, upstream):
                     lp.state["delivery_wait"] = os.getpid()
                     lp.write()
                     run_record.stop_check(lp.run_dir)
-                    time.sleep(SLOT_POLL)
+                    time.sleep(gate.SLOT_POLL)
             finally:
                 if lp.state.pop("delivery_wait", None) is not None:
                     lp.write()
