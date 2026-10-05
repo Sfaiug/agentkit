@@ -10,13 +10,14 @@ once as live memory fits; waiting files can outnumber cores. Before each start i
 CPU pressure, waiting while it is high, and rereads host and cgroup headroom.
 Unknown files start first, then longest first by their last measured time on this host,
 kept under ~/.cache/agentkit/test-times/<hostname>/ outside the checkout.
-A failing file, or one reporting no executed cases, runs once more after the pool, alone;
-failing again it fails the whole and is named with its last lines. Unittest's tally
-reports the count; other scripts print TESTS_RUN=<count> after their checks. Python imports
-under agentkit/, tools/, bin/ and tests/ must be from the standard library or this
-repository, including files smoke.sh already ran.
+A failing file, or one reporting no executed cases, runs once more after the pool, alone:
+landing.py passes a descriptor that reads end-of-file once its other parts have ended, and
+the re-run waits for that too; failing again it fails the whole and is named with its last
+lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after their
+checks. Python imports under agentkit/, tools/, bin/ and tests/ must be from the standard
+library or this repository, including files smoke.sh already ran.
 
-    python3 tests/every_file.py [checkout]
+    python3 tests/every_file.py [checkout [descriptor]]
 """
 
 import ast
@@ -210,7 +211,7 @@ def save_time(path, took):
         pass  # A missing or unwritable cache must not stop the checks.
 
 
-def main(root):
+def main(root, others=None):
     try:
         number, total = shard()
     except ValueError as exc:
@@ -269,6 +270,8 @@ def main(root):
                 time.sleep(POLL)
         # Under load a timing test fails by chance: the gate would run the whole piece again
         # for it, so each failed file first runs once more with no other file beside it.
+        if again and others is not None:
+            os.read(others, 1)  # end-of-file: what landing.py ran beside the pool has ended
         for name, out in again:
             code, rerun, took = run_file(root, root / name, env)
             if code == 0 and cases_run(rerun) > 0:
@@ -287,4 +290,5 @@ def main(root):
 
 
 if __name__ == "__main__":
-    sys.exit(main(Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else REPO))
+    sys.exit(main(Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else REPO,
+                  *map(int, sys.argv[2:3])))

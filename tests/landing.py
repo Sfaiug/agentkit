@@ -1,5 +1,6 @@
 """Run both landing parts and the gate's contract together, keeping progress live and outputs separate."""
 
+import os
 import shutil
 import subprocess
 import sys
@@ -7,12 +8,17 @@ import tempfile
 import time
 
 
+# every_file.py re-runs a failed file with nothing of this piece beside it: its end of
+# the pipe reads end-of-file once smoke.sh and the contract have ended and this end closes.
+ended, running = os.pipe()
 with tempfile.NamedTemporaryFile() as output, tempfile.NamedTemporaryFile() as checked, \
         subprocess.Popen([sys.executable, "tests/gate_contract.py"], stdout=checked,
                          stderr=subprocess.STDOUT) as contract, \
-        subprocess.Popen([sys.executable, "tests/every_file.py"], stdout=output,
-                         stderr=subprocess.STDOUT) as files:
+        subprocess.Popen([sys.executable, "tests/every_file.py", ".", str(ended)],
+                         pass_fds=[ended], stdout=output, stderr=subprocess.STDOUT) as files:
     smoke = subprocess.call(["bash", "tests/smoke.sh"], stderr=subprocess.STDOUT)
+    contract.wait()
+    os.close(running)
     # Separate handles keep the reader's position from moving the writer's.
     with open(output.name, "rb") as buffered:
         while True:
@@ -24,7 +30,6 @@ with tempfile.NamedTemporaryFile() as output, tempfile.NamedTemporaryFile() as c
                 break
             time.sleep(0.1)
     with open(checked.name, "rb") as contract_output:
-        contract.wait()
         shutil.copyfileobj(contract_output, sys.stdout.buffer)
         sys.stdout.buffer.flush()
 sys.exit(code or smoke or contract.returncode)

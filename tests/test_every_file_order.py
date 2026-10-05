@@ -137,6 +137,36 @@ sys.exit(int(os.environ["ACME_FILES"]))
                 self.assertEqual(proc.stderr, "")
                 self.assertEqual(list(Path(env["TMPDIR"]).iterdir()), [], "suite output buffers leaked")
 
+    def test_a_failed_files_re_run_waits_for_smoke_to_end(self):
+        # The real runner with what landing.py passes it, always on this checkout: left to
+        # its default it would sweep the repository's own tests.
+        (self.root / "tests/every_file.py").write_text(
+            'import os, sys\nos.execv(sys.executable, [sys.executable, '
+            f'{str(REPO / "tests/every_file.py")!r}, os.getcwd(), *sys.argv[2:]])\n')
+        (self.root / "tests/smoke.sh").write_text('''for ((n=0; n<500; n++)); do
+    [[ -f failed-once ]] && break
+    sleep 0.01
+done
+sleep 1
+touch smoke-ended
+''')
+        for name in self.times:
+            (self.root / "tests" / name).write_text('print("TESTS_RUN=1")\n')
+        (self.root / "tests/test_acme.py").write_text('''import pathlib, sys
+if not pathlib.Path("failed-once").exists():
+    pathlib.Path("failed-once").touch()
+    sys.exit("acme first run")
+if not pathlib.Path("smoke-ended").exists():
+    sys.exit("re-ran beside smoke.sh")
+print("TESTS_RUN=1")
+''')
+        env = dict(self.landing_env(), AK_HOST_READINGS='{"cpu_pressure": 0, "free_mb": 4096}')
+        proc = subprocess.run(["bash", "-c", self.landing_line()], cwd=self.root, env=env,
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("flaky: tests/test_acme.py failed, then passed on its re-run\n",
+                      proc.stdout)
+
     def test_progress_reaches_the_watchdog_before_either_part_finishes(self):
         (self.root / "tests/smoke.sh").write_text(
             'for n in {0..9}; do echo "smoke $n"; sleep 0.5; done\n')
