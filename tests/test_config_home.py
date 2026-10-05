@@ -171,7 +171,7 @@ class ConfigHome(unittest.TestCase):
             self.assertNotIn("pull", source)
             self.assertNotIn("schedule_gc(", source)
         # collection did not go away with it: the watch tick is where it is scheduled now
-        self.assertIn("schedule_gc", inspect.getsource(watch.main))
+        self.assertIn("schedule_gc", inspect.getsource(watch.local_passes))
         for module in (orch, menu):
             text = Path(module.__file__).read_text()
             self.assertNotIn("pull", text, module.__name__)
