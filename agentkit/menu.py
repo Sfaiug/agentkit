@@ -995,9 +995,9 @@ def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=F
     in the landing line, else the tasks bar (`terminal.plan_bar`) in `room` cells when
     `seat_progress` finds a plan or an unfinished job, each of `runs` (`seat_runs`) part of a
     slot by its step, red on its last round; else empty -- never `N running`.  The bar keeps 8
-    cells at least, which a row too short for them draws under itself; a `narrow` screen's line
-    is all the room there is, so there it takes that room and never more.  `tmux` draws it for
-    a seat's bar.  The row and the bar read this one function, so the two can never disagree.
+    cells at least, which a row too short for them draws under itself; where `room` is all there
+    is -- a `narrow` screen's line, each width of a seat's bar -- it takes that room and never
+    more.  `tmux` draws it for a seat's bar.  The row and the bar read this one function, so the two can never disagree.
     Never two state words on one row.
     """
     if not tasks_bar(word, reason):
