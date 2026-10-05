@@ -427,18 +427,19 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         log_path.write_text(text)
                         verdicts[member] = {"fix": {"line": run.first_failure(text), "log": str(log_path)}}
                     continue
-                if top != tip:
-                    scratch, text = _stack_member(repo, saved, top, upstream, opened)
-                    if text:
-                        continue
-                # Each head fit the ceiling alone; the stack is what lands. Measured before any
-                # evidence answers it: a tree green on a target with larger rules says nothing.
+                # AGENTS.md is measured on every tree before any evidence answers it: a tree
+                # green on a target with larger rules says nothing about the ceiling.
                 failure = run.rules_cap(SimpleNamespace(wt=scratch, base_sha=tip, scratch=False))
                 if failure:
                     log_path = member / "lander.log"
                     log_path.write_text(failure + "\n")
                     verdicts[member] = {"fix": {"line": failure, "log": str(log_path)}}
                     continue
+                if top != tip:
+                    scratch, text = _stack_member(repo, saved, top, upstream, opened)
+                    # Past the ceiling only with the changes ahead, it waits for their verdicts.
+                    if text or run.rules_cap(SimpleNamespace(wt=scratch, base_sha=tip, scratch=False)):
+                        continue
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
                 stacks.append((member, saved, scratch, tree,
