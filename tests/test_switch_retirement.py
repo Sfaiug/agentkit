@@ -209,7 +209,7 @@ class Retire(unittest.TestCase):
         self.switches(row("first", 40))
         with patch.object(tell, "queue", return_value="acme is closed"):
             self.hand()
-        self.assertNotIn("handed", retire.read()[str(self.acme)])
+        self.assertNotIn("handed", retire.read()[str(self.acme / ".git")])
         self.assertIn("WARN ACME: switch first was not handed: acme is closed", self.logged)
 
     def test_the_lists_are_read_once_an_hour_and_once_per_repository(self):
@@ -231,8 +231,22 @@ class Retire(unittest.TestCase):
         self.switches(row("older", 60))
         self.hand()
         self.assertEqual(self.lists(), 1)
-        self.assertIn(str(self.acme), retire.read())
         self.assertEqual(len(self.queued("acme-wt")), 1)
+
+    def test_the_switch_in_hand_stays_in_hand_as_worktrees_come_and_go(self):
+        main = self.root / "ACME-main"
+        self.acme.rename(main)
+        subprocess.run(["git", "-C", str(main), "worktree", "add", "-q",
+                        str(config.CODE / "ACME-wt"), "-b", "wt"], check=True)
+        self.seat("acme", config.CODE / "ACME-wt", created=10)
+        self.switches(row("first", 40))
+        self.hand()
+        subprocess.run(["git", "-C", str(main), "worktree", "add", "-q",
+                        str(config.CODE / "AAA-wt"), "-b", "aaa"], check=True)
+        self.switches(row("first", 40), row("older-listed-later", 60))
+        self.hand(NOW + retire.EVERY)
+        self.assertEqual([message["line"].split("`")[1] for message in self.queued("acme")],
+                         ["first"])
 
     def test_the_seat_the_tick_runs_in_takes_ak_lines_too(self):
         self.seat("acme", self.acme, created=10)

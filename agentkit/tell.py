@@ -111,8 +111,9 @@ def composer_holds(name, session, line):
 
 
 def refusal(name, seat, sender):
-    """Why nothing can be queued for that seat from `sender`, asked under its lock, else None."""
-    if name == sender:
+    """Why nothing can be queued for that seat from `sender` (none is ak itself), asked under its
+    lock, else None."""
+    if sender and name == config.resolve_session(sender):
         return f"{name} is this seat"
     if name not in config.session_records():
         return f"no session {name!r}; `ak orch list` shows them"

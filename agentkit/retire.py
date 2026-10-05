@@ -77,19 +77,22 @@ def line(project, row):
 
 
 def projects():
-    """{checkout: its repository's checkouts under ~/code}, for each repository that names
-    switches, keyed on its main working tree where that is one of them. A repository is its git
-    directory, wherever that lives: the main tree's own, which a linked worktree's shares."""
+    """{repository: (its checkout the list is read in, all its checkouts under ~/code)}, for each
+    repository that names switches. A repository is its git directory, wherever that lives,
+    which its linked worktrees share, so it stays one key as checkouts come and go; the list is
+    read in its main working tree where that is one of them."""
     from . import menu, run   # here, not at the top: both are the whole screen and loop
     found = {}
     for checkout in orch.checkouts():
         code, out, _ = run.tool_run(["git", "-C", str(checkout), "rev-parse",
                                      "--path-format=absolute", "--git-dir", "--git-common-dir"])
         dirs = out.splitlines() if code == 0 else []
-        own, common = dirs if len(dirs) == 2 else (checkout, checkout)
+        own, common = dirs if len(dirs) == 2 else (str(checkout), str(checkout))
         found.setdefault(common, []).append((own != common, checkout))
-    homes = {min(group)[1]: [checkout for _, checkout in group] for group in found.values()}
-    return {home: checkouts for home, checkouts in homes.items() if menu.switches_command(home)}
+    homes = {common: (min(group)[1], [checkout for _, checkout in group])
+             for common, group in found.items()}
+    return {common: (home, checkouts) for common, (home, checkouts) in homes.items()
+            if menu.switches_command(home)}
 
 
 def seat_for(checkouts):
@@ -110,8 +113,8 @@ def hand(log, now=None):
     if now - record.get("asked", 0) < EVERY:
         return
     record["asked"] = now
-    for home, checkouts in projects().items():
-        entry = record.setdefault(str(home), {})
+    for repository, (home, checkouts) in projects().items():
+        entry = record.setdefault(repository, {})
         rows, why = menu.features_run(home, "list")
         if not isinstance(rows, list):
             log(f"WARN {home.name}: its switches are unread, so none was handed ({why or 'no list'})")
