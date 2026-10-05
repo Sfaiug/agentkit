@@ -915,7 +915,9 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     sentence = "" if word == "working" and not reason.startswith("waiting · ") else reason
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
-            "sentence": sentence, "bar": bar, "runs": seat_runs(name, records) if bar else [],
+            "tone": model_colour(cfg, orchestrator) if selection else "dim",
+            "sentence": sentence, "bar": bar,
+            "runs": seat_runs(name, records) if word == "working" else [],
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
 
@@ -1038,6 +1040,27 @@ def _last_text(info, room, narrow=False):
                        room, narrow)
 
 
+def live_line(cfg, info, room, now=None):
+    """The highlighted seat's live line in `room` cells, or "" for a seat with no live run: its
+    bar's second line (`statusbar.live`), the first version that fits, else the last cut."""
+    from . import statusbar   # here, not at the top: the bar's module imports this one
+    if info.get("word") != "working" or not info.get("runs"):
+        return ""
+    versions = statusbar.live(info["runs"], cfg, time.time() if now is None else now)
+    fits = next((version for version in versions
+                 if sum(terminal.cells(said) for said, _, _ in version) <= room), None)
+    if fits is None:          # cut by cells, as tmux cuts the bar: its own spacing kept
+        said = "".join(said for said, _, _ in versions[-1])
+        while said and terminal.cells(said) > room - 1:
+            said = said[:-1]
+        return said.rstrip() + "…"
+    painted = ""
+    for said, kind, bold in fits:
+        said = terminal.styled(said, kind) if kind else said
+        painted += terminal.styled(said, "bold") if bold else said
+    return painted
+
+
 def v5o_column_widths(infos, term_width):
     """Fixed columns sized once per draw from every row on screen.
 
@@ -1075,7 +1098,7 @@ def _head(info, widths):
     number = "  " + _styled_cell(info["number"], widths["num"], "dim", right=True)
     rest = [terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
             _styled_cell(info.get("orchestrator") or info.get("worker") or "", widths["orch"],
-                         "dim"),
+                         info.get("tone", "dim")),
             _styled_cell(terminal.state_text(info["count"]), widths["count"],
                          terminal.state_colour(info["count"]))]
     head = "  ".join([number, *rest])
@@ -1264,8 +1287,13 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
               for project, own in zip(ordered, seat_blocks)]
     flat = _flat(blocks)
 
+    # The highlighted seat's live line goes under its row: a line kept on every page while any
+    # seat on screen has one, so no page overflows or turns as the highlight moves.
+    opens = int(owned and not asked and any(info["word"] == "working" and info.get("runs")
+                                            for info in infos))
+
     def _room(meters, compact, paged):
-        keys = k_paged if paged else k_single
+        keys = (k_paged if paged else k_single) + opens
         if compact:
             return max(1, height - 2 - (1 + keys))
         chrome = 2 + (len(meters) + 1 if meters else 0) + 2 + 1 + 1 + keys
@@ -1389,6 +1417,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     else:
         out.append("")
     top, above = len(out), None
+    under = max((number for number, (_, name) in enumerate(body, 1) if name == cursor), default=0)
+    info = next((info for info in infos if info["name"] == cursor), None)
+    indent = 2 + widths["num"] + 2     # under the name
+    live = live_line(cfg, info, max(1, widths["room"] - indent)) if opens and under else ""
+    if live:
+        body = body[:under] + [(" " * indent + live, cursor)] + body[under:]
     at = max((number for number, (_, name) in enumerate(body, 1) if name == asking), default=0)
     if asked and at:
         body = body[:at] + [(line, None) for line in asked] + body[at:]

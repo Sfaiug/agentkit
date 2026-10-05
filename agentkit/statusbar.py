@@ -155,7 +155,8 @@ def lines(name, model, colour, word=None, last=""):
 def live(runs, cfg, now):
     """Line two of a working seat: its live runs (`menu.seat_runs`), as one version for each of
     `WHYS`, the least folded first, each a list of (text, colour, bold), the colour as
-    `terminal.styled` takes one, or None.
+    `terminal.styled` takes one, or None.  The highlighted row of the menu draws the same
+    (`menu.live_line`).
 
     A run reads `gh2 ■■□□ opus reviewing · round 2 of 3 · 11m`: its task id in bold, red on its
     last round; a cell for each step of a round, dim for those it passed, the current one in the
