@@ -246,7 +246,7 @@ class GcSweep(Sandbox):
 
     def test_gc_takes_orphan_and_unmerged_worktrees_with_their_reasons(self):
         # A smoke suite's checkout whose repo and record both went with the sandbox.
-        sandbox = self.make_repo("sandbox-repo")
+        sandbox = self.make_repo(config.TMP / "smoke-sandbox")
         smoke = config.WT / "20260904-2106-smoke-make-hello-pass"
         self.git(sandbox, "worktree", "add", "-q", str(smoke), "-b", "ak/smoke")
         shutil.rmtree(sandbox)
@@ -363,13 +363,17 @@ class GcSweep(Sandbox):
         layout(relative)
         (relative / ".git").write_text(
             "gitdir: " + os.path.relpath(self.repo / ".git" / "worktrees" / "relative", relative) + "\n")
-        for wt in (clone, separate, bare, relative):
+        # One whose git directory moved away is no smoke suite's: unreadable, it stays.
+        moved = layout(config.WT / "moved", "--separate-git-dir", str(self.root / "moved.git"))
+        (self.root / "moved.git").rename(self.root / "moved-away.git")
+        for wt in (clone, separate, bare, relative, moved):
             (wt / "notes.md").write_text("never added\n")
         self.git(merged_clone, "branch", "private")
-        kept = [*kept, merged_clone, clone, separate, bare, relative]
+        kept = [*kept, merged_clone, clone, separate, bare, relative, moved]
         for wt in (merged, *kept):
             self.aged(wt, 2 * DAY)
-        heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, *kept) if wt != unpushed}
+        heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, *kept)
+                 if wt not in (unpushed, moved)}
         def github(cwd, *args, timeout=None):
             if args[:2] == ("pr", "list"):     # the branch's newest pull request
                 return 0, "OPEN" if args[args.index("--head") + 1] == "seat/open" else "MERGED"

@@ -401,10 +401,11 @@ def seat_branch(wt, directory):
 
     A seat builds in a checkout of its own -- a worktree or a clone, whatever its layout --
     on a branch.  A run's checkout has its run's directory, the line's is detached, and a
-    smoke suite's `.git` points into a sandbox that has gone: none of those holds a seat's
-    work.  A seat's checkout git cannot read is still a seat's, kept for want of proof.
+    smoke suite's `.git` points into its sandbox under ~/.agentkit/tmp, gone: none of those
+    holds a seat's work.  Any other checkout git cannot read is still a seat's, kept for want
+    of proof.
     """
-    if retention.present(directory) or not (wt / ".git").exists() or pointer_gone(wt):
+    if retention.present(directory) or not (wt / ".git").exists() or in_gone_sandbox(wt):
         return None
     code, ref, _ = run.tool_run(["git", "-C", str(wt), "symbolic-ref", "-q", "HEAD"],
                                 timeout=60)
@@ -416,15 +417,17 @@ def seat_branch(wt, directory):
             head.strip() if code == 0 and known == 0 else None)
 
 
-def pointer_gone(wt):
-    """Whether a checkout's `.git` file names a git directory that no longer exists."""
+def in_gone_sandbox(wt):
+    """Whether a checkout's `.git` file names a git directory in a smoke sandbox that has
+    gone (`retention.gone_path`): the suite's checkout, its repository gone with it."""
     if not (wt / ".git").is_file():          # a clone's own `.git` directory
         return False
     try:
         prefix, sep, value = retention.read_bytes(wt / ".git").decode().strip().partition(": ")
     except (OSError, UnicodeDecodeError):
         return False
-    return prefix == "gitdir" and bool(sep) and not (wt / value).exists()
+    return (prefix == "gitdir" and bool(sep)
+            and retention.gone_path(os.path.normpath(wt / value)))
 
 
 def delivered(wt, branch, head):
