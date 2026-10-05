@@ -415,8 +415,10 @@ smoke_home() {
 smoke_source() {   # smoke_source <caller's file>: 0 to borrow it, 1 when nothing is there
   # A file this user cannot read, or cannot reach through a directory or a link, is there and
   # broken, not absent: it ends the suite rather than letting another harness pass without it.
+  # The worker box withholds a login by mounting /dev/null over it: that one is absent.
   local dir=$1
   [ -f "$1" ] && [ -r "$1" ] && return 0
+  [ -c "$1" ] && return 1
   while [ ! -e "$dir" ] && [ ! -L "$dir" ] && [ "$dir" != "${dir%/*}" ]; do dir=${dir%/*}; dir=${dir:-/}; done
   [ "$dir" != "$1" ] && [ -e "$dir" ] && { [ ! -d "$dir" ] || [ -x "$dir" ]; } && return 1
   echo "smoke: cannot read $1" >&2; exit 1
