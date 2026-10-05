@@ -94,7 +94,7 @@ class RulesCapTold(unittest.TestCase):
         directory = config.RUNS / "rules-check"
         directory.mkdir()
         (directory / "task.md").write_text(TASK)
-        state = {"base": "main", "base_sha": self.git("rev-parse", "HEAD"), "rounds": 1,
+        state = {"title": "fix api", "base": "main", "base_sha": self.git("rev-parse", "HEAD"), "rounds": 1,
                  "executor": "opus", "reviewer": "astra", "round_summaries": []}
         lp = run.Loop(self.cfg, directory, state, {}, self.logs.append,
                       self.repo, TASK, list(cmds), TASK, [])
