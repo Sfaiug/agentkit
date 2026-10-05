@@ -80,12 +80,14 @@ class GateLanders(unittest.TestCase):
         run_record.save_state(directory, state)
         return directory
 
-    def waiter(self, name, repo, since, first=False, landing=False, landing_since=None):
+    def waiter(self, name, repo, since, first=False, landing=False, landing_since=None,
+               own_file=True):
         """A record marked waiting for a gate turn of `repo` since `since`.
 
         A landing waiter ranks by when its first landing wait began, kept in its
-        marker beside the record; a round waiter's mark is the old shape, with no
-        landing key at all.
+        marker beside the record and published in its wait's file, as a lap of
+        `gate_turn` publishes it -- unless it is on code from before those files; a
+        round waiter's mark is the old shape, with no landing key at all.
         """
         directory = self.record(name, repo, first, landing)
         state = run_record.read_state(directory)
@@ -94,6 +96,9 @@ class GateLanders(unittest.TestCase):
             mark["landing"] = True
             (directory / "landing_since").write_text(
                 repr(since if landing_since is None else landing_since))
+            if own_file:
+                self.stack.enter_context(gate.landing_wait(
+                    True, gate._first_landing_wait(directory), name))
         state["gate_turn"] = mark
         run_record.save_state(directory, state)
         return directory
@@ -127,7 +132,10 @@ class GateLanders(unittest.TestCase):
         self.assertLess(round_since, lander_mark["since"])
         self.assertTrue(lander_mark.get("landing"))
         lander_first = gate._first_landing_wait(lander.run_dir)
-        self.assertEqual(lander_first, lander_mark["since"])
+        # its first landing wait starts at its first look at the turns, as its file says
+        self.assertLessEqual(lander_first, lander_mark["since"])
+        # and its record says the start its file says: a waiter on older code reads the record
+        self.assertIn((lander_first, "landing-waiter"), gate._landing_waiters())
         repo = run.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "round-waiter", round_since))
         self.assertFalse(gate._gate_waiter_before(repo, "landing-waiter", lander_first, True))
@@ -188,6 +196,85 @@ class GateLanders(unittest.TestCase):
                                 context=context):
                 self.assertFalse(gate.landing_waits())    # it holds its turn: no wait left
         self.assertEqual(seen[:1], [True])
+
+    def test_an_older_line_check_takes_the_turn_before_a_younger_one(self):
+        # The line's checkers mark no record; their waits still rank by when they joined.
+        holder = gate.gate_lock(ACME, 0).open("a")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        polled = {"older": threading.Semaphore(0), "younger": threading.Semaphore(0)}
+        go = {"older": threading.Semaphore(0), "younger": threading.Semaphore(0)}
+        order, real, scripted = [], time.sleep, threading.Event()
+        scripted.set()
+        def poll(seconds):
+            name = threading.current_thread().name
+            if name not in polled or not scripted.is_set():
+                return real(seconds)
+            polled[name].release()
+            go[name].acquire(timeout=20)
+        def check(name, joined):
+            context = {"repo": ACME, "run_id": name, "landing": True, "since": joined}
+            with gate.gate_turn(None, self.root / f"{name}.log", None, None, self.root,
+                                context=context):
+                order.append(name)
+        threads = [threading.Thread(target=check, args=(name, joined), name=name, daemon=True)
+                   for name, joined in (("older", 1000), ("younger", 2000))]
+        with patch.object(gate.time, "sleep", side_effect=poll):
+            for thread in threads:
+                thread.start()
+                self.assertTrue(polled[thread.name].acquire(timeout=20), thread.name)
+            fcntl.flock(holder, fcntl.LOCK_UN)
+            go["younger"].release()        # the younger polls first and finds the turn free
+            self.until(lambda: order or polled["younger"].acquire(blocking=False),
+                       "the younger check to poll")
+            scripted.clear()               # from here on both poll freely
+            go["older"].release()
+            go["younger"].release()
+            for thread in threads:
+                thread.join(20)
+        self.assertEqual(order, ["older", "younger"])
+        self.assertFalse(gate.landing_waits())
+
+    def test_a_landing_wait_ranks_by_its_file_alone(self):
+        # Its record's marker may say otherwise -- a clock set back between the two reads --
+        # and two waiters that each ranked the other first would both give a free turn away.
+        repo = run.main_checkout(ACME)
+        lander = self.record("record-lander", ACME, landing=True)
+        state = run_record.read_state(lander)
+        state["gate_turn"] = {"pid": state["pid"], "of": str(repo), "since": 1000,
+                              "landing": True}
+        run_record.save_state(lander, state)
+        (lander / "landing_since").write_text("1000")
+        self.stack.enter_context(gate.landing_wait(True, 3000, "record-lander"))
+        self.stack.enter_context(gate.landing_wait(True, 2000, "line"))
+        self.assertTrue(gate._gate_waiter_before(repo, "record-lander", 3000, True))
+        self.assertFalse(gate._gate_waiter_before(repo, "line", 2000, True))
+
+    def test_a_lander_waiting_on_older_code_still_ranks_and_holds_back(self):
+        # A run keeps the code it loaded while it waits: one from before the files shows its
+        # wait only on its record and by holding the shared file.
+        self.waiter("older-code", ACME, 1000, landing=True, own_file=False)
+        shared = (config.RUNS / ".heavy-landing.wait").open("a")
+        self.addCleanup(shared.close)
+        fcntl.flock(shared, fcntl.LOCK_SH)
+        repo = run.main_checkout(ACME)
+        self.assertTrue(gate.landing_waits())
+        self.assertTrue(gate._gate_waiter_before(repo, "round", time.time()))
+        self.assertTrue(gate._gate_waiter_before(repo, "younger", 2000, True))
+        self.assertFalse(gate._gate_waiter_before(repo, "older-code", 1000, True))
+        readings = {"free_mb": 8000, "mem_total_mb": 16000, "slice_cpu_pressure": 0}
+        new = {"run_id": "new-run", "run_depth": 0}
+        self.assertFalse(gate.claim_slot(new, 0, readings))
+        self.assertEqual(new["slot_wait_kind"], "landing")
+
+    def test_a_dead_line_checks_wait_holds_nobody_back(self):
+        # Its holder is gone, so nothing holds its file: no round check or new run waits on it.
+        dead = config.RUNS / ".landing-wait-gone"
+        dead.write_text('{"since": 1, "run_id": "gone"}')
+        repo = run.main_checkout(ACME)
+        self.assertFalse(gate._gate_waiter_before(repo, "round", time.time()))
+        self.assertFalse(gate.landing_waits())
+        self.assertFalse(dead.exists())
 
     def test_a_check_whose_member_left_the_line_holds_nobody_back(self):
         turn = config.RUNS / ".merge-acme.lock"
@@ -254,6 +341,10 @@ class GateLanders(unittest.TestCase):
             # second waits wait now but count from their seeds
             self.assertEqual(gate.mark_gate_wait(early, repo), 1000.0)
             self.assertEqual(gate.mark_gate_wait(late, repo), 2000.0)
+        # each lap's wait publishes the seed in its file, as `gate_turn` does
+        for directory in (early, late):
+            self.stack.enter_context(gate.landing_wait(True, gate._first_landing_wait(directory),
+                                                       directory.name))
         self.assertTrue(gate._gate_waiter_before(repo, "seed-late", 2000.0, True))
         self.assertFalse(gate._gate_waiter_before(repo, "seed-early", 1000.0, True))
         # a lander that never waited counts from now, behind both seeds

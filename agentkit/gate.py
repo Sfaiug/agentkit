@@ -397,7 +397,7 @@ def _heavy_running():
 
 
 def _first_landing_wait(run_dir):
-    """This run's first landing wait, or None when it never waited to land.
+    """This run's first landing wait, or None when it never looked for a landing turn.
 
     The start lives beside the record, not in it: a whole-record save of the loop's
     own state would wipe it from run.json between two laps, and the next lap would
@@ -408,6 +408,14 @@ def _first_landing_wait(run_dir):
         return float((Path(run_dir) / "landing_since").read_text().strip())
     except (OSError, ValueError):
         return None
+
+
+def _seed_landing_wait(run_dir, since):
+    """Start this run's first landing wait at `since`; without the marker it still ranks."""
+    try:
+        (Path(run_dir) / "landing_since").write_text(repr(since))
+    except OSError:
+        pass
 
 
 def clear_landing_wait(run_dir):
@@ -424,8 +432,9 @@ def mark_gate_wait(run_dir, of):
     `of` is the repository the waiter checks, kept on the mark from the
     per-repository turns; the note and the rank are host-wide and ignore it.  With
     this process's pid and the wait's start, so a
-    freed turn goes to the waiter that has waited longest.  A landing run's mark
-    says so; the start of its first landing wait lives beside the record, where
+    freed turn goes to the round check that has waited longest.  A landing run's mark
+    says so, and its wait's file ranks it (`landing_wait`); the start of its first
+    landing wait lives beside the record, where
     whole-record saves cannot wipe it (see `_first_landing_wait`): that start is
     what this returns for a lander, the wait's own start otherwise, and None when
     it recorded none.
@@ -439,10 +448,7 @@ def mark_gate_wait(run_dir, of):
                         first = _first_landing_wait(run_dir)
                         if first is None:
                             first = since
-                            try:
-                                (Path(run_dir) / "landing_since").write_text(repr(since))
-                            except OSError:
-                                pass    # without the marker this wait still ranks as landing
+                            _seed_landing_wait(run_dir, since)
                         state["gate_turn"] = {"pid": os.getpid(), "of": str(of),
                                               "since": since, "landing": True}
                         return first
@@ -457,20 +463,32 @@ def mark_gate_wait(run_dir, of):
 
 
 @contextmanager
-def landing_wait(landing):
-    """While a landing suite waits for a heavy turn it holds this file shared.
+def landing_wait(landing, since=None, run_id=None):
+    """While a landing suite waits for a heavy turn it holds two files.
 
-    The line's checker marks no member's record, so this is how round checks and new
-    runs see a landing wait and stay behind it; the kernel lets go with the holder, so a
-    dead waiter holds nobody back.
+    `.heavy-landing.wait`, shared by every landing wait, says one waits: round checks and
+    new runs stay behind it (`landing_waits`), whatever code each waiter runs.  A file of
+    its own says when its wait began and for which run, so landing waits rank among
+    themselves (`_landing_waiters`); the line's checkers mark no member's record.  The
+    kernel lets go with the holder, so a dead waiter holds nobody back.
     """
     if not landing:
         yield
         return
     config.RUNS.mkdir(parents=True, exist_ok=True)
-    with (config.RUNS / ".heavy-landing.wait").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_SH)
-        yield
+    token = f"{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+    draft, path = config.RUNS / f".landing-draft-{token}", config.RUNS / f".landing-wait-{token}"
+    with (config.RUNS / ".heavy-landing.wait").open("a") as shared, draft.open("w") as fh:
+        fcntl.flock(shared, fcntl.LOCK_SH)
+        # Locked before it takes its name: a file under that name is never an unheld live one.
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        fh.write(json.dumps({"since": since, "run_id": run_id or ""}))
+        fh.flush()
+        draft.rename(path)
+        try:
+            yield
+        finally:
+            path.unlink(missing_ok=True)
 
 
 def _still_landing(context):
@@ -484,6 +502,24 @@ def _still_landing(context):
         return True
     return any(directory.name == context.get("run_id")
                for directory, _ in landing.line(config.RUNS / line))
+
+
+def _landing_waiters():
+    """The live landing waits as (since, run id); a dead waiter's file goes, unreadable is none."""
+    found = []
+    for path in config.RUNS.glob(".landing-wait-*"):
+        try:
+            with path.open() as fh:
+                try:
+                    fcntl.flock(fh, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    wait = json.loads(fh.read())
+                    found.append((float(wait["since"]), str(wait["run_id"])))
+                    continue
+                path.unlink(missing_ok=True)     # its holder is gone
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+    return found
 
 
 def landing_waits():
@@ -520,16 +556,23 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False):
     checks.  Rank is a landing run before any round check, then the longest wait,
     then the run id, so a freed turn finishes a run ready to land before starting
     another round's check; `--first` plays no part, or loop repairs starve every
-    other suite under load.  A lander's wait
-    counts from the start of its first landing wait, not from the lap; a mark from
-    before landers ranked carries no landing and reads as a round check.  A mark
+    other suite under load.  A round check stays behind any landing wait
+    (`landing_waits`).  A landing wait -- a run's, or the line checker's that marks no
+    record -- ranks by its own file (`landing_wait`), whose start is the one its waiter
+    ranks itself by: a lander's counts from its first landing wait, not from the lap.
+    A record's landing mark ranks only a lander with no live file, one still on code
+    from before the files, by the start of its first landing wait; a mark from before
+    landers ranked carries no landing and reads as a round check.  A mark
     whose process is gone, or whose pid no longer matches its record -- a kill or
-    a resume left it behind -- holds nobody back.  The line's checker has no record
-    to mark; a round check sees its wait in `landing_waits`.
+    a resume left it behind -- holds nobody back.
     """
     if not is_landing and landing_waits():
         return True
     me = (not is_landing, since, exclude or "")
+    filed = _landing_waiters()
+    if any((False, *wait) < me for wait in filed if wait[1] != exclude):
+        return True
+    filed = {run_id for _, run_id in filed}
     for directory in run_record.run_dirs():
         if directory.name == exclude:
             continue
@@ -542,6 +585,8 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False):
         if not run_record.process_active(other):
             continue
         landing = bool(turn.get("landing"))
+        if landing and directory.name in filed:
+            continue
         waited = _first_landing_wait(directory) if landing else turn.get("since")
         if not isinstance(waited, (int, float)) or isinstance(waited, bool):
             waited = turn.get("since") if landing else 0
@@ -674,7 +719,13 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
     # A landing suite is seen waiting from its first look at the turns until it holds them.
     waiting = ExitStack()
     try:
-        waiting.enter_context(landing_wait(is_landing))
+        # A lander's wait counts from the start of its first landing wait, not from the lap.
+        me_since = landing_since if is_landing and landing_since is not None else time.time()
+        if is_landing and run_dir and landing_since is None:
+            # Its first landing wait starts here, as its file says: a waiter on older code
+            # ranks it by this marker, and must rank it by the same start.
+            _seed_landing_wait(run_dir, me_since)
+        waiting.enter_context(landing_wait(is_landing, me_since, self_id))
         slots = []
         def admit():
             try:
@@ -721,7 +772,6 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
         if not limit:
             files.close()
             return None
-        me_since = landing_since if is_landing and landing_since is not None else time.time()
         if not slot or _gate_waiter_before(repo, self_id, me_since, is_landing):
             for fh in slot:
                 fcntl.flock(fh, fcntl.LOCK_UN)
@@ -730,9 +780,8 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
             if log is not None:
                 log(f"done-when: {said}")
-            waited_since = mark_gate_wait(run_dir, repo) if run_dir else None
-            if waited_since is None:
-                waited_since = me_since if is_landing else time.time()
+            marked = mark_gate_wait(run_dir, repo) if run_dir else None
+            waited_since = me_since if is_landing else marked or time.time()
             step = history.close_step(run_dir.name) if run_dir else None
             uncapped = False
             try:
