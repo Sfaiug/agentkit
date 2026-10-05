@@ -400,7 +400,8 @@ the tasks in flight while the fill is shorter; where neither has room it follows
 a bar that much shorter, so it never covers a task in flight.
 The bar carries its own background, as a seat's state chip does, so it reads
 on either background; without colour it is `███▒▒░░░ 3/8`, `###==--- 3/8`
-without UTF-8. A seat's tmux bar draws the same bar in 24 cells. No screen
+without UTF-8. A seat's tmux bar draws the same bar in 36 cells, narrowing to 24 and then 12
+where line one is short of room, before its other seats fold or anything is cut. No screen
 says when a seat's work will finish: its progress is its tasks bar and its count.
 
 Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`, `terminal.cells`,
@@ -511,8 +512,9 @@ white) is the terminal's own foreground: its mirror tone on a light terminal.
 Line one's right end is the owner's other seats on ak's server: each that needs
 you by name in needs-you's bold colour, a click on it switching to that seat,
 then how many others are working and done in their colours. Where they do not
-fit beside the left part, the names fold into one count first (`! 2 need you`),
-and only then is the left part cut.
+fit beside the left part, its tasks bar narrows first, then the names fold into
+one count (`! 2 need you`), then only who needs you stays, and only then is the
+left part cut.
 
 Helpers: `terminal.sense`, `terminal.styled`, `terminal.colour_depth`.
 

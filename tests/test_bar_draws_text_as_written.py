@@ -57,23 +57,25 @@ class AsWritten(Sandbox):
 
     def test_a_a_question_and_a_summary_draw_every_hash_and_percent_as_said(self):
         for word in ("needs you", "done"):
-            statusbar._write("fix-api", "fable", word, SAID, self.cfg)
+            statusbar._write("fix-api", "fable", word, [SAID] * len(statusbar.BARS), self.cfg)
             self.assertIn("  " + SAID + " ", self.screen(SAID)[1], word)
 
     def test_b_a_tasks_bar_keeps_every_cell(self):
         for lang in ("C.UTF-8", "C"):
             with self.subTest(lang=lang), patch.dict(os.environ, {"LANG": lang, "LC_ALL": lang}):
-                bar = menu.last_column("working", "", 4, 8, (), statusbar.CELLS, tmux=True)
+                bars = [menu.last_column("working", "", 4, 8, (), cells, tmux=True)
+                        for cells in statusbar.BARS]
+                bar = bars[0]
                 cells = re.sub(r"#\[[^\]]*\]", "", bar)
                 self.assertEqual(len(cells), statusbar.CELLS)
-                statusbar._write("fix-api", "fable", "working", bar, self.cfg)
+                statusbar._write("fix-api", "fable", "working", bars, self.cfg)
                 line = self.screen(" 4/8 ")[0].rstrip()
                 self.assertTrue(line.endswith("fable orchestrates   " + cells.rstrip()), line)
 
     def test_c_a_seat_s_window_title_keeps_its_name_as_it_is(self):
         # a seat made by hand on ak's server keeps whatever name it was given
         self.assertEqual(orch.tmux_out("rename-session", "-t", "=fix-api:", "fix-%H")[0], 0)
-        statusbar._write("fix-%H", "fable", "working", "", self.cfg)
+        statusbar._write("fix-%H", "fable", "working", None, self.cfg)
         self.screen("fix-%H")
         for _ in range(50):
             title = self.view("display-message", "-p", "-t", "=view:", "#{pane_title}").strip()
@@ -91,12 +93,13 @@ class AsWritten(Sandbox):
             self.assertEqual(orch.tmux_out("new-session", "-d", "-s", orch.tmux_text(name),
                                            "sleep 600")[0], 0)
             watch.seat_write(name, word="needs you", reason="", word_since=None)
-        statusbar._write("fix-api", "fable", "working", "", self.cfg)
+        statusbar._write("fix-api", "fable", "working", None, self.cfg)
         said = "! web_2-api needs you"
         line = self.screen(said)[0].rstrip()
         self.assertTrue(line.endswith(said), line)
         self.assertNotIn("##", line)
         self.assertNotIn("z-", line)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
