@@ -189,6 +189,53 @@ class GateLanders(unittest.TestCase):
                 self.assertFalse(gate.landing_waits())    # it holds its turn: no wait left
         self.assertEqual(seen[:1], [True])
 
+    def test_an_older_line_check_takes_the_turn_before_a_younger_one(self):
+        # The line's checkers mark no record; their waits still rank by when they joined.
+        holder = gate.gate_lock(ACME, 0).open("a")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        polled = {"older": threading.Semaphore(0), "younger": threading.Semaphore(0)}
+        go = {"older": threading.Semaphore(0), "younger": threading.Semaphore(0)}
+        order, real, scripted = [], time.sleep, threading.Event()
+        scripted.set()
+        def poll(seconds):
+            name = threading.current_thread().name
+            if name not in polled or not scripted.is_set():
+                return real(seconds)
+            polled[name].release()
+            go[name].acquire(timeout=20)
+        def check(name, joined):
+            context = {"repo": ACME, "run_id": name, "landing": True, "since": joined}
+            with gate.gate_turn(None, self.root / f"{name}.log", None, None, self.root,
+                                context=context):
+                order.append(name)
+        threads = [threading.Thread(target=check, args=(name, joined), name=name, daemon=True)
+                   for name, joined in (("older", 1000), ("younger", 2000))]
+        with patch.object(gate.time, "sleep", side_effect=poll):
+            for thread in threads:
+                thread.start()
+                self.assertTrue(polled[thread.name].acquire(timeout=20), thread.name)
+            fcntl.flock(holder, fcntl.LOCK_UN)
+            go["younger"].release()        # the younger polls first and finds the turn free
+            self.until(lambda: order or polled["younger"].acquire(blocking=False),
+                       "the younger check to poll")
+            scripted.clear()               # from here on both poll freely
+            go["older"].release()
+            go["younger"].release()
+            for thread in threads:
+                thread.join(20)
+        self.assertEqual(order, ["older", "younger"])
+        self.assertFalse(gate.landing_waits())
+
+    def test_a_dead_line_checks_wait_holds_nobody_back(self):
+        # Its holder is gone, so nothing holds its file: no round check or new run waits on it.
+        dead = config.RUNS / ".landing-wait-gone"
+        dead.write_text('{"since": 1, "run_id": "gone"}')
+        repo = run.main_checkout(ACME)
+        self.assertFalse(gate._gate_waiter_before(repo, "round", time.time()))
+        self.assertFalse(gate.landing_waits())
+        self.assertFalse(dead.exists())
+
     def test_a_check_whose_member_left_the_line_holds_nobody_back(self):
         turn = config.RUNS / ".merge-acme.lock"
         member = self.record("member", ACME)
