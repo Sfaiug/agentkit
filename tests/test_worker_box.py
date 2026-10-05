@@ -353,20 +353,44 @@ class WorkerBox(unittest.TestCase):
                     with box.command(["true"], dict(os.environ), cwd=self.root, walls=walls):
                         pass
 
-    def test_the_credential_query_sees_no_token(self):
-        # A git first on PATH answers the box's question about credential stores.
-        bindir, seen, git = self.root / "bin", self.root / "seen.json", shutil.which("git")
+    def test_a_git_first_on_path_answers_from_behind_the_masks(self):
+        # A git first on PATH answers the box's questions: which credential stores Git names,
+        # and where the workspace keeps its Git storage. It reports on stderr what it can read
+        # and tries to leave a copy in the workspace.
+        key, copy = self.root / ".ssh/id_fixture", self.root / "copied"
+        key.parent.mkdir()
+        key.write_text("fixture-key")
+        secrets = [str(self.root / ".config/gh/hosts.yml"), str(self.root / ".git-credentials"),
+                   str(key)]
+        bindir, git = self.root / "bin", shutil.which("git")
+        subprocess.run([git, "init", "-q", str(self.root)], check=True)
         bindir.mkdir()
         (bindir / "git").write_text(
             f"#!{sys.executable}\nimport json, os, sys\n"
-            f"open({str(seen)!r}, 'w').write(json.dumps([os.environ.get(k) for k in {box.TOKENS!r}]))\n"
+            "def read(path):\n    try:\n        return open(path).read()\n"
+            "    except OSError:\n        return ''\n"
+            f"seen = [read(path) for path in {secrets!r}]\n"
+            f"try:\n    open({str(copy)!r}, 'w').write(json.dumps(seen))\nexcept OSError:\n    pass\n"
+            f"print(json.dumps(seen + [os.environ.get(k) for k in {box.TOKENS!r}]), file=sys.stderr)\n"
             f"os.execv({git!r}, [{git!r}, *sys.argv[1:]])\n")
         (bindir / "git").chmod(0o755)
+        asked, ask = [], subprocess.run
+
+        def record(*args, **kwargs):
+            asked.append(ask(*args, **kwargs))
+            return asked[-1]
+
         with patch.dict(os.environ, {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-                                     "GITHUB_TOKEN": "fixture-github", "SSH_AUTH_SOCK": "agent"}):
-            with box.command(["true"], dict(os.environ), cwd=self.root):
-                pass
-        self.assertEqual(json.loads(seen.read_text()), [None] * len(box.TOKENS))
+                                     "GITHUB_TOKEN": "fixture-github", "SSH_AUTH_SOCK": "agent"}), \
+                patch.object(box.subprocess, "run", record):
+            for walls in (True, False):
+                with box.command(["true"], dict(os.environ), cwd=self.root, walls=walls):
+                    pass
+        # Both questions with walls, the credential one without.
+        self.assertEqual([json.loads(answer.stderr.splitlines()[0]) for answer in asked],
+                         [[""] * len(secrets) + [None] * len(box.TOKENS)] * 3)
+        self.assertFalse(copy.exists())
+        self.assertEqual(key.read_text(), "fixture-key")
 
     def test_files_writes_identity_environment_and_exit_status_stay_the_same(self):
         with patch.dict(os.environ, {"BOX_LEAK": "0", "BOX_INSPECT": "1", "BOX_EXIT": "7",
@@ -450,7 +474,8 @@ class WorkerBox(unittest.TestCase):
 
             def interrupt(proc, *args, **kwargs):
                 nonlocal interrupted
-                if proc.args[0] == "bwrap" and not interrupted:
+                # The turn's own box, not one a question to Git is asked in.
+                if box.SUPERVISOR in proc.args and not interrupted:
                     deadline = time.monotonic() + 5
                     while not (self.out / "events.jsonl").exists():
                         if time.monotonic() > deadline:
