@@ -170,6 +170,40 @@ def place(name, project):
     return path if written and holds(path, written) else None
 
 
+def serving(name, repo, head):
+    """The plan's open lines on the repository `repo` holds at `head`, read under the plan's
+    lock so a rename never moves the plan out from under the read.  A line belongs there by
+    the root commit it recorded, matched against `head`'s own history whatever branch is
+    checked out in `repo`; a line with no root -- from before lines named one, or written
+    before the checkout's first commit -- by the checkout its project names: its path, or a
+    bare name the seat's checkout bears.  A line on another project, or one `ak plan` did not
+    write, serves nothing here.  A rooted line and a root nothing can read is an error: a PR
+    judged without its outcomes would pass what it should not."""
+    with held(name) as current:
+        snapshot = lines(current)
+        filed = (config.session_records().get(current) or {}).get("repo")
+    found = []
+    for line in snapshot:
+        parsed = LINE.match(line.strip())
+        if parsed and is_open(line):
+            found.append((line.strip(), parsed["project"]))
+    rooted = any("#" in project for _, project in found)
+    here = root(repo, head) if rooted else None
+    if rooted and here is None:
+        raise config.Error(f"cannot read the root commit of {head[:12]} in {repo}, so the plan's "
+                           "lines cannot be matched to it")
+    target = Path(repo).resolve()
+
+    def serves(project):
+        if "#" in project:
+            return project.rpartition("#")[2] == here
+        if "/" in project:
+            return Path(project).expanduser().resolve() == target
+        return bool(filed) and Path(filed).name == project and Path(filed).resolve() == target
+
+    return [line for line, project in found if serves(project)]
+
+
 def holds(repo, commit, history=None):
     """Does that checkout's repository hold that commit -- the root its line recorded --
     whichever branch is checked out there?  With `history`, that revision must descend from

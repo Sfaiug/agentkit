@@ -10,12 +10,13 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, gc, history, plan, run, status, watch
+from agentkit import gate, config, gc, history, notify, plan, run, status, watch
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -158,17 +159,54 @@ class OwnPrReview(unittest.TestCase):
         own = Path(self.review(worktree=reviewed)[0]["task"]).read_text()
         self.assertIn("the fence holds", own)
 
-    def test_a_line_from_before_roots_counts_where_its_name_resolves(self):
+    def test_a_line_with_no_root_counts_where_its_name_resolves(self):
+        # from before lines named a root, or written before the checkout's first commit
         config.update_session("fix-api", repo=str(self.repo))
+        unrooted = plan.named(self.repo).rpartition("#")[0]
         config.plan_path("fix-api").write_text(
             f"- [ ] the fence holds · check: `test -f fence.txt` · {self.repo.name} · written 2026-10-02 12:00\n"
+            f"- [ ] the gate swings · your eye · {unrooted} · written 2026-10-02 12:00\n"
             "- [ ] the site loads · check: `true` · site · written 2026-10-02 12:00\n"
+            "- [ ] the shed stands · check: `true` · ~/shed · written 2026-10-02 12:00\n"
             "- [ ] a hand-kept note\n")
         self.change(5)
         own = Path(self.review()[0]["task"]).read_text()
         self.assertIn("the fence holds", own)
+        self.assertIn("the gate swings", own)
         self.assertNotIn("the site loads", own)
+        self.assertNotIn("the shed stands", own)
         self.assertNotIn("a hand-kept note", own)
+
+    def test_a_rename_while_the_plan_is_read_keeps_its_lines(self):
+        head = self.change(5)
+        line = plan.add("fix-api", "the fence holds", check="test -f fence.txt",
+                        repo=self.repo, proven=self.base)
+        renamed, errors = threading.Event(), []
+
+        def rename():       # as `ak orch rename` does, under both names' locks
+            try:
+                with notify.session_lock("fix-api"), notify.session_lock("fix-api-renamed"):
+                    config.rename_session("fix-api", "fix-api-renamed")
+            except BaseException as exc:    # noqa: BLE001 - reported below
+                errors.append(exc)
+            finally:
+                renamed.set()
+
+        renamer, located = threading.Thread(target=rename), plan.path
+
+        def rename_once_located(name):
+            found = located(name)
+            if not renamer.is_alive() and not renamed.is_set():
+                renamer.start()
+                renamed.wait(1)     # under the plan's lock it waits for the read
+            return found
+
+        with patch.object(plan, "path", side_effect=rename_once_located):
+            context = run.plan_context("fix-api", self.repo, head)
+        renamer.join(5)
+        self.assertEqual(errors, [])
+        self.assertIn(line, plan.lines("fix-api-renamed"))
+        self.assertIn(line, context)
 
     def test_an_unreadable_plan_or_root_refuses_the_review_before_any_checkout(self):
         self.change(5)

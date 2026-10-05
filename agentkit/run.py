@@ -2690,31 +2690,11 @@ def commit_identity(wt):
 
 
 def plan_context(seat, repo, head):
-    """The seat's open plan lines on the repository under review, for the review of its own
-    PR there: the outcomes the user agreed to, each with the check that proves it.  A line
-    belongs here by the root commit it recorded, matched against the PR head's own history
-    in `repo` whatever branch is checked out there; one from before lines named a root, by
-    the checkout its project name resolves to.  A line on another project, or one `ak plan`
-    did not write, is no outcome of this PR.  A plan, or a root, that cannot be read refuses
-    the review: judged without the agreed outcomes, it would pass what it should not.  A
-    review launched from no seat has no plan."""
+    """The seat's open plan lines on the repository under review (`plan.serving`), for the
+    review of its own PR there: the outcomes the user agreed to, each with the check that
+    proves it.  A review launched from no seat has no plan."""
     from . import plan
-    if not seat:
-        return ""
-    found = [line for line in map(plan.LINE.match, map(str.strip, plan.lines(seat)))
-             if line and plan.is_open(line.string)]
-    rooted = any("#" in line["project"] for line in found)
-    here = plan.root(repo, head) if rooted else None
-    if rooted and here is None:
-        raise config.Error(f"cannot read the root commit of {head[:12]} in {repo}, so the plan's "
-                           "lines cannot be matched to this PR; run the review again")
-    open_lines = []
-    for line in found:
-        project = line["project"]
-        placed = plan.place(seat, project) if "#" not in project else None
-        if (project.rpartition("#")[2] == here if "#" in project
-                else placed is not None and placed.resolve() == Path(repo).resolve()):
-            open_lines.append(line.string)
+    open_lines = plan.serving(seat, repo, head) if seat else []
     if not open_lines:
         return ""
     return ("## The plan this PR serves\nThe session's open plan lines, the outcomes the user "
