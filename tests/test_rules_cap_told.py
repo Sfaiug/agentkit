@@ -235,6 +235,20 @@ class RulesCapTold(unittest.TestCase):
                         failure)
         self.assertTrue(run.LOOP_NOTE.match(failure))
 
+    def test_unavailable_tracked_rules_fail_the_check(self):
+        lp = self.loop()
+        self.commit_rules("x" * 40000)
+        blob = self.git("rev-parse", "HEAD:AGENTS.md")
+        (self.repo / ".git" / "objects" / blob[:2] / blob[2:]).unlink()
+        self.assertEqual(self.path.stat().st_size, 40000)
+        self.assertEqual(self.git("ls-tree", "--name-only", "HEAD", "--", "AGENTS.md"),
+                         "AGENTS.md")
+        failure = run.rules_cap(lp)
+        self.assertTrue(failure.startswith("AGENTS.md could not be read as a checkout holds it"),
+                        f"Tracked AGENTS.md with an unavailable blob passed: {failure!r}")
+        self.assertIn(f"{LIMIT} bytes acme reads of it is unknown", failure)
+        self.assertTrue(run.LOOP_NOTE.match(failure))
+
     def test_removed_oversized_rules_pass_checks(self):
         self.commit_rules("x" * (LIMIT + 1))
         lp = self.loop()
