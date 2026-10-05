@@ -1368,27 +1368,34 @@ def checkouts():
     found = ([path for path in config.CODE.iterdir() if path.is_dir() and (path / ".git").exists()]
              if config.CODE.is_dir() else [])
     own = update.agentkit_dir()
-    mains = {path.resolve() for path in (*found, own)}
-    found = [path for path in found
-             if not ((added := added_from(path)) and added.resolve() in mains)]
+    dirs = {path: git_dirs(path) for path in (*found, own)}
+    mains = {known[0] for known in dirs.values() if known and not known[1]}
+    found = [path for path in found if not (dirs[path] and dirs[path][1] and dirs[path][0] in mains)]
     if (own / ".git").exists() and all(path.resolve() != own.resolve() for path in found):
         found = [path for path in found if path.name != own.name] + [own]
     return sorted(found, key=lambda path: path.name)
 
 
-def added_from(path, read=Path.read_text):
-    """The checkout a git worktree at `path` was added from: its `.git` file names
-    `<checkout>/.git/worktrees/<name>`, as `git worktree add` writes it.  None for a main
-    checkout, anything else, or a `.git` that `read` cannot read."""
+def git_dirs(path):
+    """(the repository's common git directory, whether `path` is a worktree added from
+    another checkout) of the checkout at `path`, or None when it is none.
+
+    Read the way git reads it: a `.git` directory, or a `.git` file naming the git directory,
+    absolute or relative, whose `commondir` names the repository it was added from.
+    """
+    dot = Path(path) / ".git"
+    if dot.is_dir():
+        return dot.resolve(), False
     try:
-        prefix, sep, value = read(Path(path) / ".git").strip().partition(": ")
+        prefix, sep, value = dot.read_text().strip().partition(": ")
+        if prefix != "gitdir" or not sep:
+            return None
+        gitdir = (Path(path) / value).resolve()
+        if not (gitdir / "commondir").is_file():
+            return gitdir, False                 # its git directory kept elsewhere
+        return (gitdir / (gitdir / "commondir").read_text().strip()).resolve(), True
     except (OSError, UnicodeDecodeError):
         return None
-    gitdir = Path(value)
-    if (prefix != "gitdir" or not sep or not gitdir.is_absolute()
-            or gitdir.parent.name != "worktrees" or gitdir.parents[1].name != ".git"):
-        return None
-    return gitdir.parents[2]
 
 
 def checkout_of(repo):
@@ -1408,20 +1415,22 @@ def checkout_of(repo):
     except (OSError, ValueError):
         return None
     found = checkouts()
-    for candidate in (path, added_from(path)):
-        if candidate is None:
+    for checkout in found:
+        try:
+            if checkout.resolve() == path:
+                return checkout
+        except OSError:
             continue
-        candidate = candidate.resolve()
-        for checkout in found:
-            try:
-                if checkout.resolve() == candidate:
-                    return checkout
-            except OSError:
-                continue
-        if candidate.parent == config.CODE.resolve():
-            named = next((checkout for checkout in found if checkout.name == candidate.name), None)
-            if named:
-                return named
+    dirs = git_dirs(path)
+    if dirs and dirs[1]:
+        common = dirs[0]
+        added = next((checkout for checkout in found
+                      if (git_dirs(checkout) or (None,))[0] == common), None)
+        if added:
+            return added
+        path = common.parent if common.name == ".git" else path
+    if path.parent == config.CODE.resolve():
+        return next((checkout for checkout in found if checkout.name == path.name), None)
     return None
 
 

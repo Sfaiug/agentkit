@@ -218,6 +218,28 @@ class NewSession(Sandbox):
         self.assertEqual(orch.cwd_project(linked / "app"), main)
         self.assertEqual(run.checkout_for("me/acme", print), main)
 
+    def test_a_worktree_is_its_checkout_whatever_the_git_layout(self):
+        # A checkout keeping its git directory elsewhere, and a worktree whose `.git` names
+        # its git directory by a relative path: git reads both, and so does the menu.
+        elsewhere = self.root / "elsewhere.git"
+        main = config.CODE / "acme"
+        subprocess.run(["git", "init", "-q", "-b", "main", "--separate-git-dir", str(elsewhere),
+                        str(main)], check=True)
+        subprocess.run(["git", "-C", str(main), "-c", "user.name=Fixture", "-c",
+                        "user.email=fixture@localhost", "commit", "-q", "--allow-empty", "-m", "x"],
+                       check=True)
+        added, relative = config.CODE / ".acme-fix", config.CODE / ".acme-relative"
+        for linked, branch in ((added, "fix"), (relative, "relative")):
+            subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", "-b", branch,
+                            str(linked)], check=True)
+        absolute = (relative / ".git").read_text().strip().removeprefix("gitdir: ")
+        (relative / ".git").write_text("gitdir: " + os.path.relpath(absolute, relative) + "\n")
+        subprocess.run(["git", "-C", str(relative), "status", "-s"], check=True)
+        self.assertIn(main, orch.checkouts())
+        for linked in (added, relative):
+            self.assertNotIn(linked, orch.checkouts())
+            self.assertEqual(orch.checkout_of(str(linked)), main)
+
     def test_a_worktree_of_a_second_agentkit_clone_is_agentkit(self):
         own = self.checkout("agentkit", Path.home())
         clone = self.checkout("agentkit")

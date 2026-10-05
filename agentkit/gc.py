@@ -399,7 +399,15 @@ def stale_worktrees(now, paths):
 
 def worktree_repo(wt):
     """The repository a checkout's `.git` pointer names, `<repo>/.git/worktrees/<name>`, or None."""
-    return orch.added_from(wt, lambda path: retention.read_bytes(path).decode())
+    try:
+        prefix, sep, value = retention.read_bytes(wt / ".git").decode().strip().partition(": ")
+    except (OSError, UnicodeDecodeError):
+        return None
+    gitdir = Path(value)
+    if (prefix != "gitdir" or not sep or not gitdir.is_absolute()
+            or gitdir.parent.name != "worktrees" or gitdir.parents[1].name != ".git"):
+        return None
+    return gitdir.parents[2]
 
 
 def clear_tree(tree, report):
