@@ -406,7 +406,8 @@ def seat_branch(wt, directory):
     holds a seat's work.  Any other checkout git cannot read is still a seat's, kept for want
     of proof.
     """
-    if retention.present(directory) or not (wt / ".git").exists() or in_gone_sandbox(wt):
+    if (retention.present(directory) or not os.path.lexists(wt / ".git")
+            or in_gone_sandbox(wt)):
         return None
     code, ref, _ = run.tool_run(["git", "-C", str(wt), "symbolic-ref", "-q", "HEAD"],
                                 timeout=60)
@@ -427,8 +428,9 @@ def in_gone_sandbox(wt):
         prefix, sep, value = retention.read_bytes(wt / ".git").decode().strip().partition(": ")
     except (OSError, UnicodeDecodeError):
         return False
-    return (prefix == "gitdir" and bool(sep)
-            and retention.gone_path(os.path.normpath(wt / value)))
+    target = os.path.normpath(wt / value)
+    return (prefix == "gitdir" and bool(sep) and config.TMP in Path(target).parents
+            and retention.gone_path(target))
 
 
 def delivered(wt, branch, head):

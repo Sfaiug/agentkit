@@ -382,14 +382,22 @@ class GcSweep(Sandbox):
         # One whose git directory moved away is no smoke suite's: unreadable, it stays.
         moved = layout(config.WT / "moved", "--separate-git-dir", str(self.root / "moved.git"))
         (self.root / "moved.git").rename(self.root / "moved-away.git")
-        for wt in (clone, separate, bare, relative, moved):
+        # So is one whose `.git` links to git storage that moved, and one whose `.git` names a
+        # git directory gone from ~/.agentkit/wt rather than from a smoke sandbox.
+        linked = layout(config.WT / "linked", "--separate-git-dir", str(config.WT / "linked.git"))
+        (linked / ".git").unlink()
+        (linked / ".git").symlink_to(config.WT / "linked.git")
+        (config.WT / "linked.git").rename(self.root / "linked-away.git")
+        in_wt = layout(config.WT / "in-wt", "--separate-git-dir", str(config.WT / "in-wt.git"))
+        shutil.rmtree(config.WT / "in-wt.git")
+        for wt in (clone, separate, bare, relative, moved, linked, in_wt):
             (wt / "notes.md").write_text("never added\n")
         self.git(merged_clone, "branch", "private")
-        kept = [*kept, merged_clone, clone, separate, bare, relative, moved]
+        kept = [*kept, merged_clone, clone, separate, bare, relative, moved, linked, in_wt]
         for wt in (merged, *kept):
             self.aged(wt, 2 * DAY)
         heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, *kept)
-                 if wt not in (unpushed, moved)}
+                 if wt not in (unpushed, moved, linked, in_wt)}
         def github(cwd, *args, timeout=None):
             if args[:2] == ("pr", "list"):     # the branch's newest pull request
                 return 0, "OPEN" if args[args.index("--head") + 1] == "seat/open" else "MERGED"
