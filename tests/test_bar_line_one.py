@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import menu, orch, statusbar, watch
+from agentkit import config, menu, orch, statusbar, watch
 
 
 def drawn(value):
@@ -36,11 +36,17 @@ class LineOne(Sandbox):
             self.assertEqual(orch.tmux_out("new-session", "-d", "-s", name, "sleep 600")[0], 0)
         watch.seat_write("atlas-proxies", word="needs you", reason="", word_since=None)
         watch.seat_write("fix-api", word="working", reason="", word_since=None)
-        runs = [{"task": "gh2", "step": "building", "since": 0, "round": 1, "rounds": 3,
-                 "executor": "opus", "reviewer": "astra"}]
-        self.lasts = [menu.last_column("working", "", 1, 4, runs, cells, tmux=True)
-                      for cells in statusbar.BARS]
-        statusbar._write("fix-api", "fable", "working", self.lasts, self.cfg)
+        self.dress(1, 4, [{"task": "gh2", "step": "building", "since": 0, "round": 1,
+                           "rounds": 3, "executor": "opus", "reviewer": "astra"}])
+
+    def dress(self, done, total, runs):
+        """Dress fix-api's bar the way every write does (`statusbar.redress`)."""
+        with patch.object(menu, "seat_progress", return_value=(done, total)), \
+                patch.object(menu, "seat_runs", return_value=runs), \
+                patch.object(config, "load_session", return_value={"orchestrator": "fable"}):
+            statusbar.redress({"name": "fix-api"}, {"word": "working", "reason": ""}, self.cfg)
+        self.lasts = [orch.tmux_out("show-options", "-v", "-t", "=fix-api:", top)[1]
+                      for top in statusbar.TOPS]
 
     def line(self, width):
         shown = statusbar.FORMATS[0].replace("#{client_width}", str(width))
@@ -50,7 +56,7 @@ class LineOne(Sandbox):
 
     def test_a_the_tasks_bar_takes_36_cells_where_line_one_has_room(self):
         self.assertEqual(statusbar.BARS, (36, 24, 12))
-        bar = drawn(self.lasts[0])
+        bar = drawn(self.lasts[0]).split("fable orchestrates   ")[1]
         self.assertEqual(len(bar), 36, bar)
         shown = self.line(200)
         self.assertTrue(shown.startswith(" ▐● working▌  fix-api  fable orchestrates   " + bar),
@@ -74,6 +80,17 @@ class LineOne(Sandbox):
         self.assertTrue(shown.startswith(" ▐● working▌  fix-api"), shown)
         self.assertTrue(shown.rstrip().endswith("… ! 1 needs you"), shown)
         self.assertLessEqual(len(shown.rstrip()), 40)
+
+    def test_c_each_tasks_bar_keeps_to_its_width_however_long_its_count(self):
+        building = {"task": "gh2", "step": "building", "since": 0, "round": 1, "rounds": 3,
+                    "executor": "opus", "reviewer": "astra"}
+        for total in (10, 100):
+            self.dress(0, total, [building] * 8)
+            for top, cells in zip(self.lasts, statusbar.BARS):
+                bar = drawn(top).split("fable orchestrates   ")[1]
+                self.assertEqual(len(bar), cells, (total, bar))
+            shown = self.line(84)       # the 12-cell bar fits beside the name, so it stays
+            self.assertTrue(shown.rstrip().endswith("! atlas-proxies needs you"), shown)
 
 
 if __name__ == "__main__":
