@@ -290,6 +290,19 @@ class Tell(Seats):
         tell.deliver(self.cfg, lambda _: None)
         self.assertEqual(self.typed, [self.header() + "Parser merged."])
 
+    def test_a_seat_renamed_while_it_tells_still_cannot_tell_itself(self):
+        limit = tell.longest(self.cfg)
+
+        def renamed_meanwhile(_cfg):
+            config.rename_session(SENDER, "fix-renamed")
+            return limit
+
+        with patch.object(tell, "longest", side_effect=renamed_meanwhile):
+            code, _, err = self.tell(SENDER, "Parser merged.")
+        self.assertEqual(code, 1)
+        self.assertIn("fix-renamed is this seat", err)
+        self.assertEqual(self.waiting("fix-renamed"), [])
+
     def test_what_cannot_be_told_is_refused_in_one_line(self):
         watch.seat_write("acme-closed", stopped_at=1)
         config.save_session(self.cfg, "acme-closed", "opus", ["astra"], {"cwd": str(self.root)})
