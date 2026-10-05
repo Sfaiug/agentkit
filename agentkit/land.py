@@ -376,6 +376,11 @@ def _check_tree(directory, state, scratch, tree, checks, log):
 
 def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None):
     from . import gate, run
+    if prefix:
+        wait = prefix[-1][1]["waiting_on"]
+        # A cut-short batch must finish delivering before its target can be probed.
+        if wait.get("tested", wait["land"]) != wait["land"]:
+            return {}
     directory, state = members[0]
     upstream = state.get("target") or state["base"]
     upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
