@@ -3550,7 +3550,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     on `esc leave`, leaves at once, whatever a thread is doing (`Live.close`); `q` is no key.
     """
     keys = OVERLAY_KEYS if overlay else KEYS
-    actions = ("n", "x", "r", "s") if overlay else ("n", "x", "c", "s")
+    actions = ("n", "x", "r") if overlay else ("n", "x", "c")
     cursor = os.environ.pop("AK_MENU_CURSOR", "") or None
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
