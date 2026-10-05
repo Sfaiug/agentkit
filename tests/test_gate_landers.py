@@ -80,13 +80,14 @@ class GateLanders(unittest.TestCase):
         run_record.save_state(directory, state)
         return directory
 
-    def waiter(self, name, repo, since, first=False, landing=False, landing_since=None):
+    def waiter(self, name, repo, since, first=False, landing=False, landing_since=None,
+               own_file=True):
         """A record marked waiting for a gate turn of `repo` since `since`.
 
         A landing waiter ranks by when its first landing wait began, kept in its
         marker beside the record and published in its wait's file, as a lap of
-        `gate_turn` publishes it; a round waiter's mark is the old shape, with no
-        landing key at all.
+        `gate_turn` publishes it -- unless it is on code from before those files; a
+        round waiter's mark is the old shape, with no landing key at all.
         """
         directory = self.record(name, repo, first, landing)
         state = run_record.read_state(directory)
@@ -95,8 +96,9 @@ class GateLanders(unittest.TestCase):
             mark["landing"] = True
             (directory / "landing_since").write_text(
                 repr(since if landing_since is None else landing_since))
-            self.stack.enter_context(gate.landing_wait(True, gate._first_landing_wait(directory),
-                                                       name))
+            if own_file:
+                self.stack.enter_context(gate.landing_wait(
+                    True, gate._first_landing_wait(directory), name))
         state["gate_turn"] = mark
         run_record.save_state(directory, state)
         return directory
@@ -130,7 +132,10 @@ class GateLanders(unittest.TestCase):
         self.assertLess(round_since, lander_mark["since"])
         self.assertTrue(lander_mark.get("landing"))
         lander_first = gate._first_landing_wait(lander.run_dir)
-        self.assertEqual(lander_first, lander_mark["since"])
+        # its first landing wait starts at its first look at the turns, as its file says
+        self.assertLessEqual(lander_first, lander_mark["since"])
+        # and its record says the start its file says: a waiter on older code reads the record
+        self.assertIn((lander_first, "landing-waiter"), gate._landing_waiters())
         repo = run.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "round-waiter", round_since))
         self.assertFalse(gate._gate_waiter_before(repo, "landing-waiter", lander_first, True))
@@ -244,6 +249,23 @@ class GateLanders(unittest.TestCase):
         self.stack.enter_context(gate.landing_wait(True, 2000, "line"))
         self.assertTrue(gate._gate_waiter_before(repo, "record-lander", 3000, True))
         self.assertFalse(gate._gate_waiter_before(repo, "line", 2000, True))
+
+    def test_a_lander_waiting_on_older_code_still_ranks_and_holds_back(self):
+        # A run keeps the code it loaded while it waits: one from before the files shows its
+        # wait only on its record and by holding the shared file.
+        self.waiter("older-code", ACME, 1000, landing=True, own_file=False)
+        shared = (config.RUNS / ".heavy-landing.wait").open("a")
+        self.addCleanup(shared.close)
+        fcntl.flock(shared, fcntl.LOCK_SH)
+        repo = run.main_checkout(ACME)
+        self.assertTrue(gate.landing_waits())
+        self.assertTrue(gate._gate_waiter_before(repo, "round", time.time()))
+        self.assertTrue(gate._gate_waiter_before(repo, "younger", 2000, True))
+        self.assertFalse(gate._gate_waiter_before(repo, "older-code", 1000, True))
+        readings = {"free_mb": 8000, "mem_total_mb": 16000, "slice_cpu_pressure": 0}
+        new = {"run_id": "new-run", "run_depth": 0}
+        self.assertFalse(gate.claim_slot(new, 0, readings))
+        self.assertEqual(new["slot_wait_kind"], "landing")
 
     def test_a_dead_line_checks_wait_holds_nobody_back(self):
         # Its holder is gone, so nothing holds its file: no round check or new run waits on it.
