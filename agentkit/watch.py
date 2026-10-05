@@ -5040,7 +5040,7 @@ def gh_json(cwd, *args, timeout=120):
 def checkouts():
     if not config.CODE.is_dir():
         return []
-    return [d for d in orch.checkouts() if d.parent == config.CODE]
+    return sorted(d for d in config.CODE.iterdir() if (d / ".git").exists())
 
 
 def pages(cwd, endpoint, key=None):
