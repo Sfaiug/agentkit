@@ -8,6 +8,7 @@ from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -201,6 +202,138 @@ class NewSession(Sandbox):
         # A folder no checkout is named for gives a scratch run no vote.
         self.run_repo(None, None, "notes", tasks / "notes" / "check.md")
         self.run_repo(None, str(own), "scratch", tasks / "agentkit" / "check.md")
+
+    def test_a_worktree_beside_a_checkout_is_that_checkout(self):
+        # Seats add worktrees under ~/code for their own work: none is a project of its own,
+        # and a PR review takes the checkout, never a seat's worktree that sorts before it.
+        main = self.checkout("acme")
+        subprocess.run(["git", "-C", str(main), "remote", "add", "origin",
+                        "git@github.com:me/acme.git"], check=True)
+        linked = config.CODE / ".acme-fix"
+        subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", "-b", "fix", str(linked)],
+                       check=True)
+        self.assertIn(main, orch.checkouts())
+        self.assertNotIn(linked, orch.checkouts())
+        self.assertEqual(orch.checkout_of(str(linked)), main)
+        (linked / "app").mkdir()
+        self.assertEqual(orch.cwd_project(linked / "app"), main)
+        self.assertEqual(run.checkout_for("me/acme", print), main)
+
+    def test_a_worktree_is_its_checkout_whatever_the_git_layout(self):
+        # A checkout keeping its git directory elsewhere, under a name git takes byte for byte
+        # (a trailing space, a newline, a carriage return, a byte that is no UTF-8), and a
+        # worktree whose `.git` names its git directory by a relative path: git reads them
+        # all, and so does the menu.
+        elsewhere = self.root / os.fsdecode(b"else\xff\r\nwhere.git ")
+        main = config.CODE / "acme"
+        subprocess.run(["git", "init", "-q", "-b", "main", "--separate-git-dir", str(elsewhere),
+                        str(main)], check=True)
+        subprocess.run(["git", "-C", str(main), "-c", "user.name=Fixture", "-c",
+                        "user.email=fixture@localhost", "commit", "-q", "--allow-empty", "-m", "x"],
+                       check=True)
+        added, relative, linked_dir, spaced = (config.CODE / name for name in
+                                               (".acme-fix", ".acme-relative", ".acme-linked-dir",
+                                                ".acme-spaced "))
+        for linked, branch in ((added, "fix"), (relative, "relative"), (linked_dir, "dir"),
+                               (spaced, "spaced")):
+            subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", "-b", branch,
+                            str(linked)], check=True)
+        def pointer(linked):
+            return os.fsdecode((linked / ".git").read_bytes().removesuffix(b"\n")
+                               .removeprefix(b"gitdir: "))
+        (relative / ".git").write_bytes(
+            b"gitdir: " + os.fsencode(os.path.relpath(pointer(relative), relative)) + b"\n")
+        # A `.git` link to the worktree's own git directory: a directory, with its commondir.
+        absolute = pointer(linked_dir)
+        (linked_dir / ".git").unlink()
+        (linked_dir / ".git").symlink_to(absolute)
+        for linked in (relative, linked_dir):
+            subprocess.run(["git", "-C", str(linked), "status", "-s"], check=True)
+        self.assertIn(main, orch.checkouts())
+        for linked in (added, relative, linked_dir, spaced):
+            self.assertNotIn(linked, orch.checkouts())
+            self.assertEqual(orch.checkout_of(str(linked)), main)
+
+    def test_a_worktree_stays_its_checkouts_after_the_repository_moves(self):
+        # `.git` a link to a git file elsewhere; the repository moves and that file is
+        # rewritten in place behind the link, the link untouched: the next listing reads it
+        # afresh.
+        main, linked = config.CODE / "acme", config.CODE / ".acme-fix"
+        def git(where, *args):
+            subprocess.run(["git", "-C", str(where), "-c", "user.name=Fixture", "-c",
+                            "user.email=fixture@localhost", *args], check=True,
+                           capture_output=True)
+        git(self.root, "init", "-q", "-b", "main", "--separate-git-dir",
+            str(self.root / "first.git"), str(main))
+        git(main, "commit", "-q", "--allow-empty", "-m", "x")
+        git(main, "worktree", "add", "-q", "-b", "fix", str(linked))
+        gitfile = self.root / "fix.gitfile"
+        (linked / ".git").rename(gitfile)
+        (linked / ".git").symlink_to(gitfile)
+        self.assertEqual(orch.checkout_of(str(linked)), main)
+        git(main, "init", "-q", "--separate-git-dir", str(self.root / "moved.git"))
+        admin = self.root / "moved.git" / "worktrees" / "-acme-fix"
+        with gitfile.open("r+b") as handle:                 # the same file, written anew
+            handle.truncate(0)
+            handle.write(b"gitdir: " + os.fsencode(admin) + b"\n")
+        (admin / "gitdir").write_bytes(os.fsencode(linked / ".git") + b"\n")
+        git(linked, "status", "-s")
+        self.assertNotIn(linked, orch.checkouts())
+        self.assertEqual(orch.checkout_of(str(linked)), main)
+
+    def test_only_a_path_with_its_own_git_is_a_checkout(self):
+        # A home under git: neither a worktree's subdirectory nor an unversioned ~/agentkit is
+        # a checkout, and a worktree in ~/code of the home's repository stays its own project.
+        def git(where, *args):
+            subprocess.run(["git", "-C", str(where), "-c", "user.name=Fixture", "-c",
+                            "user.email=fixture@localhost", *args], check=True, capture_output=True)
+        main = self.checkout("acme")
+        linked = config.CODE / ".acme-fix"
+        git(main, "worktree", "add", "-q", "-b", "fix", str(linked))
+        (linked / "app").mkdir()
+        git(Path.home(), "init", "-q", "-b", "main")
+        git(Path.home(), "commit", "-q", "--allow-empty", "-m", "home")
+        (Path.home() / "agentkit").mkdir()
+        homework = config.CODE / "homework"
+        git(Path.home(), "worktree", "add", "-q", "-b", "homework", str(homework))
+        self.assertIsNone(orch.checkout_of(str(linked / "app")))
+        self.assertEqual(orch.cwd_project(linked / "app"), main)
+        self.assertIn(homework, orch.checkouts())
+        self.assertEqual(orch.checkout_of(str(homework)), homework)
+
+    def test_a_worktree_of_a_second_agentkit_clone_is_agentkit(self):
+        own = self.checkout("agentkit", Path.home())
+        for layout in ([], ["--separate-git-dir", str(self.root / "clone.git")]):
+            with self.subTest(layout=layout):
+                clone = config.CODE / "agentkit"
+                subprocess.run(["git", "init", "-q", "-b", "main", *layout, str(clone)], check=True)
+                subprocess.run(["git", "-C", str(clone), "-c", "user.name=Fixture", "-c",
+                                "user.email=fixture@localhost", "commit", "-q", "--allow-empty",
+                                "-m", "x"], check=True)
+                linked = config.CODE / ".agentkit-fix"
+                subprocess.run(["git", "-C", str(clone), "worktree", "add", "-q", "-b", "fix",
+                                str(linked)], check=True)
+                self.assertEqual(orch.checkouts().count(own), 1)
+                self.assertNotIn(linked, orch.checkouts())
+                self.assertEqual(orch.checkout_of(str(linked)), own)
+                self.assertEqual(orch.cwd_project(linked), own)
+                for path in (clone, linked, self.root / "clone.git"):
+                    shutil.rmtree(path, ignore_errors=True)
+
+    def test_agentkit_stands_for_its_repository_even_as_a_worktree(self):
+        # ~/agentkit and ~/code/agentkit both worktrees of a repository kept elsewhere, each
+        # with a worktree of its own under ~/code: all of them are agentkit's own.
+        base = self.checkout("agentkit-base", self.root)
+        own, clone = Path.home() / "agentkit", config.CODE / "agentkit"
+        linked, cloned = config.CODE / ".agentkit-fix", config.CODE / ".agentkit-clone-fix"
+        for number, (source, path) in enumerate(((base, own), (base, clone), (own, linked),
+                                                  (clone, cloned))):
+            subprocess.run(["git", "-C", str(source), "worktree", "add", "-q", "-b",
+                            f"tree-{number}", str(path)], check=True)
+        self.assertEqual(orch.checkouts().count(own), 1)
+        for path in (clone, linked, cloned):
+            self.assertNotIn(path, orch.checkouts())
+            self.assertEqual(orch.checkout_of(str(path)), own)
 
     def test_scratch_run_keeps_session_projectless(self):
         config.save_session(self.cfg, "seat", "fable", ["opus"], {"cwd": str(config.CODE), "repo": None})

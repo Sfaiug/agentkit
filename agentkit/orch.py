@@ -1361,23 +1361,73 @@ def listing(reconcile=True):
 
 
 def checkouts():
-    """Named checkouts directly under ~/code, including git worktrees (.git is a file),
-    and agentkit's own checkout ~/agentkit, which lives beside ~/code rather than in it.
-    A second clone at ~/code/agentkit is not listed: it is agentkit's own (`checkout_of`)."""
+    """Named checkouts directly under ~/code, including git worktrees (.git is a file), and
+    agentkit's own checkout ~/agentkit, which lives beside ~/code rather than in it. A
+    worktree added from another of them is not listed: `checkout_of` files it under that
+    one, and a second clone at ~/code/agentkit under agentkit's own."""
+    return sorted(set(listed().values()), key=lambda path: path.name)
+
+
+def listed():
+    """{every checkout that stands for a project: the project's checkout}, a second clone of
+    agentkit standing for agentkit's own (`checkouts`).  A repository's own checkout stands
+    for it, and so does agentkit's, whatever its layout; a worktree of a repository that
+    one stands for is not listed."""
     found = ([path for path in config.CODE.iterdir() if path.is_dir() and (path / ".git").exists()]
              if config.CODE.is_dir() else [])
     own = update.agentkit_dir()
+    dirs = {path: git_dirs(path) for path in (*found, own)}
+    stands = {path for path, known in dirs.items()
+              if known and (not known[1] or path == own or path.name == own.name)}
+    mains = {dirs[path][0] for path in stands}
+    found = [path for path in found if path in stands or not (dirs[path] and dirs[path][0] in mains)]
     if (own / ".git").exists() and all(path.resolve() != own.resolve() for path in found):
-        found = [path for path in found if path.name != own.name] + [own]
-    return sorted(found, key=lambda path: path.name)
+        return {path: own if path.name == own.name else path for path in (*found, own)}
+    return {path: path for path in found}
+
+
+def git_dirs(path):
+    """(the repository's common git directory, whether `path` is a worktree added from
+    another checkout) of the checkout at `path`, or None when it is none.
+
+    A plain `.git` directory with no `commondir` is a repository's own checkout; for anything
+    else -- a `.git` file, a link, a worktree's git directory -- git itself is asked, looking
+    no higher than `path`, so every layout and path it accepts reads the same here.
+    """
+    dot = Path(path) / ".git"
+    try:
+        if not os.path.lexists(dot):        # no checkout here, whatever encloses it
+            return None
+        if dot.is_dir() and not dot.is_symlink() and not (dot / "commondir").exists():
+            return dot.resolve(), False
+    except OSError:
+        return None
+    env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+    env["GIT_CEILING_DIRECTORIES"] = os.fsdecode(os.path.dirname(os.path.abspath(path)))
+    def ask(*flags):
+        try:
+            proc = subprocess.run(["git", "-C", str(path), "rev-parse", "--path-format=absolute",
+                                   *flags], capture_output=True, env=env, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return None if proc.returncode else proc.stdout.removesuffix(b"\n").split(b"\n")
+    lines = ask("--git-dir", "--git-common-dir")
+    if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
+        lines = [b"\n".join(answer) if answer is not None else None
+                 for answer in (ask("--git-dir"), ask("--git-common-dir"))]
+    if lines is None or None in lines:
+        return None
+    gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
+    return common, gitdir != common
 
 
 def checkout_of(repo):
     """The checkout a repo path *is*, or None when it is none of them.
 
     A project is a named checkout under `~/code` or agentkit's own, so only a repo
-    that is one of `checkouts()` names one: a run's worktree, a throwaway repo under
-    ~/.agentkit/tmp, any other path outside ~/code and an unset repo are all no project.
+    that is one of `checkouts()` names one: a throwaway repo under ~/.agentkit/tmp, any
+    other path outside ~/code and an unset repo are all no project. A git worktree added
+    from one of them is that one, wherever it lies.
     A path under ~/code named like agentkit's own is agentkit's own: a second clone of a
     project is that project, never another heading with the same name.
     """
@@ -1387,15 +1437,21 @@ def checkout_of(repo):
         path = Path(repo).resolve()
     except (OSError, ValueError):
         return None
-    found = checkouts()
-    for checkout in found:
+    found = listed()
+    for checkout, project in found.items():
         try:
             if checkout.resolve() == path:
-                return checkout
+                return project
         except OSError:
             continue
+    dirs = git_dirs(path)
+    if dirs and dirs[1]:
+        added = next((project for checkout, project in found.items()
+                      if (git_dirs(checkout) or (None,))[0] == dirs[0]), None)
+        if added:
+            return added
     if path.parent == config.CODE.resolve():
-        return next((checkout for checkout in found if checkout.name == path.name), None)
+        return next((project for project in found.values() if project.name == path.name), None)
     return None
 
 
