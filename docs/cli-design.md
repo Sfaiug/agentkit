@@ -257,7 +257,7 @@ UTF-8 key (`enter` is `⏎`):
 - `done`: `done: it said so, and the row carries its summary`
 - a project's heading: `{name}: the project the sessions under it work in, those needing you first`
 - one naming feature switches: `{name}: Enter or a click opens the switches of its hidden features`
-- a usage row: its label, `NN% left`, `resets <when> (in 2 d 6 h)`, then `runs out early at this pace`, `lasts at this pace` or `on pace` (none once it is at 0%)
+- a usage row: its label, `NN% left` (once it is at 0%, the credits it still runs on where it has any, `62,469 credits left`), `resets <when> (in 2 d 6 h)`, then `runs out early at this pace`, `lasts at this pace` or `on pace` (none once it is at 0%)
 - a usage row with no week to draw: `{name}: no week to draw, {why}; the bar comes with the first reading of one`
 - a model, on `c` and `n`: `{name}: {model} through {harness}, at {effort} effort`
 - its id, on its own screen: `model id: what {harness} is asked to run, one its catalog lists`
