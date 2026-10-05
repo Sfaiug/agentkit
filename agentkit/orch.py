@@ -2108,9 +2108,10 @@ def rulebook_news(session, conversation):
     """What a seat's next prompt carries when its conversation is to be told its rulebook: "".
 
     A harness reads its rulebook only when it opens, so a seat left open across a change to
-    `orchestrator.md`, the vision or this host's `rules.md` would keep working to the old
-    rules.  Reopening it replaces its pane, and nothing on a screen proves the owner has no
-    draft there, so the seat is told instead, with the prompt that starts its next turn:
+    `orchestrator.md`, the vision, this host's `rules.md` or its project's `AGENTS.md` -- a
+    merge, or the seat filed elsewhere -- would keep working to the old rules.  Reopening it
+    replaces its pane, and nothing on a screen proves the owner has no draft there, so the
+    seat is told instead, with the prompt that starts its next turn:
     the rulebook is written to its `rules` file (`rulebook_prepare`), and this names it.
     Only its own conversation is told (`owns`): a client started inside the seat inherits its
     name and is never it.  Every prompt carries the news until the conversation says it read

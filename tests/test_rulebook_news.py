@@ -608,6 +608,34 @@ class RulebookNews(Sandbox):
         self.said_read(notice)
         self.assertEqual(self.prompt(), "")
 
+    def test_a_seat_reads_its_project_s_merged_agents_md_and_is_told_when_a_merge_changes_it(self):
+        def git(cwd, *args):
+            subprocess.run(["git", "-C", str(cwd), "-c", "user.name=Acme", "-c",
+                            "user.email=acme@example.com", *args], check=True, capture_output=True)
+
+        upstream, checkout = self.root / "acme-origin", self.root / "acme"
+        git(self.root, "init", "-q", "-b", "main", str(upstream))
+        (upstream / "AGENTS.md").write_text("---\ntests: python3 acme_gate.py\n---\n# Acme\n\nAcme rule one.\n")
+        git(upstream, "add", "AGENTS.md")
+        git(upstream, "commit", "-qm", "rules")
+        git(self.root, "clone", "-q", str(upstream), str(checkout))
+        config.update_session(SEAT, repo=str(checkout))
+        self.handed(config.seat_rulebook(SEAT))
+        self.assertIn("Acme rule one.", config.seat_rulebook(SEAT))
+        self.assertNotIn("acme_gate", config.seat_rulebook(SEAT))
+        (checkout / "AGENTS.md").write_text("Acme draft nobody merged.\n")
+        self.assertEqual(self.prompt(), "")
+        # a section the rulebook already holds -- ak's vision, in agentkit's own -- is read once
+        held = next(part for part in config.SECTIONS.split(config.rulebook_text()) if part.strip())
+        (upstream / "AGENTS.md").write_text(f"# Acme\n\nAcme rule two.\n\n{held}")
+        git(upstream, "commit", "-qam", "rule two")
+        git(checkout, "fetch", "-q", "origin")
+        self.assertIn(TOLD, self.prompt())
+        told = self.rules().read_text()
+        self.assertIn("Acme rule two.", told)
+        self.assertNotIn("Acme draft", told)
+        self.assertEqual(told.count(held.strip()), 1)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

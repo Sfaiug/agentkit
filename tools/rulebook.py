@@ -3,7 +3,8 @@
 
 The checkout's `AGENTS.md` section `What ak is for`, where present, then `orchestrator.md`,
 with this host's own `~/.agentkit/rules.md` after it where there is one -- the owner's rules
-for this machine, which agentkit ships and writes nowhere.
+for this machine, which agentkit ships and writes nowhere -- and the `AGENTS.md` of the project
+the session is filed under (`config.seat_rulebook`).
 Nothing is installed into the user's harness configuration: these rules reach the session whose
 launch asked for them, at launch, and no other session anybody ever runs.
 
