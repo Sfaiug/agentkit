@@ -456,19 +456,22 @@ def trust_here():
     Appended, never rewritten: the file is the user's.  Read first, so a directory trusted in
     any spelling -- its own table, a key under `[projects]`, an inline table -- gets no second
     table, which would leave a file Codex cannot parse; one that does not parse is Codex's to
-    report, and stays as it is.
+    report, and stays as it is.  The appended file must parse too: a `projects` kept as an
+    inline table cannot take another table, so the file stays and Codex asks for itself.
     """
     path, here = config_entries()["file"], str(Path.cwd().resolve())
     text = path.read_text(encoding="utf-8") if path.exists() else ""
+    entry = f"\n[projects.{json.dumps(here, ensure_ascii=False)}]\ntrust_level = \"trusted\"\n"
     try:
-        if here in tomllib.loads(text).get("projects", {}):
+        projects = tomllib.loads(text).get("projects", {})
+        if not isinstance(projects, dict) or here in projects:
             return
+        tomllib.loads(text + entry)
     except tomllib.TOMLDecodeError:
         return
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
-        fh.write(f"\n[projects.{json.dumps(here, ensure_ascii=False)}]\n"
-                 'trust_level = "trusted"\n')
+        fh.write(entry)
 
 
 def main(argv, launch=None):

@@ -75,5 +75,18 @@ class SeatTrustsItsFolder(unittest.TestCase):
                 self.assertEqual(config.read_text(), text)
 
 
+    def test_codex_leaves_a_file_an_appended_table_would_break(self):
+        # Another folder's trust kept in an inline table, or `projects` that is no table at
+        # all: a `[projects."<dir>"]` after either does not parse, so the file stays as it is.
+        config = self.root / ".codex" / "config.toml"
+        config.parent.mkdir()
+        for text in ('projects = { "/invented/acme" = { trust_level = "trusted" } }\n',
+                     'projects = "acme"\n'):
+            with self.subTest(text=text):
+                config.write_text(text)
+                self.codex_launch()
+                self.assertEqual(config.read_text(), text)
+
+
 if __name__ == "__main__":
     unittest.main()
