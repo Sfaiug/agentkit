@@ -798,7 +798,8 @@ class StopHook(GrokSandbox):
         out = self.stop("ok")
         self.assertIn('"decision": "block"', out)   # no question, no done, no run: back to work
         out = self.stop("May I merge this PR?")
-        self.assertNotIn("block", out)
+        self.assertEqual(json.loads(out)["decision"], "block")
+        self.assertIn("ak notify needs", json.loads(out)["reason"])
 
 
 class Wiring(GrokSandbox):

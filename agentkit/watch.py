@@ -1223,26 +1223,6 @@ def progress_output(harness, pane):
                             if not re.match(r"(?:│\s*)?[>›❯⟩]", line)).split())
 
 
-def last_paragraph(harness, tail):
-    """The block that pane's last message ends with, as the hook reads one off a transcript.
-
-    hooks/orchestrator-stop.sh looks for the question mark in the last paragraph and never in
-    the last line, because "Which branch do you want?" with "main or release." under it is one
-    question over two of them.  A screen has no paragraphs until its chrome is off the bottom,
-    so that comes off first -- the same chrome content_lines trims -- and the block above the
-    blank line that is left is the answer.
-    """
-    lines = [strip_sgr(line).rstrip() for line in tail.splitlines()]
-    chrome = screen(harness)
-    lines = lines[:chrome_below(chrome, lines)]
-    while lines and (not lines[-1].strip() or chrome_line(chrome, lines[-1])):
-        lines.pop()
-    block = []
-    while lines and lines[-1].strip():
-        block.append(lines.pop().strip())
-    return "\n".join(reversed(block))
-
-
 def recorded_error(harness, name):
     """The error that seat's harness recorded as its conversation's last event, "" where it
     recorded none there, or None where it keeps no record to read, and only then is its screen.
@@ -1463,6 +1443,17 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
+    # A bare rule right under a row drawn at the left edge is that row's frame, not a newer
+    # line: Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest
+    # line it hid every question, which then read as answered.  A draft never sits there: its
+    # first row is prompt-marked and the rest are indented or inside a box's edge, so what is
+    # typed stays a draft.
+    newest = lines[-1]
+    if chrome["ruled"] and len(lines) > 1 and re.fullmatch(RULE, newest):
+        above = strip_sgr(raw_lines[-2]).rstrip()
+        if (above and not above[0].isspace() and above[0] not in "│┃║"
+                and not re.match(r"[❯›⟩>]", above) and not re.fullmatch(RULE, above.strip())):
+            newest = lines[-2]
     for rule in chrome["rules"]:
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
             region = lines[-rule["lines"]:]
@@ -1514,12 +1505,12 @@ def screen_state(harness, tail):
         if ((rule["all"] and not all(mark in low for mark in rule["all"]))
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
                 or (rule["none"] and any(mark in low for mark in rule["none"]))
-                or (rule["newest"] and not rule["newest"].search(lines[-1]))
+                or (rule["newest"] and not rule["newest"].search(newest))
                 or (rule["chrome"] and not chrome_line(chrome, lines[-1]))):
             continue
         marks = rule["all"] + rule["any"]
         evidence = next((line for line in reversed(region)
-                         if any(mark in line.lower() for mark in marks)), lines[-1])
+                         if any(mark in line.lower() for mark in marks)), newest)
         return rule["state"], rule["id"], evidence[:160]
     return None, "", ""
 
@@ -2723,8 +2714,10 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     or still waits for its Enter.  `receipt` is handed a mark the moment the text is in, for the
     ending's own record to keep until its delivery is recorded; given that mark back as `typed`,
     this only presses Enter, and only while the composer still holds the line alone -- read under
-    the send lock, past any dialog -- and gone from there, the seat has it.  A reopened seat is a
-    new one, with an empty composer, and matches no mark.  `stale` is asked under the send lock
+    the send lock, past any dialog -- and once that composer, read whole, is empty, the seat has
+    it.  A composer holding anything else, or one that cannot be read, says nothing yet: a line
+    wrapped past the bottom rows still sits there.  A reopened seat is a new one, with an empty
+    composer, and matches no mark.  `stale` is asked under the send lock
     too, with the name the seat goes by then, before each key: a line that has stopped being
     this seat's to have is typed no further, and `ready` before each Enter.
     """
@@ -2739,10 +2732,11 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             if (not pane.strip() or owner_question(notify.last(held)) or stale(held)
                     or asking(held, harness, pane)):
                 return False    # nothing to read, or the screen is somebody else's: next pass
-            if not _holds_text(pane, text):
+            draft = composer_draft(harness, pane) if harness else None
+            if draft == "":
                 return True
             # the line alone: an Enter would send whatever the owner has typed beside it since
-            if composer_draft(harness, pane) == re.sub(r"\s+", "", text) and ready(held):
+            if draft == re.sub(r"\s+", "", text) and ready(held):
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
@@ -2998,15 +2992,12 @@ def done_holds(name, live, notice, began, said, dry_run):
 
 
 def stop_nudge(session, harness, pane, notice, records, dry_run, log):
-    """The end-of-turn rule where no hook can hold it: a turn ends with a question, a done or a
-    run or live job to wait on, and a seat that stopped on none of the three is told to get on
-    with it.
+    """The end-of-turn rule where no hook can hold it: a turn ends with a question asked through
+    `ak notify needs`, a done or a run or live job to wait on, and a seat that stopped on none
+    of the three is told to get on with it.  A question mark on the screen asks nobody anything.
 
     An unanswered question of this seat's own never reaches here -- health() leaves those
-    alone -- so what is left to read is the last paragraph on the screen, the `done` on record
-    and the runs and jobs.  The whole pane and not its content lines, because a paragraph is
-    what the blank line above it makes one and pane_tail keeps none: "Which one?" with a
-    decision under it is not a question the user was left with.
+    alone -- so what is left to read is the `done` on record and the runs and jobs.
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
     `done`, as it holds the hook's.  A wait whose session has stopped is tell_waits' to end, with
@@ -3046,11 +3037,11 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     stood = _stamp(live.get("stop_said_at"))
     if stood is None or time.time() - stood < STALL_WAIT:
         return          # what it stopped on has to stand, as every screen here has to
-    if "?" in last_paragraph(harness, pane):
-        return
     began = _stamp(live.get("turn_began"))
     if began is None:
         return          # nothing has watched this seat finish a turn; there is none to judge
+    if notice and notice.get("kind") == "needs" and (_stamp(notice.get("time")) or 0) >= began:
+        return          # it asked with ak notify needs: a question mark on the screen asks nothing
     said = progress_output(harness, pane_tail(pane))
     if not said or live.get("stop_nudged") == [began, said]:
         return

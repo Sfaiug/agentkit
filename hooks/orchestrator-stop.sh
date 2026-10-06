@@ -1,7 +1,8 @@
 #!/bin/bash
 # The end-of-turn rule, where prose cannot enforce it.
 #
-# An orchestrator turn ends in exactly one of three ways -- a question the user must answer,
+# An orchestrator turn ends in exactly one of three ways -- an unanswered question through the
+# harness's question prompt or `ak notify needs`,
 # `ak notify done` because the job is finished, or a run or live job it is waiting on, including
 # background work it started in its own harness while the harness still lists it in flight, and
 # another session's work it said it waits on with `ak wait`, for as long as `watch.waiting_on`
@@ -18,9 +19,9 @@
 # Anything else is sent back to work with the harness's own block decision, which Claude Code
 # 2.1.263, Codex 0.153.4 and Grok Build 1.0.40 spell the same way: `{"decision": "block",
 # "reason": "..."}` on stdout.  "Here is my recommendation, let me know if I should continue"
-# then costs the user nothing but one turn.  On a harness that tells its hook what background
-# work it has in flight -- Claude Code -- so does "Shall I continue?": a last sentence that is
-# only a bare request for leave to go on is not a question the user must answer.
+# then costs the user nothing but one turn.  A question mark in prose ends nothing: only the
+# question prompt or `ak notify needs` alerts the owner, and reading prose is not this hook's
+# to do.
 #
 # A worker is silent here as it is everywhere: no $AGENTKIT_SESSION, or AK_RUN_ROLE=worker,
 # and this decides nothing and exits 0.
@@ -56,33 +57,23 @@ main() {
   script=$(/bin/cat <<'STOPPY'
 import json
 import os
-import re
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
+from agentkit import harness
 from agentkit.run import going, handback_reason, unfinished, ways_out
 from agentkit.job import job_waiting
 from agentkit.watch import waiting_on
 
 HOPS = 8            # how many renames a seat name is followed through, as agentkit/config does
 LIMIT = 2           # blocks in one turn; the third stop stands
-REASON = ("You stopped without asking the user a question, declaring done with ak notify done, "
+REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
+          "declaring done with ak notify done, "
           "or waiting on a run. Continue: decide the next step and do it.")
 HOME = Path(os.path.expanduser("~")) / ".agentkit"
 STATE, RUNS = HOME / "state", HOME / "runs"
-# Every last sentence that asks only leave to go on, word for word once case and the marks
-# around it are set aside: "Shall I continue?", "Let me know if I should continue."  Going on
-# is the rule, so the user never has to answer one.  A fixed list, because a sentence that
-# says anything more -- asks for something, offers a choice -- is one the user must answer.
-LEAVE = {f"{ask} {onward}"
-         for ask in ("shall i", "should i", "shall we", "should we", "can i", "may i", "ok to",
-                     "okay to", "want me to", "do you want me to", "would you like me to",
-                     "let me know if i should", "let me know if you want me to")
-         for onward in ("continue", "proceed", "go ahead", "go on", "carry on", "keep going")}
-
-
 def loads(text):
     try:
         data = json.loads(text or "")
@@ -119,14 +110,13 @@ def resolve(name):
     return name
 
 
-def spoken(line):
+def spoken(entry):
     """The assistant text one transcript line holds, in whichever shape its harness writes.
 
     Claude Code writes `{"type": "assistant", "message": {"content": [...]}}`, Codex
     `{"payload": {"type": "message", "role": "assistant", "content": [...]}}`.  A sidechain is
     a sub agent talking to itself and never what this seat said to the user.
     """
-    entry = loads(line)
     if entry.get("isSidechain"):
         return None
     message = entry.get("message") if entry.get("type") == "assistant" else None
@@ -141,58 +131,86 @@ def spoken(line):
     return said or None
 
 
-def last_message(payload):
-    """What this seat said last, or None where nothing here can tell.
+def transcript(payload):
+    """Newest entries first, read back in growing chunks as far as the caller goes: a question
+    still open stays found however much output followed it, in at most one chunk of memory."""
+    path = payload.get("transcript_path")
+    if not isinstance(path, str) or not path:
+        return
+    try:
+        handle = open(path, "rb")
+    except OSError:
+        return
+    with handle:
+        end, chunk, rest = handle.seek(0, os.SEEK_END), 1 << 18, b""
+        while end > 0:
+            start = max(0, end - chunk)
+            handle.seek(start)
+            lines = (handle.read(end - start) + rest).split(b"\n")
+            # the first line of a chunk that starts mid-file is half a line, read whole next time
+            rest = lines.pop(0) if start else b""
+            for line in reversed(lines):
+                entry = loads(line)
+                if not entry.get("isSidechain"):
+                    yield entry
+            end, chunk = start, min(chunk * 4, 1 << 26)
 
-    Codex hands its Stop hook the message itself; Claude names the transcript instead, and the
-    last assistant entry with text in it is the answer.  One harness spells the handover
-    camelCase, so both keys are read.  Read from the end in widening windows,
-    so a turn that moved a lot of tool output is still found without reading the conversation.
-    """
+
+def last_message(payload):
+    """Codex hands over the message; Claude names its transcript. Both key spellings occur."""
     said = payload.get("last_assistant_message")
     if not (isinstance(said, str) and said.strip()):
         said = payload.get("lastAssistantMessage")
     if isinstance(said, str) and said.strip():
         return said
-    path = payload.get("transcript_path")
-    if not isinstance(path, str) or not path:
-        return None
-    for window in (1 << 18, 1 << 22, 1 << 26):
-        try:
-            with open(path, "rb") as handle:
-                handle.seek(0, os.SEEK_END)
-                size = handle.tell()
-                handle.seek(max(0, size - window))
-                lines = handle.read().splitlines()
-        except OSError:
-            return None
-        # the first line of a window that starts mid-file is half a line, and half a line is
-        # not JSON; dropping it costs nothing the next window does not read whole
-        for line in reversed(lines if size <= window else lines[1:]):
-            said = spoken(line)
-            if said:
-                return said
-        if size <= window:
-            break
+    for entry in transcript(payload):
+        said = spoken(entry)
+        if said:
+            return said
     return None
 
 
-def asks(said, leave=False):
-    """A question the user must answer ends the message: its last paragraph carries the mark.
+def questioned(payload):
+    """Only an unanswered question still needs the owner; its result ends that wait.
 
-    With `leave`, a last sentence that is one of LEAVE asks nothing, and the paragraph asks only
-    what the rest of it does.  A sentence ends at a mark with space after it, so
-    `docs/guide.md?` is not two of them, and is taken whole, line breaks and all.
+    Input in the owner's words, as their harness tells them from its bookkeeping
+    (`harness.prompt`), ends the scan: what was asked before it is answered or set aside.
     """
-    blocks = [block for block in re.split(r"\n\s*\n", said.strip()) if block.strip()]
-    if not blocks:
-        return False
-    last = blocks[-1]
-    if leave:
-        *before, final = re.split(r"(?<=[.!?])\s+", last.strip())
-        if " ".join(re.sub(r"^\W+|\W+$", "", final).lower().split()) in LEAVE:
-            last = " ".join(before)
-    return "?" in last
+    answered, accepted = set(), set()
+    for entry in transcript(payload):
+        item = entry.get("payload")
+        item = item if isinstance(item, dict) else {}
+        if harness.prompt(entry) is not None:
+            return False
+        message = entry.get("message")
+        message = message if isinstance(message, dict) else item
+        content = message.get("content") or []
+        if isinstance(content, list):
+            answered.update(part.get("tool_use_id") for part in content
+                            if isinstance(part, dict) and part.get("type") == "tool_result"
+                            and isinstance(part.get("tool_use_id"), str))
+        if item.get("type") == "function_call_output" and isinstance(item.get("call_id"), str):
+            answered.add(item["call_id"])
+            try:
+                if json.loads(item.get("output")) == {"accepted": True}:
+                    accepted.add(item["call_id"])
+            except (TypeError, ValueError):
+                pass
+        if entry.get("type") == "assistant" and isinstance(content, list) and any(
+                isinstance(part, dict) and part.get("type") == "tool_use"
+                and part.get("name") == "AskUserQuestion" and part.get("id") not in answered
+                for part in content):
+            return True
+        name = item.get("name")
+        tool = name.rsplit(".", 1)[-1] if isinstance(name, str) else ""
+        # The async call's output only says whether the question went out; the owner answers
+        # later, as input of their own, which ends this scan above.  A refused call asked nothing.
+        if (item.get("type") == "function_call" and tool in ("request_user_input",
+                                                             "request_user_input_async")
+                and (item.get("call_id") in accepted if tool.endswith("_async")
+                     else item.get("call_id") not in answered)):
+            return True
+    return False
 
 
 def tells(payload):
@@ -317,8 +335,9 @@ def held(launched, payload):
     peer = record.get("peer") is True    # another session's message opened the turn
     asked = record.get("asked") is True    # the prompt that opened the turn asked something
     seat = resolve(launched)
-    said = last_message(payload)
-    if said is None or asks(said, leave=tells(payload)) or told(seat, turn, "needs"):
+    if last_message(payload) is None:
+        return ""    # nothing it said can be read; nothing here can judge the turn
+    if questioned(payload) or told(seat, turn, "needs"):
         return ""
     undecided = parked(seat)
     if not undecided and (told(seat, turn, "done", peer) or waiting(seat, turn)
