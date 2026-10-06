@@ -5671,7 +5671,10 @@ def land_from_line(lp, upstream, deliver):
                     raise
                 if code:
                     abort_integration(lp, how)
-                    return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
+                    reason = (f"its {how} onto {upstream} at {tip[:12]} stopped on a conflict; "
+                              "the lander checks it again")
+                    lp.log(f"rejoins the line: {reason}")
+                    return rejoin_line(lp, upstream, reason)
                 set_base(lp, tip)
                 identity = commit_identity(lp.wt)
                 lp.state["review"] = {**saved, **identity,
@@ -5679,7 +5682,13 @@ def land_from_line(lp, upstream, deliver):
                                       "rebased_from": saved["head_sha"]}
                 lp.write()
                 if identity["tree_sha"] != wait["land"]:
-                    return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
+                    # Its tree alone on the tip is not the stack the lander passed: a change
+                    # stacked ahead of it has not landed yet, or the target moved.
+                    reason = (f"on {upstream} at {tip[:12]} its tree is {identity['tree_sha'][:12]}, "
+                              f"not the {wait['land'][:12]} the lander checked: a change stacked "
+                              f"ahead of it has not landed yet, or {upstream} moved")
+                    lp.log(f"rejoins the line: {reason}")
+                    return rejoin_line(lp, upstream, reason)
                 if git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
                     lp.state.update(on_target=True)
                     lp.state.pop("waiting_on", None)

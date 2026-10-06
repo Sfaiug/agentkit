@@ -220,6 +220,10 @@ class LanderWakes(Sandbox):
         self.assertIsNone(state["pid"])
         self.assertEqual(log.read_text().count("MARKER"), 1)
         self.assertEqual(state["waiting_on"], {"line": self.turn.name, "joined": wait["joined"]})
+        # it says why, with both trees: the one it has on the tip and the one the lander passed
+        self.assertIn(wait["land"][:12], state["error"])
+        self.assertIn(state["review"]["tree_sha"][:12], state["error"])
+        self.assertIn("rejoins the line: ", log.read_text())
         self.assertEqual(self.commands, commands)
         self.assertEqual(self.events, [])
         self.assertEqual(self.merges, [])
