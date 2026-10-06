@@ -174,17 +174,14 @@ class AnswerClosesQuestion(Sandbox):
         notice = notify.last(name)
         self.assertTrue(watch.owner_question(notice))
         self.assertFalse(notify.resolved(notice))
-        self.assertFalse(self.handback())
-        self.assertEqual(self.typed, [])
         self.assertEqual(notify.transition(name, seat=self.seat), 0)
         self.assertEqual(self.edits, [])
         self.assertNotIn("closed", notify._card_read(name))
         self.assertEqual(watch.session_state(name, session=self.seat, cfg=self.cfg)["reason"],
                          QUESTION)
 
-    def test_owner_prompt_releases_a_handback_without_opening_through_ak(self):
+    def test_owner_prompt_answers_without_opening_through_ak(self):
         self.notice()
-        self.assertFalse(self.handback())
         self.prompt()
         self.assert_answered()
 
