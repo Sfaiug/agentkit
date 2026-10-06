@@ -19,7 +19,7 @@ import sys
 import tempfile
 import time
 
-from . import config, host, job as jobs, orch, proc_snapshot, record, retention, run, worktrees
+from . import config, host, job as jobs, land, orch, proc_snapshot, record, retention, run, worktrees
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -377,7 +377,7 @@ def stale_worktree(wt, now, paths, left):
     if not retention.present(directory / "run.json"):
         if (not record.writing(directory) and not retention.busy(directory, paths)
                 and retention.expired(wt.lstat().st_mtime, now, retention.EPHEMERAL_AGE)
-                and not holds_work(wt)):
+                and not holds_work(wt, now)):
             return {"action": "remove", "kind": "orphan-worktree", "path": str(wt),
                     "why": "no run record"}
         return None
@@ -394,20 +394,23 @@ def stale_worktree(wt, now, paths, left):
     return None
 
 
-def holds_work(wt):
-    """Whether removing a checkout no run owns could lose work.
+def holds_work(wt, now):
+    """Whether removing a checkout no run owns could lose work, or somebody used it within a day.
 
-    A seat builds on a branch, in a worktree of a repository outside the checkout that
-    keeps its branches and commits when the checkout goes: it holds no work once it holds
-    its commit and nothing more (`same_as_commit`).  A detached worktree is the line's
-    scratch, left by a killed lander: its output is nobody's.  Anything else holds work, or
-    may: a clone, a worktree whose repository lies inside it, and a checkout git cannot read.
+    The line's scratch -- detached, under the name `land` gives it -- is a killed lander's: its
+    output is nobody's.  A seat builds on a branch, in a worktree of a repository outside the
+    checkout that keeps its branches and commits when the checkout goes: it holds no work once
+    it holds its commit and nothing more, unchanged for a day (`same_as_commit`).  Anything
+    else holds work, or may: a clone, a worktree whose repository lies inside it, one detached
+    by a rebase or a bisect, and one git cannot read.
     """
     dirs = orch.git_dirs(wt)
     if not dirs or not dirs[1] or dirs[0].is_relative_to(wt.resolve()):
         return True
     code, _ = git_in(wt, "symbolic-ref", "-q", "HEAD")
-    return code != 1 and (code != 0 or not same_as_commit(wt))
+    if code == 1 and wt.name.startswith(land.SCRATCH):
+        return False
+    return code != 0 or not same_as_commit(wt, now)
 
 
 def git_in(wt, *args, env=None):
@@ -426,32 +429,79 @@ def git_in(wt, *args, env=None):
     return proc.returncode, proc.stdout
 
 
-def same_as_commit(wt):
-    """Whether a checkout holds its head commit and nothing more: its index lists exactly
-    the commit's files, each file in it hashes to the commit's blob, read raw (no filter,
-    line ending or replacement object stands in between), git finds no new file beside
-    them, and the checkout keeps no ref of its own -- `refs/worktree`, a bisect's or a
-    rebase's -- that would go with it.  What git ignores is output, not work.  A submodule,
-    whose own commits only it may hold, keeps the checkout."""
+# What git leaves in a worktree's own git directory between commands.  Anything else -- a
+# rebase, merge, cherry-pick or bisect under way, an autostash, a lock, a ref of the
+# checkout's own -- is work, or a hold, that would go with the checkout.
+IDLE = frozenset({"HEAD", "commondir", "gitdir", "index", "logs", "refs", "config.worktree",
+                  "ORIG_HEAD", "FETCH_HEAD", "COMMIT_EDITMSG", "MERGE_RR", "AUTO_MERGE",
+                  "REBASE_HEAD"})
+
+
+def same_as_commit(wt, now):
+    """Whether a checkout holds its head commit and nothing more, unchanged for a day.
+
+    Git is idle in it (`IDLE`, with no ref and no reflog but HEAD's of its own).  Its index
+    lists exactly the commit's files, each file in it hashes to the commit's blob, read raw
+    (no filter, line ending or replacement object stands in between), and git finds no new
+    file beside them.  What git ignores is output, not work.  A submodule, whose own commits
+    only it may hold, keeps the checkout.  Every file this reads -- the checkout's own git
+    directory and the tracked files -- is the same after the last read as before the first,
+    and none changed within a day: a seat at work in it keeps it.
+    """
     git = ["--no-replace-objects", f"--work-tree={wt}", "--no-optional-locks",
            "-c", "core.ignoreCase=false", "-c", "core.fsmonitor=false",
            "-c", "core.untrackedCache=false"]
     def ask(*args, env=None):
         code, out = git_in(wt, *git, *args, env=env)
         return out if code == 0 else None
-    head = ask("rev-parse", "-q", "--verify", "HEAD^{commit}")
-    if head is None:
+    head, private, fmt = (ask("rev-parse", "-q", "--verify", "HEAD^{commit}"),
+                          ask("rev-parse", "--absolute-git-dir"), ask("rev-parse", "--show-object-format"))
+    if head is None or private is None or fmt is None:
         return False
-    head = head.strip().decode()
-    fmt, tree, index = (ask("rev-parse", "--show-object-format"),
-                        ask("ls-tree", "-r", "-z", "--full-tree", head), ask("ls-files", "-s", "-z"))
-    if (fmt is None or tree is None or index is None or ask(
-            "for-each-ref", "--format=%(refname)", "refs/worktree", "refs/bisect",
-            "refs/rewritten") != b""):
+    head, private = head.strip().decode(), os.fsdecode(private.removesuffix(b"\n"))
+    tree = ask("ls-tree", "-r", "-z", "--full-tree", head)
+    if tree is None:
         return False
     # `<mode> blob <oid>\t<path>` and `<mode> <oid> <stage>\t<path>`, both by path
     files = {path: (meta.split()[0], meta.split()[2])
              for meta, _, path in (entry.partition(b"\t") for entry in tree.split(b"\0") if entry)}
+    def snapshot():
+        """{path: (inode, size, mtime, ctime)} of everything read and every folder holding a
+        tracked file, or None when git is not idle."""
+        def listed(*parts):
+            try:
+                return set(os.listdir(os.path.join(private, *parts)))
+            except FileNotFoundError:
+                return set()
+        try:
+            names = os.listdir(private)
+            if not set(names) <= IDLE or listed("refs") or not listed("logs") <= {"HEAD"}:
+                return None
+            tracked = [os.path.join(os.fsencode(wt), path) for path in files]
+            paths = [os.fspath(wt), private, *(os.path.join(private, name) for name in names),
+                     os.path.join(private, "logs", "HEAD"),
+                     *tracked, *{os.path.dirname(path) for path in tracked}]
+        except OSError:
+            return None
+        found = {}
+        for path in paths:
+            try:
+                info = os.lstat(path)
+            except FileNotFoundError:
+                found[path] = None
+            except OSError:
+                return None
+            else:
+                found[path] = (info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        return found
+    before = snapshot()
+    if before is None or any(
+            info and not retention.expired(info[2] / 1e9, now, retention.EPHEMERAL_AGE)
+            for info in before.values()):
+        return False
+    index = ask("ls-files", "-s", "-z")
+    if index is None:
+        return False
     staged = {path: (meta.split()[0], meta.split()[1], meta.split()[2])
               for meta, _, path in (entry.partition(b"\t") for entry in index.split(b"\0") if entry)}
     if staged != {path: (mode, oid, b"0") for path, (mode, oid) in files.items()}:
@@ -478,7 +528,7 @@ def same_as_commit(wt):
         if ask("read-tree", head, env=env) is None:
             return False
         new = ask("ls-files", "--others", "--exclude-standard", "-z", env=env)
-    return new == b""
+    return new == b"" and snapshot() == before
 
 
 def stale_worktrees(now, paths):
@@ -489,28 +539,13 @@ def stale_worktrees(now, paths):
             if (item := stale_worktree(wt, now, paths, left))]
 
 
-def worktree_repo(wt):
-    """The repository a checkout's `.git` pointer names, `<repo>/.git/worktrees/<name>`, or None."""
-    try:
-        prefix, sep, value = retention.read_bytes(wt / ".git").decode().strip().partition(": ")
-    except (OSError, UnicodeDecodeError):
-        return None
-    gitdir = Path(value)
-    if (prefix != "gitdir" or not sep or not gitdir.is_absolute()
-            or gitdir.parent.name != "worktrees" or gitdir.parents[1].name != ".git"):
-        return None
-    return gitdir.parents[2]
-
-
-def clear_tree(tree, report):
-    """Everything of a tree this user can remove, then git's registration of it."""
-    repo = worktree_repo(tree)
+def clear_tree(tree):
+    """Everything of a tree this user can remove, then git's registration of it in the
+    repository git names for it (`orch.git_dirs`), whatever its layout."""
+    dirs = orch.git_dirs(tree)
     retention.remove(tree, directory=True, ignore_errors=True)
-    if repo is not None and repo != tree and repo.is_dir():
-        try:
-            run.git(repo, "worktree", "prune", check=False)
-        except run.Stopped as exc:
-            report(f"gc: {tree}: {exc}")
+    if dirs and dirs[1] and dirs[0].is_dir():
+        git_in(dirs[0], f"--git-dir={dirs[0]}", "worktree", "prune")
 
 
 def unremovable(tree):
@@ -542,7 +577,7 @@ def left_behind(tree, report):
         return False
     if not clearable(tree) or not unremovable(tree):
         return True
-    clear_tree(tree, report)
+    clear_tree(tree)
     if not retention.present(tree):
         return False
     left = {path: at for path, at in leftovers().items() if retention.present(Path(path))}
@@ -799,7 +834,7 @@ def gc(report, automatic=False):
                                 done = drop_tree(retention.read_json(directory / "run.json") or {},
                                                  path, report)
                             else:
-                                clear_tree(path, report)
+                                clear_tree(path)
                                 done = not left_behind(path, report)
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)

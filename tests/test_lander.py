@@ -554,7 +554,7 @@ class Lander(LanderFixture, unittest.TestCase):
         planned = gc.stale_worktrees(later, set())
         self.assertEqual([item["path"] for item in planned], [str(scratch)])
         self.assertEqual(planned[0]["kind"], "orphan-worktree")
-        gc.clear_tree(scratch, lambda _: None)
+        gc.clear_tree(scratch)
         self.assert_cleaned()
 
 

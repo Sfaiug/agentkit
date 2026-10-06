@@ -255,7 +255,7 @@ class GcSweep(Sandbox):
         # line's detached scratch a killed lander left, its output with it.
         stray = config.WT / "stray"
         self.git(self.repo, "worktree", "add", "-q", str(stray), "-b", "ak/stray")
-        self.aged(stray, 2 * DAY)
+        self.untouched(stray)
         scratch = config.WT / "land-scratch"
         self.git(self.repo, "worktree", "add", "-q", "--detach", str(scratch))
         (scratch / "output").write_text("a killed check's\n")
@@ -272,7 +272,7 @@ class GcSweep(Sandbox):
         (config.RUNS / "writing" / "run.tmp").write_text("{")
         (config.RUNS / "unreadable" / "run.json").write_text("{")
         for wt in (bare, writing, unreadable):
-            self.aged(wt, 2 * DAY)
+            self.untouched(wt)
             self.aged(config.RUNS / wt.name, 2 * DAY)
         # Passed, its merge refused, and a week and a day since: the tree goes, the branch stays.
         failed_merge = dict(merged=False, merge_failed=True,
@@ -318,6 +318,18 @@ class GcSweep(Sandbox):
         self.git(wt, "commit", "-qam", name)
         return wt
 
+    def untouched(self, wt, age=2 * DAY):
+        """A checkout nobody changed for `age`: every file in it and in its own git directory."""
+        found = subprocess.run(["git", "-C", str(wt), "rev-parse", "--absolute-git-dir"],
+                               capture_output=True, text=True)
+        then = time.time() - age
+        for top in (wt, *([Path(found.stdout.strip())] if found.returncode == 0 else [])):
+            for root, dirs, files in os.walk(top):
+                for name in dirs + files:
+                    os.utime(os.path.join(root, name), (then, then), follow_symlinks=False)
+            os.utime(top, (then, then))
+        return wt
+
     def test_a_seats_checkout_goes_a_day_old_only_holding_nothing_but_its_commit(self):
         # Whether its pull request merged, is open or was never opened: the commits stay in
         # the repository, on the checkout's branch.
@@ -336,13 +348,32 @@ class GcSweep(Sandbox):
         relative = self.seat(project, "relative")
         (relative / ".git").write_text(
             "gitdir: " + os.path.relpath(project / ".git" / "worktrees" / "relative", relative) + "\n")
-        gone += [sandboxed, bare, relative, self.seat(self.repo, "elsewhere")]
+        symlinked = self.seat(project, "symlinked")
+        (symlinked / ".git").unlink()
+        (symlinked / ".git").symlink_to(project / ".git" / "worktrees" / "symlinked")
+        gone += [sandboxed, bare, relative, symlinked, self.seat(self.repo, "elsewhere")]
         names = ("dirty", "untracked", "hidden-new", "unchanged", "skipped", "submodule",
                  "ignore-case", "same-stat", "mode", "staged", "mirrored", "filtered", "replaced",
-                 "gitlinked", "own-ref")
+                 "gitlinked", "own-ref", "rebasing", "autostashed", "locked", "detached")
         kept = [self.seat(project, name) for name in names]
         (dirty, untracked, hidden_new, unchanged, skipped, submodule, case, same_stat, mode,
-         staged, mirrored, filtered, replaced, gitlinked, own_ref) = kept
+         staged, mirrored, filtered, replaced, gitlinked, own_ref, rebasing, autostashed, locked,
+         detached) = kept
+        # A rebase paused on a conflict, its resolution not yet committed; a merge holding the
+        # seat's edits in an autostash only the checkout names; a checkout locked against
+        # pruning; and a seat's own detached HEAD, not the line's scratch.
+        (project / "tracked").write_text("upstream\n")
+        self.git(project, "commit", "-qam", "upstream")
+        paused = subprocess.run(["git", "-C", str(rebasing), "rebase", "main"], capture_output=True)
+        self.assertEqual(paused.returncode, 1)
+        (rebasing / "tracked").write_text("the seat's resolution\n")
+        self.git(rebasing, "add", "tracked")
+        self.git(project, "branch", "topic", self.git(project, "commit-tree", "-p", "main~1",
+                                                      "-m", "topic", "main~1^{tree}"))
+        (autostashed / "tracked").write_text("only in the autostash\n")
+        self.git(autostashed, "merge", "-q", "--autostash", "--no-commit", "--no-ff", "topic")
+        self.git(project, "worktree", "lock", str(locked))
+        self.git(detached, "checkout", "-q", "--detach")
         (dirty / "tracked").write_text("not committed\n")
         (untracked / "notes.md").write_text("never added\n")
         # Work git would not report: the repository hides new files, the index marks a file
@@ -431,10 +462,15 @@ class GcSweep(Sandbox):
         shutil.rmtree(config.WT / "in-wt.git")
         self.git(config.HOME, "init", "-q")
         kept += [nested, moved, linked, in_wt]
-        for wt in (*gone, *kept):
-            self.aged(wt, 2 * DAY)
         heads = {wt: (self.git(wt, "rev-parse", "--path-format=absolute", "--git-common-dir"),
                       self.git(wt, "rev-parse", "HEAD")) for wt in gone}
+        for wt in (*gone, *kept):
+            self.untouched(wt)
+        # A day since its folder changed, but a commit made just now.
+        recent = self.untouched(self.seat(project, "recent"))
+        (recent / "tracked").write_text("committed just now\n")
+        self.git(recent, "commit", "-qam", "just now")
+        kept.append(self.aged(recent, 2 * DAY))
         dry = self.gc("--dry-run")
         for wt in gone:
             self.assertIn(f"gc: would remove orphan-worktree {wt}: no run record", dry)
@@ -444,10 +480,34 @@ class GcSweep(Sandbox):
             self.gc()
         for wt in gone:
             self.assertFalse(wt.exists(), wt)
-            self.assertNotIn(str(wt), self.listed(project))
+            self.assertNotIn(str(wt), self.git(wt.parent, "-C", str(heads[wt][0]), "worktree",
+                                               "list", "--porcelain"))
             self.assertEqual(self.git(wt.parent, "-C", str(heads[wt][0]), "rev-parse",
                                       "seat/" + wt.name.removesuffix("-worktree")), heads[wt][1])
         for wt in kept:
+            self.assertTrue(wt.is_dir(), wt)
+
+    def test_a_seats_checkout_changed_while_gc_reads_it_stays(self):
+        # Each changes during the last read of the proof gc takes right before removing it:
+        # a tracked file rewritten, and an edit staged with its file put back.
+        project = self.make_repo("project")
+        cases = {self.untouched(self.seat(project, name)): name for name in ("file", "index")}
+        scans, read = {wt: 0 for wt in cases}, gc.git_in
+        def changing(wt, *args, **kw):
+            result = read(wt, *args, **kw)
+            if wt in cases and "--others" in args:
+                scans[wt] += 1
+                if scans[wt] == 2:
+                    kept = (wt / "tracked").read_bytes()
+                    (wt / "tracked").write_text("written while gc read the checkout\n")
+                    if cases[wt] == "index":
+                        self.git(wt, "add", "tracked")
+                        (wt / "tracked").write_bytes(kept)
+            return result
+        with patch.object(gc, "git_in", side_effect=changing):
+            self.gc()
+        self.assertEqual(set(scans.values()), {2})
+        for wt in cases:
             self.assertTrue(wt.is_dir(), wt)
 
     def test_a_tree_gc_cannot_take_is_reported_once_and_never_again(self):
@@ -460,8 +520,7 @@ class GcSweep(Sandbox):
         (self.repo / ".git" / "info" / "exclude").write_text("build/\n")
         locked = self.locked_tree(wt)
         (wt / "build" / "ours").write_text("ours\n")
-        for path in (wt / "build" / "ours", wt / "build", wt):
-            self.aged(path, 2 * DAY)
+        self.untouched(wt)
         out = self.gc()
         self.assertEqual(out.count(f"gc: left {wt}: "), 1, out)
         self.assertIn(f"`sudo rm -rf {wt}` takes them", out)
