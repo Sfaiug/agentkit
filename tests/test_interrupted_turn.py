@@ -73,10 +73,26 @@ class InterruptedTurn(Sandbox):
         return word, free
 
     def handed_back(self, capture=lambda: INTERRUPTED):
-        self.keys = []
-        with patch.object(watch, "pane_text", side_effect=lambda _session: capture()), \
-                patch.object(orch, "tmux_out",
-                             side_effect=lambda *a, **_kw: self.keys.append(a) or (0, "")), \
+        """The hand-back typed at that screen, its line in the composer until its Enter takes
+        it: the keys it got."""
+        self.keys, typed = [], []
+
+        def look(_session):
+            screen = capture()
+            if not typed:
+                return screen
+            return screen.replace("\u276f\u00a0\n", f"\u276f\u00a0{typed[-1]}\n")
+
+        def keys(*args, **_kw):
+            self.keys.append(args)
+            if args[-2] == "-l":
+                typed.append(args[-1])
+            elif args[-1] == "Enter":
+                typed.clear()
+            return 0, ""
+
+        with patch.object(watch, "pane_text", side_effect=look), \
+                patch.object(orch, "tmux_out", side_effect=keys), \
                 patch.object(watch, "KEY_GAP", 0):
             watch.type_at_prompt({"name": SEAT}, "The acme tests passed.", lambda _: None,
                                  cfg=self.cfg)
