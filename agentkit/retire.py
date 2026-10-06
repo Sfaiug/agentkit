@@ -77,15 +77,17 @@ def due(rows, now):
 
 
 def line(project, rows):
-    """What a seat on that project is told of those proven rows; one longer than a told line may
-    hold is written to a file the line names instead, as `ak tell` asks of a longer line."""
+    """What a seat on that project is told of those proven rows. One longer than a told line may
+    hold, or one a typed line would change (a switch or project named with a run of spaces or a
+    control character, which `tell.flat` folds), is written to a file the line names instead, as
+    `ak tell` asks of a longer line, so every name reaches the seat exactly as listed."""
     named = ", ".join(f"`{row['id']}` since {time.strftime('%-d %b', time.localtime(since(row)))}"
                       for row in rows)
     text = (f"[from ak, not the owner] In {project}, these switches have been on for everyone two "
             f"weeks or more, so they are proven: {named}. Take each out of {project}'s code, so "
             "everyone keeps the feature for good. ak says this again each day one is still "
             "listed.")
-    if not tell.too_long(text):
+    if not tell.too_long(text) and tell.flat(text) == text:
         return text
     whole = config.STATE / "retire" / f"{hashlib.sha256(text.encode()).hexdigest()[:16]}.txt"
     whole.parent.mkdir(parents=True, exist_ok=True)

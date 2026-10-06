@@ -174,6 +174,15 @@ class Retire(unittest.TestCase):
         self.assertIn(f"In ACME, these switches", text)
         self.assertEqual(text.split("`")[1::2], ["x" * 900, "new-search"])
 
+    def test_names_a_typed_line_would_change_are_told_as_a_file(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(row("search  panel", 40), row("new\tsearch", 30))
+        self.hand()
+        [message] = self.queued("acme")
+        whole = Path(message["line"].split(": ")[-1].removesuffix(" says which, and where."))
+        self.assertEqual(whole.expanduser().read_text().split("`")[1::2],
+                         ["search  panel", "new\tsearch"])
+
     def test_a_record_that_is_not_one_costs_at_most_a_line_told_again(self):
         self.seat("acme", self.acme, created=10)
         self.switches(row("first", 40))
