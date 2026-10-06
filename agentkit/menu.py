@@ -758,9 +758,9 @@ FILLS = {"building": 1 / 4, "checks": 1 / 2, "review": 3 / 4, "landing": 7 / 8} 
 
 def seat_runs(name, records=None):
     """Each live run that seat launched, furthest on first: its `task` id -- its task file's name
-    up to the first `-`, else the run's id -- what it is `doing` (`DOING`, or `waiting` for a
-    slot), the `step` of a round that is and `since` when, its `round` of its `rounds`, and the
-    `model` doing it.
+    up to the first `-`, the number of the PR it reviews (`#2157`), else the run's id -- what it
+    is `doing` (`DOING`, or `waiting` for a slot), the `step` of a round that is and `since`
+    when, its `round` of its `rounds`, and the `model` doing it.
 
     `records` are the draw's own `run_records`, read here when they are not handed in.  The
     menu row and the seat's own status bar both read this, as they read `seat_progress`.
@@ -780,7 +780,9 @@ def seat_runs(name, records=None):
         else:
             continue
         step, model = DOING.get(doing, (doing, None))
-        task = Path(state.get("task_file") or "").stem.split("-")[0] or run_dir.name
+        pr = _run.PR_PARTS.match(state.get("review_pr") or "")
+        task = (Path(state.get("task_file") or "").stem.split("-")[0]
+                or (f"#{pr.group(3)}" if pr else run_dir.name))
         # the round anything last ran in, or a step was announced in before its directory was
         # made: one landing, rechecked or waiting on a push is still in the round its summary
         # closed, not the next
