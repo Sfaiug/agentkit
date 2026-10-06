@@ -3351,11 +3351,16 @@ def switches(checkout, every=FEATURES_EVERY):
         return entry["rows"]
 
 
+def switch_rows(answer):
+    """The switches a features `list` answered, each a row with an id; None for no list."""
+    return ([row for row in answer if isinstance(row, dict) and "id" in row]
+            if isinstance(answer, list) else None)
+
+
 def _list_switches(checkout, entry):
     asked = time.monotonic()
     answer, why = features_run(checkout, "list")
-    rows = ([row for row in answer if isinstance(row, dict) and "id" in row]
-            if isinstance(answer, list) else None)
+    rows = switch_rows(answer)
     with _SWITCHES_LOCK:
         entry["going"] = False
         if entry["set"] > asked:
