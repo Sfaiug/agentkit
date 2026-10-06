@@ -39,8 +39,10 @@ export OPENCODE_DISABLE_AUTOUPDATE=1   # `ak update` owns that; nothing mid-run 
 # agentkit/harness/opencode.py reads how MiMo is paid, and a workspace can never move it.  The
 # same switch keeps the repository's AGENTS.md from a turn, so a worker's rules are ak's.
 # OpenCode reads OPENCODE_CONFIG_PROJECT_DISABLE ahead of the older name (2.0.14), so an
-# inherited `=0` of it would win: both are pinned.
-export OPENCODE_DISABLE_PROJECT_CONFIG=1 OPENCODE_CONFIG_PROJECT_DISABLE=1
+# inherited `=0` of it would win: both are pinned.  A seat gets the same: `interactive` prints them.
+OWN_RULES_OFF="OPENCODE_DISABLE_PROJECT_CONFIG=1 OPENCODE_CONFIG_PROJECT_DISABLE=1"
+# shellcheck disable=SC2086 # OWN_RULES_OFF is one NAME=value per word
+export $OWN_RULES_OFF
 # A seat's rulebook is named in this variable (see `interactive`), and every process that seat
 # starts inherits it.  `[launch] seat_env` in adapters/opencode.toml is what keeps it out of the
 # environments agentkit builds for a run -- its workers, its done-when commands, whatever
@@ -200,8 +202,8 @@ print(json.dumps({"model": tagged,
 PYEOF
 ) || { echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q ' "$content")
-  printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_DISABLE_PROJECT_CONFIG=1 OPENCODE_CONFIG_PROJECT_DISABLE=1 %sopencode %s--standalone --auto\n' \
-      "$REPO/tools/idle-compact.py" "$rules" "$resume" ;;
+  printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %sopencode %s--standalone --auto\n' \
+      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "$resume" ;;
 usage)
   # No login is a failed probe, not a missing meter: without one an unauthenticated MiMo
   # would read as a neutral 1.0 provider and be picked ahead of logged-in ones, only for

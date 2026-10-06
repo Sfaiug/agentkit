@@ -5677,7 +5677,8 @@ GROKRC=0
 printf '\n' | (cd "$WORK" && HOME="$GHOME" ak orch smoke-grok --model grok --dry-run) \
   >"$WORK/grok-orch.log" 2>&1 || GROKRC=1
 grep -q '^orch: grok (--model)$' "$WORK/grok-orch.log" || GROKRC=1
-grep -q 'idle-compact.py --harness grokbuild -- grok ' "$WORK/grok-orch.log" || GROKRC=1
+grep -q 'idle-compact.py --harness grokbuild -- env GROK_CLAUDE_AGENTS_ENABLED=false .*GROK_CURSOR_SKILLS_ENABLED=false grok ' \
+  "$WORK/grok-orch.log" || GROKRC=1
 grep -q -- '--rules ' "$WORK/grok-orch.log" || GROKRC=1
 grep -q -- '--trust --always-approve --model grok-4.7 --reasoning-effort xhigh' \
   "$WORK/grok-orch.log" || GROKRC=1

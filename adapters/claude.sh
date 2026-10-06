@@ -18,6 +18,11 @@
 #                       uses that subscription's own login, and no other
 set -uo pipefail
 command -v claude >/dev/null || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
+# No CLAUDE.md or .claude/rules, the user's or the repository's, and no auto-memory MEMORY.md
+# reach a worker's turn or a seat (2.1.280's own switches): their rules are the ones ak hands
+# them, a seat's its rulebook with the project's AGENTS.md in it (`config.seat_rulebook`),
+# whatever harness runs them.  `run` sets these and `interactive` prints them.
+OWN_RULES_OFF="CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"
 TMPD="$HOME/.agentkit/tmp"
 CREDS="$HOME/.claude/.credentials.json"
 # `claude setup-token` mints a long-lived token; install.sh writes it here, 0600.  A worker given
@@ -102,11 +107,9 @@ run)
   # falls back to whatever the seat's own login leaves there, exactly as it always did.
   tok=$(cat "$TOKEN" 2>/dev/null) && [ -n "$tok" ] && export CLAUDE_CODE_OAUTH_TOKEN="$tok"
   if [ -n "$sid" ]; then set -- -p --resume "$sid"; else set -- -p; fi
-  # The prompt goes down stdin.  No CLAUDE.md or .claude/rules, the user's or the repository's,
-  # and no auto-memory MEMORY.md reach the turn (2.1.280's own switches): a worker's rules are
-  # the ones ak's prompt carries, whatever harness runs it.
-  CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 \
-  claude "$@" --model "$model" --effort "$effort" --dangerously-skip-permissions \
+  # The prompt goes down stdin.
+  # shellcheck disable=SC2086 # OWN_RULES_OFF is one NAME=value per word
+  env $OWN_RULES_OFF claude "$@" --model "$model" --effort "$effort" --dangerously-skip-permissions \
       --output-format stream-json --verbose <"$pf" >"$out/events.jsonl" 2>"$out/stderr.log"
   rc=$?
   jq -sr '[.[] | select(.type == "result")] | last | .result // ""' \
@@ -148,7 +151,8 @@ interactive)
   # background daemon on, `/background` moved a seat's conversation into a daemon process that
   # carried whichever seat had started the daemon, so its hooks and `ak` commands spoke for
   # that other seat and its resume reopened the conversation from before the move.
-  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 '
+  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 %s ' \
+      "$OWN_RULES_OFF"
   # Seat preparation runs in the seat's actual cwd before the TUI, on either login: bypass
   # permissions, and the first-run questions answered, trust in this directory among them.
   printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
