@@ -1,0 +1,40 @@
+
+  ~/c/fix-api 1.4K / 256K │ [Dashboard]
+
+
+
+
+
+
+
+
+
+
+
+
+
+   Run /doctor for details and fixes.
+
+  ╭──────────────────────────────────╮
+  │ ❯ 1534 finished FAIL: a case.    │
+  │   run 20261006-1534 finished     │
+  │   FAIL: a case. run 20261006-    │
+  │   1534 finished FAIL: a case.    │
+  │   run 20261006-1534 finished     │
+  │   FAIL: a case. run 20261006-  ▃ │
+  │   1534 finished FAIL: a case.  █ │
+  │   run 20261006-1534 finished   █ │
+  │   FAIL: a case. run 20261006-  █ │
+  │   1534 finished FAIL: a case.  █ │
+  │   run 20261006-1534 finished   █ │
+  │   FAIL: a case. run 20261006-  █ │
+  │   1534 finished FAIL: a case.  █ │
+  │   run 20261006-1534 finished   █ │
+  │   FAIL: a case. run 20261006-  █ │
+  │   1534 finished FAIL: a case.  █ │
+  │   run 20261006-1534 finished   █ │
+  │   FAIL: a case. run            █ │
+  ╰─ Grok 4.7 (xhigh) · always-appro─╯
+
+  Enter:send  │  Alt+Enter:newline
+

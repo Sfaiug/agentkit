@@ -490,13 +490,15 @@ class HandBack(Sandbox):
     def test_each_harnesss_own_screen_of_a_long_or_tall_line_holds_it_alone_until_the_owner_adds(self):
         """Real captures, 40 columns: Claude 2.1.291 folds a line past its fold into `[Pasted
         text #1]` and scrolls a taller one to its last rows; Grok Build 1.0.46 scrolls in its box
-        with a scrollbar inside the edge; Antigravity scrolls under `↑ N more lines`, the whole
+        with a scrollbar inside the edge, the box past the read on a pane 40 or 50 rows tall; Antigravity scrolls under `↑ N more lines`, the whole
         composer in the read on a short pane; Codex and Muse grow it past the read."""
         self.rows = [self.live()]
         made = lambda n: ("run 20261006-1534 finished FAIL: a case. " * 40)[:n]
         for harness, screen, line in (("claude", "claude-folded-line", made(900)),
                                       ("claude", "claude-scrolled-line", made(700)),
                                       ("grokbuild", "grok-tall-line", made(700)),
+                                      ("grokbuild", "grok-40-rows-tall-line", made(700)),
+                                      ("grokbuild", "grok-50-rows-tall-line", made(700)),
                                       ("antigravity", "antigravity-tall-line", made(700)),
                                       ("antigravity", "antigravity-short-tall-line", made(700)),
                                       ("codex", "codex-tall-line", made(700)),

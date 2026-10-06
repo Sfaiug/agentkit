@@ -2624,11 +2624,13 @@ def composer_holds(name, session, line, cfg=None):
     rows = _composer_rows(harness, pane)
     if rows is not None and not re.sub(r"\s+", "", "".join(rows)):
         return "empty"
-    if rows is None and len(_content_rows(pane)) > PANE_LINES:
-        # its top above the read: every row over the chrome under it is the composer's
-        rows = content_lines(harness, pane_tail(pane))
-    held, whole = re.sub(r"\s+", "", "".join(rows or ())), re.sub(r"\s+", "", line)
     chrome = screen(harness)
+    if rows is None and len(_content_rows(pane)) > PANE_LINES:
+        # its top above the read: every row over the chrome under it is the composer's, read as
+        # its rows under the prompt row are -- inside a box's edges, its scroll marks left out
+        tail = content_lines(harness, pane_tail(pane))
+        rows = _unscrolled(chrome, [_inside_box(row) for row in tail])
+    held, whole = re.sub(r"\s+", "", "".join(rows or ())), re.sub(r"\s+", "", line)
     folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
               and len(line) > chrome["folds_over"])
     if held and (held == whole or len(rows) > 1 and whole.endswith(held)
@@ -2647,10 +2649,13 @@ def _composer_parts(chrome, raws, rows, at, stop):
     dims = dim_rows(raws)
     for dim, plain in zip(dims[at + 1:stop], rows[at + 1:stop]):
         if not dim:
-            if boxed and plain.startswith("│") and plain.endswith("│"):
-                plain = plain[1:-1].strip()
-            parts.append(plain)
+            parts.append(_inside_box(plain) if boxed else plain)
     return [part for part in parts if part]
+
+
+def _inside_box(row):
+    """A composer row inside its box's edges, where it is drawn in one."""
+    return row[1:-1].strip() if row.startswith("│") and row.endswith("│") else row
 
 
 def sync_title(session, log=lambda _: None, *, force=False):
