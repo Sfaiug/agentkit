@@ -73,14 +73,14 @@ class InterruptedTurn(Sandbox):
         return word, free
 
     def handed_back(self, capture=lambda: INTERRUPTED):
-        keys = []
+        self.keys = []
         with patch.object(watch, "pane_text", side_effect=lambda _session: capture()), \
                 patch.object(orch, "tmux_out",
-                             side_effect=lambda *a, **_kw: keys.append(a) or (0, "")), \
+                             side_effect=lambda *a, **_kw: self.keys.append(a) or (0, "")), \
                 patch.object(watch, "KEY_GAP", 0):
             watch.type_at_prompt({"name": SEAT}, "The acme tests passed.", lambda _: None,
                                  cfg=self.cfg)
-        return [key[-1] for key in keys]
+        return [key[-1] for key in self.keys]
 
     def test_an_interrupted_turn_is_at_its_prompt_and_free_to_type_into(self):
         fact = self.prompt("Run the acme tests.")
@@ -124,6 +124,39 @@ class InterruptedTurn(Sandbox):
                         self.publish(newer)
                     return INTERRUPTED
                 self.assertEqual(self.handed_back(capture), [])
+
+    def test_a_prompt_whose_hook_lands_while_the_record_is_read_is_a_turn_running(self):
+        """review 20261005-0749 round 3: the record was read up to an end fixed before the next
+        prompt went in, and its hook published before the read finished."""
+        fact = self.prompt("Run the acme tests.")
+        self.said("user", fact["at"] + 3, INTERRUPT)
+        read, looks = watch.interrupted_at, []
+        with patch.object(watch, "interrupted_at",
+                          side_effect=lambda *a: looks.append(len(self.keys)) or read(*a)):
+            self.assertEqual(self.handed_back(), ["The acme tests passed.", "Enter"])
+        for look in range(1, looks.count(0) + 1):     # every read before the first key
+            with self.subTest(look=look):
+                self.publish(fact)
+                reads = []
+
+                def racing(harness, name):
+                    reads.append(read(harness, name))
+                    if len(reads) == look:
+                        self.publish(dict(fact, at=fact["at"] + 10))
+                    return reads[-1]
+                with patch.object(watch, "interrupted_at", side_effect=racing):
+                    self.assertEqual(self.handed_back(), [])
+
+    def test_a_turn_interrupted_after_its_question_was_answered_is_at_its_prompt(self):
+        """review 20261005-0749 round 3: the last hook is the question, answered, and no other
+        hook follows until the next prompt."""
+        fact = self.prompt("Run the acme tests.")
+        for kind in ("permission_prompt", "worker_permission_prompt", "agent_needs_input"):
+            with self.subTest(kind=kind):
+                self.publish({"event": "Notification", "kind": kind, "at": fact["at"] + 1,
+                              "text": "Claude needs your permission"})
+                self.said("user", fact["at"] + 3, INTERRUPT)
+                self.assertEqual(self.looked(), ("needs you", True))
 
     def test_a_draft_typed_after_an_interrupt_is_the_owners_and_closed_to_typing(self):
         fact = self.prompt("Run the acme tests.")

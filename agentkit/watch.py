@@ -1678,8 +1678,13 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
     at = time.time() if now is None else now
     fact = hook_facts(name)
     try:
-        # only a turn its hooks say runs can have ended unreported
-        ended = interrupted_at(harness, name) if hook_state(harness, fact)[0] == "working" else None
+        # only a turn its hooks say runs, or asked in, can have ended unreported; and a prompt
+        # whose hook lands while the record is read is a newer turn, which the record may not
+        # show yet
+        ended = (interrupted_at(harness, name)
+                 if hook_state(harness, fact)[0] in ("working", "asking") else None)
+        if ended is not None and hook_facts(name) != fact:
+            ended = None
         found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
                          interrupted=ended)
     except config.Error as exc:
