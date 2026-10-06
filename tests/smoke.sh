@@ -1196,7 +1196,7 @@ import test_v4l
 
 
 class Notifications(test_notify.Notifications):
-    def open_and_progress(self):
+    def open_and_progress(self, between=lambda: None):
         before, messages = menu.state({"name": "seat"}), len(self.requests)
         with patch.object(orch, "find", return_value={"name": "seat"}), \
                 patch.object(orch, "inside", return_value=True), \
@@ -1207,6 +1207,7 @@ class Notifications(test_notify.Notifications):
             menu.open_session(config.load(), {"name": "seat"}, False)
         self.assertEqual(menu.state({"name": "seat"}), before)
         self.assertEqual(len(self.requests), messages)
+        between()
         notify.progress("seat", lambda: "Fresh output after the answer")
 
     def test_lifecycle_and_approved_payload(self):
