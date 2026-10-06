@@ -1392,9 +1392,9 @@ def listed():
     return {path: path for path in found}
 
 
-def git_in(path, *args, env=None, out=subprocess.PIPE):
+def git_in(path, *args, env=None):
     """(exit code, output) of git run in the checkout at `path`, the code None when it could
-    not run; given a file as `out`, the output goes there instead.
+    not run.
 
     Git looks for the repository at `path` alone, never above it, and nothing of git's own
     environment (`GIT_*`) comes along: an inherited repository, index, object store or
@@ -1403,11 +1403,11 @@ def git_in(path, *args, env=None, out=subprocess.PIPE):
     clean = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
     clean["GIT_CEILING_DIRECTORIES"] = os.fsdecode(os.path.dirname(os.path.abspath(path)))
     try:
-        proc = subprocess.run(["git", *args], cwd=path, stdout=out, stderr=subprocess.PIPE,
+        proc = subprocess.run(["git", *args], cwd=path, capture_output=True,
                               stdin=subprocess.DEVNULL, timeout=30, env={**clean, **(env or {})})
     except (OSError, subprocess.TimeoutExpired):
         return None, b""
-    return proc.returncode, proc.stdout or b""
+    return proc.returncode, proc.stdout
 
 
 def git_dirs(path):

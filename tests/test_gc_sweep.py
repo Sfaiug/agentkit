@@ -336,7 +336,7 @@ class GcSweep(Sandbox):
         self.git(wt, "commit", "-qam", name)
         return wt
 
-    def test_a_seats_checkout_goes_a_day_old_only_holding_nothing_but_its_commit(self):
+    def test_a_seats_checkout_goes_a_day_old_once_git_status_lists_nothing(self):
         # Whether its pull request merged, is open or was never opened: the commits stay in
         # the repository, on the checkout's branch.
         project = self.make_repo("project")
@@ -346,23 +346,17 @@ class GcSweep(Sandbox):
         (project / ".git" / "info" / "exclude").write_text(".ak-test-sandbox/\n")
         (sandboxed / ".ak-test-sandbox").mkdir()
         self.make_repo(sandboxed / ".ak-test-sandbox" / "repo")
-        # A worktree of a bare repository, one whose `.git` points back by a relative path,
-        # and one of a repository no project names.
+        # A worktree of a bare repository, one whose `.git` points back by a relative path or
+        # is a link, and one of a repository no project names.
         self.git(self.root, "clone", "-q", "--bare", str(project), str(self.root / "bare.git"))
         bare = config.WT / "bare-worktree"
         self.git(self.root / "bare.git", "worktree", "add", "-q", str(bare), "-b", "seat/bare")
         relative = self.seat(project, "relative")
         (relative / ".git").write_text(
             "gitdir: " + os.path.relpath(project / ".git" / "worktrees" / "relative", relative) + "\n")
-        # A `.git`, or a file of the checkout's own git directory, that is a link: what it
-        # leads to lies beyond what gc watches.
         symlinked = self.seat(project, "symlinked")
         (symlinked / ".git").unlink()
         (symlinked / ".git").symlink_to(project / ".git" / "worktrees" / "symlinked")
-        index_link = self.seat(project, "index-link")
-        own = Path(self.git(index_link, "rev-parse", "--absolute-git-dir"))
-        (own / "index").rename(self.root / "linked-index")
-        (own / "index").symlink_to(self.root / "linked-index")
         split = self.seat(project, "split")
         self.git(split, "update-index", "--split-index")
         # Empty folders a finished bisect, or a private ref and its reflog deleted, leave.
@@ -371,13 +365,11 @@ class GcSweep(Sandbox):
         self.git(bisected, "bisect", "reset")
         self.git(unreffed, "update-ref", "--create-reflog", "refs/worktree/notes", "HEAD")
         self.git(unreffed, "update-ref", "-d", "refs/worktree/notes")
-        # A sparse checkout leaving a committed file out, and a file longer than one read.
-        sparse, large = self.seat(project, "sparse"), self.seat(project, "large")
+        # A sparse checkout leaving a committed file out.
+        sparse = self.seat(project, "sparse")
         (sparse / "guide").write_text("left out\n")
-        (large / "asset").write_bytes(os.urandom(3 << 20))
-        for wt in (sparse, large):
-            self.git(wt, "add", ".")
-            self.git(wt, "commit", "-qm", "more")
+        self.git(sparse, "add", ".")
+        self.git(sparse, "commit", "-qm", "more")
         self.git(sparse, "sparse-checkout", "set", "--no-cone", "/tracked")
         self.assertFalse((sparse / "guide").exists())
         # A file git writes with other line endings than its blob's, and a submodule nobody
@@ -396,18 +388,15 @@ class GcSweep(Sandbox):
         self.git(modular, "commit", "-qm", "module")
         uninitialized = self.seat(modular, "uninitialized")
         self.assertEqual(os.listdir(uninitialized / "module"), [])
-        standard = [*gone, sandboxed, split, bisected, unreffed, sparse, large, crlf]
-        gone += [sandboxed, bare, relative, split, bisected, unreffed, sparse, large, crlf,
+        standard = [*gone, sandboxed, split, bisected, unreffed, sparse, crlf]
+        gone += [sandboxed, bare, relative, symlinked, split, bisected, unreffed, sparse, crlf,
                  uninitialized, self.seat(self.repo, "elsewhere")]
-        names = ("dirty", "untracked", "hidden-new", "unchanged", "skipped", "submodule",
-                 "ignore-case", "same-stat", "mode", "staged", "mirrored", "filtered", "replaced",
+        names = ("dirty", "untracked", "hidden-new", "submodule", "staged", "mirrored",
                  "gitlinked", "own-ref", "rebasing", "land-seat", "autostashed", "locked",
                  "detached", "intent", "executable")
         kept = [self.seat(project, name) for name in names]
-        (dirty, untracked, hidden_new, unchanged, skipped, submodule, case, same_stat, mode,
-         staged, mirrored, filtered, replaced, gitlinked, own_ref, rebasing, land_seat,
-         autostashed, locked, detached, intent, executable) = kept
-        kept += [symlinked, index_link]
+        (dirty, untracked, hidden_new, submodule, staged, mirrored, gitlinked, own_ref, rebasing,
+         land_seat, autostashed, locked, detached, intent, executable) = kept
         # A committed file staged as deleted, then added back in intent only; and a file its
         # owner may no longer run, others still may.
         (intent / "empty").touch()
@@ -436,42 +425,23 @@ class GcSweep(Sandbox):
         self.git(detached, "checkout", "-q", "--detach")
         (dirty / "tracked").write_text("not committed\n")
         (untracked / "notes.md").write_text("never added\n")
-        # Work git would not report: the repository hides new files, the index marks a file
-        # unchanged or out of the tree, or a submodule holds commits of its own.
+        # Work `git status` shows once asked: new files the repository's setting hides, and a
+        # submodule holding commits of its own.
         self.git(project, "config", "extensions.worktreeConfig", "true")
         self.git(hidden_new, "config", "--worktree", "status.showUntrackedFiles", "no")
         (hidden_new / "notes.md").write_text("never added\n")
-        self.git(case, "config", "--worktree", "core.ignoreCase", "true")
-        (case / "TRACKED").write_text("a new file beside `tracked`\n")
-        # An edit of the same size under the old mtime, with ctime and full stats ignored, and
-        # a new executable bit with file modes ignored.
-        self.git(same_stat, "config", "--worktree", "core.trustctime", "false")
-        self.git(same_stat, "config", "--worktree", "core.checkStat", "minimal")
-        tracked, before = same_stat / "tracked", time.time() - 100
-        os.utime(tracked, (before, before))
-        self.git(same_stat, "update-index", "--refresh")
-        tracked.write_text("same-stah\n")
-        os.utime(tracked, (before, before))
-        self.git(mode, "config", "--worktree", "core.fileMode", "false")
-        (mode / "tracked").chmod(0o755)
         # An edit in a checkout whose git config points its files at a clean copy elsewhere.
         mirror = self.root / "mirror"
         shutil.copytree(mirrored, mirror, ignore=shutil.ignore_patterns(".git"))
         self.git(mirrored, "config", "--worktree", "core.worktree", str(mirror))
         (mirrored / "tracked").write_text("only here\n")
-        # Notes a clean filter hides from git, an uncommitted edit standing in for the head
-        # through a replacement object, and a staged gitlink git is told to ignore.
-        (project / ".git" / "info" / "attributes").write_text("tracked filter=firstline\n")
-        self.git(filtered, "config", "--worktree", "filter.firstline.clean", "head -n1")
-        (filtered / "tracked").write_text("filtered\nnotes git never sees\n")
-        published = self.git(replaced, "rev-parse", "HEAD")
-        (replaced / "tracked").write_text("unpublished\n")
-        self.git(replaced, "commit", "-qam", "unpublished")
-        self.git(replaced, "replace", published, "HEAD")
-        self.git(replaced, "reset", "-q", "--soft", published)
+        # A submodule git is told to ignore, holding a commit of its own.
         self.make_repo(gitlinked / "vendor")
         self.git(gitlinked, "add", "vendor")
+        self.git(gitlinked, "commit", "-qm", "vendor")
+        self.git(gitlinked / "vendor", "commit", "-q", "--allow-empty", "-m", "local only")
         self.git(gitlinked, "config", "--worktree", "diff.ignoreSubmodules", "all")
+        self.assertEqual(self.git(gitlinked, "status", "--porcelain"), "")
         # Work only the index holds: staged, then the file put back as committed -- and gc
         # started with another index, the committed one, in its environment.
         clean_index = self.root / "clean.index"
@@ -480,9 +450,6 @@ class GcSweep(Sandbox):
         (staged / "tracked").write_text("staged only\n")
         self.git(staged, "add", "tracked")
         (staged / "tracked").write_text("staged\n")
-        for wt, flag in ((unchanged, "--assume-unchanged"), (skipped, "--skip-worktree")):
-            self.git(wt, "update-index", flag, "tracked")
-            (wt / "tracked").write_text("edited out of git's sight\n")
         component = self.make_repo("component")
         self.git(submodule, "-c", "protocol.file.allow=always", "submodule", "add", "-q",
                  str(component), "component")
@@ -519,10 +486,6 @@ class GcSweep(Sandbox):
                       self.git(wt, "rev-parse", "HEAD")) for wt in gone}
         for wt in (*gone, *kept):
             self.aged(wt, 2 * DAY)
-        # No hook of the repository runs while gc reads its checkouts.
-        hook = project / ".git" / "hooks" / "post-index-change"
-        hook.write_text('#!/bin/sh\ntouch "$0.ran"\n')
-        hook.chmod(0o755)
         dry = self.gc("--dry-run")
         for wt in gone:
             self.assertIn(f"gc: would remove orphan-worktree {wt}: no run record", dry)
@@ -538,7 +501,6 @@ class GcSweep(Sandbox):
                                       "seat/" + wt.name.removesuffix("-worktree")), heads[wt][1])
         for wt in kept:
             self.assertTrue(wt.is_dir(), wt)
-        self.assertFalse(hook.with_name(hook.name + ".ran").exists())
 
     def test_a_checkout_ak_makes_is_locked_as_its_own_while_git_makes_it(self):
         # Git writes ak's reason as given, in any language: the checkout's own smudge filter,
@@ -555,64 +517,6 @@ class GcSweep(Sandbox):
         own = Path(self.git(wt, "rev-parse", "--absolute-git-dir"))
         self.assertTrue((own / "mark").is_file())
         self.assertFalse((own / "locked").exists())
-
-    def test_a_seats_checkout_changed_while_gc_reads_it_stays(self):
-        # Each changes while the proof gc takes right before removing it reads it.  During its
-        # last read: a tracked file rewritten, an edit staged with its file put back, a new
-        # file in a folder holding no tracked file itself, in an empty one, or in one ignoring
-        # all it holds until its own list stops, and its `.git` rewritten.  A reset right after
-        # git named its commit, and a commit on a detached HEAD right after gc saw a branch.
-        project = self.make_repo("project")
-        names = ("file", "index", "folder", "empty", "pointer", "cache", "reset", "detaching")
-        seats = [self.seat(project, name) for name in names]
-        (seats[2] / "src" / "pkg").mkdir(parents=True)
-        (seats[2] / "src" / "pkg" / "module").write_text("committed\n")
-        self.git(seats[2], "add", "src")
-        self.git(seats[2], "commit", "-qm", "module")
-        (seats[3] / "notes").mkdir()
-        # A folder ignoring all it holds, itself included, as test caches do.
-        (seats[5] / "cache").mkdir()
-        (seats[5] / "cache" / ".gitignore").write_text("*\n")
-        (seats[5] / "cache" / "draft").write_text("the seat's only copy\n")
-        cases = {self.aged(wt, 2 * DAY): name for wt, name in zip(seats, names)}
-        written = {"folder": Path("src", "notes"), "empty": Path("notes", "draft")}
-        scans, read = {wt: 0 for wt in cases}, orch.git_in
-        def change(wt, name):
-            if name == "pointer":
-                (wt / ".git").write_bytes((wt / ".git").read_bytes())
-            elif name in written:
-                (wt / written[name]).write_text("written while gc read the checkout\n")
-            elif name == "cache":
-                (wt / "cache" / ".gitignore").write_text("")
-            elif name == "reset":
-                self.git(wt, "reset", "-q", "--soft", "HEAD~1")
-            elif name == "detaching":
-                self.git(wt, "checkout", "-q", "--detach")
-                (wt / "tracked").write_text("committed on a detached HEAD only\n")
-                self.git(wt, "commit", "-qam", "detached")
-            else:
-                kept = (wt / "tracked").read_bytes()
-                (wt / "tracked").write_text("written while gc read the checkout\n")
-                if name == "index":
-                    self.git(wt, "add", "tracked")
-                    (wt / "tracked").write_bytes(kept)
-        # The read of the second proof each changes after, its last for new files unless named:
-        # the one naming the commit, and gc asking for the branch before the proof.
-        after = {"reset": ("ls-tree", 2), "detaching": ("symbolic-ref", 4)}
-        def changing(wt, *args, **kw):
-            result = read(wt, *args, **kw)
-            watched, count = after.get(cases.get(wt), ("--others", 2))
-            if wt in cases and watched in args:
-                scans[wt] += 1
-                if scans[wt] == count:
-                    change(wt, cases[wt])
-            return result
-        with patch.object(orch, "git_in", side_effect=changing):
-            self.gc()
-        for wt, name in cases.items():
-            self.assertGreaterEqual(scans[wt], after.get(name, ("--others", 2))[1], name)
-        for wt in cases:
-            self.assertTrue(wt.is_dir(), wt)
 
     def test_a_tree_gc_cannot_take_is_reported_once_and_never_again(self):
         if os.geteuid() == 0:
