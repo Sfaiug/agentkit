@@ -209,10 +209,17 @@ if sys.argv[1] == "mount":
     (etc / "resolv.conf").symlink_to("/run/acme/first")
     subprocess.run(["mount", "--make-rprivate", "/"], check=True)
     subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/run"], check=True)
+    resolver = Path("/run/acme/real")
+    resolver.mkdir(parents=True)
+    subprocess.run(["mount", "-t", "tmpfs", "tmpfs", str(resolver)], check=True)
     subprocess.run(["mount", "--bind", str(etc), "/etc"], check=True)
     device = Path("/run/device")
     device.touch()
     subprocess.run(["mount", "--bind", "/dev/null", str(device)], check=True)
+    namespace = Path("/run/netns/acme")
+    namespace.parent.mkdir()
+    namespace.touch()
+    subprocess.run(["mount", "--bind", "/proc/self/ns/uts", str(namespace)], check=True)
     os.execvp("setpriv", ["setpriv", "--inh-caps=-all", "--ambient-caps=-all",
                          sys.executable, __file__, "host", str(root)])
 sys.path.insert(0, os.environ["BOX_REPO"])
@@ -225,14 +232,13 @@ if sys.argv[1] == "probe":
     for name in ("socket", "late", "fifo"):
         assert not os.path.lexists("/run/acme/" + name), name
     assert not os.path.lexists("/run/device")
+    assert not os.path.lexists("/run/netns/acme")
     assert not Path("/run/acme/closed/secret").exists()
     assert not Path("/run/acme/unreadable").exists()
     assert os.readlink("/run/acme/dangling") == "missing"
     assert os.readlink("/run/acme/socket-link") == "socket"
     assert not Path("/run/acme/socket-link").exists()
     assert Path("/run/acme/key").read_text() == ""
-    for scratch in Path(os.environ["BOX_OUT"]).glob(".box-*"):
-        assert list(scratch.iterdir()) == [], "the copy exposes masked credentials"
     assert not Path("/run/user/other").exists()
     assert os.environ["XDG_RUNTIME_DIR"] == str(runtime)
     assert stat.S_IMODE(runtime.stat().st_mode) == 0o700
@@ -284,6 +290,8 @@ else:
                 env["BOX_OUT"] = str(out)
                 argv = [sys.executable, __file__, "probe", str(root)]
                 with box.command(argv, env, out, cwd=root, walls=walls) as (cmd, env, spawn):
+                    # Mounts and later writes must not bypass the snapshot or expose services.
+                    (run / "real/resolver").write_text("nameserver 192.0.2.2\n")
                     with socket.socket(socket.AF_UNIX) as late:
                         late.bind(str(run / "late"))
                         late.listen(1)
@@ -291,11 +299,65 @@ else:
                         result = subprocess.run(cmd, env=env, cwd=root, capture_output=True,
                                                 text=True, timeout=60, **spawn)
                     (run / "late").unlink()
+                    (run / "real/resolver").write_text("nameserver 192.0.2.1\n")
                 assert result.returncode == 0, (walls, host_runtime, result.stderr)
                 assert result.stdout.strip() == "ok", result.stdout
                 assert (root / "runtime/host").read_text() == "host"
                 assert (runtime / "host").read_text() == "host"
                 assert not (root / "missing").exists()
+    print("ok")
+'''
+
+
+RUN_CREDENTIALS = r'''import os, subprocess, sys, tempfile
+from pathlib import Path
+root = Path(sys.argv[2])
+if sys.argv[1] == "mount":
+    subprocess.run(["mount", "--make-rprivate", "/"], check=True)
+    subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/run"], check=True)
+    os.execvp("setpriv", ["setpriv", "--inh-caps=-all", "--ambient-caps=-all",
+                         sys.executable, __file__, "host", str(root)])
+sys.path.insert(0, os.environ["BOX_REPO"])
+from agentkit import box
+secrets = ("fixture-key", "fixture-folder-key", "fixture-git-store", "fixture-gh-login")
+
+def check_backing(out):
+    for scratch in Path(out).glob(".box-*"):
+        for path in scratch.rglob("*"):
+            if not path.is_symlink() and path.is_file():
+                assert path.read_text() not in secrets, ("credential copied to disk", str(path))
+
+if sys.argv[1] == "probe":
+    assert Path("/run/agenix/id_acme").read_text() == ""
+    assert list(Path("/run/agenix/keys").iterdir()) == []
+    assert Path("/run/agenix/git-store").read_text() == ""
+    assert Path("/run/agenix/hosts.yml").read_text() == ""
+    assert Path("/run/agenix/ordinary").read_text() == "public"
+    check_backing(sys.argv[3])
+    print("ok")
+else:
+    run = Path("/run/agenix")
+    (run / "keys").mkdir(parents=True)
+    for name, value in zip(("id_acme", "keys/id_other", "git-store", "hosts.yml"), secrets):
+        (run / name).write_text(value)
+    (run / "ordinary").write_text("public")
+    (root / ".ssh").mkdir()
+    (root / ".ssh/id_acme").symlink_to(run / "id_acme")
+    (root / ".ssh/keys").symlink_to(run / "keys")
+    for login, target in ((root / ".git-credentials", run / "git-store"),
+                          (root / ".config/gh/hosts.yml", run / "hosts.yml")):
+        login.unlink()
+        login.symlink_to(target)
+    for walls in (True, False):
+        a, b = (Path(tempfile.mkdtemp(dir=root)) for _ in "ab")
+        with box.command(["true"], dict(os.environ), a, cwd=root, walls=walls):
+            argv = [sys.executable, __file__, "probe", str(root), str(a)]
+            with box.command(argv, dict(os.environ), b, cwd=root, walls=walls) as (cmd, env, spawn):
+                spawn.pop("stop")
+                result = subprocess.run(cmd, env=env, cwd=root, capture_output=True,
+                                        text=True, timeout=60, **spawn)
+            assert (result.returncode, result.stdout.strip()) == (0, "ok"), result.stderr
+            check_backing(a)
     print("ok")
 '''
 
@@ -547,6 +609,16 @@ class WorkerBox(unittest.TestCase):
              sys.executable, str(script), "mount", str(self.root)],
             env={**os.environ, "BOX_REPO": str(REPO)}, capture_output=True, text=True,
             timeout=300)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "ok"), result.stderr)
+
+    def test_run_credentials_never_reach_the_backing_copy_or_another_box(self):
+        script = self.root / "run-credentials.py"
+        script.write_text(RUN_CREDENTIALS)
+        result = subprocess.run(
+            ["unshare", "--user", "--map-current-user", "--mount", "--keep-caps",
+             sys.executable, str(script), "mount", str(self.root)],
+            env={**os.environ, "BOX_REPO": str(REPO)}, capture_output=True, text=True,
+            timeout=120)
         self.assertEqual((result.returncode, result.stdout.strip()), (0, "ok"), result.stderr)
 
     def test_a_runtime_directory_that_is_the_workspace_refuses_the_box(self):
