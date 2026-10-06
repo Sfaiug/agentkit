@@ -14,7 +14,7 @@ import tty
 from unittest.mock import patch
 import unittest
 
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import config, menu, terminal
 
 QUERY = b"\033]11;?\033\\"

@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import gate, config, job as jobs, land, menu, orch, run, stop, worktrees, status, watch, worker
 from agentkit import host, record
 from agentkit import task as taskfile

@@ -16,7 +16,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import config, gc, orch, proc_snapshot, retention, run
 
 DAY = 86400

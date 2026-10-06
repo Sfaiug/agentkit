@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import unquote_to_bytes
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from fixtures.hand_in import records, scripted, stateful
 from agentkit import gate, host, browser, config, gc, job as jobs, land, menu, notify, orch, run, worktrees, status, terminal, watch
 from agentkit import record

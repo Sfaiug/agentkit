@@ -21,7 +21,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from agentkit import host, config, job as jobs, orch, run, watch
 from agentkit import record
 

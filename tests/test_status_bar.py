@@ -14,7 +14,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_v4n import Sandbox, menu_input
+from fixtures.sandbox import Sandbox, menu_input
 from agentkit import config, menu, notify, orch, run, statusbar, terminal, watch
 from agentkit import record
 

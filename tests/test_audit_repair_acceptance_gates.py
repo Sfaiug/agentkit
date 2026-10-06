@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, terminal, update
-from test_v4n import menu_input
+from fixtures.sandbox import menu_input
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 FRESH = (REPO / "tests/e2e-fresh.sh").read_text()

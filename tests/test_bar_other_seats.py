@@ -25,7 +25,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import config, notify, orch, statusbar, terminal, watch
 
 IDS = {"fix-api": "$0", "atlas-proxies": "$1", "web": "$2", "zeta": "$3"}

@@ -157,7 +157,8 @@
 - `tests/`: `landing.py` runs offline `smoke.sh` beside `every_file.py`, with grouped
   live output; live `live.sh`; `every_file.py`: imports/cases,
   live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`,
-  `landing.py` lands a crafted run through its line and lander verdict.
+  `landing.py` lands a crafted run through its line and lander verdict, `sandbox.py`'s
+  `Sandbox` is the throwaway ak HOME that in-process tests run in.
   `check_harness_contract.py`: standalone live contract check, also smoke's check 3;
   discovers adapter manifests and shares login/quota checks with smoke's later live calls.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat

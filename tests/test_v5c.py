@@ -15,7 +15,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, menu, terminal, usage
 
 

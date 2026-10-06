@@ -4,7 +4,7 @@
 conversation moves on.  Every older name points straight at the newest, so no chain grows
 past the renames `config.resolve_session` follows.
 
-Offline: test_v4n's throwaway HOME.
+Offline: tests/fixtures/sandbox.py's throwaway HOME.
 """
 
 import json
@@ -14,7 +14,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import config
 
 

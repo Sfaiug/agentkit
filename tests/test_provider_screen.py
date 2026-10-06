@@ -24,7 +24,7 @@ from pathlib import Path
 from unittest import mock
 
 from test_config_matrix import DOWN, ENTER, ESC, REPO, RIGHT, Screen, highlighted
-from test_v4n import menu_input
+from fixtures.sandbox import menu_input
 from agentkit import config, menu, terminal
 
 PROGRAMS = {"claude": "claude", "codex": "codex", "muse": "muse", "grokbuild": "grok",

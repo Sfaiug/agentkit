@@ -21,7 +21,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 sys.path.insert(0, str(REPO))
 from agentkit import config, host, job as jobs, run, status
 from agentkit import record

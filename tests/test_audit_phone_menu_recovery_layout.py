@@ -33,7 +33,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, statusbar, terminal
 from agentkit import record as run_record
-from test_v4n import menu_input
+from fixtures.sandbox import menu_input
 
 REAL_TMUX = shutil.which("tmux")
 SOCKET = "agentkit-test"

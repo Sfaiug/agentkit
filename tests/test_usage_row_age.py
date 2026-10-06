@@ -10,7 +10,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import config, menu, terminal, usage
 
 NOW = 10000                # the clock the Sandbox pins; 1970-01-01 02:46:40 UTC, a Thursday
