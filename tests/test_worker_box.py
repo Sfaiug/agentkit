@@ -108,9 +108,9 @@ SOCKETS = r'''import json, os, socket, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
-root, role, places = Path(__file__).parent, sys.argv[1], [Path(path) for path in sys.argv[2:]]
-# Name resolution's settings link into the host's /run, as systemd-resolved's do.
-box.RESOLVER = root / "resolv.conf"
+work, role, places = Path(os.environ["BOX_WORK"]), sys.argv[1], [Path(path) for path in sys.argv[2:]]
+# Name resolution's settings link into /run, as systemd-resolved's do, and on through the workspace.
+box.RESOLVER = work / "resolv.conf"
 
 
 def listen(path):
@@ -134,12 +134,13 @@ def reach(path):
         return False
 
 
-def boxed(role, walls):
-    out = Path(tempfile.mkdtemp(dir=root))
+def boxed(role, walls, serve=lambda: None):
+    out = Path(tempfile.mkdtemp(dir=work))
     argv = [sys.executable, __file__, role, *map(str, places)]
-    with box.command(argv, dict(os.environ), out, cwd=root, walls=walls) as (cmd, env, spawn):
+    with box.command(argv, dict(os.environ), out, cwd=work, walls=walls) as (cmd, env, spawn):
+        serve()
         spawn.pop("stop")
-        result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
+        result = subprocess.run(cmd, env=env, cwd=work, capture_output=True, text=True,
                                 timeout=60, **spawn)
     return json.loads(result.stdout) if result.returncode == 0 else result.stderr
 
@@ -149,19 +150,29 @@ if role == "probe":
     own = Path(tempfile.mkdtemp(dir="/tmp"), "s")
     with listen(own):
         seen["own"] = reach(own)
-    seen["resolver"] = (root / "resolv.conf").read_text()
+    seen["resolver"] = box.RESOLVER.read_text()
     print(json.dumps(seen))
 elif role == "host":
-    resolver = Path("/run/acme/resolv.conf")
-    resolver.parent.mkdir()
-    resolver.write_text("nameserver 192.0.2.1\n")
-    box.RESOLVER.symlink_to(resolver)
-    listeners = [listen(path) for path in places]
-    seen = {"unboxed": json.loads(subprocess.run([sys.executable, __file__, "probe", *sys.argv[2:]],
-                                                 capture_output=True, text=True).stdout or "null")}
+    work.mkdir(parents=True, exist_ok=True)
+    Path("/run/acme").mkdir()
+    Path("/run/acme/stub.conf").write_text("nameserver 192.0.2.1\n")
+    (work / "stub").symlink_to("/run/acme/stub.conf")
+    Path("/run/acme/resolv.conf").symlink_to(work / "stub")
+    box.RESOLVER.symlink_to("/run/acme/resolv.conf")
+    listeners = []
+
+    def serve():
+        # The services start once the first box is prepared: a runtime directory the host has
+        # yet to make then is covered too.
+        if not listeners:
+            listeners.extend(map(listen, places))
+
+    seen = {}
     for name, walls in (("walls", True), ("no walls", False)):
-        seen[name] = boxed("probe", walls)
+        seen[name] = boxed("probe", walls, serve)
         seen[f"{name} inside a box"] = boxed(name, walls)
+    seen["unboxed"] = json.loads(subprocess.run([sys.executable, __file__, "probe", *sys.argv[2:]],
+                                                capture_output=True, text=True).stdout or "null")
     print(json.dumps(seen))
 else:
     # A box inside a box, its parent's walls named by its role: what the parent keeps in its own
@@ -169,6 +180,25 @@ else:
     places.append(Path("/tmp/parent/s"))
     with listen(places[-1]):
         print(json.dumps(boxed("probe", role == "walls")))
+'''
+
+SHM = r'''import json, os, subprocess, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, os.environ["BOX_REPO"])
+from agentkit import box
+root = Path(sys.argv[1])
+write = "from pathlib import Path; p = Path('/dev/shm/acme'); p.write_text('own'); print(p.read_text())"
+seen = {}
+for walls in (True, False):
+    out = Path(tempfile.mkdtemp(dir=root))
+    with box.command([sys.executable, "-c", write], dict(os.environ), out, cwd=root,
+                     walls=walls) as (cmd, env, spawn):
+        spawn.pop("stop")
+        result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
+                                timeout=60, **spawn)
+    seen["walls" if walls else "no walls"] = result.stdout.strip() or result.stderr
+seen["host"] = os.path.exists("/run/shm/acme")
+print(json.dumps(seen))
 '''
 
 
@@ -364,29 +394,61 @@ class WorkerBox(unittest.TestCase):
 
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in
-        # /tmp, the user's service manager in its runtime directory, here outside /run, the
-        # system bus in /run. With walls and without, and in a box inside a box, the box reaches
-        # none of them and sees no file beside them; the socket it makes in its own /tmp it
-        # reaches, and name resolution reads the host's settings, though they link into /run.
+        # /tmp, the user's service manager in its runtime directory, the system bus in /run.
+        # With walls and without, and in a box inside a box, the box reaches none of them and
+        # sees no file beside them; the socket it makes in its own /tmp it reaches, and name
+        # resolution reads the host's settings, though they link into /run. The runtime
+        # directory is outside every place of the box's and missing until the box is prepared,
+        # or inside a workspace in /tmp, which stays the box's to see.
         script = self.root / "sockets.py"
         script.write_text(SOCKETS)
-        runtime = self.root / "runtime"
-        places = ["/tmp/host/s", str(runtime / "s"), "/run/acme/s"]
-        # Fresh /tmp and /run of the test's own stand for the host's, even inside a box.
+        for work, runtime in ((self.root / "work", self.root / "runtime"),
+                              (Path("/tmp/ws"), Path("/tmp/ws/runtime"))):
+            with self.subTest(runtime=str(runtime)):
+                places = ["/tmp/host/s", str(runtime / "s"), "/run/acme/s"]
+                # Fresh /tmp and /run of the test's own stand for the host's, even inside a box.
+                host = ["bwrap", "--unshare-user", "--unshare-pid", "--die-with-parent",
+                        "--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc",
+                        "--tmpfs", "/tmp", "--tmpfs", "/run"]
+                result = subprocess.run(
+                    [*host, "--", sys.executable, str(script), "host", *places],
+                    env={**os.environ, "BOX_REPO": str(REPO), "BOX_WORK": str(work),
+                         "XDG_RUNTIME_DIR": str(runtime)},
+                    capture_output=True, text=True, timeout=300)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                resolver = {"own": True, "resolver": "nameserver 192.0.2.1\n"}
+                hidden = {**dict.fromkeys(places, [False, False]), **resolver}
+                nested = {**hidden, "/tmp/parent/s": [False, False]}
+                self.assertEqual(json.loads(result.stdout), {
+                    "unboxed": {**dict.fromkeys(places, [True, True]), **resolver},
+                    "walls": hidden, "walls inside a box": nested,
+                    "no walls": hidden, "no walls inside a box": nested})
+
+    def test_shared_memory_is_the_boxs_own_where_the_host_links_it_into_run(self):
+        # Older hosts link /dev/shm to /run/shm. A walled box's /dev is bubblewrap's, with a
+        # directory there; either way the box writes its own shared memory, not the host's.
+        devices = [arg for name in ("null", "zero", "full", "random", "urandom", "tty")
+                   for arg in ("--dev-bind", f"/dev/{name}", f"/dev/{name}")]
         host = ["bwrap", "--unshare-user", "--unshare-pid", "--die-with-parent", "--bind", "/", "/",
-                "--dev-bind", "/dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", "/run"]
-        result = subprocess.run([*host, "--", sys.executable, str(script), "host", *places],
-                                env={**os.environ, "BOX_REPO": str(REPO),
-                                     "XDG_RUNTIME_DIR": str(runtime)},
-                                capture_output=True, text=True, timeout=300)
+                "--tmpfs", "/dev", *devices, "--proc", "/proc", "--tmpfs", "/tmp",
+                "--tmpfs", "/run", "--dir", "/run/shm", "--symlink", "/run/shm", "/dev/shm"]
+        result = subprocess.run([*host, "--", sys.executable, "-c", SHM, str(self.root)],
+                                env={**os.environ, "BOX_REPO": str(REPO)}, capture_output=True,
+                                text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
-        resolver = {"own": True, "resolver": "nameserver 192.0.2.1\n"}
-        hidden = {**dict.fromkeys(places, [False, False]), **resolver}
-        nested = {**hidden, "/tmp/parent/s": [False, False]}
-        self.assertEqual(json.loads(result.stdout), {
-            "unboxed": {**dict.fromkeys(places, [True, True]), **resolver},
-            "walls": hidden, "walls inside a box": nested,
-            "no walls": hidden, "no walls inside a box": nested})
+        self.assertEqual(json.loads(result.stdout),
+                         {"walls": "own", "no walls": "own", "host": False})
+
+    def test_a_runtime_directory_that_is_the_workspace_refuses_the_box(self):
+        # The box keeps its runtime directory empty and writes through to its workspace: one
+        # directory cannot be both.
+        self.out.mkdir()
+        for walls in (True, False):
+            with self.subTest(walls=walls), \
+                    patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(self.root)}), \
+                    self.assertRaisesRegex(config.Error, "keeps empty and one it writes"):
+                with box.command(["true"], dict(os.environ), self.out, cwd=self.root, walls=walls):
+                    pass
 
     def test_a_relative_home_hides_the_keys_where_the_turn_reads_them(self):
         # The turn resolves HOME=home in its own directory, not in the launcher's.

@@ -181,13 +181,15 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertIn(f"[exit {code}]\npartial", text)
 
     def test_a_check_writes_where_its_project_says(self):
-        # A suite may fill a cache in HOME; only worker turns are walled. What it leaves in /tmp
-        # stays in the box's own.
+        # A suite may fill a cache outside its checkout, in HOME say; only worker turns are
+        # walled. What it leaves in /tmp stays in the box's own.
+        home = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-home-", dir=REPO)
+        self.addCleanup(home.cleanup)
         outside = Path("/tmp", self.root.name)
         self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
         for name in ("proof", "check"):
             with self.subTest(command=name):
-                cache, scratch = self.root / ".cache" / name, outside / name
+                cache, scratch = Path(home.name, ".cache", name), outside / name
                 command = " && ".join(f"mkdir -p {shlex.quote(str(path.parent))} && "
                                       f"echo written > {shlex.quote(str(path))}"
                                       for path in (cache, scratch))

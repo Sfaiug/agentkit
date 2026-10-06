@@ -193,33 +193,64 @@ def _writable(clean, cwd, out_dir, state, places, logins):
     return writable
 
 
-def _own(scratch, clean, cwd):
+def _own(scratch, clean, cwd, walls):
     """The box's own /tmp, /var/tmp, /dev/shm, /run and runtime directory: empty, in scratch.
 
     Host services listen there: the tmux server in /tmp, the user's service manager in the
     runtime directory, the system bus in /run. A place of the box's own reaches none of them, nor
     a socket a service makes there later.
     """
-    own = {path.resolve() for path in (*map(Path, ("/tmp", "/var/tmp", "/dev/shm", "/run")),
-                                      *_paths(("$XDG_RUNTIME_DIR",), clean, cwd)) if path.is_dir()}
-    binds = {}
-    for path in own:
-        source = Path(scratch, *path.parts[1:])
+    own = {path.resolve() for path in map(Path, ("/tmp", "/var/tmp", "/dev/shm", "/run"))
+           if path.is_dir()}
+    if walls:
+        # A walled box's /dev is bubblewrap's, whose shm is a directory even where the host's
+        # links into /run.
+        own.add(Path("/dev/shm"))
+    for runtime in _paths(("$XDG_RUNTIME_DIR",), clean, cwd):
+        runtime = runtime.resolve()
+        # A mount covers only a directory, so one the host has yet to make is made now; inside a
+        # place of the box's own, its scratch holds it.
+        if not any(place == runtime or place in runtime.parents for place in own):
+            runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+        own.add(runtime)
+    binds = {path: Path(scratch, *path.parts[1:]) for path in own}
+    for source in binds.values():
         source.mkdir(parents=True, exist_ok=True)
-        if not any(parent in own for parent in path.parents):
-            binds[path] = source
-    resolver = RESOLVER.resolve()
-    if resolver.is_file() and any(place in resolver.parents for place in own):
-        copy = Path(scratch, *resolver.parts[1:])
-        copy.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(resolver, copy)
+    # Name resolution reads the host's settings through every link on their way; each step that
+    # lies in a place of the box's own is kept there.
+    hop, seen = RESOLVER, set()
+    while True:
+        hop = Path(os.path.realpath(hop.parent), hop.name)
+        if hop in seen or not os.path.lexists(hop):
+            break
+        seen.add(hop)
+        if any(place in hop.parents for place in own):
+            kept = Path(scratch, *hop.parts[1:])
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(hop, kept, follow_symlinks=False)
+        if not hop.is_symlink():
+            break
+        hop = hop.parent / os.readlink(hop)
     return binds
 
 
-def _bind(binds):
-    # Parents first, so a place inside another wins: a workspace in /tmp, a runtime directory
-    # in the workspace.
-    return [arg for path in sorted(binds) for arg in ("--bind", str(binds[path]), str(path))]
+def _bind(own, writable):
+    """Mount the box's own places and its writable ones, parents first so the deeper of two wins:
+    a workspace in /tmp, a runtime directory in the workspace."""
+    clash = sorted(own.keys() & writable)
+    if clash:
+        from . import config
+        raise config.Error(f"{clash[0]} is a place the box keeps empty and one it writes through "
+                           "to; give each a directory of its own")
+    binds = {**own, **{path: path for path in writable}}
+    args = []
+    for path in sorted(binds):
+        # What the nearest mounted parent already shows needs no mount of its own, and a
+        # redundant file mount prevents atomic refresh within its writable parent.
+        parent = next((parent for parent in path.parents if parent in binds), None)
+        if parent is None or binds[parent] / path.relative_to(parent) != binds[path]:
+            args.extend(["--bind", str(binds[path]), str(path)])
+    return args
 
 
 @contextmanager
@@ -242,9 +273,6 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
     at = len(cmd)
     writable = _writable(clean, cwd, out_dir, state, places, logins)
-    # A redundant file mount prevents atomic refresh within its writable parent.
-    binds = {path: path for path in writable
-             if not any(parent in writable for parent in path.parents)}
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
     try:
@@ -272,7 +300,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
-        cmd[at:at] = _bind(binds)
+        cmd[at:at] = _bind({}, writable)
         yield [*cmd, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
@@ -319,10 +347,10 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             proc.kill()
 
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
-        # Short aliases allow Unix sockets even when out has a long run id.
-        cmd[at:at] = _bind({**_own(scratch, clean, cwd), **binds})
-        clean["TMPDIR"] = "/var/tmp"
         try:
+            # Short aliases allow Unix sockets even when out has a long run id.
+            cmd[at:at] = _bind(_own(scratch, clean, cwd, walls), writable)
+            clean["TMPDIR"] = "/var/tmp"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop}
         finally:
