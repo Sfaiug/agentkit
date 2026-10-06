@@ -609,6 +609,7 @@ def screen(harness):
              "queues": bool(block.get("queues_typing")),
              "folds_over": block.get("folds_over") if isinstance(block.get("folds_over"), int)
              else None,
+             "folded": _pattern(block.get("folded"), path),
              "draft": _pattern(block.get("draft"), path, re.M),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
@@ -2530,7 +2531,13 @@ def follow_title(session, log=lambda _: None):
 
 
 def composer_draft(harness, pane):
-    """The composer's whole text without whitespace, "" when empty, None where none is found.
+    """The composer's whole text without whitespace, "" when empty, None where none is found."""
+    rows = _composer_rows(harness, pane)
+    return None if rows is None else re.sub(r"\s+", "", "".join(rows))
+
+
+def _composer_rows(harness, pane):
+    """The rows of text in the composer, [] when empty, None where none is found.
 
     Read on any turn, from its prompt row down to the chrome under it: a wrap or a newline
     puts text on the rows below.  Found the way the draft rule finds it: a queued inbound
@@ -2548,7 +2555,7 @@ def composer_draft(harness, pane):
         if not found and not (chrome["composer"]
                               and any(chrome["composer"].fullmatch(row) for row in rows)):
             return None
-        return re.sub(r"\s+", "", "".join(found))
+        return [row for block in found for row in block.splitlines() if row.strip()]
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
@@ -2564,7 +2571,43 @@ def composer_draft(harness, pane):
             at, stop = marked[0], len(rows)
     if at is None:
         return None
-    return re.sub(r"\s+", "", "".join(_composer_parts(chrome, raws, rows, at, stop)))
+    return _composer_parts(chrome, raws, rows, at, stop)
+
+
+def composer_holds(name, session, line, cfg=None):
+    """What that seat's composer holds now, off one capture: "line", "empty", or "other" --
+    anything else, nothing read, or a question to the owner on the screen, as a dialog that
+    keeps the composer drawn is.
+
+    "line" is that line and nothing else, as its composer shows it: all of it; its end, rows
+    of it, where it is taller than the composer shows -- one composer scrolls to its last rows,
+    and another's top goes above the read; or the harness's fold of a line longer than `[screen]
+    folds_over`.  What the owner types goes in at its end, so none of these is a line with the
+    owner's words beside it, and a one-row draft that only ends the way the line does is the
+    owner's.
+    """
+    try:
+        name = config.resolve_session(name)
+        harness = seat_model(config.load() if cfg is None else cfg, name)[0]
+    except (config.Error, OSError):
+        return "other"
+    pane = pane_text(session)
+    if not harness or not pane.strip() or asking(name, harness, pane):
+        return "other"
+    rows = _composer_rows(harness, pane)
+    if rows is not None and not re.sub(r"\s+", "", "".join(rows)):
+        return "empty"
+    if rows is None and len(_content_rows(pane)) > PANE_LINES:
+        # its top above the read: every row over the chrome under it is the composer's
+        rows = content_lines(harness, pane_tail(pane))
+    held, whole = re.sub(r"\s+", "", "".join(rows or ())), re.sub(r"\s+", "", line)
+    chrome = screen(harness)
+    folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
+              and len(line) > chrome["folds_over"])
+    if held and (held == whole or len(rows) > 1 and whole.endswith(held)
+                 or folded and chrome["folded"].fullmatch(held)):
+        return "line"
+    return "other"
 
 
 def _composer_parts(chrome, raws, rows, at, stop):
@@ -2723,8 +2766,7 @@ def takes_line(session, cfg=None, pane=None, midturn=False):
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
-                   source="ak", stale=lambda held: False, ready=lambda held: True,
-                   midturn=False):
+                   source="ak", stale=lambda held: False, midturn=False):
     """One line into a seat, and only while its harness sits at its own prompt -- or, with
     `midturn`, while a turn runs where its harness holds the line for its next step.
 
@@ -2743,24 +2785,19 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     wrapped past the bottom rows still sits there.  A reopened seat is a new one, with an empty
     composer, and matches no mark.  `stale` is asked under the send lock
     too, with the name the seat goes by then, before each key: a line that has stopped being
-    this seat's to have is typed no further, and `ready` before each Enter.
+    this seat's to have is typed no further.  Every Enter, the first, its retry and a mark's,
+    goes only while the composer holds the line alone (`composer_holds`): what the owner typed
+    in the gap before it is never sent.
     """
     mark = {"line": text, "seat": session.get("created")}
     if typed == mark:
-        try:
-            harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
-        except (config.Error, OSError):
-            return False
         with seat_held(session["name"]) as held:
-            pane = pane_text(session)
-            if (not pane.strip() or owner_question(notify.last(held)) or stale(held)
-                    or asking(held, harness, pane)):
-                return False    # nothing to read, or the screen is somebody else's: next pass
-            draft = composer_draft(harness, pane) if harness else None
-            if draft == "":
+            if owner_question(notify.last(held)) or stale(held):
+                return False    # the screen is somebody else's: next pass
+            holds = composer_holds(held, session, text, cfg)
+            if holds == "empty":
                 return True
-            # the line alone: an Enter would send whatever the owner has typed beside it since
-            if draft == re.sub(r"\s+", "", text) and ready(held):
+            if holds == "line":
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
@@ -2786,7 +2823,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
 
     return type_checked(session, text, log, None,
                         guard=lambda: seat_held(session["name"]), veto=veto,
-                        typed=lambda: receipt(mark), source=source, ready=ready)
+                        typed=lambda: receipt(mark), source=source,
+                        ready=lambda held: composer_holds(held, session, text, cfg) == "line")
 
 
 # --- a seat whose process died under its runs ------------------------------

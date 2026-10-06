@@ -482,7 +482,7 @@ class TyperDied(Typing):
                     self.died()                         # its line sits there, unsent
                     later = (self.composed(self.typed[-1] + " and the docs") if case == "edit"
                              else question)
-                    real = tell.composer_holds
+                    real = watch.composer_holds
                     reads = []
 
                     def first_read_then_change(*args):
@@ -491,7 +491,7 @@ class TyperDied(Typing):
                             self.pane = later
                         return reads[-1]
 
-                    with patch.object(tell, "composer_holds", side_effect=first_read_then_change):
+                    with patch.object(watch, "composer_holds", side_effect=first_read_then_change):
                         tell.deliver(self.cfg, lambda _: None)
                 self.assertEqual(self.enters(), [])
                 self.assertEqual(self.taken, [])
@@ -514,14 +514,14 @@ class TyperDied(Typing):
         read again under the lock, right before the first key."""
         self.tell(SEAT, "Parser merged.")
         draft = "Fix the login redirect and run its tests again " * 3
-        real = tell.composer_holds
+        real = watch.composer_holds
 
         def empty_then_drafted(*args):
             found = real(*args)
             self.pane = self.composed(draft)
             return found
 
-        with patch.object(tell, "composer_holds", side_effect=empty_then_drafted):
+        with patch.object(watch, "composer_holds", side_effect=empty_then_drafted):
             tell.deliver(self.cfg, lambda _: None)
         self.assertEqual((self.typed, self.enters()), ([], []))
         self.assertEqual(len(self.waiting()), 1)
@@ -671,14 +671,14 @@ class TyperDiedGrok(Typing):
                 self.keys.clear()
                 self.pane = self.idle
                 self.tell(SEAT, "Parser merged.")
-                real = tell.composer_holds
+                real = watch.composer_holds
 
                 def empty_then_changed(*args):
                     found = real(*args)
                     self.pane = later
                     return found
 
-                with patch.object(tell, "composer_holds", side_effect=empty_then_changed):
+                with patch.object(watch, "composer_holds", side_effect=empty_then_changed):
                     tell.deliver(self.cfg, lambda _: None)
                 self.assertEqual(self.keys, [])
                 self.assertEqual(len(self.waiting()), 1)

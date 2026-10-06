@@ -109,6 +109,9 @@ ruled = true
 # at any width: 800 showed whole, 900 folded), which no screen read can tell from the owner's
 # own paste.  A line ak types to be read back stays within it.
 folds_over = 800
+# That fold as its composer shows it, read without whitespace (2.1.291).  After a line ak typed
+# past `folds_over`, a composer holding one fold and nothing beside it is taken for that line.
+folded = '\[Pasted\s*text\s*#\d+\]'
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.
