@@ -5975,36 +5975,45 @@ PASS_ERRORS = (config.Error, OSError, TypeError, ValueError, AttributeError, Key
 
 
 def offer_endings(log):
-    """Detect lost loops even when no phone opens the menu and GitHub is unavailable."""
+    """Detect lost loops even when no phone opens the menu and GitHub is unavailable.
+
+    A seat takes one line at each quiet prompt, so the endings that wait on its decision go
+    before those of runs that merged, which only tell it so: a failed run's ending waited
+    behind six merged runs' (6 Oct).
+    """
     from . import run
+    ended = []
     for run_dir in run_record.run_dirs():
         try:
             receipt = run_record.read_state(run_dir)
             if receipt:
                 receipt = run.reap(run_dir, receipt)
                 if receipt.get("state") in run_record.ENDED:
-                    # Every ending nobody has heard is offered again here, not only one a flag
-                    # was left on: a hand-back the run could not type goes in at the next quiet
-                    # prompt, and so does the ending of an attempt that was reaped without one.
-                    # `announce` decides again which path it is, so a seat that died since gets
-                    # the orphan one.
-                    if run.owes_ending(receipt):
-                        run.announce(receipt, run_dir, log)
-                    # A question the seat never took is typed again before the user hears it;
-                    # one it took whose ping failed is only pinged, and so is one kept before
-                    # `asked` was, whose typing nobody knows the end of.
-                    question = receipt.get("pending_inbox")
-                    if question and ask_inbox(
-                            config.load(), question["question"], question["url"],
-                            question["sha"], log, asked=question.get("asked", True),
-                            typed=lambda: run.mark_delivery(
-                                run_dir, receipt, pending_inbox={**question, "asked": True})
-                            ) == 0:
-                        # struck off the record as it stands, never off this copy of it: the
-                        # run's own loop can have handed the ending back while the question was
-                        # going out, and a whole save from here would put that back to
-                        # undelivered and say it a second time
-                        run.mark_delivery(run_dir, receipt, pending_inbox=None)
+                    ended.append((run_dir, receipt))
+        except PASS_ERRORS as exc:
+            log(f"WARN cannot check run {run_dir.name}: {exc}")
+    for run_dir, receipt in sorted(ended, key=lambda found: bool(found[1].get("merged"))):
+        try:
+            # Every ending nobody has heard is offered again here, not only one a flag was left
+            # on: a hand-back the run could not type goes in at the next quiet prompt, and so
+            # does the ending of an attempt that was reaped without one.  `announce` decides
+            # again which path it is, so a seat that died since gets the orphan one.
+            if run.owes_ending(receipt):
+                run.announce(receipt, run_dir, log)
+            # A question the seat never took is typed again before the user hears it; one it
+            # took whose ping failed is only pinged, and so is one kept before `asked` was,
+            # whose typing nobody knows the end of.
+            question = receipt.get("pending_inbox")
+            if question and ask_inbox(
+                    config.load(), question["question"], question["url"],
+                    question["sha"], log, asked=question.get("asked", True),
+                    typed=lambda: run.mark_delivery(
+                        run_dir, receipt, pending_inbox={**question, "asked": True})
+                    ) == 0:
+                # struck off the record as it stands, never off this copy of it: the run's own
+                # loop can have handed the ending back while the question was going out, and a
+                # whole save from here would put that back to undelivered and say it twice
+                run.mark_delivery(run_dir, receipt, pending_inbox=None)
         except PASS_ERRORS as exc:
             log(f"WARN cannot check run {run_dir.name}: {exc}")
 
