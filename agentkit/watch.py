@@ -2321,6 +2321,16 @@ def _holds_text(pane, text):
     return needle in re.sub(r"\s+", "", "\n".join(region[at:]))
 
 
+def _in_composer(harness, pane, text):
+    """Is the typed line still in its seat's composer?  Read whole where the composer can be
+    read: a long line wraps past the bottom rows, and a line the harness took may be echoed
+    above its empty composer."""
+    held = composer_draft(harness, pane) if harness is not None else None
+    if held is not None:
+        return re.sub(r"\s+", "", text) in held
+    return _holds_text(pane, text)
+
+
 def _pane_sent(session, harness, pane, text):
     """The typed line left the composer, or a dialog took over the screen."""
     state = (_decided_state(session["name"], harness, pane)
@@ -2328,12 +2338,7 @@ def _pane_sent(session, harness, pane, text):
     if state == "asking":
         # A dialog owns the screen: the line landed, and no Enter goes into it blind.
         return True
-    # read whole where the composer can be read: a long line wraps past the bottom rows, and
-    # a line the harness took may be echoed above its empty composer
-    held = composer_draft(harness, pane) if harness is not None else None
-    if held is not None:
-        return re.sub(r"\s+", "", text) not in held
-    return not _holds_text(pane, text)
+    return not _in_composer(harness, pane, text)
 
 
 def _wait_sent(session, harness, text):
@@ -2722,13 +2727,21 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     A line goes into a composer once: a second copy is read twice, whether the first was taken
     or still waits for its Enter.  `receipt` is handed a mark the moment the text is in, for the
     ending's own record to keep until its delivery is recorded; given that mark back as `typed`,
-    this only presses Enter, and only while the composer still holds the line alone -- read under
-    the send lock, past any dialog -- and gone from there, the seat has it.  A reopened seat is a
-    new one, with an empty composer, and matches no mark.  `stale` is asked under the send lock
-    too, with the name the seat goes by then, before each key: a line that has stopped being
-    this seat's to have is typed no further, and `ready` before each Enter.
+    this only presses Enter, and gone from the composer, read whole under the send lock past any
+    dialog, the seat has it.  A reopened seat is a new one, with an empty composer, and matches
+    no mark.  Every Enter, the first included, goes only to the composer holding the line alone,
+    read right before it under the send lock: the gap before an Enter and the wait before its
+    retry are both time the owner can type in, and an Enter would send their text with it.
+    `stale` is asked under the send lock too, with the name the seat goes by then, before each
+    key: a line that has stopped being this seat's to have is typed no further, and `ready`
+    before each Enter.
     """
     mark = {"line": text, "seat": session.get("created")}
+
+    def alone(held, harness, pane):
+        return bool(harness and composer_draft(harness, pane) == re.sub(r"\s+", "", text)
+                    and not asking(held, harness, pane) and ready(held))
+
     if typed == mark:
         try:
             harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
@@ -2739,10 +2752,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             if (not pane.strip() or owner_question(notify.last(held)) or stale(held)
                     or asking(held, harness, pane)):
                 return False    # nothing to read, or the screen is somebody else's: next pass
-            if not _holds_text(pane, text):
+            if not _in_composer(harness, pane, text):
                 return True
-            # the line alone: an Enter would send whatever the owner has typed beside it since
-            if composer_draft(harness, pane) == re.sub(r"\s+", "", text) and ready(held):
+            if alone(held, harness, pane):
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
@@ -2766,9 +2778,16 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         return not (harness and takes_line(session, cfg=cfg, pane=pane, midturn=midturn)
                     and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
+    def enter(held):
+        try:
+            harness = seat_model(config.load() if cfg is None else cfg, held)[0]
+        except (config.Error, OSError):
+            return False
+        return alone(held, harness, pane_text(session))
+
     return type_checked(session, text, log, None,
                         guard=lambda: seat_held(session["name"]), veto=veto,
-                        typed=lambda: receipt(mark), source=source, ready=ready)
+                        typed=lambda: receipt(mark), source=source, ready=enter)
 
 
 # --- a seat whose process died under its runs ------------------------------

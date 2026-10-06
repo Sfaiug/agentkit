@@ -90,16 +90,19 @@ class Wait(Sandbox):
         return found["word"], found["reason"]
 
     def tick(self):
-        """The tick's wait pass, every seat's screen showing the Claude prompt: the lines the
-        fake tmux was given, in order."""
-        sent = []
+        """The tick's wait pass, every seat's screen showing the Claude prompt, a typed line in
+        its composer until its Enter: the lines the fake tmux was given, in order."""
+        sent, screen = [], [PROMPT]
 
         def tmux(*args, socket=None, client=False, **_kw):
             if args[0] == "send-keys" and "-l" in args:
                 sent.append(args[-1])
+                screen[0] = PROMPT.replace("\u276f\u00a0\n", f"\u276f {args[-1]}\n")
+            elif args[0] == "send-keys":
+                screen[0] = PROMPT
             return 0, ""
         with patch.object(orch, "tmux_out", side_effect=tmux), \
-                patch.object(watch, "pane_text", return_value=PROMPT), \
+                patch.object(watch, "pane_text", side_effect=lambda *_a: screen[0]), \
                 patch.object(watch.time, "sleep", lambda _s: None):
             watch.tell_waits(self.cfg, lambda line: None)
         return sent

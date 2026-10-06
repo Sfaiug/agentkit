@@ -16,6 +16,7 @@ from pathlib import Path
 import shlex
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 from urllib.parse import unquote_to_bytes
@@ -72,12 +73,13 @@ class Claude:
     above its composer, inside the bottom lines the send confirms against, and the screen still
     reads as a prompt: what the seat of run 20260923-2146 showed while its turn began.  `takes`
     off leaves every Enter's line in the composer; `fails` makes the next Enter's send fail;
-    `dialog` puts the trust dialog over the composer, and an Enter then answers it.
+    `dialog` puts the trust dialog over the composer, and an Enter then answers it.  `wrap`
+    draws the real screen instead, its composer between its rules wrapped at that many columns.
     """
 
     def __init__(self):
         self.composer, self.read, self.typed, self.chosen = "", [], 0, 0
-        self.takes, self.fails, self.dialog = True, False, False
+        self.takes, self.fails, self.dialog, self.wrap = True, False, False, None
 
     def keys(self, *args, socket=None, client=False, **_kw):
         if args[0] == "send-keys" and args[-2] == "-l":
@@ -100,6 +102,10 @@ class Claude:
     def pane(self, *_args, **_kwargs):
         if self.dialog:
             return (REPO / "tests/fixtures/claude-dialog-pane.txt").read_text()
+        if self.wrap:
+            rows = "\n  ".join(textwrap.wrap(self.composer, self.wrap)) or "\u00a0"
+            return (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text().replace(
+                "\u276f\u00a0\n", f"\u276f {rows}\n")
         return "".join(f"> {line}\n\n" for line in self.read) + f"\u276f {self.composer}\n"
 
 
@@ -350,6 +356,40 @@ class HandBack(Sandbox):
                     self.live(), line, self.logs.append, cfg=self.cfg,
                     typed={"line": line, "seat": self.live()["created"]}, **refused))
                 self.assertEqual((seat.read, seat.composer), ([], line))
+
+    def test_a_line_wrapped_past_the_bottom_rows_gets_its_enter_before_it_counts_as_sent(self):
+        self.rows = [self.live()]
+        seat = self.claude()
+        line = ("Result: " + "acme-result " * 50).strip()
+        seat.composer, seat.wrap = line, 60     # eleven rows of it, still unsent
+        mark = {"line": line, "seat": self.live()["created"]}
+        self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                              cfg=self.cfg, typed=mark))
+        self.assertEqual((seat.read, seat.composer), ([line], ""))
+        self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                             cfg=self.cfg, typed=mark))
+
+    def test_text_the_owner_types_before_a_lines_first_enter_or_its_retry_is_never_sent(self):
+        self.rows = [self.live()]
+        seat = self.claude()
+        line = "The acme tests passed."
+        # the gap between the text and its Enter, then the wait for the line to leave
+        for stage, at in (("before the first Enter", 1), ("before the retried Enter", 2)):
+            with self.subTest(stage=stage):
+                seat.composer, seat.read, seat.typed, seat.takes = "", [], 0, at == 1
+                pauses = []
+
+                def owner_types(_seconds):
+                    pauses.append(True)
+                    if len(pauses) == at:
+                        seat.composer += " and the owner's own words"
+                        seat.takes = True
+
+                with patch.object(watch.time, "sleep", side_effect=owner_types):
+                    self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                          cfg=self.cfg))
+                self.assertEqual((seat.read, seat.composer, seat.typed),
+                                 ([], line + " and the owner's own words", 1))
 
     def test_a_fail_at_the_last_round_hands_back_and_sends_no_card(self):
         directory = self.failed()
