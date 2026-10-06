@@ -251,7 +251,8 @@ after seven days. A failed, blocked or errored checkout goes when its seat has b
 resume can take it; its local branch stays until the 30-day removal, because a run that never pushed holds its only copy
 there. A pass whose delivery ended without a merge loses its checkout after seven days, its branch kept, and a checkout
 with no run record goes after a day. A seat's own checkout under `~/.agentkit/wt` (on a branch, made by no run) goes
-after a day only once its pull request merged, GitHub has its head commit and git sees no change or new file in it. A run directory older than 30 days goes whole, with its checkout and branch, unless
+after a day only when it is a worktree of a project's checkout, its pull request merged, GitHub has its head commit,
+and it holds that commit and nothing more. A run directory older than 30 days goes whole, with its checkout and branch, unless
 the session that launched it still exists; a scratch run's workspace goes only with it. `~/.agentkit/tmp` entries older
 than a day go, owned `/tmp` entries untouched for two days go and a gone Claude session's scratch folder after a day, a repository `TMPDIR` directly under `/var/tmp` like `/tmp` itself,
 finished jobs after a week, and a state file named for a seat with no record, or an idle-compact stamp

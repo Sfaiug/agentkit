@@ -411,14 +411,12 @@ def seat_branch(wt, directory):
     if (retention.present(directory) or not os.path.lexists(wt / ".git")
             or in_gone_sandbox(wt)):
         return None
-    code, ref, _ = run.tool_run(["git", "-C", str(wt), "symbolic-ref", "-q", "HEAD"],
-                                timeout=60)
+    code, ref = in_checkout(wt, "git", "symbolic-ref", "-q", "HEAD")
     if code == 1:
         return None
-    known, head, _ = run.tool_run(["git", "-C", str(wt), "rev-parse", "-q", "--verify", "HEAD"],
-                                  timeout=60)
-    return (ref.strip().removeprefix("refs/heads/") if code == 0 else None,
-            head.strip() if code == 0 and known == 0 else None)
+    known, head = in_checkout(wt, "git", "rev-parse", "-q", "--verify", "HEAD")
+    return (os.fsdecode(ref.strip()).removeprefix("refs/heads/") if code == 0 else None,
+            os.fsdecode(head.strip()) if code == 0 and known == 0 else None)
 
 
 def in_gone_sandbox(wt):
@@ -435,48 +433,65 @@ def in_gone_sandbox(wt):
             and retention.gone_path(target))
 
 
+def in_checkout(wt, *cmd, env=None):
+    """(exit code, output) of git or gh run inside a seat's checkout, the code None when it
+    could not run.  Nothing of git's own environment (`GIT_*`) or gh's GH_REPO comes along:
+    an inherited repository, index, object store or setting would answer for another
+    checkout."""
+    clean = {name: value for name, value in run.tool_env().items()
+             if not name.startswith("GIT_") and name != "GH_REPO"}
+    try:
+        proc = subprocess.run(cmd, cwd=wt, capture_output=True, stdin=subprocess.DEVNULL,
+                              timeout=600, env={**clean, **(env or {})})
+    except (OSError, subprocess.TimeoutExpired):
+        return None, b""
+    return proc.returncode, proc.stdout
+
+
 def delivered(wt, branch, head):
-    """Whether GitHub holds everything in a seat's checkout: it is its head commit, byte for
-    byte (`same_as_commit`), the branch's newest pull request merged, and GitHub has the head
-    commit, which the line may have rebased before merging.  Only a worktree added from a
-    repository kept elsewhere qualifies: a clone holds its own branches, stash and other
-    worktrees' history, which removing it would take."""
+    """Whether GitHub holds everything in a seat's checkout, so removing it loses nothing.
+
+    Its repository is a project's checkout the menu lists (`orch.checkout_of`), kept outside
+    this one: its branches, stash and history stay there.  A clone, or a worktree of any other
+    repository, holds what only it has.  GitHub answers first: the branch's newest pull
+    request merged, and GitHub has the head commit, which the line may have rebased before
+    merging.  Only then the checkout itself, so nothing done to it while GitHub was asked
+    slips by: still on that branch and head, holding that commit and nothing more
+    (`same_as_commit`), and nobody in it."""
     if not branch or not head:
         return False
-    code, dirs, _ = run.tool_run(["git", "-C", str(wt), "rev-parse", "--path-format=absolute",
-                                  "--git-dir", "--git-common-dir"], timeout=60)
-    own, common = (dirs.splitlines() + ["", ""])[:2]
-    if code != 0 or not common or own == common or not same_as_commit(wt, head):
+    dirs = orch.git_dirs(wt)
+    if (not dirs or not dirs[1] or dirs[0].is_relative_to(wt.resolve())
+            or orch.checkout_of(wt) is None):
         return False
     # The branch's newest pull request, not any: a name reused after a merge has work open.
-    code, state = run.gh(wt, "pr", "list", "--head", branch, "--state", "all",
-                         "--json", "number,state", "--jq", "max_by(.number).state", timeout=60)
-    if code != 0 or state != "MERGED":
+    code, state = in_checkout(wt, "gh", "pr", "list", "--head", branch, "--state", "all",
+                              "--json", "number,state", "--jq", "max_by(.number).state")
+    if code != 0 or state.strip() != b"MERGED":
         return False
-    code, _ = run.gh(wt, "api", f"repos/{{owner}}/{{repo}}/commits/{head}", "--silent",
-                     timeout=60)
-    return code == 0
+    code, _ = in_checkout(wt, "gh", "api", f"repos/{{owner}}/{{repo}}/commits/{head}", "--silent")
+    return (code == 0 and seat_branch(wt, config.RUNS / wt.name) == (branch, head)
+            and same_as_commit(wt, head) and not retention.busy(wt, retention.process_paths()))
 
 
 def same_as_commit(wt, head):
     """Whether a checkout holds its commit and nothing more: its index lists exactly the
     commit's files, each file in it hashes to the commit's blob, read raw (no filter, line
-    ending or replacement object stands in between), and git finds no new file beside them.
-    What git ignores is output, not work.  A submodule, whose own commits GitHub may lack,
-    keeps the checkout."""
-    git = ["git", "--no-replace-objects", "-C", str(wt), f"--work-tree={wt}",
-           "--no-optional-locks", "-c", "core.ignoreCase=false", "-c", "core.fsmonitor=false",
+    ending or replacement object stands in between), git finds no new file beside them, and
+    the checkout keeps no ref of its own -- `refs/worktree`, a bisect's or a rebase's -- that
+    would go with it.  What git ignores is output, not work.  A submodule, whose own commits
+    GitHub may lack, keeps the checkout."""
+    git = ["git", "--no-replace-objects", f"--work-tree={wt}", "--no-optional-locks",
+           "-c", "core.ignoreCase=false", "-c", "core.fsmonitor=false",
            "-c", "core.untrackedCache=false"]
     def ask(*args, env=None):
-        try:
-            proc = subprocess.run([*git, *args], capture_output=True, timeout=600,
-                                  env={**os.environ, **(env or {})})
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        return None if proc.returncode else proc.stdout
+        code, out = in_checkout(wt, *git, *args, env=env)
+        return out if code == 0 else None
     fmt, tree, index = (ask("rev-parse", "--show-object-format"),
                         ask("ls-tree", "-r", "-z", "--full-tree", head), ask("ls-files", "-s", "-z"))
-    if fmt is None or tree is None or index is None:
+    if (fmt is None or tree is None or index is None or ask(
+            "for-each-ref", "--format=%(refname)", "refs/worktree", "refs/bisect",
+            "refs/rewritten") != b""):
         return False
     # `<mode> blob <oid>\t<path>` and `<mode> <oid> <stage>\t<path>`, both by path
     files = {path: (meta.split()[0], meta.split()[2])

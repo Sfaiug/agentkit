@@ -22,6 +22,27 @@ from agentkit import record as run_record
 
 DAY = 86400
 DEAD = 99999999
+# gh: the head commits GitHub has, the one branch with an open pull request, and what
+# happens to a checkout the second time gh is asked for its head, all from DATA.
+FAKE_GH = """
+import json, sys
+data = json.load(open(DATA))
+args = sys.argv[1:]
+if args[:2] == ["pr", "list"]:
+    print("OPEN" if args[args.index("--head") + 1] == data["open"] else "MERGED")
+    sys.exit(0)
+head = args[1].rsplit("/", 1)[-1]
+if head in data["late"]:
+    with open(data["asked"] + "-" + head, "a+") as asked:
+        asked.write("asked\\n")
+        asked.seek(0)
+        if asked.read().count("asked") == 2:
+            if data["late"][head] == "edit":
+                open("tracked", "w").write("written while GitHub was asked\\n")
+            else:
+                open(data["asked"] + "-open", "w").close()
+sys.exit(0 if head in data["heads"] else 1)
+"""
 
 
 class GcSweep(Sandbox):
@@ -306,25 +327,42 @@ class GcSweep(Sandbox):
             self.assertTrue(wt.is_dir(), wt)
         self.assertIn("no eligible artifacts", self.gc())
 
+    def seat(self, repo, name):
+        """A seat's own checkout of `repo`: on a branch with a commit of its own, made by no run."""
+        wt = config.WT / name
+        self.git(repo, "worktree", "add", "-q", str(wt), "-b", "seat/" + name)
+        (wt / "tracked").write_text(name + "\n")
+        self.git(wt, "commit", "-qam", name)
+        return wt
+
+    def github(self, heads, open_branch=None, late=None):
+        """A gh first on PATH that has these head commits and one open pull request, on
+        `open_branch`; `late` is {head: what happens to its checkout the second time gh is
+        asked for that head}: `edit` its file, or `open` it, as somebody starting work there."""
+        data = self.root / "github.json"
+        data.write_text(json.dumps({"heads": sorted(heads), "open": open_branch,
+                                    "late": late or {}, "asked": str(self.root / "asked")}))
+        bindir = self.root / "bin"
+        bindir.mkdir(exist_ok=True)
+        (bindir / "gh").write_text(f"#!{sys.executable}\n" + FAKE_GH.replace("DATA", repr(str(data))))
+        (bindir / "gh").chmod(0o755)
+        return patch.dict(os.environ, {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"})
+
     def test_a_seats_checkout_goes_only_once_github_holds_all_of_it(self):
-        # A seat's own checkout: on a branch of a repository still here, made by no run.
-        def seat(name):
-            wt = config.WT / name
-            self.git(self.repo, "worktree", "add", "-q", str(wt), "-b", "seat/" + name)
-            (wt / "tracked").write_text(name + "\n")
-            self.git(wt, "commit", "-qam", name)
-            return wt
+        # A seat's own checkout: on a branch of a project's checkout in ~/code, made by no run.
+        config.CODE.mkdir(exist_ok=True)
+        project = self.make_repo(config.CODE / "project")
         kept = ("open", "unpushed", "dirty", "untracked", "hidden-new", "unchanged", "skipped",
                 "submodule", "ignore-case", "same-stat", "mode", "staged", "mirrored", "filtered",
-                "replaced", "gitlinked")
-        merged, *kept = (seat(name) for name in ("merged", *kept))
+                "replaced", "gitlinked", "own-ref")
+        merged, *kept = (self.seat(project, name) for name in ("merged", *kept))
         (open_pr, unpushed, dirty, untracked, hidden_new, unchanged, skipped, submodule, case,
-         same_stat, mode, staged, mirrored, filtered, replaced, gitlinked) = kept
+         same_stat, mode, staged, mirrored, filtered, replaced, gitlinked, own_ref) = kept
         (dirty / "tracked").write_text("not committed\n")
         (untracked / "notes.md").write_text("never added\n")
         # Work git would not report: the repository hides new files, the index marks a file
         # unchanged or out of the tree, or a submodule holds commits of its own.
-        self.git(self.repo, "config", "extensions.worktreeConfig", "true")
+        self.git(project, "config", "extensions.worktreeConfig", "true")
         self.git(hidden_new, "config", "--worktree", "status.showUntrackedFiles", "no")
         (hidden_new / "notes.md").write_text("never added\n")
         self.git(case, "config", "--worktree", "core.ignoreCase", "true")
@@ -347,7 +385,7 @@ class GcSweep(Sandbox):
         (mirrored / "tracked").write_text("only here\n")
         # Notes a clean filter hides from git, an unpublished commit standing in for the head
         # through a replacement object, and a staged gitlink git is told to ignore.
-        (self.repo / ".git" / "info" / "attributes").write_text("tracked filter=firstline\n")
+        (project / ".git" / "info" / "attributes").write_text("tracked filter=firstline\n")
         self.git(filtered, "config", "--worktree", "filter.firstline.clean", "head -n1")
         (filtered / "tracked").write_text("filtered\nnotes git never sees\n")
         published = self.git(replaced, "rev-parse", "HEAD")
@@ -358,7 +396,11 @@ class GcSweep(Sandbox):
         vendor = self.make_repo(gitlinked / "vendor")
         self.git(gitlinked, "add", "vendor")
         self.git(gitlinked, "config", "--worktree", "diff.ignoreSubmodules", "all")
-        # Work only the index holds: staged, then the file put back as committed.
+        # Work only the index holds: staged, then the file put back as committed -- and gc
+        # started with another index, the committed one, in its environment.
+        clean_index = self.root / "clean.index"
+        shutil.copyfile(self.git(staged, "rev-parse", "--path-format=absolute", "--git-path",
+                                 "index"), clean_index)
         (staged / "tracked").write_text("staged only\n")
         self.git(staged, "add", "tracked")
         (staged / "tracked").write_text("staged\n")
@@ -373,20 +415,28 @@ class GcSweep(Sandbox):
                  "commit", "-q", "--allow-empty", "-m", "local only")
         self.git(submodule, "commit", "-qam", "component moved")
         # What git ignores is output, not work.
-        (self.repo / ".git" / "info" / "exclude").write_text(".ak-test-sandbox/\nvendor/\n")
+        # A commit only a ref of the checkout's own keeps, which goes with the checkout.
+        (own_ref / "tracked").write_text("kept by the checkout's own ref\n")
+        self.git(own_ref, "commit", "-qam", "own ref")
+        self.git(own_ref, "update-ref", "refs/worktree/notes", "HEAD")
+        self.git(own_ref, "reset", "-q", "--hard", "HEAD~1")
+        (project / ".git" / "info" / "exclude").write_text(".ak-test-sandbox/\nvendor/\n")
         (merged / ".ak-test-sandbox").mkdir()
         (merged / ".ak-test-sandbox" / "left").write_text("a killed test's\n")
         # Every layout a seat may build in is a seat's: a clone, a worktree of a bare
         # repository, a clone keeping its git directory elsewhere and a worktree whose `.git`
         # points back by a relative path. With notes, each stays; and a clone stays even
-        # merged and clean, its own branches and stash going with it otherwise.
+        # merged and clean -- its name holding a newline -- its own branches and stash going
+        # with it otherwise.  So does a worktree of a repository that is no project's
+        # checkout, and one whose repository lies ignored inside it, a project's through a
+        # link in ~/code: removing either takes history only that repository holds.
         def layout(wt, *clone):
             self.git(self.root, "clone", "-q", *clone, str(self.repo), str(wt)) if clone else None
-            self.git(wt, "checkout", "-qb", "seat/" + wt.name)
+            self.git(wt, "checkout", "-qb", "seat/" + wt.name.replace("\n", "-"))
             self.git(wt, "-c", "user.name=sweep", "-c", "user.email=s@localhost", "commit", "-q",
                      "--allow-empty", "-m", wt.name)
             return wt
-        merged_clone = layout(config.WT / "merged-clone", "--no-hardlinks")
+        merged_clone = layout(config.WT / "merged\nclone", "--no-hardlinks")
         clone = layout(config.WT / "clone", "--no-hardlinks")
         separate = layout(config.WT / "separate", "--separate-git-dir", str(self.root / "sep.git"))
         self.git(self.root, "clone", "-q", "--bare", str(self.repo), str(self.root / "bare.git"))
@@ -394,10 +444,18 @@ class GcSweep(Sandbox):
         self.git(self.root / "bare.git", "worktree", "add", "-q", "--detach", str(bare))
         layout(bare)
         relative = config.WT / "relative"
-        self.git(self.repo, "worktree", "add", "-q", "--detach", str(relative))
+        self.git(project, "worktree", "add", "-q", "--detach", str(relative))
         layout(relative)
         (relative / ".git").write_text(
-            "gitdir: " + os.path.relpath(self.repo / ".git" / "worktrees" / "relative", relative) + "\n")
+            "gitdir: " + os.path.relpath(project / ".git" / "worktrees" / "relative", relative) + "\n")
+        elsewhere = self.seat(self.repo, "elsewhere")
+        inner = self.make_repo("inner")
+        (inner / ".git" / "info" / "exclude").write_text(".repo/\n")
+        nested = config.WT / "nested"
+        self.git(inner, "worktree", "add", "-q", str(nested), "-b", "seat/nested")
+        inner.rename(nested / ".repo")
+        (nested / ".git").write_text(f"gitdir: {nested / '.repo/.git/worktrees/nested'}\n")
+        (config.CODE / "inner").symlink_to(nested / ".repo")
         # One whose git directory moved away is no smoke suite's: unreadable, it stays.
         moved = layout(config.WT / "moved", "--separate-git-dir", str(self.root / "moved.git"))
         (self.root / "moved.git").rename(self.root / "moved-away.git")
@@ -412,26 +470,42 @@ class GcSweep(Sandbox):
         for wt in (clone, separate, bare, relative, moved, linked, in_wt):
             (wt / "notes.md").write_text("never added\n")
         self.git(merged_clone, "branch", "private")
-        kept = [*kept, merged_clone, clone, separate, bare, relative, moved, linked, in_wt]
+        kept = [*kept, merged_clone, clone, separate, bare, relative, moved, linked, in_wt,
+                elsewhere, nested]
         for wt in (merged, *kept):
             self.aged(wt, 2 * DAY)
         heads = {self.git(wt, "rev-parse", "HEAD") for wt in (merged, *kept)
                  if wt not in (unpushed, moved, linked, in_wt)}
-        def github(cwd, *args, timeout=None):
-            if args[:2] == ("pr", "list"):     # the branch's newest pull request
-                return 0, "OPEN" if args[args.index("--head") + 1] == "seat/open" else "MERGED"
-            return (0, "") if args[1].rsplit("/", 1)[-1] in heads else (1, "HTTP 404")
-        with patch.object(run, "gh", side_effect=github):
+        with self.github(heads, open_branch="seat/open"):
             dry = self.gc("--dry-run")
             self.assertIn(f"gc: would remove orphan-worktree {merged}: a seat's, seat/merged "
                           "merged", dry)
             for wt in kept:
                 self.assertNotIn(str(wt), dry)
-            self.gc()
+            with patch.dict(os.environ, {"GIT_INDEX_FILE": str(clean_index)}):
+                self.gc()
         self.assertFalse(merged.exists())
-        self.assertNotIn(str(merged), self.listed(self.repo))
+        self.assertNotIn(str(merged), self.listed(project))
         for wt in kept:
             self.assertTrue(wt.is_dir(), wt)
+
+    def test_a_seats_checkout_changed_while_github_answers_stays(self):
+        # gc asks GitHub twice, when it plans and when it removes; each checkout changes
+        # during the second ask, after every look gc took before it.
+        config.CODE.mkdir(exist_ok=True)
+        project = self.make_repo(config.CODE / "project")
+        edited, opened = (self.aged(self.seat(project, name), 2 * DAY)
+                          for name in ("edited", "opened"))
+        late = {self.git(edited, "rev-parse", "HEAD"): "edit",
+                self.git(opened, "rev-parse", "HEAD"): "open"}
+        flag = self.root / "asked-open"
+        with self.github(late, late=late), patch.object(
+                retention, "process_paths", side_effect=lambda: {str(opened)} if flag.exists() else set()):
+            self.gc()
+        for head in late:
+            self.assertEqual((self.root / f"asked-{head}").read_text(), "asked\nasked\n")
+        self.assertTrue(edited.is_dir())
+        self.assertTrue(opened.is_dir())
 
     def test_a_tree_gc_cannot_take_is_reported_once_and_never_again(self):
         if os.geteuid() == 0:
