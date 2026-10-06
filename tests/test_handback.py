@@ -509,6 +509,14 @@ class HandBack(Sandbox):
                             patch.object(watch, "seat_model", return_value=(harness, "acme")):
                         self.assertEqual(
                             watch.composer_holds(SEAT, self.live(), line, self.cfg), holds)
+        # review 20261006-2113: Grok's thumb ends in the block its scroll position needs, `▂`
+        # on this screen, which is also what a line ending in those words typed alone shows
+        pane = (REPO / "tests/fixtures/grok-tall-line-and-owner-words-pane.txt").read_text()
+        self.assertIn("▂", pane)
+        with patch.object(watch, "pane_text", return_value=pane), \
+                patch.object(watch, "seat_model", return_value=("grokbuild", "acme")):
+            alone = made(700) + " and fix the login"
+            self.assertEqual(watch.composer_holds(SEAT, self.live(), alone, self.cfg), "line")
 
     def test_a_fail_at_the_last_round_hands_back_and_sends_no_card(self):
         directory = self.failed()

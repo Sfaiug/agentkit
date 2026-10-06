@@ -85,8 +85,10 @@ kinds = ["idle_prompt"]
 composer = '(?:│ ❯\s*│|╰─+ .*─╯)$'
 footer = ['Shift\+Tab:mode.*', 'Enter:send.*']
 # A line taller than the box scrolls inside it, the box's last rows showing, with a scrollbar
-# drawn just inside its right edge (`▄`, `█`; captured 1.0.46 at 40 columns): never typed text.
-scrolled = '\s+[▀▄█]$'
+# drawn just inside its right edge (captured 1.0.46 at 40 columns): never typed text.  Its
+# thumb ends in whichever block its scroll position needs (`▄` and `▂` captured), so the
+# whole block range is chrome there.
+scrolled = '\s+[▀-█]$'
 
 # Its trust dialog: the question with the pair of controls.  Words from the executable's
 # own strings; no fresh folder on this host was still untrusted enough to paint it, so the

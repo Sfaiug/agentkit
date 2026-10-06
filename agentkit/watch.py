@@ -2625,7 +2625,8 @@ def composer_holds(name, session, line, cfg=None):
     if rows is not None and not re.sub(r"\s+", "", "".join(rows)):
         return "empty"
     if rows is None and len(_content_rows(pane)) > PANE_LINES:
-        rows = _composer_tail(harness, pane)     # its top above the read
+        # its top above the read: every row over the chrome under it is the composer's
+        rows = content_lines(harness, pane_tail(pane))
     held, whole = re.sub(r"\s+", "", "".join(rows or ())), re.sub(r"\s+", "", line)
     chrome = screen(harness)
     folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
@@ -2643,31 +2644,13 @@ def _composer_parts(chrome, raws, rows, at, stop):
     boxed = rows[at].startswith("│") and rows[at].endswith("│")
     parts = [_draft_text(raws[at], rows[at][:-1].rstrip() if boxed else rows[at],
                          chrome["composer"])]
-    return [part for part in parts + _composer_body(raws, rows, at + 1, stop, boxed) if part]
-
-
-def _composer_body(raws, rows, start, stop, boxed):
-    """A composer's rows from `start` to `stop`, under its prompt row: bright ones only, inside
-    a box's edges where it is boxed."""
-    parts = []
-    for dim, plain in zip(dim_rows(raws)[start:stop], rows[start:stop]):
+    dims = dim_rows(raws)
+    for dim, plain in zip(dims[at + 1:stop], rows[at + 1:stop]):
         if not dim:
             if boxed and plain.startswith("│") and plain.endswith("│"):
                 plain = plain[1:-1].strip()
             parts.append(plain)
-    return parts
-
-
-def _composer_tail(harness, pane):
-    """A composer whose top is above the read: every row of the tail over the first chrome,
-    which is the composer's own, read as rows under a prompt row are.  Only the tail
-    `composer_draft` reads (PANE_LINES), never a row above it: what scrolled out of it is the
-    line's own top, and no older box or echo up there is ever read."""
-    chrome = screen(harness)
-    raws, rows = _screen_rows(harness, pane_tail(pane))
-    stop = next((at for at, row in enumerate(rows) if chrome_line(chrome, row)), len(rows))
-    boxed = bool(rows) and rows[0].startswith("│") and rows[0].endswith("│")
-    return _unscrolled(chrome, _composer_body(raws, rows, 0, stop, boxed))
+    return [part for part in parts if part]
 
 
 def sync_title(session, log=lambda _: None, *, force=False):
