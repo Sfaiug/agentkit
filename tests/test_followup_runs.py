@@ -135,7 +135,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
-    def spawn(self, argv, unit, env, log_path, **kwargs):
+    def spawn(self, argv, unit, env, log_path, log=None, **kwargs):
         self.spawns.append((argv, env, Path(log_path).parent))
         kwargs["placement"].update(scope="none", scope_reason="fixture")
         return os.getpid()
@@ -340,6 +340,35 @@ class FollowupRuns(unittest.TestCase):
             self.start(directory, state)
         self.start(directory, record.read_state(directory))
         self.assertEqual(len(self.spawns), 1)
+
+    def cut_off_before_its_launch(self, step):
+        flaky = "flaky: python3 -m unittest passed only on its re-run"
+        directory, state = self.source(followups=[flaky])
+        real = getattr(run, step)
+
+        def cut(*args, **kwargs):
+            real(*args, **kwargs)
+            raise KeyboardInterrupt
+
+        with patch.object(run, step, side_effect=cut), self.assertRaises(KeyboardInterrupt):
+            self.start(directory, state)
+        [child] = [d for d in record.run_dirs() if d != directory]
+        with patch.object(record, "process_active", return_value=False):
+            left = run.reap(child, record.read_state(child))   # a look at `ak run status`
+            self.assertEqual((left["state"], left["slot_waiting"]), ("queued", True))
+            self.assertEqual(self.start(directory, record.read_state(directory)), [child])
+            self.assertEqual(self.start(*self.source("again", followups=[flaky])), [])
+            self.assertEqual(self.spawns, [])          # the site is the waiting fix's
+            watch.resume_dead_loops(self.cfg, log=self.logs.append, now=left["started_at"] + 3600)
+            self.assertEqual([where for _, _, where in self.spawns], [child])
+            self.assertEqual(run.resume_run([child.name]), 0)     # what the tick started
+        self.assertEqual(record.read_state(child)["verdict"], "PASS")
+
+    def test_a_fix_cut_off_at_its_first_record_waits_for_its_slot_and_the_tick_starts_it(self):
+        self.cut_off_before_its_launch("capture_launch")
+
+    def test_a_fix_cut_off_after_its_preflight_waits_for_its_slot_and_the_tick_starts_it(self):
+        self.cut_off_before_its_launch("prepare")
 
     def test_a_followup_line_ticks_once_its_fix_is_on_the_default_branch(self):
         self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")

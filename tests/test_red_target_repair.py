@@ -37,10 +37,10 @@ class RedTargetRepair(unittest.TestCase):
         for seat in ("seat", "other"):
             config.session_path(seat).write_text("{}")
 
-    def prepare(self, directory, opts, log, cfg, *args, **kwargs):
+    def prepare(self, directory, opts, log, cfg, *args, receipt=None, **kwargs):
         # what preflight leaves: a receipt queued for a slot, `first` from the options
         self.prepared.append((directory.name, dict(opts)))
-        record.save_state(directory, {**record.read_state(directory), "run_id": directory.name,
+        record.save_state(directory, {**receipt, "run_id": directory.name,
                                    "state": "queued", "slot_waiting": True,
                                    **({"first": True} if opts.get("--first") else {})})
 

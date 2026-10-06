@@ -3107,8 +3107,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     the seat builds it with the context it already has.  Anything else on the list (a flaky
     check's evidence) starts an ordinary run.  The receipt is written once the list is handed
     on: a process cut off before that hands it on again, and each item finds what the cut-off
-    one already did -- its open plan line, the fix run it started.  There is no collector or
-    backlog: this ending alone gets to hand on its list.
+    one already did -- its open plan line, the fix run it started.  A fix run waits for its slot
+    from its first record on, so one the cut left before its launch is a slot wait the tick
+    resumes.  There is no collector or backlog: this ending alone gets to hand on its list.
 
     A target failing a check on its own tip starts one the same way, before any merge:
     `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, the
@@ -3220,22 +3221,21 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                     lists = config.load_session(config.load(), session, required=False) or state
                 except config.Error:
                     lists = state
-                run_record.save_state(directory, {"followup": {"run": run_dir.name, "text": item,
-                                                   "place": followup_place(item)},
-                                       **({"repair": key, "repair_tip": repair["sha"]}
-                                          if repair else {}),
-                                       **({"split_suite": split["command"]} if split else {}),
-                                       "launched_session": session, "repo": str(repo),
-                                       **{role: list(lists[role]) for role in ("workers", "reviewers")
-                                          if isinstance(lists.get(role), list) and lists[role]},
-                                       **({"notify_sink": state["notify_sink"]}
-                                          if state.get("notify_sink") else {})})
+                receipt = {"followup": {"run": run_dir.name, "text": item,
+                                        "place": followup_place(item)},
+                           **({"repair": key, "repair_tip": repair["sha"]} if repair else {}),
+                           **({"split_suite": split["command"]} if split else {}),
+                           "launched_session": session, "repo": str(repo),
+                           **{role: list(lists[role]) for role in ("workers", "reviewers")
+                              if isinstance(lists.get(role), list) and lists[role]},
+                           **({"notify_sink": state["notify_sink"]}
+                              if state.get("notify_sink") else {})}
                 opts = {"--rounds": None, "--exec": None, "--review": None,
                         "--review-pr": None, "--no-worktree": False, "--no-merge": False,
                         "--bg": True, **({"--first": True} if request else {})}
                 if split:
                     gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
-                prepare(directory, opts, logger(directory), cfg)
+                prepare(directory, opts, logger(directory), cfg, receipt=receipt)
                 spawn_bg(directory, [str(directory / "task.md")])
             except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
@@ -9111,7 +9111,7 @@ def launch_session(run_dir):
             config.current_session())
 
 
-def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
+def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, receipt=None):
     """The owner, and whether anybody owns this launch at all.
 
     `unattended` is the run nobody started: no seat, and no terminal either, because a worker
@@ -9129,7 +9129,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
     The task file it was launched from goes on too, because the run keeps only a copy:
     where the file lives is what files a scratch run's seat under a project (`run_project`).
     """
-    receipt = run_record.read_state(run_dir) or {}
+    receipt = (run_record.read_state(run_dir) or {}) if receipt is None else receipt
     followup = receipt.get("followup")
     session_at_launch = receipt["launched_session"] if followup else config.current_session()
     workers = (receipt.get("workers") if followup else
@@ -9161,7 +9161,10 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
             state["task_file"] = str(task_file)
         if (opts or {}).get("--first"):
             state["first"] = True
-        gate.reserve_slot(state, limit)
+        if not followup:
+            # A fix run waits for its slot from its first record on: whatever cuts its handoff
+            # off before the launch, it is a slot wait, which the tick resumes.
+            gate.reserve_slot(state, limit)
         run_record.save_state(run_dir, state)
     history_start(state)
     redress_seat(session_at_launch)   # the seat's bar says it from the start
@@ -9264,8 +9267,8 @@ def refused(run_dir, exc, log, cfg):
     announce_safely(state, run_dir, log, cfg)
 
 
-def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None):
-    capture_launch(run_dir, opts, job_id, cfg, task_file)
+def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=None):
+    capture_launch(run_dir, opts, job_id, cfg, task_file, receipt)
     try:
         preflight(run_dir, opts, log)
     except Stopped as exc:

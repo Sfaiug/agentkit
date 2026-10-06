@@ -44,9 +44,9 @@ class SplitSuiteRun(unittest.TestCase):
         config.save_session(self.cfg, "seat", "opus", ["astra"])
         config.update_session("seat", reviewers=["astra"])
 
-    def prepare(self, directory, opts, log, cfg, **_kw):
+    def prepare(self, directory, opts, log, cfg, receipt=None, **_kw):
         self.prepared.append((directory, opts))
-        record.save_state(directory, {**record.read_state(directory), "run_id": directory.name,
+        record.save_state(directory, {**receipt, "run_id": directory.name,
                                       "state": "queued", "slot_waiting": True})
 
     def spawn(self, directory, argv, **_kw):
