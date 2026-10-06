@@ -20,7 +20,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import tell
+from agentkit.told import heading
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
@@ -127,15 +127,15 @@ class StopPeerTurn(unittest.TestCase):
             with self.subTest(field=field, sender=sender):
                 self.setUp()
                 self.notified("done", self.done_at)
-                latch = self.prompt(tell.heading(sender, time.time()) + NEWS, field)
+                latch = self.prompt(heading(sender, time.time()) + NEWS, field)
                 self.assertTrue(latch["peer"])
                 self.assertEqual(self.stop(), "")
 
     def test_the_same_words_without_the_heading_up_front_are_the_owners(self):
-        heading = tell.heading("acme-fix-api", time.time())
-        for said in (NEWS, f"Did you read this: {heading}{NEWS}",
+        told = heading("acme-fix-api", time.time())
+        for said in (NEWS, f"Did you read this: {told}{NEWS}",
                      "[from seat acme-fix-api at 12:34, not the owner; ...] expand this example",
-                     heading.replace("ak tell acme-fix-api", "ak tell acme-docs") + NEWS):
+                     told.replace("ak tell acme-fix-api", "ak tell acme-docs") + NEWS):
             with self.subTest(said=said):
                 self.setUp()
                 self.notified("done", self.done_at)

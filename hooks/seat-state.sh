@@ -138,18 +138,25 @@ sys.exit(0 if passive else 1)
     return 0
   fi
   # A prompt another session's message opened -- Claude Code wraps it in
-  # <cross-session-message>, and `ak tell` heads it whole with `[from seat <name> at <HH:MM>,
-  # not the owner; reply with ak tell <name>] ` (agentkit/tell.py `heading`) -- keeps the
-  # seat's standing done: the seat only acknowledged the message, so its done from before the
-  # turn still tells.
+  # <cross-session-message>, and `ak tell` starts it with its heading (agentkit/told.py) --
+  # keeps the seat's standing done: the seat only acknowledged the message, so its done from
+  # before the turn still tells.
   # A prompt that asks something -- a sentence ending in `?`, the mark followed by
   # whitespace or the end so a URL's `?` is none -- is ended by its answer.  The
   # latch says which kind of prompt opened the turn.
   peer=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(contains("<cross-session-message")
-                     or test("^\\s*\\[from seat (.+) at [0-9]{2}:[0-9]{2}, not the owner; reply with ak tell \\1\\] "))' \
+               | any(contains("<cross-session-message"))' \
       <<<"$payload" >/dev/null 2>&1; then
+    peer=true
+  elif /usr/bin/env python3 -c '
+import json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+from agentkit.told import told
+payload = json.load(sys.stdin)
+sys.exit(0 if any(told(payload.get(key)) for key in ("prompt", "message")) else 1)
+' "${BASH_SOURCE[0]}" <<<"$payload" 2>/dev/null; then
     peer=true
   fi
   asked=false

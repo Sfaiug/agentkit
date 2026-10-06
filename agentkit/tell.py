@@ -17,6 +17,7 @@ import time
 import uuid
 
 from . import command_help, config, notify, orch, watch
+from .told import heading
 
 # tmux refuses one command past 16 KiB, and the whole message goes in as one typed line.
 MAX_BYTES = 8000
@@ -33,13 +34,6 @@ def longest(cfg):
 def source(sender):
     """The typing receipt's source for a line one seat sent another."""
     return f"seat:{sender}"
-
-
-def heading(sender, now):
-    """What a told line starts with: who sent it and that it is not the owner's -- the words
-    hooks/seat-state.sh knows another seat's message by."""
-    return (f"[from seat {sender} at {time.strftime('%H:%M', time.localtime(now))}, not the "
-            f"owner; reply with ak tell {sender}] ")
 
 
 def read(path):
