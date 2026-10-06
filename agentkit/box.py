@@ -193,15 +193,21 @@ def _writable(clean, cwd, out_dir, state, places, logins):
     return writable
 
 
-def _copy_run(source, destination):
+def _copy_run(source, destination, hidden):
     """Keep readable directories, links and files; let the kernel resolve their paths."""
+    if source in hidden or any(parent in hidden for parent in source.parents):
+        return
     for directory, dirs, files, fd in os.fwalk(source):
+        directory = Path(directory)
         # An out dir in /run must not copy its own growing scratch back into itself.
-        dirs[:] = [name for name in dirs if Path(directory, name) != destination.parent]
-        if Path(directory) == source:
+        # Credentials must never gain a second path on disk, even if the launcher dies.
+        dirs[:] = [name for name in dirs if directory / name != destination.parent
+                   and directory / name not in hidden]
+        files = [name for name in files if directory / name not in hidden]
+        if directory == source:
             dirs[:] = [name for name in dirs if name != "user"]
             files = [name for name in files if name != "user"]
-        target = destination / Path(directory).relative_to(source)
+        target = destination / directory.relative_to(source)
         target.mkdir(parents=True, exist_ok=True)
         for name in dirs + files:
             try:
@@ -223,10 +229,18 @@ def _copy_run(source, destination):
                 with os.fdopen(opened, "rb") as readable:
                     if stat.S_ISREG(os.fstat(opened).st_mode):
                         with (target / name).open("wb") as copied:
-                            shutil.copyfileobj(readable, copied)
+                            while True:
+                                try:
+                                    content = readable.read(shutil.COPY_BUFSIZE)
+                                except OSError:
+                                    (target / name).unlink()
+                                    break
+                                if not content:
+                                    break
+                                copied.write(content)
 
 
-def _own(scratch, clean, cwd, walls, writable):
+def _own(scratch, clean, cwd, walls, writable, hidden):
     """A copy of /run without services, and empty temporary and runtime directories."""
     own = {path.resolve() for path in TRANSIENT}
     for path in _paths(("$XDG_RUNTIME_DIR",), clean, cwd):
@@ -245,7 +259,7 @@ def _own(scratch, clean, cwd, walls, writable):
     for source in binds.values():
         source.mkdir(parents=True, exist_ok=True)
     run = Path("/run").resolve()
-    _copy_run(run, binds[run])
+    _copy_run(run, binds[run], hidden)
     runtime = Path("user", str(os.getuid()))
     (binds[run] / runtime).mkdir(mode=0o700, parents=True)
     binds[run / runtime] = binds[run] / runtime
@@ -373,9 +387,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            cmd[at:at] = _bind(_own(scratch, clean, cwd, walls, writable), writable)
-            # The backing copy must not give a second path to a masked credential in /run.
-            cmd.extend(["--tmpfs", scratch, "--remount-ro", scratch])
+            cmd[at:at] = _bind(_own(scratch, clean, cwd, walls, writable, targets), writable)
             clean["TMPDIR"] = "/var/tmp"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop}

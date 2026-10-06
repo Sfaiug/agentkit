@@ -621,6 +621,37 @@ class WorkerBox(unittest.TestCase):
             timeout=120)
         self.assertEqual((result.returncode, result.stdout.strip()), (0, "ok"), result.stderr)
 
+    def test_a_failed_run_read_discards_partial_bytes_but_write_errors_still_fail(self):
+        source, destination = self.root / "run", self.root / "copy"
+        source.mkdir()
+        destination.mkdir()
+        (source / "file").write_text("ordinary")
+        fdopen = os.fdopen
+
+        class FailingRead:
+            def __init__(self, fd, mode):
+                self.stream = fdopen(fd, mode)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                self.stream.close()
+
+            def read(self, length):
+                if self.stream.tell():
+                    raise OSError("source read failed")
+                return self.stream.read(2)
+
+        with patch.object(box.os, "fdopen", FailingRead):
+            box._copy_run(source, destination, set())
+        self.assertFalse((destination / "file").exists())
+        with patch.object(Path, "open", side_effect=OSError("destination write failed")), \
+                self.assertRaisesRegex(OSError, "destination write failed"):
+            box._copy_run(source, destination, set())
+        box._copy_run(source, destination, set())
+        self.assertEqual((destination / "file").read_text(), "ordinary")
+
     def test_a_runtime_directory_that_is_the_workspace_refuses_the_box(self):
         # The box keeps its runtime directory empty and writes through to its workspace: one
         # directory cannot be both.
