@@ -705,9 +705,10 @@ class MergeStep(unittest.TestCase):
                 events.append(("view", old))
                 return 0, json.dumps({"state": "OPEN", "mergeable": "MERGEABLE",
                                       "headRefOid": old, "baseRefName": "main"})
-            if args[:2] == ("pr", "edit"):
-                self.assertEqual(args[2:4], (URL, "--body-file"))
-                self.assertEqual(Path(args[4]).read_text(), run.pr_body(lp.state))
+            if args[:3] == ("api", "-X", "PATCH"):
+                self.assertEqual(args[3:5], ("repos/fixture/repo/pulls/7", "-F"))
+                self.assertEqual(Path(args[5].removeprefix("body=@")).read_text(),
+                                 run.pr_body(lp.state))
                 return 0, ""
             raise AssertionError(args)
 

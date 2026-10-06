@@ -311,7 +311,7 @@ sys.exit(1)
             # A re-review replaces the list even after the PR already exists.
             state["followups"] = ["b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"]
             self.assertEqual(run.open_pr(lp, "main"), url)
-        self.assertEqual(gh.call_args.args[1:4], ("pr", "edit", url))
+        self.assertEqual(gh.call_args.args[1:5], ("api", "-X", "PATCH", "repos/fixture/repo/pulls/7"))
         body = (run_dir / "pr-body.md").read_text()
         self.assertIn("- b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError", body)
         self.assertNotIn("- a.py:1", body)

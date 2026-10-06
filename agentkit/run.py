@@ -4714,7 +4714,15 @@ def refresh_pr_body(lp):
         return True
     pending = lp.run_dir / "pr-body-update.md"
     pending.write_text(body)
-    rc, out = gh(lp.wt, "pr", "edit", lp.state["pr"], "--body-file", str(pending))
+    # through the REST API: `gh pr edit` asks GraphQL for Projects (classic) too, and since
+    # GitHub retired them some gh releases (2.46) fail that ask and change nothing
+    parts = pr_parts(lp.state["pr"])
+    if parts is None:
+        return note(lp, f"cannot update the description of {lp.state['pr']}: not a PR URL",
+                    failed=True)
+    api, owner, repo, number = parts
+    rc, out = gh(lp.wt, *api, "-X", "PATCH", f"repos/{owner}/{repo}/pulls/{number}",
+                 "-F", f"body=@{pending}")
     if rc != 0:
         if stopped(rc, out):
             raise Stopped(out)
@@ -4761,14 +4769,23 @@ def poll_cap(deadline):
     return TOOL_CAP
 
 
-def checks(lp, url):
-    """Wait for the target's required names, including checks that have not registered yet."""
+def pr_parts(url):
+    """(`gh api` and the host it needs, owner, repository, number) of the PR at `url`, or None
+    for a URL that is not one PR on an https host."""
     pr = urlsplit(url)
     match = re.fullmatch(r"/([^/\s]+)/([^/\s]+)/pull/(\d+)/?", pr.path)
     if not match or pr.scheme != "https" or not pr.hostname or pr.username or pr.query or pr.fragment:
-        return False, f"cannot read required checks for {url}"
-    owner, repo, _ = match.groups()
+        return None
     api = ("api",) if pr.netloc == "github.com" else ("api", "--hostname", pr.netloc)
+    return (api, *match.groups())
+
+
+def checks(lp, url):
+    """Wait for the target's required names, including checks that have not registered yet."""
+    parts = pr_parts(url)
+    if parts is None:
+        return False, f"cannot read required checks for {url}"
+    api, owner, repo, _ = parts
     target = lp.target.removeprefix("origin/")
     endpoint = f"repos/{owner}/{repo}/rules/branches/{quote(target, safe='')}"
     rules, why = gh_json(lp.run_dir, *api, "--paginate", endpoint + "?per_page=100")
@@ -5003,14 +5020,11 @@ def merge_body(lp, head, url=None):
         body = f"Suite-Passed-Tree: {checked['tree_sha']}"
         if url:
             # An explicit body replaces GitHub's defaults, including co-author credit.
-            pr = urlsplit(url)
-            match = re.fullmatch(r"/([^/\s]+)/([^/\s]+)/pull/(\d+)/?", pr.path)
-            if (not match or pr.scheme != "https" or not pr.hostname or pr.username
-                    or pr.query or pr.fragment):
+            parts = pr_parts(url)
+            if parts is None:
                 lp.log(f"WARN cannot read the merge commit body for {url}; merging without suite trailer")
                 return []
-            owner, name, number = match.groups()
-            api = ("api",) if pr.netloc == "github.com" else ("api", "--hostname", pr.netloc)
+            api, owner, name, number = parts
             try:
                 default, why = gh_json(
                     lp.run_dir, *api, "graphql", "-f",
@@ -10200,9 +10214,7 @@ def merge_own_pr(lp, url, head):
     upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
 
     def deliver():
-        pr = urlsplit(url)
-        owner, repo, _, number = pr.path.strip("/").split("/")
-        api = ("api",) if pr.netloc == "github.com" else ("api", "--hostname", pr.netloc)
+        api, owner, repo, number = pr_parts(url)
         current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
         if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
             raise config.Error(f"cannot verify the PR before delivery: {why}")
