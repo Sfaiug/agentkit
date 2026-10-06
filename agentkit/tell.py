@@ -30,9 +30,18 @@ def longest(cfg):
     return min([fold for fold in folds if fold] or [MAX_BYTES])
 
 
+def too_long(line):
+    """Why `line` is more than a told line may hold, else None."""
+    most = longest(config.load())
+    if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
+        return (f"{len(line):,} characters is more than a composer shows whole ({most:,}); "
+                "write the rest to a file and tell its path")
+    return None
+
+
 def source(sender):
-    """The typing receipt's source for a line one seat sent another."""
-    return f"seat:{sender}"
+    """The typing receipt's source for a line one seat sent another; no seat is ak itself."""
+    return f"seat:{sender}" if sender else "ak"
 
 
 def read(path):
@@ -110,14 +119,47 @@ def composer_holds(name, session, line):
     return "line" if held == re.sub(r"\s+", "", line) else "other"
 
 
-def refusal(name, seat):
-    """Why nothing can be queued for that seat, asked under its lock, else None."""
-    if name == config.current_session():
+def refusal(name, seat, sender):
+    """Why nothing can be queued for that seat from `sender` (none is ak itself), asked under its
+    lock, else None."""
+    if sender and name == config.resolve_session(sender):
         return f"{name} is this seat"
     if name not in config.session_records():
         return f"no session {name!r}; `ak orch list` shows them"
     if seat is None:
         return f"{name} is closed"
+    return None
+
+
+def queue(name, line, sender=""):
+    """Queue `line` for that seat, under its lock, so the tick types it there; None once it is
+    queued, or is ak's own and already waits there, else why nothing was.  `sender` is the seat
+    it is from; none is ak itself.
+
+    Under the receiver's lock, the one a rename and a close take: the seat it is now is the
+    one the message is for, and only that seat's tick pass types it.
+    """
+    refused = too_long(line)
+    if refused:
+        return refused
+    with notify.session_lock(name) as name:
+        seat = seat_of(name)
+        refused = refusal(name, seat, sender)
+        if refused:
+            return refused
+
+        def add(messages):
+            # ak's own line still waiting for this seat is not queued twice; a seat's words
+            # twice are two messages
+            if sender or not any(message["line"] == line and message.get("seat") == seat
+                                 for message in messages):
+                messages.append({"id": uuid.uuid4().hex, "from": sender, "at": time.time(),
+                                 "line": line, "seat": seat})
+
+        try:
+            edit(name, add)
+        except (OSError, ValueError) as exc:
+            return f"{name}'s message queue cannot be read, so nothing was queued: {exc}"
     return None
 
 
@@ -207,26 +249,11 @@ def main(argv):
     now = time.time()
     line = (f"[from seat {sender} at {time.strftime('%H:%M', time.localtime(now))}, not the "
             f"owner; reply with ak tell {sender}] {text}")
-    most = longest(config.load())
-    if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
-        print(f"ak tell: {len(line):,} characters is more than a composer shows whole ({most:,}); "
-              "write the rest to a file and tell its path", file=sys.stderr)
-        return 1
-    # Under the receiver's lock, the one a rename and a close take: the seat it is now is the
-    # one the message is for, and only that seat's tick pass types it.
-    with notify.session_lock(argv[0]) as name:
-        seat = seat_of(name)
-        refused = refusal(name, seat)
-        if not refused:
-            try:
-                edit(name, lambda messages: messages.append(
-                    {"id": uuid.uuid4().hex, "from": sender, "at": now, "line": line,
-                     "seat": seat}))
-            except (OSError, ValueError) as exc:
-                refused = f"{name}'s message queue cannot be read, so nothing was queued: {exc}"
+    refused = queue(argv[0], line, sender)
     if refused:
         print(f"ak tell: {refused}", file=sys.stderr)
         return 1
+    name = config.resolve_session(argv[0])
     after = ("after the owner answers its question" if watch.owner_question(notify.last(name))
              else "as soon as it can take a line")
     print(f"{name}: queued; ak types it {after}")

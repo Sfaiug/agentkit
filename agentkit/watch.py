@@ -5881,7 +5881,7 @@ def local_passes(state, dry_run, log):
     A dry run runs only the passes it can tell `dry_run`, and reads usage off the cache as it
     stands: reading that file probes nothing, and a dry run changes nothing.
     """
-    from . import job as jobs, run, tell
+    from . import job as jobs, retire, run, tell
     providers = {}
 
     def read_usage():
@@ -5940,6 +5940,9 @@ def local_passes(state, dry_run, log):
         # is typed into it, oldest first.
         ("a finished job was not handed back", lambda: jobs.deliver_job_handbacks(log), False),
         ("the wait pass did not run", lambda: tell_waits(config.load(), log), False),
+        # Every feature switch on for everyone for two weeks is told to a seat on its project to
+        # take out of the code, queued just before the messages go so this tick types it.
+        ("the switch retirement pass did not run", lambda: retire.hand(log), False),
         ("the message pass did not run", lambda: tell.deliver(config.load(), log), False),
         # Cards are derived from every session's current three-state word, including seats
         # whose panes were not available to the health pass.
