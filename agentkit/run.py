@@ -32,7 +32,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 from . import (box, command_help, config, gate, gc, hand_in, history, host, job as jobs,
-               land as landing, notify, orch, record as run_record, retention, status,
+               land as landing, notify, orch, owner, record as run_record, retention, status,
                stop, task as taskfile, update, usage, watch, worker, worktrees)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
@@ -5263,6 +5263,25 @@ def merged_anyway(lp, url, upstream):
             and merged(lp, url, lp.state["merge_method"]))
 
 
+def owner_parts(wt, upstream, sha):
+    """(the target's `owner:` value, the names of the parts the change at `sha` touches)."""
+    declaration = declared_at(wt, upstream, "owner")
+    if not declaration:
+        return None, []
+    return declaration, owner.touched(wt, declaration, git(wt, "merge-base", upstream, sha), sha)
+
+
+def owner_unasked(lp, upstream):
+    """Why this delivery waits for the owner's yes, or "": its change touches parts the target
+    names as theirs, and no yes of theirs is for that content."""
+    sha = lp.state["delivery_sha"]
+    declaration, hit = owner_parts(lp.wt, upstream, sha)
+    if not hit or owner.said(lp.run_dir.name) == owner.digest(lp.wt, declaration, sha):
+        return ""
+    return (f"it changes {', '.join(hit)}, which land only on the owner's yes: show them the "
+            f"change, and on their yes run `ak run yes {lp.run_dir.name}`")
+
+
 def do_merge(lp, url, upstream):
     """Merge the PR, integrating once more if origin moved under it while the checks ran.
 
@@ -5291,6 +5310,9 @@ def do_merge(lp, url, upstream):
                     fetch(lp.wt, "origin", "--prune", check=True)
                     if not integrated(lp.wt, upstream):
                         return rejoin_line(lp, upstream, "the PR's target moved")
+                unasked = owner_unasked(lp, upstream)
+                if unasked:
+                    return note(lp, unasked, failed=True)
                 body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
                              "--match-head-commit", lp.state["delivery_sha"], *body)
@@ -9740,6 +9762,29 @@ def cmd_resume(argv):
         raise
 
 
+def cmd_yes(argv):
+    """`ak run yes ID`: the owner's yes to the content a run changes in their parts, then its
+    delivery once more.  A later change to those parts asks again."""
+    if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
+        raise config.Error("usage: ak run yes <runid>")
+    if os.environ.get(worker.RUN_MARKER):
+        raise config.Error("`ak run yes` is the owner's word; a run cannot give it")
+    run_dir = config.RUNS / argv[0]
+    state = (run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None) or {}
+    sha, target = state.get("delivery_sha"), state.get("target") or state.get("base")
+    wt = next((path for path in (state.get("worktree"), state.get("repo"))
+               if path and Path(path).is_dir()), None)
+    if not (sha and target and wt):
+        raise config.Error(f"{argv[0]} has no delivery to say yes to")
+    upstream = target if target.startswith("origin/") else f"origin/{target}"
+    declaration, hit = owner_parts(wt, upstream, sha)
+    if not hit:
+        raise config.Error(f"{argv[0]} changes none of the owner's parts; nothing waits for a yes")
+    owner.say(run_dir.name, owner.digest(wt, declaration, sha))
+    print(f"the owner's yes to {', '.join(hit)} at {sha[:12]} is kept; delivering {argv[0]} again")
+    return cmd_resume([argv[0], "--bg"])
+
+
 def resume_run(argv):
     ids = [arg for arg in argv if not arg.startswith("-") and arg != "--bg"]
     if ids and jobs.receipt_path(config.JOBS / ids[0]).exists():
@@ -11143,6 +11188,8 @@ def main(argv):
         return gc.cmd_gc(argv[1:])
     if argv[:1] == ["resume"]:
         return cmd_resume(argv[1:])
+    if argv[:1] == ["yes"]:
+        return cmd_yes(argv[1:])
     if argv[:1] == ["merge"]:
         return cmd_merge(argv[1:])
     if argv[:1] == ["stop"]:
