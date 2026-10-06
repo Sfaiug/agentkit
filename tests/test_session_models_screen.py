@@ -59,6 +59,20 @@ class SessionModels(Sandbox):
         self.assertEqual(config.load_session(self.cfg, "fix-api")["reviewers"],
                          ["astra", "opus"])
 
+    def test_a_flip_on_a_screen_open_across_a_rename_saves_to_the_renamed_record(self):
+        for column, model, field, expected in ((1, "fable", "workers", ["opus", "astra", "fable"]),
+                                               (2, "opus", "reviewers", ["astra", "opus"])):
+            with self.subTest(column=column):
+                config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"],
+                                    {"reviewers": ["astra"], "cwd": str(self.root), "created": 100})
+                selected = self.selected("fix-api")
+                config.rename_session("fix-api", "ship-api")
+                note = menu.session_mark(self.cfg, "fix-api", selected, model, column, {})
+                self.assertEqual(note, "")
+                self.assertEqual(selected[field], expected)
+                self.assertEqual(config.load_session(self.cfg, "ship-api")[field], expected)
+                config.session_path("ship-api").unlink()
+
     def rows(self, lines):
         return {terminal.plain(line).lstrip("› ").split()[0]: marks(line)
                 for line in lines if marks(line)}
