@@ -19,6 +19,7 @@ PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8")
 DRAFT = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8")
 PREVIEW = (FIX / "claude-question-preview-pane.txt").read_text(encoding="utf-8")
 NOTES = (FIX / "claude-question-notes-pane.txt").read_text(encoding="utf-8")
+RULED = (FIX / "claude-question-ruled-footer-pane.txt").read_text(encoding="utf-8")
 
 
 class QuestionWithMessageUnder(Sandbox):
@@ -42,6 +43,23 @@ class QuestionWithMessageUnder(Sandbox):
                             cfg=self.cfg, records=records, live=live, harness="claude",
                             auth_out={}, gh_out={}, token_out={}, previous={})
                         self.assertEqual(found["word"], "needs you", repr(found))
+
+    def test_a_footer_closed_by_a_rule_is_still_a_question_and_needs_you_over_runs(self):
+        # Claude Code 2.1.291 draws a rule under the footer: read as the newest line it made
+        # every question look answered, and four seats waited on the owner all night unheard
+        running = [(self.root / "run", {"state": "running", "launched_session": SEAT,
+                                       "started_at": NOW - 3600})]
+        asked = {"event": "Notification", "kind": "permission_prompt",
+                 "text": "Landing", "at": NOW - 600}
+        for fact in ({}, asked):
+            with self.subTest(fact=fact):
+                live = self.classify(RULED, fact)
+                self.assertEqual(live["state"], "asking")
+                found = watch.session_state(
+                    SEAT, NOW, session={"name": SEAT, "attached": False}, cfg=self.cfg,
+                    records=running, live=live, harness="claude", auth_out={}, gh_out={},
+                    token_out={}, previous={})
+                self.assertEqual(found["word"], "needs you", repr(found))
 
     def test_dialog_alone_is_asking_from_its_screen(self):
         live = self.classify(DIALOG)

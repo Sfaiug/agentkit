@@ -1,0 +1,17 @@
+● The new page is live for you only. Before everyone gets it, one question.
+  Read 1 file, ran 3 shell commands
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Landing
+
+The new landing is live, switched on for you only. Is it right on your phone and your desktop?
+
+❯ 1. Yes, on for everyone
+     I switch it on for everyone now.
+  2. Not yet, I'll look first
+     It stays on for you only until you say so.
+  3. Type something.
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────

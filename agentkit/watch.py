@@ -1443,6 +1443,10 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
+    # A bare rule under the newest controls is the frame they are drawn in, not a newer line:
+    # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
+    # it hid every question, which then read as answered.
+    newest = next((line for line in reversed(lines) if not re.fullmatch(RULE, line)), lines[-1])
     for rule in chrome["rules"]:
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
             region = lines[-rule["lines"]:]
@@ -1494,12 +1498,12 @@ def screen_state(harness, tail):
         if ((rule["all"] and not all(mark in low for mark in rule["all"]))
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
                 or (rule["none"] and any(mark in low for mark in rule["none"]))
-                or (rule["newest"] and not rule["newest"].search(lines[-1]))
+                or (rule["newest"] and not rule["newest"].search(newest))
                 or (rule["chrome"] and not chrome_line(chrome, lines[-1]))):
             continue
         marks = rule["all"] + rule["any"]
         evidence = next((line for line in reversed(region)
-                         if any(mark in line.lower() for mark in marks)), lines[-1])
+                         if any(mark in line.lower() for mark in marks)), newest)
         return rule["state"], rule["id"], evidence[:160]
     return None, "", ""
 
