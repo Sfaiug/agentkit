@@ -61,14 +61,25 @@ class QuestionWithMessageUnder(Sandbox):
                     token_out={}, previous={})
                 self.assertEqual(found["word"], "needs you", repr(found))
 
-    def test_a_draft_quoting_the_footer_over_its_own_rule_stays_a_draft(self):
-        # the rule under a draft closes its composer: what is typed above it is never a dialog
+    def test_a_ruled_footer_reads_with_any_option_highlighted(self):
+        last = RULED.replace("❯ 1.", "  1.").replace("  4. Chat about this", "❯ 4. Chat about this")
+        self.assertEqual(self.classify(last)["state"], "asking")
+
+    def test_a_draft_quoting_the_footer_over_a_rule_stays_a_draft(self):
+        # a draft's rows are prompt-marked or indented: a rule under one is never a dialog's frame
         rows = DRAFT.rstrip("\n").split("\n")
         closing = rows[-2]
-        for typed in ("  Enter to select · ↑/↓ to navigate · Esc to cancel", "  ---"):
-            with self.subTest(typed=typed):
-                pane = "\n".join(rows[:-2] + [typed, closing]) + "\n"
+        rule = "─" * 40
+        for pane in ["\n".join(rows[:-2] + [typed, closing]) + "\n"
+                     for typed in ("  Enter to select · ↑/↓ to navigate · Esc to cancel", "  ---")
+                     ] + [DRAFT.rstrip("\n") + "\n" + rule + "\n"]:
+            with self.subTest(pane=pane[-120:]):
                 self.assertEqual(self.classify(pane)["state"], "draft")
+        for harness in ("codex", "muse"):
+            pane = (FIX / f"{harness}-draft-pane.txt").read_text(encoding="utf-8")
+            with self.subTest(harness=harness):
+                self.assertEqual(watch.screen_state(harness, watch.pane_tail(pane + rule + "\n"))[0],
+                                 watch.screen_state(harness, watch.pane_tail(pane))[0])
 
     def test_dialog_alone_is_asking_from_its_screen(self):
         live = self.classify(DIALOG)

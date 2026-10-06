@@ -1443,14 +1443,16 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
-    # A bare rule under the newest controls is the frame they are drawn in, not a newer line:
-    # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
-    # it hid every question, which then read as answered.  The rule closing a composer is the
-    # composer's, and what is typed above it is a draft, whatever it quotes.
+    # A bare rule right under a row drawn at the left edge is that row's frame, not a newer
+    # line: Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest
+    # line it hid every question, which then read as answered.  A draft never sits there: its
+    # first row is prompt-marked and the rest are indented, so what is typed stays a draft.
     newest = lines[-1]
-    if (re.fullmatch(RULE, newest)
-            and ruled_composer(chrome, raw_lines)[1] != len(raw_lines) - 1):
-        newest = next((line for line in reversed(lines) if not re.fullmatch(RULE, line)), newest)
+    if len(lines) > 1 and re.fullmatch(RULE, newest):
+        above = strip_sgr(raw_lines[-2]).rstrip()
+        if (above and not above[0].isspace() and not re.match(r"(?:│\s*)?[❯›⟩>]", above)
+                and not re.fullmatch(RULE, above.strip())):
+            newest = lines[-2]
     for rule in chrome["rules"]:
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
             region = lines[-rule["lines"]:]
