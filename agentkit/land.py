@@ -572,8 +572,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         verdicts[member] = answer
                         if ready({member: answer}) is False:
                             # The line changed under this pass, so no later verdict of it
-                            # can be written: it stops checking, and the next pass starts
-                            # from the line as it is now.
+                            # can be written: it starts no further check, and the next pass
+                            # starts from the line as it is now.
                             stale = True
                             log("the line changed during this pass; the next pass checks it afresh")
                             return
