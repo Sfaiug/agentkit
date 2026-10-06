@@ -104,6 +104,75 @@ with (out / "alive.lock").open("w") as lock:
 '''
 
 
+PROBE = r'''import json, os, socket, sys, tempfile
+def reach(path):
+    with socket.socket(socket.AF_UNIX) as client:
+        try:
+            client.connect(path)
+            return True
+        except OSError:
+            return False
+seen = {name: reach(path) for name, path in json.loads(sys.argv[1]).items()}
+own = os.path.join(tempfile.mkdtemp(dir="/tmp"), "s")
+with socket.socket(socket.AF_UNIX) as server:
+    server.bind(own)
+    server.listen(1)
+    seen["own"] = reach(own)
+print(json.dumps(seen))
+'''
+
+SOCKETS = r'''import json, os, socket, subprocess, sys
+from pathlib import Path
+sys.path.insert(0, os.environ["BOX_REPO"])
+from agentkit import box
+root, probe = Path(sys.argv[1]), sys.argv[2]
+paths = {"tmp": "/tmp/host/s", "runtime": f"/run/user/{os.getuid()}/s", "outside": "/run/acme/s"}
+listeners = []
+for path in paths.values():
+    Path(path).parent.mkdir(parents=True)
+    listeners.append(socket.socket(socket.AF_UNIX))
+    listeners[-1].bind(path)
+    listeners[-1].listen(8)
+argv = [sys.executable, "-c", probe, json.dumps(paths)]
+seen = {"unboxed": json.loads(subprocess.run(argv, capture_output=True, text=True,
+                                             timeout=30).stdout or "null")}
+for name, walls in (("walls", True), ("no walls", False)):
+    out = root / name
+    out.mkdir()
+    with box.command(argv, dict(os.environ), out, cwd=root, walls=walls) as (cmd, env, spawn):
+        spawn.pop("stop")
+        result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
+                                timeout=30, **spawn)
+    seen[name] = json.loads(result.stdout) if result.returncode == 0 else result.stderr
+print(json.dumps(seen))
+'''
+
+
+# At depth 1 a box without walls leaves a file in its /tmp; the walled box it starts reads it and
+# writes back. The host's /tmp never sees the parent's file.
+NESTED = r'''import os, subprocess, sys
+from pathlib import Path
+sys.path.insert(0, os.environ["BOX_REPO"])
+from agentkit import box
+root, depth = Path(sys.argv[1]), int(sys.argv[2])
+if depth == 0:
+    Path("/tmp/child").write_text(Path("/tmp/parent").read_text())
+    sys.exit(0)
+if depth == 1:
+    Path("/tmp/parent").write_text("parent")
+out = root / str(depth)
+out.mkdir()
+argv = [sys.executable, "-c", sys.argv[3], str(root), str(depth - 1), sys.argv[3]]
+with box.command(argv, dict(os.environ), out, cwd=root, walls=depth == 1) as (cmd, env, spawn):
+    spawn.pop("stop")
+    code = subprocess.run(cmd, env=env, cwd=root, timeout=60, **spawn).returncode
+if depth == 1:
+    print(Path("/tmp/child").read_text(), end=" ", flush=True)
+else:
+    print(Path("/tmp/parent").exists(), code)
+'''
+
+
 class WorkerBox(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-worker-box-", dir=REPO)
@@ -294,60 +363,28 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual(json.loads(text)["paths"], [""] * len(paths))
         self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * len(paths))
 
+    def host(self, script, *args):
+        # A namespace of the test's own stands for the host wherever the test runs, even inside
+        # a box: fresh /tmp and /run, and sockets no other test's box sees.
+        host = ["bwrap", "--unshare-user", "--unshare-pid", "--unshare-net", "--bind", "/", "/",
+                "--dev-bind", "/dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", "/run"]
+        result = subprocess.run([*host, "--", sys.executable, "-c", script, str(self.root), *args],
+                                env={**os.environ, "BOX_REPO": str(REPO)}, capture_output=True,
+                                text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout
+
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in
         # /tmp, the user's service manager in the runtime directory, a daemon anywhere else.
-        # Links in /tmp give the two in this checkout names short enough to bind.
-        tmp = tempfile.TemporaryDirectory(prefix="ak-test-sockets-", dir="/tmp")
-        self.addCleanup(tmp.cleanup)
-        tmp = Path(tmp.name)
-        work, runtime, outside = (self.root / name for name in ("work", "runtime", "outside"))
-        for directory in (work, runtime, outside):
-            directory.mkdir()
-        (tmp / "runtime").symlink_to(runtime)
-        (tmp / "outside").symlink_to(outside)
-        for name in ("s", "runtime/s", "outside/s"):
-            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.addCleanup(listener.close)
-            listener.bind(str(tmp / name))
-            listener.listen(8)
-        # Each is reached where it lives, by a relative name that fits AF_UNIX.
-        probe = (
-            "import json, os, socket, sys, tempfile\n"
-            "def reach(directory):\n"
-            "    with socket.socket(socket.AF_UNIX) as client:\n"
-            "        try:\n"
-            "            os.chdir(directory)\n"
-            "            client.connect('s')\n"
-            "            return True\n"
-            "        except OSError:\n"
-            "            return False\n"
-            "seen = {name: reach(path) for name, path in json.loads(sys.argv[1]).items()}\n"
-            "try:\n"
-            "    own = tempfile.mkdtemp(dir='/tmp')\n"
-            "    server = socket.socket(socket.AF_UNIX)\n"
-            "    server.bind(os.path.join(own, 's'))\n"
-            "    server.listen(1)\n"
-            "    seen['own'] = reach(own)\n"
-            "except OSError:\n"
-            "    seen['own'] = False\n"
-            "print(json.dumps(seen))\n")
-        argv = [sys.executable, "-c", probe,
-                json.dumps({"tmp": str(tmp), "runtime": str(runtime), "outside": str(outside)})]
-        unboxed = subprocess.run(argv, capture_output=True, text=True, timeout=10)
-        self.assertEqual({**json.loads(unboxed.stdout), "own": None},
-                         {"tmp": True, "runtime": True, "outside": True, "own": None}, unboxed.stderr)
-        for walls in (True, False):
-            out = self.root / f"out-{walls}"
-            out.mkdir()
-            with self.subTest(walls=walls), patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(runtime)}):
-                with box.command(argv, dict(os.environ), out, cwd=work, walls=walls) as (cmd, env, spawn):
-                    spawn.pop("stop")
-                    result = subprocess.run(cmd, env=env, cwd=work, capture_output=True, text=True,
-                                            timeout=30, **spawn)
-                self.assertEqual((result.returncode, json.loads(result.stdout or "{}")),
-                                 (0, {"tmp": False, "runtime": False, "outside": False, "own": True}),
-                                 result.stderr)
+        seen = json.loads(self.host(SOCKETS, PROBE))
+        hidden = {"tmp": False, "runtime": False, "outside": False, "own": True}
+        self.assertEqual(seen, {"unboxed": {"tmp": True, "runtime": True, "outside": True, "own": True},
+                                "walls": hidden, "no walls": hidden})
+
+    def test_a_box_inside_a_box_keeps_its_parents_places(self):
+        # A suite keeps its sandboxes in its box's /tmp, and the turns its checks start use them.
+        self.assertEqual(self.host(NESTED, "2", NESTED), "parent False 0\n")
 
     def test_a_relative_home_hides_the_keys_where_the_turn_reads_them(self):
         # The turn resolves HOME=home in its own directory, not in the launcher's.

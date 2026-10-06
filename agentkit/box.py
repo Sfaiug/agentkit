@@ -218,6 +218,16 @@ def _sockets(own):
     return found
 
 
+def _inside():
+    """Is this inside a box? Its PID 1 is then the supervisor, reporting to its out dir."""
+    try:
+        argv = Path("/proc/1/cmdline").read_bytes().split(b"\0")
+    except OSError:
+        return False
+    return (argv[1:3] == [b"-I", b"-c"] and len(argv) > 4
+            and argv[4].endswith(f"/{PROCESSES}".encode()))
+
+
 @contextmanager
 def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(), walls=True,
             drain=False):
@@ -225,8 +235,9 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
     directories the command may also write. With an out dir, /tmp, /var/tmp, /dev/shm and the
-    runtime directory are the box's own. Without walls every other write stays as it is outside:
-    a check runs a project's own suite, which writes where that project says, like a cache in HOME.
+    runtime directory are the box's own, or inside a box its parent's. Without walls every other
+    write stays as it is outside: a check runs a project's own suite, which writes where that
+    project says, like a cache in HOME.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
@@ -235,21 +246,22 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         _walls(cmd)
     else:
         cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
-    at = len(cmd)
+    # Host services such as the tmux server and the user's service manager listen in the temporary
+    # places and the runtime directory. With an out dir the box has its own, on disk there; a box
+    # inside a box keeps its parent's, which hold only what that box lets in.
+    temporary = ("/tmp", "/var/tmp", "/dev/shm", f"/run/user/{os.getuid()}")
+    private = set() if out_dir is None else {
+        path.resolve() for path in map(Path, temporary) if path.is_dir()}
     writable = _writable(clean, cwd, out_dir, state, places, logins)
+    if _inside():
+        writable |= private
+        private = set()
+    at = len(cmd)
     for path in sorted(writable):
         # A redundant file mount prevents atomic refresh within its writable parent.
         if any(parent in writable for parent in path.parents):
             continue
         cmd.extend(["--bind", str(path), str(path)])
-    # With an out dir the box has its own temporary places and an empty runtime directory, where
-    # host services such as the tmux server and the user's service manager listen.
-    runtimes = {Path(f"/run/user/{os.getuid()}")}
-    if clean.get("XDG_RUNTIME_DIR"):
-        runtimes.add(Path(cwd or os.getcwd()) / clean["XDG_RUNTIME_DIR"])
-    private = set() if out_dir is None else {
-        path.resolve() for path in (Path("/tmp"), Path("/var/tmp"), Path("/dev/shm"), *runtimes)
-        if path.is_dir()}
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
     try:
@@ -329,10 +341,11 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             source = Path(scratch, *destination.parts[1:])
             source.mkdir(parents=True, exist_ok=True)
             mounts.extend(["--bind", str(source), str(destination)])
-        # Bind these first so a workspace or declared state under /tmp still wins. A short
-        # TMPDIR allows Unix sockets even when out has a long run id.
+        # Bind these first so a workspace or declared state under /tmp still wins.
         cmd[at:at] = mounts
-        clean["TMPDIR"] = "/tmp"
+        if private:
+            # A short TMPDIR allows Unix sockets even when out has a long run id.
+            clean["TMPDIR"] = "/tmp"
         try:
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop}
