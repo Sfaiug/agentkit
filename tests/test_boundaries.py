@@ -114,6 +114,16 @@ RULES = [
                 r"|len\([\"'](session|notify|card|seat|hook|compact|stop|plan)-[\"']\)",
      "home": ("agentkit/config.py",),
      "max": 11},
+    # A rename leaves a pointer at the old name, and `config.resolve_session` follows it: a
+    # second walk of the chain is one more place to keep in step with how renames chain.
+    # The one left is seat-state.sh's jq walk.  OpenCode's own `session.renamed` event is no
+    # pointer.
+    {"name": "rename chain walks",
+     "flags": (),
+     "pattern": r"[\"']renamed[\"']|\.renamed([^A-Za-z0-9_]|$)",
+     "names": r"session\.renamed",
+     "home": ("agentkit/config.py",),
+     "max": 1},
     # A task file's format is read in one module: a pattern for its front-matter fence
     # (`^---\n`) or its `## Done when` heading is a second reader to keep in step.  A task
     # written out (`## Done when\n```bash`) is no reader, and `FRONT` reads AGENTS.md's front

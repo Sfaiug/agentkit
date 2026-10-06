@@ -139,9 +139,9 @@
 ## hooks/, tools/, tests/
 
 - `hooks/seat-state.sh`: every harness's lifecycle hook; writes a seat's `hook-`/`stop-`
-  facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via run, stop and watch.
-  `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leak: both rebuild
-  config.py's seat file names and rename chain.
+  facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via config, run, stop and
+  watch. `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leaks: the first
+  two rebuild config.py's seat file names, and seat-state.sh its rename chain.
 - `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
   `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
