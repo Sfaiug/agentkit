@@ -74,10 +74,11 @@ class PlanBar(Sandbox):
             with self.subTest(step):
                 drawn, _ = self.bar(1, 3, [run(step)], 24)       # slots of eight cells
                 self.assertEqual(sum(ink == WORKING for _, ink, *_ in drawn[8:16]), lit)
-        # a run's step as the loop records it is one of the four
-        self.assertEqual([menu.STEPS[step] for step in ("executor", "done-when", "reviewer",
-                                                        "merge")],
-                         ["building", "checks", "review", "landing"])
+        # a run's step as the loop records it is one of the four, the seat's fixing its review's
+        self.assertEqual([menu.DOING[menu.STEPS[step]][0]
+                          for step in ("executor", "done-when", "reviewer",
+                                       "waiting for the seat's push", "merge")],
+                         ["building", "checks", "review", "review", "landing"])
 
     def test_a_run_on_its_last_round_turns_its_slot_red(self):
         drawn, _ = self.bar(3, 7, [run("review", 3, 3), run("building", 2, 3)], 28)
@@ -169,10 +170,10 @@ class PlanBar(Sandbox):
         self.going("20261002-1502-other", "web-portal", step="merge")
         self.going("20261002-1503-ended", "acme-ci", state="pass")
         self.assertEqual(menu.seat_runs("acme-ci"), [
-            {"task": "lg1", "step": "review", "since": NOW - 660, "round": 3, "rounds": 3,
-             "executor": "sol", "reviewer": "opus"},
-            {"task": "gh2", "step": "building", "since": NOW - 180, "round": 2, "rounds": 3,
-             "executor": "opus", "reviewer": "astra"}])
+            {"task": "lg1", "doing": "reviewing", "step": "review", "since": NOW - 660,
+             "round": 3, "rounds": 3, "model": "opus"},
+            {"task": "gh2", "doing": "building", "step": "building", "since": NOW - 180,
+             "round": 2, "rounds": 3, "model": "opus"}])
 
     def test_a_round_its_summary_closed_is_still_that_round(self):
         # landing, waiting on the seat's push, or checked and reviewed again on landing: round

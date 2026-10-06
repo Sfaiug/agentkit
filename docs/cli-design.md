@@ -59,7 +59,8 @@ the matches. Each launched run then files the seat under the checkout most of it
 to, a run still queued for a slot among them, whether it works in one checkout or across
 several from `~/code`; a tie keeps the one it has. A seat with no filing and no run belonging
 to a checkout sits under `no project`, and the next draw files it once a run counts. There is
-no run row, ever: `ak run status` is where runs are looked up.
+no run row, ever: `ak run status` is where runs are looked up, and a working seat's live
+line, its tmux bar's second line, is where it says what its runs do now.
 
 The question is answered once, on the top line -- `your projects · nothing
 needs you`, `· 1 needs you`, `· 3 need you` -- and on no other line. A project
@@ -84,7 +85,8 @@ the seat asked, `waiting for you`, the done summary's first line -- and for
 from (the newest wins), else from its unfinished jobs' tasks, else empty --
 except for a run recorded in the line to land: its seat shows `waiting · 3rd in line to land on main`.
 Never `N running`, and never when the work will finish: the bar and its count
-are a seat's progress. No row ever names a run: an ended run is its orchestrator's
+are a seat's progress. No row ever names a run: a seat's live runs are named on one line only,
+its live line -- task id, step, the model doing it -- and an ended run is its orchestrator's
 business.
 
 ## Keys
@@ -515,6 +517,21 @@ then how many others are working and done in their colours. Where they do not
 fit beside the left part, its tasks bar narrows first, then the names fold into
 one count (`! 2 need you`), then only who needs you stays, and only then is the
 left part cut.
+
+A working seat's second line is its live line (`statusbar.live`): each run it
+launched by its task id, in bold and red on its last round, then a cell per
+step of a round -- dim for the steps passed, the current one in the colour of
+the model doing it, hollow for those to come -- then that model (the executor
+building, the reviewer reviewing, none checking or landing, or while the seat
+is fixing what its own PR's review found), what it is doing (`menu.DOING`),
+`round N of M` past the first round and the time on the step:
+`gh2 ■□□□ opus building · round 2 of 3 · 3m   lg1 ■■■□ astra reviewing · 11m`.
+Runs go in the order a round does what they do. More than two doing one thing
+are one count, `landing 8 · longest 2h`, and runs queued for a slot are
+`waiting 2`. Each client draws the first of the line's versions that fits it:
+each next one folds one more into its count, the last first, and the last drops
+the counts' times, so a narrow client loses whole runs to counts before anything
+is cut.
 
 Helpers: `terminal.sense`, `terminal.styled`, `terminal.colour_depth`.
 
