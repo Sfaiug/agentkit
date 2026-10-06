@@ -21,6 +21,9 @@ from types import SimpleNamespace
 from . import config, record
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
+# A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
+# left, whatever it holds, and no other checkout for it.
+SCRATCH_MARK = "ak-lander-scratch"
 
 
 def _trees(turn, kind="trees"):
@@ -371,6 +374,7 @@ def _stack_member(repo, state, top, upstream, opened):
     opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
     if code:
         return None, f"[exit {code}]\nERROR: checkout of {head} failed\n{out}"
+    (Path(run.git(scratch, "rev-parse", "--absolute-git-dir")) / SCRATCH_MARK).touch()
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))
