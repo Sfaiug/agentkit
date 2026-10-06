@@ -397,8 +397,9 @@ def stale_worktree(wt, now, paths, left):
 def holds_work(wt):
     """Whether removing a checkout no run owns could lose work not yet committed.
 
-    An empty folder holds none, nor does a checkout ak never finished making, still locked as
-    `run.MAKING`: a lander or a run killed while making its checkout leaves them.  The line's scratch -- detached, its own git
+    A folder with no `.git` is no checkout and holds none: an empty one a lander or a run
+    killed while making its checkout leaves, or what a removal cut short left once `.git`
+    went first.  Nor does a checkout ak never finished making, still locked as `run.MAKING`.  The line's scratch -- detached, its own git
     directory holding the lander's mark (`land.SCRATCH_MARK`) -- is a killed lander's: its
     output is nobody's.  A seat builds on a branch in a worktree, whose branches and commits
     stay in its repository when the checkout goes: it holds no work once it holds its commit
@@ -406,11 +407,8 @@ def holds_work(wt):
     own git directory is its whole repository, one detached by a rebase or a bisect, and one
     git cannot read.
     """
-    try:
-        if not os.listdir(wt):
-            return False
-    except OSError:
-        return True
+    if not os.path.lexists(os.path.join(wt, ".git")):
+        return False
     known, private = orch.git_in(wt, "rev-parse", "--absolute-git-dir")
     private = Path(os.fsdecode(private.removesuffix(b"\n"))) if known == 0 else None
     try:

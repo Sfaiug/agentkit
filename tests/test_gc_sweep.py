@@ -261,13 +261,18 @@ class GcSweep(Sandbox):
         (Path(self.git(scratch, "rev-parse", "--absolute-git-dir")) / land.SCRATCH_MARK).touch()
         (scratch / "output").write_text("a killed check's\n")
         self.aged(scratch, 2 * DAY)
-        # What a lander or a run killed while making its checkout leaves: an empty folder, and
-        # a checkout still locked as ak's while git made it, detached or on its branch.
-        empty, half, half_run = (config.WT / name for name in ("land-empty", "land-half", "run-half"))
+        # What a lander or a run killed while making or removing its checkout leaves: an empty
+        # folder, one whose `.git` went first, and a checkout still locked as ak's while git
+        # made it, detached or on its branch.
+        empty, cut, half, half_run = (config.WT / name
+                                      for name in ("land-empty", "land-cut", "land-half", "run-half"))
         empty.mkdir()
+        self.git(self.repo, "worktree", "add", "-q", "--detach", str(cut))
+        (cut / "output").write_text("a killed check's\n")
+        (cut / ".git").unlink()
         for wt, *args in ((half, "--detach"), (half_run, "-b", "ak/half")):
             self.git(self.repo, "worktree", "add", "-q", "--lock", "--reason", run.MAKING, str(wt), *args)
-        for wt in (empty, half, half_run):
+        for wt in (empty, cut, half, half_run):
             self.aged(wt, 2 * DAY)
         fresh = config.WT / "fresh"
         self.git(self.repo, "worktree", "add", "-q", str(fresh), "-b", "ak/fresh")
@@ -297,7 +302,7 @@ class GcSweep(Sandbox):
         pending, pending_wt, _ = self.receipt("pending", self.other, merged=False,
                                               finished_at=time.time() - 20 * DAY)
         dry = self.gc("--dry-run")
-        for wt in (scratch, empty, half, half_run):
+        for wt in (scratch, empty, cut, half, half_run):
             self.assertIn(f"gc: would remove orphan-worktree {wt}: no run record", dry)
         self.assertIn(f"gc: would remove orphan-worktree {stray}: no run record", dry)
         self.assertIn(f"gc: would remove orphan-worktree {bare}: no run record", dry)
@@ -308,7 +313,7 @@ class GcSweep(Sandbox):
         for wt in (smoke, fresh, recent_wt, pending_wt, writing, unreadable):
             self.assertNotIn(str(wt), dry)
         out = self.gc()
-        for wt in (scratch, empty, half, half_run, stray, bare, refused_wt, unasked_wt):
+        for wt in (scratch, empty, cut, half, half_run, stray, bare, refused_wt, unasked_wt):
             self.assertFalse(wt.exists(), wt)
         for wt in (half, half_run):
             self.assertNotIn(str(wt), self.listed(self.repo))
@@ -612,18 +617,17 @@ class GcSweep(Sandbox):
     def test_a_tree_gc_cannot_take_is_reported_once_and_never_again(self):
         if os.geteuid() == 0:
             self.skipTest("root removes a read-only directory")
-        # Root's files from a container build, ignored output of a checkout holding nothing
-        # else: this user cannot empty that directory.
+        # Root's files from a container build: this user cannot empty that directory.
         wt = config.WT / "20260907-0101-root-owned-build"
-        self.git(self.repo, "worktree", "add", "-q", str(wt), "-b", "ak/root-owned-build")
-        (self.repo / ".git" / "info" / "exclude").write_text("build/\n")
         locked = self.locked_tree(wt)
-        (wt / "build" / "ours").write_text("ours\n")
-        self.aged(wt, 2 * DAY)
+        (wt / "src").mkdir()
+        (wt / "src" / "ours").write_text("ours\n")
+        for path in (wt / "src" / "ours", wt / "src", wt / "build", wt):
+            self.aged(path, 2 * DAY)
         out = self.gc()
         self.assertEqual(out.count(f"gc: left {wt}: "), 1, out)
         self.assertIn(f"`sudo rm -rf {wt}` takes them", out)
-        self.assertFalse((wt / "build" / "ours").exists())  # what this user owns is gone already
+        self.assertFalse((wt / "src").exists())     # what this user owns is gone already
         self.assertTrue((locked / "layer").exists())
         self.assertIn(str(wt), gc.leftovers())
         # The next day's pass neither lists it nor tries it again.
