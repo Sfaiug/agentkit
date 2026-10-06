@@ -96,8 +96,7 @@
   scp/rsync/sftp a transfer to the live server (`transfer_refusal`); `tools/shim` hands `main`
   the argv, `REFUSALS` dispatches by tool, and `install_shim` links each `tools/<name>-shim` as
   `<HOME>/bin/<name>`.
-- `owner.py`: the parts a target's AGENTS.md names as the owner's (`owner:`) and the owner's
-  yes to their content: `touched`, `digest`, `said`, `say`. For run's delivery and `ak run yes`.
+- `owner.py`: reads and compares the parts a target's AGENTS.md names as the owner's (`owner:`): `parts`, `piece`, `name`, `digest`. run.py does the git and keeps the yes; for its delivery gate and `ak run yes`/`no`.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded
   evidence; worker names the channel; run replays proofs, weighs findings, drops disputes.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,

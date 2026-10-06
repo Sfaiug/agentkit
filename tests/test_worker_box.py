@@ -45,6 +45,15 @@ def read(path):
 seen = {"hosts": read(Path.home() / ".config/gh/hosts.yml"),
         "token": os.environ.get("GH_TOKEN"),
         "store": read(Path.home() / ".git-credentials")}
+if os.environ.get("BOX_OWNER_YES"):
+    yes = Path.home() / ".agentkit/state/owner-yes/x.json"
+    seen["owner_yes_read"] = read(yes)
+    try:
+        yes.parent.mkdir(parents=True, exist_ok=True)
+        yes.write_text("forged")
+        seen["owner_yes_wrote"] = True
+    except OSError:
+        seen["owner_yes_wrote"] = False
 if os.environ.get("BOX_PATHS"):
     seen["paths"] = [read(Path(path)) for path in json.loads(os.environ["BOX_PATHS"])]
     seen["tokens"] = [os.environ.get(key) for key in (
@@ -534,6 +543,17 @@ class WorkerBox(unittest.TestCase):
                           "left": True, "reported": True})
         self.assertEqual((self.root / ".config/gh/hosts.yml").read_text(), "fixture-login")
         self.assertEqual((self.root / ".git-credentials").read_text(), "fixture-store")
+
+    def test_the_owner_yes_store_is_out_of_reach(self):
+        yes = self.root / ".agentkit/state/owner-yes/x.json"
+        yes.parent.mkdir(parents=True)
+        yes.write_text("real-yes")
+        with patch.dict(os.environ, {"BOX_OWNER_YES": "1"}):
+            code, text, _, killed, _ = self.turn()
+        self.assertEqual((code, killed), (0, False))
+        seen = json.loads(text)
+        self.assertEqual(seen["owner_yes_read"], "")          # the store reads empty in the box
+        self.assertEqual(yes.read_text(), "real-yes")         # a write in the box never reaches it
 
     def test_paths_symlinks_and_all_token_variables(self):
         login, store = self.root / "login", self.root / "store"

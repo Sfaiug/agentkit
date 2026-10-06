@@ -99,6 +99,9 @@ def _credentials(env, cwd, agent=None):
     places.update(home / ".git-credentials" for home in homes)
     places.update(root / "git/credentials" for root in configs)
     places.update(root / "hosts.yml" for root in gh)
+    # The owner's yes to a change lands only outside a box: a boxed turn or check sees its store
+    # empty and read-only, so a check the branch supplies cannot write a yes for its own change.
+    places.update(home / ".agentkit/state/owner-yes" for home in homes)
     # A worker reaches no server: only the orchestrator's own shell holds SSH keys and agent.
     places.update(home / ".ssh" for home in homes)
     if agent:
