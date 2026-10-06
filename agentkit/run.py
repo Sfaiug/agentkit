@@ -6352,12 +6352,16 @@ def history_finish(state, log=None):
     now = state.get("finished_at") or time.time()
     history.close_step(state.get("run_id"), now, log=log)
     files = changed_files(state)
+    # git is read from the run's worktree while it exists, else from its repository
+    wt = state.get("worktree")
+    try:
+        present = bool(wt) and Path(wt).is_dir()
+    except (OSError, TypeError):
+        present = False
+    repo = wt if present else state.get("repo")
     size = None
     if state.get("merged") and state.get("base_sha"):
         try:
-            wt = state.get("worktree")
-            present = wt and Path(wt).is_dir()
-            repo = wt if present else state.get("repo")
             review = state.get("review") or {}
             head = state.get("delivery_sha") or review.get("head_sha") or ("HEAD" if present else None)
             if repo and head:
@@ -6366,14 +6370,12 @@ def history_finish(state, log=None):
             pass  # best-effort history must never change the merge's outcome
     # the AGENTS.md its workers were handed, measured as the ceiling measures it
     rules = None
-    try:
-        wt = state.get("worktree")
-        repo = wt if wt and Path(wt).is_dir() else state.get("repo")
-        if repo and state.get("base_sha"):
+    if repo and state.get("base_sha"):
+        try:
             # no file, or a link, hands its workers no rules: 0, where a failed read stays unknown
             rules = len(rules_bytes(repo, state["base_sha"]) or b"")
-    except (config.Error, OSError, ValueError, TypeError):
-        pass
+        except (config.Error, OSError, ValueError, TypeError):
+            pass
     history.finish_run(state.get("run_id"), repo=state.get("repo"),
                        executor=state.get("executor"), reviewer=state.get("reviewer"),
                        rounds_used=len(state.get("round_summaries") or []),
