@@ -526,8 +526,18 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
 
             rebuild, target_red, stale = False, False, False
 
+            def stopped():
+                """Has the line changed under this pass?  Asked before every check it would
+                start: none of its verdicts could be written any more, so it starts no check,
+                and the next pass checks the line as it is now."""
+                nonlocal stale
+                if not stale and ready({}) is False:
+                    stale = True
+                    log("the line changed during this pass; the next pass checks it afresh")
+                return stale
+
             def decide():
-                nonlocal pending, rebuild, target_red, stale
+                nonlocal pending, rebuild, target_red
                 if target_red:
                     return
                 green_prefix = bool(prefix)
@@ -544,6 +554,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             and not saved.get("repair")
                             and (target.get("tested") != target_tree
                                  or target.get("code") != _code())):
+                        if stopped():
+                            return
                         run.git(scratch, "reset", "--hard", tip)
                         run.git(scratch, "clean", "-fdx")
                         suite = run.declared_suite(scratch, ref=tip)
@@ -570,13 +582,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 m.name: s["waiting_on"]["land"] for m, s in prefix} | {
                                 previous[0].name: previous[3] for previous in stacks[:index]}}
                         verdicts[member] = answer
-                        if ready({member: answer}) is False:
-                            # The line changed under this pass, so no later verdict of it
-                            # can be written: it starts no further check, and the next pass
-                            # starts from the line as it is now.
-                            stale = True
-                            log("the line changed during this pass; the next pass checks it afresh")
-                            return
+                        ready({member: answer})
                     green_prefix = "land" in answer
                     if "fix" in answer:
                         # Only this green-to-red transition identifies a culprit.
@@ -590,13 +596,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 running = {}
                 try:
                     decide()
-                    while not rebuild and not target_red and not stale:
-                        if ready({}) is False:
-                            # The line changed under this pass: no check it starts now could
-                            # be written, so it starts none.
-                            stale = True
-                            log("the line changed during this pass; the next pass checks it afresh")
-                            break
+                    while not rebuild and not target_red and not stopped():
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         if batched and unchecked:

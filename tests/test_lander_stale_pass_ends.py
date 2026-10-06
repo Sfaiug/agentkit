@@ -46,6 +46,14 @@ class StalePassEnds(fixture.LanderFixture, unittest.TestCase):
             self.assertEqual(set(self.wait(directory)), {"line", "joined"})
         self.wake.assert_not_called()
 
+    def test_a_change_during_the_first_check_starts_no_check_of_main(self):
+        # a red first stack would have main's own suite run before any blame
+        broken = self.member("broken", joined=1, **{"broken.txt": "b\n"})
+        self.advance()
+        self.checked_with_a_change_during(1, broken)
+        self.assertEqual(len(self.checks), 1)
+        self.wake.assert_not_called()
+
     def test_a_change_before_a_verdict_writes_none_and_stops(self):
         *ahead, last = self.line()
         self.checked_with_a_change_during(2, last)
