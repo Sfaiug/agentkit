@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import (browser, config, gate, history, host, land, orch, record, run,  # noqa: E402
+from agentkit import (browser, config, gate, history, host, land, orch, record, run, stop,  # noqa: E402
                       scoreboard, terminal, watch, worktrees)
 
 DAY = 86400
@@ -368,7 +368,7 @@ class WaitHistory(unittest.TestCase):
                 (host, "host_readings", {"return_value": readings}),
                 (config, "check_stop_owner", {}),
                 (orch, "user_manager", {"return_value": False}),
-                (run, "marker_pids", {"return_value": []}),
+                (stop, "marker_pids", {"return_value": []}),
                 (worktrees, "stop_checkout", {"return_value": True}),
                 (browser, "close_owned", {})):
             self.stack.enter_context(patch.object(module, name, **options))
@@ -395,7 +395,7 @@ class WaitHistory(unittest.TestCase):
                     return
                 self.clock[0] += seconds
                 if running:
-                    self.assertEqual(run.cmd_stop([run_id, "--keep"]), 0)
+                    self.assertEqual(stop.cmd_stop([run_id, "--keep"]), 0)
 
             with patch.object(gate, "slot_counts", return_value=(running, 0)), \
                     patch.object(time, "sleep", side_effect=sleep):

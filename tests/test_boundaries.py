@@ -85,13 +85,13 @@ RULES = [
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)",
      "home": ("adapters/", "agentkit/harness/"),
      "max": 59},
-    # The run loop and admission write run.json through its one writer.
+    # The run loop, admission and a stop write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the
     # watcher's state, not a run record.
     {"name": "run-record writes",
      "flags": (),
      "pattern": r"\.save_state\(",
-     "home": ("agentkit/run.py", "agentkit/gate.py"),
+     "home": ("agentkit/run.py", "agentkit/gate.py", "agentkit/stop.py"),
      "max": 0},
     # A run's writer owns the temporary files and recovery lock it leaves on disk.
     {"name": "run record write",

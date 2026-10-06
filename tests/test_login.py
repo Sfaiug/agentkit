@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 SLEEP = time.sleep                  # the real one, kept where a fixture needs to wait
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import host, config, gc, job as jobs, menu, notify, orch, run, status, terminal, usage, watch, worker
+from agentkit import host, config, gc, job as jobs, menu, notify, orch, run, stop, status, terminal, usage, watch, worker
 from agentkit import record
 
 # A fake harness, in the two shapes a turn can take: one that authenticates and answers, and
@@ -194,7 +194,7 @@ class Login(unittest.TestCase):
         # Login decisions must not depend on the host's running processes or sweep them.
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
-        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(stop, "marker_pids", return_value=[]))
         self.stack.enter_context(patch.object(orch, "stop_scope"))
         self.sleep = self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={

@@ -1523,13 +1523,13 @@ def stop_session_runs(name, dry_run=False):
     never accidents to resume. A run that refuses -- already finished between the
     listing and the stop -- is named and left; the seat still ends.
     """
-    from . import run as run_mod
+    from . import stop
     for run_dir in session_runs(name):
         if dry_run:
             print(f"would stop {run_dir.name}")
             continue
         try:
-            run_mod.cmd_stop([run_dir.name])
+            stop.cmd_stop([run_dir.name])
         except config.Error as exc:
             print(f"could not stop {run_dir.name}: {exc}")
         except (OSError, ValueError, KeyError, TypeError):
@@ -1537,7 +1537,7 @@ def stop_session_runs(name, dry_run=False):
 
 
 def session_runs(name):
-    """Every run that seat launched which stopping it stops: what `run.cmd_stop` takes -- each
+    """Every run that seat launched which stopping it stops: what `stop.cmd_stop` takes -- each
     one not ended, as `orch.cmd_stop` stops them too, and an `error` still waiting on its
     owner, which the tick would retry."""
     from . import run as run_mod

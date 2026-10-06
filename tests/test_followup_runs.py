@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import test_review_gate as gate
 import test_proof_weighed as proof
-from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, task, watch, worker
+from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, stop, task, watch, worker
 from agentkit import plan, record
 from fixtures.hand_in import stateful
 from fixtures.landing import landing
@@ -121,7 +121,7 @@ class FollowupRuns(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "stop_scope"))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
-        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(stop, "marker_pids", return_value=[]))
         self.stack.enter_context(patch.object(run, "pickup_new_code", return_value=False))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(browser, "close_owned"))
@@ -482,9 +482,9 @@ class FollowupRuns(unittest.TestCase):
         receipts = [record.read_state(child) for child in children]
         self.assertTrue(all(s["state"] == "queued" and s["slot_waiting"] for s in receipts))
         self.assertEqual(run.seat_tallies(receipts)["seat"][0], 2)
-        with patch.object(run, "cmd_stop") as stop:
-            run.stop_owned_runs("seat")
-        self.assertEqual({call.args[0][0] for call in stop.call_args_list}, {c.name for c in children})
+        with patch.object(stop, "cmd_stop") as stopped:
+            stop.stop_owned_runs("seat")
+        self.assertEqual({call.args[0][0] for call in stopped.call_args_list}, {c.name for c in children})
 
     def test_target_is_fetched_after_admission_and_the_fix_is_checked_reviewed_and_landed(self):
         directory, state = self.source()

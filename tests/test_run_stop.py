@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import gate, config, job as jobs, land, menu, orch, run, worktrees, status, watch, worker
+from agentkit import gate, config, job as jobs, land, menu, orch, run, stop, worktrees, status, watch, worker
 from agentkit import host, record
 from agentkit import task as taskfile
 
@@ -71,10 +71,10 @@ class RunStop(Sandbox):
                                      waiting_on={"line": turn.name, "joined": 1})
             start.reset_mock()
             with (patch.object(orch, "user_manager", return_value=False),
-                  patch.object(run, "marker_pids", return_value=[]),
+                  patch.object(stop, "marker_pids", return_value=[]),
                   patch.object(worktrees, "stop_checkout", return_value=True),
                   patch("agentkit.browser.close_owned"), redirect_stdout(io.StringIO())):
-                self.assertEqual(run.cmd_stop([directory.name]), 0)
+                self.assertEqual(stop.cmd_stop([directory.name]), 0)
             start.assert_called_once_with(turn)
         state = record.read_state(directory)
         self.assertEqual(state["state"], "stopped")
@@ -125,7 +125,7 @@ class RunStop(Sandbox):
                                  process_identity=host.process_identity(loop.pid))
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         try:
             loop.wait(timeout=10)
         except subprocess.TimeoutExpired:
@@ -159,7 +159,7 @@ class RunStop(Sandbox):
         directory = self.running(run_id, recovery_pending=True)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         state = record.read_state(directory)
         self.assertEqual(state["state"], "stopped")
         self.assertIn("stopped", record.ENDED)
@@ -193,7 +193,7 @@ class RunStop(Sandbox):
                              base_sha=base)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop(["20260101-0900-stop-gone"]), 0)
+            self.assertEqual(stop.cmd_stop(["20260101-0900-stop-gone"]), 0)
         self.assertFalse(wt.exists(), "the worktree survived its stop")
         left = subprocess.run(["git", "-C", str(repo), "branch", "--list", branch],
                               capture_output=True, text=True).stdout.strip()
@@ -208,7 +208,7 @@ class RunStop(Sandbox):
                      branch=branch2, base="main", base_sha=base)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop(["20260101-0900-stop-kept", "--keep"]), 0)
+            self.assertEqual(stop.cmd_stop(["20260101-0900-stop-kept", "--keep"]), 0)
         self.assertTrue(wt2.is_dir(), "--keep removed the worktree")
         left = subprocess.run(["git", "-C", str(repo), "branch", "--list", branch2],
                               capture_output=True, text=True).stdout.strip()
@@ -530,9 +530,9 @@ class RunStop(Sandbox):
         other = self.running("20260101-0900-stop-other", owner="parser")
         done = self.ended("20260101-0900-stop-done", owner=seat)
         order = []
-        real_stop = run.cmd_stop
+        real_stop = stop.cmd_stop
 
-        def stop(run_id):
+        def stop_run(run_id):
             order.append(("run", run_id[0]))
             return real_stop(run_id)
 
@@ -543,7 +543,7 @@ class RunStop(Sandbox):
         seats = [{"name": seat}, {"name": "parser"}]
         out = io.StringIO()
         with patch.object(menu, "read", side_effect=["1", "y"]), \
-                patch.object(run, "cmd_stop", side_effect=stop), \
+                patch.object(stop, "cmd_stop", side_effect=stop_run), \
                 patch.object(orch, "cmd_stop", side_effect=seat_stop), \
                 redirect_stdout(out):
             menu.stop_session([dict(entry) for entry in seats], dry_run=False)
@@ -620,12 +620,12 @@ class RunStop(Sandbox):
                                     "state": "running", "run_id": run_b}]})
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_a]), 0)
+            self.assertEqual(stop.cmd_stop([run_a]), 0)
         time.sleep(0.5)
         self.assertTrue(alive(scheduler.pid), "the stop killed its job's scheduler")
-        left = [pid for pid in run.marker_pids(run_b) if alive(pid)]
+        left = [pid for pid in stop.marker_pids(run_b) if alive(pid)]
         self.assertTrue(left, "the stop killed its sibling task's child")
-        gone = [pid for pid in run.marker_pids(run_a) if alive(pid)]
+        gone = [pid for pid in stop.marker_pids(run_a) if alive(pid)]
         self.assertEqual(gone, [], "the stopped task's own child survived")
         self.assertEqual(record.read_state(config.RUNS / run_a)["state"], "stopped")
         self.assertEqual(record.read_state(config.RUNS / run_b)["state"], "running")
@@ -690,12 +690,12 @@ class RunStop(Sandbox):
                                     "state": "running", "run_id": run_b}]})
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_a]), 0)
+            self.assertEqual(stop.cmd_stop([run_a]), 0)
         time.sleep(0.5)
         self.assertTrue(alive(scheduler.pid), "the stop killed its job's scheduler")
-        left = [pid for pid in run.marker_pids(run_b) if alive(pid)]
+        left = [pid for pid in stop.marker_pids(run_b) if alive(pid)]
         self.assertTrue(left, "the stop killed its sibling task's child")
-        gone = [pid for pid in run.marker_pids(run_a) if alive(pid)]
+        gone = [pid for pid in stop.marker_pids(run_a) if alive(pid)]
         self.assertEqual(gone, [], "the stopped task's own child survived")
         self.assertEqual(record.read_state(config.RUNS / run_a)["state"], "stopped")
         for pid, _ in children:
@@ -740,7 +740,7 @@ class RunStop(Sandbox):
         directory = self.running(run_id)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         stale = record.read_state(directory)
         stale.update(state="running", finished_at=None, error=None)
         with self.assertRaises(record.StopRequested):
@@ -752,7 +752,7 @@ class RunStop(Sandbox):
         directory = self.running(run_id)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         kept = run.mark_state(directory, "error", "boom")
         self.assertEqual(kept["state"], "stopped")
         self.assertEqual(record.read_state(directory)["state"], "stopped")
@@ -814,7 +814,7 @@ class RunStop(Sandbox):
                                     "state": "running", "run_id": run_id}]})
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         try:
             loop.wait(timeout=10)
         except subprocess.TimeoutExpired:
@@ -847,7 +847,7 @@ class RunStop(Sandbox):
         with patch.object(record, "save_state", side_effect=saving), \
                 patch.object(watch_mod, "kill_tree", side_effect=killing), \
                 redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         try:
             loop.wait(timeout=10)
         except subprocess.TimeoutExpired:
@@ -865,7 +865,7 @@ class RunStop(Sandbox):
         directory = self.running(run_id)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         target = directory / "round-1" / "executor"
         target.mkdir(parents=True)
         calls = []
@@ -882,7 +882,7 @@ class RunStop(Sandbox):
         directory = self.running(run_id)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         with patch.object(orch_mod, "start_in_slice",
                           side_effect=AssertionError("launched")) as started:
             with self.assertRaises(config.Error) as refused:
@@ -900,7 +900,7 @@ class RunStop(Sandbox):
                      branch=branch, base="main", base_sha="0" * 40)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop(["20260101-0900-stop-shared"]), 0)
+            self.assertEqual(stop.cmd_stop(["20260101-0900-stop-shared"]), 0)
         line = out.getvalue().strip()
         self.assertIn("kept", line)
         self.assertNotIn("removed", line)
@@ -909,7 +909,7 @@ class RunStop(Sandbox):
         self.assertIn(branch, left, "the shared branch was deleted")
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop(["20260101-0900-stop-shared"]), 0)
+            self.assertEqual(stop.cmd_stop(["20260101-0900-stop-shared"]), 0)
         again = out.getvalue().strip()
         self.assertNotIn("removed", again)
 
@@ -946,7 +946,7 @@ class RunStop(Sandbox):
                                 "the spawn gate checked without the stop lock")
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         with self.assertRaises(record.StopRequested):
             record.stop_check(directory)
         self.assertIsNone(record.stop_check(self.root / "no-such-run"))
@@ -956,7 +956,7 @@ class RunStop(Sandbox):
         directory = self.running(run_id)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         marker = self.root / "gate-marker"
         with self.assertRaises(record.StopRequested):
             gate.run_done_when(["touch %s" % marker], self.root,
@@ -982,7 +982,7 @@ class RunStop(Sandbox):
         self.running(run_id)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         entry = {"sha": "abc123", "run": run_id, "at": time.time(), "attempts": 2}
         self.assertEqual(watch_mod.settled(entry), "done")
 
@@ -992,7 +992,7 @@ class RunStop(Sandbox):
                                  worktree=str(self.root / "wt-gone"))
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop([run_id]), 0)
+            self.assertEqual(stop.cmd_stop([run_id]), 0)
         state = record.read_state(directory)
         self.assertEqual(state["state"], "stopped")
         lines = status.status_details(directory, state)
