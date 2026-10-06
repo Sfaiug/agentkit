@@ -193,44 +193,60 @@ def _writable(clean, cwd, out_dir, state, places, logins):
     return writable
 
 
+def _follow(path, keep):
+    """Where an absolute path leads, walked as the kernel walks it; each link on the way goes to
+    keep. The kernel follows at most 40 links."""
+    real, names, links = Path("/"), [*reversed(Path(path).parts)], 0
+    while names and links <= 40:
+        name = names.pop()
+        step = real.parent if name == ".." else real / name
+        if step.is_symlink():
+            links += 1
+            keep(step)
+            names.extend(reversed(Path(os.readlink(step)).parts))
+        else:
+            real = step
+    return real
+
+
 def _own(scratch, clean, cwd, walls):
-    """The box's own /tmp, /var/tmp, /dev/shm, /run and runtime directory: empty, in scratch.
+    """The box's own /run, /tmp, /var/tmp, /dev/shm and runtime directory: empty, in scratch.
 
     Host services listen there: the tmux server in /tmp, the user's service manager in the
     runtime directory, the system bus in /run. A place of the box's own reaches none of them, nor
-    a socket a service makes there later.
+    a socket a service makes there later. What leads into them, the runtime directory's own path
+    and name resolution's settings, leads there inside the box too.
     """
-    own = {path.resolve() for path in map(Path, ("/tmp", "/var/tmp", "/dev/shm", "/run"))
-           if path.is_dir()}
+    own = set()
+
+    def keep(path):
+        # What the host has at a path inside a place of the box's own, a link or the resolver's
+        # settings, is kept at the same path there.
+        if any(place in path.parents for place in own):
+            kept = Path(scratch, *path.parts[1:])
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            if not os.path.lexists(kept):
+                shutil.copyfile(path, kept, follow_symlinks=False)
+
+    for path in (*map(Path, ("/run", "/tmp", "/var/tmp", "/dev/shm")),
+                 *_paths(("$XDG_RUNTIME_DIR",), clean, cwd)):
+        real = _follow(path, keep)
+        # A mount covers only a directory, so one the host has yet to make is made now: a
+        # service making it later would find the host's. Inside a place of the box's own, its
+        # scratch holds it.
+        if not any(place == real or place in real.parents for place in own):
+            real.mkdir(mode=0o700, parents=True, exist_ok=True)
+        own.add(real)
     if walls:
         # A walled box's /dev is bubblewrap's, whose shm is a directory even where the host's
         # links into /run.
         own.add(Path("/dev/shm"))
-    for runtime in _paths(("$XDG_RUNTIME_DIR",), clean, cwd):
-        runtime = runtime.resolve()
-        # A mount covers only a directory, so one the host has yet to make is made now; inside a
-        # place of the box's own, its scratch holds it.
-        if not any(place == runtime or place in runtime.parents for place in own):
-            runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
-        own.add(runtime)
     binds = {path: Path(scratch, *path.parts[1:]) for path in own}
     for source in binds.values():
         source.mkdir(parents=True, exist_ok=True)
-    # Name resolution reads the host's settings through every link on their way; each step that
-    # lies in a place of the box's own is kept there.
-    hop, seen = RESOLVER, set()
-    while True:
-        hop = Path(os.path.realpath(hop.parent), hop.name)
-        if hop in seen or not os.path.lexists(hop):
-            break
-        seen.add(hop)
-        if any(place in hop.parents for place in own):
-            kept = Path(scratch, *hop.parts[1:])
-            kept.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(hop, kept, follow_symlinks=False)
-        if not hop.is_symlink():
-            break
-        hop = hop.parent / os.readlink(hop)
+    resolver = _follow(RESOLVER, keep)
+    if resolver.is_file():
+        keep(resolver)
     return binds
 
 

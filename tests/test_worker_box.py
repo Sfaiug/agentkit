@@ -109,7 +109,8 @@ from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
 work, role, places = Path(os.environ["BOX_WORK"]), sys.argv[1], [Path(path) for path in sys.argv[2:]]
-# Name resolution's settings link into /run, as systemd-resolved's do, and on through the workspace.
+# Name resolution's settings link into /run, as systemd-resolved's do, through a directory link
+# there out to the workspace, and back into /run.
 box.RESOLVER = work / "resolv.conf"
 
 
@@ -153,17 +154,19 @@ if role == "probe":
     seen["resolver"] = box.RESOLVER.read_text()
     print(json.dumps(seen))
 elif role == "host":
-    work.mkdir(parents=True, exist_ok=True)
+    (work / "settings").mkdir(parents=True)
     Path("/run/acme").mkdir()
     Path("/run/acme/stub.conf").write_text("nameserver 192.0.2.1\n")
-    (work / "stub").symlink_to("/run/acme/stub.conf")
-    Path("/run/acme/resolv.conf").symlink_to(work / "stub")
-    box.RESOLVER.symlink_to("/run/acme/resolv.conf")
+    (work / "settings/resolv.conf").symlink_to("/run/acme/stub.conf")
+    Path("/run/acme/current").symlink_to(work / "settings")
+    box.RESOLVER.symlink_to("/run/acme/current/resolv.conf")
+    if os.environ.get("BOX_RUNTIME_LINK"):
+        Path(os.environ["XDG_RUNTIME_DIR"]).symlink_to(os.environ["BOX_RUNTIME_LINK"])
     listeners = []
 
     def serve():
-        # The services start once the first box is prepared: a runtime directory the host has
-        # yet to make then is covered too.
+        # The services start once the first box is prepared: a place the host has yet to make
+        # then, /var/tmp or the runtime directory, is covered too.
         if not listeners:
             listeners.extend(map(listen, places))
 
@@ -396,24 +399,26 @@ class WorkerBox(unittest.TestCase):
         # Host services run commands for whoever connects, outside the box: a tmux server in
         # /tmp, the user's service manager in its runtime directory, the system bus in /run.
         # With walls and without, and in a box inside a box, the box reaches none of them and
-        # sees no file beside them; the socket it makes in its own /tmp it reaches, and name
-        # resolution reads the host's settings, though they link into /run. The runtime
-        # directory is outside every place of the box's and missing until the box is prepared,
-        # or inside a workspace in /tmp, which stays the box's to see.
+        # sees no file beside them, even in a /var/tmp the host makes only once the box is
+        # prepared; the socket it makes in its own /tmp it reaches, and name resolution reads
+        # the host's settings, though their links run through /run. The runtime directory is a
+        # link in /run to a directory outside every place of the box's, missing until the box
+        # is prepared, or it is inside a workspace in /tmp, which stays the box's to see.
         script = self.root / "sockets.py"
         script.write_text(SOCKETS)
-        for work, runtime in ((self.root / "work", self.root / "runtime"),
-                              (Path("/tmp/ws"), Path("/tmp/ws/runtime"))):
+        for work, runtime, link in ((self.root / "work", Path("/run/runtime"), self.root / "runtime"),
+                                    (Path("/tmp/ws"), Path("/tmp/ws/runtime"), "")):
             with self.subTest(runtime=str(runtime)):
-                places = ["/tmp/host/s", str(runtime / "s"), "/run/acme/s"]
-                # Fresh /tmp and /run of the test's own stand for the host's, even inside a box.
+                places = ["/tmp/host/s", "/var/tmp/host/s", str(runtime / "s"), "/run/acme/s"]
+                # Fresh /tmp, /var and /run of the test's own stand for the host's, even inside a
+                # box.
                 host = ["bwrap", "--unshare-user", "--unshare-pid", "--die-with-parent",
                         "--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc",
-                        "--tmpfs", "/tmp", "--tmpfs", "/run"]
+                        "--tmpfs", "/tmp", "--tmpfs", "/var", "--tmpfs", "/run"]
                 result = subprocess.run(
                     [*host, "--", sys.executable, str(script), "host", *places],
                     env={**os.environ, "BOX_REPO": str(REPO), "BOX_WORK": str(work),
-                         "XDG_RUNTIME_DIR": str(runtime)},
+                         "XDG_RUNTIME_DIR": str(runtime), "BOX_RUNTIME_LINK": str(link)},
                     capture_output=True, text=True, timeout=300)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 resolver = {"own": True, "resolver": "nameserver 192.0.2.1\n"}
