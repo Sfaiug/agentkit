@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, menu, record, terminal
+from agentkit import config, menu, record, statusbar, terminal
 
 NOW = 1_800_000_000
 
@@ -104,14 +104,25 @@ class MenuLiveLine(Sandbox):
         self.assertNotIn("gh2", "\n".join(lines))
         self.assertNotIn("lg1", "\n".join(lines))
 
-    def test_e_a_task_file_s_name_is_drawn_on_one_line_as_text(self):
+    def test_e_a_task_s_file_and_a_model_are_drawn_on_one_line_as_text(self):
+        # each may be named anything, a control character or an escape among it
+        model = "opus\x1b[2J\nfast"
+        self.cfg["models"][model] = dict(self.cfg["models"]["opus"])
         state = record.read_state(config.RUNS / "20260101-0900-gh2-x")
         record.save_state(config.RUNS / "20260101-0900-gh2-x",
-                          dict(state, task_file="/t/gh2\n\x1b[31mred\tx-task.md"))
-        lines, _ = self.draw("fix-api")
-        self.assertEqual(self.under(lines, "fix-api").split(" ■")[0].strip(), "gh2 red x")
-        [run] = menu.seat_runs("fix-api")
-        self.assertEqual(run["task"], "gh2 red x")     # the seat bar's line two reads the same
+                          dict(state, task_file="/t/gh2\n\x1b[31mred\tx-task.md", executor=model))
+        with patch.object(terminal, "width", return_value=100), \
+                patch.object(terminal, "height", return_value=30), \
+                redirect_stdout(io.StringIO()) as out:
+            menu.draw(self.cfg, self.seats, cursor="fix-api", drawn={})
+        self.assertNotIn("\x1b[2J", out.getvalue())
+        lines = screen(out.getvalue())
+        self.assertEqual(self.under(lines, "fix-api").strip(),
+                         "gh2 red x ■□□□ opus fast building · 3m")
+        # the seat bar's line two is the same text
+        versions = statusbar.live(menu.seat_runs("fix-api"), self.cfg, NOW)
+        self.assertEqual("".join(text for text, _, _ in versions[0]),
+                         "gh2 red x ■□□□ opus fast building · 3m")
 
     def test_f_a_line_nothing_fits_is_cut_with_its_spacing_kept(self):
         runs = [{"task": "b1", "doing": "building", "step": "building", "since": NOW - 60,

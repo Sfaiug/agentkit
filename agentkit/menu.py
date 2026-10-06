@@ -780,9 +780,7 @@ def seat_runs(name, records=None):
         else:
             continue
         step, model = DOING.get(doing, (doing, None))
-        # a file's name may hold anything: the id is drawn on one line, as text
-        task = terminal.plain(Path(state.get("task_file") or "").stem.split("-")[0]
-                              or run_dir.name)
+        task = Path(state.get("task_file") or "").stem.split("-")[0] or run_dir.name
         # the round anything last ran in, or a step was announced in before its directory was
         # made: one landing, rechecked or waiting on a push is still in the round its summary
         # closed, not the next
