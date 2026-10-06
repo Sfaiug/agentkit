@@ -27,6 +27,7 @@ BASE_RACE = ("GraphQL: Base branch was modified. Review and try the merge again.
              "(mergePullRequest)")
 HEAD_RACE = ("GraphQL: Head branch was modified. Review and try the merge again. "
              "(mergePullRequest)")
+NOT_YET = "GraphQL: Pull Request is not mergeable (mergePullRequest)"
 GITHUB_504 = ('non-200 OK status code: 504 Gateway Timeout body: "{\\"message\\": \\"We '
               "couldn't respond to your request in time. Sorry about that. Please try "
               'resubmitting your request and contact us if the problem persists.\\"}"')
@@ -824,6 +825,45 @@ class MergeStep(unittest.TestCase):
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(seen, ["merge", "view", "merge"])
         self.assertTrue(record.read_state(run_dir)["merged"])
+
+    def test_a_merge_github_refused_before_it_saw_the_pushed_head_is_tried_again(self):
+        # GitHub can answer `Pull Request is not mergeable` for a head pushed seconds before,
+        # while it has not yet worked out whether it merges: it is asked again while it says
+        # UNKNOWN, a bounded number of times, and a PR it calls CLEAN is merged on a second
+        # try; one it calls BLOCKED, or never works out, still ends the run as before
+        unknown = ["UNKNOWN"] * (run.MERGE_RETRIES + 1)
+        for answers, merged in ((["CLEAN"], True), (["UNKNOWN", "UNKNOWN", "CLEAN"], True),
+                                (unknown, False), (["BLOCKED"], False)):
+            with self.subTest(answers=answers):
+                root = self.root / f"{len(answers)}-{answers[-1].lower()}"
+                root.mkdir()
+                _, _, wt = make_repos(root)
+                lp, run_dir, _ = make_loop(root, wt)
+                seen, asked = [], iter(answers)
+
+                def fake_gh(cwd, *args, **kwargs):
+                    seen.append(args[1])
+                    if args[:2] == ("pr", "merge"):
+                        return (1, NOT_YET) if seen.count("merge") == 1 else (0, "merged")
+                    if args[:2] == ("pr", "view") and "mergeStateStatus" in args:
+                        return 0, next(asked)
+                    if args[:2] == ("pr", "view"):
+                        return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
+                                              "baseRefName": "main", "mergeable": "MERGEABLE"})
+                    raise AssertionError(args)
+
+                with patch.object(run, "gh", side_effect=fake_gh), \
+                        patch.object(run.time, "sleep") as slept:
+                    self.assertEqual(bool(landing(lp, lambda: run.do_merge(lp, URL, "origin/main"))),
+                                     merged)
+                state = record.read_state(run_dir)
+                self.assertEqual(bool(state.get("merged")), merged)
+                self.assertEqual(seen.count("merge"), 2 if merged else 1)
+                self.assertEqual(next(asked, None), None)       # every answer was asked for
+                self.assertEqual([call.args[0] for call in slept.call_args_list
+                                  if call.args[0] == run.CHECKS_POLL], [run.CHECKS_POLL] * (len(answers) - 1))
+                if not merged:
+                    self.assertIn(f"with the PR {answers[-1]}", state["merge_note"])
 
     def test_a_merge_racing_its_own_push_is_tried_again_unless_the_head_moved(self):
         # GitHub can answer `Head branch was modified` for a head it has not yet taken in from

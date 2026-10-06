@@ -112,6 +112,10 @@ HEAD_BRANCH_MODIFIED = re.compile(r"Head branch was modified", re.I)
 GITHUB_5XX = re.compile(r"status code: 5\d\d|HTTP 5\d\d|Bad Gateway|Gateway Timeout|"
                         r"Service Unavailable|couldn't respond to your request in time", re.I)
 MERGE_RETRIES = 3      # how often any of them is re-fetched, re-checked and tried again
+# GitHub refusing a head pushed seconds before, while it has not yet worked out whether it
+# merges: its state is asked again while UNKNOWN, and a PR it then calls CLEAN is tried once
+# more -- see `do_merge`
+NOT_MERGEABLE = re.compile(r"Pull Request is not mergeable", re.I)
 # the line a fetch prints for a ref another process holds: the ref moved under it, or git's
 # lock on it is held -- not a ref no retry can write, such as a stale name in its way; see
 # `fetch`.  `.*`, not `[^']*`: a ref name or a checkout path may hold an apostrophe
@@ -5054,7 +5058,9 @@ def do_merge(lp, url, upstream):
     retried after the next merge to the target.  GitHub answering with a 5xx of its own
     takes the same road, and a merge it went through with anyway counts as merged; so does
     `Head branch was modified` straight after the delivery's own push, which the re-check
-    ends only when the PR head really is another commit.  Work
+    ends only when the PR head really is another commit.  After `Pull Request is not
+    mergeable`, GitHub is asked again while it reports the PR's state UNKNOWN, up to
+    MERGE_RETRIES times, and a PR it then calls CLEAN is tried once more.  Work
     that passed review is never thrown away over one lost race or one bad answer.
     """
     method = lp.state["merge_method"]
@@ -5142,15 +5148,27 @@ def do_merge(lp, url, upstream):
                 lp, f"gh pr merge --{method} failed after {MERGE_RETRIES} retries: {cause}; "
                     f"the PR is open at {url}", upstream,
                 git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
-        vrc, why = gh(lp.run_dir, "pr", "view", url, "--json", "mergeStateStatus",
-                      "-q", ".mergeStateStatus")
+        refused = bool(NOT_MERGEABLE.search(out or ""))
+        for polled in range(MERGE_RETRIES + 1):
+            if polled:
+                time.sleep(CHECKS_POLL)     # GitHub still working out a head pushed just now
+            vrc, why = gh(lp.run_dir, "pr", "view", url, "--json", "mergeStateStatus",
+                          "-q", ".mergeStateStatus")
+            if not refused or vrc != 0 or why != "UNKNOWN":
+                break
         if stopped(rc, out) or stopped(vrc, why):
             # a merge that stopped may still have gone through server-side
             if merged_anyway(lp, url, upstream):
                 return True
             raise Stopped(out if stopped(rc, out) else why)
-        if attempt == 2 or why not in ("BEHIND", "DIRTY"):
+        if attempt == 2 or why not in ("BEHIND", "DIRTY", "CLEAN"):
             break
+        if why == "CLEAN":
+            if not refused:
+                break
+            lp.log("WARN GitHub called the PR not mergeable, then CLEAN: it had not yet worked "
+                   "out the head just pushed; retrying the merge")
+            continue
         lp.log(f"WARN the PR is {why}; taking {upstream} in once more and retrying the merge")
         if (lp.state.get("waiting_on") or {}).get("line"):
             return rejoin_line(lp, upstream, f"the PR is {why}")
