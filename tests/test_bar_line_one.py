@@ -36,8 +36,8 @@ class LineOne(Sandbox):
             self.assertEqual(orch.tmux_out("new-session", "-d", "-s", name, "sleep 600")[0], 0)
         watch.seat_write("atlas-proxies", word="needs you", reason="", word_since=None)
         watch.seat_write("fix-api", word="working", reason="", word_since=None)
-        self.dress(1, 4, [{"task": "gh2", "step": "building", "since": 0, "round": 1,
-                           "rounds": 3, "executor": "opus", "reviewer": "astra"}])
+        self.dress(1, 4, [{"task": "gh2", "doing": "building", "step": "building", "since": 0,
+                           "round": 1, "rounds": 3, "model": "opus"}])
 
     def dress(self, done, total, runs):
         """Dress fix-api's bar the way every write does (`statusbar.redress`)."""
@@ -82,8 +82,8 @@ class LineOne(Sandbox):
         self.assertLessEqual(len(shown.rstrip()), 40)
 
     def test_c_each_tasks_bar_keeps_to_its_width_however_long_its_count(self):
-        building = {"task": "gh2", "step": "building", "since": 0, "round": 1, "rounds": 3,
-                    "executor": "opus", "reviewer": "astra"}
+        building = {"task": "gh2", "doing": "building", "step": "building", "since": 0,
+                    "round": 1, "rounds": 3, "model": "opus"}
         for total in (10, 100):
             self.dress(0, total, [building] * 8)
             for top, cells in zip(self.lasts, statusbar.BARS):

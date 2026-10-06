@@ -1,8 +1,8 @@
 """A working seat's bar names what each of its runs is doing now, on line two.
 
-Each run reads `<task id> <a cell per step> <the model doing it> <the step's word> · round N of
-M · <time in the step>`; more than two runs on one step, and the runs queued for a slot, are
-counts; a line short of room folds whole steps into counts before tmux cuts anything.  Offline
+Each run reads `<task id> <a cell per step> <the model doing it> <what it is doing> · round N
+of M · <time in the step>`; more than two runs doing one thing, and the runs queued for a slot,
+are counts; a line short of room folds whole groups into counts before tmux cuts anything.  Offline
 but for the last case, which reads line two the way tmux 3.5a draws it, on a server of its own.
 """
 
@@ -24,9 +24,11 @@ def drawn(value):
     return re.sub(r"#\[[^\]]*\]", "", value).replace("##", "#")
 
 
-def run(task, step, ago=600, round=1, rounds=3):
-    return {"task": task, "step": step, "since": NOW - ago, "round": round, "rounds": rounds,
-            "executor": "opus", "reviewer": "astra"}
+def run(task, doing, ago=600, round=1, rounds=3):
+    """A live run as `menu.seat_runs` reads one, its executor opus and its reviewer astra."""
+    step, model = menu.DOING.get(doing, (doing, None))
+    return {"task": task, "doing": doing, "step": step, "since": NOW - ago, "round": round,
+            "rounds": rounds, "model": {"executor": "opus", "reviewer": "astra"}.get(model)}
 
 
 class LiveLine(Sandbox):
@@ -39,8 +41,8 @@ class LiveLine(Sandbox):
                 for version in statusbar.live(runs, self.cfg, NOW)]
 
     def test_a_each_run_names_its_task_its_step_and_the_model_doing_it(self):
-        runs = [run("gh2", "building", 180, round=2), run("lg1", "review", 660),
-                run("s4a2", "checks", 5580, round=3), run("ln7", "landing", 7200)]
+        runs = [run("gh2", "building", 180, round=2), run("lg1", "reviewing", 660),
+                run("s4a2", "checking", 5580, round=3), run("ln7", "landing", 7200)]
         self.assertEqual(self.versions(runs)[0],
                          "gh2 ■□□□ opus building · round 2 of 3 · 3m   "
                          "s4a2 ■■□□ checking · round 3 of 3 · 1h   "
@@ -61,10 +63,10 @@ class LiveLine(Sandbox):
                          "b1 ■□□□ opus building · 2m   landing 3 · longest 2h   waiting 2")
 
     def test_c_each_version_folds_one_more_step_the_last_first(self):
-        runs = [run("b1", "building", 120), run("c1", "checks", 300), run("r1", "review", 60)]
+        runs = [run("b1", "building", 120), run("c1", "checking", 300), run("r1", "reviewing", 60)]
+        whole = "b1 ■□□□ opus building · 2m   c1 ■■□□ checking · 5m   r1 ■■■□ astra reviewing · 1m"
         self.assertEqual(self.versions(runs), [
-            "b1 ■□□□ opus building · 2m   c1 ■■□□ checking · 5m   r1 ■■■□ astra reviewing · 1m",
-            "b1 ■□□□ opus building · 2m   c1 ■■□□ checking · 5m   r1 ■■■□ astra reviewing · 1m",
+            whole, whole, whole,                    # nothing landing or fixing to fold first
             "b1 ■□□□ opus building · 2m   c1 ■■□□ checking · 5m   reviewing 1 · 1m",
             "b1 ■□□□ opus building · 2m   checking 1 · 5m   reviewing 1 · 1m",
             "building 1 · 2m   checking 1 · 5m   reviewing 1 · 1m",
@@ -84,13 +86,35 @@ class LiveLine(Sandbox):
         save("20260101-0902-q1", state="queued", slot_waiting=True, queued_at=NOW - 30)
         save("20260101-0903-c1", state="waiting", waiting_on={"ref": "main"})   # not live
         save("20260101-0904-o1", state="running", step="executor", launched_session="other")
-        found = {one["task"]: (one["step"], one["since"]) for one in menu.seat_runs("fix-api")}
+        found = {one["task"]: (one["doing"], one["since"]) for one in menu.seat_runs("fix-api")}
         self.assertEqual(found, {"b1": ("building", NOW - 60), "l1": ("landing", NOW - 3600),
                                  "q1": ("waiting", NOW - 30)})
         # a run in the line fills its slot on the tasks bar; a queued one has no step to show
         bar = menu.last_column("working", "", 0, 4, menu.seat_runs("fix-api"), 16)
         self.assertEqual(menu.last_column("working", "", 0, 4, [r for r in menu.seat_runs(
             "fix-api") if r["step"] != "waiting"], 16), bar)
+
+    def test_e_a_run_waiting_for_its_seat_s_push_is_its_seat_fixing(self):
+        # its review is over and its seat fixes what it found: no reviewer is named, and it is
+        # counted apart from the runs still reviewing
+        for n, step in enumerate(("reviewer", "waiting for the seat's push", "reviewer")):
+            directory = config.RUNS / f"20260101-090{n}-r{n}"
+            directory.mkdir(parents=True)
+            record.save_state(directory, {
+                "run_id": directory.name, "launched_session": "fix-api", "state": "running",
+                "task_file": f"/t/r{n}-x.md", "step": step, "step_at": NOW - 120,
+                "executor": "opus", "reviewer": "astra", "own_pr": True})
+        runs = menu.seat_runs("fix-api")
+        self.assertEqual({one["task"]: (one["doing"], one["step"], one["model"]) for one in runs},
+                         {"r0": ("reviewing", "review", "astra"), "r1": ("fixing", "review", None),
+                          "r2": ("reviewing", "review", "astra")})
+        versions = self.versions(runs)
+        self.assertEqual(versions[0], "r0 ■■■□ astra reviewing · 2m   r2 ■■■□ astra reviewing · 2m"
+                                      "   r1 ■■■□ fixing · 2m")
+        self.assertIn("reviewing 2 · longest 2m   fixing 1 · 2m", versions)
+        # the tasks bar fills its slot as far as a review's
+        self.assertEqual(menu.last_column("working", "", 0, 4, runs[1:2], 16),
+                         menu.last_column("working", "", 0, 4, runs[:1], 16))
 
 
 class OnTmux(Sandbox):
@@ -118,8 +142,8 @@ class OnTmux(Sandbox):
     def line_two(self, width):
         return self.line(1, width)
 
-    def test_e_a_narrow_client_folds_whole_runs_and_never_cuts_one(self):
-        runs = [run("gh2", "building", 180, round=2), run("lg1", "review", 660)]
+    def test_f_a_narrow_client_folds_whole_runs_and_never_cuts_one(self):
+        runs = [run("gh2", "building", 180, round=2), run("lg1", "reviewing", 660)]
         versions = statusbar.live(runs, self.cfg, NOW)
         statusbar._write("fix-api", "fable", "working", None, self.cfg, versions)
         key = "Ctrl-b m  menu "
@@ -138,8 +162,8 @@ class OnTmux(Sandbox):
                          self.cfg)
         self.assertTrue(self.line_two(80).startswith("  Merge #75 first? "), self.line_two(80))
 
-    def test_f_a_line_two_that_fits_is_never_cut_even_to_the_cell(self):
-        runs = [run("gh2", "building", 180, round=2), run("lg1", "review", 660)]
+    def test_g_a_line_two_that_fits_is_never_cut_even_to_the_cell(self):
+        runs = [run("gh2", "building", 180, round=2), run("lg1", "reviewing", 660)]
         statusbar._write("fix-api", "fable", "working", None, self.cfg,
                          statusbar.live(runs, self.cfg, NOW))
         # the counts alone beside the key, whole, in the cells tmux counts

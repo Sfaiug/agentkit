@@ -522,15 +522,16 @@ A working seat's second line is its live line (`statusbar.live`): each run it
 launched by its task id, in bold and red on its last round, then a cell per
 step of a round -- dim for the steps passed, the current one in the colour of
 the model doing it, hollow for those to come -- then that model (the executor
-building, the reviewer reviewing, none checking or landing), the step's word,
+building, the reviewer reviewing, none checking or landing, or while the seat
+is fixing what its own PR's review found), what it is doing (`menu.DOING`),
 `round N of M` past the first round and the time on the step:
 `gh2 ■□□□ opus building · round 2 of 3 · 3m   lg1 ■■■□ astra reviewing · 11m`.
-Runs go in the order a round takes their steps. More than two on one step are
-one count, `landing 8 · longest 2h`, and runs queued for a slot are `waiting 2`.
-Each client draws the first of the line's versions that fits it: each next one
-folds one more step into its count, the last step first, and the last drops the
-counts' times, so a narrow client loses whole runs to counts before anything is
-cut.
+Runs go in the order a round does what they do. More than two doing one thing
+are one count, `landing 8 · longest 2h`, and runs queued for a slot are
+`waiting 2`. Each client draws the first of the line's versions that fits it:
+each next one folds one more into its count, the last first, and the last drops
+the counts' times, so a narrow client loses whole runs to counts before anything
+is cut.
 
 Helpers: `terminal.sense`, `terminal.styled`, `terminal.colour_depth`.
 

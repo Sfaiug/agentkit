@@ -32,7 +32,7 @@ click over a name do what they do anywhere else on the bar, which is nothing.
 import fcntl
 import time
 
-from . import config, orch, terminal
+from . import config, menu, orch, terminal
 
 HINT = "Ctrl-b m  menu"            # line two's right end: the one key
 CLOSE_HINT = "Ctrl-b m  x close"   # ... and a done seat's, which that menu's `x` closes at once
@@ -50,12 +50,9 @@ CELLS = 36                         # a working seat's tasks bar, its ticks there
 BARS = (CELLS, 2 * CELLS // 3, CELLS // 3)   # ... and narrower, where line one is short of room
 TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left part at each
 DIM = terminal.STATE_STYLES["dim"][2]
-# A live run's step in the order a round takes them, in the word line two reads it in; a run
-# queued for a slot has not reached one.
-DOING = {"building": "building", "checks": "checking", "review": "reviewing", "landing": "landing"}
-# Line two, then each version of it with one more step folded into its count, and last the
-# counts alone (`live`).
-WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, len(DOING) + 2)))
+# Line two, then each version of it with one more of what runs do (`menu.DOING`) folded into its
+# count, and last the counts alone (`live`).
+WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, len(menu.DOING) + 2)))
 
 
 def _cut(option, room):
@@ -108,7 +105,6 @@ LAYOUT = (("set-titles", "on"), ("status", "2"), ("status-style", "default"),
 def company(cfg, model):
     """The colour `model`'s company is drawn in, as on its usage bar (`menu.model_colour`), for
     tmux."""
-    from . import menu   # here, not at the top: the menu draws seats, which write this bar
     return tone(menu.model_colour(cfg, model))
 
 
@@ -146,7 +142,6 @@ def lines(name, model, colour, word=None, last=""):
     top += f"#[bold]{orch.tmux_text(name)}#[nobold]"
     if model:
         top += f"  #[fg={colour}]{orch.tmux_text(model)}#[fg=#{DIM}] orchestrates#[default]"
-    from . import menu   # here, not at the top: the menu draws seats, which write this bar
     if word == "working" and last:
         top += f"   {last if menu.tasks_bar(word, last) else orch.tmux_text(last)}"
     why = f"  {orch.tmux_text(last)}" if word != "working" and last else ""
@@ -160,30 +155,28 @@ def lines(name, model, colour, word=None, last=""):
 def live(runs, cfg, now):
     """Line two of a working seat: its live runs (`menu.seat_runs`), as one version for each of
     `WHYS`, the least folded first, each a list of (text, colour, bold), the colour as
-    `terminal.styled` takes one, or None.  The highlighted row of the menu draws the same.
+    `terminal.styled` takes one, or None.
 
     A run reads `gh2 ■■□□ opus reviewing · round 2 of 3 · 11m`: its task id in bold, red on its
     last round; a cell for each step of a round, dim for those it passed, the current one in the
-    colour of the model doing it, hollow for those to come; that model -- the executor building,
-    the reviewer reviewing, none checking or landing -- in its company's colour; its round once
-    past the first; how long it has been on this step.  Runs go in the order a round takes their
-    steps.  More than two on one step are one count, `landing 8 · longest 2h`, and so are the
-    runs queued for a slot, `waiting 2`.  Each next version folds one more step, the last first,
-    and the last drops the counts' times, so a line short of room folds whole runs into counts
-    before anything is cut.
+    colour of the model doing it, hollow for those to come; that model (`menu.DOING`) in its
+    company's colour; what it is doing; its round once past the first; how long it has been on
+    this step.  Runs go in the order a round does what they do.  More than two doing one thing
+    are one count, `landing 8 · longest 2h`, and so are the runs queued for a slot, `waiting 2`.
+    Each next version folds one more into its count, the last first, and the last drops the
+    counts' times, so a line short of room folds whole runs into counts before anything is cut.
     """
-    from . import menu   # here, not at the top: the menu draws seats, which write this bar
     full, hollow = ("■", "□") if terminal.utf8() else ("#", "-")
-    steps, dim = list(DOING), "dim"
-    group = {step: [run for run in runs if run["step"] == step] for step in (*steps, "waiting")}
+    doings, steps, dim = list(menu.DOING), list(menu.FILLS), "dim"
+    group = {doing: [run for run in runs if run["doing"] == doing]
+             for doing in (*doings, "waiting")}
 
     def age(found):
         ages = [now - run["since"] for run in found if type(run["since"]) in (int, float)]
         return terminal.format_age(max(ages)) if ages else ""
 
     def one(run):
-        at = steps.index(run["step"])
-        model = {"building": run["executor"], "review": run["reviewer"]}.get(run["step"])
+        at, model = steps.index(run["step"]), run["model"]
         colour = menu.model_colour(cfg, model) if model else None
         last = bool(run["rounds"]) and run["round"] >= run["rounds"]
         parts = [(run["task"], "FAIL" if last else None, True), (" ", None, False),
@@ -193,23 +186,23 @@ def live(runs, cfg, now):
             parts += [(model, colour, False), (" ", None, False)]
         said = ([f"round {run['round']}" + (f" of {run['rounds']}" if run["rounds"] else "")]
                 if run["round"] > 1 else []) + [part for part in (age([run]),) if part]
-        return [*parts, (DOING[run["step"]], None, False),
+        return [*parts, (run["doing"], None, False),
                 *([(" · " + " · ".join(said), dim, False)] if said else [])]
 
-    def count(step, timed):
-        found, longest = group[step], age(group[step])
-        return [(f"{DOING.get(step, step)} {len(found)}", None, False),
+    def count(doing, timed):
+        found, longest = group[doing], age(group[doing])
+        return [(f"{doing} {len(found)}", None, False),
                 *([(f" · {'longest ' if len(found) > 1 else ''}{longest}", dim, False)]
-                  if timed and longest and step in DOING else [])]
+                  if timed and longest and doing in menu.DOING else [])]
 
     versions = []
     for folded in range(len(WHYS)):
-        shown, timed = [], folded <= len(steps)
-        for at, step in enumerate(steps):
-            if len(group[step]) > 2 or (group[step] and at >= len(steps) - folded):
-                shown.append(count(step, timed))
+        shown, timed = [], folded <= len(doings)
+        for at, doing in enumerate(doings):
+            if len(group[doing]) > 2 or (group[doing] and at >= len(doings) - folded):
+                shown.append(count(doing, timed))
             else:
-                shown += [one(run) for run in group[step]]
+                shown += [one(run) for run in group[doing]]
         if group["waiting"]:
             shown.append(count("waiting", timed))
         versions.append([part for n, said in enumerate(shown)
@@ -330,7 +323,6 @@ def redress(session, answer, cfg=None, records=None):
     try:
         if not orch.on_own_server(session):
             return
-        from . import menu   # here, not at the top: the menu draws seats, which write this bar
         name = session["name"]
         cfg = config.load() if cfg is None else cfg
         try:
