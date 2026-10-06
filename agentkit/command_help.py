@@ -61,7 +61,7 @@ COMMANDS = {
        ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]
        ak run status [ID] [--history] [--why] [--plain] [--json]
        ak run resume ID [--rounds N] [--bg]
-       ak run yes ID
+       ak run yes ID KEY
        ak run no ID
        ak run stop ID [--keep]
        ak run merge ID | ak run clean ID | ak run gc [--dry-run]""",
@@ -85,9 +85,9 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
     "run resume": ("usage: ak run resume ID [--rounds N] [--bg]",
                    "Resume interrupted or exhausted work; --rounds raises the round limit, at most 3.",
                    "ak run resume RUN_ID --rounds 3 --bg"),
-    "run yes": ("usage: ak run yes ID",
-                "The owner's yes to a run's change to their parts (AGENTS.md `owner:`), then its delivery.",
-                "ak run yes RUN_ID"),
+    "run yes": ("usage: ak run yes ID KEY",
+                "The owner's yes to a run's change to their parts (AGENTS.md `owner:`), then its delivery; KEY names the content.",
+                "ak run yes RUN_ID 4af1ded3c6f1"),
     "run no": ("usage: ak run no ID",
                "The owner declines a run's change to their parts; the run ends, its branch kept.",
                "ak run no RUN_ID"),

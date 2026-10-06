@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, record as run_record, run
+from agentkit import config, owner, record as run_record, run
 
 AGENTS = """---
 owner: AGENTS.md#Vision, gate/, score.py
@@ -169,11 +169,11 @@ class OwnerParts(unittest.TestCase):
         run_record.save_state(lp.run_dir, {**run_record.read_state(lp.run_dir),
                                            "state": "waiting", "waiting_on": {"owner": head}})
         with patch.object(run, "cmd_resume", return_value=0) as resume:
-            self.assertEqual(run.cmd_yes(["run-1"]), 0)
+            self.assertEqual(run.cmd_yes(["run-1", head[:12]]), 0)
         resume.assert_called_once_with(["run-1", "--bg"])
         self.assertFalse(self.gate(lp)[0])                      # the gate now passes
         self.assertEqual(run.owner_said("run-1"), run.owner_digest(
-            self.wt, head, run.owner_declaration(self.wt, "origin/main")))
+            self.wt, head, run.owner_target_parts(self.wt, "origin/main")))
         self.write("score.py", "y = 3\n")                      # a later change asks again
         self.commit("score again")
         lp.state["delivery_sha"] = sh(self.wt, "rev-parse", "HEAD")
@@ -189,6 +189,54 @@ class OwnerParts(unittest.TestCase):
         self.assertEqual(state["state"], "blocked")
         self.assertNotIn("waiting_on", state)
         self.assertIsNone(run.owner_said("run-1"))
+
+    def test_yes_refuses_a_stale_or_missing_key(self):
+        lp, head = self.parked()
+        self.gate(lp)
+        run_record.save_state(lp.run_dir, {**run_record.read_state(lp.run_dir),
+                                           "state": "waiting", "waiting_on": {"owner": head}})
+        for argv in (["run-1"], ["run-1", "deadbeef0000"]):
+            with self.subTest(argv=argv), self.assertRaisesRegex(config.Error, "waiting on key"):
+                run.cmd_yes(argv)
+
+    def test_a_trailing_comment_and_a_block_form_do_not_drop_the_guard(self):
+        # a trailing `# comment` is not a heading
+        sh(self.wt, "checkout", "-q", "-B", "main", self.base)
+        self.write("AGENTS.md", AGENTS.replace("owner: AGENTS.md#Vision, gate/, score.py",
+                                               "owner: score.py  # the scoreboard"))
+        commented = self.commit("comment the owner value")
+        sh(self.wt, "update-ref", "refs/remotes/origin/main", commented)
+        self.assertEqual(run.owner_declaration(self.wt, "origin/main"), "score.py")
+        sh(self.wt, "checkout", "-q", "-b", "c1"); self.write("score.py", "y = 2\n"); self.commit("s")
+        self.assertEqual(run.owner_parts(self.wt, "origin/main",
+                                         sh(self.wt, "rev-parse", "HEAD"))[1], ["score.py"])
+        # a block-form owner value names nothing flat, so the front matter is protected (fail closed)
+        sh(self.wt, "checkout", "-q", "-B", "main", commented)
+        self.write("AGENTS.md", AGENTS.replace("owner: AGENTS.md#Vision, gate/, score.py",
+                                               "owner:\n  - score.py"))
+        block = self.commit("block-form owner")
+        sh(self.wt, "update-ref", "refs/remotes/origin/main", block)
+        self.assertEqual(run.owner_target_parts(self.wt, "origin/main"),
+                         [("AGENTS.md", owner.FRONT)])
+
+    def test_a_replace_ref_does_not_hide_a_change(self):
+        old = self.base
+        sh(self.wt, "checkout", "-q", "-B", "change", self.base)
+        self.write("score.py", "y = 2\n")
+        head = self.commit("score")
+        sh(self.wt, "replace", head, old)        # a planted replacement of the head with the base
+        self.assertEqual(self.touched(), ["score.py"])
+        sh(self.wt, "replace", "-d", head)
+
+    def test_a_duplicate_protected_heading_is_covered_to_the_end(self):
+        doc = AGENTS + "\n## Vision\n\nMore, appended.\n"
+        self.assertIn("More, appended.", owner.piece(doc, "Vision"))
+
+    def test_a_fenced_block_with_the_other_marker_does_not_close_early(self):
+        doc = "## Vision\n\n```\n~~~\n## inside\n```\n\n## After\n\nx\n"
+        section = owner.piece(doc, "Vision")
+        self.assertIn("## inside", section)
+        self.assertNotIn("## After", section)
 
     def test_yes_and_no_refuse_inside_a_run(self):
         lp, head = self.parked()

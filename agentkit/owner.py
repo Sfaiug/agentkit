@@ -68,18 +68,23 @@ def piece(blob, heading):
         end = next((i for i in range(1, len(lines)) if lines[i].rstrip("\r\n") == "---"), None)
         return "".join(lines[:end + 1]) if end is not None else blob
     want = "## " + heading
-    start = next((i for i, line in enumerate(lines) if line.rstrip() == want), None)
-    if start is None:
+    heads = [i for i, line in enumerate(lines) if line.rstrip() == want]
+    if not heads:
         return blob
-    end, fenced = len(lines), False
-    for i in range(start + 1, len(lines)):
-        stripped = lines[i].lstrip()
-        if any(stripped.startswith(f) for f in FENCES):
-            fenced = not fenced
-        elif lines[i].startswith("## ") and not fenced:
+    if len(heads) > 1:
+        # a heading the file repeats reads as one protected section; keep all of it, to the end
+        return "".join(lines[heads[0]:])
+    end, fence = len(lines), None            # `fence` is the marker that opened the current block
+    for i in range(heads[0] + 1, len(lines)):
+        opener = next((f for f in FENCES if lines[i].lstrip().startswith(f)), None)
+        if fence is None and opener:
+            fence = opener
+        elif fence is not None and opener == fence:
+            fence = None
+        elif fence is None and lines[i].startswith("## "):
             end = i
             break
-    return "".join(lines[start:end])
+    return "".join(lines[heads[0]:end])
 
 
 def digest(contents):
