@@ -570,6 +570,8 @@ def continue_turns(cfg, log, accounts=False):
 # composer and footer look like, and the rules that say whether it is working, asking or back
 # at its prompt.  Nothing here names a harness, so a new one plugs in with those two files.
 RULE = r"[─━═\-╭╮╰╯┌┐└┘]+"
+# ... or one carrying a renamed session's name, as Claude draws the rule closing its box
+NAMED_RULE = rf"{RULE}|─{{3,}} \S.* ─+"
 FOOTER = re.compile(rf"(?:{RULE}|[>›❯])$", re.I)
 _SCREEN = {}
 
@@ -1443,16 +1445,17 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
-    # A bare rule right under a row drawn at the left edge is that row's frame, not a newer
-    # line: Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest
-    # line it hid every question, which then read as answered.  A draft never sits there: its
+    # A rule right under a row drawn at the left edge is that row's frame, not a newer line:
+    # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
+    # it hid every question, which then read as answered.  In a renamed session -- every seat --
+    # that rule carries the session's name.  A draft never sits there: its
     # first row is prompt-marked and the rest are indented or inside a box's edge, so what is
     # typed stays a draft.
     newest = lines[-1]
-    if chrome["ruled"] and len(lines) > 1 and re.fullmatch(RULE, newest):
+    if chrome["ruled"] and len(lines) > 1 and re.fullmatch(NAMED_RULE, newest):
         above = strip_sgr(raw_lines[-2]).rstrip()
         if (above and not above[0].isspace() and above[0] not in "│┃║"
-                and not re.match(r"[❯›⟩>]", above) and not re.fullmatch(RULE, above.strip())):
+                and not re.match(r"[❯›⟩>]", above) and not re.fullmatch(NAMED_RULE, above.strip())):
             newest = lines[-2]
     for rule in chrome["rules"]:
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
