@@ -345,7 +345,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             source.mkdir(parents=True, exist_ok=True)
             mounts.extend(["--bind", str(source), str(destination)])
         # Short aliases allow Unix sockets even when out has a long run id. Bind
-        # these first so a workspace or declared state under /var/tmp still wins.
+        # these first so a workspace or declared state under /tmp or /var/tmp still wins.
         cmd[at:at] = mounts
         clean["TMPDIR"] = "/var/tmp"
         try:
