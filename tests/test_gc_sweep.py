@@ -261,6 +261,14 @@ class GcSweep(Sandbox):
         (Path(self.git(scratch, "rev-parse", "--absolute-git-dir")) / land.SCRATCH_MARK).touch()
         (scratch / "output").write_text("a killed check's\n")
         self.aged(scratch, 2 * DAY)
+        # What a lander or a run killed while making its checkout leaves: an empty folder, and
+        # a checkout git never finished making, its lock still `initializing`.
+        empty, half = config.WT / "land-empty", config.WT / "land-half"
+        empty.mkdir()
+        self.git(self.repo, "worktree", "add", "-q", "--detach", str(half))
+        (Path(self.git(half, "rev-parse", "--absolute-git-dir")) / "locked").write_text("initializing\n")
+        for wt in (empty, half):
+            self.aged(wt, 2 * DAY)
         fresh = config.WT / "fresh"
         self.git(self.repo, "worktree", "add", "-q", str(fresh), "-b", "ak/fresh")
         # A run directory that never got its run.json is no record either; one whose record
@@ -289,7 +297,8 @@ class GcSweep(Sandbox):
         pending, pending_wt, _ = self.receipt("pending", self.other, merged=False,
                                               finished_at=time.time() - 20 * DAY)
         dry = self.gc("--dry-run")
-        self.assertIn(f"gc: would remove orphan-worktree {scratch}: no run record", dry)
+        for wt in (scratch, empty, half):
+            self.assertIn(f"gc: would remove orphan-worktree {wt}: no run record", dry)
         self.assertIn(f"gc: would remove orphan-worktree {stray}: no run record", dry)
         self.assertIn(f"gc: would remove orphan-worktree {bare}: no run record", dry)
         self.assertIn(f"gc: would remove unmerged-worktree {refused_wt}: passed, never merged, "
@@ -299,7 +308,7 @@ class GcSweep(Sandbox):
         for wt in (smoke, fresh, recent_wt, pending_wt, writing, unreadable):
             self.assertNotIn(str(wt), dry)
         out = self.gc()
-        for wt in (scratch, stray, bare, refused_wt, unasked_wt):
+        for wt in (scratch, empty, half, stray, bare, refused_wt, unasked_wt):
             self.assertFalse(wt.exists(), wt)
         self.assertIn(f"gc: remove unmerged-worktree {refused_wt}: passed, never merged", out)
         self.assertNotIn(str(stray), self.listed(self.repo))
@@ -363,9 +372,25 @@ class GcSweep(Sandbox):
             self.git(wt, "commit", "-qm", "more")
         self.git(sparse, "sparse-checkout", "set", "--no-cone", "/tracked")
         self.assertFalse((sparse / "guide").exists())
-        standard = [*gone, sandboxed, split, bisected, unreffed, sparse, large]
-        gone += [sandboxed, bare, relative, split, bisected, unreffed, sparse, large,
-                 self.seat(self.repo, "elsewhere")]
+        # A file git writes with other line endings than its blob's, and a submodule nobody
+        # set up: the empty folder `git worktree add` leaves.
+        crlf = self.seat(project, "crlf")
+        (crlf / ".gitattributes").write_text("*.bat text eol=crlf\n")
+        (crlf / "run.bat").write_text("echo hi\n")
+        self.git(crlf, "add", ".")
+        self.git(crlf, "commit", "-qm", "bat")
+        (crlf / "run.bat").unlink()
+        self.git(crlf, "checkout", "--", "run.bat")
+        self.assertEqual((crlf / "run.bat").read_bytes(), b"echo hi\r\n")
+        modular = self.make_repo("modular")
+        self.git(modular, "-c", "protocol.file.allow=always", "submodule", "add", "-q",
+                 str(self.make_repo("module")), "module")
+        self.git(modular, "commit", "-qm", "module")
+        uninitialized = self.seat(modular, "uninitialized")
+        self.assertEqual(os.listdir(uninitialized / "module"), [])
+        standard = [*gone, sandboxed, split, bisected, unreffed, sparse, large, crlf]
+        gone += [sandboxed, bare, relative, split, bisected, unreffed, sparse, large, crlf,
+                 uninitialized, self.seat(self.repo, "elsewhere")]
         names = ("dirty", "untracked", "hidden-new", "unchanged", "skipped", "submodule",
                  "ignore-case", "same-stat", "mode", "staged", "mirrored", "filtered", "replaced",
                  "gitlinked", "own-ref", "rebasing", "land-seat", "autostashed", "locked",

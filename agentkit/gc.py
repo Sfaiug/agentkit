@@ -397,18 +397,31 @@ def stale_worktree(wt, now, paths, left):
 def holds_work(wt):
     """Whether removing a checkout no run owns could lose work not yet committed.
 
-    The line's scratch -- detached, its own git directory holding the lander's mark
-    (`land.SCRATCH_MARK`) -- is a killed lander's: its output is nobody's.  A seat builds on
-    a branch in a worktree, whose branches and commits stay in its repository when the
-    checkout goes: it holds no work once it holds its commit and nothing more
-    (`same_as_commit`).  Anything else holds work, or may: a clone, whose own git directory
-    is its whole repository, one detached by a rebase or a bisect, and one git cannot read.
+    An empty folder holds none, nor does a checkout `git worktree add` never finished making,
+    its own git directory still holding git's lock `initializing`: a lander or a run killed
+    while making its checkout leaves them.  The line's scratch -- detached, its own git
+    directory holding the lander's mark (`land.SCRATCH_MARK`) -- is a killed lander's: its
+    output is nobody's.  A seat builds on a branch in a worktree, whose branches and commits
+    stay in its repository when the checkout goes: it holds no work once it holds its commit
+    and nothing more (`same_as_commit`).  Anything else holds work, or may: a clone, whose
+    own git directory is its whole repository, one detached by a rebase or a bisect, and one
+    git cannot read.
     """
+    try:
+        if not os.listdir(wt):
+            return False
+    except OSError:
+        return True
+    known, private = orch.git_in(wt, "rev-parse", "--absolute-git-dir")
+    private = Path(os.fsdecode(private.removesuffix(b"\n"))) if known == 0 else None
+    try:
+        if private and retention.read_bytes(private / "locked").rstrip(b"\n") == b"initializing":
+            return False
+    except OSError:
+        pass
     code, _ = orch.git_in(wt, "symbolic-ref", "-q", "HEAD")
     if code == 1:
-        known, private = orch.git_in(wt, "rev-parse", "--absolute-git-dir")
-        return not (known == 0 and os.path.isfile(
-            os.path.join(os.fsdecode(private.removesuffix(b"\n")), land.SCRATCH_MARK)))
+        return not (private and (private / land.SCRATCH_MARK).is_file())
     return code != 0 or not same_as_commit(wt)
 
 
@@ -425,10 +438,12 @@ def same_as_commit(wt):
     """Whether a checkout holds its branch's head commit and nothing more.
 
     Git is idle in it (`IDLE`).  Its index lists exactly the commit's files, none of them
-    added in intent only, each file in it hashes to the commit's blob, read raw (no filter,
-    line ending or replacement object stands in between) -- or is one a sparse checkout
-    leaves out -- and git finds no new file beside them.  What git ignores is output, not
-    work.  A submodule, whose own commits only it may hold, keeps the checkout.
+    added in intent only, and each file in it hashes to the commit's blob, read raw (no
+    filter, line ending or replacement object stands in between), or holds exactly what
+    checking that blob out writes there (`written`).  A file a sparse checkout leaves out
+    is the commit's, and so is a submodule nobody set up, an empty folder; one set up, whose
+    own commits only it may hold, keeps the checkout.  Git finds no new file beside them.
+    What git ignores is output, not work.
 
     The checkout's own state stays put while this reads it: git names the same branch,
     commit and git directory just after the first look as before it, and the checkout's
@@ -460,6 +475,20 @@ def same_as_commit(wt):
     # on a file a sparse checkout leaves out; both by path
     files = {path: (meta.split()[0], meta.split()[2])
              for meta, _, path in (entry.partition(b"\t") for entry in tree.split(b"\0") if entry)}
+    def written(path, oid):
+        """Whether the file at `path` holds exactly what checking `oid` out there writes: its
+        line endings, `$Id$` or encoding converted, or its filter's smudge run, as git does
+        on checkout."""
+        with (tempfile.TemporaryFile(dir=config.WT) as expected,
+              open(os.path.join(base, path), "rb") as found):
+            if orch.git_in(wt, *git, "cat-file", "--filters", "--path=" + os.fsdecode(path),
+                           oid.decode(), out=expected)[0] != 0:
+                return False
+            expected.seek(0)
+            while (chunk := expected.read(1 << 20)) == found.read(1 << 20):
+                if not chunk:
+                    return True
+            return False
     def held(top):
         """What lies under `top` that is no folder: files, and links of any kind."""
         found, unread = set(), []
@@ -518,19 +547,22 @@ def same_as_commit(wt):
                 if staged[path][0] == b"S":
                     continue
                 return False
+            if mode == b"160000" and stat.S_ISDIR(info.st_mode) and not os.listdir(full):
+                continue                         # a submodule nobody set up
+            regular = (mode in (b"100644", b"100755") and stat.S_ISREG(info.st_mode)
+                       and bool(info.st_mode & stat.S_IXUSR) == (mode == b"100755"))
             digest = hashlib.new(fmt.decode().strip())
             if mode == b"120000" and stat.S_ISLNK(info.st_mode):
                 target = os.readlink(full)
                 digest.update(b"blob %d\0%s" % (len(target), target))
-            elif (mode in (b"100644", b"100755") and stat.S_ISREG(info.st_mode)
-                    and bool(info.st_mode & stat.S_IXUSR) == (mode == b"100755")):
+            elif regular:
                 with open(full, "rb") as handle:
                     digest.update(b"blob %d\0" % os.fstat(handle.fileno()).st_size)
                     while chunk := handle.read(1 << 20):
                         digest.update(chunk)
-            else:                                # a submodule, or a changed kind of entry
+            else:                                # a submodule set up, or a changed kind of entry
                 return False
-            if digest.hexdigest().encode() != oid:
+            if digest.hexdigest().encode() != oid and not (regular and written(path, oid)):
                 return False
         with tempfile.TemporaryDirectory() as scratch:
             env = {"GIT_INDEX_FILE": os.path.join(scratch, "index")}
