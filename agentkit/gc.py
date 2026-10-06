@@ -424,13 +424,24 @@ def holds_work(wt):
     code, _ = orch.git_in(wt, "symbolic-ref", "-q", "HEAD")
     if code == 1:
         return not (private / land.SCRATCH_MARK).is_file()
-    if code != 0 or lock is not None or os.path.lexists(private / "modules"):
+    if code != 0 or lock is not None or submodule_set_up(wt, private):
         return True
     # The checkout itself, read without taking git's index lock or running its file monitor
     code, out = orch.git_in(wt, f"--work-tree={wt}", "--no-optional-locks", "-c",
                             "core.fsmonitor=false", "status", "--porcelain",
                             "--untracked-files=all", "--ignore-submodules=none")
     return code != 0 or out != b""
+
+
+def submodule_set_up(wt, private):
+    """Whether a checkout holds a submodule set up, a repository of its own, as `git worktree
+    remove` asks: in its git directory's `modules/`, or in the folder of one of its gitlinks."""
+    if os.path.lexists(private / "modules"):
+        return True
+    code, staged = orch.git_in(wt, "ls-files", "-s", "-z")
+    return code != 0 or any(
+        os.path.lexists(os.path.join(os.fsencode(wt), entry.partition(b"\t")[2], b".git"))
+        for entry in staged.split(b"\0") if entry.startswith(b"160000 "))
 
 
 def stale_worktrees(now, paths):

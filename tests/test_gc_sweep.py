@@ -391,11 +391,11 @@ class GcSweep(Sandbox):
         standard = [*gone, sandboxed, split, bisected, unreffed, sparse, crlf]
         gone += [sandboxed, bare, relative, symlinked, split, bisected, unreffed, sparse, crlf,
                  uninitialized, self.seat(self.repo, "elsewhere")]
-        names = ("dirty", "untracked", "hidden-new", "submodule", "staged", "mirrored",
+        names = ("dirty", "untracked", "hidden-new", "submodule", "nested", "staged", "mirrored",
                  "gitlinked", "rebasing", "land-seat", "locked", "detached", "intent",
                  "executable")
         kept = [self.seat(project, name) for name in names]
-        (dirty, untracked, hidden_new, submodule, staged, mirrored, gitlinked, rebasing,
+        (dirty, untracked, hidden_new, submodule, nested, staged, mirrored, gitlinked, rebasing,
          land_seat, locked, detached, intent, executable) = kept
         # A committed file staged as deleted, then added back in intent only; and a file its
         # owner may no longer run, others still may.
@@ -407,6 +407,18 @@ class GcSweep(Sandbox):
         (executable / "tracked").chmod(0o755)
         self.git(executable, "commit", "-qam", "executable")
         (executable / "tracked").chmod(0o655)
+        # A submodule set up in its own folder, from a clone already there, holding a branch
+        # nothing else has.
+        lib = self.make_repo("lib")
+        self.git(self.root, "clone", "-q", str(lib), str(nested / "lib"))
+        self.git(nested, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(lib), "lib")
+        self.git(nested, "commit", "-qm", "lib")
+        self.git(nested / "lib", "checkout", "-qb", "fix")
+        (nested / "lib" / "tracked").write_text("the fix, only here\n")
+        self.git(nested / "lib", "-c", "user.name=sweep", "-c", "user.email=s@localhost",
+                 "commit", "-qam", "fix")
+        self.git(nested / "lib", "checkout", "-q", "main")
+        self.assertEqual(self.git(nested, "status", "--porcelain"), "")
         # A rebase paused on a conflict, its resolution not yet committed, also in a checkout
         # named like the line's scratch; a checkout locked against pruning; and a seat's own
         # detached HEAD.
