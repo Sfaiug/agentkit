@@ -1392,6 +1392,24 @@ def listed():
     return {path: path for path in found}
 
 
+def git_in(path, *args, env=None):
+    """(exit code, output) of git run in the checkout at `path`, the code None when it could
+    not run.
+
+    Git looks for the repository at `path` alone, never above it, and nothing of git's own
+    environment (`GIT_*`) comes along: an inherited repository, index, object store or
+    setting would answer for another checkout.
+    """
+    clean = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+    clean["GIT_CEILING_DIRECTORIES"] = os.fsdecode(os.path.dirname(os.path.abspath(path)))
+    try:
+        proc = subprocess.run(["git", *args], cwd=path, capture_output=True,
+                              stdin=subprocess.DEVNULL, timeout=30, env={**clean, **(env or {})})
+    except (OSError, subprocess.TimeoutExpired):
+        return None, b""
+    return proc.returncode, proc.stdout
+
+
 def git_dirs(path):
     """(the repository's common git directory, whether `path` is a worktree added from
     another checkout) of the checkout at `path`, or None when it is none.
@@ -1408,15 +1426,9 @@ def git_dirs(path):
             return dot.resolve(), False
     except OSError:
         return None
-    env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
-    env["GIT_CEILING_DIRECTORIES"] = os.fsdecode(os.path.dirname(os.path.abspath(path)))
     def ask(*flags):
-        try:
-            proc = subprocess.run(["git", "-C", str(path), "rev-parse", "--path-format=absolute",
-                                   *flags], capture_output=True, env=env, timeout=30)
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        return None if proc.returncode else proc.stdout.removesuffix(b"\n").split(b"\n")
+        code, out = git_in(path, "rev-parse", "--path-format=absolute", *flags)
+        return None if code != 0 else out.removesuffix(b"\n").split(b"\n")
     lines = ask("--git-dir", "--git-common-dir")
     if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
         lines = [b"\n".join(answer) if answer is not None else None

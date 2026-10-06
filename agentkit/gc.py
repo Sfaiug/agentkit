@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 
-from . import config, host, job as jobs, orch, proc_snapshot, record, retention, run, worktrees
+from . import config, host, job as jobs, land, orch, proc_snapshot, record, retention, run, worktrees
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -356,9 +356,10 @@ def leftovers():
 def stale_worktree(wt, now, paths, left):
     """The collector's item for a checkout under ~/.agentkit/wt nothing comes back for, or None.
 
-    One whose run left no record, a day old: a smoke suite's, whose record went with its
-    sandbox, or one whose run never wrote its `run.json` -- unless one is being written or
-    somebody is in the run's directory.  A record that cannot be read is still a record.
+    One whose run left no record, a day old: the line's scratch, a seat's own checkout, or
+    one whose run never wrote its `run.json` -- unless one is being written, somebody is in
+    the run's directory, or it holds work not yet committed (`holds_work`).  A record that
+    cannot be read is still a record.
     And a run that passed and whose delivery
     ended without a merge -- the merge failed, or none was asked for -- a week after it
     ended: its branch keeps the commits, and `from:` relaunches from it.  A pass whose
@@ -372,7 +373,8 @@ def stale_worktree(wt, now, paths, left):
     directory = config.RUNS / wt.name
     if not retention.present(directory / "run.json"):
         if (not record.writing(directory) and not retention.busy(directory, paths)
-                and retention.expired(wt.lstat().st_mtime, now, retention.EPHEMERAL_AGE)):
+                and retention.expired(wt.lstat().st_mtime, now, retention.EPHEMERAL_AGE)
+                and not holds_work(wt)):
             return {"action": "remove", "kind": "orphan-worktree", "path": str(wt),
                     "why": "no run record"}
         return None
@@ -387,6 +389,59 @@ def stale_worktree(wt, now, paths, left):
         return {"action": "remove", "kind": "unmerged-worktree", "path": str(wt),
                 "why": f"passed, never merged, ended {int((now - finished) // 86400)} days ago"}
     return None
+
+
+def holds_work(wt):
+    """Whether removing a checkout no run owns could lose work not yet committed, as git
+    sees it.
+
+    A folder with no `.git` is no checkout and holds none: an empty one a lander or a run
+    killed while making its checkout leaves, or what a removal cut short left once `.git`
+    went first.  Nor does a checkout ak never finished making, still locked as `run.MAKING`.
+    The line's scratch -- detached, its own git directory holding the lander's mark
+    (`land.SCRATCH_MARK`) -- is a killed lander's: its output is nobody's.  A seat builds on
+    a branch in a worktree, whose branches and commits stay in its repository when the
+    checkout goes: it holds no work while `git status` lists nothing, staged or not,
+    untracked files included; what git ignores is output.  Anything else holds work, or may:
+    a clone or a submodule set up, each a repository of its own, a checkout locked, one
+    detached, and one git cannot read.  What `git status` does not show, gc does not see.
+    """
+    if not os.path.lexists(os.path.join(wt, ".git")):
+        return False
+    dirs = orch.git_dirs(wt)
+    known, private = orch.git_in(wt, "rev-parse", "--absolute-git-dir")
+    if dirs is None or not dirs[1] or known != 0:
+        return True
+    private = Path(os.fsdecode(private.removesuffix(b"\n")))
+    lock = None
+    if os.path.lexists(private / "locked"):
+        try:
+            lock = retention.read_bytes(private / "locked").rstrip(b"\n")
+        except OSError:
+            return True
+    if lock == run.MAKING.encode():
+        return False
+    code, _ = orch.git_in(wt, "symbolic-ref", "-q", "HEAD")
+    if code == 1:
+        return not (private / land.SCRATCH_MARK).is_file()
+    if code != 0 or lock is not None or submodule_set_up(wt, private):
+        return True
+    # The checkout itself, read without taking git's index lock or running its file monitor
+    code, out = orch.git_in(wt, f"--work-tree={wt}", "--no-optional-locks", "-c",
+                            "core.fsmonitor=false", "status", "--porcelain",
+                            "--untracked-files=all", "--ignore-submodules=none")
+    return code != 0 or out != b""
+
+
+def submodule_set_up(wt, private):
+    """Whether a checkout holds a submodule set up, a repository of its own, as `git worktree
+    remove` asks: in its git directory's `modules/`, or in the folder of one of its gitlinks."""
+    if os.path.lexists(private / "modules"):
+        return True
+    code, staged = orch.git_in(wt, "ls-files", "-s", "-z")
+    return code != 0 or any(
+        os.path.lexists(os.path.join(os.fsencode(wt), entry.partition(b"\t")[2], b".git"))
+        for entry in staged.split(b"\0") if entry.startswith(b"160000 "))
 
 
 def stale_worktrees(now, paths):
@@ -411,11 +466,13 @@ def worktree_repo(wt):
 
 
 def clear_tree(tree, report):
-    """Everything of a tree this user can remove, then git's registration of it."""
+    """Everything of a tree this user can remove, then git's registration of it, unlocked
+    first: git never prunes a locked one, and one ak was still making is."""
     repo = worktree_repo(tree)
     retention.remove(tree, directory=True, ignore_errors=True)
     if repo is not None and repo != tree and repo.is_dir():
         try:
+            run.git(repo, "worktree", "unlock", str(tree), check=False)
             run.git(repo, "worktree", "prune", check=False)
         except run.Stopped as exc:
             report(f"gc: {tree}: {exc}")
