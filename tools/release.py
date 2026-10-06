@@ -8,7 +8,8 @@ systemd timer, as the project's own user, never root:
     release.py ROOT          one tick for the project installed at ROOT
     release.py ROOT --adopt  make ROOT/repo's checked-out commit the first release
 
-One tick fetches main and takes the newest first-parent commit that descends from the live
+One tick fetches the branch ak lands on (what the clone's origin/HEAD names) and takes the
+newest first-parent commit that descends from the live
 release, carries ak's `Suite-Passed-Tree:` stamp for its own tree, and is no ancestor of a
 commit that failed after its switch here. It builds that commit in its own release directory
 with a fresh virtualenv, runs its install and migrate commands, switches the `current` link,
@@ -18,7 +19,7 @@ after it switches the link back, runs the live release's restart and health agai
 remembers the commit as failed: it waits for a newer one. Either way the tick exits 1, so
 the timer's OnFailure= alert fires. A restore that fails, or a tick cut off mid-release, is
 finished by the next tick, and every tick first prunes old release directories. Main must
-keep containing the live release: a rewritten main is refused until someone releases by hand.
+keep containing the live release: a rewritten one is refused until someone releases by hand.
 
 The kit holds no privileges and installs nothing outside ROOT: the project's units point at
 ROOT/current and its own installer puts them in place; its restart command may use a sudo
@@ -96,11 +97,19 @@ def stamped(repo, sha):
     return len(values) == 1 and values[0].lower() == tree
 
 
-def candidate(repo, live):
-    """The newest stamped first-parent commit on main that descends from `live` and is no
+def branch(repo):
+    """The branch ak lands on: what the clone's origin/HEAD names."""
+    if not git_ok(repo, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"):
+        raise Failed(f"{repo} has no origin/HEAD: run `git -C {repo} remote set-head origin "
+                     "--auto` once")
+    return git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").removeprefix("origin/")
+
+
+def candidate(repo, live, target):
+    """The newest stamped first-parent commit on `target` that descends from `live` and is no
     ancestor of a commit that failed here (a rewrite cannot reopen an older release)."""
     failed = git(repo, "for-each-ref", "--format=%(objectname)", FAILED).split()
-    for sha in git(repo, "rev-list", "--first-parent", f"{live}..origin/main").split():
+    for sha in git(repo, "rev-list", "--first-parent", f"{live}..{target}").split():
         if any(git_ok(repo, "merge-base", "--is-ancestor", sha, bad) for bad in failed):
             return None
         if git_ok(repo, "merge-base", "--is-ancestor", live, sha) and stamped(repo, sha):
@@ -280,11 +289,13 @@ def tick(root):
     if previous is None:
         raise Failed(f"no live release is recorded in {root}: run `release.py {root} --adopt`")
     prune(root)
-    git(repo, "fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main")
-    if not git_ok(repo, "merge-base", "--is-ancestor", previous, "origin/main"):
-        raise Failed(f"main no longer contains the live release {previous[:12]}: it was "
+    name = branch(repo)
+    target = f"origin/{name}"
+    git(repo, "fetch", "--quiet", "origin", f"+refs/heads/{name}:refs/remotes/{target}")
+    if not git_ok(repo, "merge-base", "--is-ancestor", previous, target):
+        raise Failed(f"{name} no longer contains the live release {previous[:12]}: it was "
                      "rewritten, so release by hand")
-    sha = candidate(repo, previous)
+    sha = candidate(repo, previous, target)
     if sha is None:
         return 0
     say(f"releasing {sha[:12]} over {previous[:12]}")

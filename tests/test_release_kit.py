@@ -45,6 +45,7 @@ class ReleaseKit(unittest.TestCase):
                                'printf \'#!/bin/sh\\necho "$4" >> %s/installs\\n\' "$PWD/$3" > "$3/bin/pip"\n'
                                'chmod +x "$3/bin/pip"\n')
         self.python.chmod(0o755)
+        self.branch = "main"                  # the branch ak lands on, as origin/HEAD names it
         self.git(base, "init", "-q", "--bare", "-b", "main", str(self.origin))
         self.git(base, "clone", "-q", str(self.origin), str(self.work))
         self.first = self.commit()
@@ -80,7 +81,7 @@ class ReleaseKit(unittest.TestCase):
         parents = (["-p", "HEAD"] if has_head else []) + (["-p", merge] if merge else [])
         sha = self.git(work, "commit-tree", tree, *parents, "-m", message)
         self.git(work, "reset", "-q", "--hard", sha)
-        self.git(work, "push", "-q", "--force", "origin", "HEAD:main")
+        self.git(work, "push", "-q", "--force", "origin", f"HEAD:{self.branch}")
         return sha
 
     def tick(self, *extra):
@@ -103,7 +104,7 @@ class ReleaseKit(unittest.TestCase):
 
     def cut_off(self, sha, switched):
         self.git(self.root / "repo", "fetch", "-q", "origin",
-                 "+refs/heads/main:refs/remotes/origin/main")
+                 f"+refs/heads/{self.branch}:refs/remotes/origin/{self.branch}")
         release.prepare(self.root, sha)
         (self.root / "attempt").write_text(f"{sha} {self.live()}\n")
         if switched:
@@ -303,6 +304,23 @@ class ReleaseKit(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn(f"main no longer contains the live release {newer[:12]}", out)
         self.assertEqual(self.live(), newer)
+
+    def test_it_releases_from_the_branch_origin_head_names(self):
+        repo = self.root / "repo"
+        self.git(self.work, "push", "-q", "origin", "HEAD:trunk")
+        self.git(self.origin, "symbolic-ref", "HEAD", "refs/heads/trunk")
+        self.git(self.work, "push", "-q", "origin", ":main")      # no main at all
+        self.git(repo, "fetch", "-q", "--prune", "origin")
+        self.git(repo, "remote", "set-head", "origin", "trunk")
+        self.branch = "trunk"
+        self.tick("--adopt")
+        newer = self.commit()
+        self.assertEqual(self.tick()[0], 0)
+        self.assertEqual(self.live(), newer)
+        self.git(repo, "remote", "set-head", "origin", "-d")
+        code, out = self.tick()
+        self.assertEqual(code, 1)
+        self.assertIn("has no origin/HEAD", out)
 
     def test_no_live_release_asks_to_adopt(self):
         code, out = self.tick()
