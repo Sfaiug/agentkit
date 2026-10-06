@@ -439,7 +439,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         continue
                 # AGENTS.md is measured on the tree that lands, before any evidence answers it: a
                 # tree green on a target with larger rules says nothing about the ceiling.
-                failure = run.rules_cap(SimpleNamespace(wt=scratch, base_sha=tip, scratch=False))
+                failure = run.rules_check(SimpleNamespace(wt=scratch, base_sha=tip, scratch=False))
                 if failure:
                     # Changes ahead of it can lengthen or shorten the file: it waits for their
                     # verdicts, and only with none ahead is the size its own to fix.
