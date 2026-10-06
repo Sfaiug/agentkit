@@ -64,7 +64,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import harness
-from agentkit.run import going, handback_reason, unfinished, ways_out
+from agentkit.run import going, handback_reason, unfinished
+from agentkit.stop import ways_out
 from agentkit.job import job_waiting
 from agentkit.watch import waiting_on
 

@@ -33,7 +33,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import gate as suite_gate, config, orch, run, watch, worker
+from agentkit import gate as suite_gate, config, orch, run, stop, watch, worker
 
 
 def fresh_id():
@@ -203,7 +203,7 @@ class RunTree(unittest.TestCase):
                 patch.object(worker, "open", side_effect=environ, create=True), \
                 patch.object(worker.os, "kill", side_effect=kill), \
                 patch.object(orch, "stop_scope", return_value=False):
-            self.assertEqual(set(run.marker_pids(self.run_id)), {101, 102})
+            self.assertEqual(set(stop.marker_pids(self.run_id)), {101, 102})
             run.stop_run_tree({"run_id": self.run_id})
             self.assertEqual(signalled, [101, 102])
             markers[106] = f"{self.marker}/turn-2"

@@ -5,7 +5,7 @@ import re
 import time
 from pathlib import Path
 
-from . import config, gate, gc, history, host, orch, run, scoreboard
+from . import config, gate, gc, history, host, orch, run, scoreboard, stop
 from . import job as jobs
 from . import land as landing
 from . import record as run_record
@@ -149,7 +149,7 @@ def scope_alive(state, scope_dir=None, _marker=None, _rss=None, _active=None):
         if readings is not None:
             return readings
     run_id = (state or {}).get("run_id")
-    marker = _marker or run.marker_pids
+    marker = _marker or stop.marker_pids
     try:
         pids = list(marker(run_id)) if run_id else []
     except (OSError, ValueError, TypeError):

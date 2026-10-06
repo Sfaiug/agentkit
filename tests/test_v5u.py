@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, statusbar, terminal
+from agentkit import config, menu, orch, run, stop, statusbar, terminal
 from agentkit import record
 from test_v4n import menu_input
 
@@ -102,7 +102,7 @@ class Back(unittest.TestCase):
         # A run on this machine launched by a seat named `atoll-fix` is never `ak run stop`ped
         # by the fixture's Stop: the seat's runs stop through a mock, as the seat itself does.
         with patch.object(menu, "session_runs", return_value=[Path("fake-active-run")]), \
-                patch.object(run, "cmd_stop") as run_stop:
+                patch.object(stop, "cmd_stop") as run_stop:
             self.stop("1", "y")
         self.assertEqual(run_stop.call_count, 0)
 

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, run, worker
+from agentkit import config, hand_in, run, stop, worker
 from fixtures.hand_in import findings_section, scripted, stateful
 
 
@@ -40,7 +40,7 @@ class ProofWeighed(unittest.TestCase):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         for module, name, value in (
                 (worker, "auth_ok", (True, "fixture")), (worker, "marked_pids", []),
-                (worker, "kill_marked", True), (run, "marker_pids", []),
+                (worker, "kill_marked", True), (stop, "marker_pids", []),
                 (run.orch, "stop_scope", None), (run, "note_turn_meters", None),
                 (run, "history_role_tokens", None), (run, "memory_cap_note", None),
                 (run.history, "update_run", None)):

@@ -2970,13 +2970,13 @@ def cmd_stop(argv):
     # everything it reports is already true.
     old = signal.signal(signal.SIGHUP, signal.SIG_IGN)
     try:
-        from . import run as run_mod
+        from . import stop
         # Unfinished runs stop before the lock: each one costs up to STALL_KILL_WAIT
         # inside kill_tree, and nothing it touches is the seat's state. The peek is
         # best effort -- the lock below decides authoritatively -- so a name nobody
         # answers to stops nothing before it is refused.
         if find(name) is not None or name in records():
-            run_mod.stop_owned_runs(name)
+            stop.stop_owned_runs(name)
             notify.forget_card(name)   # before the lock too: a slow Discord holds up no tick
         # A stop and automatic boot recovery must agree on whether this seat exists.
         with watch.state_lock():
@@ -2985,7 +2985,7 @@ def cmd_stop(argv):
             if not session and not record:
                 known = ", ".join(s["name"] for s in listing()) or "none"
                 raise config.Error(f"no orchestrator session {name!r} (running: {known})")
-            run_mod.release_session(name)
+            stop.release_session(name)
             if record:
                 seat_plugin(record).forget(record)
             # Every line ak types into a seat goes in under its own lock, the one a rename takes:

@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, gc, run, worktrees  # noqa: E402
+from agentkit import config, gc, run, stop, worktrees  # noqa: E402
 
 
 class CleanupRepoEnv(unittest.TestCase):
@@ -68,7 +68,7 @@ class CleanupRepoEnv(unittest.TestCase):
     def test_every_removal_path_gives_cleanup_the_repo_secrets(self):
         paths = {
             "stop": lambda wt, run_dir, state: worktrees.stop_checkout(state, lambda message: None),
-            "clean": lambda wt, run_dir, state: run.cmd_clean([state["run_id"]]),
+            "clean": lambda wt, run_dir, state: stop.cmd_clean([state["run_id"]]),
             "gc": lambda wt, run_dir, state: gc.drop_tree(state, wt, lambda *a: None),
         }
         for name, remove in paths.items():

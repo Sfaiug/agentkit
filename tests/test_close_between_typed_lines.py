@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import browser, config, notify, orch, run, watch
+from agentkit import browser, config, notify, orch, run, stop, watch
 
 SEAT = "acme-ui"
 
@@ -32,8 +32,8 @@ class CloseBetweenTypedLines(Sandbox):
         self.stack.enter_context(patch.object(orch, "find", side_effect=lambda name:
                                               self.seat if name == SEAT else None))
         self.stack.enter_context(patch.object(orch, "records", side_effect=config.session_records))
-        self.stack.enter_context(patch.object(run, "stop_owned_runs"))
-        self.stack.enter_context(patch.object(run, "release_session"))
+        self.stack.enter_context(patch.object(stop, "stop_owned_runs"))
+        self.stack.enter_context(patch.object(stop, "release_session"))
         self.stack.enter_context(patch.object(notify, "forget_card"))
         self.stack.enter_context(patch.object(browser, "close_owned"))
         self.killed = []

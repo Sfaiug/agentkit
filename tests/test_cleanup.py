@@ -16,7 +16,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import browser, config, gc, menu, orch, retention, run, worktrees, watch
+from agentkit import browser, config, gc, menu, orch, retention, run, stop, worktrees, watch
 from agentkit import record as run_record
 
 DAY = 86400
@@ -238,7 +238,7 @@ class Cleanup(Sandbox):
         # loop that may still be going, never anything under ~/code
         directory, wt, _ = self.receipt("going", state="running", pid="scheduler")
         with self.assertRaisesRegex(config.Error, "the run is still going"):
-            run.cmd_clean(["going"])
+            stop.cmd_clean(["going"])
         self.assertTrue(wt.is_dir())
         owned = config.CODE / "proj"
         owned.mkdir(parents=True)
@@ -248,7 +248,7 @@ class Cleanup(Sandbox):
         state["worktree"] = str(owned)
         run_record.save_state(directory, state)
         with self.assertRaisesRegex(config.Error, "under"):
-            run.cmd_clean(["owned"])
+            stop.cmd_clean(["owned"])
         self.assertEqual((owned / "keep").read_text(), "owner\n")
 
     def test_a_checkout_git_no_longer_lists_still_goes(self):
@@ -363,7 +363,7 @@ class Cleanup(Sandbox):
                                              pid="scheduler", process_identity=None)
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop(["task"]), 0)
+            self.assertEqual(stop.cmd_stop(["task"]), 0)
         self.assertIn(f"kept; relaunch with from: {branch}", out.getvalue())
         self.assertTrue(wt.is_dir())
         self.assertTrue(self.branch_exists(branch))
@@ -377,7 +377,7 @@ class Cleanup(Sandbox):
                  "--force")
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_stop(["held"]), 0)
+            self.assertEqual(stop.cmd_stop(["held"]), 0)
         self.assertFalse(wt.exists())
         self.assertTrue(self.branch_exists(branch))
         self.assertIn(f"kept; relaunch with from: {branch}", out.getvalue())
@@ -395,7 +395,7 @@ class Cleanup(Sandbox):
             return real(cmd, *args, **kwargs)
         out = io.StringIO()
         with patch.object(run, "tool_run", side_effect=timed_out), redirect_stdout(out):
-            self.assertEqual(run.cmd_stop(["slow-ref"]), 0)
+            self.assertEqual(stop.cmd_stop(["slow-ref"]), 0)
         self.assertFalse(wt.exists())
         self.assertTrue(self.branch_exists(branch))
         self.assertIn(f"kept; relaunch with from: {branch}", out.getvalue())
@@ -427,7 +427,7 @@ class Cleanup(Sandbox):
         (directory / "task.md").write_text("task\n")
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_clean(["cleaned"]), 0)
+            self.assertEqual(stop.cmd_clean(["cleaned"]), 0)
         self.assertIn("its workspace is gone", out.getvalue())
 
     def test_a_scratch_workspace_outlives_every_ending_and_goes_with_its_run(self):
@@ -454,7 +454,7 @@ class Cleanup(Sandbox):
             worktrees._drop_told(run_record.read_state(directory), lambda _message: None, directory)
             runs.append((directory, work))
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(run.cmd_clean(["made"]), 0)
+            self.assertEqual(stop.cmd_clean(["made"]), 0)
         gc.gc(lambda _message: None)
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.cmd_stop(["atoll"]), 0)

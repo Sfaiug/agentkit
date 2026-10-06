@@ -34,6 +34,11 @@
   (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
   watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
   `own_pr_wait_note`). Leak: run's private `_cached_providers`.
+- `stop.py`: `ak run stop` and `ak run clean`. A stop writes `stopped` under the lock
+  first, then ends its scope, tree and marked processes, then the checkout unless kept.
+  `stop_owned_runs` and `release_session` for orch, `cmd_stop` for menu,
+  `ways_out` for the stop hook, `marker_pids` for status. Leaks: run's
+  `launched_session`, `note_in`, `history_finish`, `redress_seat`, `record_result`.
 - `worktrees.py`: a run's worktree and local branch: whether they may go (final run, gone
   loop, never ~/code, held for a resume) and the one way they go, `stop_checkout`: the
   repo's `cleanup:` line, git, the directory, the branch. Stop, clean, endings and gc call
@@ -134,7 +139,7 @@
 ## hooks/, tools/, tests/
 
 - `hooks/seat-state.sh`: every harness's lifecycle hook; writes a seat's `hook-`/`stop-`
-  facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via run and watch.
+  facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via run, stop and watch.
   `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leak: both rebuild
   config.py's seat file names and rename chain.
 - `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
