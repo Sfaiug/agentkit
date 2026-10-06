@@ -138,14 +138,16 @@ sys.exit(0 if passive else 1)
     return 0
   fi
   # A prompt another session's message opened -- Claude Code wraps it in
-  # <cross-session-message> -- keeps the seat's standing done: the seat only
+  # <cross-session-message>, and `ak tell` heads it `[from seat <name> at <HH:MM>, not the
+  # owner; ...]` (agentkit/tell.py `heading`) -- keeps the seat's standing done: the seat only
   # acknowledged the message, so its done from before the turn still tells.
   # A prompt that asks something -- a sentence ending in `?`, the mark followed by
   # whitespace or the end so a URL's `?` is none -- is ended by its answer.  The
   # latch says which kind of prompt opened the turn.
   peer=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(contains("<cross-session-message"))' \
+               | any(contains("<cross-session-message")
+                     or test("^\\s*\\[from seat \\S+ at [0-9]{2}:[0-9]{2}, not the owner; "))' \
       <<<"$payload" >/dev/null 2>&1; then
     peer=true
   fi

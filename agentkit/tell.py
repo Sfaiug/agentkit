@@ -35,6 +35,13 @@ def source(sender):
     return f"seat:{sender}"
 
 
+def heading(sender, now):
+    """What a told line starts with: who sent it and that it is not the owner's -- the words
+    hooks/seat-state.sh knows another seat's message by."""
+    return (f"[from seat {sender} at {time.strftime('%H:%M', time.localtime(now))}, not the "
+            f"owner; reply with ak tell {sender}] ")
+
+
 def read(path):
     """The messages waiting there, oldest first; [] where there is no file.
 
@@ -205,8 +212,7 @@ def main(argv):
         print("ak tell: nothing to say", file=sys.stderr)
         return 1
     now = time.time()
-    line = (f"[from seat {sender} at {time.strftime('%H:%M', time.localtime(now))}, not the "
-            f"owner; reply with ak tell {sender}] {text}")
+    line = heading(sender, now) + text
     most = longest(config.load())
     if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
         print(f"ak tell: {len(line):,} characters is more than a composer shows whole ({most:,}); "
