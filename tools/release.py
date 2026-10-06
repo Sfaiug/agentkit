@@ -128,13 +128,13 @@ def load(repo, sha):
 
 def run(release, argv, seconds=COMMAND_SECONDS):
     """A project command in `release`, in its own process group, all of which ends the moment
-    the command does; its exit code and output."""
+    the command does; its exit code, its output and whether `seconds` cut it short."""
     with tempfile.TemporaryFile() as out:
         try:
             child = subprocess.Popen(argv, cwd=release, stdout=out, stderr=subprocess.STDOUT,
                                      stdin=subprocess.DEVNULL, start_new_session=True)
         except OSError as exc:
-            return 1, why(exc)
+            return 1, why(exc), False
         # The leader stays unreaped until its group is killed, so its id names no other group.
         deadline = time.monotonic() + seconds
         late = False
@@ -150,11 +150,11 @@ def run(release, argv, seconds=COMMAND_SECONDS):
         code = child.wait()
         out.seek(0)
         text = out.read().decode("utf-8", "replace").strip()
-    return (124, f"killed after {seconds:.1f}s\n{text}") if late else (code, text)
+    return (124, f"killed after {seconds:.1f}s\n{text}", True) if late else (code, text, False)
 
 
 def must(release, what, argv):
-    code, out = run(release, argv)
+    code, out, _ = run(release, argv)
     if code:
         tail = "\n".join(out.splitlines()[-20:])
         raise Failed(f"{what} failed (exit {code}): `{' '.join(argv)}`\n{tail}")
@@ -195,12 +195,18 @@ def start(root, sha):
     release = root / "releases" / sha
     must(release, "restart", ["bash", "-c", config["restart"]])
     deadline = time.monotonic() + config["health_seconds"]
+    ended = None        # the last try that ran to its own end
     while True:
-        code, out = run(release, ["bash", "-c", config["health"]], deadline - time.monotonic())
+        code, out, late = run(release, ["bash", "-c", config["health"]],
+                              deadline - time.monotonic())
         left = deadline - time.monotonic()
         if code == 0 and left >= 0:
             return
-        if left <= HEALTH_PAUSE_SECONDS:     # no time for another try: this one's word stands
+        if not late:
+            ended = code, out
+        if late or left <= HEALTH_PAUSE_SECONDS:
+            # A try the deadline cut short says less than one that ran to its end.
+            code, out = ended or (code, out)
             result = f"exit {code}" if code else f"passed after its {config['health_seconds']}s"
             raise Failed(f"health failed ({result}): `{config['health']}`: {out[-300:]}")
         time.sleep(HEALTH_PAUSE_SECONDS)

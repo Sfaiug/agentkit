@@ -349,7 +349,7 @@ class ReleaseKit(unittest.TestCase):
             killpg(pid, sig)
         with patch.object(release.os, "killpg", ending):
             self.assertEqual(release.run(self.root, ["true"])[0], 0)
-            self.assertEqual(release.run(self.root, ["sleep", "5"], 0.2)[0], 124)
+            self.assertEqual(release.run(self.root, ["sleep", "5"], 0.2)[::2], (124, True))
         self.assertIsNotNone(states[0])
 
     def test_health_passes_only_within_its_time_and_retries_until_then(self):
@@ -358,11 +358,13 @@ class ReleaseKit(unittest.TestCase):
         code, out = self.tick()
         self.assertEqual(code, 1)
         self.assertIn("health failed (exit 124)", out)
-        # a command that keeps failing says its own exit and output, not a timeout
-        self.commit(health="sleep 0.1; echo refused-now; exit 7")
-        code, out = self.tick()
-        self.assertIn("health failed (exit 7)", out)
-        self.assertIn("refused-now", out)
+        # a command that keeps failing says its own exit and output, not a timeout, also when
+        # its last try had less time left than it takes to fail
+        for pause in ("0.1", "0.4"):
+            self.commit(health=f"sleep {pause}; echo refused-now; exit 7")
+            code, out = self.tick()
+            self.assertIn("health failed (exit 7)", out)
+            self.assertIn("refused-now", out)
         # one try may take as much of the health time as it needs
         slow = self.commit(health="sleep 1.5; true", health_seconds=3)
         self.assertEqual(self.tick()[0], 0)
