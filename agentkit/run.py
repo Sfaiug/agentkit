@@ -3107,8 +3107,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     the seat builds it with the context it already has.  Anything else on the list (a flaky
     check's evidence) starts an ordinary run.  The receipt is written once the list is handed
     on: a process cut off before that hands it on again, and each item finds what the cut-off
-    one already did -- its open plan line, the fix run it started.  There is no collector or
-    backlog: this ending alone gets to hand on its list.
+    one already did -- its open plan line, the fix run it started -- and a fix run it made but
+    never launched is launched now.  There is no collector or backlog: this ending alone gets to
+    hand on its list.
 
     A target failing a check on its own tip starts one the same way, before any merge:
     `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, the
@@ -3158,13 +3159,14 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         for item in items:
             if item in planned:
                 continue
-            started = None if request else started_by(run_dir, item)
-            if started:
-                handed["followup_runs"].append(started)
+            directory = None if request else started_by(run_dir, item)
+            if directory and not unlaunched(directory):
+                handed["followup_runs"].append(directory.name)
                 continue
+            again = directory is not None   # its run, left before its launch: started here
             source = {**state, "repo": str(repo)}
-            opened = open_followup(source, item, key, repair and repair["sha"],
-                                   split and split["command"])
+            opened = not again and open_followup(source, item, key, repair and repair["sha"],
+                                                 split and split["command"])
             if opened and request:
                 return opened
             if opened:
@@ -3174,14 +3176,15 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                      else "Fix " + item.splitlines()[0])
             if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
                 title = title[:255] + "…"
-            name = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
-            directory = config.RUNS / name
-            number = 1
-            while directory.exists():
-                number += 1
-                directory = config.RUNS / f"{name}-{number}"
+            if not again:
+                name = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
+                directory = config.RUNS / name
+                number = 1
+                while directory.exists():
+                    number += 1
+                    directory = config.RUNS / f"{name}-{number}"
             try:
-                directory.mkdir(parents=True)
+                directory.mkdir(parents=True, exist_ok=again)
                 check = shlex.quote(str(directory / REGRESSION))
                 task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
                         f"# {title}\n\n{item}\n\n")
@@ -3210,7 +3213,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                         "the loop runs it as a check. If only the owner can decide, run "
                         '`ak hand-in blocked "<question>"`.\n\n'
                         f"## Done when\n```bash\nbash {check}\n```\n")
-                    (directory / REGRESSION.parent).mkdir()
+                    (directory / REGRESSION.parent).mkdir(exist_ok=again)
                 (directory / "task.md").write_text(task)
                 (directory / "log.txt").touch()
                 # A fix run is a new launch: the session's lists now, the discovering
@@ -3258,13 +3261,20 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
 
 
 def started_by(run_dir, item):
-    """The fix run this ending already started for `item`, whatever became of it, or None: a
+    """The fix run this ending already made for `item`, whatever became of it, or None: a
     handoff cut off before its receipt starts no item twice, not even one stopped since."""
     for directory in run_record.run_dirs():
         followup = (run_record.read_state(directory) or {}).get("followup") or {}
         if followup.get("run") == run_dir.name and followup.get("text") == item:
-            return directory.name
+            return directory
     return None
+
+
+def unlaunched(directory):
+    """Whether a handoff cut off before `spawn_bg` left this fix run: its receipt, perhaps
+    prepared, with no launch begun and no ending -- nothing but the handoff's replay starts it."""
+    current = run_record.read_state(directory) or {}
+    return current.get("state") in (None, "queued", "running") and "launch_pending" not in current
 
 
 def followups_handed(run_dir, state, handed):

@@ -341,6 +341,33 @@ class FollowupRuns(unittest.TestCase):
         self.start(directory, record.read_state(directory))
         self.assertEqual(len(self.spawns), 1)
 
+    def test_a_fix_left_before_its_launch_is_launched_when_the_handoff_runs_again(self):
+        for module, step in ((record, "save_state"), (run, "capture_launch"), (run, "prepare")):
+            with self.subTest(step):
+                flaky = f"flaky: python3 -m unittest {step} passed only on its re-run"
+                directory, state = self.source(f"source-{step}", followups=[flaky])
+                real = getattr(module, step)
+
+                def cut(target, *args, **kwargs):
+                    result = real(target, *args, **kwargs)
+                    if target != directory:     # the fix run's receipt, its launch, its preflight
+                        raise KeyboardInterrupt
+                    return result
+
+                with patch.object(module, step, side_effect=cut), \
+                        self.assertRaises(KeyboardInterrupt):
+                    self.start(directory, state)
+                spawned = len(self.spawns)
+                [child] = self.start(directory, record.read_state(directory))
+                self.assertEqual(len(self.spawns), spawned + 1)
+                self.assertEqual(self.spawns[-1][2], child)
+                made = [d for d in record.run_dirs()
+                        if ((record.read_state(d) or {}).get("followup") or {}).get("run")
+                        == directory.name]
+                self.assertEqual(made, [child])
+                self.start(directory, record.read_state(directory))
+                self.assertEqual(len(self.spawns), spawned + 1)
+
     def test_a_followup_line_ticks_once_its_fix_is_on_the_default_branch(self):
         self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
         config.update_session("seat", repo=str(self.repo))      # `ak orch project acme`
