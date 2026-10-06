@@ -19,8 +19,8 @@
 #                                  own system-prompt option ("Extra rules to append to the
 #                                  system prompt", `grok --help` 1.0.40), so the first prompt
 #                                  stays the owner's; --trust marks the session's directory
-#                                  trusted the
-#                                  way trust.py does for the harnesses that need a wrapper
+#                                  trusted, as the claude and codex plugins' seat
+#                                  preparation does for theirs
 #                     install      -> the x.ai installer, unless grok is already here
 #                     login        -> `grok login`, unless already logged in
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why: a

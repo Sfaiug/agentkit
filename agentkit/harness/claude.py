@@ -391,7 +391,7 @@ def _write(path, data):
 
 
 def config_entries():
-    """The user-scope ~/.claude.json: `register_mcp` and tools/trust.py write there."""
+    """The user-scope ~/.claude.json: `register_mcp` and `account_config` write there."""
     return {"file": Path.home() / ".claude.json", "trust": "projects", "mcp": "mcpServers"}
 
 
@@ -429,13 +429,24 @@ def register_mcp(servers):
     return f"registered in {path} (user scope)"
 
 
+def answered(data):
+    """A seat's first-run questions answered in its global config: the theme, the onboarding,
+    the auto-mode offer, and trust in the launch's actual cwd, so the TUI opens on the prompt
+    rather than on "do you trust this folder?", whose default is "No, exit"."""
+    data["hasSeenAutoDefaultNudge"] = True
+    data.setdefault("theme", "dark")
+    data["hasCompletedOnboarding"] = True
+    project = data.setdefault("projects", {}).setdefault(str(Path.cwd().resolve()), {})
+    project["hasTrustDialogAccepted"] = True
+
+
 def account_config(check=False):
     """Keep the owner's configuration beside an alternate login's own credentials.
 
     Claude's config override moves both its user settings and its global .claude.json.
-    Validate before respawning the pane; prepare trust again in the launch's actual cwd.
-    Every seat runs bypass permissions: an accepted auto-mode offer writes `auto` into
-    the settings, so each launch pins it back and leaves the offer answered.
+    Validate before respawning the pane; on either login, answer the first-run questions
+    (`answered`) in the launch's actual cwd.  Every seat runs bypass permissions: an
+    accepted auto-mode offer writes `auto` into the settings, so each launch pins it back.
     """
     account = os.environ.get("AGENTKIT_ACCOUNT")
     if not account:
@@ -451,7 +462,7 @@ def account_config(check=False):
         if not isinstance(permissions, dict):
             permissions = values[0]["permissions"] = {}
         permissions["defaultMode"] = "bypassPermissions"
-        values[1]["hasSeenAutoDefaultNudge"] = True
+        answered(values[1])
         paths[0].parent.mkdir(parents=True, exist_ok=True)
         for path, data in zip(paths, values):
             _write(path, data)
@@ -479,11 +490,7 @@ def account_config(check=False):
             for key, value in usual.items():
                 if value is True:
                     data[key] = True
-            data["hasSeenAutoDefaultNudge"] = True
-            data.setdefault("theme", "dark")
-            data["hasCompletedOnboarding"] = True
-            project = data.setdefault("projects", {}).setdefault(str(Path.cwd().resolve()), {})
-            project["hasTrustDialogAccepted"] = True
+            answered(data)
         else:
             data.update(values[0])
             # Hooks belong to the current installation, not every past checkout.

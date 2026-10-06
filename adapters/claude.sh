@@ -144,15 +144,13 @@ interactive)
   rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
     echo "claude.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf -- '--append-system-prompt-file %q ' "$rb")
-  # trust.py marks the session's directory trusted first, so the TUI opens on the prompt
-  # instead of the "do you trust this folder?" dialog (whose default is "No, exit").
   # CLAUDE_CODE_DISABLE_AGENT_VIEW keeps the conversation in this seat: with Claude's
   # background daemon on, `/background` moved a seat's conversation into a daemon process that
   # carried whichever seat had started the daemon, so its hooks and `ak` commands spoke for
   # that other seat and its resume reopened the conversation from before the move.
-  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 python3 %q claude -- ' "$REPO/tools/trust.py"
-  # Seat preparation runs in the seat's actual cwd, after trust.py, and before the TUI:
-  # bypass permissions and the answered auto-mode offer, on either login.
+  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 '
+  # Seat preparation runs in the seat's actual cwd before the TUI, on either login: bypass
+  # permissions, and the first-run questions answered, trust in this directory among them.
   printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
   # Remote Control on, named after the seat: the owner follows his seats from the Claude
   # app, and a seat reopened without it -- a resume, an account move -- would be lost there.
