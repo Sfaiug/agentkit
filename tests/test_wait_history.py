@@ -63,6 +63,13 @@ class WaitHistory(unittest.TestCase):
                 (run_id, self.now - days_ago * DAY - total, self.now - days_ago * DAY, total))
             connection.commit()
 
+    def before_the_check_waits(self, run_id, days_ago, total, **waits):
+        """A finished row as an agentkit that kept every wait but its landing checks' wrote it."""
+        self.finished(run_id, days_ago, total, **waits)
+        with closing(sqlite3.connect(history.path())) as connection:
+            connection.execute("UPDATE runs SET lander_wait_seconds=NULL WHERE run_id=?", (run_id,))
+            connection.commit()
+
     def board_row(self):
         """The scoreboard's waits row, both weeks on its one line."""
         with patch.object(terminal, "content_width", return_value=400):
@@ -711,6 +718,19 @@ class WaitHistory(unittest.TestCase):
         row = self.board_row()
         self.assertIn("10% of run time waiting for a slot or its own suite turn; 0.0 hours in a landing line", row)
         self.assertTrue(row.endswith("not recorded"), row)
+
+    def test_a_week_with_a_row_from_before_the_check_waits_reads_them_as_not_recorded(self):
+        self.finished("fix-api", 1, 3600, merge=3600)
+        self.before_the_check_waits("fix-ui", 2, 3600, merge=3600)
+        self.finished("fix-db", 9, 3600, merge=1800, lander=1440)
+        recent, before = scoreboard.compute(self.now)["waits"]
+        self.assertIsNone(recent["lander_hours"])
+        self.assertAlmostEqual(recent["merge_hours"], 2.0)    # the line time it did keep still counts
+        self.assertAlmostEqual(before["lander_hours"], 0.4)
+        row = self.board_row()
+        self.assertIn("2.0 hours in a landing line, where checks' waits for a suite turn are not "
+                      "recorded", row)
+        self.assertIn("0.5 hours in a landing line, where checks waited 0.4 hours for a suite turn", row)
 
 if __name__ == "__main__":
     unittest.main()
