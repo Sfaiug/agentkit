@@ -3787,8 +3787,8 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         with scratch(dry_run), for_seat(name, str(repo) if repo else ""):
             cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     except Exception:
-        if unnamed:
-            config.session_path(name).unlink(missing_ok=True)
+        if unnamed and not dry_run:
+            config.discard_session(name, extra["created"])
         raise
     if not dry_run:
         if conversation:

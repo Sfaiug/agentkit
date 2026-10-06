@@ -914,6 +914,21 @@ def save_session(cfg, name, orchestrator, workers, extra=None):
     return selection
 
 
+def discard_session(name, created):
+    """Remove `name`'s record only while it is still the one saved at `created`: a launch that
+    failed takes back its own record, never one another launch saved under the name since."""
+    path = session_path(name)
+    if not path.parent.is_dir():
+        return
+    with _record_lock(path):
+        try:
+            data = _read_json(path)
+        except Error:
+            return      # unreadable is not known to be its own
+        if isinstance(data, dict) and data.get("created") == created:
+            path.unlink(missing_ok=True)
+
+
 def remember_defaults(record):
     """[defaults] as the seat just created was given: what the next `n` starts from, and the
     one write of them (save).  The file is read again first, so nothing changed in it since
