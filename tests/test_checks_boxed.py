@@ -181,20 +181,23 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertIn(f"[exit {code}]\npartial", text)
 
     def test_a_check_writes_where_its_project_says(self):
-        # A suite may log to /tmp or fill a cache in HOME; only worker turns are walled.
-        outside = tempfile.TemporaryDirectory(prefix="ak-test-checks-boxed-")
+        # A suite may fill a cache in HOME; only worker turns are walled. Its /tmp is the box's.
+        outside = tempfile.TemporaryDirectory(prefix="ak-test-checks-boxed-", dir="/tmp")
         self.addCleanup(outside.cleanup)
         for name in ("proof", "check"):
             with self.subTest(command=name):
-                target = Path(outside.name) / name
-                command = f"echo written > {shlex.quote(str(target))}"
+                cache, scratch = self.root / ".cache" / name, Path(outside.name) / name
+                command = " && ".join(f"mkdir -p {shlex.quote(str(path.parent))} && "
+                                      f"echo written > {shlex.quote(str(path))}"
+                                      for path in (cache, scratch))
                 if name == "proof":
                     result = self.proof(command)
                     self.assertEqual(result["returncode"], 0, result)
                 else:
                     ok, text = self.check(command)
                     self.assertTrue(ok, text)
-                self.assertEqual(target.read_text(), "written\n")
+                self.assertEqual(cache.read_text(), "written\n")
+                self.assertFalse(scratch.exists())
 
     def test_a_box_that_cannot_start_proves_nothing(self):
         # bwrap exits 1 on a mount it cannot make, before its supervisor runs the command.

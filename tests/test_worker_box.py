@@ -294,6 +294,61 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual(json.loads(text)["paths"], [""] * len(paths))
         self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * len(paths))
 
+    def test_a_box_reaches_no_host_socket(self):
+        # Host services run commands for whoever connects, outside the box: a tmux server in
+        # /tmp, the user's service manager in the runtime directory, a daemon anywhere else.
+        # Links in /tmp give the two in this checkout names short enough to bind.
+        tmp = tempfile.TemporaryDirectory(prefix="ak-test-sockets-", dir="/tmp")
+        self.addCleanup(tmp.cleanup)
+        tmp = Path(tmp.name)
+        work, runtime, outside = (self.root / name for name in ("work", "runtime", "outside"))
+        for directory in (work, runtime, outside):
+            directory.mkdir()
+        (tmp / "runtime").symlink_to(runtime)
+        (tmp / "outside").symlink_to(outside)
+        for name in ("s", "runtime/s", "outside/s"):
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.addCleanup(listener.close)
+            listener.bind(str(tmp / name))
+            listener.listen(1)
+        # Each is reached where it lives, by a relative name that fits AF_UNIX.
+        probe = (
+            "import json, os, socket, sys, tempfile\n"
+            "def reach(directory):\n"
+            "    with socket.socket(socket.AF_UNIX) as client:\n"
+            "        try:\n"
+            "            os.chdir(directory)\n"
+            "            client.connect('s')\n"
+            "            return True\n"
+            "        except OSError:\n"
+            "            return False\n"
+            "seen = {name: reach(path) for name, path in json.loads(sys.argv[1]).items()}\n"
+            "try:\n"
+            "    own = tempfile.mkdtemp(dir='/tmp')\n"
+            "    server = socket.socket(socket.AF_UNIX)\n"
+            "    server.bind(os.path.join(own, 's'))\n"
+            "    server.listen(1)\n"
+            "    seen['own'] = reach(own)\n"
+            "except OSError:\n"
+            "    seen['own'] = False\n"
+            "print(json.dumps(seen))\n")
+        argv = [sys.executable, "-c", probe,
+                json.dumps({"tmp": str(tmp), "runtime": str(runtime), "outside": str(outside)})]
+        unboxed = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+        self.assertEqual({**json.loads(unboxed.stdout), "own": None},
+                         {"tmp": True, "runtime": True, "outside": True, "own": None}, unboxed.stderr)
+        for walls in (True, False):
+            out = self.root / f"out-{walls}"
+            out.mkdir()
+            with self.subTest(walls=walls), patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(runtime)}):
+                with box.command(argv, dict(os.environ), out, cwd=work, walls=walls) as (cmd, env, spawn):
+                    spawn.pop("stop")
+                    result = subprocess.run(cmd, env=env, cwd=work, capture_output=True, text=True,
+                                            timeout=30, **spawn)
+                self.assertEqual((result.returncode, json.loads(result.stdout or "{}")),
+                                 (0, {"tmp": False, "runtime": False, "outside": False, "own": True}),
+                                 result.stderr)
+
     def test_a_relative_home_hides_the_keys_where_the_turn_reads_them(self):
         # The turn resolves HOME=home in its own directory, not in the launcher's.
         key = self.root / "home/.ssh/id_fixture"

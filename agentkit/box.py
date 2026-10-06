@@ -13,12 +13,13 @@ import select
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from string import Template
 
 # What a box never passes on: GitHub tokens, and the SSH agent's address.
@@ -138,13 +139,13 @@ def _paths(names, env, cwd):
         yield path if path.is_absolute() else Path(cwd or os.getcwd()) / path
 
 
-def _walls(cmd, clean, cwd, out_dir, state, places, logins):
-    """Make all but the turn's own places read-only; return where its scratch mounts go."""
+def _walls(cmd):
+    """Make the whole filesystem read-only, keeping devices usable."""
     cmd.extend(["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"])
     # A read-only bind disables devices too. Restore the nodes, leaving their
     # directories read-only so ordinary files cannot fill the host's /dev tmpfs.
     for device in Path("/dev").rglob("*"):
-        # The turn gets disk-backed shm below; do not bind the host's transient files.
+        # The box gets disk-backed shm; do not bind the host's transient files.
         if device.is_relative_to("/dev/shm"):
             continue
         # ptmx needs its devpts mount; binding one inode breaks terminal allocation.
@@ -157,7 +158,10 @@ def _walls(cmd, clean, cwd, out_dir, state, places, logins):
             option = "--dev-bind" if device.is_char_device() or device.is_block_device() else "--ro-bind"
             cmd.extend([option, str(device), str(device)])
     cmd.extend(["--remount-ro", "/dev"])
-    at = len(cmd)
+
+
+def _writable(clean, cwd, out_dir, state, places, logins):
+    """The command's own places: its workspace and Git storage, out dir and harness state."""
     writable = set()
     for path in [*_paths(state, clean, cwd), *map(Path, places)]:
         path = path.resolve()
@@ -185,12 +189,29 @@ def _walls(cmd, clean, cwd, out_dir, state, places, logins):
             writable.update((workspace / path).resolve() for path in result.stdout.splitlines())
     if out_dir is not None:
         writable.add(Path(out_dir).resolve())
-    for path in sorted(writable):
-        # A redundant file mount prevents atomic refresh within its writable parent.
-        if any(parent in writable for parent in path.parents):
+    return writable
+
+
+def _sockets(own):
+    """Every Unix socket bound on the host now, but those in the box's own places.
+
+    A host service runs commands for whoever connects, outside the box. Abstract names have no
+    file to cover, and a relative one names a place in a directory the list does not give."""
+    found = set()
+    for line in Path("/proc/net/unix").read_text().splitlines()[1:]:
+        fields = line.split(None, 7)
+        if len(fields) < 8 or not fields[7].startswith("/"):
             continue
-        cmd.extend(["--bind", str(path), str(path)])
-    return at
+        try:
+            path = Path(fields[7]).resolve(strict=True)
+            if not stat.S_ISSOCK(path.stat().st_mode):
+                continue
+        except (OSError, RuntimeError):
+            # Gone, or a name no longer leading to a socket: nothing to connect to there.
+            continue
+        if not any(parent in own for parent in path.parents):
+            found.add(path)
+    return found
 
 
 @contextmanager
@@ -199,16 +220,32 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
-    directories the command may also write. Without walls every write stays as it is outside: a check runs a project's own
-    suite, which writes where that project says, like a log in /tmp.
+    directories the command may also write. With an out dir, /tmp, /var/tmp, /dev/shm and the
+    runtime directory are the box's own. Without walls every other write stays as it is outside:
+    a check runs a project's own suite, which writes where that project says, like a cache in HOME.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
            "--new-session"]
     if walls:
-        at = _walls(cmd, clean, cwd, out_dir, state, places, logins)
+        _walls(cmd)
     else:
         cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
+    at = len(cmd)
+    writable = _writable(clean, cwd, out_dir, state, places, logins)
+    for path in sorted(writable):
+        # A redundant file mount prevents atomic refresh within its writable parent.
+        if any(parent in writable for parent in path.parents):
+            continue
+        cmd.extend(["--bind", str(path), str(path)])
+    # With an out dir the box has its own temporary places and an empty runtime directory, where
+    # host services such as the tmux server and the user's service manager listen.
+    runtimes = {Path(f"/run/user/{os.getuid()}")}
+    if clean.get("XDG_RUNTIME_DIR"):
+        runtimes.add(Path(cwd or os.getcwd()) / clean["XDG_RUNTIME_DIR"])
+    private = set() if out_dir is None else {
+        path.resolve() for path in (Path("/tmp"), Path("/var/tmp"), Path("/dev/shm"), *runtimes)
+        if path.is_dir()}
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
     try:
@@ -228,6 +265,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                       if path == real or not os.access(path, os.R_OK | os.X_OK))
         raise config.Error(f"{closed} is closed to you, so the worker box cannot see what it must "
                            f"hide there; run `chmod u+rx {shlex.quote(str(closed))}`") from None
+    targets.update(_sockets(writable | private))
     folders = {path for path in targets if path.is_dir()}
     for path in sorted(targets):
         # Inside a hidden folder it is gone already, and no mount point can be made there.
@@ -281,18 +319,16 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         except subprocess.TimeoutExpired:
             proc.kill()
 
-    with (tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) if walls
-          else nullcontext()) as scratch:
-        if scratch is not None:
-            mounts = []
-            for name, destination in (("tmp", "/var/tmp"), ("shm", "/dev/shm")):
-                source = Path(scratch) / name
-                source.mkdir()
-                mounts.extend(["--bind", str(source), destination])
-            # Short aliases allow Unix sockets even when out has a long run id. Bind
-            # these first so a workspace or declared state under /var/tmp still wins.
-            cmd[at:at] = mounts
-            clean["TMPDIR"] = "/var/tmp"
+    with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
+        mounts = []
+        for destination in sorted(private):
+            source = Path(scratch, *destination.parts[1:])
+            source.mkdir(parents=True, exist_ok=True)
+            mounts.extend(["--bind", str(source), str(destination)])
+        # Bind these first so a workspace or declared state under /tmp still wins. A short
+        # TMPDIR allows Unix sockets even when out has a long run id.
+        cmd[at:at] = mounts
+        clean["TMPDIR"] = "/tmp"
         try:
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop}
