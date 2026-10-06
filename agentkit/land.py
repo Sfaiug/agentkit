@@ -45,6 +45,32 @@ def passed(turn, tree):
     return _trees(turn)[1].get(tree)
 
 
+def _target_checked(turn, target_tree):
+    """Has the target tree itself passed under this lander's ak commit?"""
+    target = passed(turn, target_tree) or {}
+    return target.get("tested") == target_tree and target.get("code") == _code()
+
+
+def _target_passes(turn, directory, state, scratch, tip, upstream, target_tree, leader, log):
+    """Run the target's own suite at `tip` in `scratch`: True once it passes (and recorded),
+    or with no suite to run; otherwise its repair starts and the answer is False."""
+    from . import run
+    suite = run.declared_suite(scratch, ref=tip)
+    if not suite:
+        return True
+    ok, probe = _check(directory, state, scratch, [suite], directory / "target-probe.log", log)
+    if ok:
+        note(turn, [target_tree], leader, checks=[suite])
+        return True
+    printed = "\n".join("    " + line for line in probe[-run.OUT_CAP:].splitlines())
+    red = {"probe": {"command": suite, "check": f"{suite}  # once", "sha": tip,
+                     "text": f"`{suite}` fails on {upstream} at {tip}, the target's own tip, "
+                             f"whichever branch runs it. What it printed there:\n\n{printed}"}}
+    note(turn, [], leader, red={target_tree: red})
+    _repair(turn, directory, state, target_tree, red, log)
+    return False
+
+
 @functools.cache
 def _code():
     """The ak commit this lander checks under: a pass another commit's lander saw may not hold."""
@@ -361,6 +387,16 @@ def _member_commit(repo, state, head):
     return run.git_out(repo, "fetch", "--no-tags", "--no-write-fetch-head", "--", str(source), head)
 
 
+def _scratch(repo, commit, opened):
+    """(scratch, exit code, output): `commit` checked out detached in a scratch the lander owns."""
+    from . import run
+    scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix="land-")))
+    opened.callback(os.close, os.open(scratch, os.O_RDONLY))
+    code, out = run.add_worktree(repo, scratch, "--detach", commit, mark=SCRATCH_MARK)
+    opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
+    return scratch, code, out
+
+
 def _stack_member(repo, state, top, upstream, opened):
     """Integrate a reviewed head in scratch; no scratch means setup failed."""
     from . import run
@@ -368,10 +404,7 @@ def _stack_member(repo, state, top, upstream, opened):
     code, out = _member_commit(repo, state, head)
     if code:
         return None, f"[exit {code}]\nERROR: reviewed commit {head} is unavailable\n{out}"
-    scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix="land-")))
-    opened.callback(os.close, os.open(scratch, os.O_RDONLY))
-    code, out = run.add_worktree(repo, scratch, "--detach", head, mark=SCRATCH_MARK)
-    opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
+    scratch, code, out = _scratch(repo, head, opened)
     if code:
         return None, f"[exit {code}]\nERROR: checkout of {head} failed\n{out}"
     lp = SimpleNamespace(state=state, wt=scratch,
@@ -460,9 +493,22 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
             suite = run.declared_suite(stacks[0][2], ref=tip)
             if limit is None:
                 limit = gate.whole_checks_that_fit(suite)
-            # Only this lander's ak commit answers: another's pass or failure is checked again.
-            green, red = ({tree: entry for tree, entry in _trees(turn, kind)[1].items()
-                           if entry.get("code") == _code()} for kind in ("trees", "red_stacks"))
+            # A failure counts only from this lander's ak commit.  A pass from an earlier one
+            # counts once the target itself passes under this commit: an ak update that broke
+            # the checks shows on main first, so main is checked again, not every stack.
+            green = _trees(turn)[1]
+            red = {tree: entry for tree, entry in _trees(turn, "red_stacks")[1].items()
+                   if entry.get("code") == _code()}
+            if (not _target_checked(turn, target_tree) and not state.get("repair")
+                    and any(green.get(tree, {}).get("code") not in (None, _code())
+                            for _, _, _, tree, _ in stacks)):
+                probe, code, _ = _scratch(repo, tip, opened)
+                if code or not _target_passes(turn, directory, state, probe, tip, upstream,
+                                              target_tree, directory.name, log):
+                    return verdicts
+            if not _target_checked(turn, target_tree):
+                green = {tree: entry for tree, entry in green.items()
+                         if entry.get("code") == _code()}
             # The first stack has no green prefix to attribute a cached failure to.
             # Retry its own check after a kill or flake; later evidence survives a crash.
             if not prefix:
@@ -538,31 +584,14 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         break
                     # A target another lander's code passed may fail under this one's: its
                     # failure is the target's, never this member's.
-                    target = passed(turn, target_tree) or {}
                     if (index == 0 and not prefix and "fix" in answer
-                            and not saved.get("repair")
-                            and (target.get("tested") != target_tree
-                                 or target.get("code") != _code())):
+                            and not saved.get("repair") and not _target_checked(turn, target_tree)):
                         run.git(scratch, "reset", "--hard", tip)
                         run.git(scratch, "clean", "-fdx")
-                        suite = run.declared_suite(scratch, ref=tip)
-                        if suite:
-                            ok, probe = _check(member, saved, scratch, [suite],
-                                               member / "target-probe.log", log)
-                            if ok:
-                                note(turn, [target_tree], directory.name, checks=[suite])
-                            else:
-                                printed = "\n".join("    " + line
-                                                    for line in probe[-run.OUT_CAP:].splitlines())
-                                red = {"probe": {"command": suite, "check": f"{suite}  # once",
-                                       "sha": tip,
-                                       "text": f"`{suite}` fails on {upstream} at {tip}, the target's "
-                                               f"own tip, whichever branch runs it. What it printed "
-                                               f"there:\n\n{printed}"}}
-                                note(turn, [], directory.name, red={target_tree: red})
-                                _repair(turn, member, saved, target_tree, red, log)
-                                target_red = True
-                                return
+                        if not _target_passes(turn, member, saved, scratch, tip, upstream,
+                                              target_tree, directory.name, log):
+                            target_red = True
+                            return
                     if member not in verdicts:
                         if "land" in answer:
                             answer = {**answer, "after": {
