@@ -698,13 +698,32 @@ class RulebookNews(Sandbox):
         git(upstream, "commit", "-qam", "rule two")
         broken = self.root / "a-acme-archived"          # sorted first, and no repository
         broken.mkdir()
+        gone = self.root / "b-acme-gone"                # its directory deleted since
         config.update_session(SEAT, repo=str(checkout))
-        config.save_session(self.cfg, "acme-archived", "opus", ["astra"],
-                            {"cwd": str(broken), "repo": str(broken), **OWNED})
+        for name, path in (("acme-archived", broken), ("acme-gone", gone)):
+            config.save_session(self.cfg, name, "opus", ["astra"],
+                                {"cwd": str(path), "repo": str(path), **OWNED})
         with patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(self.root)}), \
-                self.assertRaisesRegex(config.Error, "a-acme-archived"):
+                self.assertRaisesRegex(config.Error, "a-acme-archived.*; .*b-acme-gone"):
             orch.fetch_projects()
         self.assertIn("Acme policy two.", config.seat_rulebook(SEAT))
+
+    def test_a_project_whose_name_ends_in_whitespace_is_read_and_fetched(self):
+        git = self.git
+        upstream = self.root / "acme-origin"
+        git(self.root, "init", "-q", "-b", "main", str(upstream))
+        (upstream / "AGENTS.md").write_text("# Acme\n\nAcme policy one.\n")
+        git(upstream, "add", "AGENTS.md")
+        git(upstream, "commit", "-qm", "rules")
+        for name in ("acme ", "acme\t", "acme\n"):
+            with self.subTest(repr(name)):
+                checkout = self.root / name
+                git(self.root, "clone", "-q", str(upstream), str(checkout))
+                (upstream / "AGENTS.md").write_text(f"# Acme\n\nAcme policy for {name!r}.\n")
+                git(upstream, "commit", "-qam", "rule two")
+                config.update_session(SEAT, repo=str(checkout))
+                orch.fetch_projects()
+                self.assertIn(f"Acme policy for {name!r}.", config.seat_rulebook(SEAT))
 
     def test_a_project_whose_repository_moved_away_gets_neither_its_parent_s_rules_nor_fetch(self):
         git = self.git

@@ -2139,10 +2139,11 @@ def fetch_project(repo):
     """Bring `repo`'s `origin/HEAD` -- what `config.seat_rulebook` reads -- up to origin's default
     branch as it is now: every branch fetched, as a run fetches before cutting its base, whatever
     the clone's own refspec follows, then `origin/HEAD` pointed again at the branch origin calls
-    default, created where the checkout has none and moved where origin changed it.  A
-    directory that is no longer a checkout of its own fetches nothing (`config.own_checkout`)."""
+    default, created where the checkout has none and moved where origin changed it.  A path
+    that holds no checkout of its own -- gone, or its `.git` moved away so that git would find a
+    parent directory's -- fetches nothing."""
     from . import run
-    if not config.own_checkout(repo):
+    if git_dirs(repo) is None:
         raise config.Error(f"{repo} is not a repository of its own")
     run.fetch(repo, "--quiet", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*",
               check=True)
@@ -2159,11 +2160,10 @@ def fetch_projects():
     failed = []
     for repo in sorted({record["repo"] for record in config.session_records().values()
                         if record.get("repo")}):
-        if Path(repo).is_dir():
-            try:
-                fetch_project(Path(repo))
-            except config.Error as exc:
-                failed.append(str(exc))
+        try:
+            fetch_project(Path(repo))
+        except config.Error as exc:
+            failed.append(str(exc))
     if failed:
         raise config.Error("; ".join(failed))
 

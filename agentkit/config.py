@@ -1242,10 +1242,14 @@ def agents_body(repo, ref):
     if not repo or not ref:
         return ""
 
+    # git looks no higher than `repo`: one whose `.git` was moved away would find a parent
+    # directory's repository, whose rules are another project's
+    env = {**os.environ, "GIT_CEILING_DIRECTORIES": os.path.dirname(os.path.abspath(repo))}
+
     def git(*args):
         return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True,
                               encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                              timeout=60).stdout
+                              env=env, timeout=60).stdout
 
     try:
         listed = git("ls-tree", ref, "--", "AGENTS.md").split()
@@ -1259,20 +1263,6 @@ def agents_body(repo, ref):
     return (text[match.end():] if match else text).strip()
 
 
-def own_checkout(repo):
-    """Whether `repo` is the top of a checkout of its own.  One whose `.git` was moved away
-    leaves git to find a parent directory's repository, whose rules and remote are another
-    project's."""
-    if not repo:
-        return False
-    try:
-        top = subprocess.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"],
-                             capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                             timeout=60).stdout.strip()
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return bool(top) and Path(top).resolve() == Path(repo).resolve()
-
 
 def seat_rulebook(session, repo=None):
     """What `session`'s rulebook file holds when it opens now: `rulebook_text`, the AGENTS.md of
@@ -1283,7 +1273,7 @@ def seat_rulebook(session, repo=None):
     record = session_records().get(session, {})
     repo = record.get("repo") if repo is None else repo
     # the full name: a branch or tag called origin/HEAD would win the short one
-    project = agents_body(repo, "refs/remotes/origin/HEAD") if own_checkout(repo) else ""
+    project = agents_body(repo, "refs/remotes/origin/HEAD")
     if project:
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "
