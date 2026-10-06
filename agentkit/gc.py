@@ -474,9 +474,11 @@ def clear_tree(tree, report):
     dirs = orch.git_dirs(tree)
     retention.remove(tree, directory=True, ignore_errors=True)
     if dirs is not None and dirs[1] and dirs[0].is_dir():
+        # named, not found by looking: git's safe.bareRepository refuses one it only finds
+        named = f"--git-dir={dirs[0]}"
         try:
-            run.git(dirs[0], "worktree", "unlock", str(tree), check=False)
-            run.git(dirs[0], "worktree", "prune", check=False)
+            run.git(dirs[0], named, "worktree", "unlock", str(tree), check=False)
+            run.git(dirs[0], named, "worktree", "prune", check=False)
         except run.Stopped as exc:
             report(f"gc: {tree}: {exc}")
 

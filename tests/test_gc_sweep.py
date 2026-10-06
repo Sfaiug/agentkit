@@ -567,7 +567,10 @@ class GcSweep(Sandbox):
         (linked / ".git").symlink_to(self.repo / ".git" / "worktrees" / "linked")
         for wt in (bare, relative, linked):
             self.aged(wt, 2 * DAY)
-        self.gc()
+        # git's hardening that refuses a bare repository it would only find by looking
+        with patch.dict(os.environ, {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.bareRepository",
+                                     "GIT_CONFIG_VALUE_0": "explicit"}):
+            self.gc()
         for repo, wt in ((self.root / "bare.git", bare), (self.repo, relative), (self.repo, linked)):
             self.assertFalse(wt.exists(), wt)
             self.git(repo, "worktree", "add", "-q", str(self.root / f"again-{wt.name}"), f"seat/{wt.name}")
