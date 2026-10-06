@@ -50,7 +50,8 @@ class GrokSandbox(unittest.TestCase):
         stack = ExitStack()
         self.addCleanup(stack.close)
         stack.enter_context(patch.object(config, "HOME", self.home / ".agentkit"))
-        stack.enter_context(patch.object(config, "STATE", self.state))
+        for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
+            stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.home), "GROK_HOME": str(self.grok_home),
             "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}",
@@ -695,6 +696,12 @@ class MeterlessNeverDry(GrokSandbox):
 
 
 class ScreenRules(GrokSandbox):
+    def test_state_directories_stay_inside_temporary_home(self):
+        escaped = [name for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK")
+                   if not getattr(config, name).is_relative_to(self.home)]
+        self.assertEqual(escaped, [], "ensure_dirs must only touch the temporary HOME")
+        config.ensure_dirs()
+
     def test_screen_rules_classify_the_fixture_captures(self):
         for name, state, rule in (
                 ("grok-prompt-pane", "at_prompt", "prompt.composer"),
