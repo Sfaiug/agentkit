@@ -1016,6 +1016,11 @@ def rename_session(old, new):
     if target not in (old, new):
         raise Error(f"{new!r} points at another session; pick a name that is not a rename")
     ensure_dirs()
+    if target == new:
+        # a free name: the plan a gone seat left there, or under a name still leading there,
+        # is not this seat's
+        from . import plan
+        plan.forget(new)
     # under both records' locks: a field written to the old one meanwhile moves with it
     with _record_lock(session_path(old)), _record_lock(session_path(new)):
         selection = _read_json(session_path(old))

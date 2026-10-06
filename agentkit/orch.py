@@ -3791,7 +3791,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         from . import notify
         notify.forget_card(name)
         config.notify_path(name).unlink(missing_ok=True)
-        config.plan_path(name).unlink(missing_ok=True)
+        plan.forget(name)
     if dry_run:
         print(f"orch: {model} ({reason})")
         print(f"session {name} in {cwd} (new)")

@@ -412,21 +412,33 @@ class PlanLines(Sandbox):
         self.assertIn("The seat's plan cannot be read", text)
         self.assertIn("ak run status", text)
 
+    def gone_seat_with_plans(self):
+        """fix-api, renamed to ship-api and back: its older plan stays under ship-api, a name
+        still leading to it, and its newer one under fix-api."""
+        config.save_session(self.cfg, "fix-api", "opus", ["opus"], {"cwd": str(self.root)})
+        config.plan_path("fix-api").write_text("- [ ] the gone seat's outcome\n")
+        config.rename_session("fix-api", "ship-api")
+        config.plan_path("fix-api").write_text("- [ ] the gone seat's later outcome\n")
+        config.rename_session("ship-api", "fix-api")
+        self.assertTrue(config.plan_path("ship-api").exists())
+
     def test_a_new_seat_under_a_used_name_starts_without_a_plan(self):
-        for retired, renamed in (("old", None), ("fix-api", "ship-api")):
-            with self.subTest(renamed=renamed):
-                config.save_session(self.cfg, retired, "opus", ["opus"], {"cwd": str(self.root)})
-                config.plan_path(retired).write_text("- [ ] the retired seat's outcome\n")
-                if renamed:
-                    config.rename_session(retired, renamed)
-                    config.session_path(retired).unlink()
-                name = renamed or retired
-                config.session_path(name).unlink()       # retired
-                with patch.object(usage, "collect", return_value={}), \
-                        patch.object(orch, "launch"), redirect_stdout(io.StringIO()):
-                    orch.create(self.cfg, name, self.root, forced="astra", forced_workers="opus")
+        # under its own name, and under a name a pointer still leads to it from
+        self.gone_seat_with_plans()
+        with patch.object(usage, "collect", return_value={}), \
+                patch.object(orch, "launch"), redirect_stdout(io.StringIO()):
+            orch.create(self.cfg, "fix-api", self.root, forced="astra", forced_workers="opus")
+        self.assertEqual(watch.plan_text("fix-api"), "")
+
+    def test_a_seat_renamed_into_a_freed_name_starts_without_a_plan(self):
+        self.gone_seat_with_plans()
+        config.session_path("fix-api").unlink()        # retired: record and pointer gone
+        config.session_path("ship-api").unlink()
+        config.save_session(self.cfg, "newer", "opus", ["opus"], {"cwd": str(self.root)})
+        for name in ("ship-api", "fix-api"):
+            with self.subTest(name=name):
+                config.rename_session(config.resolve_session("newer"), name)
                 self.assertEqual(watch.plan_text(name), "")
-                config.session_path(name).unlink()
 
     def test_rename_during_done_keeps_all_requirements(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
