@@ -193,39 +193,37 @@ def _writable(clean, cwd, out_dir, state, places, logins):
 
 
 def _sockets(own):
-    """Where to cover every Unix socket bound on the host now, but those in the box's own places.
+    """Where to cover each Unix socket now listening on the host, so a connect is refused.
 
-    A host service runs commands for whoever connects, outside the box. Abstract names have no
-    file to cover, and a relative one names a place in a directory the list does not give."""
-    found = set()
+    A host service runs commands for whoever connects, outside the box. The cover goes as deep
+    as both we and bubblewrap can descend: on the socket itself when every directory above it is
+    ours to enter, else on the shallowest one that is not, which hides the socket and whatever a
+    walls-off command could reopen under it. A socket inside one of the box's own writable or
+    temporary places is its own to reach, and a cover that would hide such a place is dropped: it
+    cannot be both hidden and the box's. An abstract or relative name has no path here to cover.
+    """
+    covers = set()
     for line in Path("/proc/net/unix").read_text().splitlines()[1:]:
         fields = line.split(None, 7)
         if len(fields) < 8 or not fields[7].startswith("/"):
             continue
-        try:
-            path = Path(fields[7]).resolve(strict=True)
-            if not stat.S_ISSOCK(path.stat().st_mode):
+        raw = Path(fields[7])
+        blocked = next((p for p in reversed(raw.parents) if not os.access(p, os.X_OK)), None)
+        if blocked is not None:
+            target = blocked
+        else:
+            try:
+                target = raw.resolve(strict=True)
+                if not stat.S_ISSOCK(target.stat().st_mode):
+                    continue
+            except (OSError, RuntimeError):
+                # Gone before the scan, or no longer a socket: nothing to reach there.
                 continue
-        except (OSError, RuntimeError):
-            # Gone, or a name no longer leading to a socket: nothing to connect to there.
+        if any(place == target or place in target.parents or target in place.parents
+               for place in own):
             continue
-        if any(parent in own for parent in path.parents):
-            continue
-        # Bubblewrap opens each directory on the way to a mount point: one closed to you is
-        # covered whole.
-        found.add(next((parent for parent in reversed(path.parents)
-                        if not os.access(parent, os.R_OK)), path))
-    return found
-
-
-def _inside():
-    """Is this inside a box? Its PID 1 is then the supervisor, reporting to its out dir."""
-    try:
-        argv = Path("/proc/1/cmdline").read_bytes().split(b"\0")
-    except OSError:
-        return False
-    return (argv[1:3] == [b"-I", b"-c"] and len(argv) > 4
-            and argv[4].endswith(f"/{PROCESSES}".encode()))
+        covers.add(target)
+    return covers
 
 
 @contextmanager
@@ -235,9 +233,9 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
     directories the command may also write. With an out dir, /tmp, /var/tmp, /dev/shm and the
-    runtime directory are the box's own, but inside a box /tmp is that box's. Without walls every
-    other write stays as it is outside: a check runs a project's own suite, which writes where
-    that project says, like a cache in HOME.
+    runtime directory are the box's own, empty. Without walls every other write stays as it is
+    outside: a check runs a project's own suite, which writes where that project says, like a
+    cache in HOME.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
@@ -247,17 +245,19 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     else:
         cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
     # Host services such as the tmux server and the user's service manager listen in the temporary
-    # places and the runtime directory. With an out dir the box has its own, on disk there, and
-    # reaches no other socket of the host's. A box inside a box keeps that box's /tmp, where a
-    # suite keeps what the boxes its checks start use.
+    # places and the runtime directory. With an out dir the box gets its own of each, empty on
+    # disk there, and reaches no other socket of the host's.
     writable = _writable(clean, cwd, out_dir, state, places, logins)
-    temporary = ["/var/tmp", "/dev/shm", f"/run/user/{os.getuid()}"]
-    if out_dir is not None and _inside():
-        writable.add(Path("/tmp").resolve())
-    else:
-        temporary.append("/tmp")
-    private = set() if out_dir is None else {
-        path.resolve() for path in map(Path, temporary) if path.is_dir()}
+    private = set()
+    if out_dir is not None:
+        private = {path.resolve() for path in map(Path, ("/tmp", "/var/tmp", "/dev/shm"))
+                   if path.is_dir()}
+        # The runtime directory is $XDG_RUNTIME_DIR and the uid's own; a relative value names a
+        # place in the command's own directory. Keep an absent one too, to cover a later socket.
+        runtime = {Path(f"/run/user/{os.getuid()}"),
+                   *((Path(cwd or os.getcwd()) / clean["XDG_RUNTIME_DIR"],)
+                     if clean.get("XDG_RUNTIME_DIR") else ())}
+        private |= {path.resolve() if path.exists() else path for path in runtime}
     at = len(cmd)
     for path in sorted(writable):
         # A redundant file mount prevents atomic refresh within its writable parent.
@@ -343,6 +343,10 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         for destination in sorted(private):
             source = Path(scratch, *destination.parts[1:])
             source.mkdir(parents=True, exist_ok=True)
+            # A read-only root cannot grow a mount point, so an absent runtime directory
+            # gets a fresh parent to hold its own empty one.
+            if not destination.exists():
+                mounts.extend(["--tmpfs", str(destination.parent)])
             mounts.extend(["--bind", str(source), str(destination)])
         # Short aliases allow Unix sockets even when out has a long run id. Bind
         # these first so a workspace or declared state under /tmp or /var/tmp still wins.

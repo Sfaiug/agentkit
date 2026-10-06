@@ -112,7 +112,15 @@ def reach(path):
             return True
         except OSError:
             return False
-seen = {name: reach(path) for name, path in json.loads(sys.argv[1]).items()}
+seen = {}
+for name, path in json.loads(sys.argv[1]).items():
+    if name == "closed":
+        # A walls-off command can chmod a host directory back open; the cover must already hide it.
+        try:
+            os.chmod(os.path.dirname(path), 0o700)
+        except OSError:
+            pass
+    seen[name] = reach(path)
 own = os.path.join(tempfile.mkdtemp(dir="/tmp"), "s")
 with socket.socket(socket.AF_UNIX) as server:
     server.bind(own)
@@ -126,7 +134,8 @@ from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
 root, probe = Path(sys.argv[1]), sys.argv[2]
-paths = {"tmp": "/tmp/host/s", "runtime": f"/run/user/{os.getuid()}/s", "outside": "/run/acme/s"}
+paths = {"tmp": "/tmp/host/s", "runtime": f"/run/user/{os.getuid()}/s", "outside": "/run/acme/s",
+         "closed": "/run/shut/s"}
 listeners = []
 for path in paths.values():
     Path(path).parent.mkdir(parents=True)
@@ -139,37 +148,14 @@ seen = {"unboxed": json.loads(subprocess.run(argv, capture_output=True, text=Tru
 for name, walls in (("walls", True), ("no walls", False)):
     out = root / name
     out.mkdir()
+    # Shut to us at scan: bubblewrap cannot descend it, so the whole directory is covered.
+    Path("/run/shut").chmod(0)
     with box.command(argv, dict(os.environ), out, cwd=root, walls=walls) as (cmd, env, spawn):
         spawn.pop("stop")
         result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
                                 timeout=30, **spawn)
     seen[name] = json.loads(result.stdout) if result.returncode == 0 else result.stderr
 print(json.dumps(seen))
-'''
-
-
-# At depth 1 a box without walls leaves a file in its /tmp; the walled box it starts reads it and
-# writes back. The host's /tmp never sees the parent's file.
-NESTED = r'''import os, subprocess, sys
-from pathlib import Path
-sys.path.insert(0, os.environ["BOX_REPO"])
-from agentkit import box
-root, depth = Path(sys.argv[1]), int(sys.argv[2])
-if depth == 0:
-    Path("/tmp/child").write_text(Path("/tmp/parent").read_text())
-    sys.exit(0)
-if depth == 1:
-    Path("/tmp/parent").write_text("parent")
-out = root / str(depth)
-out.mkdir()
-argv = [sys.executable, "-c", sys.argv[3], str(root), str(depth - 1), sys.argv[3]]
-with box.command(argv, dict(os.environ), out, cwd=root, walls=depth == 1) as (cmd, env, spawn):
-    spawn.pop("stop")
-    code = subprocess.run(cmd, env=env, cwd=root, timeout=60, **spawn).returncode
-if depth == 1:
-    print(Path("/tmp/child").read_text(), end=" ", flush=True)
-else:
-    print(Path("/tmp/parent").exists(), code)
 '''
 
 
@@ -376,15 +362,14 @@ class WorkerBox(unittest.TestCase):
 
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in
-        # /tmp, the user's service manager in the runtime directory, a daemon anywhere else.
+        # /tmp, the user's service manager in the runtime directory, a daemon anywhere else,
+        # one inside a directory shut to us. With walls and without, the box reaches none, and
+        # the socket it makes in its own /tmp it still reaches.
         seen = json.loads(self.host(SOCKETS, PROBE))
-        hidden = {"tmp": False, "runtime": False, "outside": False, "own": True}
-        self.assertEqual(seen, {"unboxed": {"tmp": True, "runtime": True, "outside": True, "own": True},
+        reachable = dict.fromkeys(("tmp", "runtime", "outside", "closed"), True)
+        hidden = {**dict.fromkeys(("tmp", "runtime", "outside", "closed"), False), "own": True}
+        self.assertEqual(seen, {"unboxed": {**reachable, "own": True},
                                 "walls": hidden, "no walls": hidden})
-
-    def test_a_box_inside_a_box_keeps_its_parents_places(self):
-        # A suite keeps its sandboxes in its box's /tmp, and the turns its checks start use them.
-        self.assertEqual(self.host(NESTED, "2", NESTED), "parent False 0\n")
 
     def test_a_relative_home_hides_the_keys_where_the_turn_reads_them(self):
         # The turn resolves HOME=home in its own directory, not in the launcher's.
