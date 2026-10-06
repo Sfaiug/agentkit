@@ -45,6 +45,19 @@ class RenameChainOneHop(Sandbox):
             with self.subTest(name=name):
                 self.assertEqual(self.pointer(name), {"renamed": "fix-api"})
 
+    def test_a_chain_left_deeper_than_a_walk_follows_recovers_at_the_next_rename(self):
+        # what rename_session wrote before this: each old name pointing at the next
+        names = ["fix-api", *(f"fix-api-{n}" for n in range(1, config.RENAME_HOPS + 2))]
+        config.rename_session("fix-api", names[-1])
+        for old, new in zip(names, names[1:]):
+            config.session_path(old).write_text(json.dumps({"renamed": new}))
+        with self.assertRaises(config.Error):
+            config.resolve_session("fix-api")
+        config.rename_session(names[-1], "fix-api-next")
+        for name in names:
+            with self.subTest(name=name):
+                self.assertEqual(self.pointer(name), {"renamed": "fix-api-next"})
+
     def test_another_seats_pointers_stay_as_they_are(self):
         config.save_session(self.cfg, "other-api", "opus", ["opus"], {"cwd": str(self.root)})
         config.rename_session("other-api", "other-api-2")

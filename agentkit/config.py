@@ -1030,17 +1030,24 @@ def rename_session(old, new):
             # A legacy seat has no selection to overwrite its former pointer with.
             session_path(new).unlink(missing_ok=True)
         _write_json(session_path(old), {"renamed": new}, prepare=False)
-    # Every older name of this seat points at `old`: it points at `new` now, so no chain grows
-    # past one rename however often a seat is renamed (its title follows the conversation).
-    for name, data in _session_files():
-        if name == new or normalize_session(data.get("renamed")) != old:
+    # Every older name of this seat leads to `old`, straight or through its other old names: it
+    # points at `new` now, so no chain passes one rename however often a seat is renamed (its
+    # title follows the conversation), and a chain left deeper than a walk follows recovers.
+    pointers = {name: normalize_session(data["renamed"]) for name, data in _session_files()
+                if isinstance(data.get("renamed"), str)}
+    for name, leads in pointers.items():
+        seen, step = {name}, leads
+        while step != old and step in pointers and step not in seen:
+            seen.add(step)
+            step = pointers[step]
+        if step != old:
             continue
         with _record_lock(session_path(name)):
             try:
                 pointer = _read_json(session_path(name))
             except Error:
                 continue
-            if isinstance(pointer, dict) and normalize_session(pointer.get("renamed")) == old:
+            if isinstance(pointer, dict) and normalize_session(pointer.get("renamed")) == leads:
                 _write_json(session_path(name), {"renamed": new}, prepare=False)
     # The running orchestrator keeps reading the rulebook it was started on, and its hooks keep
     # the turn's latch under the name it was started with.  Back to a name it had, what the
