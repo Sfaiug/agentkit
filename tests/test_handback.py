@@ -74,12 +74,13 @@ class Claude:
     reads as a prompt: what the seat of run 20260923-2146 showed while its turn began.  `takes`
     off leaves every Enter's line in the composer; `fails` makes the next Enter's send fail;
     `dialog` puts the trust dialog over the composer, and an Enter then answers it.  `wrap`
-    draws the real screen instead, its composer between its rules wrapped at that many columns.
+    draws the real screen instead, its composer between its rules wrapped at that many columns,
+    and `folds` shows a composer holding more than that many characters as Claude does.
     """
 
     def __init__(self):
         self.composer, self.read, self.typed, self.chosen = "", [], 0, 0
-        self.takes, self.fails, self.dialog, self.wrap = True, False, False, None
+        self.takes, self.fails, self.dialog, self.wrap, self.folds = True, False, False, None, None
 
     def keys(self, *args, socket=None, client=False, **_kw):
         if args[0] == "send-keys" and args[-2] == "-l":
@@ -106,7 +107,9 @@ class Claude:
             rows = "\n  ".join(textwrap.wrap(self.composer, self.wrap)) or "\u00a0"
             return (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text().replace(
                 "\u276f\u00a0\n", f"\u276f {rows}\n")
-        return "".join(f"> {line}\n\n" for line in self.read) + f"\u276f {self.composer}\n"
+        shown = ("[Pasted text #1]" if self.folds and len(self.composer) > self.folds
+                 else self.composer)
+        return "".join(f"> {line}\n\n" for line in self.read) + f"\u276f {shown}\n"
 
 
 class HandBack(Sandbox):
@@ -368,6 +371,39 @@ class HandBack(Sandbox):
         self.assertEqual((seat.read, seat.composer), ([line], ""))
         self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
                                              cfg=self.cfg, typed=mark))
+
+    def test_a_line_its_composer_cannot_show_whole_still_gets_its_first_enter(self):
+        self.rows = [self.live()]
+        seat = self.claude()
+        fold = watch.screen("claude")["folds_over"]
+        # folded into a paste, or wrapped taller than the rows the composer is read from: either
+        # way the composer was read empty right before the line went in
+        for shape, line, folds, wrap in (
+                ("folded", ("Result: " + "acme-result " * 80).strip(), fold, None),
+                ("taller", ("Result: " + "acme-result " * 55).strip(), None, 40)):
+            with self.subTest(shape=shape):
+                seat.composer, seat.read, seat.folds, seat.wrap = "", [], folds, wrap
+                self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                     cfg=self.cfg))
+                self.assertEqual((seat.read, seat.composer), ([line], ""))
+
+    def test_a_folded_line_waiting_for_its_enter_is_sent_only_once_its_composer_reads_empty(self):
+        self.rows = [self.live()]
+        seat = self.claude()
+        seat.folds = watch.screen("claude")["folds_over"]
+        line = ("Result: " + "acme-result " * 80).strip()
+        marks = []
+        seat.fails = True           # the text goes in and its Enter does not
+        self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                              cfg=self.cfg, receipt=marks.append))
+        # a paste in the composer may be the line or the owner's own: no Enter, and not sent
+        self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                              cfg=self.cfg, typed=marks[-1]))
+        self.assertEqual((seat.read, seat.composer), ([], line))
+        seat.enter()                # the owner sends it
+        self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                             cfg=self.cfg, typed=marks[-1]))
+        self.assertEqual(seat.read, [line])
 
     def test_text_the_owner_types_before_a_lines_first_enter_or_its_retry_is_never_sent(self):
         self.rows = [self.live()]

@@ -2727,21 +2727,20 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     A line goes into a composer once: a second copy is read twice, whether the first was taken
     or still waits for its Enter.  `receipt` is handed a mark the moment the text is in, for the
     ending's own record to keep until its delivery is recorded; given that mark back as `typed`,
-    this only presses Enter, and gone from the composer, read whole under the send lock past any
-    dialog, the seat has it.  A reopened seat is a new one, with an empty composer, and matches
-    no mark.  Every Enter, the first included, goes only to the composer holding the line alone,
-    read right before it under the send lock: the gap before an Enter and the wait before its
-    retry are both time the owner can type in, and an Enter would send their text with it.
-    `stale` is asked under the send lock too, with the name the seat goes by then, before each
-    key: a line that has stopped being this seat's to have is typed no further, and `ready`
-    before each Enter.
+    this only presses Enter, and only while the composer still holds the line alone -- read under
+    the send lock, past any dialog -- and gone from there, read whole, the seat has it.  A line
+    its composer cannot show whole, folded past `[screen] folds_over`, is gone only from a
+    composer read empty.  A reopened seat is a new one, with an empty composer, and matches no
+    mark.  The first Enter and its retry are held back where the composer, read whole right
+    before each under the send lock, holds the owner's text beside the line, or a question is
+    up: the gap before an Enter and the wait before its retry are both time the owner can type
+    in.  A composer that cannot show the line whole shows nothing beside it, and was read empty
+    right before the line went in.  `stale` is asked under the send lock too, with the name the
+    seat goes by then, before each key: a line that has stopped being this seat's to have is
+    typed no further, and `ready` before each Enter.
     """
     mark = {"line": text, "seat": session.get("created")}
-
-    def alone(held, harness, pane):
-        return bool(harness and composer_draft(harness, pane) == re.sub(r"\s+", "", text)
-                    and not asking(held, harness, pane) and ready(held))
-
+    line = re.sub(r"\s+", "", text)
     if typed == mark:
         try:
             harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
@@ -2752,9 +2751,13 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             if (not pane.strip() or owner_question(notify.last(held)) or stale(held)
                     or asking(held, harness, pane)):
                 return False    # nothing to read, or the screen is somebody else's: next pass
-            if not _in_composer(harness, pane, text):
+            draft = composer_draft(harness, pane) if harness else None
+            fold = screen(harness)["folds_over"] if harness else None
+            if not _in_composer(harness, pane, text) and not (
+                    fold is not None and len(text) > fold and draft != ""):
                 return True
-            if alone(held, harness, pane):
+            # the line alone: an Enter would send whatever the owner has typed beside it since
+            if draft == line and ready(held):
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
@@ -2783,7 +2786,12 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             harness = seat_model(config.load() if cfg is None else cfg, held)[0]
         except (config.Error, OSError):
             return False
-        return alone(held, harness, pane_text(session))
+        if not harness:
+            return ready(held)
+        pane = pane_text(session)
+        draft = composer_draft(harness, pane)
+        return (not asking(held, harness, pane) and ready(held)
+                and not (draft and line in draft and draft != line))
 
     return type_checked(session, text, log, None,
                         guard=lambda: seat_held(session["name"]), veto=veto,
