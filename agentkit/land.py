@@ -278,10 +278,9 @@ def check_line(turn, log=lambda _: None):
                 if not valid:
                     return False
                 fresh = {member: answer for member, answer in answers.items() if member not in sent}
-                if not fresh:
-                    return True
                 # Delivery rewrites ownership and rebase receipts, but keeps the reviewed
                 # work and tested tree. Only an unwoken recipient must stay processless.
+                # No answers asks only whether the line is still the one this pass checks.
                 with ExitStack() as held:
                     for member, saved in prefix + candidates:
                         held.enter_context(record.recovery_lock(member))
@@ -306,6 +305,8 @@ def check_line(turn, log=lambda _: None):
                         if not same:
                             valid = False
                             return False
+                    if not fresh:
+                        return True
                     for member, answer in sorted(fresh.items(), key=lambda item: "land" in item[1]):
                         with record.record(member) as current:
                             current["waiting_on"] = {**current["waiting_on"], **answer}
@@ -523,7 +524,17 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     answers[tree, own] = answer
                     note(turn, [], directory.name, checks=checks, red_stacks={tree: answer["fix"]})
 
-            rebuild, target_red = False, False
+            rebuild, target_red, stale = False, False, False
+
+            def stopped():
+                """Has the line changed under this pass?  Asked before every check it would
+                start: none of its verdicts could be written any more, so it starts no check,
+                and the next pass checks the line as it is now."""
+                nonlocal stale
+                if not stale and ready({}) is False:
+                    stale = True
+                    log("the line changed during this pass; the next pass checks it afresh")
+                return stale
 
             def decide():
                 nonlocal pending, rebuild, target_red
@@ -543,6 +554,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             and not saved.get("repair")
                             and (target.get("tested") != target_tree
                                  or target.get("code") != _code())):
+                        if stopped():
+                            return
                         run.git(scratch, "reset", "--hard", tip)
                         run.git(scratch, "clean", "-fdx")
                         suite = run.declared_suite(scratch, ref=tip)
@@ -583,7 +596,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 running = {}
                 try:
                     decide()
-                    while not rebuild and not target_red:
+                    while not rebuild and not target_red and not stopped():
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         if batched and unchecked:
@@ -610,6 +623,6 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # Keep suffix evidence even if a wake or verdict write crashes.
                     for check, (index, checks) in running.items():
                         answer_tree(index, checks, check)
-            if target_red or not rebuild:
+            if target_red or stale or not rebuild:
                 break
     return verdicts
