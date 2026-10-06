@@ -275,6 +275,31 @@ class FollowupRuns(unittest.TestCase):
                       config.plan_path("seat").read_text())
         self.assertEqual(self.spawns, [])
 
+    def test_a_handoff_cut_off_before_its_receipt_hands_its_list_on_again(self):
+        flaky = "flaky: python3 -m unittest passed only on its re-run"
+        directory, state = self.source(followups=[DEFECT, flaky], followup_checks={DEFECT: CHECK})
+        for step in ("main_checkout", "report_config"):   # before anything, after the plan line
+            with patch.object(run, step, side_effect=KeyboardInterrupt), \
+                    self.assertRaises(KeyboardInterrupt):
+                self.start(directory, record.read_state(directory))
+        real = run.report_config
+
+        def marked(cfg):
+            with record.record(directory) as current:
+                current["handed_back"] = True   # the ending delivered meanwhile
+            return real(cfg)
+
+        with patch.object(run, "report_config", side_effect=marked):
+            children = self.start(directory, record.read_state(directory))
+        self.assertEqual(len(children), 1)
+        self.assertEqual(config.plan_path("seat").read_text().count("- [ ] "), 1)
+        ended = record.read_state(directory)
+        self.assertTrue(ended["handed_back"])
+        self.assertIn("now in your plan, yours to build: Fix broken.py:1",
+                      run.handback_line(ended, directory, self.cfg))
+        self.start(directory, ended)
+        self.assertEqual(len(self.spawns), 1)
+
     def test_a_followup_line_ticks_once_its_fix_is_on_the_default_branch(self):
         self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
         config.update_session("seat", repo=str(self.repo))      # `ak orch project acme`
