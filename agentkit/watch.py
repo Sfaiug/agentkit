@@ -1265,6 +1265,20 @@ def recorded_error(harness, name):
         return None
 
 
+def interrupted_at(harness, name):
+    """When the owner interrupted that seat's turn, as its harness recorded it -- a turn's end it
+    reports by no hook -- or None where it recorded none or keeps no record to read."""
+    record = config.session_records().get(name) if name else None
+    if not record:
+        return None
+    plugin = orch.harness_plugin(harness)
+    cwd = record.get("cwd")
+    try:
+        return plugin.interrupted(record, cwd, plugin.conversation(record, cwd))
+    except OSError:
+        return None
+
+
 def auth_expired_on(harness, tail, name=None):
     """Match a harness's terminal auth message, including wrapped lines, never quoted prose.
 
@@ -1524,7 +1538,7 @@ def screen_state(harness, tail):
     return None, "", ""
 
 
-def classify(harness, tail, fact, opened_at, previous, now):
+def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
     """What that live seat is doing, since when, and what decided it.  A pure function.
 
     The hook decides the states its manifest reserves for it, except where a rule positively
@@ -1536,7 +1550,8 @@ def classify(harness, tail, fact, opened_at, previous, now):
     hook fact nor a rule the answer is `at_prompt`: `working` needs a `UserPromptSubmit` hook
     fact, an answered question or a rule that names it.  These are the facts, not the word a
     screen says: what the user reads is one of `session_state`'s three, and this is one of the
-    things it reads.
+    things it reads.  `interrupted` is when the harness recorded the owner interrupting the
+    turn, which then ended with no Stop: it ends a turn its hook began before it.
     """
     authority = config.manifest(harness).get("authority") or {}
     opened = (opened_at if isinstance(opened_at, (int, float))
@@ -1545,6 +1560,8 @@ def classify(harness, tail, fact, opened_at, previous, now):
     seen, rule, line = screen_state(harness, tail)
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
+    if hooked == "working" and interrupted is not None and interrupted > when:
+        hooked, spoken = "at_prompt", "the owner interrupted its turn"
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
     elif seen:
@@ -1666,9 +1683,12 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
     if pane is None:
         pane = pane_text(session)
     at = time.time() if now is None else now
+    fact = hook_facts(name)
     try:
-        found = classify(harness, pane_tail(pane), hook_facts(name), previous.get("opened_at"),
-                         previous, at)
+        # only a turn its hooks say runs can have ended unreported
+        ended = interrupted_at(harness, name) if hook_state(harness, fact)[0] == "working" else None
+        found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
+                         interrupted=ended)
     except config.Error as exc:
         # a manifest somebody is in the middle of writing is not a reason for a blank menu
         print(f"WARN cannot read what {name} is doing: {exc}", file=sys.stderr)

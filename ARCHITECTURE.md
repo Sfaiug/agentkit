@@ -126,7 +126,8 @@
 - `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
   resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`. `user_messages`: timed
   owner input without notices or ak typing; `failure`: turn/seat failures in whole `[stall]`
-  words. For orch, usage, update, run, gc, menu, watch. Leak: orch imports `harness.claude`.
+  words; `interrupted`: when the owner ended a turn no hook reported (Claude's Esc). For orch,
+  usage, update, run, gc, menu, watch. Leak: orch imports `harness.claude`.
 
 ## hooks/, tools/, tests/
 
