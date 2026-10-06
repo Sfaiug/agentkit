@@ -53,8 +53,9 @@ case $verb in
   enable) for u; do [ -e {self.units}/$u ] || exit 1; done
           for u; do touch {self.state}/enabled.$u; done ;;
   disable) [ -e {self.units}/$2 ] || exit 1; rm -f {self.state}/active.$2 {self.state}/enabled.$2 ;;
-  is-active) [ -f {self.state}/active.$2 ] ;;
-  is-enabled) [ -f {self.state}/enabled.$2 ] ;;
+  show) a=inactive; [ -f {self.state}/active.$5 ] && a=active
+        f=; [ -e {self.units}/$5 ] && f=disabled; [ -f {self.state}/enabled.$5 ] && f=enabled
+        printf 'ActiveState=%s\\nUnitFileState=%s\\n' $a $f ;;
 esac
 """)
         fake.chmod(0o755)
@@ -116,6 +117,11 @@ esac
         out = io.StringIO()
         with redirect_stdout(out):
             code = release.main(["release.py", str(self.root), *extra])
+        if extra == ("--adopt",) and code == 0:
+            # an adopted host already runs its release's units, installed by hand
+            for unit in (self.root / "current" / "deploy" / "systemd").iterdir():
+                if not (self.units / unit.name).exists():
+                    (self.units / unit.name).write_bytes(unit.read_bytes())
         return code, out.getvalue()
 
     def live(self):
@@ -166,9 +172,11 @@ esac
         self.assertEqual(self.live(), self.first)
         self.assertEqual(self.current(), f"releases/{self.first}")
         self.assertEqual((self.units / "acme.service").read_text(), "[Service]\n# v1\n")
-        # units only the failed release ran are stopped and disabled, the live one's run
+        # units only the failed release ran are stopped and disabled, the live one's run,
+        # and a unit file only the failed release brought is gone again
         for unit in ("acme-extra1.service", "acme-host.service"):
             self.assertFalse(self.running(unit) or self.enabled(unit), unit)
+        self.assertFalse((self.units / "acme-extra1.service").exists())
         self.assertTrue(self.running("acme.service") and self.enabled("acme.service"))
         self.assertFalse((self.root / "attempt").exists())
         # the failed commit waits for a newer one
@@ -227,13 +235,17 @@ esac
         self.assertEqual(self.tick()[0], 1)
         self.assertTrue(self.running("acme-worker.service") and self.enabled("acme-worker.service"))
 
-    def test_keep_zero_leaves_only_the_live_release(self):
+    def releases(self):
+        return {p.name for p in (self.root / "releases").iterdir()}
+
+    def test_keep_zero_leaves_the_live_and_the_previous_release(self):
         self.tick("--adopt")
-        self.commit(keep=0)
+        previous = self.commit(keep=0)
         self.assertEqual(self.tick()[0], 0)
         newest = self.commit(keep=0)
         self.assertEqual(self.tick()[0], 0)
-        self.assertEqual([p.name for p in (self.root / "releases").iterdir()], [newest])
+        self.assertEqual(self.tick(), (0, ""))          # every tick prunes first
+        self.assertEqual(self.releases(), {newest, previous})
 
     def test_adopting_twice_is_refused(self):
         self.tick("--adopt")
@@ -285,10 +297,12 @@ esac
         self.assertEqual(self.current(), f"releases/{self.first}")
 
     def cut_off(self, sha, switched):
-        self.git(self.root / "repo", "fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main")
-        release.prepare(self.root, sha)
+        repo = self.root / "repo"
+        self.git(repo, "fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main")
+        config, _ = release.prepare(self.root, sha)
         (self.root / "attempt").write_text(f"{sha} {self.live()}\n")
         if switched:
+            release.save_units(self.root, sorted(release.unit_files(repo, config, sha)))
             release.switch(self.root, sha)
 
     def test_an_attempt_that_never_switched_changes_nothing_live_and_is_tried_again(self):
@@ -312,16 +326,61 @@ esac
         self.assertEqual(self.tick()[0], 0)
         self.assertEqual(self.live(), newest)
 
-    def test_a_tick_cut_off_after_going_live_finishes_with_its_pruning(self):
+    def test_a_tick_cut_off_after_going_live_finishes_and_pruning_resumes(self):
         self.tick("--adopt")
-        self.commit(keep=0)
+        previous = self.commit(keep=0)
         self.tick()
         newer = self.commit(keep=0)
         self.cut_off(newer, switched=True)
-        (self.root / "released").write_text(f"{newer} now\n")
+        (self.root / "released").write_text(f"{newer} now {previous}\n")
         self.assertEqual(self.tick(), (0, ""))
         self.assertFalse((self.root / "attempt").exists())
-        self.assertEqual([p.name for p in (self.root / "releases").iterdir()], [newer])
+        with patch.object(release, "remove", side_effect=OSError("cut off while pruning")):
+            with self.assertRaises(OSError):
+                self.tick()
+        self.assertEqual(self.tick(), (0, ""))
+        self.assertEqual(self.releases(), {newer, previous})
+
+    def test_a_host_failure_before_the_switch_is_tried_again(self):
+        self.tick("--adopt")
+        newer = self.commit()
+        git = release.git
+
+        def refused(repo, *args, **kwargs):
+            if args[:2] == ("worktree", "add"):
+                raise release.Failed("git worktree add: a lock held elsewhere")
+            return git(repo, *args, **kwargs)
+        with patch.object(release, "git", refused):
+            code, out = self.tick()
+        self.assertIn(f"{newer[:12]} not released, nothing live changed: git worktree add", out)
+        self.assertEqual(self.tick()[0], 0)
+        self.assertEqual(self.live(), newer)
+
+    def test_a_restore_puts_back_the_host_unit_files_a_failed_release_replaced(self):
+        units = ("acme.service", "acme-worker.service")
+        self.first = self.commit(configured=units)
+        self.git(self.root / "repo", "pull", "-q", "origin", "main")
+        self.tick("--adopt")
+        self.host_unit("acme-worker.service")
+        host = "[Service]\nExecStart=/opt/acme/current/old-worker\n"
+        (self.units / "acme-worker.service").write_text(host)
+        self.commit(healthy=False, configured=units, files={
+            "deploy/systemd/acme-worker.service": "[Service]\nExecStart=/new-worker\n"})
+        code, out = self.tick()
+        self.assertIn("is back live", out)
+        self.assertEqual((self.units / "acme-worker.service").read_text(), host)
+
+    def test_a_retirement_systemd_cannot_confirm_fails(self):
+        self.first = self.commit(configured=("acme.service", "acme-worker.service"))
+        self.git(self.root / "repo", "pull", "-q", "origin", "main")
+        self.tick("--adopt")
+        self.host_unit("acme-worker.service")
+        self.commit()
+        (self.failing / "show").write_text("")
+        code, out = self.tick()
+        self.assertEqual(code, 1)
+        self.assertIn("is back live: systemctl show", out)
+        self.assertEqual(self.live(), self.first)
 
     def test_root_reads_the_config_and_unit_files_from_the_commit_never_the_release(self):
         self.tick("--adopt")
@@ -339,6 +398,43 @@ esac
         code, out = self.tick()
         self.assertEqual(code, 1)
         self.assertIn("health failed (exit 124)", out)
+        # a pass counts only within the time, however slow the command was to start
+        slow, environment = [], release.environment
+
+        def starting(config):
+            if not slow:
+                slow.append(time.sleep(1.5))
+            return environment(config)
+        self.commit(health="true", migrate="")              # health is the first command
+        with patch.object(release, "environment", starting):
+            code, out = self.tick()
+        self.assertIn("health failed (passed after its 1s)", out)
+        self.assertEqual(self.live(), self.first)
+
+    def test_the_command_drops_to_the_user_before_it_starts(self):
+        seen = {}
+
+        class Started(Exception):
+            pass
+
+        def popen(argv, **kwargs):
+            seen.update(kwargs, argv=argv)
+            raise Started
+        entry = type("Entry", (), {"pw_uid": 4321, "pw_gid": 4321, "pw_dir": str(self.root)})
+        with patch.object(release.pwd, "getpwnam", return_value=entry), \
+                patch.object(release.os, "getgrouplist", return_value=[4321, 27]), \
+                patch.object(release.subprocess, "Popen", popen), self.assertRaises(Started):
+            release.run({"user": "acme-app"}, self.root, ["bash", "-c", "true"])
+        self.assertEqual(seen["argv"], ["bash", "-c", "true"])       # no launcher root runs
+        self.assertEqual((seen["user"], seen["group"], seen["extra_groups"]), (4321, 4321, [4321, 27]))
+
+    def test_a_linked_env_file_is_refused(self):
+        target = self.root / "secret"
+        target.write_text("TOKEN=root-only\n")
+        (self.root / "app.env").symlink_to(target)
+        code, out = release.run({"env_file": str(self.root / "app.env")}, self.root, ["true"])
+        self.assertEqual(code, 1)
+        self.assertIn("OSError", out)
 
     def test_a_command_s_group_ends_before_its_leader_is_reaped(self):
         states, killpg = [], os.killpg
@@ -355,13 +451,12 @@ esac
     def test_a_linked_unit_file_is_replaced_never_written_through(self):
         self.tick("--adopt")
         source = self.root / "releases" / self.first / "deploy" / "systemd" / "acme.service"
+        (self.units / "acme.service").unlink()
         (self.units / "acme.service").symlink_to(source)
         self.commit(healthy=False, units=("v2",))
         self.assertEqual(self.tick()[0], 1)
         self.assertEqual(source.read_text(), "[Service]\n# v1\n")
-        installed = self.units / "acme.service"
-        self.assertFalse(installed.is_symlink())
-        self.assertEqual(installed.read_text(), "[Service]\n# v1\n")
+        self.assertEqual(os.readlink(self.units / "acme.service"), str(source))   # put back
 
     def test_a_command_s_leftover_children_end_with_it(self):
         self.tick("--adopt")
@@ -379,6 +474,7 @@ esac
         self.assertIn("schema refused", out)
         self.assertEqual(self.current(), f"releases/{self.first}")
         self.assertEqual(self.calls_made(), [])
+        self.assertIn("migrate failed", self.tick()[1])     # nothing live changed: tried again
 
     def test_a_rewritten_main_is_refused_never_released_backward(self):
         self.tick("--adopt")
@@ -422,7 +518,8 @@ esac
         for index in range(5):
             self.commit(keep=2, healthy=index % 2 == 0, migrate="true" if index % 3 else "exit 1")
             self.tick()
-        self.assertLessEqual(len(list((self.root / "releases").iterdir())), 3)
+        self.tick()
+        self.assertLessEqual(len(self.releases()), 4)       # two besides live and previous
 
     def test_usage(self):
         with redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()):

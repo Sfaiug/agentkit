@@ -9,24 +9,26 @@ A project copies this file to deploy/release.py and runs it from a root systemd 
 
 One tick fetches main and takes the newest first-parent commit that descends from the live
 release, carries ak's `Suite-Passed-Tree:` stamp for its own tree, and is no ancestor of a
-commit that failed here: a failed release waits for a newer one. It builds that commit in its
+commit that failed after its switch here: a failed release waits for a newer one. It builds that commit in its
 own release directory with its own fresh virtualenv, runs the install and migrate commands,
-switches the `current` link, installs the release's unit files, stops and disables the units
-the live release ran that this one does not, enables and restarts this one's units, and runs
-the health command until it passes or its time is up. A failure before the switch changes
-nothing live. Any failure after it puts the live release back the same way: the link, its
-unit files, its units, its health. Either way the tick exits 1, so the timer's OnFailure=
-alert fires. A restore that fails, or a tick cut off mid-release, is finished by the next
-tick. Main must keep containing the live release: a rewritten main is refused until someone
-releases by hand. A unit file is never deleted; a unit no release runs is stopped and
-disabled.
+saves the host's copies of the unit files the release ships, switches the `current` link,
+stops and disables the units the live release ran that this one does not, installs the
+release's unit files, enables and restarts this one's units, and runs the health command
+until it passes within its time. A failure before the switch changes nothing live, and the next
+tick tries again. A failure after it puts the live release back: the link, the saved unit
+files exactly as they were, its units, its health; that commit is remembered as failed.
+Either way the tick exits 1, so the timer's OnFailure= alert fires. A restore that fails, or
+a tick cut off mid-release, is finished by the next tick, and every tick first prunes old
+release directories. Main must keep containing the live release: a rewritten main is
+refused until someone releases by hand.
 
 ROOT holds repo/ (a clone of the project), releases/<sha>/, current -> releases/<sha>,
-released ("<sha> <time>", the live release), attempt (a release under way) and tick.lock;
-repo/ keeps a ref per failed commit under refs/release/failed/. Everything root acts on is
-read from repo/, never from a release directory the project's user can write. Migrations
-run before the switch, so each must keep the live release working: a restore puts the code
-back, never the schema.
+released ("<sha> <time> <previous sha>", the live release), attempt (a release under way),
+units-before/ (the unit files an attempt replaced) and tick.lock; repo/ keeps a ref per
+failed commit under refs/release/failed/. Everything root acts on is read from repo/, never
+from a release directory the project's user can write, and every project command drops to
+the project's user before it starts. Migrations run before the switch, so each must keep
+the live release working: a restore puts the code back, never the schema.
 
 The project's deploy/release.toml, read from the commit being released:
 
@@ -38,9 +40,9 @@ The project's deploy/release.toml, read from the commit being released:
     python = "/usr/local/bin/python3.11"
     install = "npm ci && npm run build" # runs in every release, after the virtualenv
     migrate = ".venv/bin/python -m scripts.migrate"
-    env_file = "/etc/app/app.env"       # KEY=VALUE lines for every project command
+    env_file = "/etc/app/app.env"       # KEY=VALUE lines for every project command (no link)
     unit_files = "deploy/systemd"       # its *.service and *.timer files are installed
-    keep = 5                            # release directories kept besides the live one
+    keep = 5                            # release directories kept besides live and previous
 
 Commands run from the release directory with `bash -c`, each in its own process group.
 Python 3.11 standard library.
@@ -137,7 +139,9 @@ def environment(config):
            "HOME": pwd.getpwnam(user).pw_dir}
     path = config.get("env_file")
     if path:
-        for line in Path(path).read_text().splitlines():
+        with open(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        for line in lines:
             name, sep, value = line.strip().partition("=")
             if sep and name and not name.startswith("#"):
                 env[name.removeprefix("export ").strip()] = value.strip().strip("'\"")
@@ -146,15 +150,19 @@ def environment(config):
 
 def run(config, release, argv, seconds=COMMAND_SECONDS):
     """A project command in `release` as the project's user, in its own process group, all
-    of which ends the moment the command does; its exit code and output."""
+    of which ends the moment the command does; its exit code and output. The child drops to
+    the user before it executes anything, so the project's environment never reaches root."""
+    drop = {}
     user = config.get("user")
-    if user and user != pwd.getpwuid(os.getuid()).pw_name:
-        argv = ["runuser", "-u", user, "--", *argv]
     with tempfile.TemporaryFile() as out:
         try:
+            if user and user != pwd.getpwuid(os.getuid()).pw_name:
+                entry = pwd.getpwnam(user)
+                drop = {"user": entry.pw_uid, "group": entry.pw_gid,
+                        "extra_groups": os.getgrouplist(user, entry.pw_gid)}
             child = subprocess.Popen(argv, cwd=release, env=environment(config), stdout=out,
                                      stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                     start_new_session=True)
+                                     start_new_session=True, **drop)
         except (OSError, KeyError) as exc:
             return 1, why(exc)
         # The leader stays unreaped until its group is killed, so its id names no other group.
@@ -237,48 +245,79 @@ def systemctl(*args):
                           stdin=subprocess.DEVNULL, timeout=GIT_SECONDS)
     if done.returncode:
         raise Failed(f"systemctl {' '.join(args)}: {(done.stdout + done.stderr).strip()}")
-
-
-def systemd_says(question, name):
-    return subprocess.run([SYSTEMCTL, question, "--quiet", name], capture_output=True,
-                          stdin=subprocess.DEVNULL, timeout=GIT_SECONDS).returncode == 0
+    return done.stdout
 
 
 def retire(name):
-    """Stop `name` and keep it from starting at boot; one neither running nor enabled (never
-    installed, or retired already) needs nothing."""
-    try:
-        systemctl("disable", "--now", name)
-    except Failed:
-        if systemd_says("is-active", name) or systemd_says("is-enabled", name):
-            raise
+    """Stop `name` and keep it from starting at boot, unless systemd says it is neither
+    running nor enabled (never installed, or retired already)."""
+    shown = systemctl("show", "-p", "ActiveState", "-p", "UnitFileState", name)
+    state = dict(line.partition("=")[::2] for line in shown.splitlines())
+    if (state.get("ActiveState") in ("inactive", "failed")
+            and not state.get("UnitFileState", "enabled").startswith("enabled")):
+        return
+    systemctl("disable", "--now", name)
 
 
-def start(root, sha, before):
-    """`sha` live on its link: its unit files installed, the units `before` (the config it
-    replaces) ran and it does not retired, its units enabled and restarted, its health
-    passed."""
-    repo, release = root / "repo", root / "releases" / sha
-    config = load(repo, sha)
-    for name, text in unit_files(repo, config, sha).items():
-        fresh = UNIT_DIR / f".{name}.release"
-        fresh.unlink(missing_ok=True)
-        fresh.write_bytes(text)
-        fresh.chmod(0o644)
-        fresh.replace(UNIT_DIR / name)     # a link in its place is replaced, never written through
-    systemctl("daemon-reload")
+def replace_unit(name, copy):
+    """Put a unit file in place whole: a link there is replaced, never written through."""
+    fresh = UNIT_DIR / f".{name}.release"
+    fresh.unlink(missing_ok=True)
+    copy(fresh)
+    fresh.replace(UNIT_DIR / name)
+
+
+def save_units(root, names):
+    """The host's unit files `names` as they are, in units-before/ until the next attempt, so
+    a restore puts back exactly what was there."""
+    saved = root / "units-before"
+    shutil.rmtree(saved, ignore_errors=True)
+    saved.mkdir()
+    for name in names:
+        if os.path.lexists(UNIT_DIR / name):
+            shutil.copy2(UNIT_DIR / name, saved / name, follow_symlinks=False)
+    write(saved / "names", "".join(f"{name}\n" for name in names))     # written last: complete
+
+
+def place_units(files):
+    for name, text in files.items():
+        def copy(fresh, text=text):
+            fresh.write_bytes(text)
+            fresh.chmod(0o644)
+        replace_unit(name, copy)
+
+
+def put_back_units(root):
+    """The unit files the attempt replaced, back as they were; one that was not there goes."""
+    saved = root / "units-before"
+    for name in read_words(saved / "names"):
+        if os.path.lexists(saved / name):
+            replace_unit(name, lambda fresh, name=name: shutil.copy2(
+                saved / name, fresh, follow_symlinks=False))
+        else:
+            (UNIT_DIR / name).unlink(missing_ok=True)
+
+
+def start(root, sha, before, put_units):
+    """`sha`'s units running on its link: the units `before` (the config it replaces) ran and
+    it does not retired while their files are still there, then `put_units()` and a reload,
+    its own units enabled and restarted, its health passed within its time."""
+    config = load(root / "repo", sha)
     for name in sorted(set(before["units"]) - set(config["units"])):
         retire(name)
+    put_units()
+    systemctl("daemon-reload")
     systemctl("enable", *config["units"])
     systemctl("restart", *config["units"])
     deadline = time.monotonic() + config["health_seconds"]
     while True:
-        code, out = run(config, release, ["bash", "-c", config["health"]],
+        code, out = run(config, root / "releases" / sha, ["bash", "-c", config["health"]],
                         min(HEALTH_TRY_SECONDS, deadline - time.monotonic()))
-        if code == 0:
+        if code == 0 and time.monotonic() <= deadline:
             return
         if time.monotonic() + 2 >= deadline:
-            raise Failed(f"health failed (exit {code}): `{config['health']}`: {out[-300:]}")
+            result = f"exit {code}" if code else f"passed after its {config['health_seconds']}s"
+            raise Failed(f"health failed ({result}): `{config['health']}`: {out[-300:]}")
         time.sleep(2)
 
 
@@ -307,11 +346,6 @@ def live(root):
     return words[0] if words else None
 
 
-def done_attempt(root):
-    (root / "attempt").unlink(missing_ok=True)
-    prune(root)
-
-
 def finish_attempt(root, failure):
     """An attempt that did not finish. Done when its release went live; dropped when its
     switch never happened; else the live release is restored and the attempt's commit
@@ -319,27 +353,28 @@ def finish_attempt(root, failure):
     words = read_words(root / "attempt")
     sha, previous, restoring = words[0], words[1], words[2:] == ["restoring"]
     if live(root) == sha:
-        done_attempt(root)              # it had finished before a cut-off
+        (root / "attempt").unlink()     # it had finished before a cut-off
         return 0
     if not restoring and os.readlink(root / "current") != f"releases/{sha}":
-        done_attempt(root)              # the next tick tries it again
+        (root / "attempt").unlink()     # the next tick tries it again
         raise Failed(f"{sha[:12]} not released, nothing live changed: {failure}")
     write(root / "attempt", f"{sha} {previous} restoring\n")
     try:
         switch(root, previous)
-        start(root, previous, before=load(root / "repo", sha))
+        start(root, previous, load(root / "repo", sha), lambda: put_back_units(root))
     except Exception as exc:  # noqa: BLE001 - the next tick tries again
         raise Failed(f"{sha[:12]} failed ({failure}); restoring {previous[:12]} failed too, "
                      f"the next tick tries again: {why(exc)}") from exc
     git(root / "repo", "update-ref", FAILED + sha, sha)
-    done_attempt(root)
+    (root / "attempt").unlink()
     raise Failed(f"{sha[:12]} failed and {previous[:12]} is back live: {failure}")
 
 
 def prune(root):
-    """Keep the newest `keep` release directories besides the live and attempted ones."""
-    held = set(read_words(root / "attempt")[:2]) | {live(root)}
-    keep = load(root / "repo", live(root))["keep"]
+    """Keep the newest `keep` release directories besides the live and previous ones."""
+    words = read_words(root / "released")
+    held = {words[0], *words[2:3]}
+    keep = load(root / "repo", words[0])["keep"]
     older = sorted((p for p in (root / "releases").iterdir() if p.is_dir() and p.name not in held),
                    key=lambda p: p.stat().st_mtime, reverse=True)
     for release in older[keep:]:
@@ -353,6 +388,7 @@ def tick(root):
     previous = live(root)
     if previous is None:
         raise Failed(f"no live release is recorded in {root}: run `release.py {root} --adopt`")
+    prune(root)
     git(repo, "fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main")
     if not git_ok(repo, "merge-base", "--is-ancestor", previous, "origin/main"):
         raise Failed(f"main no longer contains the live release {previous[:12]}: it was "
@@ -362,19 +398,19 @@ def tick(root):
         return 0
     say(f"releasing {sha[:12]} over {previous[:12]}")
     try:
-        prepare(root, sha)
-    except Exception as exc:  # noqa: BLE001 - nothing live changed yet
-        git(repo, "update-ref", FAILED + sha, sha)
-        prune(root)
+        config, _ = prepare(root, sha)
+        files = unit_files(repo, config, sha)
+    except Exception as exc:  # noqa: BLE001 - nothing live changed: the next tick tries again
         raise Failed(f"{sha[:12]} not released, nothing live changed: {why(exc)}") from exc
     write(root / "attempt", f"{sha} {previous}\n")
     try:
+        save_units(root, sorted(files))
         switch(root, sha)
-        start(root, sha, before=load(repo, previous))
-        write(root / "released", f"{sha} {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n")
+        start(root, sha, load(repo, previous), lambda: place_units(files))
+        write(root / "released", f"{sha} {time.strftime('%Y-%m-%dT%H:%M:%S%z')} {previous}\n")
     except Exception as exc:  # noqa: BLE001 - finish_attempt restores whatever changed
         return finish_attempt(root, why(exc))
-    done_attempt(root)
+    (root / "attempt").unlink()
     say(f"live: {sha[:12]}")
     return 0
 
