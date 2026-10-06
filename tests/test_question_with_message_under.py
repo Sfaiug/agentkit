@@ -61,6 +61,15 @@ class QuestionWithMessageUnder(Sandbox):
                     token_out={}, previous={})
                 self.assertEqual(found["word"], "needs you", repr(found))
 
+    def test_a_draft_quoting_the_footer_over_its_own_rule_stays_a_draft(self):
+        # the rule under a draft closes its composer: what is typed above it is never a dialog
+        rows = DRAFT.rstrip("\n").split("\n")
+        closing = rows[-2]
+        for typed in ("  Enter to select · ↑/↓ to navigate · Esc to cancel", "  ---"):
+            with self.subTest(typed=typed):
+                pane = "\n".join(rows[:-2] + [typed, closing]) + "\n"
+                self.assertEqual(self.classify(pane)["state"], "draft")
+
     def test_dialog_alone_is_asking_from_its_screen(self):
         live = self.classify(DIALOG)
         self.assertEqual(live["state"], "asking")

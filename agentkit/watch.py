@@ -1445,8 +1445,12 @@ def screen_state(harness, tail):
     chrome = screen(harness)
     # A bare rule under the newest controls is the frame they are drawn in, not a newer line:
     # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
-    # it hid every question, which then read as answered.
-    newest = next((line for line in reversed(lines) if not re.fullmatch(RULE, line)), lines[-1])
+    # it hid every question, which then read as answered.  The rule closing a composer is the
+    # composer's, and what is typed above it is a draft, whatever it quotes.
+    newest = lines[-1]
+    if (re.fullmatch(RULE, newest)
+            and ruled_composer(chrome, raw_lines)[1] != len(raw_lines) - 1):
+        newest = next((line for line in reversed(lines) if not re.fullmatch(RULE, line)), newest)
     for rule in chrome["rules"]:
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
             region = lines[-rule["lines"]:]
