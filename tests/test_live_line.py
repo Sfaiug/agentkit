@@ -86,9 +86,13 @@ class LiveLine(Sandbox):
         save("20260101-0902-q1", state="queued", slot_waiting=True, queued_at=NOW - 30)
         save("20260101-0903-c1", state="waiting", waiting_on={"ref": "main"})   # not live
         save("20260101-0904-o1", state="running", step="executor", launched_session="other")
+        # a review of a PR has no task file: it is named by the PR's number
+        save("20260101-0905-review-pr-acme-2157", state="running", step="reviewer",
+             step_at=NOW - 90, task_file=None,
+             review_pr="https://github.com/acme/widgets/pull/2157")
         found = {one["task"]: (one["doing"], one["since"]) for one in menu.seat_runs("fix-api")}
         self.assertEqual(found, {"b1": ("building", NOW - 60), "l1": ("landing", NOW - 3600),
-                                 "q1": ("waiting", NOW - 30)})
+                                 "q1": ("waiting", NOW - 30), "#2157": ("reviewing", NOW - 90)})
         # a run in the line fills its slot on the tasks bar; a queued one has no step to show
         bar = menu.last_column("working", "", 0, 4, menu.seat_runs("fix-api"), 16)
         self.assertEqual(menu.last_column("working", "", 0, 4, [r for r in menu.seat_runs(

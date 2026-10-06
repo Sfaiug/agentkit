@@ -528,9 +528,10 @@ one count (`! 2 need you`), then only who needs you stays, and only then is the
 left part cut.
 
 A working seat's second line is its live line (`statusbar.live`): each run it
-launched by its task id, in bold and red on its last round, then a cell per
-step of a round -- dim for the steps passed, the current one in the colour of
-the model doing it, hollow for those to come -- then that model (the executor
+launched by its task id (a PR review by the PR's number, `#2157`), in bold and
+red on its last round, then a cell per step of a round -- dim for the steps
+passed, the current one in the colour of the model doing it, hollow for those
+to come -- then that model (the executor
 building, the reviewer reviewing, none checking or landing, or while the seat
 is fixing what its own PR's review found), what it is doing (`menu.DOING`),
 `round N of M` past the first round and the time on the step:
