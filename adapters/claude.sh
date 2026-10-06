@@ -156,8 +156,11 @@ interactive)
   printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
   # Remote Control on, named after the seat: the owner follows his seats from the Claude
   # app, and a seat reopened without it -- a resume, an account move -- would be lost there.
-  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions --remote-control %q\n' \
-      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" "${AGENTKIT_SESSION:-}" ;;
+  # Claude's own messages between sessions refused: seats talk through `ak tell`, which reaches
+  # every harness and account, says who sent it, and is never taken for the owner's words.
+  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions --remote-control %q --settings %q\n' \
+      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" "${AGENTKIT_SESSION:-}" \
+      '{"crossSessionInbound":"refuse"}' ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   # One request per ask: the seat login's token while its own expiry is still in the future,
