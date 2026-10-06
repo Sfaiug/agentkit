@@ -3276,7 +3276,8 @@ def session_mark(cfg, name, selected, model, column, providers):
     if note:
         return note
     try:
-        saved = config.update_session(name, workers=changed["workers"],
+        # a screen open across a rename has the old name
+        saved = config.update_session(config.resolve_session(name), workers=changed["workers"],
                                       reviewers=changed["reviewers"])
     except OSError as exc:
         return f"session: {exc}"
