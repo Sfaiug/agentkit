@@ -37,7 +37,8 @@ def path():
 
 def read():
     """When the lists were last read ("asked") and each checkout last told; {} before the first,
-    and for a record that is not one, which costs at most a line told again."""
+    and for a record that is not one, which costs at most a line told again, as does a time in
+    it that is not past."""
     try:
         data = json.loads(path().read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError):
@@ -67,10 +68,10 @@ def since(row):
 
 
 def due(rows, now):
-    """The rows proven by `now`, longest on for everyone first."""
-    stamped = [(since(row), row["id"], row) for row in rows
-               if isinstance(row, dict) and isinstance(row.get("id"), str)]
-    return [row for at, _, row in sorted(item for item in stamped if item[0] is not None)
+    """The switch rows proven by `now`, longest on for everyone first."""
+    stamped = [(since(row), str(row["id"]), row) for row in rows]
+    return [row for at, _, row in sorted((item for item in stamped if item[0] is not None),
+                                         key=lambda item: item[:2])
             if now - at >= PROVEN]
 
 
@@ -111,22 +112,23 @@ def hand(log, now=None):
     from . import menu   # here, not at the top: the menu is the whole screen
     now = time.time() if now is None else now
     record = read()
-    if now - record.get("asked", 0) < EVERY:
+    if 0 <= now - record.get("asked", 0) < EVERY:
         return
     record["asked"] = now
     for checkout in orch.checkouts():
         key = str(checkout)
-        if now - record.get(key, 0) < AGAIN or not menu.switches_command(checkout):
+        if 0 <= now - record.get(key, 0) < AGAIN or not menu.switches_command(checkout):
             continue
-        rows, why = menu.features_run(checkout, "list")
-        if not isinstance(rows, list):
+        answer, why = menu.features_run(checkout, "list")
+        rows = menu.switch_rows(answer)
+        if rows is None:
             log(f"WARN {checkout.name}: its switches are unread, so none was told "
                 f"({why or 'no list'})")
             continue
         proven = due(rows, now)
         if not proven:
             continue
-        ids = ", ".join(row["id"] for row in proven)
+        ids = ", ".join(str(row["id"]) for row in proven)
         seat = seat_for(checkout)
         if seat is None:
             log(f"{checkout.name}: proven switches {ids}; no open seat to tell")

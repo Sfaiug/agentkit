@@ -186,6 +186,26 @@ class Retire(unittest.TestCase):
                 self.assertEqual(self.typed("acme"), [["first"]])
                 self.assertEqual(retire.read()[str(self.acme)], NOW + retire.EVERY)
 
+    def test_a_recorded_time_that_is_not_past_counts_as_never(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(row("first", 40))
+        for at in ("1e309", "NaN", str(NOW + 10 * retire.AGAIN)):
+            for key in ("asked", str(self.acme)):
+                with self.subTest(key=key, at=at):
+                    retire.path().write_text(f'{{"{key}": {at}}}')
+                    self.hand()
+                    self.assertEqual(self.typed("acme"), [["first"]])
+
+    def test_any_switch_the_menu_lists_is_told_and_alike_rows_break_nothing(self):
+        other = self.project("OTHER", f"{sys.executable} {self.fake / 'features.py'}")
+        self.seat("acme", self.acme, created=10)
+        self.seat("other", other, created=20)
+        self.switches(row(42, 40), {**row("twice", 60), "name": "one"},
+                      {**row("twice", 60), "name": "two"}, ["not a row"], {"name": "no id"})
+        self.hand()
+        for name in ("acme", "other"):
+            self.assertEqual(self.typed(name), [["twice", "twice", "42"]])
+
     def test_a_refused_line_is_tried_again_at_the_next_read(self):
         self.seat("acme", self.acme, created=10)
         self.switches(row("first", 40))
