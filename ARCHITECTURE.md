@@ -34,6 +34,11 @@
   (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
   watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
   `own_pr_wait_note`). Leak: run's private `_cached_providers`.
+- `stop.py`: `ak run stop` and `ak run clean`. A stop writes `stopped` under the lock
+  first, then ends its scope, tree and marked processes, then the checkout unless kept.
+  `stop_owned_runs` and `release_session` for orch, `cmd_stop` for menu,
+  `ways_out` for the stop hook, `marker_pids` for status. Leaks: run's
+  `launched_session`, `note_in`, `history_finish`, `redress_seat`, `record_result`.
 - `worktrees.py`: a run's worktree and local branch: whether they may go (final run, gone
   loop, never ~/code, held for a resume) and the one way they go, `stop_checkout`: the
   repo's `cleanup:` line, git, the directory, the branch. Stop, clean, endings and gc call
@@ -60,9 +65,14 @@
   receipts by source, revive, resume, PR scans, after-merge checks, `health:` probes,
   `doctor`. For run, job, orch, menu, notify, update, usage, worker, hooks.
   Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
+- `retire.py`: the tick's pass that tells a project's seats, once a day via `tell.queue`,
+  each feature switch on for everyone two weeks, to take out of the code: the seat whose plan
+  names it, else the newest. `retire.json` under STATE. For watch. Leak: menu's `features_run`,
+  `switch_rows`, `switches_command`; plan's `open_lines`, `LINE`.
 - `tell.py`: `ak tell`, one seat's message to another for every harness: queued in the
   receiver's `tell` seat file under the seat's own lock, typed only by the tick through
-  `watch.type_at_prompt`, its receipt naming `seat:<sender>`. For bin/ak and the tick.
+  `watch.type_at_prompt`, its receipt naming `seat:<sender>`, or `ak` for ak's own line
+  (`queue`), ak's own never waiting twice. For bin/ak, retire and the tick.
 - `told.py`: the heading of an `ak tell` line, the one home its words have: tell.py writes it,
   hooks/seat-state.sh knows a prompt by it. Imports nothing of agentkit, for the hook's speed.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
@@ -82,6 +92,12 @@
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye; a merged run writes its review follow-ups here.
 - `box.py`: credential masks, own temporary places and /run, PID teardown. `command`, `check`,
   `returncode`, `leftovers`; for worker and run.
+- `guard.py`: what a seat's tmux may not do (end, or type into, another seat; `refusal`, the `-t`
+  resolved by the real tmux) and gh may not (`gh pr merge` from a seat; `gh_refusal`), read from the
+  final argv a `tools/*-shim` hands it; `install_shim` links each as `<HOME>/bin/<name>`.
+- `shim.py`: the body every `tools/*-shim` runs -- find the real binary, engage only for a seat's
+  own by-hand call, ask `guard`, else exec the real one; imports `guard` lazily, so a guard that
+  cannot import still execs the real binary.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded
   evidence; worker names the channel; run replays proofs, weighs findings, drops disputes.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
@@ -134,17 +150,20 @@
 ## hooks/, tools/, tests/
 
 - `hooks/seat-state.sh`: every harness's lifecycle hook; writes a seat's `hook-`/`stop-`
-  facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via run and watch.
-  `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leak: both rebuild
-  config.py's seat file names and rename chain.
-- `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
-  `trust.py`, `catalog.py`, `desktop-mcp.py`.
+  facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via config, run, stop and
+  watch. `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leaks: the first
+  two rebuild config.py's seat file names, and seat-state.sh its rename chain.
+- `tools/`: `*-shim`, each a thin entry point linked as `<HOME>/bin/<name>` first on a seat's PATH,
+  running `agentkit.shim` -- `tmux-shim` (refuses ending or typing into another seat) and `gh-shim`
+  (refuses a seat's `gh pr merge`); and, called by adapters:
+  `rulebook.py`, `idle-compact.py`, `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.
 - `tests/`: `landing.py` runs offline `smoke.sh` beside `every_file.py`, with grouped
   live output; live `live.sh`; `every_file.py`: imports/cases,
   live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`,
-  `landing.py` lands a crafted run through its line and lander verdict.
+  `landing.py` lands a crafted run through its line and lander verdict, `sandbox.py`'s
+  `Sandbox` is the throwaway ak HOME that in-process tests run in.
   `check_harness_contract.py`: standalone live contract check, also smoke's check 3;
   discovers adapter manifests and shares login/quota checks with smoke's later live calls.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat

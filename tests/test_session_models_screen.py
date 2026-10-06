@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import gate, config, menu, run, terminal, update, usage
 from agentkit import record as run_record
 

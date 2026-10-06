@@ -816,7 +816,7 @@ def resolve_session(name):
         from . import orch
         name = orch.session_name(name)
     seen = [name]
-    for _ in range(RENAME_HOPS):
+    for _ in range(RENAME_HOPS + 1):    # RENAME_HOPS renames, then the name after the last
         data = _read_json(session_path(name))
         if not isinstance(data, dict) or not isinstance(data.get("renamed"), str):
             return name
@@ -831,6 +831,15 @@ def current_session():
     """The session this process runs in, by its current name, or None outside a seat."""
     name = os.environ.get(SESSION_ENV)
     return resolve_session(name) if name else None
+
+
+INBOX_ENV = "AGENTKIT_INBOX_SESSION"
+
+
+def inbox():
+    """The seat other people's PRs are offered in and merged from (`ak watch`); a test points it
+    elsewhere.  One home: the gh shim lets this seat's `gh pr merge` through, and watch asks it."""
+    return os.environ.get(INBOX_ENV) or "inbox"
 
 
 def check_stop_owner(owner):
@@ -912,6 +921,21 @@ def save_session(cfg, name, orchestrator, workers, extra=None):
     with _record_lock(session_path(name)):
         _write_json(session_path(name), selection, prepare=False)
     return selection
+
+
+def discard_session(name, created):
+    """Remove `name`'s record only while it is still the one saved at `created`: a launch that
+    failed takes back its own record, never one another launch saved under the name since."""
+    path = session_path(name)
+    if not path.parent.is_dir():
+        return
+    with _record_lock(path):
+        try:
+            data = _read_json(path)
+        except Error:
+            return      # unreadable is not known to be its own
+        if isinstance(data, dict) and data.get("created") == created:
+            path.unlink(missing_ok=True)
 
 
 def remember_defaults(record):
@@ -1016,6 +1040,11 @@ def rename_session(old, new):
     if target not in (old, new):
         raise Error(f"{new!r} points at another session; pick a name that is not a rename")
     ensure_dirs()
+    if target == new:
+        # a free name: the plan a gone seat left there, or under a name still leading there,
+        # is not this seat's
+        from . import plan
+        plan.forget(new)
     # under both records' locks: a field written to the old one meanwhile moves with it
     with _record_lock(session_path(old)), _record_lock(session_path(new)):
         selection = _read_json(session_path(old))
@@ -1025,12 +1054,34 @@ def rename_session(old, new):
             # A legacy seat has no selection to overwrite its former pointer with.
             session_path(new).unlink(missing_ok=True)
         _write_json(session_path(old), {"renamed": new}, prepare=False)
+    # Every older name of this seat leads to `old`, straight or through its other old names: it
+    # points at `new` now, so no chain passes one rename however often a seat is renamed (its
+    # title follows the conversation), and a chain left deeper than a walk follows recovers.
+    pointers = {name: normalize_session(data["renamed"]) for name, data in _session_files()
+                if isinstance(data.get("renamed"), str)}
+    for name, leads in pointers.items():
+        seen, step = {name}, leads
+        while step != old and step in pointers and step not in seen:
+            seen.add(step)
+            step = pointers[step]
+        if step != old:
+            continue
+        with _record_lock(session_path(name)):
+            try:
+                pointer = _read_json(session_path(name))
+            except Error:
+                continue
+            if isinstance(pointer, dict) and normalize_session(pointer.get("renamed")) == leads:
+                _write_json(session_path(name), {"renamed": new}, prepare=False)
     # The running orchestrator keeps reading the rulebook it was started on, and its hooks keep
-    # the turn's latch under the name it was started with.
+    # the turn's latch under the name it was started with.  Back to a name it had, what the
+    # seat wrote under it since is kept rather than moved over: a seat renamed still writes its
+    # plan under the name it was launched with, and `plan.path` reads the plan under every name
+    # the seat had, the newest one winning.
     for kind in SEAT_FILES.keys() - {"session", "rulebook", "stop"}:
-        was = seat_file(kind, old)
-        if was.exists():
-            was.replace(seat_file(kind, new))
+        was, now = seat_file(kind, old), seat_file(kind, new)
+        if was.exists() and not (target == old and now.exists()):
+            was.replace(now)
 
 
 def active_session(cfg):

@@ -11,9 +11,9 @@ only once its line was seen leaving the composer: it goes in at least once and i
 """
 
 import json
-import re
 import sys
 import time
+import unicodedata
 import uuid
 
 from . import command_help, config, notify, orch, watch
@@ -31,9 +31,25 @@ def longest(cfg):
     return min([fold for fold in folds if fold] or [MAX_BYTES])
 
 
+def too_long(line):
+    """Why `line` is more than a told line may hold, else None."""
+    most = longest(config.load())
+    if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
+        return (f"{len(line):,} characters is more than a composer shows whole ({most:,}); "
+                "write the rest to a file and tell its path")
+    return None
+
+
+def flat(text):
+    """`text` as one typed line: each run of whitespace or control characters is one space, so
+    no key in it but the line's own Enter acts on the composer."""
+    return " ".join("".join(" " if unicodedata.category(ch) == "Cc" else ch
+                            for ch in text).split())
+
+
 def source(sender):
-    """The typing receipt's source for a line one seat sent another."""
-    return f"seat:{sender}"
+    """The typing receipt's source for a line one seat sent another; no seat is ak itself."""
+    return f"seat:{sender}" if sender else "ak"
 
 
 def read(path):
@@ -96,29 +112,48 @@ def seat_of(name):
     return record.get("created", "")
 
 
-def composer_holds(name, session, line):
-    """What that seat's composer holds now, off one capture: "line" (that line alone), "empty",
-    or "other" -- anything else, no composer read, or a question to the owner on the screen,
-    as a dialog that keeps the composer drawn is."""
-    name = config.resolve_session(name)
-    harness = orch.seat_plugin(config.session_records().get(name) or {}).name
-    pane = watch.pane_text(session)
-    held = watch.composer_draft(harness, pane)
-    if held is None or watch.asking(name, harness, pane):
-        return "other"
-    if held == "":
-        return "empty"
-    return "line" if held == re.sub(r"\s+", "", line) else "other"
-
-
-def refusal(name, seat):
-    """Why nothing can be queued for that seat, asked under its lock, else None."""
-    if name == config.current_session():
+def refusal(name, seat, sender):
+    """Why nothing can be queued for that seat from `sender` (none is ak itself), asked under its
+    lock, else None."""
+    if sender and name == config.resolve_session(sender):
         return f"{name} is this seat"
     if name not in config.session_records():
         return f"no session {name!r}; `ak orch list` shows them"
     if seat is None:
         return f"{name} is closed"
+    return None
+
+
+def queue(name, line, sender=""):
+    """Queue `line` for that seat, under its lock, so the tick types it there; None once it is
+    queued, or is ak's own and already waits there, else why nothing was.  `sender` is the seat
+    it is from; none is ak itself.  The line is queued `flat`.
+
+    Under the receiver's lock, the one a rename and a close take: the seat it is now is the
+    one the message is for, and only that seat's tick pass types it.
+    """
+    line = flat(line)
+    refused = too_long(line)
+    if refused:
+        return refused
+    with notify.session_lock(name) as name:
+        seat = seat_of(name)
+        refused = refusal(name, seat, sender)
+        if refused:
+            return refused
+
+        def add(messages):
+            # ak's own line still waiting for this seat is not queued twice; a seat's words
+            # twice are two messages
+            if sender or not any(message["line"] == line and message.get("seat") == seat
+                                 for message in messages):
+                messages.append({"id": uuid.uuid4().hex, "from": sender, "at": time.time(),
+                                 "line": line, "seat": seat})
+
+        try:
+            edit(name, add)
+        except (OSError, ValueError) as exc:
+            return f"{name}'s message queue cannot be read, so nothing was queued: {exc}"
     return None
 
 
@@ -152,17 +187,19 @@ def deliver_to(session, log, cfg=None):
     def ready(current):
         # under the typing lock, right before each Enter: the composer holds this line alone,
         # never an edit the owner made meanwhile, and no question to the owner is up
-        return composer_holds(current, session, first["line"]) == "line"
+        return watch.composer_holds(current, session, first["line"], cfg) == "line"
 
-    held = composer_holds(name, session, first["line"])
+    held = watch.composer_holds(name, session, first["line"], cfg)
     if held == "line":
-        # typed by a tick that died before its Enter: only the Enter, and its confirmation
-        typed = watch.type_checked(
+        # typed by a tick that died before its Enter: only the Enter, and its confirmation --
+        # its composer read empty right after, as type_at_prompt reads it for its own line
+        typed = (watch.type_checked(
             session, first["line"], log, pending=True, source=source(first["from"]),
             guard=lambda: watch.seat_held(session["name"]), ready=ready,
             veto=lambda current: watch.owner_question(notify.last(current)) or stale(current))
+            and watch.composer_holds(name, session, first["line"], cfg) == "empty")
     elif held == "empty":
-        typed = watch.type_at_prompt(session, first["line"], log, cfg=cfg, ready=ready,
+        typed = watch.type_at_prompt(session, first["line"], log, cfg=cfg,
                                      source=source(first["from"]), stale=stale, midturn=True)
     else:
         return False
@@ -172,7 +209,7 @@ def deliver_to(session, log, cfg=None):
 
     # leaves the queue only on positive evidence: its composer read empty right after, with no
     # question up -- never on a capture that failed or a dialog that came up over the line
-    if not typed or composer_holds(name, session, first["line"]) != "empty":
+    if not typed:
         return False
     locked(name, drop)
     log(f"{config.resolve_session(name)}: typed a message from {first['from']}")
@@ -201,32 +238,17 @@ def main(argv):
     if not sender:
         print("ak tell: no seat: run it inside an orchestrator session", file=sys.stderr)
         return 1
-    text = " ".join(argv[1].split())
+    text = flat(argv[1])
     if not text:
         print("ak tell: nothing to say", file=sys.stderr)
         return 1
     now = time.time()
     line = heading(sender, now) + text
-    most = longest(config.load())
-    if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
-        print(f"ak tell: {len(line):,} characters is more than a composer shows whole ({most:,}); "
-              "write the rest to a file and tell its path", file=sys.stderr)
-        return 1
-    # Under the receiver's lock, the one a rename and a close take: the seat it is now is the
-    # one the message is for, and only that seat's tick pass types it.
-    with notify.session_lock(argv[0]) as name:
-        seat = seat_of(name)
-        refused = refusal(name, seat)
-        if not refused:
-            try:
-                edit(name, lambda messages: messages.append(
-                    {"id": uuid.uuid4().hex, "from": sender, "at": now, "line": line,
-                     "seat": seat}))
-            except (OSError, ValueError) as exc:
-                refused = f"{name}'s message queue cannot be read, so nothing was queued: {exc}"
+    refused = queue(argv[0], line, sender)
     if refused:
         print(f"ak tell: {refused}", file=sys.stderr)
         return 1
+    name = config.resolve_session(argv[0])
     after = ("after the owner answers its question" if watch.owner_question(notify.last(name))
              else "as soon as it can take a line")
     print(f"{name}: queued; ak types it {after}")

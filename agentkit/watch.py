@@ -74,11 +74,6 @@ HOOK_LOOK_WAIT = 10.0   # how long a hook's look waits for the Stop hooks/orches
 LOGGED_OUT = re.compile(r"gh auth login|not logged in|bad credentials|HTTP 401", re.I)
 
 
-def inbox():
-    """The seat other people's PRs are offered in; the smoke suite points it elsewhere."""
-    return os.environ.get("AGENTKIT_INBOX_SESSION") or "inbox"
-
-
 def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
     """Put the question to the inbox seat, and then to the user.  0 once both have it.
 
@@ -90,7 +85,7 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
     """
     # the seat by the name it goes by now: renamed once, `inbox` is a pointer at it, and the
     # question, the keys and the ping all have to land on the seat and not on the old name
-    name = config.resolve_session(inbox())
+    name = config.resolve_session(config.inbox())
     if asked:
         return notify.shaped("needs", question, session=name, event_id=f"inbox:{url}:{sha}")
     if orch.ensure(cfg, name, log):
@@ -609,6 +604,8 @@ def screen(harness):
              "queues": bool(block.get("queues_typing")),
              "folds_over": block.get("folds_over") if isinstance(block.get("folds_over"), int)
              else None,
+             "folded": _pattern(block.get("folded"), path),
+             "scrolled": _pattern(block.get("scrolled"), path),
              "draft": _pattern(block.get("draft"), path, re.M),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
@@ -2007,7 +2004,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if found.get("state") == "draft":
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
-                "since": found.get("began")}
+                "since": found.get("began"), "question": found["state"] == "asking"}
     # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
     # asks, then gets on with the work that does not wait on the answer, so neither its runs
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
@@ -2015,7 +2012,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     last = notify.last(name)
     if not gone and owner_question(last):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
-                "since": last.get("time")}
+                "since": last.get("time"), "question": True}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
     # is the exception, as in the stop hook's `parked`: `going` counts it, but only
     # `ak run resume` moves one, so rung 3 has it.
@@ -2051,7 +2048,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                 "since": min(starts) if starts else None}
     # 2a. ... or it ended its turn on `ak wait`, and the session it named is working
     wait = waiting_on(name, records, at, cfg) if waits else None
-    if wait:
+    if wait and wait["word"] == "working":
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
     # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
     # somebody is still in has a screen to read.  The parked run below keeps its
@@ -2120,6 +2117,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         told = " ".join(restart.split()) if isinstance(restart, str) else ""
         return {"word": "needs you", "since": None,
                 "reason": f"{reason} · {told}" if told else reason}
+    # 4a. ... or its `ak wait` holds through the other session's question to him: his answer
+    # moves this one too.  Below its own turn, its own parked runs and its own closed seat,
+    # which are each news of its own.
+    if wait:
+        return {"word": "needs you", "since": wait["since"],
+                "reason": f"waiting on {wait['on']}, which asks you: {wait['reason']}"}
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
     # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
     # seat's own standing until a newer notice, but a question on its screen, or typed text
@@ -2159,13 +2162,16 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
 
 def waiting_on(name, records=None, now=None, cfg=None):
-    """That seat's own `ak wait`, while the session it names is working; else None.
+    """That seat's own `ak wait`, while the session it names is working or waits on his answer
+    to its own question (`wait_holds`); else None.
 
     The wait is the seat's word, kept in its record's `wait` by `ak wait` and dropped by its
     next `ak notify`, and nothing that looks at a screen ever writes or ends it: this only says
     whether it holds now.  It holds while the other session's own ladder says `working` --
     its runs or its turn, under every rung above them, such as a login its run is parked on --
-    and never by a wait of its own, so two seats waiting on each other are both his.  A wait
+    or `needs you` on a question it asked him, and never by a wait of its own, so two seats
+    waiting on each other are both his.  Through a question the seat reads `needs you` too,
+    and neither its stop nor the tick wakes it to decide what only his answer decides.  A wait
     the tick has told the seat the end of (`told`, see `tell_waits`) is over for good, however
     the other session reads since.  The ladder, the stop hook and the tick's `stop_nudge` all
     ask this, so the word a seat reads and the stop it is allowed are the same decision.
@@ -2174,9 +2180,17 @@ def waiting_on(name, records=None, now=None, cfg=None):
     if not isinstance(wait, dict) or wait.get("told"):
         return None
     other, found = wait_peer(name, wait, records, now, cfg)
-    if found is None or found["word"] != "working":
+    if not wait_holds(found):
         return None
-    return {"on": other, "at": _stamp(wait.get("at"))}
+    return {"on": other, "at": _stamp(wait.get("at")), "word": found["word"],
+            "reason": found.get("reason"), "since": found.get("since")}
+
+
+def wait_holds(found):
+    """Whether a wait on a session whose own word is `found` holds: while it works, and while
+    it waits on his answer to a question it asked, since the seat waiting on it waits on that
+    same answer.  Any other stop -- done, closed, his for another reason -- ends it."""
+    return bool(found) and (found["word"] == "working" or bool(found.get("question")))
 
 
 def wait_peer(name, wait, records=None, now=None, cfg=None):
@@ -2200,8 +2214,9 @@ def wait_peer(name, wait, records=None, now=None, cfg=None):
 def tell_waits(cfg, log):
     """Tell a seat the session its `ak wait` names has stopped, once, and end the wait on it.
 
-    The other session's own word off its ladder, the moment it is no longer `working`: done,
-    needs you or closed, with its reason, so the seat decides on that and never on whether
+    The other session's own word off its ladder, the moment the wait no longer holds
+    (`wait_holds`): done, needs you for anything but its own question, or closed, with its
+    reason, so the seat decides on that and never on whether
     the other remembers to write to it.  One line through the confirmed send, only at the
     seat's own quiet prompt, the way a run's ending is handed back; a seat mid-turn is tried
     again next tick.  The send that took the line is written on the wait as `told`, and that
@@ -2222,7 +2237,7 @@ def tell_waits(cfg, log):
         if wait is None or any(session.get(key) for key in orch.CLOSED):
             continue
         other, found = wait_peer(name, wait, cfg=cfg)
-        if found is None or found["word"] == "working":
+        if found is None or wait_holds(found):
             continue
         reason = " ".join(str(found.get("reason") or "").split())
         line = f"{other} is now {found['word']}: {reason}. Decide the next step."
@@ -2530,7 +2545,13 @@ def follow_title(session, log=lambda _: None):
 
 
 def composer_draft(harness, pane):
-    """The composer's whole text without whitespace, "" when empty, None where none is found.
+    """The composer's whole text without whitespace, "" when empty, None where none is found."""
+    rows = _composer_rows(harness, pane)
+    return None if rows is None else re.sub(r"\s+", "", "".join(rows))
+
+
+def _composer_rows(harness, pane):
+    """The rows of text in the composer, [] when empty, None where none is found.
 
     Read on any turn, from its prompt row down to the chrome under it: a wrap or a newline
     puts text on the rows below.  Found the way the draft rule finds it: a queued inbound
@@ -2548,7 +2569,7 @@ def composer_draft(harness, pane):
         if not found and not (chrome["composer"]
                               and any(chrome["composer"].fullmatch(row) for row in rows)):
             return None
-        return re.sub(r"\s+", "", "".join(found))
+        return _unscrolled(chrome, [row for block in found for row in block.splitlines()])
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
@@ -2564,7 +2585,53 @@ def composer_draft(harness, pane):
             at, stop = marked[0], len(rows)
     if at is None:
         return None
-    return re.sub(r"\s+", "", "".join(_composer_parts(chrome, raws, rows, at, stop)))
+    return _unscrolled(chrome, _composer_parts(chrome, raws, rows, at, stop))
+
+
+def _unscrolled(chrome, rows):
+    """Those composer rows without what the harness draws on a composer scrolled past its
+    height (`[screen] scrolled`: a scrollbar, a count of the rows above), none left empty."""
+    if chrome["scrolled"] is not None:
+        rows = [chrome["scrolled"].sub("", row) for row in rows]
+    return [row for row in rows if row.strip()]
+
+
+def composer_holds(name, session, line, cfg=None):
+    """What that seat's composer holds now, off one capture: "line", "empty", or "other" --
+    anything else, nothing read, or a question to the owner on the screen, as a dialog that
+    keeps the composer drawn is.
+
+    "line" is that line and nothing else, as its composer shows it: all of it; its end, rows
+    of it, where it is taller than the composer shows -- one composer scrolls to its last rows,
+    and another's top goes above the read; or the harness's fold of a line longer than `[screen]
+    folds_over`.  What the owner types goes in at its end, so none of these is a line with the
+    owner's words beside it, and a one-row draft that only ends the way the line does is the
+    owner's.
+    """
+    try:
+        name = config.resolve_session(name)
+        harness = seat_model(config.load() if cfg is None else cfg, name)[0]
+    except (config.Error, OSError):
+        return "other"
+    pane = pane_text(session)
+    if not harness or not pane.strip() or asking(name, harness, pane):
+        return "other"
+    rows = _composer_rows(harness, pane)
+    if rows is not None and not re.sub(r"\s+", "", "".join(rows)):
+        return "empty"
+    chrome = screen(harness)
+    if rows is None and len(_content_rows(pane)) > PANE_LINES:
+        # its top above the read: every row over the chrome under it is the composer's, read as
+        # its rows under the prompt row are -- inside a box's edges, its scroll marks left out
+        tail = content_lines(harness, pane_tail(pane))
+        rows = _unscrolled(chrome, [_inside_box(row) for row in tail])
+    held, whole = re.sub(r"\s+", "", "".join(rows or ())), re.sub(r"\s+", "", line)
+    folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
+              and len(line) > chrome["folds_over"])
+    if held and (held == whole or len(rows) > 1 and whole.endswith(held)
+                 or folded and chrome["folded"].fullmatch(held)):
+        return "line"
+    return "other"
 
 
 def _composer_parts(chrome, raws, rows, at, stop):
@@ -2577,10 +2644,13 @@ def _composer_parts(chrome, raws, rows, at, stop):
     dims = dim_rows(raws)
     for dim, plain in zip(dims[at + 1:stop], rows[at + 1:stop]):
         if not dim:
-            if boxed and plain.startswith("│") and plain.endswith("│"):
-                plain = plain[1:-1].strip()
-            parts.append(plain)
+            parts.append(_inside_box(plain) if boxed else plain)
     return [part for part in parts if part]
+
+
+def _inside_box(row):
+    """A composer row inside its box's edges, where it is drawn in one."""
+    return row[1:-1].strip() if row.startswith("│") and row.endswith("│") else row
 
 
 def sync_title(session, log=lambda _: None, *, force=False):
@@ -2723,8 +2793,7 @@ def takes_line(session, cfg=None, pane=None, midturn=False):
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
-                   source="ak", stale=lambda held: False, ready=lambda held: True,
-                   midturn=False):
+                   source="ak", stale=lambda held: False, midturn=False):
     """One line into a seat, and only while its harness sits at its own prompt -- or, with
     `midturn`, while a turn runs where its harness holds the line for its next step.
 
@@ -2743,24 +2812,21 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     wrapped past the bottom rows still sits there.  A reopened seat is a new one, with an empty
     composer, and matches no mark.  `stale` is asked under the send lock
     too, with the name the seat goes by then, before each key: a line that has stopped being
-    this seat's to have is typed no further, and `ready` before each Enter.
+    this seat's to have is typed no further.  Every Enter, the first, its retry and a mark's,
+    goes only while the composer holds the line alone (`composer_holds`): what the owner typed
+    in the gap before it is never sent.  The line is delivered only once its composer reads
+    empty, the first pass's as a mark's: one the owner edited while its Enter was confirmed
+    no longer reads whole there, and is still theirs to send.
     """
     mark = {"line": text, "seat": session.get("created")}
     if typed == mark:
-        try:
-            harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
-        except (config.Error, OSError):
-            return False
         with seat_held(session["name"]) as held:
-            pane = pane_text(session)
-            if (not pane.strip() or owner_question(notify.last(held)) or stale(held)
-                    or asking(held, harness, pane)):
-                return False    # nothing to read, or the screen is somebody else's: next pass
-            draft = composer_draft(harness, pane) if harness else None
-            if draft == "":
+            if owner_question(notify.last(held)) or stale(held):
+                return False    # the screen is somebody else's: next pass
+            holds = composer_holds(held, session, text, cfg)
+            if holds == "empty":
                 return True
-            # the line alone: an Enter would send whatever the owner has typed beside it since
-            if draft == re.sub(r"\s+", "", text) and ready(held):
+            if holds == "line":
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
@@ -2784,9 +2850,11 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         return not (harness and takes_line(session, cfg=cfg, pane=pane, midturn=midturn)
                     and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
-    return type_checked(session, text, log, None,
-                        guard=lambda: seat_held(session["name"]), veto=veto,
-                        typed=lambda: receipt(mark), source=source, ready=ready)
+    return (type_checked(session, text, log, None,
+                         guard=lambda: seat_held(session["name"]), veto=veto,
+                         typed=lambda: receipt(mark), source=source,
+                         ready=lambda held: composer_holds(held, session, text, cfg) == "line")
+            and composer_holds(session["name"], session, text, cfg) == "empty")
 
 
 # --- a seat whose process died under its runs ------------------------------
@@ -3072,7 +3140,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     wait = live.get("wait")
     if isinstance(wait, dict) and not wait.get("told"):
         found = wait_peer(name, wait, records)[1]
-        if found is not None and found["word"] != "working":
+        if found is not None and not wait_holds(found):
             return      # that session has stopped: tell_waits says so, and why, instead
     mine = []
     for run_dir, record in records:
@@ -5896,7 +5964,7 @@ def local_passes(state, dry_run, log):
     A dry run runs only the passes it can tell `dry_run`, and reads usage off the cache as it
     stands: reading that file probes nothing, and a dry run changes nothing.
     """
-    from . import job as jobs, run, tell
+    from . import job as jobs, retire, run, tell
     providers = {}
 
     def read_usage():
@@ -5955,6 +6023,9 @@ def local_passes(state, dry_run, log):
         # is typed into it, oldest first.
         ("a finished job was not handed back", lambda: jobs.deliver_job_handbacks(log), False),
         ("the wait pass did not run", lambda: tell_waits(config.load(), log), False),
+        # Every feature switch on for everyone for two weeks is told to a seat on its project to
+        # take out of the code, queued just before the messages go so this tick types it.
+        ("the switch retirement pass did not run", lambda: retire.hand(log), False),
         ("the message pass did not run", lambda: tell.deliver(config.load(), log), False),
         # Cards are derived from every session's current three-state word, including seats
         # whose panes were not available to the health pass.

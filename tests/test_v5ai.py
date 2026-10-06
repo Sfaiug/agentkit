@@ -16,7 +16,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, menu, terminal, usage
 
 NOW = 1789747980  # 2026-09-18 16:13 UTC, the live menu in the report

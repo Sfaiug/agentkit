@@ -91,8 +91,9 @@ class Notifications(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result
 
-    def open_and_progress(self):
-        """Open the seat, then produce the fresh output that answers what it was asked."""
+    def open_and_progress(self, between=lambda: None):
+        """Open the seat, then produce the fresh output that answers what it was asked;
+        `between` runs after the open and before that output."""
         with patch.object(orch, "find", return_value={"name": "seat"}), \
                 patch.object(orch, "inside", return_value=True), \
                 patch.object(orch, "tmux_out", return_value=(0, "")), \
@@ -100,6 +101,7 @@ class Notifications(unittest.TestCase):
                 patch("sys.stdin.isatty", return_value=True), \
                 patch("sys.stdout.isatty", return_value=True):
             menu.open_session(config.load(), {"name": "seat"}, False)
+        between()
         notify.progress("seat", lambda: "Fresh output after the answer")
 
     def test_lifecycle_and_approved_payload(self):
@@ -222,6 +224,38 @@ sys.exit(p.returncode)
         self.assertEqual(len(self.requests), 1)
         self.assertEqual(self.requests[0][2]["embeds"][0]["title"], "Needs you · seat")
         self.assertTrue(state["reported"])
+
+    def typed(self, source, into="claude"):
+        """ak's typing receipt for a line it typed into the seat, as watch writes it."""
+        with config.seat_file("input", "seat").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"at": time.time(), "text": "run 20260101-0900-parser finished",
+                                 "source": source, "harness": into}) + "\n")
+
+    def test_output_after_a_line_ak_typed_since_the_open_answers_nothing(self):
+        """A hand-back, a told line or an idle `/compact` starts a turn of the seat's own: its
+        output after the open is no answer, and only the owner's own prompt then is."""
+        self.cli("needs", "Merge PR #7? yes/no")
+        self.open_and_progress(between=lambda: self.typed("ak"))
+        self.assertEqual(notify.last("seat")["text"], "Merge PR #7? yes/no")
+        self.assertEqual(menu.state({"name": "seat"}), "needs you")
+        notify.answered("seat", time.time())
+        self.assertIsNone(notify.last("seat"))
+
+    def test_output_after_the_owners_relayed_words_or_lines_from_before_the_open_answers(self):
+        """review 20261006-1740: a seat with no hooks gets an idle `/compact` while its question
+        waits; the owner opens it later and answers, and that output is the only answer there."""
+        self.cli("needs", "Merge PR #7? yes/no")
+        self.typed("ak")                           # before the open: history
+        self.open_and_progress(between=lambda: self.typed("owner"))   # relayed unchanged
+        self.assertIsNone(notify.last("seat"))
+
+    def test_output_after_a_line_typed_where_no_prompt_hook_reports_still_answers(self):
+        """review 20261006-1740 round 2: Muse runs no hooks, so nothing reports the owner's
+        prompt; an idle `/compact` typed after the open leaves the output as its only answer."""
+        self.assertIsNone(notify.harness.load("muse").prompt_hook)
+        self.cli("needs", "Merge PR #7? yes/no")
+        self.open_and_progress(between=lambda: self.typed("ak", into="muse"))
+        self.assertIsNone(notify.last("seat"))
 
     def test_episodes_are_scoped_to_the_session(self):
         self.cli("needs", "Straße?")

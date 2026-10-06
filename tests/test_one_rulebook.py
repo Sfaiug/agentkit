@@ -298,6 +298,46 @@ class OneRulebook(unittest.TestCase):
             self.assertEqual(others, [], f"{harness} names another state file: {others}")
             self.seat_wrapper_passes_the_rulebook_through(harness, words, paths)
 
+    def test_a_seat_loads_no_instruction_file_or_memory_its_worker_switches_off(self):
+        # each adapter names its switches once, in OWN_RULES_OFF: its worker's turn runs with
+        # them and its seat's line carries them, so a seat's rules are its rulebook, the
+        # project's AGENTS.md in it, and nothing its harness finds on disk
+        programs = {"claude": "claude", "codex": "codex", "grokbuild": "grok",
+                    "opencode": "opencode"}
+        with tempfile.TemporaryDirectory(prefix=".ak-test-own-rules-", dir=REPO) as directory:
+            root = Path(directory)
+            for name in ("bin", "home", "ws"):
+                (root / name).mkdir()
+            (root / "prompt").write_text("acme task\n")
+            for program in programs.values():
+                fake = root / "bin" / program
+                fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$FAKE_OUT.args"\n'
+                                'env >"$FAKE_OUT.env"\n')
+                fake.chmod(0o755)
+            for harness, program in programs.items():
+                with self.subTest(harness=harness):
+                    script = (REPO / f"adapters/{harness}.sh").read_text()
+                    defined = re.search(r'^OWN_RULES_OFF="([^"]*)"', script, re.M)
+                    self.assertIsNotNone(defined, f"{harness} names no OWN_RULES_OFF")
+                    switches = defined.group(1).replace("\\\n", "").split()
+                    self.assertTrue(switches)
+                    names = {word.split("=", 1)[0] for word in switches}
+                    env = {key: value for key, value in os.environ.items()
+                           if key not in names | {"AGENTKIT_SESSION", "AGENTKIT_ACCOUNT"}}
+                    out = root / harness
+                    subprocess.run(["bash", str(REPO / f"adapters/{harness}.sh"), "run",
+                                    "acme/model", "high", str(root / "ws"), str(root / "prompt"),
+                                    str(root / f"out-{harness}")],
+                                   env={**env, "HOME": str(root / "home"), "FAKE_OUT": str(out),
+                                        "PATH": f"{root / 'bin'}:{env['PATH']}"},
+                                   check=True, capture_output=True)
+                    args = Path(f"{out}.args").read_text().splitlines()
+                    handed = set(Path(f"{out}.env").read_text().splitlines())
+                    self.assertTrue(set(switches) <= handed
+                                    or "\n".join(switches) in "\n".join(args), f"{harness} worker")
+                    self.assertIn(" ".join(switches), " ".join(self.interactive(harness)),
+                                  f"{harness} seat")
+
     def seat_wrapper_passes_the_rulebook_through(self, harness, words, paths):
         """Where the rulebook reaches the harness through a seat wrapper -- a program
         on the line whose own arguments name the rulebook file -- the wrapper is run

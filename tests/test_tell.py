@@ -313,6 +313,37 @@ class Tell(Seats):
         tell.deliver(self.cfg, lambda _: None)
         self.assertEqual(self.typed, [self.header() + "Parser merged."])
 
+    def test_a_seat_renamed_while_it_tells_still_cannot_tell_itself(self):
+        limit = tell.longest(self.cfg)
+
+        def renamed_meanwhile(_cfg):
+            config.rename_session(SENDER, "fix-renamed")
+            return limit
+
+        with patch.object(tell, "longest", side_effect=renamed_meanwhile):
+            code, _, err = self.tell(SENDER, "Parser merged.")
+        self.assertEqual(code, 1)
+        self.assertIn("fix-renamed is this seat", err)
+        self.assertEqual(self.waiting("fix-renamed"), [])
+
+    def test_aks_own_line_still_waiting_is_queued_once(self):
+        self.free = False
+        line = "[from ak, not the owner] Proven feature switches are yours to take out."
+        self.assertIsNone(tell.queue(SEAT, line))
+        self.assertIsNone(tell.queue(SEAT, line))
+        self.assertEqual([message["line"] for message in self.waiting()], [line])
+        self.free = True
+        tell.deliver(self.cfg, lambda _: None)
+        self.assertEqual((self.typed, self.waiting()), ([line], []))
+        self.assertIsNone(tell.queue(SEAT, line))
+        self.assertEqual([message["line"] for message in self.waiting()], [line])
+
+    def test_a_queued_line_holds_no_key_but_its_own_enter(self):
+        self.free = False
+        self.assertIsNone(tell.queue(SEAT, "In ACME\ranswer, `new\x1bsearch`\n\tsince 6 Dec."))
+        self.assertEqual([message["line"] for message in self.waiting()],
+                         ["In ACME answer, `new search` since 6 Dec."])
+
     def test_what_cannot_be_told_is_refused_in_one_line(self):
         watch.seat_write("acme-closed", stopped_at=1)
         config.save_session(self.cfg, "acme-closed", "opus", ["astra"], {"cwd": str(self.root)})
@@ -482,7 +513,7 @@ class TyperDied(Typing):
                     self.died()                         # its line sits there, unsent
                     later = (self.composed(self.typed[-1] + " and the docs") if case == "edit"
                              else question)
-                    real = tell.composer_holds
+                    real = watch.composer_holds
                     reads = []
 
                     def first_read_then_change(*args):
@@ -491,7 +522,7 @@ class TyperDied(Typing):
                             self.pane = later
                         return reads[-1]
 
-                    with patch.object(tell, "composer_holds", side_effect=first_read_then_change):
+                    with patch.object(watch, "composer_holds", side_effect=first_read_then_change):
                         tell.deliver(self.cfg, lambda _: None)
                 self.assertEqual(self.enters(), [])
                 self.assertEqual(self.taken, [])
@@ -514,14 +545,14 @@ class TyperDied(Typing):
         read again under the lock, right before the first key."""
         self.tell(SEAT, "Parser merged.")
         draft = "Fix the login redirect and run its tests again " * 3
-        real = tell.composer_holds
+        real = watch.composer_holds
 
         def empty_then_drafted(*args):
             found = real(*args)
             self.pane = self.composed(draft)
             return found
 
-        with patch.object(tell, "composer_holds", side_effect=empty_then_drafted):
+        with patch.object(watch, "composer_holds", side_effect=empty_then_drafted):
             tell.deliver(self.cfg, lambda _: None)
         self.assertEqual((self.typed, self.enters()), ([], []))
         self.assertEqual(len(self.waiting()), 1)
@@ -671,14 +702,14 @@ class TyperDiedGrok(Typing):
                 self.keys.clear()
                 self.pane = self.idle
                 self.tell(SEAT, "Parser merged.")
-                real = tell.composer_holds
+                real = watch.composer_holds
 
                 def empty_then_changed(*args):
                     found = real(*args)
                     self.pane = later
                     return found
 
-                with patch.object(tell, "composer_holds", side_effect=empty_then_changed):
+                with patch.object(watch, "composer_holds", side_effect=empty_then_changed):
                     tell.deliver(self.cfg, lambda _: None)
                 self.assertEqual(self.keys, [])
                 self.assertEqual(len(self.waiting()), 1)

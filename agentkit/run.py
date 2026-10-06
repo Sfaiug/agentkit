@@ -33,7 +33,7 @@ from urllib.parse import quote, urlsplit
 
 from . import (box, command_help, config, gate, gc, hand_in, history, host, job as jobs,
                land as landing, notify, orch, record as run_record, retention, status,
-               task as taskfile, update, usage, watch, worker, worktrees)
+               stop, task as taskfile, update, usage, watch, worker, worktrees)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
@@ -112,6 +112,10 @@ HEAD_BRANCH_MODIFIED = re.compile(r"Head branch was modified", re.I)
 GITHUB_5XX = re.compile(r"status code: 5\d\d|HTTP 5\d\d|Bad Gateway|Gateway Timeout|"
                         r"Service Unavailable|couldn't respond to your request in time", re.I)
 MERGE_RETRIES = 3      # how often any of them is re-fetched, re-checked and tried again
+# GitHub refusing a head pushed seconds before, while it has not yet worked out whether it
+# merges: its state is asked again while UNKNOWN, and a PR it then calls CLEAN is tried once
+# more -- see `do_merge`
+NOT_MERGEABLE = re.compile(r"Pull Request is not mergeable", re.I)
 # the line a fetch prints for a ref another process holds: the ref moved under it, or git's
 # lock on it is held -- not a ref no retry can write, such as a stale name in its way; see
 # `fetch`.  `.*`, not `[^']*`: a ref name or a checkout path may hold an apostrophe
@@ -131,6 +135,8 @@ CLASSIC_CHECKS_QUERY = (
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
+# The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
+FRONT_KEYS = ("tests", "health", "cleanup", "users", "features")
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
 NOTES = re.compile(r"^(#+)[ \t]*Notes\b[^\n]*$", re.M | re.I)
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
@@ -139,7 +145,7 @@ BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
 # their say: none is a command's output, and reading one as such would make a failure that
 # never moved look new every round.  See `run_done_when`, `verify_work` and `final_check`.
 LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |outside files: "
-                       r"|AGENTS\.md (?:is|could not be read) )")
+                       r"|AGENTS\.md (?:is|could not be read|must not|front matter has) )")
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
@@ -163,12 +169,19 @@ class Stopped(config.Error):
 
 
 def tool_env():
-    """What git and gh are given: this run's environment, with every prompt turned off.
+    """What git and gh are given: this run's environment, with every prompt turned off and the
+    seat's name dropped.
 
     A headless run has no terminal to answer on, so a credential prompt is not a question --
     it is a wait with nobody at the other end of it.
+
+    ak's git and gh speak for no seat: a merge or a push ak runs is ak's own machinery, not a
+    seat's hand, wherever it runs from (a background run, a seat's own `ak run merge`, a job).
+    Dropping $AGENTKIT_SESSION keeps the tmux and gh shims' seatless premise true by construction
+    -- they engage only on a seat's own by-hand call -- so ak's own merge is never refused.
     """
-    env = {**config.child_env(), "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"}
+    env = {k: v for k, v in config.child_env().items() if k != config.SESSION_ENV}
+    env.update(GIT_TERMINAL_PROMPT="0", GH_PROMPT_DISABLED="1")
     run_id = getattr(_RUN_CONTEXT, "state", {}).get("run_id")
     if run_id:
         # A git or gh the loop runs is the run's own: it carries the run's marker, so
@@ -422,7 +435,7 @@ def agents_body(repo, ref):
 
     Read from git, never a checkout's file: the rules are what was merged, not what one checkout
     holds or one piece of work is changing.  "" where there is none, where it is a link -- its
-    text is a path, not rules (`rules_cap` refuses one) -- or where it cannot be read.
+    text is a path, not rules (`rules_check` refuses one) -- or where it cannot be read.
     """
     if not repo or not ref:
         return ""
@@ -2085,6 +2098,23 @@ def links(work):
     return "\n".join(rows) or "(the workspace is empty)"
 
 
+# The reason ak locks a checkout it makes under ~/.agentkit/wt while git makes it.  Git writes
+# a reason as given, in every language, so a maker killed before it unlocks leaves a checkout
+# gc knows holds nothing yet.
+MAKING = "ak is making this checkout"
+
+
+def add_worktree(repo, path, *args, mark=None):
+    """(exit code, output) of `git worktree add` making `path`, locked as `MAKING` until git
+    has made it and, given `mark`, that file is in the checkout's own git directory."""
+    code, out = git_out(repo, "worktree", "add", "--lock", "--reason", MAKING, str(path), *args)
+    if code == 0:
+        if mark:
+            (Path(git(path, "rev-parse", "--absolute-git-dir")) / mark).touch()
+        code, out = git_out(repo, "worktree", "unlock", str(path))
+    return code, out
+
+
 def make_worktree(repo, run_id, slug, base):
     # The name has to be free on the remote too: two runs that picked the same one locally both
     # push it, and the second is rejected with `stale info` after its work has passed -- a PASS
@@ -2109,7 +2139,9 @@ def make_worktree(repo, run_id, slug, base):
         suffix += 1
         branch = f"ak/{slug}-{suffix}"
     wt = config.WT / run_id
-    git(repo, "worktree", "add", str(wt), "-b", branch, base)
+    code, out = add_worktree(repo, wt, "-b", branch, base)
+    if code:
+        raise config.Error(f"git worktree add {wt} failed in {repo}: {out}")
     return wt, branch
 
 
@@ -2542,7 +2574,7 @@ def settled_gate(lp):
     elif not lp.scratch:
         return None
     ok = (passed == len(lp.every)) if lp.every else passed == total
-    return ok and not files_scope(lp) and not rules_cap(lp), text
+    return ok and not files_scope(lp) and not rules_check(lp), text
 
 
 def continuation(lp):
@@ -2785,9 +2817,30 @@ def files_scope(lp):
     return "outside files: " + ", ".join(outside) if outside else ""
 
 
-def rules_cap(lp):
-    """Refuse a linked AGENTS.md, or one past what a harness reads of it, only when this branch
-    changes it."""
+def rules_bytes(repo, rev):
+    """The bytes of AGENTS.md at `rev` as a checkout holds it, Git's line-end conversion and
+    filters applied: what a harness reads, not the stored blob, and read as bytes, since a text
+    read would fold CRLF to LF.  None where `rev` has no AGENTS.md file -- none, or a link,
+    whose text is a path -- and config.Error, with what git said, where it cannot be read."""
+    entry = git(repo, "ls-tree", rev, "--", "AGENTS.md")
+    if not entry or entry.startswith("120000 "):
+        return None
+    try:
+        read = subprocess.run(["git", "-C", str(repo), "cat-file", "--filters", f"{rev}:AGENTS.md"],
+                              capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
+                              env=tool_env())
+    except subprocess.TimeoutExpired as exc:
+        raise Stopped(f"git cat-file --filters {rev}:AGENTS.md was killed after {TOOL_CAP:g}s "
+                      f"in {repo}") from exc
+    if read.returncode != 0:
+        raise config.Error(read.stderr.decode("utf-8", "replace").strip())
+    return read.stdout
+
+
+def rules_check(lp):
+    """Refuse a branch's change to AGENTS.md that workers would not get as written: a link, a
+    Git filter, more than a harness reads of it, or a front matter line ak does not read.
+    A branch that leaves the file alone, or deletes it, passes."""
     if lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
                              f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
@@ -2798,26 +2851,37 @@ def rules_cap(lp):
         # following it would mean redoing how Linux opens a path, inside Git's trees
         return ("AGENTS.md is a link, which ak does not follow, so workers would get no rules "
                 "from it: make AGENTS.md the file itself.")
+    if not git(lp.wt, "check-attr", "filter", "--", "AGENTS.md").endswith(("unspecified", "unset")):
+        return "AGENTS.md must not go through a Git filter: ak reads its front matter as committed."
     ceiling = config.instruction_ceiling()
-    if not ceiling:
-        return ""
-    limit, harness = ceiling
-    # the bytes a checkout holds, Git's line-end conversion and filters applied: what a harness
-    # reads, not the stored blob, and read as bytes, since a text read would fold CRLF to LF
     try:
-        read = subprocess.run(["git", "-C", str(lp.wt), "cat-file", "--filters", "HEAD:AGENTS.md"],
-                              capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
-                              env=tool_env())
-    except subprocess.TimeoutExpired as exc:
-        raise Stopped(f"git cat-file --filters HEAD:AGENTS.md was killed after {TOOL_CAP:g}s "
-                      f"in {lp.wt}") from exc
-    if read.returncode != 0:
-        said = read.stderr.decode("utf-8", "replace").strip()
-        return (f"AGENTS.md could not be read as a checkout holds it, so its size against the "
-                f"{limit} bytes {harness} reads of it is unknown: {said}")
-    size = len(read.stdout)
-    return (f"AGENTS.md is {size} bytes, past the {limit} bytes {harness} reads of it: "
-            "tighten it." if size > limit else "")
+        held = rules_bytes(lp.wt, "HEAD")
+    except Stopped:
+        raise
+    except config.Error as exc:
+        unknown = (f"its size against the {ceiling[0]} bytes {ceiling[1]} reads of it is unknown"
+                   if ceiling else "ak cannot check it")
+        return f"AGENTS.md could not be read as a checkout holds it, so {unknown}: {exc}"
+    if ceiling and len(held) > ceiling[0]:
+        return (f"AGENTS.md is {len(held)} bytes, past the {ceiling[0]} bytes {ceiling[1]} "
+                "reads of it: tighten it.")
+    text = held.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
+    unread = unknown_front_lines(text.strip())
+    if not unread:
+        return ""
+    return (f"AGENTS.md front matter has lines ak does not read: "
+            f"{', '.join(f'`{line}`' for line in unread)} (it reads {', '.join(FRONT_KEYS)}): "
+            "remove them, or fix the misspelled name.")
+
+
+def unknown_front_lines(text):
+    """The front matter lines of AGENTS.md text whose name ak never reads, as written."""
+    match = FRONT.match(text)
+    if not match:
+        return []
+    return [line.strip() for line in match.group(1).splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+            and line.partition(":")[0].strip() not in FRONT_KEYS]
 
 
 def regression_fails_before(lp):
@@ -2860,7 +2924,7 @@ def verify_work(lp, cmds=None):
     lp.step("done-when")
     if not lp.scratch and not lp.state.get("review_pr"):
         commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
-    checks = (files_scope(lp), rules_cap(lp))
+    checks = (files_scope(lp), rules_check(lp))
     lp.validation = {} if lp.scratch else commit_identity(lp.wt)
     clean = lp.scratch or lp.state.get("review_pr") or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
     ok, text = gate.run_done_when(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
@@ -4657,7 +4721,15 @@ def refresh_pr_body(lp):
         return True
     pending = lp.run_dir / "pr-body-update.md"
     pending.write_text(body)
-    rc, out = gh(lp.wt, "pr", "edit", lp.state["pr"], "--body-file", str(pending))
+    # through the REST API: `gh pr edit` asks GraphQL for Projects (classic) too, and since
+    # GitHub retired them some gh releases (2.46) fail that ask and change nothing
+    parts = pr_parts(lp.state["pr"])
+    if parts is None:
+        return note(lp, f"cannot update the description of {lp.state['pr']}: not a PR URL",
+                    failed=True)
+    api, owner, repo, number = parts
+    rc, out = gh(lp.wt, *api, "-X", "PATCH", f"repos/{owner}/{repo}/pulls/{number}",
+                 "-F", f"body=@{pending}")
     if rc != 0:
         if stopped(rc, out):
             raise Stopped(out)
@@ -4704,14 +4776,23 @@ def poll_cap(deadline):
     return TOOL_CAP
 
 
-def checks(lp, url):
-    """Wait for the target's required names, including checks that have not registered yet."""
+def pr_parts(url):
+    """(`gh api` and the host it needs, owner, repository, number) of the PR at `url`, or None
+    for a URL that is not one PR on an https host."""
     pr = urlsplit(url)
     match = re.fullmatch(r"/([^/\s]+)/([^/\s]+)/pull/(\d+)/?", pr.path)
     if not match or pr.scheme != "https" or not pr.hostname or pr.username or pr.query or pr.fragment:
-        return False, f"cannot read required checks for {url}"
-    owner, repo, _ = match.groups()
+        return None
     api = ("api",) if pr.netloc == "github.com" else ("api", "--hostname", pr.netloc)
+    return (api, *match.groups())
+
+
+def checks(lp, url):
+    """Wait for the target's required names, including checks that have not registered yet."""
+    parts = pr_parts(url)
+    if parts is None:
+        return False, f"cannot read required checks for {url}"
+    api, owner, repo, _ = parts
     target = lp.target.removeprefix("origin/")
     endpoint = f"repos/{owner}/{repo}/rules/branches/{quote(target, safe='')}"
     rules, why = gh_json(lp.run_dir, *api, "--paginate", endpoint + "?per_page=100")
@@ -4946,14 +5027,11 @@ def merge_body(lp, head, url=None):
         body = f"Suite-Passed-Tree: {checked['tree_sha']}"
         if url:
             # An explicit body replaces GitHub's defaults, including co-author credit.
-            pr = urlsplit(url)
-            match = re.fullmatch(r"/([^/\s]+)/([^/\s]+)/pull/(\d+)/?", pr.path)
-            if (not match or pr.scheme != "https" or not pr.hostname or pr.username
-                    or pr.query or pr.fragment):
+            parts = pr_parts(url)
+            if parts is None:
                 lp.log(f"WARN cannot read the merge commit body for {url}; merging without suite trailer")
                 return []
-            owner, name, number = match.groups()
-            api = ("api",) if pr.netloc == "github.com" else ("api", "--hostname", pr.netloc)
+            api, owner, name, number = parts
             try:
                 default, why = gh_json(
                     lp.run_dir, *api, "graphql", "-f",
@@ -5020,7 +5098,9 @@ def do_merge(lp, url, upstream):
     retried after the next merge to the target.  GitHub answering with a 5xx of its own
     takes the same road, and a merge it went through with anyway counts as merged; so does
     `Head branch was modified` straight after the delivery's own push, which the re-check
-    ends only when the PR head really is another commit.  Work
+    ends only when the PR head really is another commit.  After `Pull Request is not
+    mergeable`, GitHub is asked again while it reports the PR's state UNKNOWN, up to
+    MERGE_RETRIES times, and a PR it then calls CLEAN is tried once more.  Work
     that passed review is never thrown away over one lost race or one bad answer.
     """
     method = lp.state["merge_method"]
@@ -5108,15 +5188,27 @@ def do_merge(lp, url, upstream):
                 lp, f"gh pr merge --{method} failed after {MERGE_RETRIES} retries: {cause}; "
                     f"the PR is open at {url}", upstream,
                 git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
-        vrc, why = gh(lp.run_dir, "pr", "view", url, "--json", "mergeStateStatus",
-                      "-q", ".mergeStateStatus")
+        refused = bool(NOT_MERGEABLE.search(out or ""))
+        for polled in range(MERGE_RETRIES + 1):
+            if polled:
+                time.sleep(CHECKS_POLL)     # GitHub still working out a head pushed just now
+            vrc, why = gh(lp.run_dir, "pr", "view", url, "--json", "mergeStateStatus",
+                          "-q", ".mergeStateStatus")
+            if not refused or vrc != 0 or why != "UNKNOWN":
+                break
         if stopped(rc, out) or stopped(vrc, why):
             # a merge that stopped may still have gone through server-side
             if merged_anyway(lp, url, upstream):
                 return True
             raise Stopped(out if stopped(rc, out) else why)
-        if attempt == 2 or why not in ("BEHIND", "DIRTY"):
+        if attempt == 2 or why not in ("BEHIND", "DIRTY", "CLEAN"):
             break
+        if why == "CLEAN":
+            if not refused:
+                break
+            lp.log("WARN GitHub called the PR not mergeable, then CLEAN: it had not yet worked "
+                   "out the head just pushed; retrying the merge")
+            continue
         lp.log(f"WARN the PR is {why}; taking {upstream} in once more and retrying the merge")
         if (lp.state.get("waiting_on") or {}).get("line"):
             return rejoin_line(lp, upstream, f"the PR is {why}")
@@ -6318,18 +6410,30 @@ def history_finish(state, log=None):
     now = state.get("finished_at") or time.time()
     history.close_step(state.get("run_id"), now, log=log)
     files = changed_files(state)
+    # git is read from the run's worktree while it exists, else from its repository
+    wt = state.get("worktree")
+    try:
+        present = bool(wt) and Path(wt).is_dir()
+    except (OSError, TypeError):
+        present = False
+    repo = wt if present else state.get("repo")
     size = None
     if state.get("merged") and state.get("base_sha"):
         try:
-            wt = state.get("worktree")
-            present = wt and Path(wt).is_dir()
-            repo = wt if present else state.get("repo")
             review = state.get("review") or {}
             head = state.get("delivery_sha") or review.get("head_sha") or ("HEAD" if present else None)
             if repo and head:
                 size = diff_lines(repo, state["base_sha"], head)
         except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
             pass  # best-effort history must never change the merge's outcome
+    # the AGENTS.md its workers were handed, measured as the ceiling measures it
+    rules = None
+    if repo and state.get("base_sha"):
+        try:
+            # no file, or a link, hands its workers no rules: 0, where a failed read stays unknown
+            rules = len(rules_bytes(repo, state["base_sha"]) or b"")
+        except (config.Error, OSError, ValueError, TypeError):
+            pass
     history.finish_run(state.get("run_id"), repo=state.get("repo"),
                        executor=state.get("executor"), reviewer=state.get("reviewer"),
                        rounds_used=len(state.get("round_summaries") or []),
@@ -6337,7 +6441,7 @@ def history_finish(state, log=None):
                        started_at=state.get("started_at"), finished_at=now,
                        session=launched_session(state), peak_rss_mb=state.get("peak_rss_mb"),
                        task_files=json.dumps(files) if files is not None else None,
-                       changed_lines=size, log=log)
+                       changed_lines=size, rules_bytes=rules, log=log)
 
 
 def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):
@@ -8741,275 +8845,6 @@ def unfinished(state, records=None, index=None):
     return not is_superseded(state, records, index, merged_only=True)
 
 
-def stoppable(state):
-    """Whether `ak run stop` takes this run: unfinished work, or an `error`.
-
-    `error` reads ended but the tick retries it hourly: stopping one is its owner's off-switch
-    for the ladder, the way stopping a waiting run ends its wait.  Every other ending sits
-    inert, so there is nothing to stop.
-    """
-    return state.get("state") not in run_record.ENDED or state.get("state") == "error"
-
-
-def ways_out(state, run_dir):
-    """The commands that settle a parked run, each only where it is taken.
-
-    `ak run status` marks an ending looked at (`mark_looked_at`), `ak run stop` ends what is
-    `stoppable`, and `ak run resume` carries on what `resume_run` would: a FAIL at its round
-    budget only with the `--rounds` its `continue_line` names, and nothing whose checkout is
-    gone.
-    """
-    run_id = Path(run_dir).name
-    ways = [f"ak run status {run_id}"] if state.get("state") in run_record.ENDED else []
-    if failed_at_budget(state):
-        onward = continue_line(state, run_dir)
-        ways += [onward.removeprefix("continue: ")] if onward else []
-    elif not state.get("worktree") or Path(state["worktree"]).is_dir():
-        ways.append(f"ak run resume {run_id}")
-    if stoppable(state):
-        ways.append(f"ak run stop {run_id}")
-    return ways
-
-
-def cmd_clean(argv):
-    if len(argv) != 1:
-        raise config.Error("usage: ak run clean <runid>")
-    run_dir = config.RUNS / argv[0]
-    if not (run_dir / "run.json").exists():
-        raise config.Error(f"no such run: {argv[0]} (looked in {config.RUNS})")
-    state = run_record.read_state(run_dir)
-    if state is None:
-        raise config.Error(f"{argv[0]}: cannot read {run_dir / 'run.json'}")
-    if state.get("scratch"):
-        workspace = state.get("worktree")
-        if not isinstance(workspace, str) or not Path(workspace).is_dir():
-            print(f"{argv[0]}: its workspace is gone; result.md lists what was there")
-            return 0
-        print(f"{argv[0]}: ran in the scratch workspace {workspace}; its files are "
-              "the deliverable, so nothing is removed")
-        return 0
-    repo, worktree = state.get("repo"), state.get("worktree")
-    if not repo or not worktree:
-        raise config.Error(f"{argv[0]}: run.json records no worktree; nothing to remove")
-    wt = Path(worktree)
-    if wt == Path(repo):
-        print(f"{argv[0]}: ran with --no-worktree; nothing to remove")
-        return 0
-    told = []
-    if not worktrees.stop_checkout(state, told.append, keep_branch=True):
-        raise config.Error(f"{argv[0]}: " + "; ".join(line.removeprefix("WARN ") for line in told))
-    print(f"{argv[0]}: removed worktree {wt}; branch {state.get('branch', '?')} kept")
-    return 0
-
-
-def marker_pids(run_id):
-    """Pids still carrying this run's marker, except this process and its ancestors."""
-    return worker.marked_pids(worker.run_marker(run_id))
-
-
-def stop_owned_runs(name):
-    """Stop every unfinished run this seat launched, the way `ak run stop` stops one.
-
-    The first half of a seat stop, run before the seat's lock: each run costs up
-    to STALL_KILL_WAIT inside kill_tree, and nothing it touches is the seat's
-    state. A run that refuses is named and left; the seat still ends.
-    """
-    try:
-        dirs = run_record.run_dirs()
-    except OSError:
-        return
-    for run_dir in dirs:
-        try:
-            state = run_record.read_state(run_dir)
-        except (OSError, ValueError):
-            continue
-        if not state:
-            continue
-        try:
-            if launched_session(state) != name:
-                continue
-        except config.Error:
-            continue
-        if state.get("state") not in run_record.ENDED:
-            try:
-                cmd_stop([run_dir.name])
-            except config.Error as exc:
-                print(f"could not stop {run_dir.name}: {exc}")
-            except (OSError, ValueError, KeyError, TypeError):
-                print(f"could not stop {run_dir.name}")
-
-
-def release_session(name):
-    """Stop every unfinished run this seat launched, and drop every checkout it still owns.
-
-    Run directories stay for their results. Browser tabs the seat or those runs
-    opened close here; a tab with no recorded opener is not theirs to close.
-    The branches go with the checkouts: ending the seat is the deliberate stop
-    that takes everything connected to it.
-    """
-    from . import browser
-    stop_owned_runs(name)
-    ids = []
-    try:
-        dirs = run_record.run_dirs()
-    except OSError:
-        dirs = []
-    for run_dir in dirs:
-        try:
-            state = run_record.read_state(run_dir)
-        except (OSError, ValueError):
-            continue
-        if not state:
-            continue
-        try:
-            if launched_session(state) != name:
-                continue
-        except config.Error:
-            continue
-        ids.append(run_dir.name)
-        if state.get("state") in run_record.ENDED:
-            if not worktrees.drop_checkout(state, lambda _message: None, keep_branch=False):
-                continue
-            # the branch went with the checkout: the status row reads this mark,
-            # since only a stop without `--keep` says so on its own
-            try:
-                with run_record.recovery_lock(run_dir):
-                    current = run_record.read_state(run_dir) or state
-                    current["branch_removed"] = True
-                    run_record.save_state(run_dir, current)
-            except (OSError, ValueError, TypeError):
-                pass
-    try:
-        browser.close_owned(session=name, runs=ids)
-    except (OSError, ValueError, TypeError):
-        pass
-
-
-def stop_line(run_id, branch, kept):
-    """The one line a stop prints: what ended, and -- when kept -- the `from:` line.
-
-    The `from:` line is only advertised while its branch exists to relaunch from;
-    a removed branch leaves the run's name on the line and nothing unusable after it.
-    """
-    if not branch:
-        return f"stopped {run_id}"
-    if not kept:
-        return f"stopped {run_id}: branch {branch} removed"
-    return f"stopped {run_id}: branch {branch} kept; relaunch with from: {branch}"
-
-
-def cmd_stop(argv):
-    """End a run deliberately: its record first, then its loop and its checkout.
-
-    The record goes first -- `stopped`, committed under the lock -- so a scheduler
-    that notices its dead child finds the stop already there and aborts instead of
-    replacing it.  Then the loop and everything it started: its systemd scope where
-    one exists, else its process tree by the run's pid and its `AK_PARENT_RUN`
-    marker.  The run reads `stopped`, a final state that is never resumed, never
-    handed back and never cards anyone.  The worktree and the local branch go with
-    it unless `--keep` keeps them for a relaunch from the printed `from:` line.
-    """
-    keep = "--keep" in argv
-    args = [arg for arg in argv if arg != "--keep"]
-    if len(args) != 1 or Path(args[0]).name != args[0] or args[0] in (".", ".."):
-        raise config.Error("usage: ak run stop ID [--keep]")
-    run_id = args[0]
-    run_dir = config.RUNS / run_id
-    if not (run_dir / "run.json").exists():
-        raise config.Error(f"no such run: {run_id} (looked in {config.RUNS})")
-    state = run_record.read_state(run_dir)
-    if state is None:
-        raise config.Error(f"{run_id}: cannot read {run_dir / 'run.json'}")
-    config.check_stop_owner(state.get("launched_session") or state.get("session"))
-    if state.get("state") == "stopped":
-        print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
-        return 0
-    if not stoppable(state):
-        raise config.Error(f"{run_id} is already {state.get('state')}; "
-                           "only unfinished work can be stopped")
-    log = note_in(run_dir / "log.txt")
-    with run_record.recovery_lock(run_dir):
-        current = run_record.read_state(run_dir) or state
-        config.check_stop_owner(current.get("launched_session") or current.get("session"))
-        if current.get("state") == "stopped":
-            print(stop_line(run_id, current.get("branch"),
-                            current.get("stop_kept", False)))
-            return 0
-        if not stoppable(current):
-            raise config.Error(f"{run_id} is already {current.get('state')}; "
-                               "only unfinished work can be stopped")
-        kept = bool(keep or not worktrees.checkout_removable(current))
-        current.update(state="stopped", verdict="STOPPED", finished_at=time.time(),
-                       error="stopped by the user", reported=True, stop_kept=kept)
-        for key in ("recovery_pending", "recovery_notified", "recovery_acknowledged_at",
-                    "handback_pending", "handback_wait_reason", "handback_note",
-                    "notification_pending", "pending_inbox", "quota_dry", "refusal_retry",
-                    "waiting_for", "login_resume_at", "login_back_at", "stall_resume_at",
-                    "resume_after", "error_retry_at", "error_retries", "waiting_on",
-                    "waiting_resume_at", "slot_waiting", "launch_pending", "resume_from"):
-            current.pop(key, None)
-        run_record.save_state(run_dir, current)
-        history_finish(current, log)
-        try:
-            redress_seat(launched_session(current))
-        except config.Error:
-            pass
-        try:
-            record_result(run_dir, current, log)
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-        state = current
-    # The scope where one exists, else the tree by the run's marker -- in practice both,
-    # so a scope that refused to stop still loses its processes, and a plain start loses
-    # nothing by the scope attempt missing.  The record already says stopped, so whatever
-    # notices the dead children aborts instead of replacing them.
-    if orch.user_manager():
-        unit = f"agentkit-run-{run_id}"
-        for suffix in (".scope", ".service"):
-            try:
-                subprocess.run(["systemctl", "--user", "stop", f"{unit}{suffix}"],
-                               capture_output=True, encoding="utf-8", errors="replace",
-                               env=orch.bus_env(), timeout=orch.SLICE_WAIT)
-            except (OSError, subprocess.SubprocessError):
-                pass
-    pid = state.get("pid")
-    # Only a run of its own is ended by its tree: a task whose pid is still its live
-    # scheduler's is ended by its marker below, and a task resumed by hand -- a new
-    # pid under an old stamp -- is ended by its tree like any run of its own.
-    if not jobs.job_scheduler_owns(run_id, state) and isinstance(pid, int) and pid > 0 \
-            and pid != os.getpid() and run_record.process_active(state):
-        try:
-            watch.kill_tree(pid, log)
-        except (OSError, ValueError):
-            pass
-    for member in marker_pids(run_id):
-        try:
-            watch.kill_tree(member, log)
-        except (OSError, ValueError):
-            pass
-    if not keep and not worktrees.stop_checkout(state, log):
-        # The checkout is still there -- a live loop, or a git that said no --
-        # so the branch stays with it, and the record says kept: `from:` carries
-        # that committed work into a relaunch the same way `--keep` does. Read
-        # back under the lock: the dict above predates the kill by whole seconds.
-        state["stop_kept"] = True
-        try:
-            with run_record.recovery_lock(run_dir):
-                current = run_record.read_state(run_dir) or state
-                current["stop_kept"] = True
-                run_record.save_state(run_dir, current)
-        except (OSError, ValueError, TypeError):
-            pass
-    try:
-        from . import browser
-        browser.close_owned(run=run_id)
-    except (OSError, ValueError, TypeError):
-        pass
-    log(f"stopped {run_id}")
-    print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
-    return 0
-
-
 def queued(run_dir):
     """The background launch receipt, possibly already holding its slot."""
     try:
@@ -9430,7 +9265,7 @@ def preflight(run_dir, opts, log):
             log("notification: verdict on GitHub; PASS with green checks merges, FAIL hands back "
                 "to the seat (stderr if unconfigured)")
         else:
-            log(f"notification: verdict on GitHub; PASS with green checks offered to {watch.inbox()} "
+            log(f"notification: verdict on GitHub; PASS with green checks offered to {config.inbox()} "
                 "and needs to Discord (stderr if unconfigured)")
     else:
         log(f"notification: {session}; dead-seat fallback: needs to Discord if that seat is gone "
@@ -10386,9 +10221,7 @@ def merge_own_pr(lp, url, head):
     upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
 
     def deliver():
-        pr = urlsplit(url)
-        owner, repo, _, number = pr.path.strip("/").split("/")
-        api = ("api",) if pr.netloc == "github.com" else ("api", "--hostname", pr.netloc)
+        api, owner, repo, number = pr_parts(url)
         current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
         if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
             raise config.Error(f"cannot verify the PR before delivery: {why}")
@@ -10727,7 +10560,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                   if tests else "(AGENTS.md declares no `tests:` command; nothing was run)")
         log(dw_log)
         # no suite stands in for it, and a PASS on this head is what merges
-        failure = rules_cap(lp)
+        failure = rules_check(lp)
         if failure:
             ok, dw_log = False, f"{dw_log}\n\n{failure}"
             log(failure)
@@ -10800,7 +10633,7 @@ def settle_pr_round(lp, url, info):
             pending = {"question": question, "url": url, "sha": head, "asked": False}
             if watch.ask_inbox(cfg, question, url, head, log,
                                typed=lambda: pending.update(asked=True)) == 0:
-                state["merge_note"] = f"offered to the {watch.inbox()} session at {head[:12]}"
+                state["merge_note"] = f"offered to the {config.inbox()} session at {head[:12]}"
             else:
                 state["merge_note"] = "merge question requires retry"
                 state["pending_inbox"] = pending
@@ -11000,7 +10833,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         except run_record.StopRequested:
             # A stop landed during preflight: the receipt already says so, and the
             # stopper printed the line -- this end names it and stands down alike.
-            print(stop_line(run_dir.name, None, False))
+            print(stop.stop_line(run_dir.name, None, False))
             return 1
         if flags["--bg"]:
             try:
@@ -11016,7 +10849,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
                     run_record.save_state(run_dir, {**(run_record.read_state(run_dir) or {}),
                                          "launch_reviewer": reviewer})
                 except run_record.StopRequested:
-                    print(stop_line(run_dir.name, None, False))
+                    print(stop.stop_line(run_dir.name, None, False))
                     return 1
             rc = spawn_bg(run_dir, argv)
             if reviewer and title and launch_session(run_dir):
@@ -11069,7 +10902,7 @@ def main(argv):
         # The same screen as naming a run in status: deaths are listed there.
         return status.cmd_status(argv[1:])
     if argv[:1] == ["clean"]:
-        return cmd_clean(argv[1:])
+        return stop.cmd_clean(argv[1:])
     if argv[:1] == ["gc"]:
         return gc.cmd_gc(argv[1:])
     if argv[:1] == ["resume"]:
@@ -11077,7 +10910,7 @@ def main(argv):
     if argv[:1] == ["merge"]:
         return cmd_merge(argv[1:])
     if argv[:1] == ["stop"]:
-        return cmd_stop(argv[1:])
+        return stop.cmd_stop(argv[1:])
     if depth_refused():
         return 2
     opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
@@ -11214,13 +11047,13 @@ def main(argv):
         except run_record.StopRequested:
             # A stop landed during preflight: the receipt already says so, and the
             # stopper printed the line -- this end names it and stands down alike.
-            print(stop_line(run_dir.name, None, False))
+            print(stop.stop_line(run_dir.name, None, False))
             return 1
         if opts["--bg"]:
             try:
                 executor, reviewer = preset_models(cfg, opts, logger(run_dir), run_dir)
             except run_record.StopRequested:
-                print(stop_line(run_dir.name, None, False))
+                print(stop.stop_line(run_dir.name, None, False))
                 return 1
             rc = spawn_bg(run_dir, argv)
             if executor and reviewer and launch_session(run_dir):

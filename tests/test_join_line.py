@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gate, history, job, land, menu, record, run, scoreboard, watch
 from test_merge_step import make_loop, make_repos
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 
 
 class JoinLine(Sandbox):

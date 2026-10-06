@@ -56,7 +56,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - Never re-create another system's semantics for an input nobody uses (Linux's path walk inside Git trees, for a linked AGENTS.md): every review round found one more difference (#520, six rounds). Refuse the input plainly instead.
 - A test never asserts a plain word is absent from output that prints paths: worktree paths carry the run's title.
 - A test never asserts a wall-clock duration (under 100 ms, say): host load breaks it at landing. Inject the clock and assert what it read.
-- `test_v4n.Sandbox` stops this process's clock (`time.time()` reads 10000) and keeps ak's state in `<root>/state`, while a hook run as a subprocess stamps the real clock into `$HOME/.agentkit/state`: copy its record across and compare against its own stamps.
+- `tests/fixtures/sandbox.py`'s `Sandbox` stops this process's clock (`time.time()` reads 10000) and keeps ak's state in `<root>/state`, while a hook run as a subprocess stamps the real clock into `$HOME/.agentkit/state`: copy its record across and compare against its own stamps.
 - A rule on what may merge belongs in both merge paths: `do_merge` (task runs) and `merge_own_pr` (a seat's own PR, now the main path); a guard on one alone is a bypass.
 - Typing into a seat has one typer per kind of line: the tick, under its lock. A second typer (a sender trying first) needs claims and delivery reports that each review round finds a new race in (#439, 3 rounds).
 - A fix that reads the screen adds no fallback for shapes it did not set out to read: every such fallback (an at_prompt backstop, an "empty composer" pattern) misread another real screen and cost a review round (#501, 3 rounds).
@@ -64,6 +64,8 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A test that asserts a UTF-8 glyph the menu draws (│ ▶ ✓ …) pins `patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"})`: under LANG=C the menu draws ASCII and the landing suite runs in the caller's locale.
 - Whatever a bar or the menu shows of a run is in run.json when its step publishes (round directories come later), and an open menu sees only the files it watches: a display fact derived from anything else lags (#504, 3 rounds).
 - A screen-reading change reads only the rows the code it replaces read: every reach further up (a whole-pane read, a tail extended to a box) met an older composer, echo or box a reviewer could place there (#507, nine rounds).
+- When each review round finds one more state, race or recovery path, stop patching paths: delete the state or change the design so fewer paths must be right (switch retirement, #547 to #586).
+- A screen-reading fix is proven on a pane captured from a real, renamed seat, not only a hand-drawn fixture: Claude draws the seat's name into the rule under a question's footer, which #591's fixture lacked (#609).
 
 ## Owner rules
 
@@ -93,5 +95,8 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - Credits a provider account still holds (ChatGPT credits first, any provider that reports a balance) count as usage left. [2 Oct]
 - ak never spends a usage-limit reset on its own; the owner spends one by hand, from the Providers row of `c`. [2 Oct]
 - No screen estimates when work will finish; a seat's progress is its tasks bar and its count, never a percentage. [2 Oct]
+- Every project meets one contract, enforced by checks and scaled by what is at stake: its suite runs every test file, its front matter holds only lines ak reads, and a live project proves it is live with a real `health:`, deploys only code ak tested, and puts the previous release back by itself when health breaks. How each project deploys stays its own; a ready-made deploy kit covers the common case. [5 Oct]
 - A seat's live runs are named on one line only, its live line (the seat bar's second line, and under the highlighted dashboard row): task id, what it is doing, the model doing it. No other row names a run. [18 Sep, 2 Oct]
 - Seats message each other only through `ak tell`, the same way for every harness and account; it is never taken for the owner's words. [4 Oct]
+- `~/code` holds only the owner's checkouts: a seat builds in a checkout under `~/.agentkit/wt/`, and ak removes it a day after it last changed, merged or not, unless it holds a change not yet committed or is a clone; its branch and commits stay in the project's repository. Seats' worktrees in `~/code` showed as projects and were never cleaned; waiting for GitHub's merge only added races. [5 Oct, 6 Oct]
+- The vision at the top of this file, the landing gate and what the scoreboard measures change only with the owner's yes; the rest of ak the orchestrators improve on their own. [2 Oct]

@@ -28,8 +28,8 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from test_v4n import Sandbox
-from agentkit import config, menu, orch, run, terminal, watch
+from fixtures.sandbox import Sandbox
+from agentkit import config, menu, orch, run, stop, terminal, watch
 from agentkit import record as run_record
 from agentkit.harness import codex as codex_plugin
 
@@ -134,7 +134,7 @@ class Switch(Sandbox):
         state["stalls"]["fix-api"] = {"status": "waiting"}
         watch.save_state(state)
         selected = self.selected()
-        with patch.object(run, "stop_owned_runs",
+        with patch.object(stop, "stop_owned_runs",
                           side_effect=AssertionError("runs are never stopped")):
             self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
                              "")

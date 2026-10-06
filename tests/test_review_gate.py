@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, notify, run, task, worker
+from agentkit import config, notify, run, stop, task, worker
 from agentkit import record
 
 
@@ -78,7 +78,7 @@ class ReviewGate(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
-        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(stop, "marker_pids", return_value=[]))
         self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
@@ -311,7 +311,7 @@ sys.exit(1)
             # A re-review replaces the list even after the PR already exists.
             state["followups"] = ["b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"]
             self.assertEqual(run.open_pr(lp, "main"), url)
-        self.assertEqual(gh.call_args.args[1:4], ("pr", "edit", url))
+        self.assertEqual(gh.call_args.args[1:5], ("api", "-X", "PATCH", "repos/fixture/repo/pulls/7"))
         body = (run_dir / "pr-body.md").read_text()
         self.assertIn("- b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError", body)
         self.assertNotIn("- a.py:1", body)

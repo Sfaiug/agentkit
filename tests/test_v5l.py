@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import finding_count, reported, scripted, stateful
-from agentkit import gate, host, config, notify, run, status, worker
+from agentkit import gate, host, config, notify, run, stop, status, worker
 from agentkit import record
 
 
@@ -81,7 +81,7 @@ class BudgetRuns(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
-        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(stop, "marker_pids", return_value=[]))
         self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))

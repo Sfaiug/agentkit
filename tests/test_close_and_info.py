@@ -32,7 +32,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import browser, config, menu, notify, orch, statusbar, terminal, watch
 
 # The child: the real loop, draw, key reader and selector; fakes for what a seat is and the stop.

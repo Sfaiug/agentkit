@@ -667,7 +667,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
                 patch.object(record, "run_dirs", return_value=[finished]), \
                 patch.object(run, "reap", side_effect=lambda d, state: state), \
                 patch.object(run, "announce") as announce, \
-                patch.object(watch, "inbox", return_value="inbox"), \
+                patch.object(config, "inbox", return_value="inbox"), \
                 patch.object(notify, "shaped", return_value=0) as question:
             assert "WARN the usage refresh did not finish" in tick()
             announce.assert_called_once()
@@ -1197,7 +1197,7 @@ import test_v4l
 
 
 class Notifications(test_notify.Notifications):
-    def open_and_progress(self):
+    def open_and_progress(self, between=lambda: None):
         before, messages = menu.state({"name": "seat"}), len(self.requests)
         with patch.object(orch, "find", return_value={"name": "seat"}), \
                 patch.object(orch, "inside", return_value=True), \
@@ -1208,6 +1208,7 @@ class Notifications(test_notify.Notifications):
             menu.open_session(config.load(), {"name": "seat"}, False)
         self.assertEqual(menu.state({"name": "seat"}), before)
         self.assertEqual(len(self.requests), messages)
+        between()
         notify.progress("seat", lambda: "Fresh output after the answer")
 
     def test_lifecycle_and_approved_payload(self):
@@ -5680,7 +5681,8 @@ GROKRC=0
 printf '\n' | (cd "$WORK" && HOME="$GHOME" ak orch smoke-grok --model grok --dry-run) \
   >"$WORK/grok-orch.log" 2>&1 || GROKRC=1
 grep -q '^orch: grok (--model)$' "$WORK/grok-orch.log" || GROKRC=1
-grep -q 'idle-compact.py --harness grokbuild -- grok ' "$WORK/grok-orch.log" || GROKRC=1
+grep -q 'idle-compact.py --harness grokbuild -- env GROK_CLAUDE_AGENTS_ENABLED=false .*GROK_CURSOR_SKILLS_ENABLED=false grok ' \
+  "$WORK/grok-orch.log" || GROKRC=1
 grep -q -- '--rules ' "$WORK/grok-orch.log" || GROKRC=1
 grep -q -- '--trust --always-approve --model grok-4.7 --reasoning-effort xhigh' \
   "$WORK/grok-orch.log" || GROKRC=1

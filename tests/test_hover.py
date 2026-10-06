@@ -35,7 +35,7 @@ from agentkit import config, menu, orch, terminal
 from agentkit.terminal import TIPS
 from test_config_matrix import Screen
 from test_menu_keys import Menu
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 
 ESC, RIGHT, DOWN = b"\x1b", b"\x1b[C", b"\x1b[B"
 Cell = namedtuple("Cell", "char lit reverse")

@@ -1,7 +1,7 @@
 # adapters/muse.toml -- everything agentkit reads off a Muse Code seat's screen.  Paired with
 # adapters/muse.sh; the format is the adapter contract in docs/guide.md, "Adding a harness".
 # Verified against Muse Code 1.2.1 (and the 1.0.3/1.1.1 captures); see tests/fixtures/README.md.
-# A worker turn still loads Muse's own personal rules and the trusted workspace's: Muse 1.4.1 drops the latter only with the trust its delegation needs.
+# A worker turn or seat still loads Muse's own personal rules and the trusted workspace's (Muse 1.4.1 drops the latter only with the trust its delegation needs), and a seat Claude's and Codex's personal rules and skills too: Muse 1.4.3's TUI takes no --no-foreign-personal-context, only `muse exec` does.
 version = 1
 
 [check]

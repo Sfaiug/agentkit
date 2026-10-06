@@ -63,12 +63,12 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
-from agentkit import harness
-from agentkit.run import going, handback_reason, unfinished, ways_out
+from agentkit import config, harness
+from agentkit.run import going, handback_reason, unfinished
+from agentkit.stop import ways_out
 from agentkit.job import job_waiting
 from agentkit.watch import waiting_on
 
-HOPS = 8            # how many renames a seat name is followed through, as agentkit/config does
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
           "declaring done with ak notify done, "
@@ -100,15 +100,13 @@ def resolve(name):
 
     The launch name stays in $AGENTKIT_SESSION for the life of the seat, so the records this
     reads -- which moved with the rename -- are only found under the name at the end of it.
+    A chain that does not resolve leaves the name as it is: a stop hook decides from what it
+    can read and never fails the stop.
     """
-    seen = {name}
-    for _ in range(HOPS):
-        renamed = read(STATE / f"session-{name}.json").get("renamed")
-        if not isinstance(renamed, str) or not renamed or renamed in seen or "/" in renamed:
-            return name
-        name = renamed
-        seen.add(name)
-    return name
+    try:
+        return config.resolve_session(name)
+    except config.Error:
+        return name
 
 
 def spoken(entry):

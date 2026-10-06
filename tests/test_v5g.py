@@ -16,7 +16,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from test_v5y import offline
 from agentkit import config, menu, orch, run, terminal, watch
 from agentkit import record

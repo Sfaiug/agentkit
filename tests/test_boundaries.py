@@ -72,7 +72,7 @@ RULES = [
      "pattern": "claude|codex|muse|opencode|grok|grokbuild|antigravity|gemini|anthropic|openai"
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml"),
-     "max": 208},
+     "max": 197},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     # Every provider word counts, in code or comment, but none of ak's own names: the
@@ -85,13 +85,13 @@ RULES = [
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)",
      "home": ("adapters/", "agentkit/harness/"),
      "max": 59},
-    # The run loop and admission write run.json through its one writer.
+    # The run loop, admission and a stop write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the
     # watcher's state, not a run record.
     {"name": "run-record writes",
      "flags": (),
      "pattern": r"\.save_state\(",
-     "home": ("agentkit/run.py", "agentkit/gate.py"),
+     "home": ("agentkit/run.py", "agentkit/gate.py", "agentkit/stop.py"),
      "max": 0},
     # A run's writer owns the temporary files and recovery lock it leaves on disk.
     {"name": "run record write",
@@ -114,6 +114,16 @@ RULES = [
                 r"|len\([\"'](session|notify|card|seat|hook|compact|stop|plan)-[\"']\)",
      "home": ("agentkit/config.py",),
      "max": 11},
+    # A rename leaves a pointer at the old name, and `config.resolve_session` follows it: a
+    # second walk of the chain is one more place to keep in step with how renames chain.
+    # The one left is seat-state.sh's jq walk.  OpenCode's own `session.renamed` event is no
+    # pointer.
+    {"name": "rename chain walks",
+     "flags": (),
+     "pattern": r"[\"']renamed[\"']|\.renamed([^A-Za-z0-9_]|$)",
+     "names": r"session\.renamed",
+     "home": ("agentkit/config.py",),
+     "max": 1},
     # A task file's format is read in one module: a pattern for its front-matter fence
     # (`^---\n`) or its `## Done when` heading is a second reader to keep in step.  A task
     # written out (`## Done when\n```bash`) is no reader, and `FRONT` reads AGENTS.md's front

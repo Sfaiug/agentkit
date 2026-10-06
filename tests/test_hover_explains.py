@@ -30,7 +30,7 @@ from agentkit import config, menu, motion, orch, terminal, watch
 from agentkit.terminal import TIPS
 import test_close_and_info
 from test_hover import ESC, at, move, played, run, texts
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 
 # The child: test_close_and_info's fakes for what a seat is, every seat in one project, and the
 # cache holding one meter for the first provider's row: 40% of its week gone, 32% of it used.

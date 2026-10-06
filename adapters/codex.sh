@@ -24,6 +24,11 @@ set -uo pipefail
 command -v codex >/dev/null || PATH="$HOME/.npm-global/bin${PATH:+:$PATH}"   # install.sh's npm prefix puts it here: the fallback when PATH has no answer
 AUTH="$HOME/.codex/auth.json"
 TMPD="$HOME/.agentkit/tmp"
+# The repository's AGENTS.md is kept out of a worker's turn and a seat (`codex debug
+# prompt-input` shows it gone): their rules are the ones ak hands them, a seat's its rulebook
+# with the project's AGENTS.md in it (`config.seat_rulebook`).  `run` passes these and
+# `interactive` prints them.
+OWN_RULES_OFF="-c project_doc_max_bytes=0"
 # An account other than the usual login keeps its login in a Codex home of its own, where
 # `CODEX_HOME=~/.codex-<name> codex login` puts it.  Nothing of the usual login -- its auth.json,
 # a key exported for it -- ever answers for an account: that would spend the wrong
@@ -110,9 +115,8 @@ run)
   # above the `interactive` printf.
   case $model in ""|default) ;; *) set -- "$@" -m "$model" ;; esac
   if [ -n "$ACCOUNT" ]; then home || exit 2; set -- "$@" -c "$STORE"; fi
-  # project_doc_max_bytes=0 keeps the repository's AGENTS.md out of the turn (`codex debug
-  # prompt-input` shows it gone): a worker's rules are the ones ak's prompt carries.
-  codex "$@" -c model_reasoning_effort="$effort" -c project_doc_max_bytes=0 \
+  # shellcheck disable=SC2086 # OWN_RULES_OFF is words of codex's own command line
+  codex "$@" -c model_reasoning_effort="$effort" $OWN_RULES_OFF \
       --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --json \
       -o "$out/final.md" <"$pf" >"$out/events.jsonl" 2>"$out/stderr.log"
   rc=$?
@@ -164,9 +168,9 @@ interactive)
   if [ -n "$ACCOUNT" ]; then
     printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME=%q ' "$CODEX_HOME"
   fi
-  printf "python3 %q codex -- python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"'\n" \
-      "$REPO/tools/trust.py" "$REPO/tools/idle-compact.py" "$REPO/tools/codex-seat.py" "$rules" \
-      "$resume" "$mflag" "$2" ;;
+  printf "python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"' %s\n" \
+      "$REPO/tools/idle-compact.py" "$REPO/tools/codex-seat.py" "$rules" \
+      "$resume" "$mflag" "$2" "$OWN_RULES_OFF" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   [ -r "$AUTH" ] || err "no $AUTH; run 'codex login' once"

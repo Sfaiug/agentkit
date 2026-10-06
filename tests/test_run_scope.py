@@ -14,7 +14,7 @@ import unittest
 import warnings
 from unittest.mock import MagicMock, patch
 
-from test_v4n import REPO
+from fixtures.sandbox import REPO
 import sys
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, job as jobs, orch, run, watch

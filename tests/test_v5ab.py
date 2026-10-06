@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import gate, host, config, gc, notify, run, usage, worker
+from agentkit import gate, host, config, gc, notify, run, stop, usage, worker
 from agentkit import record
 
 
@@ -94,7 +94,7 @@ sys.exit(1)
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
-        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(stop, "marker_pids", return_value=[]))
         self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))

@@ -66,7 +66,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
-              ("lander_wait_seconds", "REAL"))
+              ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"))
 
 REVIEWS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviews (
@@ -204,7 +204,8 @@ def _update(connection, run_id, fields):
                "started_at", "finished_at", "executor_seconds", "done_when_seconds",
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
-               "task_checks", "task_files", "orchestrator", "changed_lines", "live_at"}
+               "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
+               "rules_bytes"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -306,7 +307,7 @@ def close_step(run_id, at=None, *, keep=False, log=None):
 def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
-               changed_lines=None, log=None):
+               changed_lines=None, rules_bytes=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.
@@ -315,7 +316,8 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
     values = {"final_state": final_state, "verdict": verdict, "rounds_used": rounds_used,
               "finished_at": finished_at, "peak_rss_mb": peak_rss_mb,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
-              "task_files": task_files, "changed_lines": changed_lines}
+              "task_files": task_files, "changed_lines": changed_lines,
+              "rules_bytes": rules_bytes}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 
@@ -441,6 +443,25 @@ def size_summary(repo, limit=SUMMARY_TASKS):
     return (median([rounds for rounds, _, _ in rows]),
             median(over_words) if over_words else None,
             median(over_points) if over_points else None)
+
+
+def rules_size(repo):
+    """The bytes of `repo`'s AGENTS.md its last finished run was handed (`run.rules_bytes` at
+    its base, 0 where it was handed none), or None where no finished run recorded one."""
+    _ensure_migrated()
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                row = connection.execute(
+                    "SELECT rules_bytes FROM runs WHERE repo=? AND finished_at IS NOT NULL "
+                    f"AND rules_bytes IS NOT NULL AND {REAL_WORK} "
+                    "ORDER BY finished_at DESC LIMIT 1", (Path(repo).name,)).fetchone()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+    return row[0] if row else None
 
 
 def ended_runs(since, until):

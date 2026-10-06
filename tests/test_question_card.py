@@ -23,7 +23,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 import test_close_and_info
 from test_close_and_info import ESC, Menu
-from agentkit import menu, run, terminal
+from agentkit import menu, run, stop, terminal
 from agentkit import record
 
 Key = terminal.Key
@@ -142,7 +142,7 @@ class QuestionCard(unittest.TestCase):
         self.assertNotIn("<stopped", shown.text())
 
     def test_the_count_is_the_runs_a_stop_stops(self):
-        # what run.cmd_stop takes: a run not ended, and an `error` still waiting on its owner
+        # what stop.cmd_stop takes: a run not ended, and an `error` still waiting on its owner
         states = {"going": {"state": "running"}, "queued": {"state": "queued"},
                   "acknowledged": {"state": "interrupted", "recovery_acknowledged_at": 1},
                   "retried": {"state": "error", "recovery_pending": True},

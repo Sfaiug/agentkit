@@ -20,12 +20,16 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, host, job as jobs, menu, notify, orch, run, watch
 from agentkit import record
 
 SEAT, OTHER = "acme-api", "fix-api"
 HARNESSES = ("muse", "opencode", "antigravity")
+# each harness's empty composer row on its prompt screen, and that row holding a typed line
+TYPED = {"muse": ("\n\u276f\n", "\n\u276f {}\n"), "antigravity": ("\n>\n", "\n> {}\n"),
+         "opencode": ('\u2503  Ask anything\u2026 "What is the tech stack of this project?"',
+                      "\u2503  {}")}
 SAID = "Here is my recommendation. Let me know if I should continue."
 PARKED, THEIRS = "20260101-0800-parked", "20260101-0900-schema"
 LATER = "20260101-1000-parked"
@@ -72,6 +76,8 @@ class NudgeTurnRule(Sandbox):
             return 0, self.pane
         if args[0] == "send-keys" and "-l" in args:
             self.sent.append(args[-1])
+            empty, row = TYPED[self.harness]    # the line sits in the composer until its Enter
+            self.pane = self.screen("prompt").replace(empty, row.format(args[-1]))
         elif args[0] == "send-keys" and args[-1] == "Enter":
             self.pane = self.screen("working")      # the harness took the line and is at work
         return 0, ""

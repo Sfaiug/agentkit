@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, run, worktrees  # noqa: E402
+from agentkit import config, run, stop, worktrees  # noqa: E402
 
 
 class RepoCleanup(unittest.TestCase):
@@ -87,7 +87,7 @@ class RepoCleanup(unittest.TestCase):
                     name, f"---\ncleanup: {cmd}\n---\n# acme\n")
                 before = (run_dir / "run.json").read_bytes()
                 with redirect_stdout(io.StringIO()):
-                    self.assertEqual(run.cmd_clean([name]), 0)
+                    self.assertEqual(stop.cmd_clean([name]), 0)
                 self.assertFalse(wt.exists())
                 self.assertEqual((run_dir / "run.json").read_bytes(), before)
                 self.assertTrue((run_dir / "cleanup.log").exists())

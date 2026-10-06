@@ -1523,13 +1523,13 @@ def stop_session_runs(name, dry_run=False):
     never accidents to resume. A run that refuses -- already finished between the
     listing and the stop -- is named and left; the seat still ends.
     """
-    from . import run as run_mod
+    from . import stop
     for run_dir in session_runs(name):
         if dry_run:
             print(f"would stop {run_dir.name}")
             continue
         try:
-            run_mod.cmd_stop([run_dir.name])
+            stop.cmd_stop([run_dir.name])
         except config.Error as exc:
             print(f"could not stop {run_dir.name}: {exc}")
         except (OSError, ValueError, KeyError, TypeError):
@@ -1537,7 +1537,7 @@ def stop_session_runs(name, dry_run=False):
 
 
 def session_runs(name):
-    """Every run that seat launched which stopping it stops: what `run.cmd_stop` takes -- each
+    """Every run that seat launched which stopping it stops: what `stop.cmd_stop` takes -- each
     one not ended, as `orch.cmd_stop` stops them too, and an `error` still waiting on its
     owner, which the tick would retry."""
     from . import run as run_mod
@@ -3351,11 +3351,16 @@ def switches(checkout, every=FEATURES_EVERY):
         return entry["rows"]
 
 
+def switch_rows(answer):
+    """The switches a features `list` answered, each a row with an id; None for no list."""
+    return ([row for row in answer if isinstance(row, dict) and "id" in row]
+            if isinstance(answer, list) else None)
+
+
 def _list_switches(checkout, entry):
     asked = time.monotonic()
     answer, why = features_run(checkout, "list")
-    rows = ([row for row in answer if isinstance(row, dict) and "id" in row]
-            if isinstance(answer, list) else None)
+    rows = switch_rows(answer)
     with _SWITCHES_LOCK:
         entry["going"] = False
         if entry["set"] > asked:

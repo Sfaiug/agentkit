@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, gc, land, menu, orch, run, status, watch
+from agentkit import host, config, gc, land, menu, orch, run, stop, status, watch
 from agentkit import record
 
 WEEK = 604800
@@ -948,8 +948,8 @@ class Parked(unittest.TestCase):
                               waiting_resume_at=self.now + 900,
                               launched_session="seat")
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(run.cmd_stop([run_dir.name]), 0)
-            self.assertEqual(run.cmd_stop([waiter.name]), 0)
+            self.assertEqual(stop.cmd_stop([run_dir.name]), 0)
+            self.assertEqual(stop.cmd_stop([waiter.name]), 0)
         for d in (run_dir, waiter):
             after = record.read_state(d)
             self.assertEqual(after["state"], "stopped")

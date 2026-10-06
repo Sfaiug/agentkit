@@ -19,7 +19,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import Sandbox, menu_input
+from fixtures.sandbox import Sandbox, menu_input
 from agentkit import config, menu, motion, orch, terminal
 
 Key = terminal.Key

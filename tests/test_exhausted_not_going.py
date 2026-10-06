@@ -12,7 +12,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import config, menu, notify, orch, run, status, watch, worker
 from agentkit import record
 

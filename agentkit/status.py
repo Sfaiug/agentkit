@@ -5,7 +5,7 @@ import re
 import time
 from pathlib import Path
 
-from . import config, gate, gc, history, host, orch, run, scoreboard
+from . import config, gate, gc, history, host, orch, run, scoreboard, stop
 from . import job as jobs
 from . import land as landing
 from . import record as run_record
@@ -149,7 +149,7 @@ def scope_alive(state, scope_dir=None, _marker=None, _rss=None, _active=None):
         if readings is not None:
             return readings
     run_id = (state or {}).get("run_id")
-    marker = _marker or run.marker_pids
+    marker = _marker or stop.marker_pids
     try:
         pids = list(marker(run_id)) if run_id else []
     except (OSError, ValueError, TypeError):
@@ -582,7 +582,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
 def size_summary_line(repo):
     """One line per repository for `ak run status --history`: median rounds overall,
     over long tasks and over many-pointed ones, so the orchestrator sizes the next task
-    from what this repository's last twenty actually took."""
+    from what this repository's last twenty actually took -- and the AGENTS.md its last
+    run's workers were handed, against the most a harness reads of it."""
     summary = history.size_summary(repo)
     if summary is None:
         return None
@@ -591,8 +592,12 @@ def size_summary_line(repo):
         return f"median {value:g} rounds" if value is not None else "–"
 
     overall, words, points = summary
-    return (f"{repo}: last 20 tasks: {med(overall)} · over 400 words: {med(words)} · "
+    line = (f"{repo}: last 20 tasks: {med(overall)} · over 400 words: {med(words)} · "
             f"over 3 points: {med(points)}")
+    rules, ceiling = history.rules_size(repo), config.instruction_ceiling()
+    if rules:
+        line += f" · AGENTS.md {rules:,} bytes" + (f" of {ceiling[0]:,}" if ceiling else "")
+    return line
 
 
 def cmd_status(argv):

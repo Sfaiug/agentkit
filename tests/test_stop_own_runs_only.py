@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from test_v4n import Sandbox
-from agentkit import browser, config, job, notify, orch, record, run, worktrees, watch
+from fixtures.sandbox import Sandbox
+from agentkit import browser, config, job, notify, orch, record, run, stop, worktrees, watch
 
 
 class StopOwnRunsOnly(Sandbox):
@@ -35,7 +35,7 @@ class StopOwnRunsOnly(Sandbox):
         self.tabs = self.stack.enter_context(patch.object(browser, "close_owned"))
         self.checkout = self.stack.enter_context(patch.object(worktrees, "stop_checkout", return_value=True))
         self.kill = self.stack.enter_context(patch.object(watch, "kill_tree"))
-        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[4242]))
+        self.stack.enter_context(patch.object(stop, "marker_pids", return_value=[4242]))
         self.stack.enter_context(patch.object(record, "process_active", return_value=True))
         for name in ("history_finish", "record_result", "redress_seat"):
             self.stack.enter_context(patch.object(run, name))
@@ -120,8 +120,8 @@ class StopOwnRunsOnly(Sandbox):
             with self.subTest(exited=exited):
                 seats = [] if exited is None else [{"name": "acme-ui", "exited": exited}]
                 with patch.object(orch, "sessions", return_value=seats), \
-                        patch.object(run, "stop_owned_runs") as stop_runs, \
-                        patch.object(run, "release_session") as release:
+                        patch.object(stop, "stop_owned_runs") as stop_runs, \
+                        patch.object(stop, "release_session") as release:
                     self.unchanged_on_refusal(lambda: orch.main(["stop", "acme-ui"]), "acme-ui")
                 stop_runs.assert_not_called()
                 release.assert_not_called()

@@ -357,7 +357,7 @@ def mcp_block(servers):
 
 
 def config_entries():
-    """~/.codex/config.toml: `register_mcp` and tools/trust.py write there."""
+    """~/.codex/config.toml: `register_mcp` and `trust_here` write there."""
     return {"file": Path.home() / ".codex" / "config.toml", "trust": "projects",
             "mcp": "mcp_servers"}
 
@@ -449,6 +449,32 @@ def _replace(path, text, mode=0o600):
         raise config.Error(f"cannot write {path}: {exc}") from None
 
 
+def trust_here():
+    """Mark the launch's cwd trusted in ~/.codex/config.toml, which every account's home links
+    to, so the seat opens on its prompt rather than on "do you trust this folder?".
+
+    Appended, never rewritten: the file is the user's.  Read first, so a directory trusted in
+    any spelling -- its own table, a key under `[projects]`, an inline table -- gets no second
+    table, which would leave a file Codex cannot parse; one that does not parse is Codex's to
+    report, and stays as it is.  The appended file must parse too: a `projects` kept as an
+    inline table cannot take another table, so the file stays and Codex asks for itself.  So
+    does a file this cannot read or write: the trust only spares the seat Codex's question.
+    """
+    path, here = config_entries()["file"], str(Path.cwd().resolve())
+    entry = f"\n[projects.{json.dumps(here, ensure_ascii=False)}]\ntrust_level = \"trusted\"\n"
+    try:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        projects = tomllib.loads(text).get("projects", {})
+        if not isinstance(projects, dict) or here in projects:
+            return
+        tomllib.loads(text + entry)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(entry)
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return
+
+
 def main(argv, launch=None):
     if argv == ["capture"]:
         try:
@@ -464,6 +490,7 @@ def main(argv, launch=None):
     if not argv or argv[0] != "--" or len(argv) < 2:
         raise config.Error("usage: codex-seat.py [--rulebook <file>] -- <codex command> | capture")
     cmd = argv[1:]
+    trust_here()
     if os.environ.get(config.ACCOUNT_ENV):
         # A named CODEX_HOME must use its own file login, never the default Keychain
         # entry, and trust must apply in this invocation's config as well.

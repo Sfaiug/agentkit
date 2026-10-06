@@ -17,7 +17,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import Sandbox, menu_input
+from fixtures.sandbox import Sandbox, menu_input
 from agentkit import config, macbridge, menu, orch, terminal, watch
 
 SLOW = 2.0        # what maintenance and each seat's look take

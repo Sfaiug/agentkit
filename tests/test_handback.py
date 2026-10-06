@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import unquote_to_bytes
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from fixtures.hand_in import records, scripted, stateful
 from agentkit import gate, host, browser, config, gc, job as jobs, land, menu, notify, orch, run, worktrees, status, terminal, watch
 from agentkit import record
@@ -74,12 +74,13 @@ class Claude:
     reads as a prompt: what the seat of run 20260923-2146 showed while its turn began.  `takes`
     off leaves every Enter's line in the composer; `fails` makes the next Enter's send fail;
     `dialog` puts the trust dialog over the composer, and an Enter then answers it.  `wrap`
-    draws the real screen instead, its composer between its rules wrapped at that many columns.
+    draws the real screen instead, its composer between its rules wrapped at that many columns,
+    and `folds` shows a composer holding more than that many characters as Claude does.
     """
 
     def __init__(self):
         self.composer, self.read, self.typed, self.chosen = "", [], 0, 0
-        self.takes, self.fails, self.dialog, self.wrap = True, False, False, None
+        self.takes, self.fails, self.dialog, self.wrap, self.folds = True, False, False, None, None
 
     def keys(self, *args, socket=None, client=False, **_kw):
         if args[0] == "send-keys" and args[-2] == "-l":
@@ -106,7 +107,9 @@ class Claude:
             rows = "\n  ".join(textwrap.wrap(self.composer, self.wrap - 4)) or "\u00a0"
             return (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text().replace(
                 "\u276f\u00a0\n", f"\u276f {rows}\n")
-        return "".join(f"> {line}\n\n" for line in self.read) + f"\u276f {self.composer}\n"
+        shown = ("[Pasted text #1]" if self.folds and len(self.composer) > self.folds
+                 else self.composer)
+        return "".join(f"> {line}\n\n" for line in self.read) + f"\u276f {shown}\n"
 
 
 class HandBack(Sandbox):
@@ -349,13 +352,11 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         seat = self.claude()
         line = "The acme tests passed."
-        for refused in ({"stale": lambda _held: True}, {"ready": lambda _held: False}):
-            with self.subTest(refused_by=next(iter(refused))):
-                seat.composer = line
-                self.assertFalse(watch.type_at_prompt(
-                    self.live(), line, self.logs.append, cfg=self.cfg,
-                    typed={"line": line, "seat": self.live()["created"]}, **refused))
-                self.assertEqual((seat.read, seat.composer), ([], line))
+        seat.composer = line
+        self.assertFalse(watch.type_at_prompt(
+            self.live(), line, self.logs.append, cfg=self.cfg,
+            typed={"line": line, "seat": self.live()["created"]}, stale=lambda _held: True))
+        self.assertEqual((seat.read, seat.composer), ([], line))
 
     def test_a_line_wrapped_past_the_bottom_rows_gets_its_enter_before_it_counts_as_delivered(self):
         # 2026-10-05: a 712-character told line, seven rows in a 117-column pane, sat unsent in
@@ -371,19 +372,153 @@ class HandBack(Sandbox):
         self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
                                              cfg=self.cfg, typed=mark))
 
-    def test_a_line_in_a_composer_that_cannot_be_read_whole_is_never_counted_delivered(self):
+    def test_a_line_taller_than_the_read_gets_its_enter_and_counts_delivered_once_taken(self):
+        """Its top above the rows a composer is read in, its end alone there is the line: it
+        gets its Enter, and counts delivered only once its composer reads empty (#590)."""
         self.rows = [self.live()]
         seat = self.claude()
         line = ("Result: " + "acme-result " * 55).strip()
-        seat.composer, seat.wrap = line, 40         # taller than the rows a composer is read in
+        seat.composer, seat.wrap, seat.takes = line, 40, False
         mark = {"line": line, "seat": self.live()["created"]}
-        for _ in range(2):
+        for _ in range(2):          # its Enter goes, and the harness leaves it where it was
             self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
                                                   cfg=self.cfg, typed=mark))
         self.assertEqual((seat.read, seat.composer), ([], line))
-        seat.enter()                # the owner sends it
+        seat.takes = True
+        self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                              cfg=self.cfg, typed=mark))
+        self.assertEqual((seat.read, seat.composer), ([line], ""))
         self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
                                              cfg=self.cfg, typed=mark))
+
+    def test_an_earlier_message_ending_like_the_line_never_passes_for_the_composer(self):
+        """#590 round 3: the composer is read from its own prompt row down, so the same line
+        shown higher up, already sent, holds no Enter open for what the owner typed below it."""
+        self.rows = [self.live()]
+        seat = self.claude()
+        line = "run acme finished PASS: merged. Decide the next step."
+        seat.read = ["run acme-older finished PASS: merged. Decide the next step."] * 8
+        for composer, holds in (("", "empty"), ("and run the docs", "other")):
+            with self.subTest(composer=composer):
+                seat.composer = composer
+                self.assertEqual(watch.composer_holds(SEAT, self.live(), line, self.cfg), holds)
+
+    def test_a_one_row_draft_that_only_ends_the_way_the_line_does_is_the_owners(self):
+        """A line whose Enter failed, cleared by the owner, and a short draft of their own that
+        happens to end it: no Enter goes onto that."""
+        self.rows = [self.live()]
+        seat = self.claude()
+        line = "run acme finished PASS: merged. Decide the next step."
+        seat.composer = "the next step."
+        self.assertFalse(watch.type_at_prompt(
+            self.live(), line, self.logs.append, cfg=self.cfg,
+            typed={"line": line, "seat": self.live()["created"]}))
+        self.assertEqual((seat.read, seat.composer), ([], "the next step."))
+
+    def test_what_the_owner_typed_in_the_gap_before_a_hand_backs_enter_is_never_sent(self):
+        """Hand-backs, job hand-backs and wait notices pass no check of their own: before its
+        first Enter, or its retry, a line goes only while its composer holds it alone (#590,
+        run 2129)."""
+        self.rows = [self.live()]
+        seat = self.claude()
+        seat.wrap = 40
+        line = "The acme tests passed."
+        edits = {"beside it": lambda text: text + " and the owner's own words",
+                 "into it": lambda text: text[:-1] + ", and the owner's own words",
+                 "past the read": lambda text: text + " and the owner's own words" * 30}
+        cases = [("first Enter", 1, edit) for edit in edits] + [("retried Enter", 2, "beside it")]
+        for stage, at, edit in cases:
+            with self.subTest(stage=stage, edit=edit):
+                seat.composer, seat.read, seat.typed, seat.takes = "", [], 0, at == 1
+                pauses = []
+
+                def owner_types(_seconds):
+                    pauses.append(True)
+                    if len(pauses) == at:
+                        seat.composer, seat.takes = edits[edit](seat.composer), True
+
+                with patch.object(watch.time, "sleep", side_effect=owner_types):
+                    self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                          cfg=self.cfg))
+                self.assertEqual((seat.read, seat.composer, seat.typed),
+                                 ([], edits[edit](line), 1))
+
+    def test_a_line_counts_as_sent_only_once_its_composer_reads_empty(self):
+        """#590's second case: the owner edits the line while its Enter is confirmed, so it no
+        longer reads whole there.  That is no delivery: the edit is theirs to send, and the line
+        counts delivered once its composer reads empty."""
+        self.rows = [self.live()]
+        seat = self.claude()
+        line = "The acme tests passed."
+        edits = {"into it": lambda text: text[:-1] + ", and the owner's own words",
+                 "past the read": lambda text: text + " and the owner's own words" * 30}
+        for edit, change in edits.items():
+            with self.subTest(edit=edit):
+                seat.composer, seat.read, seat.typed, seat.takes, seat.wrap = "", [], 0, False, 40
+                pauses, marks = [], []
+
+                def owner_types(_seconds):
+                    pauses.append(True)
+                    if len(pauses) == 2:    # the wait that confirms the first Enter
+                        seat.composer = change(seat.composer)
+
+                with patch.object(watch.time, "sleep", side_effect=owner_types):
+                    self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                          cfg=self.cfg, receipt=marks.append))
+                self.assertEqual((seat.read, seat.composer), ([], change(line)))
+                seat.takes = True
+                seat.enter()                # the owner sends it, the line with their words
+                self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                     cfg=self.cfg, typed=marks[-1]))
+
+    def test_a_hand_back_too_long_or_too_tall_to_show_whole_still_gets_its_enter(self):
+        self.rows = [self.live()]
+        seat = self.claude()
+        fold = watch.screen("claude")["folds_over"]
+        end = " Result: /runs/acme/result.md. Decide the next step."
+        for shape, line, folds, wrap in (
+                ("folded", "run acme finished FAIL: " + "acme-finding " * 80 + end, fold, None),
+                ("taller than the read", "run acme finished FAIL: " + "acme " * 120 + end,
+                 None, 40)):
+            with self.subTest(shape=shape):
+                seat.composer, seat.read, seat.folds, seat.wrap = "", [], folds, wrap
+                with patch.object(watch.time, "sleep"):
+                    self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                         cfg=self.cfg))
+                self.assertEqual(seat.read, [line])
+
+    def test_each_harnesss_own_screen_of_a_long_or_tall_line_holds_it_alone_until_the_owner_adds(self):
+        """Real captures, 40 columns: Claude 2.1.291 folds a line past its fold into `[Pasted
+        text #1]` and scrolls a taller one to its last rows; Grok Build 1.0.46 scrolls in its box
+        with a scrollbar inside the edge, the box past the read on a pane 40 or 50 rows tall; Antigravity scrolls under `↑ N more lines`, the whole
+        composer in the read on a short pane; Codex and Muse grow it past the read."""
+        self.rows = [self.live()]
+        made = lambda n: ("run 20261006-1534 finished FAIL: a case. " * 40)[:n]
+        for harness, screen, line in (("claude", "claude-folded-line", made(900)),
+                                      ("claude", "claude-scrolled-line", made(700)),
+                                      ("grokbuild", "grok-tall-line", made(700)),
+                                      ("grokbuild", "grok-40-rows-tall-line", made(700)),
+                                      ("grokbuild", "grok-50-rows-tall-line", made(700)),
+                                      ("antigravity", "antigravity-tall-line", made(700)),
+                                      ("antigravity", "antigravity-short-tall-line", made(700)),
+                                      ("codex", "codex-tall-line", made(700)),
+                                      ("muse", "muse-tall-line", made(700))):
+            for shown, holds in ((f"{screen}-pane", "line"),
+                                 (f"{screen}-and-owner-words-pane", "other")):
+                with self.subTest(screen=shown):
+                    pane = (REPO / f"tests/fixtures/{shown}.txt").read_text()
+                    with patch.object(watch, "pane_text", return_value=pane), \
+                            patch.object(watch, "seat_model", return_value=(harness, "acme")):
+                        self.assertEqual(
+                            watch.composer_holds(SEAT, self.live(), line, self.cfg), holds)
+        # review 20261006-2113: Grok's thumb ends in the block its scroll position needs, `▂`
+        # on this screen, which is also what a line ending in those words typed alone shows
+        pane = (REPO / "tests/fixtures/grok-tall-line-and-owner-words-pane.txt").read_text()
+        self.assertIn("▂", pane)
+        with patch.object(watch, "pane_text", return_value=pane), \
+                patch.object(watch, "seat_model", return_value=("grokbuild", "acme")):
+            alone = made(700) + " and fix the login"
+            self.assertEqual(watch.composer_holds(SEAT, self.live(), alone, self.cfg), "line")
 
     def test_a_fail_at_the_last_round_hands_back_and_sends_no_card(self):
         directory = self.failed()
@@ -792,7 +927,7 @@ class HandBack(Sandbox):
     def test_a_merge_question_the_inbox_did_not_take_is_typed_again_before_the_user_hears(self):
         question, url, sha = "Merge PR #9?", "https://github.com/o/r/pull/9", "abc"
         pending = {"question": question, "url": url, "sha": sha, "asked": False}
-        card = ("needs", question, {"session": watch.inbox(), "event_id": f"inbox:{url}:{sha}"})
+        card = ("needs", question, {"session": config.inbox(), "event_id": f"inbox:{url}:{sha}"})
         self.sent = False       # the inbox seat does not take it, so the user is not asked
         self.assertNotEqual(watch.ask_inbox(self.cfg, question, url, sha, self.logs.append), 0)
         self.assertEqual(self.cards, [])
@@ -800,7 +935,7 @@ class HandBack(Sandbox):
         self.sent = True        # the tick types it again, and only then asks the user
         self.tick()
         self.assertEqual([seat for seat, text in self.typed if question in text],
-                         [watch.inbox()] * 2)
+                         [config.inbox()] * 2)
         self.assertEqual(self.cards, [card])
         self.assertNotIn("pending_inbox", record.read_state(directory))
         # typed, but the ping failed: the next tick only pings, and never types it again

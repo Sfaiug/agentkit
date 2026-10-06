@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, terminal, usage
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from test_config_matrix import Screen as ConfigScreen, row
 from test_new_session_screen import Screen, RIGHT, LEFT, DOWN, ENTER, SPACE, highlighted, marks
 

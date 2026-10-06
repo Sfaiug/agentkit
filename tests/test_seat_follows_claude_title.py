@@ -8,7 +8,7 @@ import re
 import unittest
 from unittest.mock import ANY, patch
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, orch, watch
 from agentkit.harness import claude
 

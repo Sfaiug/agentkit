@@ -5,7 +5,7 @@ import os
 from unittest.mock import patch
 import unittest
 
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import config, notify, orch
 
 NOW = 1_800_000_000.5

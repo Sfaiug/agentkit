@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
-from agentkit import host, config, gc, run, usage, worker
+from agentkit import host, config, gc, run, stop, usage, worker
 from agentkit import record as run_record
 
 URL = "https://github.com/fixture/repo/pull/1"
@@ -116,7 +116,7 @@ class IntegratedCommit(unittest.TestCase):
         # Gate evidence must not depend on the host's running processes or sweep them.
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
-        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(stop, "marker_pids", return_value=[]))
         self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={

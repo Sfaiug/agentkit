@@ -101,8 +101,9 @@ class AccountNotices(unittest.TestCase):
                 self.assertIs(global_data["hasSeenAutoDefaultNudge"], True)
                 self.assertEqual(global_data["oauthAccount"], {"accountUuid": "usual-uuid"})
                 self.assertEqual(global_data["userID"], "usual-user")
-                self.assertEqual(global_data["projects"],
-                                 {"/invented/acme": {"hasTrustDialogAccepted": True}})
+                self.assertEqual(global_data["projects"], {
+                    "/invented/acme": {"hasTrustDialogAccepted": True},
+                    str(self.work.resolve()): {"hasTrustDialogAccepted": True}})
                 self.assertEqual(global_data["keep"], 3)
         for offer in ({}, {"hasSeenAutoDefaultNudge": False}):
             with self.subTest(offer=offer):

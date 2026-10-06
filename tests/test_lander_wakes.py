@@ -19,7 +19,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, gate, gc, land, record, run, usage, watch, worker
 from fixtures.hand_in import submitting
 from test_merge_step import conflict, make_loop, make_repos, resolve
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 
 URL = "https://github.com/acme/widget/pull/7"
 SUITE = "test ! -f broken.txt"
@@ -98,7 +98,7 @@ class LanderWakes(Sandbox):
         self.assert_free(False)
         if args[:2] == ("pr", "create"):
             return 0, URL
-        if args[:2] == ("pr", "edit"):
+        if args[:3] == ("api", "-X", "PATCH"):
             return 0, ""
         if args[:2] == ("api", "graphql"):
             return 0, json.dumps("Reviewed work\n\nCo-authored-by: Fixture <fixture@localhost>")

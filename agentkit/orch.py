@@ -44,7 +44,7 @@ from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import command_help, config, host, motion, retention, terminal, update, usage
+from . import command_help, config, guard, host, motion, plan, retention, terminal, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -954,7 +954,7 @@ def tmux_env(client=False):
     return dict(os.environ) if client else {k: v for k, v in os.environ.items() if k != "TMUX"}
 
 
-def tmux_out(*args, socket=None, client=False, unit=None, timeout=None):
+def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False):
     """(exit code, output) of one tmux command; 127 when there is no tmux to ask.
 
     `unit` names the transient scope a command that starts a server runs in, so that the
@@ -965,6 +965,10 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None):
     fix_term()
     socket = socket_name() if socket is None else socket
     argv, env = tmux_argv(socket, *args), tmux_env(client)
+    if path_shim:
+        # tmux gives a pane it spawns the PATH of the client that asked, over the session env, so
+        # the seat guard's dir is put first on this client's PATH: the harness's `tmux` is the shim.
+        env = {**env, "PATH": os.pathsep.join([str(guard.install_shim()), env.get("PATH", "")])}
     if unit:
         argv, env = in_slice(argv, unit, socket, env)
     try:
@@ -973,7 +977,7 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None):
     except OSError as exc:
         return 127, str(exc)
     if proc.returncode != 0 and unit and argv[0] != "tmux":
-        return tmux_out(*args, socket=socket, client=client, timeout=timeout)
+        return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim)
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
@@ -1392,6 +1396,24 @@ def listed():
     return {path: path for path in found}
 
 
+def git_in(path, *args, env=None):
+    """(exit code, output) of git run in the checkout at `path`, the code None when it could
+    not run.
+
+    Git looks for the repository at `path` alone, never above it, and nothing of git's own
+    environment (`GIT_*`) comes along: an inherited repository, index, object store or
+    setting would answer for another checkout.
+    """
+    clean = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+    clean["GIT_CEILING_DIRECTORIES"] = os.fsdecode(os.path.dirname(os.path.abspath(path)))
+    try:
+        proc = subprocess.run(["git", *args], cwd=path, capture_output=True,
+                              stdin=subprocess.DEVNULL, timeout=30, env={**clean, **(env or {})})
+    except (OSError, subprocess.TimeoutExpired):
+        return None, b""
+    return proc.returncode, proc.stdout
+
+
 def git_dirs(path):
     """(the repository's common git directory, whether `path` is a worktree added from
     another checkout) of the checkout at `path`, or None when it is none.
@@ -1408,15 +1430,9 @@ def git_dirs(path):
             return dot.resolve(), False
     except OSError:
         return None
-    env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
-    env["GIT_CEILING_DIRECTORIES"] = os.fsdecode(os.path.dirname(os.path.abspath(path)))
     def ask(*flags):
-        try:
-            proc = subprocess.run(["git", "-C", str(path), "rev-parse", "--path-format=absolute",
-                                   *flags], capture_output=True, env=env, timeout=30)
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        return None if proc.returncode else proc.stdout.removesuffix(b"\n").split(b"\n")
+        code, out = git_in(path, "rev-parse", "--path-format=absolute", *flags)
+        return None if code != 0 else out.removesuffix(b"\n").split(b"\n")
     lines = ask("--git-dir", "--git-common-dir")
     if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
         lines = [b"\n".join(answer) if answer is not None else None
@@ -1755,7 +1771,7 @@ def start(name, cwd, cmd, orchestrator):
     # that one can put the server in agentkit's slice.  The harness goes in either way.
     running = tmux_out("source-file", str(conf))[0] == 0
     rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
-                       *env, seat_command(name, cmd),
+                       *env, seat_command(name, cmd), path_shim=True,
                        unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
@@ -2091,7 +2107,7 @@ def _start_harness(name, model, cwd, cmd, session):
             if rc or owner != name:
                 target = f"={name}:"
         rc, out = tmux_out("respawn-pane", "-k", "-t", target,
-                           seat_command(name, cmd, server), socket=server)
+                           seat_command(name, cmd, server), socket=server, path_shim=True)
         if rc != 0:
             raise config.Error(f"cannot resume the session {name}: {out}")
         tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
@@ -2970,13 +2986,13 @@ def cmd_stop(argv):
     # everything it reports is already true.
     old = signal.signal(signal.SIGHUP, signal.SIG_IGN)
     try:
-        from . import run as run_mod
+        from . import stop
         # Unfinished runs stop before the lock: each one costs up to STALL_KILL_WAIT
         # inside kill_tree, and nothing it touches is the seat's state. The peek is
         # best effort -- the lock below decides authoritatively -- so a name nobody
         # answers to stops nothing before it is refused.
         if find(name) is not None or name in records():
-            run_mod.stop_owned_runs(name)
+            stop.stop_owned_runs(name)
             notify.forget_card(name)   # before the lock too: a slow Discord holds up no tick
         # A stop and automatic boot recovery must agree on whether this seat exists.
         with watch.state_lock():
@@ -2985,7 +3001,7 @@ def cmd_stop(argv):
             if not session and not record:
                 known = ", ".join(s["name"] for s in listing()) or "none"
                 raise config.Error(f"no orchestrator session {name!r} (running: {known})")
-            run_mod.release_session(name)
+            stop.release_session(name)
             if record:
                 seat_plugin(record).forget(record)
             # Every line ak types into a seat goes in under its own lock, the one a rename takes:
@@ -3358,14 +3374,17 @@ def handover_text(name, old_model, transcript):
     the old conversation's transcript is so it can read the last exchange -- or that the
     old conversation keeps no file to read, where its harness stores its sessions.
     """
-    plan = config.plan_path(name)
+    try:
+        where = f"The seat's plan is at {plan.path(name)}."
+    except config.Error as exc:     # a plan nothing can read never costs the handover
+        where = f"The seat's plan cannot be read: {exc}."
     if transcript:
         old = (f"The previous conversation's transcript is at {transcript}; "
                "read the last exchange to continue.")
     else:
         old = ("The previous conversation has no transcript file to read; "
                "continue from the plan and the runs.")
-    return (f"You took over this seat from {old_model}. The seat's plan is at {plan}. "
+    return (f"You took over this seat from {old_model}. {where} "
             f"Run `ak run status` to see its runs. {old}")
 
 
@@ -3772,8 +3791,8 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         with scratch(dry_run), for_seat(name, str(repo) if repo else ""):
             cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     except Exception:
-        if unnamed:
-            config.session_path(name).unlink(missing_ok=True)
+        if unnamed and not dry_run:
+            config.discard_session(name, extra["created"])
         raise
     if not dry_run:
         if conversation:
@@ -3781,13 +3800,14 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
             extra["id_source"] = LAUNCHER
         config.remember_defaults(config.save_session(cfg, name, model, workers, extra))
     # a name may be used again once its seat is gone, and this seat has said nothing yet: the
-    # last message of the one before it is not this one's state, and a question it left
-    # standing on Discord is closed rather than dropped with its card -- by a start, never by
-    # a preview of one
+    # last message of the one before it is not this one's state, nor is its plan, and a
+    # question it left standing on Discord is closed rather than dropped with its card -- by a
+    # start, never by a preview of one
     if not dry_run:
         from . import notify
         notify.forget_card(name)
         config.notify_path(name).unlink(missing_ok=True)
+        plan.forget(name)
     if dry_run:
         print(f"orch: {model} ({reason})")
         print(f"session {name} in {cwd} (new)")

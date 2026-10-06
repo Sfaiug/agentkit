@@ -13,7 +13,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, orch, watch
 
 NOW = 1_800_000_000
@@ -24,9 +24,9 @@ MULTILINE = (FIX / "claude-multiline-draft-pane.txt").read_text(encoding="utf-8"
 STOPPED = {"event": "Stop", "kind": "", "at": NOW - 60}
 
 
-def drafted(text):
-    """The empty prompt capture with that typed into its composer."""
-    return PROMPT.replace("❯ \n", "❯ " + text + "\n")
+def drafted(text, pane=PROMPT):
+    """The empty prompt capture, or that screen, with that typed into its composer."""
+    return pane.replace("❯ \n", "❯ " + text + "\n")
 
 
 class ComposerBox(Sandbox):
@@ -41,10 +41,18 @@ class ComposerBox(Sandbox):
         word = watch.session_state(SEAT, NOW, session={"name": SEAT, "attached": False},
                                    cfg=self.cfg, records=[], live=live, harness="claude",
                                    auth_out={}, gh_out={}, token_out={}, previous={})["word"]
-        keys = []
-        with patch.object(watch, "pane_text", return_value=pane), \
-                patch.object(orch, "tmux_out", side_effect=lambda *a, **_kw: keys.append(a)
-                             or (0, "")):
+        keys, screen = [], [pane]
+
+        def typed(*args, **_kw):
+            keys.append(args)
+            if args[-2] == "-l":    # the text lands in the composer, and its Enter takes it
+                screen[0] = drafted(args[-1], screen[0])
+            elif args[-1] == "Enter":
+                screen[0] = pane
+            return 0, ""
+
+        with patch.object(watch, "pane_text", side_effect=lambda *_a: screen[0]), \
+                patch.object(orch, "tmux_out", side_effect=typed):
             free = watch.at_prompt({"name": SEAT}, cfg=self.cfg)
             watch.type_at_prompt({"name": SEAT}, "The acme tests passed.", lambda _: None,
                                  cfg=self.cfg)

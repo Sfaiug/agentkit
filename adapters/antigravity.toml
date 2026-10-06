@@ -2,7 +2,7 @@
 # who has the authority to say what that seat is doing.  Paired with adapters/antigravity.sh;
 # the format is the adapter contract in docs/guide.md, "Adding a harness".
 # Verified against agy 1.2.9; see tests/fixtures/README.md for the captures.
-# A worker turn still loads GEMINI.md, AGENTS.md and rules/ of the workspace and of agy's global root: agy 1.2.13 has no switch for them.
+# A worker turn or seat still loads GEMINI.md, AGENTS.md and rules/ of the workspace and of agy's global root: agy 1.2.13 has no switch for them.
 version = 1
 
 [check]
@@ -58,6 +58,9 @@ footer = ['(?:\? for shortcuts|esc to cancel)?\s*(?:[^·]+ · (?:low|medium|high
 # `>` in a wrapped line is the line's own and a chooser's `> /usage` under that rule is not it,
 # and nor is a prompt the transcript echoes under an earlier rule.
 draft = '^─+\n> ?(.*(?:\n(?!─+$).*)*)\n─+$(?![\s\S]*^─)'
+# A line taller than the composer scrolls in it, its last rows showing, and the prompt row says
+# how many are above (`> ↑ 13 more lines`, captured at 40 columns): never typed text.
+scrolled = '^(?:> ?)?[↑↓] \d+ more lines?$'
 
 # Read in file order, first match wins: the dialogs before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.

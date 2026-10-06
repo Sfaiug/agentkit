@@ -43,6 +43,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from . import command_help, config, retention
 from . import record as run_record
+from . import harness
 
 FILE_CAP = 8 * 1024 * 1024
 UA = "agentkit/1 (+https://github.com)"
@@ -483,12 +484,22 @@ def progress(session, capture):
     """Persist new output after an open; Discord and the row use the same resolved fact.
 
     Capture under the notice lock: output sampled before an open or a newer notify cannot
-    resolve it. Empty captures and viewport resizing are not evidence of resumed work.
+    resolve it. Empty captures and viewport resizing are not evidence of resumed work, and
+    neither is output once ak has typed a line of its own into the seat since the open -- a
+    hand-back, a told line, an idle `/compact`: the seat's turn, not the owner's answer, which
+    its harness's prompt hook then reports.  A line typed before the open is history, and so is
+    one typed where no prompt hook reports anything: there this output is the only answer.
     """
     with session_lock(session) as session:
         previous = last(session)
         if not previous or previous.get("opened_at") is None or previous["kind"] == "done":
             return                 # output after an open answers a question, never a done
+        opened = previous["opened_at"]
+        if any(sent.get("source") != "owner" and isinstance(sent.get("at"), (int, float))
+               and sent["at"] > opened and isinstance(sent.get("harness"), str)
+               and harness.load(sent["harness"]).prompt_hook is not None
+               for sent in harness.entries(config.seat_file("input", session))):
+            return
         pane = capture()
         baseline = previous.get("opened_pane", "")
         if not pane or (baseline and (pane in baseline or pane.endswith(baseline))):
