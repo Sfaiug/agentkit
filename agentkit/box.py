@@ -374,6 +374,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, walls, writable), writable)
+            # The backing copy must not give a second path to a masked credential in /run.
+            cmd.extend(["--tmpfs", scratch, "--remount-ro", scratch])
             clean["TMPDIR"] = "/var/tmp"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop}

@@ -230,6 +230,9 @@ if sys.argv[1] == "probe":
     assert os.readlink("/run/acme/dangling") == "missing"
     assert os.readlink("/run/acme/socket-link") == "socket"
     assert not Path("/run/acme/socket-link").exists()
+    assert Path("/run/acme/key").read_text() == ""
+    for scratch in Path(os.environ["BOX_OUT"]).glob(".box-*"):
+        assert list(scratch.iterdir()) == [], "the copy exposes masked credentials"
     assert not Path("/run/user/other").exists()
     assert os.environ["XDG_RUNTIME_DIR"] == str(runtime)
     assert stat.S_IMODE(runtime.stat().st_mode) == 0o700
@@ -251,6 +254,9 @@ else:
     (run / "outside").symlink_to(root / "settings")
     (run / "dangling").symlink_to("missing")
     (run / "socket-link").symlink_to("socket")
+    (run / "key").write_text("fixture-key")
+    (root / ".ssh").mkdir()
+    (root / ".ssh/id_fixture").symlink_to(run / "key")
     os.mkfifo(run / "fifo")
     (run / "closed").mkdir()
     (run / "closed/secret").write_text("unreadable")
@@ -275,6 +281,7 @@ else:
                     env["XDG_RUNTIME_DIR"] = host_runtime
                 env["BOX_EXTERNAL_RUNTIME"] = "1" if host_runtime == "/run/runtime" else ""
                 out = Path(tempfile.mkdtemp(dir=run if host_runtime is None else root))
+                env["BOX_OUT"] = str(out)
                 argv = [sys.executable, __file__, "probe", str(root)]
                 with box.command(argv, env, out, cwd=root, walls=walls) as (cmd, env, spawn):
                     with socket.socket(socket.AF_UNIX) as late:
