@@ -72,7 +72,11 @@ class QuestionWithMessageUnder(Sandbox):
         rule = "─" * 40
         for pane in ["\n".join(rows[:-2] + [typed, closing]) + "\n"
                      for typed in ("  Enter to select · ↑/↓ to navigate · Esc to cancel", "  ---")
-                     ] + [DRAFT.rstrip("\n") + "\n" + rule + "\n"]:
+                     ] + [DRAFT.rstrip("\n") + "\n" + rule + "\n",
+                          # a draft in a box with corners, its continuation inside the box's edge
+                          "⏺ Done.\n╭" + "─" * 40 + "╮\n│ ❯ Explain this footer:" + " " * 18
+                          + "│\n│   Enter to confirm · Esc to cancel" + " " * 5 + "│\n╰"
+                          + "─" * 40 + "╯\n"]:
             with self.subTest(pane=pane[-120:]):
                 self.assertEqual(self.classify(pane)["state"], "draft")
         for harness in ("codex", "muse"):
