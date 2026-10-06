@@ -424,7 +424,7 @@ def agents_body(repo, ref):
 
     Read from git, never a checkout's file: the rules are what was merged, not what one checkout
     holds or one piece of work is changing.  "" where there is none, where it is a link -- its
-    text is a path, not rules (`rules_cap` refuses one) -- or where it cannot be read.
+    text is a path, not rules (`rules_check` refuses one) -- or where it cannot be read.
     """
     if not repo or not ref:
         return ""
@@ -2788,26 +2788,41 @@ def files_scope(lp):
 
 
 def rules_check(lp):
-    """Every check a branch's change to AGENTS.md must pass: '' or the first that failed."""
-    return rules_cap(lp) or front_matter(lp)
-
-
-def front_matter(lp):
-    """Refuse a changed AGENTS.md that goes through a Git filter, or whose front matter holds a
-    line ak does not read.
-
-    ak reads its declarations from the committed file; with no filter (a link is refused by
-    `rules_cap`) that is also what any checkout holds, so the text checked is the text read.
-    """
+    """Refuse a branch's change to AGENTS.md that workers would not get as written: a link, a
+    Git filter, more than a harness reads of it, or a front matter line ak does not read.
+    A branch that leaves the file alone, or deletes it, passes."""
     if lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
                              f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
-    if not git(lp.wt, "ls-tree", "HEAD", "--", "AGENTS.md").startswith(("100644 ", "100755 ")):
-        return ""       # deleted, or a link `rules_cap` refuses
+    entry = git(lp.wt, "ls-tree", "HEAD", "--", "AGENTS.md")
+    if not entry:
+        return ""       # the branch deleted it
+    if entry.startswith("120000 "):
+        # following it would mean redoing how Linux opens a path, inside Git's trees
+        return ("AGENTS.md is a link, which ak does not follow, so workers would get no rules "
+                "from it: make AGENTS.md the file itself.")
     if not git(lp.wt, "check-attr", "filter", "--", "AGENTS.md").endswith(("unspecified", "unset")):
         return "AGENTS.md must not go through a Git filter: ak reads its front matter as committed."
-    text = git_bytes(lp.wt, "show", "HEAD:AGENTS.md")
-    unread = unknown_front_lines(text.replace("\r\n", "\n").replace("\r", "\n").strip())
+    # the bytes a checkout holds, Git's line-end conversion applied: what a harness reads, not
+    # the stored blob, and read as bytes, since a text read would fold CRLF to LF
+    try:
+        read = subprocess.run(["git", "-C", str(lp.wt), "cat-file", "--filters", "HEAD:AGENTS.md"],
+                              capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
+                              env=tool_env())
+    except subprocess.TimeoutExpired as exc:
+        raise Stopped(f"git cat-file --filters HEAD:AGENTS.md was killed after {TOOL_CAP:g}s "
+                      f"in {lp.wt}") from exc
+    ceiling = config.instruction_ceiling()
+    if read.returncode != 0:
+        said = read.stderr.decode("utf-8", "replace").strip()
+        unknown = (f"its size against the {ceiling[0]} bytes {ceiling[1]} reads of it is unknown"
+                   if ceiling else "ak cannot check it")
+        return f"AGENTS.md could not be read as a checkout holds it, so {unknown}: {said}"
+    if ceiling and len(read.stdout) > ceiling[0]:
+        return (f"AGENTS.md is {len(read.stdout)} bytes, past the {ceiling[0]} bytes {ceiling[1]} "
+                "reads of it: tighten it.")
+    text = read.stdout.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
+    unread = unknown_front_lines(text.strip())
     if not unread:
         return ""
     return (f"AGENTS.md front matter has lines ak does not read: "
@@ -2823,41 +2838,6 @@ def unknown_front_lines(text):
     return [line.strip() for line in match.group(1).splitlines()
             if line.strip() and not line.lstrip().startswith("#")
             and line.partition(":")[0].strip() not in FRONT_KEYS]
-
-
-def rules_cap(lp):
-    """Refuse a linked AGENTS.md, or one past what a harness reads of it, only when this branch
-    changes it."""
-    if lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
-                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
-        return ""
-    entry = git(lp.wt, "ls-tree", "HEAD", "--", "AGENTS.md")
-    if not entry:
-        return ""       # the branch deleted it
-    if entry.startswith("120000 "):
-        # following it would mean redoing how Linux opens a path, inside Git's trees
-        return ("AGENTS.md is a link, which ak does not follow, so workers would get no rules "
-                "from it: make AGENTS.md the file itself.")
-    ceiling = config.instruction_ceiling()
-    if not ceiling:
-        return ""
-    limit, harness = ceiling
-    # the bytes a checkout holds, Git's line-end conversion and filters applied: what a harness
-    # reads, not the stored blob, and read as bytes, since a text read would fold CRLF to LF
-    try:
-        read = subprocess.run(["git", "-C", str(lp.wt), "cat-file", "--filters", "HEAD:AGENTS.md"],
-                              capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
-                              env=tool_env())
-    except subprocess.TimeoutExpired as exc:
-        raise Stopped(f"git cat-file --filters HEAD:AGENTS.md was killed after {TOOL_CAP:g}s "
-                      f"in {lp.wt}") from exc
-    if read.returncode != 0:
-        said = read.stderr.decode("utf-8", "replace").strip()
-        return (f"AGENTS.md could not be read as a checkout holds it, so its size against the "
-                f"{limit} bytes {harness} reads of it is unknown: {said}")
-    size = len(read.stdout)
-    return (f"AGENTS.md is {size} bytes, past the {limit} bytes {harness} reads of it: "
-            "tighten it." if size > limit else "")
 
 
 def regression_fails_before(lp):

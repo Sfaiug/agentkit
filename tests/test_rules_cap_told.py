@@ -255,7 +255,7 @@ class RulesCapTold(unittest.TestCase):
 
         with patch.object(run.subprocess, "run", side_effect=timing_out), \
                 self.assertRaises(run.Stopped):
-            run.rules_cap(lp)
+            run.rules_check(lp)
 
     def test_the_size_is_the_file_as_checked_out(self):
         # with CRLF line ends on checkout, a blob at the limit is past it where a harness reads it
@@ -265,7 +265,7 @@ class RulesCapTold(unittest.TestCase):
         lp = self.loop()
         self.commit_rules("x\n" * (LIMIT // 2))
         self.assertEqual(self.git("cat-file", "-s", "HEAD:AGENTS.md"), str(LIMIT))
-        self.assertIn(f"AGENTS.md is {LIMIT // 2 * 3} bytes", run.rules_cap(lp))
+        self.assertIn(f"AGENTS.md is {LIMIT // 2 * 3} bytes", run.rules_check(lp))
 
     def test_a_pr_review_with_no_suite_checks_agents_md_and_says_why(self):
         # own PRs run no suite in review, nor do others' PRs with no `tests:`; a PASS merges
@@ -316,7 +316,7 @@ class RulesCapTold(unittest.TestCase):
         self.git("add", ".")
         self.git("commit", "-qm", "linked AGENTS.md")
         with self.subTest(case="added"):
-            failure = run.rules_cap(lp)
+            failure = run.rules_check(lp)
             self.assertTrue(failure.startswith("AGENTS.md is a link"), failure)
             self.assertTrue(run.LOOP_NOTE.match(failure))
             self.assertEqual(run.repo_rules(self.repo, "HEAD"), "")
@@ -330,17 +330,17 @@ class RulesCapTold(unittest.TestCase):
         self.git("add", "deliverable")
         self.git("commit", "-qm", "leave the rules alone")
         with self.subTest(case="untouched"):
-            self.assertEqual(run.rules_cap(lp), "")
+            self.assertEqual(run.rules_check(lp), "")
         self.path.unlink()
         self.path.write_text("Acme rules.\n")
         self.git("add", "AGENTS.md")
         self.git("commit", "-qm", "rules in AGENTS.md itself")
         with self.subTest(case="made a file"):
-            self.assertEqual(run.rules_cap(lp), "")
+            self.assertEqual(run.rules_check(lp), "")
             self.assertTrue(run.repo_rules(self.repo, "HEAD").endswith("Acme rules.\n"))
 
-    def test_a_read_that_fails_fails_the_check(self):
-        # only a deleted file counts as nothing: a smudge filter that fails leaves the size unknown
+    def test_a_filtered_agents_md_is_refused_before_any_read(self):
+        # a filter, even one that fails, means a checkout may hold other text than the commit
         (self.repo / ".gitattributes").write_text("AGENTS.md filter=broken\n")
         for key, value in (("smudge", "false"), ("clean", "cat"), ("required", "true")):
             self.git("config", f"filter.broken.{key}", value)
@@ -348,9 +348,9 @@ class RulesCapTold(unittest.TestCase):
         self.git("commit", "-q", "-m", "attributes")
         lp = self.loop()
         self.commit_rules("x" * (LIMIT + 1))
-        failure = run.rules_cap(lp)
-        self.assertTrue(failure.startswith("AGENTS.md could not be read as a checkout holds it"),
-                        failure)
+        failure = run.rules_check(lp)
+        self.assertEqual(failure, "AGENTS.md must not go through a Git filter: ak reads its "
+                                  "front matter as committed.")
         self.assertTrue(run.LOOP_NOTE.match(failure))
 
     def test_unavailable_tracked_rules_fail_the_check(self):
@@ -361,7 +361,7 @@ class RulesCapTold(unittest.TestCase):
         self.assertEqual(self.path.stat().st_size, 40000)
         self.assertEqual(self.git("ls-tree", "--name-only", "HEAD", "--", "AGENTS.md"),
                          "AGENTS.md")
-        failure = run.rules_cap(lp)
+        failure = run.rules_check(lp)
         self.assertTrue(failure.startswith("AGENTS.md could not be read as a checkout holds it"),
                         f"Tracked AGENTS.md with an unavailable blob passed: {failure!r}")
         self.assertIn(f"{LIMIT} bytes acme reads of it is unknown", failure)
