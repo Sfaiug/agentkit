@@ -927,7 +927,7 @@ class HandBack(Sandbox):
     def test_a_merge_question_the_inbox_did_not_take_is_typed_again_before_the_user_hears(self):
         question, url, sha = "Merge PR #9?", "https://github.com/o/r/pull/9", "abc"
         pending = {"question": question, "url": url, "sha": sha, "asked": False}
-        card = ("needs", question, {"session": watch.inbox(), "event_id": f"inbox:{url}:{sha}"})
+        card = ("needs", question, {"session": config.inbox(), "event_id": f"inbox:{url}:{sha}"})
         self.sent = False       # the inbox seat does not take it, so the user is not asked
         self.assertNotEqual(watch.ask_inbox(self.cfg, question, url, sha, self.logs.append), 0)
         self.assertEqual(self.cards, [])
@@ -935,7 +935,7 @@ class HandBack(Sandbox):
         self.sent = True        # the tick types it again, and only then asks the user
         self.tick()
         self.assertEqual([seat for seat, text in self.typed if question in text],
-                         [watch.inbox()] * 2)
+                         [config.inbox()] * 2)
         self.assertEqual(self.cards, [card])
         self.assertNotIn("pending_inbox", record.read_state(directory))
         # typed, but the ping failed: the next tick only pings, and never types it again

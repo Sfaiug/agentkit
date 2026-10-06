@@ -92,8 +92,12 @@
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye; a merged run writes its review follow-ups here.
 - `box.py`: credential masks, PID teardown. `command`, `check`, `returncode`, `leftovers`;
   for worker and run.
-- `guard.py`: what a seat's tmux may not do (end, or type into, another seat), read from the
-  final argv the `tools/tmux-shim` hands it, the `-t` resolved by the real tmux; `refusal`. 
+- `guard.py`: what a seat's tmux may not do (end, or type into, another seat; `refusal`, the `-t`
+  resolved by the real tmux) and gh may not (`gh pr merge` from a seat; `gh_refusal`), read from the
+  final argv a `tools/*-shim` hands it; `install_shim` links each as `<HOME>/bin/<name>`. 
+- `shim.py`: the body every `tools/*-shim` runs -- find the real binary, engage only for a seat's
+  own by-hand call, ask `guard`, else exec the real one; imports `guard` lazily, so a guard that
+  cannot import still execs the real binary.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded
   evidence; worker names the channel; run replays proofs, weighs findings, drops disputes.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
@@ -149,8 +153,9 @@
   facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via config, run, stop and
   watch. `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leaks: the first
   two rebuild config.py's seat file names, and seat-state.sh its rename chain.
-- `tools/`: `tmux-shim` (a `tmux` first on a seat's PATH; refuses a kill or type whose `-t`
-  is another seat, else execs the real tmux), and, called by adapters:
+- `tools/`: `*-shim`, each a thin entry point linked as `<HOME>/bin/<name>` first on a seat's PATH,
+  running `agentkit.shim` -- `tmux-shim` (refuses ending or typing into another seat) and `gh-shim`
+  (refuses a seat's `gh pr merge`); and, called by adapters:
   `rulebook.py`, `idle-compact.py`, `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.

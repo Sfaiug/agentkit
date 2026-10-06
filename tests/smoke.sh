@@ -666,7 +666,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
                 patch.object(record, "run_dirs", return_value=[finished]), \
                 patch.object(run, "reap", side_effect=lambda d, state: state), \
                 patch.object(run, "announce") as announce, \
-                patch.object(watch, "inbox", return_value="inbox"), \
+                patch.object(config, "inbox", return_value="inbox"), \
                 patch.object(notify, "shaped", return_value=0) as question:
             assert "WARN the usage refresh did not finish" in tick()
             announce.assert_called_once()

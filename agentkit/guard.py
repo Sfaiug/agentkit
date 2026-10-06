@@ -24,6 +24,18 @@ design, and named so the claim is exact:
     `unlink-window`.
 The bypass-proof form is a `tmux -L <seat>` socket per seat (en2f, heavier -- it restarts every
 seat); this is the mistake-guard that holds a checkable claim.
+
+A `gh` shim (tools/gh-shim) on the same PATH refuses a seat's `gh pr merge`: merging is ak's job,
+once a PR passes review with green checks, and a seat lets it land through the line.  The one seat
+that may run it by hand is the inbox, which `ak watch` asks before merging someone else's PR.  ak's
+own merges (the lander, a review run, `merge_own_pr`) run seatless, so the shim never engages for
+them.  Like the tmux guard, this catches the merge a seat reflexively types, not a seat that means
+to get round it; out of reach, by design: merging through gh's API (`gh api ... pulls/N/merge`, or a
+GraphQL `mergePullRequest`), a user's gh alias for `pr merge`, and gh reached by an absolute path.
+
+Every shim runs through `agentkit.shim` (which imports the guard lazily, so a guard it cannot
+import stops no seat's command), and `install_shim` links each `tools/<name>-shim` as
+`<HOME>/bin/<name>`, so a new shim needs no change there.
 """
 
 import os
@@ -222,23 +234,68 @@ def refusal(args, tmux="tmux"):
     return None
 
 
+GH_VALUED = {"-R", "--repo"}            # the gh persistent flag that takes a value before a subcommand
+
+
+def gh_merges(args):
+    """Does this gh call run `pr merge`?  Its first two command words are `pr` then `merge`; the
+    options between them are skipped, including -R/--repo's value (`gh pr -R acme/x merge 7` and
+    `gh pr --repo acme/x merge 7` are merges), gh's one persistent value flag before a subcommand."""
+    words, skip = [], False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg in GH_VALUED:
+            skip = True
+            continue
+        if arg.startswith("-"):             # a boolean flag, or --repo=X with the value attached
+            continue
+        words.append(arg)
+        if len(words) == 2:
+            break
+    return words == ["pr", "merge"]
+
+
+def gh_refusal(args, gh="gh"):
+    """Why the calling seat may not run this gh call (its argv after `gh`), or None.  Merging is
+    ak's job once a PR passes review with green checks, so a seat's `gh pr merge` is refused -- it
+    lets the work land through the line.  Only this command is caught, the one a seat reflexively
+    types; merging through gh's API or a GraphQL mutation, a gh alias for it, or gh by an absolute
+    path is out of reach by design (the module docstring names these).  The one seat that may run
+    `gh pr merge` by hand is the inbox, which `ak watch` asks before merging someone else's PR.
+    ak's own merges run through `run.tool_env`, which drops the seat's name, so the shim never
+    reaches here for them."""
+    own = config.current_session()
+    if not own or not gh_merges(args):
+        return None
+    if own == resolve(config.inbox()):
+        return None
+    return ("ak refused `gh pr merge`: merging is ak's job once a PR passes review with green "
+            "checks. Leave it to land through the line; a seat runs no `gh pr merge` of its own.")
+
+
 def shim_dir():
-    """The directory whose `tmux` is this shim: first on every seat's PATH."""
+    """The directory whose `tmux` and `gh` are the shims: first on every seat's PATH."""
     return config.HOME / "bin"
 
 
 def install_shim():
-    """Ensure `<HOME>/bin/tmux` is this shim, and return its directory.  Idempotent: a stale or
-    wrong link is replaced, so an upgrade that moves the shim repoints it."""
-    target = config.REPO / "tools" / "tmux-shim"
-    link = shim_dir() / "tmux"
-    link.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if link.resolve() == target.resolve():
-            return link.parent
-    except OSError:
-        pass
-    tmp = link.with_name(f".tmux.{os.getpid()}")
-    tmp.symlink_to(target)
-    os.replace(tmp, link)
-    return link.parent
+    """Ensure every `tools/<name>-shim` is linked as `<HOME>/bin/<name>` (so `<name>` on a seat's
+    PATH is its shim), and return their directory.  A new shim is picked up by its name alone, with
+    no change here.  Idempotent: a stale or wrong link is replaced, so an upgrade that moves or adds
+    a shim repoints it."""
+    link_dir = shim_dir()
+    link_dir.mkdir(parents=True, exist_ok=True)
+    for target in sorted((config.REPO / "tools").glob("*-shim")):
+        name = target.name[: -len("-shim")]       # tmux-shim -> tmux, gh-shim -> gh
+        link = link_dir / name
+        try:
+            if link.resolve() == target.resolve():
+                continue
+        except OSError:
+            pass
+        tmp = link.with_name(f".{name}.{os.getpid()}")
+        tmp.symlink_to(target)
+        os.replace(tmp, link)
+    return link_dir
