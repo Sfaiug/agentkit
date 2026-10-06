@@ -3,7 +3,7 @@
 Its screen, its stall words and its `[update]`/`[usage]` facts are data -- adapters/muse.toml.
 What needs Python is what reads a file: the build its launcher installed, the snapshot an
 upgrade is put back from (its channel installer deletes the build it replaces), the probe
-response agentkit/muse_usage.py cached, the quota a refused run recorded, whether a config.toml
+response muse_usage.py beside it cached, the quota a refused run recorded, whether a config.toml
 entry is that probe's to run, and the session store a turn's tokens are written to.
 
 No title hooks: 1.4.0-R4302.1 refuses /rename before and after a completed turn and

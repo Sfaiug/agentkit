@@ -63,6 +63,8 @@
 - `tell.py`: `ak tell`, one seat's message to another for every harness: queued in the
   receiver's `tell` seat file under the seat's own lock, typed only by the tick through
   `watch.type_at_prompt`, its receipt naming `seat:<sender>`. For bin/ak and the tick.
+- `told.py`: the heading of an `ak tell` line, the one home its words have: tell.py writes it,
+  hooks/seat-state.sh knows a prompt by it. Imports nothing of agentkit, for the hook's speed.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
@@ -86,9 +88,8 @@
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and Muse call its private helpers.
 - `usage_probe.py`: one deadline for an adapter usage call and its children. For usage
-  and muse_usage. Leak: Muse's names.
-- `muse_usage.py`: Muse meters from one billed request, cached; run by
-  `adapters/muse-usage.sh`. Leak: harness code in the core.
+  and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
+  `adapters/muse-usage.sh`). Leak: Muse's names.
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
@@ -99,14 +100,14 @@
 - `scoreboard.py`: two weeks of work, ak's cost, committed size, words and wrapping.
   `compute`, `render` for run history.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
-  cleanup, compression. For gc, run, orch, update, notify. Leaks: Claude and Codex
-  config formats.
+  cleanup, compression; a harness config's stale trust and MCP entries, where its plugin
+  says they are (`config_entries`). For gc, run, orch, update, notify.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
   every listing screen. Used by menu, usage, orch, watch, run, motion.
 - `motion.py`: one clock: time, easing, what moves; for menu, orch, terminal.
 - `command_help.py`: help text per verb, for bin/ak and each `main`; imports nothing.
-- `browser.py`: the shared Chromium stack: units, CDP, MCP, VNC, tab ownership. For run,
-  watch. Leak: registers its MCP per harness by name.
+- `browser.py`: the shared Chromium stack: units, CDP, MCP, VNC, tab ownership; each
+  harness's plugin writes the MCP entry (`register_mcp`). For run, watch.
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. For
   bin/ak, menu, install.sh.
 - `host.py`: memory, load, CPUs, pressure, process/cgroup counters, `alive`, `process_identity`,
@@ -124,9 +125,11 @@
 - `adapters/<h>.toml` is the manifest: update, usage, conversation, titles, launch, hooks,
   screen rules, stall/quota/auth/resume words, compact, effort, catalog, contract-check model/effort.
 - `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
-  resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`. `user_messages`: timed
-  owner input without notices or ak typing; `failure`: turn/seat failures in whole `[stall]`
-  words. For orch, usage, update, run, gc, menu, watch. Leak: orch imports `harness.claude`.
+  resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`, `register_mcp`.
+  `config_entries`: every plugin's trust and MCP tables. `user_messages`: timed owner input
+  without notices or ak typing; `failure`: turn/seat failures in whole `[stall]` words. For
+  orch, usage, update, run, gc, menu, watch, browser, retention.
+  Leak: orch imports `harness.claude`.
 
 ## hooks/, tools/, tests/
 
@@ -136,6 +139,8 @@
   config.py's seat file names and rename chain.
 - `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
   `trust.py`, `catalog.py`, `desktop-mcp.py`.
+- `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
+  own host; standalone, imports nothing of agentkit.
 - `tests/`: `landing.py` runs offline `smoke.sh` beside `every_file.py`, with grouped
   live output; live `live.sh`; `every_file.py`: imports/cases,
   live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`,

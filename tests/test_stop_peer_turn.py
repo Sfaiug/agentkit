@@ -16,9 +16,13 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+
+from agentkit import config
+from agentkit.told import heading
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
@@ -30,6 +34,7 @@ ACK = "Noted -- nothing new on my side."      # the seat acknowledges the messag
 PEER_PROMPT = ('<cross-session-message from="acme-fix-api" to="peer-seat">'
                "Finished the parser; over to you.</cross-session-message>")
 SPENT = "three rounds spent: split or re-scope the task"
+NEWS = "Finished the parser; over to you."
 
 
 class StopPeerTurn(unittest.TestCase):
@@ -72,11 +77,11 @@ class StopPeerTurn(unittest.TestCase):
         return {"PATH": os.environ["PATH"], "HOME": str(self.home),
                 "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"}
 
-    def prompt(self, text):
+    def prompt(self, text, field="prompt"):
         """Open a turn through hooks/seat-state.sh, as the harness does on a prompt."""
         done = subprocess.run(["bash", str(SEAT_STATE)], text=True, capture_output=True,
                               input=json.dumps({"hook_event_name": "UserPromptSubmit",
-                                                "prompt": text}),
+                                                field: text}),
                               env={**self.env(), "IDLE_COMPACT_STATE": ""})
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads((self.state / f"stop-{SEAT}.json").read_text())
@@ -116,6 +121,29 @@ class StopPeerTurn(unittest.TestCase):
                 self.assertFalse(latch["peer"])
                 self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
+    def test_a_line_told_with_ak_tell_opens_a_peer_turn(self):
+        """Headed as `ak tell` heads it, typed in or sent over Remote Control, from any seat name
+        a seat may have, a legacy one with a space in it too."""
+        for field, sender in (("prompt", "acme-fix-api"), ("message", "acme-fix-api"),
+                              ("prompt", "legacy name")):
+            with self.subTest(field=field, sender=sender):
+                self.setUp()
+                self.notified("done", self.done_at)
+                latch = self.prompt(heading(sender, time.time()) + NEWS, field)
+                self.assertTrue(latch["peer"])
+                self.assertEqual(self.stop(), "")
+
+    def test_the_same_words_without_the_heading_up_front_are_the_owners(self):
+        told = heading("acme-fix-api", time.time())
+        for said in (NEWS, f"Did you read this: {told}{NEWS}",
+                     "[from seat acme-fix-api at 12:34, not the owner; ...] expand this example",
+                     told.replace("ak tell acme-fix-api", "ak tell acme-docs") + NEWS):
+            with self.subTest(said=said):
+                self.setUp()
+                self.notified("done", self.done_at)
+                self.assertFalse(self.prompt(said)["peer"])
+                self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
     def test_a_peer_opened_turn_whose_last_done_was_dropped_is_held(self):
         self.notified("done", self.done_at, seen=True)    # `ak notify` dropped it
         latch = self.prompt(PEER_PROMPT)
@@ -134,6 +162,18 @@ class StopPeerTurn(unittest.TestCase):
         reason = self.blocked(self.stop())["reason"]
         self.assertIn("run parked-exhausted parked: ", reason)
         self.assertIn("ak run resume parked-exhausted", reason)
+
+    def test_a_rename_during_the_turn_keeps_its_parked_run_holding_the_stop(self):
+        """review 20261006-1337: the harness keeps its launch name, and so does its turn's latch,
+        so a rename does not let the standing done end a turn while a run sits parked."""
+        self.notified("done", self.done_at)
+        self.run_json("parked-exhausted", state="exhausted", started_at=self.done_at - 9000,
+                      finished_at=self.done_at - 60, error=SPENT)
+        self.prompt(PEER_PROMPT)
+        self.assertIn("run parked-exhausted parked: ", self.blocked(self.stop())["reason"])
+        with patch.object(config, "STATE", self.state), patch.object(config, "ensure_dirs"):
+            config.rename_session(SEAT, "renamed-peer")
+        self.assertIn("run parked-exhausted parked: ", self.blocked(self.stop())["reason"])
 
     def test_a_peer_opened_turn_waiting_on_a_run_is_judged_as_today(self):
         """A run launched during the turn still counts as waiting, peer or not."""

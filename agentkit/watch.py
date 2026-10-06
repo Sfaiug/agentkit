@@ -59,7 +59,7 @@ RETRY_BACKOFF = (600, 1800, 3600)  # after that, hourly; a head is never abandon
 KEY_GAP = 0.5           # text and Enter go separately: a return in the same read as the text
                         # is absorbed by the TUI, leaving the line unsent; equal to KEY_GAP in
                         # tools/idle-compact.py, measured on Codex 0.153.4 and Muse 1.2.1
-SENT_WAIT = 5.0         # how long a typed line gets to leave its composer
+SENT_WAIT = 5.0         # how long a typed line gets to show whole in its composer, and to leave it
 SENT_POLL = 0.5         # ... polling the pane this often for its absence
 RESUME_EVERY = 600      # seconds between resume attempts for one exhausted run: a start that
                         # failed -- and a launch already on its way -- is retried at most this often
@@ -1443,16 +1443,21 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
-    # A bare rule right under a row drawn at the left edge is that row's frame, not a newer
-    # line: Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest
-    # line it hid every question, which then read as answered.  A draft never sits there: its
+    # A rule right under a row drawn at the left edge is that row's frame, not a newer line:
+    # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
+    # it hid every question, which then read as answered.  In a renamed session -- every seat --
+    # that rule carries the session's name, which the adapter's composer pattern knows.  A draft never sits there: its
     # first row is prompt-marked and the rest are indented or inside a box's edge, so what is
     # typed stays a draft.
+    def drawn_rule(row):
+        # a bare rule, or a rule the harness's own chrome names, as one carrying a session's name
+        return bool(re.fullmatch(RULE, row) or (row[:1] in "─━═" and chrome_line(chrome, row)))
+
     newest = lines[-1]
-    if chrome["ruled"] and len(lines) > 1 and re.fullmatch(RULE, newest):
+    if chrome["ruled"] and len(lines) > 1 and drawn_rule(newest):
         above = strip_sgr(raw_lines[-2]).rstrip()
         if (above and not above[0].isspace() and above[0] not in "│┃║"
-                and not re.match(r"[❯›⟩>]", above) and not re.fullmatch(RULE, above.strip())):
+                and not re.match(r"[❯›⟩>]", above) and not drawn_rule(above.strip())):
             newest = lines[-2]
     for rule in chrome["rules"]:
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
@@ -1782,9 +1787,10 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       login no harness owns, and is said only on the seats whose runs cannot push without it;
     * a worker token dies within a fortnight or is dead -- every session says so, on any
       harness, because any seat's next turn on it can be the one that fails;
-    * a question on its screen is him even during a turn; so is typed text nobody sent while
-      no client is attached and no turn is in flight -- the question, or `unsent: <text>` --
-      whatever its runs do;
+    * a question on its screen is him even during a turn, and so is one it asked with `ak
+      notify needs` that nothing has answered; so is typed text nobody sent while no client
+      is attached and no turn is in flight -- the question, or `unsent: <text>` -- whatever
+      its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
@@ -1794,8 +1800,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * nobody is in the seat any more and its number is the way back in;
     * it said it was done itself, a job never says it for it, and nothing on its screen asks him
       -- unless a run of its own still sits parked and undecided, which is him;
-    * otherwise it is at its prompt with nothing running, which is him again -- with the
-      question it asked, or the draft it never sent, for a reason.
+    * otherwise it is at its prompt with nothing running, which is him again -- with a
+      watcher's alert, the question on its screen, or the draft it never sent, for a reason.
 
     An ended run is its orchestrator's business: the run hands its ending back to the seat
     that launched it, so no reason ever names a run or sends him to one -- unless the
@@ -2002,6 +2008,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
                 "since": found.get("began")}
+    # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
+    # asks, then gets on with the work that does not wait on the answer, so neither its runs
+    # nor its turn going says he was not asked.  A seat nobody is in names its number below,
+    # and a watcher's own alert about the seat waits for its prompt (rung 6).
+    last = notify.last(name)
+    if not gone and owner_question(last):
+        return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
+                "since": last.get("time")}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
     # is the exception, as in the stop hook's `parked`: `going` counts it, but only
     # `ak run resume` moves one, so rung 3 has it.
@@ -2106,7 +2120,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         told = " ".join(restart.split()) if isinstance(restart, str) else ""
         return {"word": "needs you", "since": None,
                 "reason": f"{reason} · {told}" if told else reason}
-    last = notify.last(name)
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
     # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
     # seat's own standing until a newer notice, but a question on its screen, or typed text
@@ -2134,7 +2147,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                     f"run {run_dir.name} parked: {run_mod.handback_reason(state)}"}
         line = next((piece for piece in str(last["text"]).splitlines() if piece.strip()), "")
         return {"word": "done", "reason": " ".join(line.split()), "since": last.get("time")}
-    # 6. at its prompt with nothing running: the question it asked, or nothing at all
+    # 6. at its prompt with nothing running: a watcher's alert, or nothing at all
     if last:
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time")}
@@ -2327,6 +2340,16 @@ def _pane_sent(session, harness, pane, text):
     return not _holds_text(pane, text)
 
 
+def _wait_ready(ready, held):
+    """Poll `ready` for SENT_WAIT: a long conversation draws a typed line slower than KEY_GAP,
+    and its Enter waits for the whole of it rather than for the next tick."""
+    for _ in range(int(SENT_WAIT / SENT_POLL)):
+        if ready(held):
+            return True
+        time.sleep(SENT_POLL)
+    return False
+
+
 def _wait_sent(session, harness, text):
     """Poll the pane for SENT_WAIT; True where the typed line left its composer in time."""
     for _ in range(int(SENT_WAIT / SENT_POLL)):
@@ -2402,8 +2425,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
-    `ready` is asked under the guard right before each Enter, after the gap: the owner can
-    type in it, and an Enter it refuses is never sent.
+    `ready` is asked under the guard right before each Enter, after the gap, and the first
+    Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
+    never sent.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -2437,7 +2461,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not _send_line(seat, text, log, typed, source=source):
                 return False
             time.sleep(KEY_GAP)
-        if not ready(held if held is not None else name) or not _send_enter(seat, log):
+        if not _wait_ready(ready, held if held is not None else name) or not _send_enter(seat, log):
             return False
     if not confirm or _wait_sent(seat, harness, text):
         return True
@@ -5945,6 +5969,8 @@ def local_passes(state, dry_run, log):
         # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
         # refused connection and nothing else.
         ("browser tidy did not finish", lambda: browser.tidy(log), False),
+        # A merge to a project reaches its seats' rulebooks: their next prompts name it.
+        ("the projects' rules were not fetched", orch.fetch_projects, False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old
         # code as can be is left to run over new files; GitHub imports nothing new.
         ("agentkit did not go live", lambda: update.go_live(log), False),

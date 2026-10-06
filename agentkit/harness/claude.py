@@ -390,6 +390,45 @@ def _write(path, data):
         raise
 
 
+def config_entries():
+    """The user-scope ~/.claude.json: `register_mcp` and tools/trust.py write there."""
+    return {"file": Path.home() / ".claude.json", "trust": "projects", "mcp": "mcpServers"}
+
+
+def register_mcp(servers):
+    """Put `servers` into ~/.claude.json's top-level mcpServers, user scope, in place.
+
+    A URL is Claude's `http` server and a command its `stdio` one.  An entry of the same name
+    from before is replaced whole, leaving no stale command behind.
+    """
+    from .. import config
+    path = config_entries()["file"]      # user scope lives at the top level
+    data = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise config.Error(f"cannot read {path}: {exc}") from None
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise config.Error(f"{path}: {exc}") from None
+        if not isinstance(data, dict):
+            raise config.Error(f"{path}: expected a JSON object")
+    existing = data.get("mcpServers")
+    if existing is not None and not isinstance(existing, dict):
+        raise config.Error(f"{path}: mcpServers is not an object")
+    wanted = {name: {"type": "http" if "url" in server else "stdio", **server}
+              for name, server in servers.items()}
+    merged = {**(existing or {}), **wanted}
+    if existing == merged:
+        return f"already registered in {path} (user scope)"
+    data["mcpServers"] = merged
+    try:
+        _write(path, data)
+    except OSError as exc:
+        raise config.Error(f"cannot write {path}: {exc}") from None
+    return f"registered in {path} (user scope)"
+
+
 def account_config(check=False):
     """Keep the owner's configuration beside an alternate login's own credentials.
 

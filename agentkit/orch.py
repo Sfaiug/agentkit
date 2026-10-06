@@ -166,22 +166,28 @@ def scratch(dry_run):
 
 
 @contextmanager
-def for_seat(name):
+def for_seat(name, repo=None):
     """Which seat the adapters called inside are building a command line for.
 
     In $AGENTKIT_SESSION, the name every part of agentkit says a seat by, because the rulebook
     an adapter writes at launch is that seat's -- and a launch is often made from another seat,
-    whose name is the one this process inherited.
+    whose name is the one this process inherited.  `repo`, the project a new seat is filed under
+    ("" for none), goes in $AGENTKIT_SEAT_REPO, since its record is written once it has opened;
+    without one the rulebook reads the seat's record.
     """
-    before = os.environ.get(config.SESSION_ENV)
-    os.environ[config.SESSION_ENV] = name or ""
+    told = {config.SESSION_ENV: name or ""}
+    if repo is not None:
+        told[config.SEAT_REPO_ENV] = repo
+    before = {key: os.environ.get(key) for key in told}
+    os.environ.update(told)
     try:
         yield
     finally:
-        if before is None:
-            os.environ.pop(config.SESSION_ENV, None)
-        else:
-            os.environ[config.SESSION_ENV] = before
+        for key, value in before.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def account_order(cfg, model, readings, first=None):
@@ -2129,6 +2135,38 @@ def rulebook_due(name):
             if pending or holds is None or config.rulebook_digest(text) != holds else None)
 
 
+def fetch_project(repo):
+    """Bring `repo`'s `origin/HEAD` -- what `config.seat_rulebook` reads -- up to origin's default
+    branch as it is now: every branch fetched, as a run fetches before cutting its base, whatever
+    the clone's own refspec follows, then `origin/HEAD` pointed again at the branch origin calls
+    default, created where the checkout has none and moved where origin changed it.  Only
+    `repo`'s own repository (`run.project_env`): a path whose `.git` is gone or is none
+    fails."""
+    from . import run
+    env = run.project_env(repo)
+    run.fetch(repo, "--quiet", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*",
+              check=True, env=env)
+    run.git(repo, "remote", "set-head", "origin", "--auto", env=env)
+
+
+def fetch_projects():
+    """The tick's pass: `fetch_project` for each project a seat is filed under.
+
+    Only a fetch shows a merge there, ak's own or one made anywhere else; the seat's next prompt
+    then names the new rules (`rulebook_news`).  A project that fails is named and waits for the
+    next tick, after every other project is fetched.
+    """
+    failed = []
+    for repo in sorted({record["repo"] for record in config.session_records().values()
+                        if record.get("repo")}):
+        try:
+            fetch_project(Path(repo))
+        except config.Error as exc:
+            failed.append(str(exc))
+    if failed:
+        raise config.Error("; ".join(failed))
+
+
 def rulebook_prepare(name):
     """Under the seat's lock, `name` the name it goes by now: when its conversation is to be
     told its rulebook, write that rulebook to the seat's `rules` file and give the
@@ -2164,9 +2202,10 @@ def rulebook_news(session, conversation):
     """What a seat's next prompt carries when its conversation is to be told its rulebook: "".
 
     A harness reads its rulebook only when it opens, so a seat left open across a change to
-    `orchestrator.md`, the vision or this host's `rules.md` would keep working to the old
-    rules.  Reopening it replaces its pane, and nothing on a screen proves the owner has no
-    draft there, so the seat is told instead, with the prompt that starts its next turn:
+    `orchestrator.md`, the vision, this host's `rules.md` or its project's `AGENTS.md` -- a
+    merge, or the seat filed elsewhere -- would keep working to the old rules.  Reopening it
+    replaces its pane, and nothing on a screen proves the owner has no draft there, so the
+    seat is told instead, with the prompt that starts its next turn:
     the rulebook is written to its `rules` file (`rulebook_prepare`), and this names it.
     Only its own conversation is told (`owns`): a client started inside the seat inherits its
     name and is never it.  Every prompt carries the news until the conversation says it read
@@ -3729,7 +3768,8 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     elif not dry_run:
         config.update_session(name, unnamed=None)
     try:
-        with scratch(dry_run):
+        # the project this launch files it under, which no record says yet
+        with scratch(dry_run), for_seat(name, str(repo) if repo else ""):
             cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     except Exception:
         if unnamed:
@@ -3802,7 +3842,8 @@ def ensure(cfg, name, log=print, saved=False):
     model, reason, workers = select(cfg, providers, prompting=False)
     # The usual login when none answers, as this seat always opened: it has a question to take.
     account = opening_account(cfg, model, providers, True)
-    cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+    with for_seat(name, ""):
+        cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     extra = {"cwd": str(seat_cwd()), "repo": None, "created": time.time(),
              "account": account, "home_account": account}
     if conversation:

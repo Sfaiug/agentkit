@@ -457,7 +457,8 @@ import subprocess
 import tempfile
 from unittest.mock import patch
 
-from agentkit import config, gc, menu, muse_usage, notify, orch, run, terminal, usage, watch, record
+from agentkit import config, gc, menu, notify, orch, run, terminal, usage, watch, record
+from agentkit.harness import muse_usage
 
 with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO) as tmp, ExitStack() as stack:
     root = Path(tmp)

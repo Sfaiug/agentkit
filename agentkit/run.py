@@ -180,7 +180,8 @@ def tool_env():
 
 
 def tool_run(cmd, cwd=None, timeout=None, env=None):
-    """(exit code, stdout, stderr) for every git and gh call this module makes.
+    """(exit code, stdout, stderr) for every git and gh call this module makes, in `tool_env`
+    as `env` changes it (None drops a variable).
 
     Git's fetch, push and ls-remote, and gh get one timeout retry. Other calls stop so their
     callers can recover any unfinished checkout edits. The code is None on timeout;
@@ -194,7 +195,9 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
         try:
             proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
                                   encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                                  timeout=timeout, env={**tool_env(), **(env or {})})
+                                  timeout=timeout,
+                                  env={name: value for name, value in
+                                       {**tool_env(), **(env or {})}.items() if value is not None})
             break
         except subprocess.TimeoutExpired:
             if attempt or not retry:
@@ -341,19 +344,19 @@ def git(repo, *args, check=True, env=None):
     return out.strip()
 
 
-def git_out(repo, *args, timeout=None):
+def git_out(repo, *args, timeout=None, env=None):
     """(exit code, output) -- for the steps whose failure is a result to report, not an exception.
 
     A stop is never a result: a timeout, or a prompt it was refused, raises Stopped, so no
     caller can route it into conflict handling or read it as an ordinary non-zero exit.
     """
-    code, out, err = tool_run(["git", "-C", str(repo), *args], timeout=timeout)
+    code, out, err = tool_run(["git", "-C", str(repo), *args], timeout=timeout, env=env)
     if stopped(code, err):
         raise Stopped(f"git {' '.join(args)} stopped in {repo}: {(out + err).strip()}")
     return code, (out + err).strip()
 
 
-def fetch(repo, *args, check=False):
+def fetch(repo, *args, check=False, env=None):
     """`git fetch` as `git_out` answers it; `check` raises on a failure as `git` does.
 
     Every run's worktree shares one repository's refs, so two runs fetching at once race for
@@ -364,10 +367,11 @@ def fetch(repo, *args, check=False):
     not write fails the fetch at once as before.
     """
     deadline = time.monotonic() + TOOL_CAP
-    code, out = git_out(repo, "fetch", *args)
+    code, out = git_out(repo, "fetch", *args, env=env)
     while code != 0 and time.monotonic() < deadline and ref_held(out):
         try:
-            code, out = git_out(repo, "fetch", *args, timeout=deadline - time.monotonic())
+            code, out = git_out(repo, "fetch", *args, timeout=deadline - time.monotonic(),
+                                env=env)
         except Stopped:
             if time.monotonic() < deadline:
                 raise       # refused a prompt, which no retry answers
@@ -401,24 +405,49 @@ def gh(cwd, *args, timeout=None):
     return code, (out + err).strip()
 
 
+def project_env(repo):
+    """What git's environment changes to work on the checkout at `repo` and nothing else, None
+    for a variable it drops (`tool_run`).  GIT_DIR names the checkout's own `.git`, so git looks
+    nowhere else: not in a parent directory's repository when that `.git` was moved away or is
+    none (git fails instead), not where an inherited GIT_DIR points.  The other variables git
+    keeps for one repository are dropped, as git drops them entering a submodule."""
+    code, out, _err = tool_run(["git", "rev-parse", "--local-env-vars"])
+    return {**dict.fromkeys(out.split() if code == 0 else []),
+            "GIT_DIR": os.path.join(os.path.abspath(repo), ".git")}
+
+
+def agents_body(repo, ref):
+    """The body of the AGENTS.md committed at `ref` in `repo`, front matter removed: what each
+    worker's prompt carries of its repository, and each seat's rulebook of its project.
+
+    Read from git, never a checkout's file: the rules are what was merged, not what one checkout
+    holds or one piece of work is changing.  "" where there is none, where it is a link -- its
+    text is a path, not rules (`rules_cap` refuses one) -- or where it cannot be read.
+    """
+    if not repo or not ref:
+        return ""
+    env = project_env(repo)
+    try:
+        listed = git(repo, "ls-tree", ref, "--", "AGENTS.md", check=False, env=env).split()
+        # the blob the listing names, never `ref` read twice: a fetch between the two reads
+        # could put a link where the listing saw a file
+        text = (git(repo, "cat-file", "blob", listed[2], check=False, env=env)
+                if listed and listed[0].startswith("100") else "")
+    except Exception:
+        return ""
+    match = FRONT.match(text)
+    return (text[match.end():] if match else text).strip()
+
+
 def repo_rules(wt, ref):
-    """The body of the repository's AGENTS.md at `ref`, for every worker prompt.
+    """The body of the repository's AGENTS.md at `ref` (`agents_body`), for every worker prompt.
 
     ak reads only its front matter itself, and a harness loads the body on its own terms
     (some never, some only beside no file of their own), so without this each brand
     worked to different rules.  Read at the base commit, never the checkout: the work
-    under review cannot rewrite the rules it is judged by.  A read that fails is no file,
-    and so is a link: its text is a path, not rules (`rules_cap` refuses one).
+    under review cannot rewrite the rules it is judged by.
     """
-    if not ref:
-        return ""
-    try:
-        mode = git(wt, "ls-tree", ref, "--", "AGENTS.md", check=False).partition(" ")[0]
-        text = git(wt, "show", f"{ref}:AGENTS.md", check=False) if mode.startswith("100") else ""
-    except Exception:
-        return ""
-    match = FRONT.match(text)
-    text = (text[match.end():] if match else text).strip()
+    text = agents_body(wt, ref)
     if not text:
         return ""
     return ("\n\n## Repository AGENTS.md\n"
@@ -1135,6 +1164,25 @@ def without_output(node):
     return node
 
 
+# Re-encoded, a control character in a record's text -- a line break, a tab -- reads as an
+# escape (`\n`, `\t`, `\u000b`) that runs into the word after it, which then never stands on
+# its own; so do characters outside ASCII unless they are written as they are.  With every
+# control character and line separator a space and the rest written as is, the only escapes
+# left are `\"` and `\\`, which end in neither a letter nor a digit, and a record stays one
+# line wherever `str.splitlines` would break it.
+ONE_LINE = {code: " " for code in (*range(0x20), *range(0x7f, 0xa0), 0x2028, 0x2029)}
+
+
+def one_line(node):
+    """`node` with every control character and line separator in its text a space, at any
+    depth."""
+    if isinstance(node, dict):
+        return {k: one_line(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [one_line(item) for item in node]
+    return node.translate(ONE_LINE) if isinstance(node, str) else node
+
+
 def is_failure(node):
     """Does this record say of itself that it is a failure, at any depth?"""
     if isinstance(node, list):
@@ -1182,7 +1230,8 @@ def record_text(node):
 
 
 def failures(chunk, terminal, terminal_only=False, handed_in=False):
-    """The failure records of an event log, each minus the output of the work it quotes.
+    """The failure records of an event log, each minus the output of the work it quotes, its
+    text's control characters read as spaces and the rest as written.
 
     The output goes first, so a command that failed while printing the words a refusal uses
     contributes its exit code and nothing else.  The run's terminal record is kept beside
@@ -1216,7 +1265,7 @@ def failures(chunk, terminal, terminal_only=False, handed_in=False):
                        or (is_terminal(record, terminal)
                            and not handed_in and not answered(record_text(record))))
         if failure:
-            records.append(json.dumps(record))
+            records.append(json.dumps(one_line(record), ensure_ascii=False))
     return records
 
 
@@ -3107,8 +3156,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     the seat builds it with the context it already has.  Anything else on the list (a flaky
     check's evidence) starts an ordinary run.  The receipt is written once the list is handed
     on: a process cut off before that hands it on again, and each item finds what the cut-off
-    one already did -- its open plan line, the fix run it started.  There is no collector or
-    backlog: this ending alone gets to hand on its list.
+    one already did -- its open plan line, the fix run it started.  A fix run waits for its slot
+    from its first record on, so one the cut left before its launch is a slot wait the tick
+    resumes.  There is no collector or backlog: this ending alone gets to hand on its list.
 
     A target failing a check on its own tip starts one the same way, before any merge:
     `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, the
@@ -3220,22 +3270,21 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                     lists = config.load_session(config.load(), session, required=False) or state
                 except config.Error:
                     lists = state
-                run_record.save_state(directory, {"followup": {"run": run_dir.name, "text": item,
-                                                   "place": followup_place(item)},
-                                       **({"repair": key, "repair_tip": repair["sha"]}
-                                          if repair else {}),
-                                       **({"split_suite": split["command"]} if split else {}),
-                                       "launched_session": session, "repo": str(repo),
-                                       **{role: list(lists[role]) for role in ("workers", "reviewers")
-                                          if isinstance(lists.get(role), list) and lists[role]},
-                                       **({"notify_sink": state["notify_sink"]}
-                                          if state.get("notify_sink") else {})})
+                receipt = {"followup": {"run": run_dir.name, "text": item,
+                                        "place": followup_place(item)},
+                           **({"repair": key, "repair_tip": repair["sha"]} if repair else {}),
+                           **({"split_suite": split["command"]} if split else {}),
+                           "launched_session": session, "repo": str(repo),
+                           **{role: list(lists[role]) for role in ("workers", "reviewers")
+                              if isinstance(lists.get(role), list) and lists[role]},
+                           **({"notify_sink": state["notify_sink"]}
+                              if state.get("notify_sink") else {})}
                 opts = {"--rounds": None, "--exec": None, "--review": None,
                         "--review-pr": None, "--no-worktree": False, "--no-merge": False,
                         "--bg": True, **({"--first": True} if request else {})}
                 if split:
                     gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
-                prepare(directory, opts, logger(directory), cfg)
+                prepare(directory, opts, logger(directory), cfg, receipt=receipt)
                 spawn_bg(directory, [str(directory / "task.md")])
             except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
@@ -3269,9 +3318,12 @@ def started_by(run_dir, item):
 
 def followups_handed(run_dir, state, handed):
     """Write the receipt that this ending's list is handed on: onto the record as it stands,
-    so nothing written there meanwhile -- a stop, a delivery's mark -- is put back."""
+    so nothing written there meanwhile -- a stop, a delivery's mark -- is put back.  Read and
+    written under `delivery_lock` too, taken inside the recovery lock as `reap` takes it: a
+    delivery's mark lands before the read or after the write, never between them."""
     state.update(handed)
-    with run_record.record(run_dir) as current:
+    with run_record.recovery_lock(run_dir), delivery_lock(run_dir), \
+            run_record.record(run_dir) as current:
         current.update(handed)
 
 
@@ -9108,7 +9160,7 @@ def launch_session(run_dir):
             config.current_session())
 
 
-def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
+def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, receipt=None):
     """The owner, and whether anybody owns this launch at all.
 
     `unattended` is the run nobody started: no seat, and no terminal either, because a worker
@@ -9126,7 +9178,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
     The task file it was launched from goes on too, because the run keeps only a copy:
     where the file lives is what files a scratch run's seat under a project (`run_project`).
     """
-    receipt = run_record.read_state(run_dir) or {}
+    receipt = (run_record.read_state(run_dir) or {}) if receipt is None else receipt
     followup = receipt.get("followup")
     session_at_launch = receipt["launched_session"] if followup else config.current_session()
     workers = (receipt.get("workers") if followup else
@@ -9158,7 +9210,10 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
             state["task_file"] = str(task_file)
         if (opts or {}).get("--first"):
             state["first"] = True
-        gate.reserve_slot(state, limit)
+        if not followup:
+            # A fix run waits for its slot from its first record on: whatever cuts its handoff
+            # off before the launch, it is a slot wait, which the tick resumes.
+            gate.reserve_slot(state, limit)
         run_record.save_state(run_dir, state)
     history_start(state)
     redress_seat(session_at_launch)   # the seat's bar says it from the start
@@ -9261,8 +9316,8 @@ def refused(run_dir, exc, log, cfg):
     announce_safely(state, run_dir, log, cfg)
 
 
-def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None):
-    capture_launch(run_dir, opts, job_id, cfg, task_file)
+def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=None):
+    capture_launch(run_dir, opts, job_id, cfg, task_file, receipt)
     try:
         preflight(run_dir, opts, log)
     except Stopped as exc:

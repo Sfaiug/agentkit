@@ -41,4 +41,4 @@ case ${XDG_CONFIG_HOME:-} in "$HOME"/.muse-*) unset XDG_CONFIG_HOME ;; esac
 [ -z "${AGENTKIT_ACCOUNT:-}" ] || {
   export XDG_CONFIG_HOME="$HOME/.muse-$AGENTKIT_ACCOUNT"; unset META_API_KEY; }
 here=$(cd "$(dirname "$0")" && pwd)
-exec python3 "$here/../agentkit/muse_usage.py"
+exec python3 "$here/../agentkit/harness/muse_usage.py"

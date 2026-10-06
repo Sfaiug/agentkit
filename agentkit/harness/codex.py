@@ -17,6 +17,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tomllib
 import uuid
 
 from .. import config
@@ -32,6 +33,8 @@ SEAT_EVENTS = ("UserPromptSubmit", "Stop", "Interrupt", "PermissionRequest")
 # the one script on both harnesses.
 STOP_RULE = "hooks/orchestrator-stop.sh"
 FRESH = "Codex ownership unverified; starts fresh"
+BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---"
+END = "# --- end agentkit browser bridge ---"
 
 
 def path_for(record):
@@ -333,6 +336,117 @@ def trust(hooks):
             state[f"/<session-flags>/config.toml:{label}:0:{position}"] = "sha256:" + digest
     return "hooks.state={" + ",".join(f"{json.dumps(key)}={{trusted_hash={json.dumps(value)}}}"
                                       for key, value in state.items()) + "}"
+
+
+def mcp_block(servers):
+    """`servers` as the one marked block of ~/.codex/config.toml that `register_mcp` keeps."""
+    def string(value):      # a TOML basic string: paths and flags escape as JSON's do
+        return json.dumps(value)
+    lines = [BEGIN]
+    for name, server in servers.items():
+        lines.append(f"[mcp_servers.{name}]")
+        if "url" in server:
+            lines.append(f"url = {string(server['url'])}")
+        else:
+            env = ", ".join(f"{key} = {string(value)}" for key, value in sorted(server["env"].items()))
+            lines += [f"command = {string(server['command'])}",
+                      "args = [" + ", ".join(string(arg) for arg in server["args"]) + "]",
+                      "env = { " + env + " }"]
+        lines.append("")
+    return "\n".join([*lines, END]) + "\n"
+
+
+def config_entries():
+    """~/.codex/config.toml: `register_mcp` and tools/trust.py write there."""
+    return {"file": Path.home() / ".codex" / "config.toml", "trust": "projects",
+            "mcp": "mcp_servers"}
+
+
+def register_mcp(servers):
+    """Keep `servers` in one marked block of ~/.codex/config.toml, and nothing else.
+
+    A block, not a rewrite: install.sh and codex itself both own keys in this file, and a
+    round trip through a TOML writer would lose their comments and their ordering.  A
+    `[mcp_servers.browser]` somebody wrote by hand outside the block is an error rather than a
+    second one appended, because two tables of the same name do not parse at all.  A marker
+    counts only as a line of its own, so a comment quoting one is no block; and the new file
+    must parse to the old one with only these servers and the old block's changed, or nothing
+    is written.
+    """
+    path = config_entries()["file"]
+    raw = ""
+    before = {}
+    if path.exists():
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise config.Error(f"cannot read {path}: {exc}") from None
+        try:
+            before = tomllib.loads(raw)
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+            raise config.Error(f"{path} is not valid TOML, so nothing was changed: {exc}")
+    block, ours = mcp_block(servers), set(servers)
+    lines = raw.splitlines(keepends=True)
+    begins, ends = ([i for i, line in enumerate(lines) if line.strip() == marker]
+                    for marker in (BEGIN, END))
+    if begins or ends:
+        if len(begins) != 1 or len(ends) != 1 or ends[0] < begins[0]:
+            raise config.Error(f"{path} has half of the agentkit block or more than one; repair "
+                               f"or delete the lines from {BEGIN!r} to {END!r} and run this again")
+        start, stop = begins[0], ends[0] + 1
+        try:        # the servers the old block held are ours to replace, renamed ones too
+            held = tomllib.loads("".join(lines[start:stop])).get("mcp_servers")
+        except tomllib.TOMLDecodeError:
+            held = None
+        ours |= set(held) if isinstance(held, dict) else set()
+        head, tail = "".join(lines[:start]), "".join(lines[stop:]).lstrip("\n")
+        text = head + block + ("\n" + tail if tail else "")
+    else:
+        clash = sorted(set(before.get("mcp_servers", {})) & set(servers))
+        if clash:
+            raise config.Error(f"{path} already defines mcp_servers."
+                               f"{', mcp_servers.'.join(clash)} outside the agentkit block; "
+                               "remove those tables and run this again")
+        text = (raw.rstrip("\n") + "\n\n" if raw.strip() else "") + block
+    try:
+        result = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:      # a bug here, caught before it lands on disk
+        raise config.Error(f"the block this would write does not parse: {exc}")
+    if set(result.get("mcp_servers", {})) < set(servers):
+        raise config.Error(f"{path}: the block did not take effect")
+    if _outside(result, ours) != _outside(before, ours):
+        raise config.Error(f"{path}: registering would change settings outside the agentkit "
+                           f"block, so nothing was changed; move them out from between "
+                           f"{BEGIN!r} and {END!r} and run this again")
+    if text == raw:
+        return f"already registered in {path}"
+    _replace(path, text)
+    return f"registered in {path}"
+
+
+def _outside(data, names):
+    """A parsed config less the MCP servers in `names`: what registering them leaves alone."""
+    servers = data.get("mcp_servers")
+    if not isinstance(servers, dict):
+        return data
+    kept = {name: entry for name, entry in servers.items() if name not in names}
+    rest = {key: value for key, value in data.items() if key != "mcp_servers"}
+    return {**rest, "mcp_servers": kept} if kept else rest
+
+
+def _replace(path, text, mode=0o600):
+    """Replace a config file without ever leaving a half-written one behind."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.exists():
+        mode = path.stat().st_mode & 0o777
+    temp = path.with_name(path.name + ".ak-tmp")
+    try:
+        temp.write_text(text, encoding="utf-8")
+        temp.chmod(mode)
+        temp.replace(path)
+    except OSError as exc:
+        temp.unlink(missing_ok=True)
+        raise config.Error(f"cannot write {path}: {exc}") from None
 
 
 def main(argv, launch=None):

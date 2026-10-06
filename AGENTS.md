@@ -56,6 +56,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - Never re-create another system's semantics for an input nobody uses (Linux's path walk inside Git trees, for a linked AGENTS.md): every review round found one more difference (#520, six rounds). Refuse the input plainly instead.
 - A test never asserts a plain word is absent from output that prints paths: worktree paths carry the run's title.
 - A test never asserts a wall-clock duration (under 100 ms, say): host load breaks it at landing. Inject the clock and assert what it read.
+- `test_v4n.Sandbox` stops this process's clock (`time.time()` reads 10000) and keeps ak's state in `<root>/state`, while a hook run as a subprocess stamps the real clock into `$HOME/.agentkit/state`: copy its record across and compare against its own stamps.
 - A rule on what may merge belongs in both merge paths: `do_merge` (task runs) and `merge_own_pr` (a seat's own PR, now the main path); a guard on one alone is a bypass.
 - Typing into a seat has one typer per kind of line: the tick, under its lock. A second typer (a sender trying first) needs claims and delivery reports that each review round finds a new race in (#439, 3 rounds).
 - A fix that reads the screen adds no fallback for shapes it did not set out to read: every such fallback (an at_prompt backstop, an "empty composer" pattern) misread another real screen and cost a review round (#501, 3 rounds).
@@ -93,3 +94,4 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - ak never spends a usage-limit reset on its own; the owner spends one by hand, from the Providers row of `c`. [2 Oct]
 - No screen estimates when work will finish; a seat's progress is its tasks bar and its count, never a percentage. [2 Oct]
 - A seat's live runs are named on one line only, its live line (the seat bar's second line, and under the highlighted dashboard row): task id, what it is doing, the model doing it. No other row names a run. [18 Sep, 2 Oct]
+- Seats message each other only through `ak tell`, the same way for every harness and account; it is never taken for the owner's words. [4 Oct]

@@ -7,7 +7,7 @@ was a way in.  This is it, and it is deliberately thin:
 
   status         is everything down there reachable, and how many tabs are open
   login          the URL and password the owner needs to sign a site in, by hand, once
-  mcp-register   point Claude Code and Codex at that browser and at that desktop
+  mcp-register   point every harness that can take them at that browser and that desktop
   install        stand the stack up on a machine that has none; verify on the one that has
 
 Nothing here restarts Chromium.  Its profile is the logins: a restart costs whatever a site
@@ -17,10 +17,10 @@ only x11vnc, and only when it had to mint a new password.
 The browser reaches the harnesses through one shared `@playwright/mcp` process, not one per
 session: `browser-bridge-mcp.service` holds `--cdp-endpoint` without `--isolated`, which is the
 profile's own default context, where the cookies are, and `--shared-browser-context`, so every
-seat over HTTP stays in that same logged-in context.  URL-capable harnesses are registered to
-its `http://localhost:8931/mcp` endpoint; anything else keeps a per-session stdio command onto
-the same pinned install.  The desktop reaches them through `tools/desktop-mcp.py`, whose
-xdotool calls land on the same `:99`.
+seat over HTTP stays in that same logged-in context.  Each harness's plugin registers its
+`http://localhost:8931/mcp` endpoint in that harness's own config (`register_mcp`).  The
+desktop reaches them through `tools/desktop-mcp.py`, whose xdotool calls land on the same
+`:99`.
 """
 
 import ctypes
@@ -36,12 +36,11 @@ import string
 import subprocess
 import sys
 import time
-import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import command_help, config
+from . import command_help, config, harness
 
 BRIDGE = Path.home() / ".local/share/browser-bridge"     # the stack's own directory
 PAYLOAD = config.REPO / "browser"                        # its copy in here, for a fresh machine
@@ -69,10 +68,6 @@ MCP_HOST = "localhost"               # loopback only, like the CDP it attaches t
 MCP_PORT = 8931
 MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}/mcp"
 MCP_UNIT = "browser-bridge-mcp.service"
-CLAUDE_CONFIG = Path.home() / ".claude.json"             # user scope lives at the top level
-CODEX_CONFIG = Path.home() / ".codex" / "config.toml"
-BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---"
-END = "# --- end agentkit browser bridge ---"
 HOST_PORT = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3}|\[[0-9A-Fa-f:]+\]):(\d{1,5})$")
 
 USAGE = command_help.render("browser").rstrip()
@@ -87,22 +82,11 @@ def mcp_dir():
     return BRIDGE / "mcp"
 
 
-def mcp_cli():
-    return mcp_dir() / "node_modules" / "@playwright" / "mcp" / "cli.js"
-
-
 def servers():
-    """The two MCP servers, as {name: (command, args)}.
-
-    The browser entry is the stdio fallback for a harness without URL support: the same
-    pinned install the shared service runs, so even it fetches nothing per session.
-    `--isolated` is deliberately absent: with it Playwright opens a fresh context and the
-    profile's cookies are not in it, which is the whole point of attaching to this browser.
-    """
-    return {
-        "browser": ("node", [str(mcp_cli()), "--cdp-endpoint", CDP]),
-        "desktop": (sys.executable, [str(DESKTOP)]),
-    }
+    """The two MCP servers a harness is pointed at: the shared browser by its URL, the desktop
+    as the command that serves it.  {name: {"url": …} or {"command", "args", "env"}}."""
+    return {"browser": {"url": MCP_URL},
+            "desktop": {"command": sys.executable, "args": [str(DESKTOP)], "env": mcp_env()}}
 
 
 def mcp_env():
@@ -525,119 +509,6 @@ def login(argv):
 # --- mcp-register -----------------------------------------------------------
 
 
-def write_atomic(path, text, mode=0o600):
-    """Replace a config file without ever leaving a half-written one behind."""
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if path.exists():
-        mode = path.stat().st_mode & 0o777
-    temp = path.with_name(path.name + ".ak-tmp")
-    try:
-        temp.write_text(text, encoding="utf-8")
-        temp.chmod(mode)
-        temp.replace(path)
-    except OSError as exc:
-        temp.unlink(missing_ok=True)
-        raise config.Error(f"cannot write {path}: {exc}") from None
-
-
-def register_claude():
-    """Put both servers into ~/.claude.json's top-level mcpServers, user scope, in place.
-
-    The browser is the shared service by URL: one process for every seat, and no per-session
-    `npx` fetch.  A stdio entry from before is replaced whole, leaving no stale command behind.
-    """
-    data = {}
-    if CLAUDE_CONFIG.exists():
-        try:
-            data = json.loads(CLAUDE_CONFIG.read_text(encoding="utf-8"))
-        except OSError as exc:
-            raise config.Error(f"cannot read {CLAUDE_CONFIG}: {exc}") from None
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise config.Error(f"{CLAUDE_CONFIG}: {exc}") from None
-        if not isinstance(data, dict):
-            raise config.Error(f"{CLAUDE_CONFIG}: expected a JSON object")
-    existing = data.get("mcpServers")
-    if existing is not None and not isinstance(existing, dict):
-        raise config.Error(f"{CLAUDE_CONFIG}: mcpServers is not an object")
-    command, args = servers()["desktop"]
-    wanted = {"browser": {"type": "http", "url": MCP_URL},
-              "desktop": {"type": "stdio", "command": command, "args": args, "env": mcp_env()}}
-    merged = {**(existing or {}), **wanted}
-    if existing == merged:
-        return "already registered"
-    data["mcpServers"] = merged
-    write_atomic(CLAUDE_CONFIG, json.dumps(data, indent=2) + "\n")
-    return "registered"
-
-
-def toml_string(value):
-    """A TOML basic string.  Our values are paths and flags, which JSON escapes the same way."""
-    return json.dumps(value)
-
-
-def codex_block():
-    lines = [BEGIN,
-             "[mcp_servers.browser]",
-             f"url = {toml_string(MCP_URL)}",
-             ""]
-    command, args = servers()["desktop"]
-    env = ", ".join(f"{key} = {toml_string(value)}"
-                    for key, value in sorted(mcp_env().items()))
-    lines += ["[mcp_servers.desktop]",
-              f"command = {toml_string(command)}",
-              "args = [" + ", ".join(toml_string(arg) for arg in args) + "]",
-              "env = { " + env + " }",
-              "",
-              END]
-    return "\n".join(lines) + "\n"
-
-
-def register_codex():
-    """Keep both servers in one marked block of ~/.codex/config.toml, and nothing else.
-
-    A block, not a rewrite: install.sh and codex itself both own keys in this file, and a
-    round trip through a TOML writer would lose their comments and their ordering.  A
-    `[mcp_servers.browser]` somebody wrote by hand outside the block is an error rather than a
-    second one appended, because two tables of the same name do not parse at all.
-    """
-    raw = ""
-    if CODEX_CONFIG.exists():
-        try:
-            raw = CODEX_CONFIG.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise config.Error(f"cannot read {CODEX_CONFIG}: {exc}") from None
-        try:
-            tomllib.loads(raw)
-        except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
-            raise config.Error(f"{CODEX_CONFIG} is not valid TOML, so nothing was changed: {exc}")
-    block = codex_block()
-    start, stop = raw.find(BEGIN), raw.find(END)
-    if start != -1 and stop > start:
-        head, tail = raw[:start], raw[stop + len(END):].lstrip("\n")
-        text = head + block + ("\n" + tail if tail else "")
-    elif start != -1 or stop != -1:
-        raise config.Error(f"{CODEX_CONFIG} has half of the agentkit block; repair or delete "
-                           f"the lines between {BEGIN!r} and {END!r} and run this again")
-    else:
-        parsed = tomllib.loads(raw) if raw else {}
-        clash = sorted(set(parsed.get("mcp_servers", {})) & set(servers()))
-        if clash:
-            raise config.Error(f"{CODEX_CONFIG} already defines mcp_servers."
-                               f"{', mcp_servers.'.join(clash)} outside the agentkit block; "
-                               "remove those tables and run this again")
-        text = (raw.rstrip("\n") + "\n\n" if raw.strip() else "") + block
-    try:
-        result = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as exc:      # a bug here, caught before it lands on disk
-        raise config.Error(f"the block this would write does not parse: {exc}")
-    if set(result.get("mcp_servers", {})) < set(servers()):
-        raise config.Error(f"{CODEX_CONFIG}: the block did not take effect")
-    if text == raw:
-        return "already registered"
-    write_atomic(CODEX_CONFIG, text)
-    return "registered"
-
-
 def mcp_register(argv):
     """Write the registration, and only the registration: no download, no service setup.
 
@@ -648,11 +519,18 @@ def mcp_register(argv):
         raise config.Error(f"ak browser mcp-register takes no arguments; got {' '.join(argv)}")
     if not DESKTOP.exists():
         raise config.Error(f"{DESKTOP} is missing; this checkout is incomplete")
-    say(f"claude    {register_claude()} in {CLAUDE_CONFIG} (user scope)")
-    say(f"codex     {register_codex()} in {CODEX_CONFIG}")
-    say(f"browser   one shared server at {MCP_URL} ({MCP_UNIT}); "
+    unregistered = []
+    for name, _ in config.manifests():
+        done = harness.load(name).register_mcp(servers())
+        if done:
+            say(f"{name:<11} {done}")
+        else:
+            unregistered.append(name)
+    if unregistered:
+        say(f"not registered, their plugins write no MCP entry: {', '.join(unregistered)}; "
+            "browser/bridge.py and tools/desktop-mcp.py --cli need none")
+    say(f"{'browser':<11} one shared server at {MCP_URL} ({MCP_UNIT}); "
         "`ak browser install` sets it up")
-    say("muse      has no MCP client: use browser/bridge.py and tools/desktop-mcp.py --cli")
     return 0
 
 

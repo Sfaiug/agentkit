@@ -9,7 +9,8 @@ launch receipt its thread is proven by, `grokbuild.py` the session directory it 
 `muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe
 and the session store its tokens are in,
 `opencode.py` the receipt its seat plugin writes its session into and the endpoint that says
-how a model is paid.
+how a model is paid.  A script its adapter runs on its own sits beside its module, named for
+it: `muse_usage.py` is Muse's billed usage probe.
 
 No module outside this package names a harness: the core asks
 `harness.load(config.model(cfg, m)["harness"]).<hook>(...)` and takes the answer.
@@ -74,7 +75,7 @@ _LOADED = {}
 
 def says(text, word):
     """Does `text` say `word` on its own: never inside a longer word, nor its digits inside a
-    longer number, a file path or a run id?
+    longer number, a file path or a run id, nor a word without digits inside a run id?
 
     A `#` in a word is any one digit, a `~` up to three characters that are neither letters
     nor digits, or none (`status~5##` is `"status": 503` too), and `…` joins parts that each
@@ -88,25 +89,33 @@ def says(text, word):
         + re.escape(part).replace(r"\#", r"\d").replace(r"\~", r"[\W_]{0,3}")
         + (r"(?!\w)(?!\.\d)" if re.search(r"[\w#]$", part) else "")
         for part in parts)
+    matches = list(re.finditer(pattern, text, re.I))
+    if not matches:
+        return False
     # Paths and file names with their rotation and line references (`run.log.429`,
     # `run.py:429:7`, a traceback's `", line 429`), and ak's run and job ids (a date-time
-    # stamp, then words) join numbers with punctuation too. A match stands unless every
-    # number in it sits inside one: `HTTP/1.1 429`, `HTTP-503` and `Error-429` are still
-    # the status. Each kind is found on its own and every span counts, so one never cuts
+    # stamp, then words) join numbers with punctuation too. A match of a word with digits
+    # stands unless every number in it sits inside one: `HTTP/1.1 429`, `HTTP-503` and
+    # `Error-429` are still the status. A word without digits stands unless the whole match
+    # sits inside a run or job id as ak makes it -- the stamp, then the slug's letters and
+    # digits joined by hyphens (`run.slugify`) -- which names every run's worktree and
+    # directory, so a worker naming its own paths (`wt/20261005-0626-fix-agentkit-quota-wait`)
+    # says no limit. Each kind is found on its own and every span counts, so one never cuts
     # another short.
-    ignored = [span.span() for kind in (
-        r'''(?:[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*)(?::\d+)*''',
-        r"\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*(?:[-.]\w+)*\b(?::\d+)*", r"\b\d{8}-\d{4,6}(?:-[\w.]+)+",
-        r'(?<=", )line \d+') for span in re.finditer(kind, text)] if re.search(r"[\d#]", word) else []
+    digits = re.search(r"[\d#]", word)
+    kinds = ((r'''(?:[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*)(?::\d+)*''',
+              r"\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*(?:[-.]\w+)*\b(?::\d+)*",
+              r"\b\d{8}-\d{4,6}(?:-[\w.]+)+", r'(?<=", )line \d+') if digits else
+             (r"\b\d{8}-\d{4,6}(?:-[a-z0-9]+)+",))
+    ignored = [span.span() for kind in kinds for span in re.finditer(kind, text)]
 
     def stands(match):
-        numbers = [(match.start() + number.start(), match.start() + number.end())
-                   for number in re.finditer(r"\d+", match.group())]
-        return not numbers or not all(any(start <= first and last <= end
-                                          for start, end in ignored)
-                                      for first, last in numbers)
+        inner = ([(match.start() + number.start(), match.start() + number.end())
+                  for number in re.finditer(r"\d+", match.group())] if digits else [match.span()])
+        return not all(any(start <= first and last <= end for start, end in ignored)
+                       for first, last in inner)
 
-    return any(stands(match) for match in re.finditer(pattern, text, re.I))
+    return any(stands(match) for match in matches)
 
 
 def limited(text):
@@ -174,17 +183,27 @@ def prompt(entry):
     """The owner's words one transcript line holds, or None for bookkeeping, injected rules,
     a tool result or anything else: whichever harness wrote it says so in its module's
     `prompt`, and no two write the same shape."""
-    for read in _prompt_readers():
-        said = read(entry)
+    for module in _plugins("prompt"):
+        said = module.prompt(entry)
         if said is not None:
             return said
     return None
 
 
+def config_entries():
+    """Where each harness keeps the trust and MCP entries agentkit writes for it, as
+    [{"file": its config, read as JSON or TOML by its suffix, "trust": the table of trusted
+    directories, "mcp": the table of MCP servers}], from every plugin that keeps any.
+    `ak gc` prunes the entries naming a gone sandbox or checkout."""
+    return [module.config_entries() for module in _plugins("config_entries")]
+
+
 @functools.cache
-def _prompt_readers():
+def _plugins(hook):
+    """Every plugin module beside this file that answers `hook`.  Found in this package, not
+    the adapter directories, so `ak gc`'s planning, which reads only what it plans for, can ask."""
     modules = (_module(path.stem) for path in sorted(Path(__file__).resolve().parent.glob("*.py")))
-    return tuple(module.prompt for module in modules if hasattr(module, "prompt"))
+    return tuple(module for module in modules if hasattr(module, hook))
 
 
 def _module(name):
@@ -502,6 +521,16 @@ class Harness:
         """
         hook = self._hook("tmp_rule")
         return hook(table) if hook else None
+
+    def register_mcp(self, servers):
+        """Point this harness at `servers` in its own config, as `ak browser mcp-register`
+        does: what it did and where, or None where its plugin writes no MCP entry.
+
+        `servers` is {name: {"url": …}} for a server by URL and {name: {"command", "args",
+        "env"}} for one it starts itself.
+        """
+        hook = self._hook("register_mcp")
+        return hook(servers) if hook else None
 
     # --- what one headless turn spent ----------------------------------------
 

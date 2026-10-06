@@ -186,6 +186,7 @@ exec "$REAL_PYTHON" "$@"
             with self.subTest(event=event, script=script):
                 ready.unlink(missing_ok=True)
                 release.unlink(missing_ok=True)
+                config.notify_path(SEAT).unlink(missing_ok=True)    # no question standing yet
                 self.hook("UserPromptSubmit")
                 proc = subprocess.Popen(
                     ["bash", str(REPO / "hooks/seat-state.sh")], env=env, text=True,
@@ -199,7 +200,8 @@ exec "$REAL_PYTHON" "$@"
                     while not ready.exists() and proc.poll() is None and time.monotonic() < deadline:
                         time.sleep(0.01)
                     self.assertTrue(ready.exists(), "the notice never asked the manifest")
-                    self.asked()
+                    if event == "Stop":
+                        self.asked()    # a newer prompt asks nothing: it would be his answer
                     payload = {"background_tasks": []} if script == "orchestrator-stop.sh" else {}
                     newer = self.hook(event, script=script,
                                       last_assistant_message="Which schema should acme use?", **payload)

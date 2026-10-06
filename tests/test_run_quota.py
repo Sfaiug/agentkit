@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted, stateful
-from agentkit import gate, host, config, notify, orch, run, status, usage, watch
+from agentkit import gate, harness, host, config, notify, orch, run, status, usage, watch
 from agentkit import record
 
 WEEK = 604800
@@ -100,6 +100,20 @@ class Quota(unittest.TestCase):
             "openai": {"meters": [meter("weekly", openai_used, self.now + WEEK)]},
             "meta": {"meters": [meter("weekly", meta_used, self.now + WEEK)]},
         }
+
+    def test_a_word_after_any_character_in_an_error_event_is_still_said(self):
+        # the event is read re-encoded: no escape before the word may run into it
+        for name, word, expected in (("opencode", "quota", harness.SPENT),
+                                     ("claude", "rate_limit_error", harness.LIMITED),
+                                     ("opencode", "overloaded", harness.REFUSAL)):
+            for gap in ("\n", "\t", "\r\n", "\f", "\v", "\x01", "\x1c", "\x7f", "\u00a0",
+                        "\u0085", "\u2028", "\u2029", "\u2014", "\u00e9 "):
+                for message in ("/tmp/acme/log.txt" + gap + word, "Error:" + gap + word):
+                    event = json.dumps({"type": "error", "error": message})
+                    said = run.failures(event, None)
+                    with self.subTest(name=name, message=message):
+                        self.assertEqual(harness.load(name).failure(said[0])[0], expected)
+                        self.assertEqual(said[0].splitlines(), said)    # one record, one line
 
     def test_quota_gate_meter_at_100_excludes_the_model(self):
         providers = self.providers()

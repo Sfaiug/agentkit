@@ -32,6 +32,7 @@ class Babysitter(unittest.TestCase):
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {"AGENTKIT_TMUX_SOCKET": "agentkit-test"}))
+        os.environ.pop("AGENTKIT_SESSION", None)     # a test run from a seat is no seat of these
         self.now = 10000
         self.stack.enter_context(patch.object(watch.time, "time", lambda: self.now))
         self.seats = [{"name": "seat"}]

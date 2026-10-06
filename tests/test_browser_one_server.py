@@ -1,9 +1,8 @@
 """One browser tool process serves every seat.
 
-Claude Code and Codex are registered to the shared Playwright MCP server by URL;
-a harness without URL support keeps a per-session stdio command onto the same
-pinned install.  The service is set up once by `ak browser install`, never per
-session, and nothing fetches `@latest` through `npx` any more.
+Claude Code and Codex are registered to the shared Playwright MCP server by URL,
+each by its own plugin.  The service is set up once by `ak browser install`, never
+per session, and nothing fetches `@latest` through `npx` any more.
 
 Nothing here starts a real unit or process or touches the real ~/.claude.json:
 systemctl and subprocess are injected fakes, HOME is a temporary directory.
@@ -23,6 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from agentkit import browser
+from agentkit.harness import codex as codex_plugin
 
 
 LATEST = "@playwright/mcp@latest"
@@ -34,10 +34,6 @@ class OneServer(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.home = Path(self.stack.enter_context(
             tempfile.TemporaryDirectory(prefix=".ak-test-browser-one-", dir=REPO)))
-        self.stack.enter_context(patch.object(browser, "CLAUDE_CONFIG",
-                                              self.home / ".claude.json"))
-        self.stack.enter_context(patch.object(browser, "CODEX_CONFIG",
-                                              self.home / ".codex" / "config.toml"))
         self.stack.enter_context(patch.object(browser, "BRIDGE",
                                               self.home / ".local/share/browser-bridge"))
         self.stack.enter_context(patch.object(browser, "UNIT_DIR", self.home / "units"))
@@ -93,6 +89,11 @@ class OneServer(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(browser.mcp_register([]), 0)
+        self.assertIn(f"claude      registered in {self.home / '.claude.json'} (user scope)",
+                      output.getvalue())
+        self.assertIn(f"codex       registered in {self.home / '.codex' / 'config.toml'}",
+                      output.getvalue())
+        self.assertRegex(output.getvalue(), r"not registered, [^\n]*: [^\n]*\bmuse\b")
         claude_text = (self.home / ".claude.json").read_text(encoding="utf-8")
         codex_text = (self.home / ".codex" / "config.toml").read_text(encoding="utf-8")
         servers = json.loads(claude_text)["mcpServers"]
@@ -110,17 +111,6 @@ class OneServer(unittest.TestCase):
         with redirect_stdout(output):
             self.assertEqual(browser.mcp_register([]), 0)
         self.assertIn("already registered", output.getvalue())
-
-    def test_harness_without_url_keeps_a_pinned_command(self):
-        command, args = browser.servers()["browser"]
-        self.assertEqual(command, "node")
-        self.assertEqual(args[-2:], ["--cdp-endpoint", browser.CDP])
-        self.assertNotIn("--isolated", args)
-        self.assertEqual(Path(args[0]), browser.mcp_cli())
-        self.assertNotIn("npx", command + "".join(args))
-        self.assertNotIn(LATEST, "".join(args))
-        self.assertNotEqual(browser.PLAYWRIGHT_MCP_VERSION, "latest")
-        self.assertNotIn("latest", f"@playwright/mcp@{browser.PLAYWRIGHT_MCP_VERSION}")
 
     def test_registering_sets_up_no_service(self):
         with patch.object(browser, "systemctl",
@@ -256,9 +246,8 @@ class OneServer(unittest.TestCase):
                    REPO / "browser" / "systemd" / "browser-bridge-mcp.service"]
         for path in sources:
             self.assertNotIn(LATEST, path.read_text(encoding="utf-8"), str(path))
-        self.assertNotIn("npx", browser.codex_block())
-        command, args = browser.servers()["browser"]
-        self.assertNotIn("npx", command + "".join(args))
+        self.assertNotIn("npx", codex_plugin.mcp_block(browser.servers()))
+        self.assertNotIn("latest", f"@playwright/mcp@{browser.PLAYWRIGHT_MCP_VERSION}")
         template = (REPO / "browser" / "systemd" / browser.MCP_UNIT).read_text()
         self.assertIn("@NODE@", template)
         self.assertNotIn("/usr/bin/node", template)

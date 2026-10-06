@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -134,7 +135,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
-    def spawn(self, argv, unit, env, log_path, **kwargs):
+    def spawn(self, argv, unit, env, log_path, log=None, **kwargs):
         self.spawns.append((argv, env, Path(log_path).parent))
         kwargs["placement"].update(scope="none", scope_reason="fixture")
         return os.getpid()
@@ -304,6 +305,26 @@ class FollowupRuns(unittest.TestCase):
         self.start(directory, ended)
         self.assertEqual(len(self.spawns), 1)
 
+    def test_a_delivery_marked_while_the_receipt_is_written_stays_marked(self):
+        directory, state = self.source(followup_checks={DEFECT: CHECK})
+        real, marked = record._write_state, []
+        delivery = threading.Thread(target=lambda: marked.append(run.mark_delivery(
+            directory, record.read_state(directory), handed_back=123)))
+
+        def write(run_dir, current, *args):
+            if run_dir == directory and "followup_runs" in current and not delivery.ident:
+                delivery.start()     # the tick hands the ending back while the receipt is written
+                delivery.join(1)
+            return real(run_dir, current, *args)
+
+        with patch.object(record, "_write_state", side_effect=write):
+            self.start(directory, state)
+            delivery.join(10)
+        self.assertEqual(marked, [True])
+        ended = record.read_state(directory)
+        self.assertEqual(ended["handed_back"], 123)
+        self.assertEqual(len(ended["followup_plan"]), 1)
+
     def test_a_fix_stopped_before_a_cut_off_receipt_is_not_started_again(self):
         directory, state = self.source(followups=["flaky: python3 -m unittest passed only on its re-run"])
         real = run.spawn_bg
@@ -319,6 +340,35 @@ class FollowupRuns(unittest.TestCase):
             self.start(directory, state)
         self.start(directory, record.read_state(directory))
         self.assertEqual(len(self.spawns), 1)
+
+    def cut_off_before_its_launch(self, step):
+        flaky = "flaky: python3 -m unittest passed only on its re-run"
+        directory, state = self.source(followups=[flaky])
+        real = getattr(run, step)
+
+        def cut(*args, **kwargs):
+            real(*args, **kwargs)
+            raise KeyboardInterrupt
+
+        with patch.object(run, step, side_effect=cut), self.assertRaises(KeyboardInterrupt):
+            self.start(directory, state)
+        [child] = [d for d in record.run_dirs() if d != directory]
+        with patch.object(record, "process_active", return_value=False):
+            left = run.reap(child, record.read_state(child))   # a look at `ak run status`
+            self.assertEqual((left["state"], left["slot_waiting"]), ("queued", True))
+            self.assertEqual(self.start(directory, record.read_state(directory)), [child])
+            self.assertEqual(self.start(*self.source("again", followups=[flaky])), [])
+            self.assertEqual(self.spawns, [])          # the site is the waiting fix's
+            watch.resume_dead_loops(self.cfg, log=self.logs.append, now=left["started_at"] + 3600)
+            self.assertEqual([where for _, _, where in self.spawns], [child])
+            self.assertEqual(run.resume_run([child.name]), 0)     # what the tick started
+        self.assertEqual(record.read_state(child)["verdict"], "PASS")
+
+    def test_a_fix_cut_off_at_its_first_record_waits_for_its_slot_and_the_tick_starts_it(self):
+        self.cut_off_before_its_launch("capture_launch")
+
+    def test_a_fix_cut_off_after_its_preflight_waits_for_its_slot_and_the_tick_starts_it(self):
+        self.cut_off_before_its_launch("prepare")
 
     def test_a_followup_line_ticks_once_its_fix_is_on_the_default_branch(self):
         self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
