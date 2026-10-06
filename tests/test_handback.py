@@ -487,20 +487,28 @@ class HandBack(Sandbox):
                                                          cfg=self.cfg))
                 self.assertEqual(seat.read, [line])
 
-    def test_claudes_own_screens_of_a_long_or_tall_line_hold_it_alone_until_the_owner_adds(self):
-        """Real 2.1.291 captures: a line past its fold shows as `[Pasted text #1]`; one taller
-        than its composer shows its last rows, the prompt mark on the first of them."""
+    def test_each_harnesss_own_screen_of_a_long_or_tall_line_holds_it_alone_until_the_owner_adds(self):
+        """Real captures, 40 columns: Claude 2.1.291 folds a line past its fold into `[Pasted
+        text #1]` and scrolls a taller one to its last rows; Grok Build 1.0.46 scrolls in its box
+        with a scrollbar inside the edge; Antigravity scrolls under `↑ N more lines`, the whole
+        composer in the read on a short pane; Codex and Muse grow it past the read."""
         self.rows = [self.live()]
         made = lambda n: ("run 20261006-1534 finished FAIL: a case. " * 40)[:n]
-        for name, line, holds in (("folded-line", made(900), "line"),
-                                  ("folded-line-and-owner-words", made(900), "other"),
-                                  ("scrolled-line", made(700), "line"),
-                                  ("scrolled-line-and-owner-words", made(700), "other")):
-            with self.subTest(screen=name):
-                pane = (REPO / f"tests/fixtures/claude-{name}-pane.txt").read_text()
-                with patch.object(watch, "pane_text", return_value=pane):
-                    self.assertEqual(watch.composer_holds(SEAT, self.live(), line, self.cfg),
-                                     holds)
+        for harness, screen, line in (("claude", "claude-folded-line", made(900)),
+                                      ("claude", "claude-scrolled-line", made(700)),
+                                      ("grokbuild", "grok-tall-line", made(700)),
+                                      ("antigravity", "antigravity-tall-line", made(700)),
+                                      ("antigravity", "antigravity-short-tall-line", made(700)),
+                                      ("codex", "codex-tall-line", made(700)),
+                                      ("muse", "muse-tall-line", made(700))):
+            for shown, holds in ((f"{screen}-pane", "line"),
+                                 (f"{screen}-and-owner-words-pane", "other")):
+                with self.subTest(screen=shown):
+                    pane = (REPO / f"tests/fixtures/{shown}.txt").read_text()
+                    with patch.object(watch, "pane_text", return_value=pane), \
+                            patch.object(watch, "seat_model", return_value=(harness, "acme")):
+                        self.assertEqual(
+                            watch.composer_holds(SEAT, self.live(), line, self.cfg), holds)
 
     def test_a_fail_at_the_last_round_hands_back_and_sends_no_card(self):
         directory = self.failed()

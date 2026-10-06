@@ -79,10 +79,14 @@ kinds = ["idle_prompt"]
 # The composer is grok's box: an empty `│ ❯` line, and the border underneath it carrying
 # the model, the effort and the permission mode.  The pattern matches the empty box only,
 # so typed text still reads as a draft.  The key hints underneath change with the state --
-# Enter:send appears with a draft, Ctrl+c:cancel mid-turn -- and both shapes are chrome.
+# Enter:send appears with a draft, Ctrl+c:cancel mid-turn -- and both shapes are chrome.  A
+# narrow pane cuts the border's words short of its corner (`· always-appro─╯`, 1.0.46).
 [screen]
-composer = '(?:│ ❯\s*│|╰─+ .* ─╯)$'
+composer = '(?:│ ❯\s*│|╰─+ .*─╯)$'
 footer = ['Shift\+Tab:mode.*', 'Enter:send.*']
+# A line taller than the box scrolls inside it, the box's last rows showing, with a scrollbar
+# drawn just inside its right edge (`▄`, `█`; captured 1.0.46 at 40 columns): never typed text.
+scrolled = '\s+[▀▄█]$'
 
 # Its trust dialog: the question with the pair of controls.  Words from the executable's
 # own strings; no fresh folder on this host was still untrusted enough to paint it, so the

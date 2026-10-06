@@ -1,0 +1,30 @@
+  Gemini 3.8 Flash (High)
+  ~/code/fix-api
+
+
+ ┃ Verbosity now defaults to medium
+ ┃ Verbosity is now medium by default,
+ ┃ so tool calls and thoughts roll up
+ ┃ into summaries. You can change your
+ ┃ preferred verbosity anytime in
+ ┃ /config > Verbosity.
+ ┃ esc to dismiss
+────────────────────────────────────────
+> ↑ 7 more lines
+  FAIL: a case. run 20261006-1534
+  finished FAIL: a case. run
+  20261006-1534 finished FAIL: a case.
+  run 20261006-1534 finished FAIL: a
+  case. run 20261006-1534 finished
+  FAIL: a case. run 20261006-1534
+  finished FAIL: a case. run
+  20261006-1534 finished FAIL: a case.
+  run 20261006-1534 finished FAIL: a
+  case. run 20261006-1534 finished
+  FAIL: a case. run 20261006-1534
+  finished FAIL: a case. run
+  20261006-1534 finished FAIL: a case.
+  run 20261006-1534 finished FAIL: a
+  case. run and fix the login
+────────────────────────────────────────
+                 Gemini 3.8 Flash · high
