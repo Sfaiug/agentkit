@@ -370,11 +370,10 @@ def _stack_member(repo, state, top, upstream, opened):
         return None, f"[exit {code}]\nERROR: reviewed commit {head} is unavailable\n{out}"
     scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix="land-")))
     opened.callback(os.close, os.open(scratch, os.O_RDONLY))
-    code, out = run.git_out(repo, "worktree", "add", "--detach", str(scratch), head)
+    code, out = run.add_worktree(repo, scratch, "--detach", head, mark=SCRATCH_MARK)
     opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
     if code:
         return None, f"[exit {code}]\nERROR: checkout of {head} failed\n{out}"
-    (Path(run.git(scratch, "rev-parse", "--absolute-git-dir")) / SCRATCH_MARK).touch()
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))

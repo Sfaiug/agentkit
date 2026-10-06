@@ -397,9 +397,8 @@ def stale_worktree(wt, now, paths, left):
 def holds_work(wt):
     """Whether removing a checkout no run owns could lose work not yet committed.
 
-    An empty folder holds none, nor does a checkout `git worktree add` never finished making,
-    its own git directory still holding git's lock `initializing`: a lander or a run killed
-    while making its checkout leaves them.  The line's scratch -- detached, its own git
+    An empty folder holds none, nor does a checkout ak never finished making, still locked as
+    `run.MAKING`: a lander or a run killed while making its checkout leaves them.  The line's scratch -- detached, its own git
     directory holding the lander's mark (`land.SCRATCH_MARK`) -- is a killed lander's: its
     output is nobody's.  A seat builds on a branch in a worktree, whose branches and commits
     stay in its repository when the checkout goes: it holds no work once it holds its commit
@@ -415,7 +414,8 @@ def holds_work(wt):
     known, private = orch.git_in(wt, "rev-parse", "--absolute-git-dir")
     private = Path(os.fsdecode(private.removesuffix(b"\n"))) if known == 0 else None
     try:
-        if private and retention.read_bytes(private / "locked").rstrip(b"\n") == b"initializing":
+        if private and (retention.read_bytes(private / "locked").rstrip(b"\n")
+                        == run.MAKING.encode()):
             return False
     except OSError:
         pass
@@ -596,11 +596,13 @@ def worktree_repo(wt):
 
 
 def clear_tree(tree, report):
-    """Everything of a tree this user can remove, then git's registration of it."""
+    """Everything of a tree this user can remove, then git's registration of it, unlocked
+    first: git never prunes a locked one, and one ak was still making is."""
     repo = worktree_repo(tree)
     retention.remove(tree, directory=True, ignore_errors=True)
     if repo is not None and repo != tree and repo.is_dir():
         try:
+            run.git(repo, "worktree", "unlock", str(tree), check=False)
             run.git(repo, "worktree", "prune", check=False)
         except run.Stopped as exc:
             report(f"gc: {tree}: {exc}")

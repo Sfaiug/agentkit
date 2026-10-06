@@ -262,12 +262,12 @@ class GcSweep(Sandbox):
         (scratch / "output").write_text("a killed check's\n")
         self.aged(scratch, 2 * DAY)
         # What a lander or a run killed while making its checkout leaves: an empty folder, and
-        # a checkout git never finished making, its lock still `initializing`.
-        empty, half = config.WT / "land-empty", config.WT / "land-half"
+        # a checkout still locked as ak's while git made it, detached or on its branch.
+        empty, half, half_run = (config.WT / name for name in ("land-empty", "land-half", "run-half"))
         empty.mkdir()
-        self.git(self.repo, "worktree", "add", "-q", "--detach", str(half))
-        (Path(self.git(half, "rev-parse", "--absolute-git-dir")) / "locked").write_text("initializing\n")
-        for wt in (empty, half):
+        for wt, *args in ((half, "--detach"), (half_run, "-b", "ak/half")):
+            self.git(self.repo, "worktree", "add", "-q", "--lock", "--reason", run.MAKING, str(wt), *args)
+        for wt in (empty, half, half_run):
             self.aged(wt, 2 * DAY)
         fresh = config.WT / "fresh"
         self.git(self.repo, "worktree", "add", "-q", str(fresh), "-b", "ak/fresh")
@@ -297,7 +297,7 @@ class GcSweep(Sandbox):
         pending, pending_wt, _ = self.receipt("pending", self.other, merged=False,
                                               finished_at=time.time() - 20 * DAY)
         dry = self.gc("--dry-run")
-        for wt in (scratch, empty, half):
+        for wt in (scratch, empty, half, half_run):
             self.assertIn(f"gc: would remove orphan-worktree {wt}: no run record", dry)
         self.assertIn(f"gc: would remove orphan-worktree {stray}: no run record", dry)
         self.assertIn(f"gc: would remove orphan-worktree {bare}: no run record", dry)
@@ -308,8 +308,11 @@ class GcSweep(Sandbox):
         for wt in (smoke, fresh, recent_wt, pending_wt, writing, unreadable):
             self.assertNotIn(str(wt), dry)
         out = self.gc()
-        for wt in (scratch, empty, half, stray, bare, refused_wt, unasked_wt):
+        for wt in (scratch, empty, half, half_run, stray, bare, refused_wt, unasked_wt):
             self.assertFalse(wt.exists(), wt)
+        for wt in (half, half_run):
+            self.assertNotIn(str(wt), self.listed(self.repo))
+        self.assertTrue(self.branch_exists(self.repo, "ak/half"))
         self.assertIn(f"gc: remove unmerged-worktree {refused_wt}: passed, never merged", out)
         self.assertNotIn(str(stray), self.listed(self.repo))
         self.assertNotIn(str(refused_wt), self.listed(self.repo))
@@ -531,6 +534,22 @@ class GcSweep(Sandbox):
         for wt in kept:
             self.assertTrue(wt.is_dir(), wt)
         self.assertFalse(hook.with_name(hook.name + ".ran").exists())
+
+    def test_a_checkout_ak_makes_is_locked_as_its_own_while_git_makes_it(self):
+        # Git writes ak's reason as given, in any language: the checkout's own smudge filter,
+        # under a German locale, finds it while git checks the files out.  Once made, the
+        # checkout holds its mark and the lock is gone.
+        seen = self.root / "seen"
+        (self.repo / ".git" / "info" / "attributes").write_text("tracked filter=peek\n")
+        self.git(self.repo, "config", "filter.peek.smudge",
+                 f"sh -c 'cat \"$(git rev-parse --absolute-git-dir)/locked\" > {seen}; cat'")
+        wt = config.WT / "made"
+        with patch.dict(os.environ, {"LC_ALL": "de_DE.UTF-8"}):
+            self.assertEqual(run.add_worktree(self.repo, wt, "--detach", mark="mark")[0], 0)
+        self.assertEqual(seen.read_text(), run.MAKING + "\n")
+        own = Path(self.git(wt, "rev-parse", "--absolute-git-dir"))
+        self.assertTrue((own / "mark").is_file())
+        self.assertFalse((own / "locked").exists())
 
     def test_a_seats_checkout_changed_while_gc_reads_it_stays(self):
         # Each changes while the proof gc takes right before removing it reads it.  During its

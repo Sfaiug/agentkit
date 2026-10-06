@@ -2091,6 +2091,23 @@ def links(work):
     return "\n".join(rows) or "(the workspace is empty)"
 
 
+# The reason ak locks a checkout it makes under ~/.agentkit/wt while git makes it.  Git writes
+# a reason as given, in every language, so a maker killed before it unlocks leaves a checkout
+# gc knows holds nothing yet.
+MAKING = "ak is making this checkout"
+
+
+def add_worktree(repo, path, *args, mark=None):
+    """(exit code, output) of `git worktree add` making `path`, locked as `MAKING` until git
+    has made it and, given `mark`, that file is in the checkout's own git directory."""
+    code, out = git_out(repo, "worktree", "add", "--lock", "--reason", MAKING, str(path), *args)
+    if code == 0:
+        if mark:
+            (Path(git(path, "rev-parse", "--absolute-git-dir")) / mark).touch()
+        code, out = git_out(repo, "worktree", "unlock", str(path))
+    return code, out
+
+
 def make_worktree(repo, run_id, slug, base):
     # The name has to be free on the remote too: two runs that picked the same one locally both
     # push it, and the second is rejected with `stale info` after its work has passed -- a PASS
@@ -2115,7 +2132,9 @@ def make_worktree(repo, run_id, slug, base):
         suffix += 1
         branch = f"ak/{slug}-{suffix}"
     wt = config.WT / run_id
-    git(repo, "worktree", "add", str(wt), "-b", branch, base)
+    code, out = add_worktree(repo, wt, "-b", branch, base)
+    if code:
+        raise config.Error(f"git worktree add {wt} failed in {repo}: {out}")
     return wt, branch
 
 
