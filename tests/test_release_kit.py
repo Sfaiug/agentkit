@@ -22,7 +22,7 @@ GIT_ENV = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM":
 CONFIG = """units = {units}
 python = "{python}"
 health = "{health}"
-health_seconds = 0
+health_seconds = 1
 migrate = "{migrate}"
 unit_files = "deploy/systemd"
 keep = {keep}
@@ -41,9 +41,22 @@ class ReleaseKit(unittest.TestCase):
         self.calls = base / "systemctl.log"
         self.failing = base / "fail"          # a file per systemctl verb that fails once
         self.failing.mkdir()
+        self.state = base / "state"           # active.<unit> and enabled.<unit>, systemd's view
+        self.state.mkdir()
         fake = base / "systemctl"
-        fake.write_text(f'#!/bin/sh\necho "$*" >> {self.calls}\n'
-                        f'if [ -f {self.failing}/"$1" ]; then rm {self.failing}/"$1"; exit 1; fi\n')
+        fake.write_text(f"""#!/bin/sh
+echo "$*" >> {self.calls}
+if [ -f {self.failing}/"$1" ]; then rm {self.failing}/"$1"; exit 1; fi
+verb=$1; shift
+case $verb in
+  restart) for u; do touch {self.state}/active.$u; done ;;
+  enable) for u; do [ -e {self.units}/$u ] || exit 1; done
+          for u; do touch {self.state}/enabled.$u; done ;;
+  disable) [ -e {self.units}/$2 ] || exit 1; rm -f {self.state}/active.$2 {self.state}/enabled.$2 ;;
+  is-active) [ -f {self.state}/active.$2 ] ;;
+  is-enabled) [ -f {self.state}/enabled.$2 ] ;;
+esac
+""")
         fake.chmod(0o755)
         # a stand-in interpreter: `python -m venv DIR` makes a virtualenv whose pip logs the
         # requirements file it was given
@@ -114,6 +127,18 @@ class ReleaseKit(unittest.TestCase):
     def calls_made(self):
         return self.calls.read_text().splitlines() if self.calls.exists() else []
 
+    def running(self, unit):
+        return (self.state / f"active.{unit}").exists()
+
+    def enabled(self, unit):
+        return (self.state / f"enabled.{unit}").exists()
+
+    def host_unit(self, unit):
+        """A unit installed on the host by hand, running and enabled."""
+        (self.units / unit).write_text("[Service]\n")
+        (self.state / f"active.{unit}").touch()
+        (self.state / f"enabled.{unit}").touch()
+
     def test_adopt_then_release_the_newest_stamped_commit_only(self):
         self.assertEqual(self.tick("--adopt")[0], 0)
         self.assertEqual(self.live(), self.first)
@@ -125,24 +150,26 @@ class ReleaseKit(unittest.TestCase):
         self.assertEqual(self.live(), stamped)
         self.assertEqual(self.current(), f"releases/{stamped}")
         self.assertIn("restart acme.service", self.calls_made())
+        self.assertTrue(self.enabled("acme.service"))
         self.assertEqual(self.tick(), (0, ""))        # nothing newer: a quiet tick
 
     def test_a_failing_health_puts_the_previous_release_back(self):
         self.tick("--adopt")
         (self.units / "acme.service").write_text("[Service]\n# v1\n")
+        (self.units / "acme-host.service").write_text("[Service]\n")
         broken = self.commit(healthy=False, units=("v2", "extra"),
-                             configured=("acme.service", "acme-host.service"))
+                             configured=("acme.service", "acme-extra1.service",
+                                         "acme-host.service"))
         code, out = self.tick()
         self.assertEqual(code, 1)
         self.assertIn(f"{broken[:12]} failed and {self.first[:12]} is back live", out)
         self.assertEqual(self.live(), self.first)
         self.assertEqual(self.current(), f"releases/{self.first}")
         self.assertEqual((self.units / "acme.service").read_text(), "[Service]\n# v1\n")
-        # a unit file only the failed release brought is stopped and removed, and a unit
-        # only its configuration named is stopped
-        self.assertFalse((self.units / "acme-extra1.service").exists())
-        self.assertIn("disable --now acme-extra1.service", self.calls_made())
-        self.assertIn("stop acme-host.service", self.calls_made())
+        # units only the failed release ran are stopped and disabled, the live one's run
+        for unit in ("acme-extra1.service", "acme-host.service"):
+            self.assertFalse(self.running(unit) or self.enabled(unit), unit)
+        self.assertTrue(self.running("acme.service") and self.enabled("acme.service"))
         self.assertFalse((self.root / "attempt").exists())
         # the failed commit waits for a newer one
         self.assertEqual(self.tick(), (0, ""))
@@ -173,28 +200,40 @@ class ReleaseKit(unittest.TestCase):
         self.assertEqual(self.tick(), (0, ""))
         self.assertEqual(self.live(), self.first)
 
-    def test_a_placement_cut_short_is_still_undone(self):
+    def test_a_unit_the_failed_release_never_installed_needs_no_retiring(self):
         self.tick("--adopt")
-        self.commit(units=("v1", "extra"))
-        (self.failing / "daemon-reload").write_text("")    # after the files, before the reload
+        # its config names a unit with no file anywhere: enabling it fails after the switch
+        broken = self.commit(configured=("acme.service", "acme-extra1.service"))
         code, out = self.tick()
         self.assertEqual(code, 1, out)
-        self.assertIn("is back live", out)
-        self.assertFalse((self.units / "acme-extra1.service").exists())
+        self.assertIn(f"{broken[:12]} failed and {self.first[:12]} is back live", out)
+        self.assertFalse((self.root / "attempt").exists())
 
-    def test_a_unit_the_new_release_no_longer_names_is_stopped(self):
+    def test_a_unit_the_new_release_no_longer_names_is_stopped_and_disabled(self):
         self.first = self.commit(configured=("acme.service", "acme-worker.service"))
         self.git(self.root / "repo", "pull", "-q", "origin", "main")
         self.tick("--adopt")
+        self.host_unit("acme-worker.service")
         self.commit()
         self.assertEqual(self.tick()[0], 0)
-        self.assertIn("stop acme-worker.service", self.calls_made())
+        self.assertFalse(self.running("acme-worker.service") or self.enabled("acme-worker.service"))
 
-    def test_the_previous_release_outlives_the_keep_count(self):
+    def test_a_restore_enables_the_units_a_failed_release_retired(self):
+        self.first = self.commit(configured=("acme.service", "acme-worker.service"))
+        self.git(self.root / "repo", "pull", "-q", "origin", "main")
+        self.tick("--adopt")
+        self.host_unit("acme-worker.service")
+        self.commit(healthy=False)
+        self.assertEqual(self.tick()[0], 1)
+        self.assertTrue(self.running("acme-worker.service") and self.enabled("acme-worker.service"))
+
+    def test_keep_zero_leaves_only_the_live_release(self):
         self.tick("--adopt")
         self.commit(keep=0)
         self.assertEqual(self.tick()[0], 0)
-        self.assertTrue((self.root / "releases" / self.first).is_dir())
+        newest = self.commit(keep=0)
+        self.assertEqual(self.tick()[0], 0)
+        self.assertEqual([p.name for p in (self.root / "releases").iterdir()], [newest])
 
     def test_adopting_twice_is_refused(self):
         self.tick("--adopt")
@@ -225,8 +264,9 @@ class ReleaseKit(unittest.TestCase):
 
     def test_a_failed_restore_keeps_its_attempt_until_a_later_tick_finishes_it(self):
         self.tick("--adopt")
-        broken = self.commit(healthy=False, units=("v1", "extra"))
-        (self.failing / "disable").write_text("")         # stopping the brought unit fails once
+        broken = self.commit(healthy=False, units=("v1", "extra"),
+                             configured=("acme.service", "acme-extra1.service"))
+        (self.failing / "disable").write_text("")         # retiring the brought unit fails once
         code, out = self.tick()
         self.assertEqual(code, 1)
         self.assertIn("the next tick tries again", out)
@@ -234,17 +274,83 @@ class ReleaseKit(unittest.TestCase):
         code, out = self.tick()
         self.assertEqual(code, 1)
         self.assertIn(f"{broken[:12]} failed and {self.first[:12]} is back live", out)
-        self.assertFalse((self.units / "acme-extra1.service").exists())
+        self.assertFalse(self.running("acme-extra1.service"))
         self.assertEqual(self.tick(), (0, ""))
         # a tick cut off right after the switch: the next one puts the live release back
         newer = self.commit()
-        self.git(self.root / "repo", "fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main")
-        release.build(self.root, newer)
-        (self.root / "attempt").write_text(f"{newer} {self.first}\n")
-        release.switch(self.root, newer)
+        self.cut_off(newer, switched=True)
         code, out = self.tick()
-        self.assertIn("the tick releasing it was cut off", out)
+        self.assertIn(f"{newer[:12]} failed and {self.first[:12]} is back live: the tick "
+                      "releasing it was cut off", out)
         self.assertEqual(self.current(), f"releases/{self.first}")
+
+    def cut_off(self, sha, switched):
+        self.git(self.root / "repo", "fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main")
+        release.prepare(self.root, sha)
+        (self.root / "attempt").write_text(f"{sha} {self.live()}\n")
+        if switched:
+            release.switch(self.root, sha)
+
+    def test_an_attempt_that_never_switched_changes_nothing_live_and_is_tried_again(self):
+        self.tick("--adopt")
+        newer = self.commit()
+        self.cut_off(newer, switched=False)
+        code, out = self.tick()
+        self.assertEqual(code, 1)
+        self.assertIn(f"{newer[:12]} not released, nothing live changed: the tick releasing it "
+                      "was cut off", out)
+        self.assertEqual(self.calls_made(), [])
+        self.assertEqual(self.current(), f"releases/{self.first}")
+        self.assertEqual(self.tick()[0], 0)
+        self.assertEqual(self.live(), newer)
+        # a switch that fails leaves the live release untouched too
+        newest = self.commit()
+        with patch.object(release, "switch", side_effect=OSError("link refused")):
+            code, out = self.tick()
+        self.assertIn(f"{newest[:12]} not released, nothing live changed: OSError: link refused",
+                      out)
+        self.assertEqual(self.tick()[0], 0)
+        self.assertEqual(self.live(), newest)
+
+    def test_a_tick_cut_off_after_going_live_finishes_with_its_pruning(self):
+        self.tick("--adopt")
+        self.commit(keep=0)
+        self.tick()
+        newer = self.commit(keep=0)
+        self.cut_off(newer, switched=True)
+        (self.root / "released").write_text(f"{newer} now\n")
+        self.assertEqual(self.tick(), (0, ""))
+        self.assertFalse((self.root / "attempt").exists())
+        self.assertEqual([p.name for p in (self.root / "releases").iterdir()], [newer])
+
+    def test_root_reads_the_config_and_unit_files_from_the_commit_never_the_release(self):
+        self.tick("--adopt")
+        live = self.root / "releases" / self.first
+        (live / "deploy" / "release.toml").write_text('units = ["acme.service"]\nhealth = "false"')
+        (live / "deploy" / "systemd" / "acme.service").write_text("[Service]\nExecStart=/bin/x\n")
+        broken = self.commit(healthy=False)
+        code, out = self.tick()
+        self.assertIn(f"{broken[:12]} failed and {self.first[:12]} is back live", out)
+        self.assertEqual((self.units / "acme.service").read_text(), "[Service]\n# v1\n")
+
+    def test_a_health_that_passes_only_after_its_time_fails(self):
+        self.tick("--adopt")
+        self.commit(health="sleep 3; true")
+        code, out = self.tick()
+        self.assertEqual(code, 1)
+        self.assertIn("health failed (exit 124)", out)
+
+    def test_a_command_s_group_ends_before_its_leader_is_reaped(self):
+        states, killpg = [], os.killpg
+
+        def ending(pid, sig):
+            # raises ChildProcessError once the leader is reaped and its id free for reuse
+            states.append(os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT))
+            killpg(pid, sig)
+        with patch.object(release.os, "killpg", ending):
+            self.assertEqual(release.run({}, self.root, ["true"])[0], 0)
+            self.assertEqual(release.run({}, self.root, ["sleep", "5"], 0.2)[0], 124)
+        self.assertIsNotNone(states[0])
 
     def test_a_linked_unit_file_is_replaced_never_written_through(self):
         self.tick("--adopt")
