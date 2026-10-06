@@ -35,7 +35,6 @@ def __getattr__(name):
 JOB_DIR_ENV = "AGENTKIT_JOB_DIR"  # the `ak run --bg` job child this receipt belongs to
 KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
 HARNESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # a harness name is one path component
-FRONT = re.compile(r"^---\n(.*?)\n---", re.S)          # an AGENTS.md's front matter: ak's, not rules
 
 
 RUN_DIR_ENV = "AGENTKIT_RUN_DIR"
@@ -1231,49 +1230,17 @@ def rulebook_text():
     return f"{body.rstrip()}\n\n{local}" if local.strip() else body
 
 
-def agents_body(repo, ref):
-    """The body of the AGENTS.md committed at `ref` in `repo`, front matter removed: what each
-    worker's prompt carries of its repository, and each seat's rulebook of its project.
-
-    Read from git, never a checkout's file: the rules are what was merged, not what one checkout
-    holds or one piece of work is changing.  "" where there is none, where it is a link -- its
-    text is a path, not rules (`run.rules_cap` refuses one) -- or where it cannot be read.
-    """
-    if not repo or not ref:
-        return ""
-
-    # git looks no higher than `repo`: one whose `.git` was moved away would find a parent
-    # directory's repository, whose rules are another project's
-    env = {**os.environ, "GIT_CEILING_DIRECTORIES": os.path.dirname(os.path.abspath(repo))}
-
-    def git(*args):
-        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                              env=env, timeout=60).stdout
-
-    try:
-        listed = git("ls-tree", ref, "--", "AGENTS.md").split()
-        # the blob the listing names, never `ref` read twice: a fetch between the two reads
-        # could put a link where the listing saw a file
-        text = (git("cat-file", "blob", listed[2])
-                if listed and listed[0].startswith("100") else "")
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    match = FRONT.match(text)
-    return (text[match.end():] if match else text).strip()
-
-
-
 def seat_rulebook(session, repo=None):
     """What `session`'s rulebook file holds when it opens now: `rulebook_text`, the AGENTS.md of
     the project it is filed under -- `repo`, else its record's -- as on that project's default
     branch: what its workers get, as its launch or the tick last fetched it
     (`orch.fetch_project`); and an unnamed seat's instruction to name itself."""
+    from . import run
     body = rulebook_text()
     record = session_records().get(session, {})
     repo = record.get("repo") if repo is None else repo
     # the full name: a branch or tag called origin/HEAD would win the short one
-    project = agents_body(repo, "refs/remotes/origin/HEAD")
+    project = run.agents_body(repo, "refs/remotes/origin/HEAD")
     if project:
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "

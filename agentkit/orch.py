@@ -2139,15 +2139,14 @@ def fetch_project(repo):
     """Bring `repo`'s `origin/HEAD` -- what `config.seat_rulebook` reads -- up to origin's default
     branch as it is now: every branch fetched, as a run fetches before cutting its base, whatever
     the clone's own refspec follows, then `origin/HEAD` pointed again at the branch origin calls
-    default, created where the checkout has none and moved where origin changed it.  A path
-    that holds no checkout of its own -- gone, or its `.git` moved away so that git would find a
-    parent directory's -- fetches nothing."""
+    default, created where the checkout has none and moved where origin changed it.  Only
+    `repo`'s own repository (`run.project_env`): a path whose `.git` is gone or is none
+    fails."""
     from . import run
-    if git_dirs(repo) is None:
-        raise config.Error(f"{repo} is not a repository of its own")
+    env = run.project_env(repo)
     run.fetch(repo, "--quiet", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*",
-              check=True)
-    run.git(repo, "remote", "set-head", "origin", "--auto")
+              check=True, env=env)
+    run.git(repo, "remote", "set-head", "origin", "--auto", env=env)
 
 
 def fetch_projects():

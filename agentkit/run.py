@@ -130,6 +130,7 @@ CLASSIC_CHECKS_QUERY = (
     "requiredStatusChecks{context app{databaseId}}}}}}")
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
+FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
 NOTES = re.compile(r"^(#+)[ \t]*Notes\b[^\n]*$", re.M | re.I)
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
@@ -179,7 +180,8 @@ def tool_env():
 
 
 def tool_run(cmd, cwd=None, timeout=None, env=None):
-    """(exit code, stdout, stderr) for every git and gh call this module makes.
+    """(exit code, stdout, stderr) for every git and gh call this module makes, in `tool_env`
+    as `env` changes it (None drops a variable).
 
     Git's fetch, push and ls-remote, and gh get one timeout retry. Other calls stop so their
     callers can recover any unfinished checkout edits. The code is None on timeout;
@@ -193,7 +195,9 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
         try:
             proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
                                   encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                                  timeout=timeout, env={**tool_env(), **(env or {})})
+                                  timeout=timeout,
+                                  env={name: value for name, value in
+                                       {**tool_env(), **(env or {})}.items() if value is not None})
             break
         except subprocess.TimeoutExpired:
             if attempt or not retry:
@@ -340,19 +344,19 @@ def git(repo, *args, check=True, env=None):
     return out.strip()
 
 
-def git_out(repo, *args, timeout=None):
+def git_out(repo, *args, timeout=None, env=None):
     """(exit code, output) -- for the steps whose failure is a result to report, not an exception.
 
     A stop is never a result: a timeout, or a prompt it was refused, raises Stopped, so no
     caller can route it into conflict handling or read it as an ordinary non-zero exit.
     """
-    code, out, err = tool_run(["git", "-C", str(repo), *args], timeout=timeout)
+    code, out, err = tool_run(["git", "-C", str(repo), *args], timeout=timeout, env=env)
     if stopped(code, err):
         raise Stopped(f"git {' '.join(args)} stopped in {repo}: {(out + err).strip()}")
     return code, (out + err).strip()
 
 
-def fetch(repo, *args, check=False):
+def fetch(repo, *args, check=False, env=None):
     """`git fetch` as `git_out` answers it; `check` raises on a failure as `git` does.
 
     Every run's worktree shares one repository's refs, so two runs fetching at once race for
@@ -363,10 +367,11 @@ def fetch(repo, *args, check=False):
     not write fails the fetch at once as before.
     """
     deadline = time.monotonic() + TOOL_CAP
-    code, out = git_out(repo, "fetch", *args)
+    code, out = git_out(repo, "fetch", *args, env=env)
     while code != 0 and time.monotonic() < deadline and ref_held(out):
         try:
-            code, out = git_out(repo, "fetch", *args, timeout=deadline - time.monotonic())
+            code, out = git_out(repo, "fetch", *args, timeout=deadline - time.monotonic(),
+                                env=env)
         except Stopped:
             if time.monotonic() < deadline:
                 raise       # refused a prompt, which no retry answers
@@ -400,16 +405,49 @@ def gh(cwd, *args, timeout=None):
     return code, (out + err).strip()
 
 
+def project_env(repo):
+    """What git's environment changes to work on the checkout at `repo` and nothing else, None
+    for a variable it drops (`tool_run`).  GIT_DIR names the checkout's own `.git`, so git looks
+    nowhere else: not in a parent directory's repository when that `.git` was moved away or is
+    none (git fails instead), not where an inherited GIT_DIR points.  The other variables git
+    keeps for one repository are dropped, as git drops them entering a submodule."""
+    code, out, _err = tool_run(["git", "rev-parse", "--local-env-vars"])
+    return {**dict.fromkeys(out.split() if code == 0 else []),
+            "GIT_DIR": os.path.join(os.path.abspath(repo), ".git")}
+
+
+def agents_body(repo, ref):
+    """The body of the AGENTS.md committed at `ref` in `repo`, front matter removed: what each
+    worker's prompt carries of its repository, and each seat's rulebook of its project.
+
+    Read from git, never a checkout's file: the rules are what was merged, not what one checkout
+    holds or one piece of work is changing.  "" where there is none, where it is a link -- its
+    text is a path, not rules (`rules_cap` refuses one) -- or where it cannot be read.
+    """
+    if not repo or not ref:
+        return ""
+    env = project_env(repo)
+    try:
+        listed = git(repo, "ls-tree", ref, "--", "AGENTS.md", check=False, env=env).split()
+        # the blob the listing names, never `ref` read twice: a fetch between the two reads
+        # could put a link where the listing saw a file
+        text = (git(repo, "cat-file", "blob", listed[2], check=False, env=env)
+                if listed and listed[0].startswith("100") else "")
+    except Exception:
+        return ""
+    match = FRONT.match(text)
+    return (text[match.end():] if match else text).strip()
+
+
 def repo_rules(wt, ref):
-    """The body of the repository's AGENTS.md at `ref` (`config.agents_body`), for every worker
-    prompt.
+    """The body of the repository's AGENTS.md at `ref` (`agents_body`), for every worker prompt.
 
     ak reads only its front matter itself, and a harness loads the body on its own terms
     (some never, some only beside no file of their own), so without this each brand
     worked to different rules.  Read at the base commit, never the checkout: the work
     under review cannot rewrite the rules it is judged by.
     """
-    text = config.agents_body(wt, ref)
+    text = agents_body(wt, ref)
     if not text:
         return ""
     return ("\n\n## Repository AGENTS.md\n"
@@ -10238,7 +10276,7 @@ def declared(wt, key):
 
 def front_value(text, key):
     """`key`'s value in AGENTS.md front matter text as written, or None."""
-    match = config.FRONT.match(text)
+    match = FRONT.match(text)
     if not match:
         return None
     for line in match.group(1).splitlines():

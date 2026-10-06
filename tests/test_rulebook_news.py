@@ -703,8 +703,7 @@ class RulebookNews(Sandbox):
         for name, path in (("acme-archived", broken), ("acme-gone", gone)):
             config.save_session(self.cfg, name, "opus", ["astra"],
                                 {"cwd": str(path), "repo": str(path), **OWNED})
-        with patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(self.root)}), \
-                self.assertRaisesRegex(config.Error, "a-acme-archived.*; .*b-acme-gone"):
+        with self.assertRaisesRegex(config.Error, "a-acme-archived.*; .*b-acme-gone"):
             orch.fetch_projects()
         self.assertIn("Acme policy two.", config.seat_rulebook(SEAT))
 
@@ -725,33 +724,65 @@ class RulebookNews(Sandbox):
                 orch.fetch_projects()
                 self.assertIn(f"Acme policy for {name!r}.", config.seat_rulebook(SEAT))
 
-    def test_a_project_whose_repository_moved_away_gets_neither_its_parent_s_rules_nor_fetch(self):
+    def test_a_project_whose_repository_is_gone_gets_neither_a_parent_s_rules_nor_fetch(self):
         git = self.git
-        upstream, hub = self.root / "acme-hub-origin.git", self.root / "acme-hub"
-        elsewhere, child = self.root / "acme-hub-elsewhere", hub / "acme-archived"
-        git(self.root, "init", "-q", "--bare", "-b", "main", str(upstream))
-        git(self.root, "clone", "-q", str(upstream), str(hub))
-        (hub / "AGENTS.md").write_text("Acme hub rule.\n")
-        child.mkdir()
-        (child / "AGENTS.md").write_text("Acme archived rule.\n")
-        git(hub, "add", ".")
-        git(hub, "commit", "-qm", "hub rules")
-        git(hub, "push", "-q", "origin", "main")
-        git(self.root, "clone", "-q", str(upstream), str(elsewhere))
-        git(elsewhere, "commit", "-q", "--allow-empty", "-m", "merged since")
-        git(elsewhere, "push", "-q", "origin", "main")
-        git(child, "init", "-q", "-b", "main")
-        git(child, "add", "AGENTS.md")
-        git(child, "commit", "-qm", "own rules")
-        (child / ".git").rename(self.root / "acme-archived.git")
-        fetched = git(hub, "rev-parse", "refs/remotes/origin/main")
-        config.update_session(SEAT, repo=str(child))
-        with self.assertRaisesRegex(config.Error, "acme-archived is not a repository of its own"):
+        for layout in (".git moved away", ".git emptied", "parent named with a colon"):
+            with self.subTest(layout):
+                root = self.root / layout.replace(" ", "-")
+                hub = root / ("acme:hub" if "colon" in layout else "acme-hub")
+                upstream, elsewhere = root / "acme-hub-origin.git", root / "acme-hub-elsewhere"
+                child = hub / "acme-archived"
+                git(self.root, "init", "-q", "--bare", "-b", "main", str(upstream))
+                git(self.root, "clone", "-q", str(upstream), str(hub))
+                (hub / "AGENTS.md").write_text("Acme hub rule.\n")
+                child.mkdir()
+                (child / "AGENTS.md").write_text("Acme archived rule.\n")
+                git(hub, "add", ".")
+                git(hub, "commit", "-qm", "hub rules")
+                git(hub, "push", "-q", "origin", "main")
+                git(hub, "remote", "set-head", "origin", "--auto")   # what a seat reads
+                git(self.root, "clone", "-q", str(upstream), str(elsewhere))
+                git(elsewhere, "commit", "-q", "--allow-empty", "-m", "merged since")
+                git(elsewhere, "push", "-q", "origin", "main")
+                git(child, "init", "-q", "-b", "main")
+                git(child, "add", "AGENTS.md")
+                git(child, "commit", "-qm", "own rules")
+                (child / ".git").rename(root / "acme-archived.git")
+                if layout == ".git emptied":
+                    (child / ".git").mkdir()
+                fetched = git(hub, "rev-parse", "refs/remotes/origin/main")
+                config.update_session(SEAT, repo=str(child))
+                with self.assertRaisesRegex(config.Error, "acme-archived"):
+                    orch.fetch_projects()
+                self.assertEqual(git(hub, "rev-parse", "refs/remotes/origin/main"), fetched)
+                book = config.seat_rulebook(SEAT)
+                self.assertNotIn("Acme hub rule.", book)
+                self.assertNotIn("Acme archived rule.", book)
+
+    def test_a_repository_named_by_inherited_git_variables_is_never_read_or_fetched(self):
+        git = self.git
+        clones = {}
+        for name in ("acme", "acme-other"):
+            upstream, checkout = self.root / f"{name}-origin", self.root / name
+            git(self.root, "init", "-q", "-b", "main", str(upstream))
+            (upstream / "AGENTS.md").write_text(f"# {name}\n\n{name} policy one.\n")
+            git(upstream, "add", "AGENTS.md")
+            git(upstream, "commit", "-qm", "rules")
+            git(self.root, "clone", "-q", str(upstream), str(checkout))
+            (upstream / "AGENTS.md").write_text(f"# {name}\n\n{name} policy two.\n")
+            git(upstream, "commit", "-qam", "rule two")
+            clones[name] = checkout
+        other = clones["acme-other"]
+        before = git(other, "rev-parse", "refs/remotes/origin/main")
+        config.update_session(SEAT, repo=str(clones["acme"]))
+        with patch.dict(os.environ, {"GIT_DIR": str(other / ".git"),
+                                     "GIT_COMMON_DIR": str(other / ".git"),
+                                     "GIT_WORK_TREE": str(other)}):
             orch.fetch_projects()
-        self.assertEqual(git(hub, "rev-parse", "refs/remotes/origin/main"), fetched)
-        book = config.seat_rulebook(SEAT)
-        self.assertNotIn("Acme hub rule.", book)
-        self.assertNotIn("Acme archived rule.", book)
+            book = config.seat_rulebook(SEAT)
+        self.assertIn("acme policy two.", book)
+        self.assertNotIn("acme-other", book)
+        self.assertEqual(git(other, "rev-parse", "refs/remotes/origin/main"), before)
 
     def test_a_merge_fetched_while_the_rules_are_read_never_hands_a_link_s_text(self):
         git = self.git
