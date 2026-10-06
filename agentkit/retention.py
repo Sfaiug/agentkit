@@ -12,7 +12,7 @@ import stat
 import time
 import tomllib
 
-from . import config, record as run_record
+from . import config, harness, record as run_record
 
 EPHEMERAL_AGE = 86400            # ~/.agentkit/tmp older than a day goes
 INTERRUPTED_AGE = 86400          # a dead writer is not a reason to keep yesterday's tmp
@@ -694,20 +694,22 @@ def toml_inline_cut(raw, opening, parent, stale):
     return spans
 
 
-def codex_pruned(raw):
-    """(text, trust entries, MCP servers) of ~/.codex/config.toml without its stale entries.
+def toml_pruned(raw, trust, mcp):
+    """(text, trust entries, MCP servers) of a TOML harness config without its stale entries:
+    the directories under table `trust` and the servers under table `mcp` that name a gone
+    sandbox or checkout.
 
-    Text, not a TOML writer: codex, install.sh and `ak browser` all own keys here, and a round
-    trip would lose their comments and their order.  An entry goes however it was written:
-    a `[projects."<dir>"]` table from its header to its last key -- comments after that belong
-    to what follows, like the agentkit block's end marker -- a key line under `[projects]`,
-    or a member of an inline table.  The result must parse to exactly the old file less
-    those entries, or it is None.
+    Text, not a TOML writer: the harness, install.sh and `ak browser` all own keys there, and
+    a round trip would lose their comments and their order.  An entry goes however it was
+    written: a `[<trust>."<dir>"]` table from its header to its last key -- comments after
+    that belong to what follows, like the agentkit block's end marker -- a key line under
+    `[<trust>]`, or a member of an inline table.  The result must parse to exactly the old
+    file less those entries, or it is None.
     """
     data = tomllib.loads(raw)
     stale = set()
-    for section, test in (("projects", lambda key, _: gone_path(key)),
-                          ("mcp_servers", lambda _, entry: any(map(gone_path, strings(entry))))):
+    for section, test in ((trust, lambda key, _: gone_path(key)),
+                          (mcp, lambda _, entry: any(map(gone_path, strings(entry))))):
         entries = data.get(section)
         if isinstance(entries, dict):
             stale |= {(section, key) for key, entry in entries.items() if test(key, entry)}
@@ -735,7 +737,7 @@ def codex_pruned(raw):
                 spans += toml_inline_cut(raw, value, path, stale)
     text = splice(raw, spans)
     result, expected = tomllib.loads(text), dict(data)
-    for section in ("projects", "mcp_servers"):
+    for section in (trust, mcp):
         if isinstance(data.get(section), dict):
             kept = {k: v for k, v in data[section].items() if (section, k) not in stale}
             if kept or section in result:
@@ -744,12 +746,13 @@ def codex_pruned(raw):
                 del expected[section]
     if result != expected:
         return None
-    return (text, sum(section == "projects" for section, _ in stale),
-            sum(section == "mcp_servers" for section, _ in stale))
+    return (text, sum(section == trust for section, _ in stale),
+            sum(section == mcp for section, _ in stale))
 
 
-def claude_pruned(raw):
-    """(text, trust entries, MCP servers) of ~/.claude.json without its stale entries.
+def json_pruned(raw, trust, mcp):
+    """(text, trust entries, MCP servers) of a JSON harness config without its stale entries,
+    as `toml_pruned` takes them.
 
     The members go from the text itself, commas and all, so every other byte stays as the
     harness wrote it, whatever the layout; the result must parse to exactly the old
@@ -759,8 +762,8 @@ def claude_pruned(raw):
     if not isinstance(data, dict):
         return None
     top, spans, counts = json_members(raw, JSON_SPACE.match(raw).end())[0], [], []
-    for section, test in (("projects", lambda key, _: gone_path(key)),
-                          ("mcpServers", lambda _, entry: any(map(gone_path, strings(entry))))):
+    for section, test in ((trust, lambda key, _: gone_path(key)),
+                          (mcp, lambda _, entry: any(map(gone_path, strings(entry))))):
         entries = data.get(section)
         stale = {key for key, entry in entries.items() if test(key, entry)} \
             if isinstance(entries, dict) else set()
@@ -777,21 +780,23 @@ def claude_pruned(raw):
 
 
 def harness_files():
-    """Where tools/trust.py and `ak browser mcp-register` write trust and MCP entries."""
-    home = Path.home()
-    return {home / ".claude.json": claude_pruned, home / ".codex" / "config.toml": codex_pruned}
+    """{file: (trust table, MCP table)} for every harness whose plugin says where it keeps
+    the trust and MCP entries agentkit writes (`config_entries`)."""
+    return {entries["file"]: (entries["trust"], entries["mcp"])
+            for entries in harness.config_entries()}
 
 
 def harness_pruned(path):
     """(identity, text, trust entries, MCP servers) of that harness file less every entry
     naming a gone smoke sandbox or checkout; None when there is none, or the file is a link,
     not ours, or does not parse -- a file this cannot read is left alone."""
-    prune = harness_files().get(Path(path))
-    if prune is None or not safe(path) or not Path(path).is_file():
+    tables = harness_files().get(Path(path))
+    prune = {".json": json_pruned, ".toml": toml_pruned}.get(Path(path).suffix)
+    if tables is None or prune is None or not safe(path) or not Path(path).is_file():
         return None
     try:
         identity = fingerprint(Path(path))
-        pruned = prune(read_bytes(path).decode("utf-8"))
+        pruned = prune(read_bytes(path).decode("utf-8"), *tables)
     except (OSError, UnicodeDecodeError, ValueError, IndexError, RecursionError):
         return None
     return (identity, *pruned) if pruned and (pruned[1] or pruned[2]) else None

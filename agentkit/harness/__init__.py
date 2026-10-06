@@ -175,17 +175,27 @@ def prompt(entry):
     """The owner's words one transcript line holds, or None for bookkeeping, injected rules,
     a tool result or anything else: whichever harness wrote it says so in its module's
     `prompt`, and no two write the same shape."""
-    for read in _prompt_readers():
-        said = read(entry)
+    for module in _plugins("prompt"):
+        said = module.prompt(entry)
         if said is not None:
             return said
     return None
 
 
+def config_entries():
+    """Where each harness keeps the trust and MCP entries agentkit writes for it, as
+    [{"file": its config, read as JSON or TOML by its suffix, "trust": the table of trusted
+    directories, "mcp": the table of MCP servers}], from every plugin that keeps any.
+    `ak gc` prunes the entries naming a gone sandbox or checkout."""
+    return [module.config_entries() for module in _plugins("config_entries")]
+
+
 @functools.cache
-def _prompt_readers():
+def _plugins(hook):
+    """Every plugin module beside this file that answers `hook`.  Found in this package, not
+    the adapter directories, so `ak gc`'s planning, which reads only what it plans for, can ask."""
     modules = (_module(path.stem) for path in sorted(Path(__file__).resolve().parent.glob("*.py")))
-    return tuple(module.prompt for module in modules if hasattr(module, "prompt"))
+    return tuple(module for module in modules if hasattr(module, hook))
 
 
 def _module(name):

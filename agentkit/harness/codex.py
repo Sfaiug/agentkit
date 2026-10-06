@@ -356,6 +356,12 @@ def mcp_block(servers):
     return "\n".join([*lines, END]) + "\n"
 
 
+def config_entries():
+    """~/.codex/config.toml: `register_mcp` and tools/trust.py write there."""
+    return {"file": Path.home() / ".codex" / "config.toml", "trust": "projects",
+            "mcp": "mcp_servers"}
+
+
 def register_mcp(servers):
     """Keep `servers` in one marked block of ~/.codex/config.toml, and nothing else.
 
@@ -364,7 +370,7 @@ def register_mcp(servers):
     `[mcp_servers.browser]` somebody wrote by hand outside the block is an error rather than a
     second one appended, because two tables of the same name do not parse at all.
     """
-    path = Path.home() / ".codex" / "config.toml"
+    path = config_entries()["file"]
     raw = ""
     if path.exists():
         try:
