@@ -160,6 +160,49 @@ class ReleaseKit(unittest.TestCase):
         self.assertEqual(self.tick(), (0, ""))
         self.assertEqual(self.live(), self.first)
 
+    def test_the_failed_floor_survives_git_garbage_collection(self):
+        self.tick("--adopt")
+        parent = self.commit()
+        self.commit(healthy=False)
+        self.assertEqual(self.tick()[0], 1)
+        self.git(self.work, "push", "-q", "--force", "origin", f"{parent}:main")
+        repo = self.root / "repo"
+        self.git(repo, "fetch", "-q", "--prune", "origin", "+refs/heads/main:refs/remotes/origin/main")
+        self.git(repo, "reflog", "expire", "--expire=now", "--all")
+        self.git(repo, "gc", "-q", "--prune=now")
+        self.assertEqual(self.tick(), (0, ""))
+        self.assertEqual(self.live(), self.first)
+
+    def test_a_placement_cut_short_is_still_undone(self):
+        self.tick("--adopt")
+        self.commit(units=("v1", "extra"))
+        (self.failing / "daemon-reload").write_text("")    # after the files, before the reload
+        code, out = self.tick()
+        self.assertEqual(code, 1, out)
+        self.assertIn("is back live", out)
+        self.assertFalse((self.units / "acme-extra1.service").exists())
+
+    def test_a_unit_the_new_release_no_longer_names_is_stopped(self):
+        self.first = self.commit(configured=("acme.service", "acme-worker.service"))
+        self.git(self.root / "repo", "pull", "-q", "origin", "main")
+        self.tick("--adopt")
+        self.commit()
+        self.assertEqual(self.tick()[0], 0)
+        self.assertIn("stop acme-worker.service", self.calls_made())
+
+    def test_the_previous_release_outlives_the_keep_count(self):
+        self.tick("--adopt")
+        self.commit(keep=0)
+        self.assertEqual(self.tick()[0], 0)
+        self.assertTrue((self.root / "releases" / self.first).is_dir())
+
+    def test_adopting_twice_is_refused(self):
+        self.tick("--adopt")
+        code, out = self.tick("--adopt")
+        self.assertEqual(code, 1)
+        self.assertIn("is adopted already", out)
+        self.assertTrue((self.root / "releases" / self.first).is_dir())
+
     def test_only_commits_that_descend_from_live_are_released(self):
         self.tick("--adopt")
         # an older stamped line, with live merged in as its merge's second parent

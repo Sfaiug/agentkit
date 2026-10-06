@@ -21,8 +21,9 @@ tick. Main must keep containing the live release: a rewritten main is refused un
 releases by hand.
 
 ROOT holds repo/ (a clone of the project), releases/<sha>/, current -> releases/<sha>,
-released ("<sha> <time>", the live release), attempt (a release under way), failed, units
-(the unit files this kit installed) and tick.lock. Migrations run before the switch, so each
+released ("<sha> <time>", the live release), previous (the release before it, kept for a
+restore), attempt (a release under way), units (the unit files this kit installed) and
+tick.lock; repo/ keeps a ref per failed commit under refs/release/failed/. Migrations run before the switch, so each
 must keep the previous release working: a restore puts the code back, never the schema.
 
 The project's deploy/release.toml, read from the commit being released:
@@ -96,12 +97,19 @@ def stamped(repo, sha):
     return len(values) == 1 and values[0].lower() == tree
 
 
-def candidate(repo, live, failed):
+FAILED = "refs/release/failed/"     # a ref per failed commit keeps it, and its history, from gc
+
+
+def failed_commits(repo):
+    return git(repo, "for-each-ref", "--format=%(objectname)", FAILED).split()
+
+
+def candidate(repo, live):
     """The newest stamped first-parent commit on main that descends from `live` and is no
     ancestor of a commit that failed here (a rewrite cannot reopen an older release)."""
-    known = [sha for sha in failed if git_ok(repo, "cat-file", "-e", f"{sha}^{{commit}}")]
+    failed = failed_commits(repo)
     for sha in git(repo, "rev-list", "--first-parent", f"{live}..origin/main").split():
-        if any(git_ok(repo, "merge-base", "--is-ancestor", sha, bad) for bad in known):
+        if any(git_ok(repo, "merge-base", "--is-ancestor", sha, bad) for bad in failed):
             return None
         if git_ok(repo, "merge-base", "--is-ancestor", live, sha) and stamped(repo, sha):
             return sha
@@ -225,21 +233,28 @@ def place_units(root, config, release):
     through; one this kit installed that `release` lacks is stopped and removed.
     """
     wanted = unit_files(config, release)
+    owned = set(read_words(root / "units"))
+    # Own every name before placing any, so a placement cut short is still undone.
+    write(root / "units", "".join(f"{name}\n" for name in sorted(owned | set(wanted))))
     for name, unit in wanted.items():
         fresh = UNIT_DIR / f".{name}.release"
         shutil.copyfile(unit, fresh)
         fresh.chmod(0o644)
         fresh.replace(UNIT_DIR / name)
-    for name in sorted(set(read_words(root / "units")) - set(wanted)):
+    for name in sorted(owned - set(wanted)):
         systemctl("disable", "--now", name)
         (UNIT_DIR / name).unlink(missing_ok=True)
     write(root / "units", "".join(f"{name}\n" for name in sorted(wanted)))
     systemctl("daemon-reload")
 
 
-def start(root, config, release):
-    """`release`'s units on its unit files, restarted, then its health until it passes."""
+def start(root, config, release, before=None):
+    """`release`'s units on its unit files, restarted, then its health until it passes; units
+    only `before` named (a config with no file behind them here) are stopped first."""
     place_units(root, config, release)
+    for name in sorted(set((before or {}).get("units", ())) - set(config["units"])
+                       - set(unit_files(config, release))):
+        systemctl("stop", name)
     systemctl("restart", *config["units"])
     deadline = time.monotonic() + int(config.get("health_seconds", 90))
     while True:
@@ -263,14 +278,11 @@ def restore(root, sha, previous):
     try:
         switch(root, previous)
         back = root / "releases" / previous
-        before = load(back)
         try:
-            brought = set(load(root / "releases" / sha)["units"]) - set(before["units"])
+            failed = load(root / "releases" / sha)
         except Failed:
-            brought = set()
-        for name in sorted(brought - set(unit_files(before, back))):
-            systemctl("stop", name)
-        start(root, before, back)
+            failed = None
+        start(root, load(back), back, before=failed)
         return ""
     except Exception as exc:  # noqa: BLE001 - the next tick tries again
         return why(exc)
@@ -295,7 +307,7 @@ def live(root):
 
 
 def remember_failed(root, sha):
-    write(root / "failed", "".join(f"{s}\n" for s in sorted(set(read_words(root / "failed")) | {sha})))
+    git(root / "repo", "update-ref", FAILED + sha, sha)
 
 
 def finish_attempt(root, sha, previous, failure):
@@ -315,7 +327,7 @@ def finish_attempt(root, sha, previous, failure):
 
 def prune(root):
     """Keep the newest release directories, never the live, previous or attempted one."""
-    held = set(read_words(root / "attempt")) | {live(root)}
+    held = set(read_words(root / "attempt")) | set(read_words(root / "previous")) | {live(root)}
     try:
         keep = int(load(root / "current").get("keep", 5))
     except Failed:
@@ -340,7 +352,7 @@ def tick(root):
     if not git_ok(repo, "merge-base", "--is-ancestor", previous, "origin/main"):
         raise Failed(f"main no longer contains the live release {previous[:12]}: it was "
                      "rewritten, so release by hand")
-    sha = candidate(repo, previous, read_words(root / "failed"))
+    sha = candidate(repo, previous)
     if sha is None:
         return 0
     say(f"releasing {sha[:12]} over {previous[:12]}")
@@ -353,7 +365,8 @@ def tick(root):
     write(root / "attempt", f"{sha} {previous}\n")
     try:
         switch(root, sha)
-        start(root, config, release)
+        start(root, config, release, before=load(root / "releases" / previous))
+        write(root / "previous", f"{previous}\n")
         write(root / "released", f"{sha} {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n")
     except Exception as exc:  # noqa: BLE001 - any failure after the switch restores
         return finish_attempt(root, sha, previous, why(exc))
@@ -366,6 +379,8 @@ def tick(root):
 def adopt(root):
     """Make repo/'s checked-out commit the first release, built as any release is, without
     migrating or restarting anything."""
+    if live(root):
+        raise Failed(f"{root} is adopted already: {live(root)[:12]} is live")
     sha = git(root / "repo", "rev-parse", "HEAD")
     config, release = prepare(root, sha, migrate=False)
     switch(root, sha)
