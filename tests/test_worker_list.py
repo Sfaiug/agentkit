@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, notify, run, status, usage, watch
+from agentkit import hand_in, host, config, notify, run, status, usage, watch
 from agentkit import record
 from fixtures.hand_in import submitting
 
@@ -432,6 +432,86 @@ class WorkerList(unittest.TestCase):
         self.assertNotIn("gave no verdict twice", saved["error"])
         self.assertEqual(saved["review_pending"]["round"], 1)
         self.assertEqual(saved["round_summaries"], [])
+
+    def resumed_review(self, closed, legacy=False):
+        """A finding, then a refused verdict ask that had said `done` or not, then the resume.
+
+        The resumed session only says `done`, which closes the review it began.  The
+        re-review after that saved verdict starts clean, though the host ended the loop the
+        moment it was saved and the re-review parked before its own first turn.
+        """
+        lp = self.loop("alpha", "gamma", ["alpha"])
+        lp.state["reviewers"] = ["gamma"]
+        (lp.wt / "api.py").write_text("wrong answer\n")
+        record.save_state(lp.run_dir, lp.state)
+        turns, logged_out = [], []
+
+        def fake(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
+            if logged_out:
+                raise run.worker.LoginExpired("claude", logged_out.pop())
+            out = Path(out_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            channel = hand_in.start(out, workspace, (env or {}).get(hand_in.CONTINUE), role=role)
+            turns.append((session, len(hand_in.read(channel).findings)))
+            with patch.dict(os.environ, {hand_in.ENV: channel}):
+                if len(turns) == 1:
+                    hand_in.main(["finding", "api.py:1", "wrong result", "breaks callers",
+                                  "--quote", "wrong answer"])
+                elif len(turns) > 2 or closed:
+                    hand_in.main(["done"])
+            code, text = (1, "usage limit reached") if len(turns) == 2 else (0, "Handed in.")
+            (out / "final.md").write_text(text)
+            (out / "stderr.log").write_text(text if code else "")
+            (out / "session_id").write_text("review-session")
+            return code, text, "review-session", False
+
+        def reloaded():
+            again = run.Loop(self.cfg, lp.run_dir, record.read_state(lp.run_dir), {},
+                             self.logs.append, lp.wt, lp.body, [], "Fixture", [])
+            again.rnd = 1
+            return again
+
+        save = run.Loop.save
+
+        def stopped(loop):
+            save(loop)
+            if loop.state["verdict"]:
+                raise record.StopRequested
+
+        with patch.object(run.worker, "call", side_effect=fake), \
+                patch.object(run.worker, "marked_pids", return_value=[]), \
+                patch.object(run.worker.box, "leftovers", return_value=[]), \
+                self.refused(usage.Readings(self.providers(b=100))), \
+                redirect_stderr(io.StringIO()):
+            with self.assertRaises(run.Exhausted) as parked:
+                run.review(lp, "Review the work.", None, "")
+            run.park_exhausted(lp.state, parked.exception)
+            if legacy:      # parked before pending records kept where their review began
+                lp.state["review_pending"].pop("since")
+            record.save_state(lp.run_dir, lp.state)
+            with patch.object(run.Loop, "save", stopped), \
+                    self.assertRaises(record.StopRequested):
+                run.review(reloaded(), "Review the work.", None, "")
+            resumed = reloaded()
+            self.assertEqual(resumed.state["verdict"], "FAIL")
+            self.assertEqual(resumed.state["round_summaries"][-1]["finding_count"], 1)
+            logged_out.append("not logged in")
+            with self.assertRaises(run.worker.LoginExpired):
+                run.review(resumed, "Review the work.", None, "")
+            self.assertEqual(run.review(resumed, "Review the work.", None, ""), "PASS")
+        self.assertEqual(turns, [(None, 0), ("review-session", 1), ("review-session", 1),
+                                 ("review-session", 0)])
+
+    def test_a_review_resumed_after_its_park_keeps_the_finding_it_handed_in(self):
+        self.resumed_review(closed=False)
+
+    def test_a_review_parked_after_done_keeps_its_finding_until_a_verdict_is_recorded(self):
+        # a `done` the refused turn handed in is no verdict: the loop never recorded one
+        self.resumed_review(closed=True)
+
+    def test_a_review_parked_before_this_rule_keeps_its_finding(self):
+        # its pending record never said where it began: never verdicted, its turns are its own
+        self.resumed_review(closed=False, legacy=True)
 
     def test_a_tick_no_run_waits_on_asks_no_harness(self):
         # asking runs each harness's `auth`: a pass with nothing to pick asks nobody
