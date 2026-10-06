@@ -104,58 +104,71 @@ with (out / "alive.lock").open("w") as lock:
 '''
 
 
-PROBE = r'''import json, os, socket, sys, tempfile
-def reach(path):
-    with socket.socket(socket.AF_UNIX) as client:
-        try:
-            client.connect(path)
-            return True
-        except OSError:
-            return False
-seen = {}
-for name, path in json.loads(sys.argv[1]).items():
-    if name == "closed":
-        # A walls-off command can chmod a host directory back open; the cover must already hide it.
-        try:
-            os.chmod(os.path.dirname(path), 0o700)
-        except OSError:
-            pass
-    seen[name] = reach(path)
-own = os.path.join(tempfile.mkdtemp(dir="/tmp"), "s")
-with socket.socket(socket.AF_UNIX) as server:
-    server.bind(own)
-    server.listen(1)
-    seen["own"] = reach(own)
-print(json.dumps(seen))
-'''
-
-SOCKETS = r'''import json, os, socket, subprocess, sys
+SOCKETS = r'''import json, os, socket, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
-root, probe = Path(sys.argv[1]), sys.argv[2]
-paths = {"tmp": "/tmp/host/s", "runtime": f"/run/user/{os.getuid()}/s", "outside": "/run/acme/s",
-         "closed": "/run/shut/s"}
-listeners = []
-for path in paths.values():
-    Path(path).parent.mkdir(parents=True)
-    listeners.append(socket.socket(socket.AF_UNIX))
-    listeners[-1].bind(path)
-    listeners[-1].listen(8)
-argv = [sys.executable, "-c", probe, json.dumps(paths)]
-seen = {"unboxed": json.loads(subprocess.run(argv, capture_output=True, text=True,
-                                             timeout=30).stdout or "null")}
-for name, walls in (("walls", True), ("no walls", False)):
-    out = root / name
-    out.mkdir()
-    # Shut to us at scan: bubblewrap cannot descend it, so the whole directory is covered.
-    Path("/run/shut").chmod(0)
+root, role, places = Path(__file__).parent, sys.argv[1], [Path(path) for path in sys.argv[2:]]
+# Name resolution's settings link into the host's /run, as systemd-resolved's do.
+box.RESOLVER = root / "resolv.conf"
+
+
+def listen(path):
+    # A service's socket, with a file beside it. AF_UNIX names are short; the checkout's may not be.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    (path.parent / "file").write_text("")
+    os.chdir(path.parent)
+    server = socket.socket(socket.AF_UNIX)
+    server.bind(path.name)
+    server.listen(8)
+    return server
+
+
+def reach(path):
+    try:
+        os.chdir(path.parent)
+        with socket.socket(socket.AF_UNIX) as client:
+            client.connect(path.name)
+        return True
+    except OSError:
+        return False
+
+
+def boxed(role, walls):
+    out = Path(tempfile.mkdtemp(dir=root))
+    argv = [sys.executable, __file__, role, *map(str, places)]
     with box.command(argv, dict(os.environ), out, cwd=root, walls=walls) as (cmd, env, spawn):
         spawn.pop("stop")
         result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
-                                timeout=30, **spawn)
-    seen[name] = json.loads(result.stdout) if result.returncode == 0 else result.stderr
-print(json.dumps(seen))
+                                timeout=60, **spawn)
+    return json.loads(result.stdout) if result.returncode == 0 else result.stderr
+
+
+if role == "probe":
+    seen = {str(path): [reach(path), (path.parent / "file").exists()] for path in places}
+    own = Path(tempfile.mkdtemp(dir="/tmp"), "s")
+    with listen(own):
+        seen["own"] = reach(own)
+    seen["resolver"] = (root / "resolv.conf").read_text()
+    print(json.dumps(seen))
+elif role == "host":
+    resolver = Path("/run/acme/resolv.conf")
+    resolver.parent.mkdir()
+    resolver.write_text("nameserver 192.0.2.1\n")
+    box.RESOLVER.symlink_to(resolver)
+    listeners = [listen(path) for path in places]
+    seen = {"unboxed": json.loads(subprocess.run([sys.executable, __file__, "probe", *sys.argv[2:]],
+                                                 capture_output=True, text=True).stdout or "null")}
+    for name, walls in (("walls", True), ("no walls", False)):
+        seen[name] = boxed("probe", walls)
+        seen[f"{name} inside a box"] = boxed(name, walls)
+    print(json.dumps(seen))
+else:
+    # A box inside a box, its parent's walls named by its role: what the parent keeps in its own
+    # /tmp is the parent's alone.
+    places.append(Path("/tmp/parent/s"))
+    with listen(places[-1]):
+        print(json.dumps(boxed("probe", role == "walls")))
 '''
 
 
@@ -349,27 +362,31 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual(json.loads(text)["paths"], [""] * len(paths))
         self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * len(paths))
 
-    def host(self, script, *args):
-        # A namespace of the test's own stands for the host wherever the test runs, even inside
-        # a box: fresh /tmp and /run, and sockets no other test's box sees.
-        host = ["bwrap", "--unshare-user", "--unshare-pid", "--unshare-net", "--bind", "/", "/",
-                "--dev-bind", "/dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", "/run"]
-        result = subprocess.run([*host, "--", sys.executable, "-c", script, str(self.root), *args],
-                                env={**os.environ, "BOX_REPO": str(REPO)}, capture_output=True,
-                                text=True, timeout=120)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout
-
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in
-        # /tmp, the user's service manager in the runtime directory, a daemon anywhere else,
-        # one inside a directory shut to us. With walls and without, the box reaches none, and
-        # the socket it makes in its own /tmp it still reaches.
-        seen = json.loads(self.host(SOCKETS, PROBE))
-        reachable = dict.fromkeys(("tmp", "runtime", "outside", "closed"), True)
-        hidden = {**dict.fromkeys(("tmp", "runtime", "outside", "closed"), False), "own": True}
-        self.assertEqual(seen, {"unboxed": {**reachable, "own": True},
-                                "walls": hidden, "no walls": hidden})
+        # /tmp, the user's service manager in its runtime directory, here outside /run, the
+        # system bus in /run. With walls and without, and in a box inside a box, the box reaches
+        # none of them and sees no file beside them; the socket it makes in its own /tmp it
+        # reaches, and name resolution reads the host's settings, though they link into /run.
+        script = self.root / "sockets.py"
+        script.write_text(SOCKETS)
+        runtime = self.root / "runtime"
+        places = ["/tmp/host/s", str(runtime / "s"), "/run/acme/s"]
+        # Fresh /tmp and /run of the test's own stand for the host's, even inside a box.
+        host = ["bwrap", "--unshare-user", "--unshare-pid", "--die-with-parent", "--bind", "/", "/",
+                "--dev-bind", "/dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", "/run"]
+        result = subprocess.run([*host, "--", sys.executable, str(script), "host", *places],
+                                env={**os.environ, "BOX_REPO": str(REPO),
+                                     "XDG_RUNTIME_DIR": str(runtime)},
+                                capture_output=True, text=True, timeout=300)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        resolver = {"own": True, "resolver": "nameserver 192.0.2.1\n"}
+        hidden = {**dict.fromkeys(places, [False, False]), **resolver}
+        nested = {**hidden, "/tmp/parent/s": [False, False]}
+        self.assertEqual(json.loads(result.stdout), {
+            "unboxed": {**dict.fromkeys(places, [True, True]), **resolver},
+            "walls": hidden, "walls inside a box": nested,
+            "no walls": hidden, "no walls inside a box": nested})
 
     def test_a_relative_home_hides_the_keys_where_the_turn_reads_them(self):
         # The turn resolves HOME=home in its own directory, not in the launcher's.
