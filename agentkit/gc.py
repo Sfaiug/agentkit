@@ -467,28 +467,18 @@ def stale_worktrees(now, paths):
             if (item := stale_worktree(wt, now, paths, left))]
 
 
-def worktree_repo(wt):
-    """The repository a checkout's `.git` pointer names, `<repo>/.git/worktrees/<name>`, or None."""
-    try:
-        prefix, sep, value = retention.read_bytes(wt / ".git").decode().strip().partition(": ")
-    except (OSError, UnicodeDecodeError):
-        return None
-    gitdir = Path(value)
-    if (prefix != "gitdir" or not sep or not gitdir.is_absolute()
-            or gitdir.parent.name != "worktrees" or gitdir.parents[1].name != ".git"):
-        return None
-    return gitdir.parents[2]
-
-
 def clear_tree(tree, report):
-    """Everything of a tree this user can remove, then git's registration of it, unlocked
-    first: git never prunes a locked one, and one ak was still making is."""
-    repo = worktree_repo(tree)
+    """Everything of a tree this user can remove, then git's registration of it in the
+    repository git names (`orch.git_dirs`), whatever the layout, unlocked first: git never
+    prunes a locked one, and one ak was still making is."""
+    dirs = orch.git_dirs(tree)
     retention.remove(tree, directory=True, ignore_errors=True)
-    if repo is not None and repo != tree and repo.is_dir():
+    if dirs is not None and dirs[1] and dirs[0].is_dir():
+        # named, not found by looking: git's safe.bareRepository refuses one it only finds
+        named = f"--git-dir={dirs[0]}"
         try:
-            run.git(repo, "worktree", "unlock", str(tree), check=False)
-            run.git(repo, "worktree", "prune", check=False)
+            run.git(dirs[0], named, "worktree", "unlock", str(tree), check=False)
+            run.git(dirs[0], named, "worktree", "prune", check=False)
         except run.Stopped as exc:
             report(f"gc: {tree}: {exc}")
 

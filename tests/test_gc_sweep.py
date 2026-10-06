@@ -554,6 +554,27 @@ class GcSweep(Sandbox):
         self.assertTrue((own / "mark").is_file())
         self.assertFalse((own / "locked").exists())
 
+    def test_a_removed_checkout_frees_its_branch_whatever_its_layout(self):
+        # A worktree of a bare repository, and ones whose `.git` points back by a relative path
+        # or is a link: once gc removes them, their branch checks out again.
+        self.git(self.root, "clone", "-q", "--bare", str(self.repo), str(self.root / "bare.git"))
+        bare = config.WT / "bare"
+        self.git(self.root / "bare.git", "worktree", "add", "-q", str(bare), "-b", "seat/bare")
+        relative, linked = self.seat(self.repo, "relative"), self.seat(self.repo, "linked")
+        (relative / ".git").write_text(
+            "gitdir: " + os.path.relpath(self.repo / ".git" / "worktrees" / "relative", relative) + "\n")
+        (linked / ".git").unlink()
+        (linked / ".git").symlink_to(self.repo / ".git" / "worktrees" / "linked")
+        for wt in (bare, relative, linked):
+            self.aged(wt, 2 * DAY)
+        # git's hardening that refuses a bare repository it would only find by looking
+        with patch.dict(os.environ, {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.bareRepository",
+                                     "GIT_CONFIG_VALUE_0": "explicit"}):
+            self.gc()
+        for repo, wt in ((self.root / "bare.git", bare), (self.repo, relative), (self.repo, linked)):
+            self.assertFalse(wt.exists(), wt)
+            self.git(repo, "worktree", "add", "-q", str(self.root / f"again-{wt.name}"), f"seat/{wt.name}")
+
     def test_a_tree_gc_cannot_take_is_reported_once_and_never_again(self):
         if os.geteuid() == 0:
             self.skipTest("root removes a read-only directory")
