@@ -310,7 +310,7 @@ class WorkerBox(unittest.TestCase):
             listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.addCleanup(listener.close)
             listener.bind(str(tmp / name))
-            listener.listen(1)
+            listener.listen(8)
         # Each is reached where it lives, by a relative name that fits AF_UNIX.
         probe = (
             "import json, os, socket, sys, tempfile\n"
