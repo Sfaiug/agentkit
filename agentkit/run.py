@@ -1138,13 +1138,15 @@ def without_output(node):
 # Re-encoded, a control character in a record's text -- a line break, a tab -- reads as an
 # escape (`\n`, `\t`, `\u000b`) that runs into the word after it, which then never stands on
 # its own; so do characters outside ASCII unless they are written as they are.  With every
-# control character a space and the rest written as is, the only escapes left are `\"` and
-# `\\`, which end in neither a letter nor a digit.
-ONE_LINE = {code: " " for code in range(0x20)}
+# control character and line separator a space and the rest written as is, the only escapes
+# left are `\"` and `\\`, which end in neither a letter nor a digit, and a record stays one
+# line wherever `str.splitlines` would break it.
+ONE_LINE = {code: " " for code in (*range(0x20), *range(0x7f, 0xa0), 0x2028, 0x2029)}
 
 
 def one_line(node):
-    """`node` with every control character in its text a space, at any depth."""
+    """`node` with every control character and line separator in its text a space, at any
+    depth."""
     if isinstance(node, dict):
         return {k: one_line(v) for k, v in node.items()}
     if isinstance(node, list):

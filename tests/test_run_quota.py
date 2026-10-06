@@ -106,13 +106,14 @@ class Quota(unittest.TestCase):
         for name, word, expected in (("opencode", "quota", harness.SPENT),
                                      ("claude", "rate_limit_error", harness.LIMITED),
                                      ("opencode", "overloaded", harness.REFUSAL)):
-            for gap in ("\n", "\t", "\r\n", "\f", "\v", "\x01", "\u00a0", "\u0085",
-                        "\u2028", "\u2014", "\u00e9 "):
+            for gap in ("\n", "\t", "\r\n", "\f", "\v", "\x01", "\x1c", "\x7f", "\u00a0",
+                        "\u0085", "\u2028", "\u2029", "\u2014", "\u00e9 "):
                 for message in ("/tmp/acme/log.txt" + gap + word, "Error:" + gap + word):
                     event = json.dumps({"type": "error", "error": message})
-                    said = "\n".join(run.failures(event, None))
+                    said = run.failures(event, None)
                     with self.subTest(name=name, message=message):
-                        self.assertEqual(harness.load(name).failure(said)[0], expected)
+                        self.assertEqual(harness.load(name).failure(said[0])[0], expected)
+                        self.assertEqual(said[0].splitlines(), said)    # one record, one line
 
     def test_quota_gate_meter_at_100_excludes_the_model(self):
         providers = self.providers()
