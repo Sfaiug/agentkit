@@ -3269,9 +3269,12 @@ def started_by(run_dir, item):
 
 def followups_handed(run_dir, state, handed):
     """Write the receipt that this ending's list is handed on: onto the record as it stands,
-    so nothing written there meanwhile -- a stop, a delivery's mark -- is put back."""
+    so nothing written there meanwhile -- a stop, a delivery's mark -- is put back.  Read and
+    written under `delivery_lock` too, taken inside the recovery lock as `reap` takes it: a
+    delivery's mark lands before the read or after the write, never between them."""
     state.update(handed)
-    with run_record.record(run_dir) as current:
+    with run_record.recovery_lock(run_dir), delivery_lock(run_dir), \
+            run_record.record(run_dir) as current:
         current.update(handed)
 
 

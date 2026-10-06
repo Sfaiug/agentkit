@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -303,6 +304,26 @@ class FollowupRuns(unittest.TestCase):
                       run.handback_line(ended, directory, self.cfg))
         self.start(directory, ended)
         self.assertEqual(len(self.spawns), 1)
+
+    def test_a_delivery_marked_while_the_receipt_is_written_stays_marked(self):
+        directory, state = self.source(followup_checks={DEFECT: CHECK})
+        real, marked = record._write_state, []
+        delivery = threading.Thread(target=lambda: marked.append(run.mark_delivery(
+            directory, record.read_state(directory), handed_back=123)))
+
+        def write(run_dir, current, *args):
+            if run_dir == directory and "followup_runs" in current and not delivery.ident:
+                delivery.start()     # the tick hands the ending back while the receipt is written
+                delivery.join(1)
+            return real(run_dir, current, *args)
+
+        with patch.object(record, "_write_state", side_effect=write):
+            self.start(directory, state)
+            delivery.join(10)
+        self.assertEqual(marked, [True])
+        ended = record.read_state(directory)
+        self.assertEqual(ended["handed_back"], 123)
+        self.assertEqual(len(ended["followup_plan"]), 1)
 
     def test_a_fix_stopped_before_a_cut_off_receipt_is_not_started_again(self):
         directory, state = self.source(followups=["flaky: python3 -m unittest passed only on its re-run"])
