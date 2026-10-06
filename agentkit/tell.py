@@ -140,11 +140,13 @@ def deliver_to(session, log, cfg=None):
 
     held = watch.composer_holds(name, session, first["line"], cfg)
     if held == "line":
-        # typed by a tick that died before its Enter: only the Enter, and its confirmation
-        typed = watch.type_checked(
+        # typed by a tick that died before its Enter: only the Enter, and its confirmation --
+        # its composer read empty right after, as type_at_prompt reads it for its own line
+        typed = (watch.type_checked(
             session, first["line"], log, pending=True, source=source(first["from"]),
             guard=lambda: watch.seat_held(session["name"]), ready=ready,
             veto=lambda current: watch.owner_question(notify.last(current)) or stale(current))
+            and watch.composer_holds(name, session, first["line"], cfg) == "empty")
     elif held == "empty":
         typed = watch.type_at_prompt(session, first["line"], log, cfg=cfg,
                                      source=source(first["from"]), stale=stale, midturn=True)
@@ -156,7 +158,7 @@ def deliver_to(session, log, cfg=None):
 
     # leaves the queue only on positive evidence: its composer read empty right after, with no
     # question up -- never on a capture that failed or a dialog that came up over the line
-    if not typed or watch.composer_holds(name, session, first["line"], cfg) != "empty":
+    if not typed:
         return False
     locked(name, drop)
     log(f"{config.resolve_session(name)}: typed a message from {first['from']}")

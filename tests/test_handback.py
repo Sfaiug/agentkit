@@ -443,6 +443,34 @@ class HandBack(Sandbox):
                 self.assertEqual((seat.read, seat.composer, seat.typed),
                                  ([], edits[edit](line), 1))
 
+    def test_a_line_counts_as_sent_only_once_its_composer_reads_empty(self):
+        """#590's second case: the owner edits the line while its Enter is confirmed, so it no
+        longer reads whole there.  That is no delivery: the edit is theirs to send, and the line
+        counts delivered once its composer reads empty."""
+        self.rows = [self.live()]
+        seat = self.claude()
+        line = "The acme tests passed."
+        edits = {"into it": lambda text: text[:-1] + ", and the owner's own words",
+                 "past the read": lambda text: text + " and the owner's own words" * 30}
+        for edit, change in edits.items():
+            with self.subTest(edit=edit):
+                seat.composer, seat.read, seat.typed, seat.takes, seat.wrap = "", [], 0, False, 40
+                pauses, marks = [], []
+
+                def owner_types(_seconds):
+                    pauses.append(True)
+                    if len(pauses) == 2:    # the wait that confirms the first Enter
+                        seat.composer = change(seat.composer)
+
+                with patch.object(watch.time, "sleep", side_effect=owner_types):
+                    self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                          cfg=self.cfg, receipt=marks.append))
+                self.assertEqual((seat.read, seat.composer), ([], change(line)))
+                seat.takes = True
+                seat.enter()                # the owner sends it, the line with their words
+                self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                     cfg=self.cfg, typed=marks[-1]))
+
     def test_a_hand_back_too_long_or_too_tall_to_show_whole_still_gets_its_enter(self):
         self.rows = [self.live()]
         seat = self.claude()
