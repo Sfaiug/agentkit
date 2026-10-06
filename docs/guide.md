@@ -378,7 +378,7 @@ as written, never rewritten. Statistics skip
 stopped runs and suite runs, by name or run record. History is best effort.
 `ak run status --history` compares the last 7 days with the 7 before for products and ak:
 runs ended, shares merged in round 1 and ended without merging, median wall hours to merge and reported tokens per merge, ak's share of all recorded tokens (failed work included), and its committed code lines and README words now and 7 days ago; for all ended runs, the share of run time spent waiting for a slot or for a heavy-suite turn of its own, and the hours spent holding a place in a landing line, the lander's checks included, with the hours those checks waited for a heavy-suite turn (not recorded for a week with a run that ended before they were kept); a run started again since its ending (a resume, a delivery retry) counts there at its next ending.
-It never picks a model or changes a limit; it also shows median rounds by task size per repo. Neither it nor `ak usage` prints per-model
+It never picks a model or changes a limit; it also shows median rounds by task size per repo, and the bytes of the `AGENTS.md` that repo's last ended run handed its workers, measured as the ceiling measures it, against that ceiling. Each run's row keeps that size, read at its base. Neither it nor `ak usage` prints per-model
 success rates: a run's verdict describes the task, not the quality of its models. A run's own directory is
 `~/.agentkit/runs/<YYYYMMDD-HHMM>-<slug>/`: `task.md`, `run.json`, `log.txt` (the whole loop, with a `WARN` line per
 retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{prompt.md,final.md,stderr.log,events.jsonl}`.

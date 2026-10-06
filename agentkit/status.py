@@ -582,7 +582,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
 def size_summary_line(repo):
     """One line per repository for `ak run status --history`: median rounds overall,
     over long tasks and over many-pointed ones, so the orchestrator sizes the next task
-    from what this repository's last twenty actually took."""
+    from what this repository's last twenty actually took -- and the AGENTS.md its last
+    run's workers were handed, against the most a harness reads of it."""
     summary = history.size_summary(repo)
     if summary is None:
         return None
@@ -591,8 +592,12 @@ def size_summary_line(repo):
         return f"median {value:g} rounds" if value is not None else "–"
 
     overall, words, points = summary
-    return (f"{repo}: last 20 tasks: {med(overall)} · over 400 words: {med(words)} · "
+    line = (f"{repo}: last 20 tasks: {med(overall)} · over 400 words: {med(words)} · "
             f"over 3 points: {med(points)}")
+    rules, ceiling = history.rules_size(repo), config.instruction_ceiling()
+    if rules is not None:
+        line += f" · AGENTS.md {rules:,} bytes" + (f" of {ceiling[0]:,}" if ceiling else "")
+    return line
 
 
 def cmd_status(argv):
