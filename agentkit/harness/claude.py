@@ -16,6 +16,11 @@ SOURCE = "claude-hook"
 TMP_CLAUDE_AGE = 86400          # a gone session's scratch folder goes after a day
 
 
+# What Claude Code writes as the conversation's last message when the owner interrupts a turn
+# with Esc after it said anything, the turn's only end it reports: no Stop comes.
+INTERRUPTS = ("[Request interrupted by user]", "[Request interrupted by user for tool use]")
+
+
 def transcript_path(record, conversation):
     account = record.get("account")
     directory = Path.home() / (f".claude-{account}" if account and account != "default"
@@ -71,7 +76,7 @@ def prompt(entry):
     if entry.get("type") == "user" and isinstance(content, str) and (
             content.startswith(("<command-name>", "<local-command-stdout>",
                 "<local-command-stderr>", "<local-command-caveat>", "<task-notification>"))
-            or content in ("[Request interrupted by user]", "[Request interrupted by user for tool use]")):
+            or content in INTERRUPTS):
         return None
     return content if isinstance(content, str) and content else None
 
@@ -99,6 +104,21 @@ def error(record, cwd, conversation):
     parts = content if isinstance(content, list) else [{"text": content}]
     return "\n".join(part["text"] for part in parts if isinstance(part, dict)
                      and isinstance(part.get("text"), str)).strip() or None
+
+
+def interrupted(record, cwd, conversation):
+    """When the owner interrupted that conversation's turn, where that is its last message, or
+    None: a prompt or an answer after it is the conversation going on."""
+    from . import last_entry, user_message
+    path = transcript(record, cwd, conversation)
+    entry = path and last_entry(path, lambda entry: entry.get("type") in ("user", "assistant"))
+    message = entry.get("message") if entry and entry.get("type") == "user" else None
+    content = message.get("content") if isinstance(message, dict) else None
+    parts = content if isinstance(content, list) else [{"text": content}]
+    said = next((part["text"] for part in parts if isinstance(part, dict)
+                 and part.get("text") in INTERRUPTS), None)
+    kept = said and user_message(entry.get("timestamp"), said)
+    return kept["at"] if kept else None
 
 
 def resumable(record, cwd, conversation):
