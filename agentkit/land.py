@@ -523,10 +523,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     answers[tree, own] = answer
                     note(turn, [], directory.name, checks=checks, red_stacks={tree: answer["fix"]})
 
-            rebuild, target_red = False, False
+            rebuild, target_red, stale = False, False, False
 
             def decide():
-                nonlocal pending, rebuild, target_red
+                nonlocal pending, rebuild, target_red, stale
                 if target_red:
                     return
                 green_prefix = bool(prefix)
@@ -569,7 +569,13 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 m.name: s["waiting_on"]["land"] for m, s in prefix} | {
                                 previous[0].name: previous[3] for previous in stacks[:index]}}
                         verdicts[member] = answer
-                        ready({member: answer})
+                        if ready({member: answer}) is False:
+                            # The line changed under this pass, so no later verdict of it
+                            # can be written: it stops checking, and the next pass starts
+                            # from the line as it is now.
+                            stale = True
+                            log("the line changed during this pass; the next pass checks it afresh")
+                            return
                     green_prefix = "land" in answer
                     if "fix" in answer:
                         # Only this green-to-red transition identifies a culprit.
@@ -583,7 +589,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 running = {}
                 try:
                     decide()
-                    while not rebuild and not target_red:
+                    while not rebuild and not target_red and not stale:
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         if batched and unchecked:
@@ -610,6 +616,6 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # Keep suffix evidence even if a wake or verdict write crashes.
                     for check, (index, checks) in running.items():
                         answer_tree(index, checks, check)
-            if target_red or not rebuild:
+            if target_red or stale or not rebuild:
                 break
     return verdicts
