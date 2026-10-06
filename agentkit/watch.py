@@ -2798,15 +2798,17 @@ def at_prompt(session, cfg=None, pane=None):
 
 
 def takes_line(session, cfg=None, pane=None, midturn=False):
-    """May a line be typed into that seat now: at its own prompt, or -- `midturn` -- during a
-    turn whose harness holds a typed line for its model's next step (`[screen] queues_typing`)."""
+    """May a line be typed into that seat now: at its own prompt; stopped on background work,
+    whose composer stays open and sends a typed line at once (`background` on that hook event);
+    or -- `midturn` -- during a turn whose harness holds a typed line for its model's next step
+    (`[screen] queues_typing`)."""
     if at_prompt(session, cfg=cfg, pane=pane):
         return True
-    if not midturn or any(session.get(key) for key in orch.CLOSED):
+    if any(session.get(key) for key in orch.CLOSED):
         return False
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
-        if not harness or not screen(harness)["queues"]:
+        if not harness:
             return False
         pane = pane_text(session) if pane is None else pane
         if not pane.strip():
@@ -2814,7 +2816,9 @@ def takes_line(session, cfg=None, pane=None, midturn=False):
         found = live_state(session, harness, pane=pane, cfg=cfg)
     except (config.Error, OSError):
         return False
-    return _turn_in_flight(harness, found)[0]
+    if found.get("hooked_event") in _background_stops(harness):
+        return True
+    return midturn and screen(harness)["queues"] and _turn_in_flight(harness, found)[0]
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,

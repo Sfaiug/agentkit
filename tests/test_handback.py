@@ -127,6 +127,7 @@ class HandBack(Sandbox):
         self.screen = "at_prompt"   # what the classifier reads off that seat's pane
         self.pane = "\u276f\n"      # a capture for it to read; blank is no evidence at all
         self.rule = "prompt.composer"   # which rule matched it; `none` is nothing saying so
+        self.hooked_event = None    # the seat's last hook event, as `live_state` names it
         self.sent = True            # what the fake confirmed send answers
         self.leaves = False         # the seat starts a turn between the two prompt checks
         self.logs, self.typed, self.cards, self.reopened = [], [], [], []
@@ -140,7 +141,8 @@ class HandBack(Sandbox):
             watch, "live_state",
             side_effect=lambda *a, **k: {"state": self.screen, "rule": self.rule,
                                          "authority": "" if self.rule == "none" else "screen",
-                                         "evidence": "", "began": 9000, "since": 9000}))
+                                         "evidence": "", "began": 9000, "since": 9000,
+                                         "hooked_event": self.hooked_event}))
         self.stack.enter_context(patch.object(watch, "pane_text",
                                               side_effect=lambda *a, **k: self.pane))
         self.stack.enter_context(patch.object(watch, "type_checked", side_effect=self.send))
@@ -231,6 +233,23 @@ class HandBack(Sandbox):
         self.tick()
         self.assertEqual(len(self.typed), 1)
         self.assertEqual(self.cards, [])
+
+    def test_a_hand_back_reaches_a_seat_stopped_on_background_work(self):
+        """ak-merge-speed, 6 Oct 22:54: a Claude turn that stopped with a background shell
+        still running reads working, though its composer is open and a line typed there goes
+        in at once; an ak tell line reached it, and a failed run's hand-back waited two hours."""
+        directory = self.ended("run-bg", owner=SEAT, no_merge=True)
+        self.rows = [self.live()]
+        self.screen, self.hooked_event = "working", "Stop/background"
+        run.announce(record.read_state(directory), directory, self.logs.append)
+        self.assertEqual([seat for seat, _ in self.typed], [SEAT])
+        self.assertNotIn("handback_pending", record.read_state(directory))
+        # a turn running, by its own hook, still holds the next one
+        other = self.ended("run-busy", owner=SEAT, no_merge=True)
+        self.hooked_event = "UserPromptSubmit"
+        run.announce(record.read_state(other), other, self.logs.append)
+        self.assertEqual(len(self.typed), 1)
+        self.assertTrue(record.read_state(other)["handback_pending"])
 
     def claude(self):
         """The real confirmed send into a fake Claude seat, whose screen reads as a prompt."""
