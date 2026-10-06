@@ -338,6 +338,12 @@ class Tell(Seats):
         self.assertIsNone(tell.queue(SEAT, line))
         self.assertEqual([message["line"] for message in self.waiting()], [line])
 
+    def test_a_queued_line_holds_no_key_but_its_own_enter(self):
+        self.free = False
+        self.assertIsNone(tell.queue(SEAT, "In ACME\ranswer, `new\x1bsearch`\n\tsince 6 Dec."))
+        self.assertEqual([message["line"] for message in self.waiting()],
+                         ["In ACME answer, `new search` since 6 Dec."])
+
     def test_what_cannot_be_told_is_refused_in_one_line(self):
         watch.seat_write("acme-closed", stopped_at=1)
         config.save_session(self.cfg, "acme-closed", "opus", ["astra"], {"cwd": str(self.root)})

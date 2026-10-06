@@ -13,6 +13,7 @@ only once its line was seen leaving the composer: it goes in at least once and i
 import json
 import sys
 import time
+import unicodedata
 import uuid
 
 from . import command_help, config, notify, orch, watch
@@ -37,6 +38,13 @@ def too_long(line):
         return (f"{len(line):,} characters is more than a composer shows whole ({most:,}); "
                 "write the rest to a file and tell its path")
     return None
+
+
+def flat(text):
+    """`text` as one typed line: each run of whitespace or control characters is one space, so
+    no key in it but the line's own Enter acts on the composer."""
+    return " ".join("".join(" " if unicodedata.category(ch) == "Cc" else ch
+                            for ch in text).split())
 
 
 def source(sender):
@@ -119,11 +127,12 @@ def refusal(name, seat, sender):
 def queue(name, line, sender=""):
     """Queue `line` for that seat, under its lock, so the tick types it there; None once it is
     queued, or is ak's own and already waits there, else why nothing was.  `sender` is the seat
-    it is from; none is ak itself.
+    it is from; none is ak itself.  The line is queued `flat`.
 
     Under the receiver's lock, the one a rename and a close take: the seat it is now is the
     one the message is for, and only that seat's tick pass types it.
     """
+    line = flat(line)
     refused = too_long(line)
     if refused:
         return refused
@@ -229,7 +238,7 @@ def main(argv):
     if not sender:
         print("ak tell: no seat: run it inside an orchestrator session", file=sys.stderr)
         return 1
-    text = " ".join(argv[1].split())
+    text = flat(argv[1])
     if not text:
         print("ak tell: nothing to say", file=sys.stderr)
         return 1
