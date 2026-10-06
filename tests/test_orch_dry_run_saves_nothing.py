@@ -101,6 +101,28 @@ class DryRun(unittest.TestCase):
     def test_an_unnamed_dry_run_saves_nothing(self):
         self.dry_run([], "new")
 
+    def test_a_failed_unnamed_launch_keeps_a_newer_record_saved_under_that_name(self):
+        # an unnamed launch saves its record before its adapter writes the rulebook; failing, it
+        # takes back that record, and never one another launch saved under the name since
+        for newer in (False, True):
+            with self.subTest(newer=newer):
+                saved = {}
+
+                def fail(cfg, model, seat=None, **_kw):
+                    if newer:     # another launch of that name saves its own in the meantime
+                        record = config.load_session(cfg, seat)
+                        saved.update(config.save_session(cfg, seat, record["orchestrator"],
+                                                         record["workers"],
+                                                         {"cwd": "/acme", "created": record["created"] + 1}))
+                    raise config.Error("no harness")
+
+                with patch.object(orch, "fresh_command", side_effect=fail), \
+                        redirect_stdout(io.StringIO()), self.assertRaisesRegex(config.Error, "no harness"):
+                    orch.main([])
+                self.assertEqual(orch.records().get("new", {}).get("created"), saved.get("created"))
+                config.session_path("new").unlink(missing_ok=True)
+                self.launch.assert_not_called()
+
     def state(self):
         return {str(path.relative_to(config.STATE)): hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in config.STATE.rglob("*") if path.is_file()}
