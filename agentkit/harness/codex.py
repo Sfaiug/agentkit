@@ -368,30 +368,41 @@ def register_mcp(servers):
     A block, not a rewrite: install.sh and codex itself both own keys in this file, and a
     round trip through a TOML writer would lose their comments and their ordering.  A
     `[mcp_servers.browser]` somebody wrote by hand outside the block is an error rather than a
-    second one appended, because two tables of the same name do not parse at all.
+    second one appended, because two tables of the same name do not parse at all.  A marker
+    counts only as a line of its own, so a comment quoting one is no block; and the new file
+    must parse to the old one with only these servers and the old block's changed, or nothing
+    is written.
     """
     path = config_entries()["file"]
     raw = ""
+    before = {}
     if path.exists():
         try:
             raw = path.read_text(encoding="utf-8")
         except OSError as exc:
             raise config.Error(f"cannot read {path}: {exc}") from None
         try:
-            tomllib.loads(raw)
+            before = tomllib.loads(raw)
         except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
             raise config.Error(f"{path} is not valid TOML, so nothing was changed: {exc}")
-    block = mcp_block(servers)
-    start, stop = raw.find(BEGIN), raw.find(END)
-    if start != -1 and stop > start:
-        head, tail = raw[:start], raw[stop + len(END):].lstrip("\n")
+    block, ours = mcp_block(servers), set(servers)
+    lines = raw.splitlines(keepends=True)
+    begins, ends = ([i for i, line in enumerate(lines) if line.strip() == marker]
+                    for marker in (BEGIN, END))
+    if begins or ends:
+        if len(begins) != 1 or len(ends) != 1 or ends[0] < begins[0]:
+            raise config.Error(f"{path} has half of the agentkit block or more than one; repair "
+                               f"or delete the lines from {BEGIN!r} to {END!r} and run this again")
+        start, stop = begins[0], ends[0] + 1
+        try:        # the servers the old block held are ours to replace, renamed ones too
+            held = tomllib.loads("".join(lines[start:stop])).get("mcp_servers")
+        except tomllib.TOMLDecodeError:
+            held = None
+        ours |= set(held) if isinstance(held, dict) else set()
+        head, tail = "".join(lines[:start]), "".join(lines[stop:]).lstrip("\n")
         text = head + block + ("\n" + tail if tail else "")
-    elif start != -1 or stop != -1:
-        raise config.Error(f"{path} has half of the agentkit block; repair or delete "
-                           f"the lines between {BEGIN!r} and {END!r} and run this again")
     else:
-        parsed = tomllib.loads(raw) if raw else {}
-        clash = sorted(set(parsed.get("mcp_servers", {})) & set(servers))
+        clash = sorted(set(before.get("mcp_servers", {})) & set(servers))
         if clash:
             raise config.Error(f"{path} already defines mcp_servers."
                                f"{', mcp_servers.'.join(clash)} outside the agentkit block; "
@@ -403,10 +414,24 @@ def register_mcp(servers):
         raise config.Error(f"the block this would write does not parse: {exc}")
     if set(result.get("mcp_servers", {})) < set(servers):
         raise config.Error(f"{path}: the block did not take effect")
+    if _outside(result, ours) != _outside(before, ours):
+        raise config.Error(f"{path}: registering would change settings outside the agentkit "
+                           f"block, so nothing was changed; move them out from between "
+                           f"{BEGIN!r} and {END!r} and run this again")
     if text == raw:
         return f"already registered in {path}"
     _replace(path, text)
     return f"registered in {path}"
+
+
+def _outside(data, names):
+    """A parsed config less the MCP servers in `names`: what registering them leaves alone."""
+    servers = data.get("mcp_servers")
+    if not isinstance(servers, dict):
+        return data
+    kept = {name: entry for name, entry in servers.items() if name not in names}
+    rest = {key: value for key, value in data.items() if key != "mcp_servers"}
+    return {**rest, "mcp_servers": kept} if kept else rest
 
 
 def _replace(path, text, mode=0o600):
