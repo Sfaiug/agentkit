@@ -607,6 +607,212 @@ class RulebookNews(Sandbox):
         self.said_read(notice)
         self.assertEqual(self.prompt(), "")
 
+    def git(self, cwd, *args):
+        return subprocess.run(["git", "-C", str(cwd), "-c", "user.name=Acme", "-c",
+                               "user.email=acme@example.com", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def test_a_seat_reads_its_project_s_merged_agents_md_and_is_told_when_a_merge_changes_it(self):
+        git = self.git
+        upstream, checkout = self.root / "acme-origin", self.root / "acme"
+        git(self.root, "init", "-q", "-b", "main", str(upstream))
+        (upstream / "AGENTS.md").write_text("---\ntests: python3 acme_gate.py\n---\n# Acme\n\nAcme rule one.\n")
+        git(upstream, "add", "AGENTS.md")
+        git(upstream, "commit", "-qm", "rules")
+        git(self.root, "clone", "-q", str(upstream), str(checkout))
+        config.update_session(SEAT, repo=str(checkout))
+        self.handed(config.seat_rulebook(SEAT))
+        self.assertIn("Acme rule one.", config.seat_rulebook(SEAT))
+        self.assertNotIn("acme_gate", config.seat_rulebook(SEAT))
+        (checkout / "AGENTS.md").write_text("Acme draft nobody merged.\n")
+        self.assertEqual(self.prompt(), "")
+        # merged upstream, and nothing else fetches it: the tick's pass does; a section the
+        # rulebook also holds, in a fenced template here, is carried as committed
+        held = next(part for part in re.split(r"(?m)^(?=## )", config.rulebook_text())
+                    if part.startswith("## "))
+        rules = f"# Acme\n\nAcme rule two. Every README holds:\n\n```markdown\n{held.strip()}\n```\n"
+        (upstream / "AGENTS.md").write_text(rules)
+        git(upstream, "commit", "-qam", "rule two")
+        self.assertEqual(self.prompt(), "")
+        orch.fetch_projects()
+        self.assertIn(TOLD, self.prompt())
+        told = self.rules().read_text()
+        self.assertIn(rules.strip(), told)
+        self.assertNotIn("Acme draft", told)
+
+    def test_the_tick_reads_origin_s_current_default_branch_whatever_the_checkout_holds(self):
+        git = self.git
+        for layout in ("pushed, never cloned", "no tracking ref", "one branch followed",
+                       "default moved", "a branch named origin/HEAD"):
+            with self.subTest(layout):
+                root = self.root / layout.replace(" ", "-").replace("/", "-")
+                upstream, checkout = root / "acme-origin.git", root / "acme"
+                other = root / "acme-elsewhere"
+                git(self.root, "init", "-q", "--bare", "-b", "main", str(upstream))
+                git(self.root, "clone", "-q", str(upstream), str(other))
+                (other / "AGENTS.md").write_text("# Acme\n\nAcme policy one.\n")
+                git(other, "add", "AGENTS.md")
+                git(other, "commit", "-qm", "rules")
+                git(other, "push", "-q", "origin", "HEAD:main")
+                if layout == "pushed, never cloned":
+                    git(self.root, "init", "-q", "-b", "main", str(checkout))
+                    git(checkout, "remote", "add", "origin", str(upstream))
+                    git(checkout, "fetch", "-q", "origin", "main:refs/remotes/origin/main")
+                else:
+                    git(self.root, "clone", "-q", str(upstream), str(checkout))
+                if layout == "no tracking ref":
+                    git(checkout, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+                    git(checkout, "update-ref", "-d", "refs/remotes/origin/main")
+                if layout == "one branch followed":
+                    git(checkout, "config", "remote.origin.fetch",
+                        "+refs/heads/dev:refs/remotes/origin/dev")
+                if layout == "a branch named origin/HEAD":
+                    git(checkout, "checkout", "-qb", "draft")
+                    (checkout / "AGENTS.md").write_text("# Acme\n\nAcme draft policy.\n")
+                    git(checkout, "commit", "-qam", "draft rules")
+                    git(checkout, "branch", "origin/HEAD")   # what the short name finds first
+                # merged since, from elsewhere -- on a new default branch where origin moved it
+                (other / "AGENTS.md").write_text("# Acme\n\nAcme policy two.\n")
+                git(other, "commit", "-qam", "rule two")
+                if layout == "default moved":
+                    git(other, "push", "-q", "origin", "HEAD:release")
+                    git(upstream, "symbolic-ref", "HEAD", "refs/heads/release")
+                else:
+                    git(other, "push", "-q", "origin", "HEAD:main")
+                config.update_session(SEAT, repo=str(checkout))
+                orch.fetch_projects()
+                book = config.seat_rulebook(SEAT)
+                self.assertIn("Acme policy two.", book)
+                self.assertNotIn("Acme policy one.", book)
+                self.assertNotIn("Acme draft policy.", book)
+
+    def test_a_project_the_tick_cannot_fetch_is_named_after_every_other_is_fetched(self):
+        git = self.git
+        upstream, checkout = self.root / "acme-origin", self.root / "z-acme"
+        git(self.root, "init", "-q", "-b", "main", str(upstream))
+        (upstream / "AGENTS.md").write_text("# Acme\n\nAcme policy one.\n")
+        git(upstream, "add", "AGENTS.md")
+        git(upstream, "commit", "-qm", "rules")
+        git(self.root, "clone", "-q", str(upstream), str(checkout))
+        (upstream / "AGENTS.md").write_text("# Acme\n\nAcme policy two.\n")
+        git(upstream, "commit", "-qam", "rule two")
+        broken = self.root / "a-acme-archived"          # sorted first, and no repository
+        broken.mkdir()
+        gone = self.root / "b-acme-gone"                # its directory deleted since
+        config.update_session(SEAT, repo=str(checkout))
+        for name, path in (("acme-archived", broken), ("acme-gone", gone)):
+            config.save_session(self.cfg, name, "opus", ["astra"],
+                                {"cwd": str(path), "repo": str(path), **OWNED})
+        with self.assertRaisesRegex(config.Error, "a-acme-archived.*; .*b-acme-gone"):
+            orch.fetch_projects()
+        self.assertIn("Acme policy two.", config.seat_rulebook(SEAT))
+
+    def test_a_project_whose_name_ends_in_whitespace_is_read_and_fetched(self):
+        git = self.git
+        upstream = self.root / "acme-origin"
+        git(self.root, "init", "-q", "-b", "main", str(upstream))
+        (upstream / "AGENTS.md").write_text("# Acme\n\nAcme policy one.\n")
+        git(upstream, "add", "AGENTS.md")
+        git(upstream, "commit", "-qm", "rules")
+        for name in ("acme ", "acme\t", "acme\n"):
+            with self.subTest(repr(name)):
+                checkout = self.root / name
+                git(self.root, "clone", "-q", str(upstream), str(checkout))
+                (upstream / "AGENTS.md").write_text(f"# Acme\n\nAcme policy for {name!r}.\n")
+                git(upstream, "commit", "-qam", "rule two")
+                config.update_session(SEAT, repo=str(checkout))
+                orch.fetch_projects()
+                self.assertIn(f"Acme policy for {name!r}.", config.seat_rulebook(SEAT))
+
+    def test_a_project_whose_repository_is_gone_gets_neither_a_parent_s_rules_nor_fetch(self):
+        git = self.git
+        for layout in (".git moved away", ".git emptied", "parent named with a colon"):
+            with self.subTest(layout):
+                root = self.root / layout.replace(" ", "-")
+                hub = root / ("acme:hub" if "colon" in layout else "acme-hub")
+                upstream, elsewhere = root / "acme-hub-origin.git", root / "acme-hub-elsewhere"
+                child = hub / "acme-archived"
+                git(self.root, "init", "-q", "--bare", "-b", "main", str(upstream))
+                git(self.root, "clone", "-q", str(upstream), str(hub))
+                (hub / "AGENTS.md").write_text("Acme hub rule.\n")
+                child.mkdir()
+                (child / "AGENTS.md").write_text("Acme archived rule.\n")
+                git(hub, "add", ".")
+                git(hub, "commit", "-qm", "hub rules")
+                git(hub, "push", "-q", "origin", "main")
+                git(hub, "remote", "set-head", "origin", "--auto")   # what a seat reads
+                git(self.root, "clone", "-q", str(upstream), str(elsewhere))
+                git(elsewhere, "commit", "-q", "--allow-empty", "-m", "merged since")
+                git(elsewhere, "push", "-q", "origin", "main")
+                git(child, "init", "-q", "-b", "main")
+                git(child, "add", "AGENTS.md")
+                git(child, "commit", "-qm", "own rules")
+                (child / ".git").rename(root / "acme-archived.git")
+                if layout == ".git emptied":
+                    (child / ".git").mkdir()
+                fetched = git(hub, "rev-parse", "refs/remotes/origin/main")
+                config.update_session(SEAT, repo=str(child))
+                with self.assertRaisesRegex(config.Error, "acme-archived"):
+                    orch.fetch_projects()
+                self.assertEqual(git(hub, "rev-parse", "refs/remotes/origin/main"), fetched)
+                book = config.seat_rulebook(SEAT)
+                self.assertNotIn("Acme hub rule.", book)
+                self.assertNotIn("Acme archived rule.", book)
+
+    def test_a_repository_named_by_inherited_git_variables_is_never_read_or_fetched(self):
+        git = self.git
+        clones = {}
+        for name in ("acme", "acme-other"):
+            upstream, checkout = self.root / f"{name}-origin", self.root / name
+            git(self.root, "init", "-q", "-b", "main", str(upstream))
+            (upstream / "AGENTS.md").write_text(f"# {name}\n\n{name} policy one.\n")
+            git(upstream, "add", "AGENTS.md")
+            git(upstream, "commit", "-qm", "rules")
+            git(self.root, "clone", "-q", str(upstream), str(checkout))
+            (upstream / "AGENTS.md").write_text(f"# {name}\n\n{name} policy two.\n")
+            git(upstream, "commit", "-qam", "rule two")
+            clones[name] = checkout
+        other = clones["acme-other"]
+        before = git(other, "rev-parse", "refs/remotes/origin/main")
+        config.update_session(SEAT, repo=str(clones["acme"]))
+        with patch.dict(os.environ, {"GIT_DIR": str(other / ".git"),
+                                     "GIT_COMMON_DIR": str(other / ".git"),
+                                     "GIT_WORK_TREE": str(other)}):
+            orch.fetch_projects()
+            book = config.seat_rulebook(SEAT)
+        self.assertIn("acme policy two.", book)
+        self.assertNotIn("acme-other", book)
+        self.assertEqual(git(other, "rev-parse", "refs/remotes/origin/main"), before)
+
+    def test_a_merge_fetched_while_the_rules_are_read_never_hands_a_link_s_text(self):
+        git = self.git
+        checkout = self.root / "acme"
+        git(self.root, "init", "-q", "-b", "main", str(checkout))
+        (checkout / "AGENTS.md").write_text("Acme merged rule.\n")
+        git(checkout, "add", "AGENTS.md")
+        git(checkout, "commit", "-qm", "rules")
+        regular = git(checkout, "rev-parse", "HEAD")
+        (checkout / "AGENTS.md").unlink()
+        (checkout / "AGENTS.md").symlink_to("acme-link-target")
+        git(checkout, "add", "AGENTS.md")
+        git(checkout, "commit", "-qm", "rules become a link")
+        linked = git(checkout, "rev-parse", "HEAD")
+        git(checkout, "update-ref", "refs/remotes/origin/main", regular)
+        git(checkout, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+        config.update_session(SEAT, repo=str(checkout))
+        real = subprocess.run
+
+        def fetched_meanwhile(argv, **kwargs):
+            done = real(argv, **kwargs)
+            if "ls-tree" in argv:
+                git(checkout, "update-ref", "refs/remotes/origin/main", linked)
+            return done
+
+        with patch.object(subprocess, "run", side_effect=fetched_meanwhile):
+            book = config.seat_rulebook(SEAT)
+        self.assertIn("Acme merged rule.", book)
+        self.assertNotIn("acme-link-target", book)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

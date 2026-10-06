@@ -17,6 +17,7 @@ import hashlib
 import io
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -130,6 +131,60 @@ class DryRun(unittest.TestCase):
         notice.write_text('{"kind": "question", "summary": "merge acme?"}\n')
         self.dry_run(["acme-fix"], "acme-fix")
         self.assertEqual(notice.read_text(), '{"kind": "question", "summary": "merge acme?"}\n')
+
+    def test_every_launch_of_a_seat_in_a_project_carries_its_rules_as_merged_now(self):
+        def git(cwd, *args):
+            subprocess.run(["git", "-C", str(cwd), "-c", "user.name=Acme", "-c",
+                            "user.email=acme@example.com", *args], check=True, capture_output=True)
+
+        # a checkout pushed to its origin, never cloned from it, has no origin/HEAD; a merge
+        # made from elsewhere since is in no ref here until something fetches it
+        upstream, checkout = config.CODE / "acme-origin.git", config.CODE / "acme"
+        other = config.CODE.parent / "acme-elsewhere"
+        git(config.CODE.parent, "init", "-q", "--bare", "-b", "main", str(upstream))
+        git(config.CODE.parent, "init", "-q", "-b", "main", str(checkout))
+        (checkout / "AGENTS.md").write_text("# Acme\n\nAcme release policy one.\n")
+        git(checkout, "add", "AGENTS.md")
+        git(checkout, "commit", "-qm", "rules")
+        git(checkout, "remote", "add", "origin", str(upstream))
+        git(checkout, "push", "-qu", "origin", "main")
+        git(config.CODE.parent, "clone", "-q", str(upstream), str(other))
+
+        def merged(policy):
+            (other / "AGENTS.md").write_text(f"# Acme\n\nAcme release policy {policy}.\n")
+            git(other, "commit", "-qam", f"rule {policy}")
+            git(other, "push", "-q", "origin", "main")
+            return f"Acme release policy {policy}."
+
+        def handed(policy):
+            rules = config.rulebook_path("acme-fix").read_text()
+            self.assertIn(policy, rules)
+            self.assertEqual(rules.count("Acme release policy"), 1)
+
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(checkout)
+        policy = merged("two")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.main(["acme-fix"]), 0)
+        self.assertEqual(orch.records()["acme-fix"]["repo"], str(checkout))
+        handed(policy)
+        # a new seat by that name whose launch fails leaves the record it had as it was
+        before = config.session_path("acme-fix").read_bytes()
+        with patch.object(orch, "fresh_command", side_effect=config.Error("no harness")), \
+                redirect_stdout(io.StringIO()), self.assertRaisesRegex(config.Error, "no harness"):
+            orch.main(["acme-fix", "--model", "gemini"])
+        self.assertEqual(config.session_path("acme-fix").read_bytes(), before)
+        # reopened, and moved to another model: each launch fetches what was merged since
+        cfg = config.load()
+        with patch.object(config, "harness_binary", return_value="/bin/true"), \
+                redirect_stdout(io.StringIO()):
+            policy = merged("three")
+            RESUME(cfg, "acme-fix", hand_over=False)
+            handed(policy)
+            policy = merged("four")
+            other_model = "mimo" if orch.records()["acme-fix"]["orchestrator"] != "mimo" else "opus"
+            self.assertEqual(orch.switch_orchestrator(cfg, "acme-fix", other_model, providers={}), "")
+            handed(policy)
 
 
 if __name__ == "__main__":

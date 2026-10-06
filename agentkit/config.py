@@ -41,6 +41,7 @@ RUN_DIR_ENV = "AGENTKIT_RUN_DIR"
 ADAPTER_DIR_ENV = "AGENTKIT_ADAPTER_DIR"   # adapters/ elsewhere: the offline smoke checks
 SESSION_ENV = "AGENTKIT_SESSION"
 RULEBOOK_DIR_ENV = "AGENTKIT_RULEBOOK_DIR"  # a dry run's: where rulebook.py writes instead of STATE
+SEAT_REPO_ENV = "AGENTKIT_SEAT_REPO"      # a new seat's project, for rulebook.py: no record yet
 ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of a provider's `accounts` an adapter call is for
 DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
 KEPT_LOGINS = "kept-logins.json"           # under STATE: the logins `− remove` left on disk
@@ -1229,11 +1230,22 @@ def rulebook_text():
     return f"{body.rstrip()}\n\n{local}" if local.strip() else body
 
 
-def seat_rulebook(session):
-    """What `session`'s rulebook file holds when it opens now: `rulebook_text`, and an unnamed
-    seat's instruction to name itself."""
+def seat_rulebook(session, repo=None):
+    """What `session`'s rulebook file holds when it opens now: `rulebook_text`, the AGENTS.md of
+    the project it is filed under -- `repo`, else its record's -- as on that project's default
+    branch: what its workers get, as its launch or the tick last fetched it
+    (`orch.fetch_project`); and an unnamed seat's instruction to name itself."""
+    from . import run
     body = rulebook_text()
-    if session_records().get(session, {}).get("unnamed"):
+    record = session_records().get(session, {})
+    repo = record.get("repo") if repo is None else repo
+    # the full name: a branch or tag called origin/HEAD would win the short one
+    project = run.agents_body(repo, "refs/remotes/origin/HEAD")
+    if project:
+        body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
+                "the project this session is filed under, as on its default branch: its workers "
+                f"get the same.\n\n{project}\n")
+    if record.get("unnamed"):
         body = (f"{body.rstrip()}\n\nThis seat is unnamed. As soon as the conversation tells you "
                 "what the job is, name this seat with `ak orch rename --auto <name>`. Choose the "
                 "shortest possible name, at most three words, saying what the work is.\n")
