@@ -816,7 +816,7 @@ def resolve_session(name):
         from . import orch
         name = orch.session_name(name)
     seen = [name]
-    for _ in range(RENAME_HOPS):
+    for _ in range(RENAME_HOPS + 1):    # RENAME_HOPS renames, then the name after the last
         data = _read_json(session_path(name))
         if not isinstance(data, dict) or not isinstance(data.get("renamed"), str):
             return name
