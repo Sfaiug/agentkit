@@ -250,7 +250,9 @@ A merged run's worktree and local branch go with the merge. A stop takes both at
 after seven days. A failed, blocked or errored checkout goes when its seat has been told or after seven days, unless a
 resume can take it; its local branch stays until the 30-day removal, because a run that never pushed holds its only copy
 there. A pass whose delivery ended without a merge loses its checkout after seven days, its branch kept, and a checkout
-with no run record goes after a day. A run directory older than 30 days goes whole, with its checkout and branch, unless
+with no run record goes after a day: the line's detached scratch whatever it holds, any other only as a worktree of a
+repository outside it holding its commit and nothing more, so a seat's checkout with a change not committed, a clone and
+a checkout git cannot read stay. A run directory older than 30 days goes whole, with its checkout and branch, unless
 the session that launched it still exists; a scratch run's workspace goes only with it. `~/.agentkit/tmp` entries older
 than a day go, owned `/tmp` entries untouched for two days go and a gone Claude session's scratch folder after a day, a repository `TMPDIR` directly under `/var/tmp` like `/tmp` itself,
 finished jobs after a week, and a state file named for a seat with no record, or an idle-compact stamp

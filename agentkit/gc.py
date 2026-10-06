@@ -7,13 +7,16 @@ supply their temporary-folder rules.
 from contextlib import nullcontext
 from datetime import datetime
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 from . import config, host, job as jobs, orch, proc_snapshot, record, retention, run, worktrees
@@ -356,9 +359,10 @@ def leftovers():
 def stale_worktree(wt, now, paths, left):
     """The collector's item for a checkout under ~/.agentkit/wt nothing comes back for, or None.
 
-    One whose run left no record, a day old: a smoke suite's, whose record went with its
-    sandbox, or one whose run never wrote its `run.json` -- unless one is being written or
-    somebody is in the run's directory.  A record that cannot be read is still a record.
+    One whose run left no record, a day old: the line's scratch, a seat's own checkout, or
+    one whose run never wrote its `run.json` -- unless one is being written, somebody is in
+    the run's directory, or removing it could lose work (`holds_work`).  A record that
+    cannot be read is still a record.
     And a run that passed and whose delivery
     ended without a merge -- the merge failed, or none was asked for -- a week after it
     ended: its branch keeps the commits, and `from:` relaunches from it.  A pass whose
@@ -372,7 +376,8 @@ def stale_worktree(wt, now, paths, left):
     directory = config.RUNS / wt.name
     if not retention.present(directory / "run.json"):
         if (not record.writing(directory) and not retention.busy(directory, paths)
-                and retention.expired(wt.lstat().st_mtime, now, retention.EPHEMERAL_AGE)):
+                and retention.expired(wt.lstat().st_mtime, now, retention.EPHEMERAL_AGE)
+                and not holds_work(wt)):
             return {"action": "remove", "kind": "orphan-worktree", "path": str(wt),
                     "why": "no run record"}
         return None
@@ -387,6 +392,93 @@ def stale_worktree(wt, now, paths, left):
         return {"action": "remove", "kind": "unmerged-worktree", "path": str(wt),
                 "why": f"passed, never merged, ended {int((now - finished) // 86400)} days ago"}
     return None
+
+
+def holds_work(wt):
+    """Whether removing a checkout no run owns could lose work.
+
+    A seat builds on a branch, in a worktree of a repository outside the checkout that
+    keeps its branches and commits when the checkout goes: it holds no work once it holds
+    its commit and nothing more (`same_as_commit`).  A detached worktree is the line's
+    scratch, left by a killed lander: its output is nobody's.  Anything else holds work, or
+    may: a clone, a worktree whose repository lies inside it, and a checkout git cannot read.
+    """
+    dirs = orch.git_dirs(wt)
+    if not dirs or not dirs[1] or dirs[0].is_relative_to(wt.resolve()):
+        return True
+    code, _ = git_in(wt, "symbolic-ref", "-q", "HEAD")
+    return code != 1 and (code != 0 or not same_as_commit(wt))
+
+
+def git_in(wt, *args, env=None):
+    """(exit code, output) of git run in a checkout, the code None when it could not run.
+
+    Git looks for the repository in the checkout alone, never above it, and nothing of
+    git's own environment (`GIT_*`) comes along: an inherited repository, index, object
+    store or setting would answer for another checkout."""
+    clean = {name: value for name, value in run.tool_env().items() if not name.startswith("GIT_")}
+    clean["GIT_CEILING_DIRECTORIES"] = os.fspath(wt.parent)
+    try:
+        proc = subprocess.run(["git", *args], cwd=wt, capture_output=True,
+                              stdin=subprocess.DEVNULL, timeout=600, env={**clean, **(env or {})})
+    except (OSError, subprocess.TimeoutExpired):
+        return None, b""
+    return proc.returncode, proc.stdout
+
+
+def same_as_commit(wt):
+    """Whether a checkout holds its head commit and nothing more: its index lists exactly
+    the commit's files, each file in it hashes to the commit's blob, read raw (no filter,
+    line ending or replacement object stands in between), git finds no new file beside
+    them, and the checkout keeps no ref of its own -- `refs/worktree`, a bisect's or a
+    rebase's -- that would go with it.  What git ignores is output, not work.  A submodule,
+    whose own commits only it may hold, keeps the checkout."""
+    git = ["--no-replace-objects", f"--work-tree={wt}", "--no-optional-locks",
+           "-c", "core.ignoreCase=false", "-c", "core.fsmonitor=false",
+           "-c", "core.untrackedCache=false"]
+    def ask(*args, env=None):
+        code, out = git_in(wt, *git, *args, env=env)
+        return out if code == 0 else None
+    head = ask("rev-parse", "-q", "--verify", "HEAD^{commit}")
+    if head is None:
+        return False
+    head = head.strip().decode()
+    fmt, tree, index = (ask("rev-parse", "--show-object-format"),
+                        ask("ls-tree", "-r", "-z", "--full-tree", head), ask("ls-files", "-s", "-z"))
+    if (fmt is None or tree is None or index is None or ask(
+            "for-each-ref", "--format=%(refname)", "refs/worktree", "refs/bisect",
+            "refs/rewritten") != b""):
+        return False
+    # `<mode> blob <oid>\t<path>` and `<mode> <oid> <stage>\t<path>`, both by path
+    files = {path: (meta.split()[0], meta.split()[2])
+             for meta, _, path in (entry.partition(b"\t") for entry in tree.split(b"\0") if entry)}
+    staged = {path: (meta.split()[0], meta.split()[1], meta.split()[2])
+              for meta, _, path in (entry.partition(b"\t") for entry in index.split(b"\0") if entry)}
+    if staged != {path: (mode, oid, b"0") for path, (mode, oid) in files.items()}:
+        return False
+    for path, (mode, oid) in files.items():
+        full = os.path.join(os.fsencode(wt), path)
+        try:
+            info = os.lstat(full)
+            if mode == b"120000" and stat.S_ISLNK(info.st_mode):
+                data = os.readlink(full)
+            elif (mode in (b"100644", b"100755") and stat.S_ISREG(info.st_mode)
+                    and bool(info.st_mode & 0o111) == (mode == b"100755")):
+                with open(full, "rb") as handle:
+                    data = handle.read()
+            else:                                # a submodule, or a changed kind of entry
+                return False
+        except OSError:
+            return False
+        digest = hashlib.new(fmt.decode().strip(), b"blob %d\0" % len(data) + data)
+        if digest.hexdigest().encode() != oid:
+            return False
+    with tempfile.TemporaryDirectory() as scratch:
+        env = {"GIT_INDEX_FILE": os.path.join(scratch, "index")}
+        if ask("read-tree", head, env=env) is None:
+            return False
+        new = ask("ls-files", "--others", "--exclude-standard", "-z", env=env)
+    return new == b""
 
 
 def stale_worktrees(now, paths):
