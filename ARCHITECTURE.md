@@ -62,7 +62,8 @@
   Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
 - `retire.py`: the tick's pass that tells a seat on each project, once a day through
   `tell.queue`, every feature switch its list shows on for everyone for two weeks, to take
-  out of the code; `retire.json` (when each checkout was last told) under STATE. For watch. Leak: menu's `features_run`, `switch_rows` and `switches_command`.
+  out of the code; `retire.json` (when each checkout was last told) under STATE. For watch.
+  Leak: menu's `features_run`, `switch_rows` and `switches_command`.
 - `tell.py`: `ak tell`, one seat's message to another for every harness: queued in the
   receiver's `tell` seat file under the seat's own lock, typed only by the tick through
   `watch.type_at_prompt`, its receipt naming `seat:<sender>`, or `ak` for ak's own line
