@@ -34,9 +34,10 @@ them.  Like the tmux guard, this catches the merge a seat reflexively types, not
 to get round it; out of reach, by design: merging through gh's API (`gh api ... pulls/N/merge`, or a
 GraphQL `mergePullRequest`), a user's gh alias for `pr merge`, and gh reached by an absolute path.
 
-Every shim runs through `agentkit.shim` (which imports the guard lazily, so a guard it cannot
-import stops no seat's command), and `install_shim` links each `tools/<name>-shim` as
-`<HOME>/bin/<name>`, so a new shim needs no change there.
+Every shim is one sh body, tools/shim (each `tools/<name>-shim` links to it, and `install_shim` links
+each as `<HOME>/bin/<name>`): it runs the real binary at once for a worker and for whatever runs
+seatless, and asks `main` here only for a seat's own call, so no hot call pays for a Python start.
+A new shim is a link to that body and an entry in `REFUSALS`.
 """
 
 import os
@@ -282,20 +283,20 @@ GIT_VALUED = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-e
               "--super-prefix", "--attr-source")
 
 
-def worktree_refusal(args, cwd):
+def worktree_refusal(args, git="git"):
     """Why a seat's git call (its argv after `git`) may not run, or None: a `git worktree add`
     whose new checkout lands in ~/code, which holds only the owner's checkouts (owner, 5 Oct) -- a
-    seat's goes under ~/.agentkit/wt.  The path is read as git reads it: from `cwd` and every
-    `-C` before the command, past `worktree add`'s options (`-b`, `-B` and `--reason` take a
-    value).  An alias of `worktree add`, or a git reached by its absolute path, passes."""
-    from . import worktrees
-    base, i = cwd, 0
+    seat's goes under ~/.agentkit/wt.  The path is read as git reads it: from the working directory
+    and every `-C` before the command, past `worktree add`'s options (`-b`, `-B` and `--reason`
+    take a value).  An alias of `worktree add`, or a git reached by its absolute path, passes."""
+    base, i = os.getcwd(), 0
     while i < len(args) and args[i].startswith("-"):
         if args[i] == "-C" and i + 1 < len(args):
             base = os.path.join(base, args[i + 1])
         i += 2 if args[i] in GIT_VALUED else 1
     if args[i:i + 2] != ["worktree", "add"]:
         return None
+    from . import worktrees        # only now: every seat's git call starts this guard
     rest, j = args[i + 2:], 0
     while j < len(rest) and rest[j].startswith("-") and rest[j] not in ("-", "--"):
         word, j = rest[j], j + 1
@@ -314,15 +315,18 @@ def worktree_refusal(args, cwd):
             f"`git worktree add ~/.agentkit/wt/<name> ...`.")
 
 
-REFUSED = 3            # an exit code Python itself never ends with: only a refusal stops git
+# What each shim asks: its refusal, called with the call's argv and the real binary's path.
+REFUSALS = {"tmux": refusal, "gh": gh_refusal, "git": worktree_refusal}
+REFUSED = 3            # an exit code Python itself never ends with: only a refusal stops a call
 
 
 def main(args):
-    """`python3 -m agentkit.guard git ARGS...`, tools/git-shim's guard for a seat (git is too hot
-    for a Python shim): `REFUSED` with the refusal, else 0 -- a guard that fails, or one that
-    will not even import, stops no seat's git."""
+    """`python3 -m agentkit.guard NAME REAL ARGS...`, from tools/shim for a seat's own call:
+    `REFUSED` with the refusal, else 0 -- a guard that fails, or one that will not even import,
+    stops no seat's command."""
     try:
-        reason = worktree_refusal(args[1:], os.getcwd()) if args[:1] == ["git"] else None
+        name, real, *rest = args
+        reason = REFUSALS[name](rest, real) if name in REFUSALS else None
     except Exception:
         reason = None
     if reason:

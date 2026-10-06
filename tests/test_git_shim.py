@@ -105,6 +105,25 @@ class GitShim(unittest.TestCase):
         self.assertEqual(ran.returncode, 0, ran.stderr)
         self.assertTrue((self.code / "acme-fix" / ".git").exists())
 
+    def test_the_guard_is_the_shims_own_not_the_checkout_the_seat_stands_in(self):
+        # A seat working on agentkit stands in a checkout whose own `agentkit` is older, or mid-edit:
+        # the shim still asks its own guard.
+        (self.repo / "agentkit").mkdir()
+        (self.repo / "agentkit" / "__init__.py").write_text("")
+        (self.repo / "agentkit" / "guard.py").write_text("import sys\nsys.exit(0)\n")
+        ran = self.git(self.repo, "worktree", "add", "-q", "../acme-fix", "-b", "fix")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        self.assertIn("ak refused `git worktree add", ran.stderr)
+        self.assertFalse((self.code / "acme-fix").exists())
+
+    def test_a_folder_named_git_on_path_is_no_git(self):
+        folder = self.home / "folder"
+        (folder / "git").mkdir(parents=True)
+        ran = self.git(self.repo, "--version",
+                       PATH=os.pathsep.join([str(self.shimdir), str(folder), *self.env["PATH"].split(os.pathsep)[1:]]))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertTrue(ran.stdout.startswith("git version"), ran.stdout)
+
     def test_the_shim_is_installed_as_git(self):
         with patch.object(config, "HOME", self.home / ".agentkit"):
             self.assertEqual((guard.install_shim() / "git").resolve(), SHIM.resolve())

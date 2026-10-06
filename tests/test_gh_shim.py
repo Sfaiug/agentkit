@@ -107,26 +107,25 @@ class GhShim(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("merge", ran)
 
-    def test_real_starts_after_the_shims_own_dir(self):
-        # a wrapper ahead of the shim (one that calls through to it) must never be chosen, or it
-        # loops; a wrapper between the shim and the real binary is chained
-        import sys as _sys
-        from unittest import mock
-        _sys.path.insert(0, str(REPO))
-        from agentkit import shim
+    def test_the_real_gh_is_the_first_after_the_shims_own_dir(self):
+        # a wrapper ahead of the shim that calls through to it is never chosen, or it would loop;
+        # one between the shim and the real gh is chosen, so it chains
         base = self.home / "chain"
-        shimd, ahead, wrap, reald = base / "s", base / "a", base / "w", base / "r"
-        for d in (shimd, ahead, wrap, reald):
+        ahead, wrap = base / "ahead", base / "wrap"
+        for d, body in ((ahead, f'exec "{self.shimdir / "gh"}" "$@"'), (wrap, "")):
             d.mkdir(parents=True)
-        (shimd / "gh").symlink_to(SHIM)
-        for d in (ahead, wrap, reald):
-            (d / "gh").write_text("#!/bin/sh\n")
+            (d / "gh").write_text(f'#!/bin/sh\necho {d.name} >> "$RAN_LOG"\n{body}\n')
             (d / "gh").chmod(0o755)
-        invoked = str(shimd / "gh")
-        with mock.patch.dict(os.environ, {"PATH": os.pathsep.join(map(str, (shimd, wrap, reald)))}):
-            self.assertEqual(shim.real("gh", invoked), str(wrap / "gh"))       # chains to the wrapper after it
-        with mock.patch.dict(os.environ, {"PATH": os.pathsep.join(map(str, (ahead, shimd, reald)))}):
-            self.assertEqual(shim.real("gh", invoked), str(reald / "gh"))      # skips the one ahead of it
+        path = os.environ.get("PATH", "")
+        result, ran = self.run_gh(["pr", "view", "7"], AGENTKIT_SESSION="",
+                                  PATH=os.pathsep.join(map(str, (self.shimdir, wrap, self.realdir, path))))
+        self.assertEqual((result.returncode, ran), (0, "wrap\n"))
+        self.ran.write_text("")
+        result = subprocess.run([str(ahead / "gh"), "pr", "view", "7"], capture_output=True, text=True,
+                                timeout=30, env={**self.env, "AGENTKIT_SESSION": "",
+                                                 "PATH": os.pathsep.join(map(str, (ahead, self.shimdir,
+                                                                                  self.realdir, path)))})
+        self.assertEqual((result.returncode, self.ran.read_text()), (0, "ahead\npr view 7\n"))
 
     def test_ak_s_own_gh_runs_seatless(self):
         # ak's git and gh go through run.tool_env, which drops the seat's name, so the gh shim

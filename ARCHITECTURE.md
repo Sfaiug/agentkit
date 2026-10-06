@@ -92,13 +92,10 @@
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye; a merged run writes its review follow-ups here.
 - `box.py`: credential masks, own temporary places and /run, PID teardown. `command`, `check`,
   `returncode`, `leftovers`; for worker and run.
-- `guard.py`: what a seat's tmux may not do (end, or type into, another seat; `refusal`, the `-t`
-  resolved by the real tmux), gh may not (`gh pr merge` from a seat; `gh_refusal`) and git may not
-  (`git worktree add` into ~/code; `worktree_refusal`), read from the final argv a `tools/*-shim`
-  hands it; `install_shim` links each as `<HOME>/bin/<name>`.
-- `shim.py`: the body every `tools/*-shim` runs -- find the real binary, engage only for a seat's
-  own by-hand call, ask `guard`, else exec the real one; imports `guard` lazily, so a guard that
-  cannot import still execs the real binary.
+- `guard.py`: what a seat's tmux may not do (end or type into another seat; `refusal`, the `-t`
+  resolved by the real tmux), gh may not (`gh pr merge`; `gh_refusal`) and git may not (`git
+  worktree add` into ~/code; `worktree_refusal`), from the argv `tools/shim` hands `main`, which
+  `REFUSALS` dispatches by tool; `install_shim` links each `tools/<name>-shim` as `<HOME>/bin/<name>`.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded
   evidence; worker names the channel; run replays proofs, weighs findings, drops disputes.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
@@ -155,11 +152,12 @@
   facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via config, run, stop and
   watch. `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leaks: the first
   two rebuild config.py's seat file names, and seat-state.sh its rename chain.
-- `tools/`: `*-shim`, each a thin entry point linked as `<HOME>/bin/<name>` first on a seat's PATH,
-  running `agentkit.shim` -- `tmux-shim` (refuses ending or typing into another seat) and `gh-shim`
-  (refuses a seat's `gh pr merge`) -- but `git-shim`, sh of its own because git is hot: it runs the
-  real git at once unless a seat's call names `worktree`, then asks `python3 -m agentkit.guard`
-  (refusing a `git worktree add` into ~/code); and, called by adapters:
+- `tools/`: `shim`, the one sh body of every PATH shim -- the real binary is the first on PATH after
+  the shim's own; a worker's or seatless call runs it at once (git is hot: no Python start), a
+  seat's own asks `python3 -m agentkit.guard`, and only its refusal code stops the call -- with
+  `tmux-shim` (refuses ending or typing into another seat), `gh-shim` (refuses a seat's `gh pr
+  merge`) and `git-shim` (refuses a `git worktree add` into ~/code) links to it, each linked as
+  `<HOME>/bin/<name>` first on a seat's PATH; and, called by adapters:
   `rulebook.py`, `idle-compact.py`, `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.

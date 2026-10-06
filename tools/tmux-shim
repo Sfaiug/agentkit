@@ -1,16 +1,1 @@
-#!/usr/bin/env python3
-"""A `tmux` first on a seat's PATH: refuse a call that ends or types into another seat, else run
-the real tmux.  It gets the final argv bash built, so there is no shell string to parse.
-
-The shim body is `agentkit.shim` (standard library only at import, the guard lazily, so a broken
-guard still execs the real tmux); this is the entry point PATH reaches.
-"""
-
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agentkit import shim
-
-if __name__ == "__main__":
-    sys.exit(shim.run("tmux", "refusal"))
+shim
