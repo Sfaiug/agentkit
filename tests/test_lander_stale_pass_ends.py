@@ -14,31 +14,44 @@ from agentkit import gate, land, record
 
 
 class StalePassEnds(fixture.LanderFixture, unittest.TestCase):
-    def test_a_pass_whose_line_changed_stops_checking(self):
+    def line(self):
         # One check fits, so the pass narrows: the deepest stack (red, behind broken),
-        # then the middle one, which is green.  A seat changes the last member's record
-        # during that check: no verdict of this pass can be written any more.
-        first = self.member("first", joined=1)
-        middle = self.member("middle", joined=2, **{"middle.txt": "m\n"})
-        broken = self.member("broken", joined=3, **{"broken.txt": "b\n"})
-        last = self.member("last", joined=4, **{"last.txt": "l\n"})
+        # then the middle one, which is green, then broken's own
+        members = [self.member("first", joined=1),
+                   self.member("middle", joined=2, **{"middle.txt": "m\n"}),
+                   self.member("broken", joined=3, **{"broken.txt": "b\n"}),
+                   self.member("last", joined=4, **{"last.txt": "l\n"})]
         self.advance()
+        return members
+
+    def checked_with_a_change_during(self, number, changed):
         inner = self.check
 
         def check(cmds, *args, **kw):
             answer = inner(cmds, *args, **kw)
-            if len(self.checks) == 2:
-                with record.record(last) as current:
+            if len(self.checks) == number:
+                with record.record(changed) as current:
                     current["error"] = "its seat pushed a new head"
             return answer
 
         with patch.object(gate, "derived_heavy_limit", return_value=1), \
                 patch.object(gate, "run_done_when", side_effect=check):
             land.check_line(self.turn)
+
+    def test_a_change_during_a_narrowing_check_starts_no_further_check(self):
+        *ahead, last = self.line()
+        self.checked_with_a_change_during(1, last)
+        self.assertEqual(len(self.checks), 1)
+        for directory in ahead:
+            self.assertEqual(set(self.wait(directory)), {"line", "joined"})
+        self.wake.assert_not_called()
+
+    def test_a_change_before_a_verdict_writes_none_and_stops(self):
+        *ahead, last = self.line()
+        self.checked_with_a_change_during(2, last)
         self.assertEqual(len(self.checks), 2)
-        for directory in (first, middle, broken):
-            self.assertNotIn("land", self.wait(directory))
-            self.assertNotIn("fix", self.wait(directory))
+        for directory in ahead:
+            self.assertEqual(set(self.wait(directory)), {"line", "joined"})
         self.wake.assert_not_called()
 
 

@@ -278,10 +278,9 @@ def check_line(turn, log=lambda _: None):
                 if not valid:
                     return False
                 fresh = {member: answer for member, answer in answers.items() if member not in sent}
-                if not fresh:
-                    return True
                 # Delivery rewrites ownership and rebase receipts, but keeps the reviewed
                 # work and tested tree. Only an unwoken recipient must stay processless.
+                # No answers asks only whether the line is still the one this pass checks.
                 with ExitStack() as held:
                     for member, saved in prefix + candidates:
                         held.enter_context(record.recovery_lock(member))
@@ -306,6 +305,8 @@ def check_line(turn, log=lambda _: None):
                         if not same:
                             valid = False
                             return False
+                    if not fresh:
+                        return True
                     for member, answer in sorted(fresh.items(), key=lambda item: "land" in item[1]):
                         with record.record(member) as current:
                             current["waiting_on"] = {**current["waiting_on"], **answer}
@@ -590,6 +591,12 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 try:
                     decide()
                     while not rebuild and not target_red and not stale:
+                        if ready({}) is False:
+                            # The line changed under this pass: no check it starts now could
+                            # be written, so it starts none.
+                            stale = True
+                            log("the line changed during this pass; the next pass checks it afresh")
+                            break
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         if batched and unchecked:
