@@ -119,12 +119,14 @@ class StopPeerTurn(unittest.TestCase):
                 self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_a_line_told_with_ak_tell_opens_a_peer_turn(self):
-        """Headed as `ak tell` heads it, typed in or sent over Remote Control."""
-        for field in ("prompt", "message"):
-            with self.subTest(field=field):
+        """Headed as `ak tell` heads it, typed in or sent over Remote Control, from any seat name
+        a seat may have, a legacy one with a space in it too."""
+        for field, sender in (("prompt", "acme-fix-api"), ("message", "acme-fix-api"),
+                              ("prompt", "legacy name")):
+            with self.subTest(field=field, sender=sender):
                 self.setUp()
                 self.notified("done", self.done_at)
-                latch = self.prompt(tell.heading("acme-fix-api", time.time()) + NEWS, field)
+                latch = self.prompt(tell.heading(sender, time.time()) + NEWS, field)
                 self.assertTrue(latch["peer"])
                 self.assertEqual(self.stop(), "")
 

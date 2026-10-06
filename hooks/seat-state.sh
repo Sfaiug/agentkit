@@ -147,7 +147,7 @@ sys.exit(0 if passive else 1)
   peer=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
                | any(contains("<cross-session-message")
-                     or test("^\\s*\\[from seat \\S+ at [0-9]{2}:[0-9]{2}, not the owner; "))' \
+                     or test("^\\s*\\[from seat .+ at [0-9]{2}:[0-9]{2}, not the owner; "))' \
       <<<"$payload" >/dev/null 2>&1; then
     peer=true
   fi
