@@ -45,7 +45,7 @@ from urllib.parse import urlsplit
 from . import (browser, command_help, config, gc, host, notify, orch, statusbar, update, usage,
                worker)
 from . import record as run_record
-from .harness import LIMITED, SPENT, says
+from .harness import LIMITED, SPENT, entries, says
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
@@ -1916,7 +1916,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     return answer
 
 
-def hook_look(launched, heard=None, answered_at=None):
+def hook_look(launched, heard=None, answered_at=None, said=""):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
     hooks/seat-state.sh starts this in the background on every event it writes down -- a turn
@@ -1932,7 +1932,9 @@ def hook_look(launched, heard=None, answered_at=None):
     some other tmux, or a test's sandbox with a seat's name in its environment, never paints a
     real seat's bar with facts that are not that seat's. The owner's prompt timestamp travels
     through the same check before answering a question; waiting for its notice lock happens
-    here, off the harness's path.
+    here, off the harness's path.  A prompt `said` that is a line ak typed into the seat since
+    the question -- a hand-back, a wait notice -- is the seat's own news, never the owner's
+    answer: the harness's hook reports it as it reports the owner's words.
     """
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
@@ -1943,7 +1945,7 @@ def hook_look(launched, heard=None, answered_at=None):
             "display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}",
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
-    if answered_at is not None:
+    if answered_at is not None and not _typed_since_question(name, said):
         notify.answered(name, answered_at)
     cfg = config.load()
     answer = announce_state(session, cfg=cfg, look=True, number=number)
@@ -1953,6 +1955,17 @@ def hook_look(launched, heard=None, answered_at=None):
             return announce_state(session, cfg=cfg, look=True, number=number)
         time.sleep(0.1)
     return answer
+
+
+def _typed_since_question(name, said):
+    """Is `said` a line ak typed into that seat, by its typing receipts, since its open question
+    was asked?  The owner's own words ak relays (`source` owner) are theirs."""
+    asked = (notify.last(name) or {}).get("time")
+    said = re.sub(r"\s+", "", said or "")
+    return bool(said) and isinstance(asked, (int, float)) and any(
+        sent.get("source") != "owner" and isinstance(sent.get("at"), (int, float))
+        and sent["at"] >= asked and re.sub(r"\s+", "", str(sent.get("text") or "")) == said
+        for sent in entries(config.seat_file("input", name)))
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,

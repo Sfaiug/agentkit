@@ -180,6 +180,17 @@ class AnswerClosesQuestion(Sandbox):
         self.assertEqual(watch.session_state(name, session=self.seat, cfg=self.cfg)["reason"],
                          QUESTION)
 
+    def test_a_hand_back_typed_while_a_question_is_open_answers_nothing(self):
+        """review 20261007-0116: the harness's prompt hook reports a line ak typed as it
+        reports the owner's words; its typing receipt says whose it is."""
+        self.notice()
+        self.assertTrue(self.handback())
+        self.prompt(prompt=HANDBACK)
+        self.typed = []
+        self.assert_open()
+        self.prompt()                   # the owner's own words still answer it
+        self.assert_answered()
+
     def test_owner_prompt_answers_without_opening_through_ak(self):
         self.notice()
         self.prompt()
