@@ -31,8 +31,8 @@ TRANSIENT = tuple(map(Path, ("/run", "/tmp", "/var/tmp", "/dev/shm")))
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 
 
-def _links(root):
-    """Every link reachable from root, through linked directories too, each directory once.
+def _contents(root):
+    """Every path under root, through linked directories too, each directory once.
 
     A closed directory on the way raises PermissionError: what it holds is unknown."""
     found, seen, pending = [], set(), [Path(root)]
@@ -48,8 +48,7 @@ def _links(root):
             continue
         seen.add(real)
         for entry in entries:
-            if entry.is_symlink():
-                found.append(Path(entry.path))
+            found.append(Path(entry.path))
             try:
                 if entry.is_dir():
                     pending.append(Path(entry.path))
@@ -93,10 +92,7 @@ def _credentials(env, cwd, agent=None):
     places.update(root / "git/credentials" for root in configs)
     places.update(root / "hosts.yml" for root in gh)
     # A worker reaches no server: only the orchestrator's own shell holds SSH keys and agent.
-    for ssh in (home / ".ssh" for home in homes):
-        places.add(ssh)
-        # A key linked in from elsewhere stays readable at its target unless that is hidden too.
-        places.update(_links(ssh))
+    places.update(home / ".ssh" for home in homes)
     if agent:
         # The address is the caller's, so a relative one names a place in the caller's directory;
         # the box passes no address on, so nothing inside reads it any other way.
@@ -124,6 +120,9 @@ def _credentials(env, cwd, agent=None):
                 path = Path(value.replace("~/", str(env.get("HOME") or Path.home()) + "/", 1)
                             if value.startswith("~/") and not literal else value)
                 places.add(base / path)
+    # A masked folder's files and links must not gain another name in /run's copy.
+    for path in tuple(places):
+        places.update(_contents(path))
     return places
 
 
@@ -197,7 +196,19 @@ def _copy_run(source, destination, hidden):
     """Keep readable directories, links and files; let the kernel resolve their paths."""
     if source in hidden or any(parent in hidden for parent in source.parents):
         return
+    # Bind mounts and hard links can give the same credential another path.
+    hidden_ids = set()
+    for path in hidden:
+        try:
+            info = path.stat()
+        except OSError:
+            continue
+        hidden_ids.add((info.st_dev, info.st_ino))
     for directory, dirs, files, fd in os.fwalk(source):
+        info = os.fstat(fd)
+        if (info.st_dev, info.st_ino) in hidden_ids:
+            dirs.clear()
+            continue
         directory = Path(directory)
         # An out dir in /run must not copy its own growing scratch back into itself.
         # Credentials must never gain a second path on disk, even if the launcher dies.
@@ -211,7 +222,12 @@ def _copy_run(source, destination, hidden):
         target.mkdir(parents=True, exist_ok=True)
         for name in dirs + files:
             try:
-                mode = os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode
+                info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                if (info.st_dev, info.st_ino) in hidden_ids:
+                    if name in dirs:
+                        dirs.remove(name)
+                    continue
+                mode = info.st_mode
                 link = os.readlink(name, dir_fd=fd) if stat.S_ISLNK(mode) else None
             except OSError:
                 continue
@@ -227,7 +243,8 @@ def _copy_run(source, destination, hidden):
                 except OSError:
                     continue
                 with os.fdopen(opened, "rb") as readable:
-                    if stat.S_ISREG(os.fstat(opened).st_mode):
+                    info = os.fstat(opened)
+                    if stat.S_ISREG(info.st_mode) and (info.st_dev, info.st_ino) not in hidden_ids:
                         with (target / name).open("wb") as copied:
                             while True:
                                 try:
