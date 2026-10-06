@@ -326,24 +326,32 @@ def check_line(turn, log=lambda _: None):
                 prefix.append((directory, state))
 
 
-def _check(directory, state, scratch, cmds, log_path, log):
-    from . import gate, run
+def _check(directory, state, scratch, cmds, log_path, log, *, coverage=None):
+    """Run `cmds` on the pinned `scratch` commit. With `coverage` = (tree, base) a clean pass
+    also fails when the suite left unrun a test file `tree` adds to `base`, the tree its line
+    lands on (`suite_report.judge`)."""
+    from . import gate, run, suite_report
     identity = run.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
     # The checker takes a heavy turn without marking any member's record.
     context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
                "since": state["waiting_on"]["joined"], "line": state["waiting_on"]["line"]}
     suite = next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
-    with gate.gate_turn(None, log_path, log, suite, scratch, context=context):
+    with (gate.gate_turn(None, log_path, log, suite, scratch, context=context),
+          gate.test_report() as report):
         ok, text = gate.run_done_when(
             cmds, scratch, log_path, set(),
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True)
-    if (not clean or run.commit_identity(scratch) != identity
-            or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
-        ok = False
-        text += ("\n\nCheckout changed during the final check; "
-                 "these commands do not verify the pinned commit.")
+        if (not clean or run.commit_identity(scratch) != identity
+                or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
+            ok = False
+            text += ("\n\nCheckout changed during the final check; "
+                     "these commands do not verify the pinned commit.")
+        elif ok and coverage:
+            failure = suite_report.judge(scratch, report, *coverage)
+            if failure:
+                ok, text = False, f"{text}\n\n{failure}"
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
     log_path.write_text(text)
     return ok, text
@@ -394,10 +402,10 @@ def _landing_checks(directory, state, scratch, tip):
     return tuple(task.group_commands(run.with_suite(cmds, scratch, ref=tip))[1])
 
 
-def _check_tree(directory, state, scratch, tree, checks, log):
+def _check_tree(directory, state, scratch, tree, checks, log, coverage):
     from . import run
     log_path = directory / f"lander-{tree}.log"
-    ok, text = _check(directory, state, scratch, list(checks), log_path, log)
+    ok, text = _check(directory, state, scratch, list(checks), log_path, log, coverage=coverage)
     return {"land": tree} if ok else {"fix": {"line": run.first_failure(text), "log": str(log_path)}}
 
 
@@ -454,6 +462,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                _landing_checks(member, saved, scratch, tip)))
             if not stacks:
                 break
+            # Each checked tree may leave unrun only what the tree the line lands on did.
+            base = prefix[-1][1]["waiting_on"]["land"] if prefix else target_tree
             suite = run.declared_suite(stacks[0][2], ref=tip)
             if limit is None:
                 limit = gate.whole_checks_that_fit(suite)
@@ -595,7 +605,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             if (tree, own) in active or len(running) >= limit:
                                 continue
                             checks = commands(index) if batched else own
-                            running[pool.submit(_check_tree, member, saved, scratch, tree, checks, log)] = index, checks
+                            running[pool.submit(_check_tree, member, saved, scratch, tree, checks, log,
+                                                (tree, base))] = index, checks
                             active.add((tree, own))
                         if not running:
                             break

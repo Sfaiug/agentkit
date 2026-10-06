@@ -43,6 +43,8 @@
   worktree, keyed by its tree, and wakes parked members to land; only a red member
   leaves to fix itself or hand the failure to its PR's seat. Record changes and the tick
   start fresh passes in the runs slice. Run consumes verdicts and rejoins after fixes or a changed target.
+- `suite_report.py`: which test files a landing suite ran, from the JUnit XML it writes into
+  `AK_TEST_REPORT`, and whether it ran the ones a change adds. `judge` for land, `ENV` for gate.
 - `record.py`: run.json, stop-safe writes, recovery locks, defaults, folders, writer id,
   and the state words' groups (`ACTIVE`, `FAILED`, `ENDED`, `GOING`). `read_state`,
   `save_state`, `record`, `stop_check`, `process_active`, `writing`. For run, gate, job,

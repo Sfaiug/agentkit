@@ -33,7 +33,7 @@ from urllib.parse import quote, urlsplit
 
 from . import (box, command_help, config, gate, gc, hand_in, history, host, job as jobs,
                land as landing, notify, orch, record as run_record, retention, status,
-               task as taskfile, update, usage, watch, worker, worktrees)
+               suite_report, task as taskfile, update, usage, watch, worker, worktrees)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
@@ -141,7 +141,8 @@ BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
 # their say: none is a command's output, and reading one as such would make a failure that
 # never moved look new every round.  See `run_done_when`, `verify_work` and `final_check`.
 LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |outside files: "
-                       r"|AGENTS\.md (?:is|could not be read|must not|front matter has) )")
+                       r"|AGENTS\.md (?:is|could not be read|must not|front matter has) "
+                       f"|{re.escape(suite_report.NEVER_RAN)})")
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
@@ -3543,10 +3544,11 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
                     *(f":(literal){p}" for p in paths))
         run_record.stop_check(lp.run_dir)
         lp.log(f"--- review proof: checking {revision or 'workspace'}")
-        env = gate.suite_env()
-        env.pop(hand_in.ENV, None)
-        env.pop(hand_in.CONTINUE, None)
-        with tempfile.TemporaryDirectory(dir=lp.run_dir) as cache, log_path.open("w+b") as progress:
+        with (tempfile.TemporaryDirectory(dir=lp.run_dir) as cache, gate.test_report(),
+              log_path.open("w+b") as progress):
+            env = gate.suite_env()      # with a report directory, as every suite has
+            env.pop(hand_in.ENV, None)
+            env.pop(hand_in.CONTINUE, None)
             # Same-size revisions can share a timestamp, making ignored bytecode look valid.
             env["PYTHONPYCACHEPREFIX"] = cache
             progress.write(f"$ {command} (on {revision or 'workspace'})\n".encode())

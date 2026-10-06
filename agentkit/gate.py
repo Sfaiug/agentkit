@@ -18,8 +18,10 @@ from pathlib import Path
 from . import config, history, host, orch, run, watch, worker
 from . import land as landing
 from . import record as run_record
+from . import suite_report
 
 _GATE_HELD = threading.local()     # the gate turn this thread holds now, if any
+_REPORT = threading.local()        # the test report directory this thread's suites write to
 
 
 try:
@@ -909,9 +911,25 @@ def suite_env():
     env = run.run_child_env()
     env.pop("AK_HEAVY_TURN", None)
     env.pop("AK_SHARD", None)
+    env.pop(suite_report.ENV, None)
     if getattr(_GATE_HELD, "hold", None) is not None:
         env["AK_HEAVY_TURN"] = "1"
+    if getattr(_REPORT, "dir", None) is not None:
+        env[suite_report.ENV] = str(_REPORT.dir)
     return env
+
+
+@contextmanager
+def test_report():
+    """A fresh empty directory that suites this thread starts write their test reports into
+    (`AK_TEST_REPORT`); its path.  Gone once the block ends."""
+    before = getattr(_REPORT, "dir", None)
+    with tempfile.TemporaryDirectory(prefix="ak-test-report-") as fresh:
+        _REPORT.dir = fresh
+        try:
+            yield fresh
+        finally:
+            _REPORT.dir = before
 
 
 def busy_turn(run_dir, log_path, log, command=None, cwd=None):
@@ -992,11 +1010,12 @@ def check_suite_pieces():
     command = run.declared(Path.cwd(), "tests")
     if not command or not names_shard(command):
         raise SystemExit("The branch's tests: line must name AK_SHARD")
-    env = suite_env()
-    pieces = [subprocess.Popen(["bash", "-c", command],
-                              env={**env, "AK_SHARD": f"{index}/3"})
-              for index in range(1, 4)]
-    codes = [piece.wait() for piece in pieces]
+    with test_report():
+        env = suite_env()       # its pieces may write their reports, as at landing
+        pieces = [subprocess.Popen(["bash", "-c", command],
+                                  env={**env, "AK_SHARD": f"{index}/3"})
+                  for index in range(1, 4)]
+        codes = [piece.wait() for piece in pieces]
     raise SystemExit(int(any(codes)))
 
 
@@ -1097,8 +1116,13 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
-    all attempts share the command's ceiling, and live output identifies its piece.
+    all attempts share the command's ceiling, and live output identifies its piece. Every
+    suite gets a directory for its test report; only the lander keeps and reads it.
     """
+    if getattr(_REPORT, "dir", None) is None:
+        with test_report():
+            return run_suite(command, limit, cwd=cwd, activity=activity, output=output,
+                             run_dir=run_dir, log=log, on_wait=on_wait, measure=measure, **kwargs)
     env = suite_env()
     if not names_shard(command):
         path = suite_cost(command, cwd, run_dir)[0] if measure else None

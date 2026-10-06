@@ -28,6 +28,7 @@ import sys
 import tempfile
 import time
 import tokenize
+import xml.etree.ElementTree as ET
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
@@ -95,6 +96,11 @@ def import_errors(root):
 def cases_run(output):
     return sum(int(tally or explicit) for tally, explicit in re.findall(
         r"^Ran (\d+) tests? in [^\n]+$|^TESTS_RUN=(\d+)$", output, re.MULTILINE))
+
+
+def cases_skipped(output):
+    """Unittest's skipped tally: a file whose every case skipped ran no test."""
+    return sum(int(count) for count in re.findall(r"\bskipped=(\d+)", output))
 
 
 LIVE = 'if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then'
@@ -211,6 +217,24 @@ def save_time(path, took):
         pass  # A missing or unwritable cache must not stop the checks.
 
 
+def write_report(directory, number, total, ran, failed, skipped, smoke):
+    """JUnit XML for ak's landing rule that every test file runs (`AK_TEST_REPORT`).
+
+    smoke.sh's files count as run here because a landing only reads the report when the
+    whole suite passed, smoke.sh in every piece included.
+    """
+    suite = ET.Element("testsuite", name="tests", tests=str(len(ran) + len(smoke)))
+    for name in sorted(ran) + sorted(smoke):
+        case = ET.SubElement(suite, "testcase", classname="tests", name=Path(name).name,
+                             file=str(name))
+        if name in failed:
+            ET.SubElement(case, "failure", message="failed")
+        elif name in skipped:
+            ET.SubElement(case, "skipped", message="every case skipped")
+    ET.ElementTree(suite).write(Path(directory) / f"every-file-{number}-of-{total}.xml",
+                                encoding="utf-8", xml_declaration=True)
+
+
 def main(root, others=None):
     try:
         number, total = shard()
@@ -241,6 +265,7 @@ def main(root, others=None):
     pending = iter(todo)
     path = next(pending, None)
     began, again, failed, flaky, jobs = time.monotonic(), [], 0, 0, 0
+    failed_names, skipped_names = set(), set()
     with pycache, ThreadPoolExecutor(max(1, len(todo))) as pool:
         running = {}
         while path is not None or running:
@@ -251,6 +276,8 @@ def main(root, others=None):
                 code, out, took = done.result()
                 save_time(cache / name.name, took)
                 if code == 0 and cases_run(out) > 0:
+                    if cases_skipped(out) >= cases_run(out):
+                        skipped_names.add(name)
                     print(f"PASS  {name} ({took:.0f}s)", flush=True)
                 else:
                     again.append((name, out))
@@ -276,9 +303,12 @@ def main(root, others=None):
             code, rerun, took = run_file(root, root / name, env)
             if code == 0 and cases_run(rerun) > 0:
                 flaky += 1
+                if cases_skipped(rerun) >= cases_run(rerun):
+                    skipped_names.add(name)
                 print(f"flaky: {name} failed, then passed on its re-run")
             else:
                 failed += 1
+                failed_names.add(name)
                 out = rerun
                 reason = f"exit {code}" if code else "no tests ran"
                 print(f"FAIL  {name}: {reason} after {took:.0f}s, its last lines:")
@@ -286,6 +316,11 @@ def main(root, others=None):
     passed = f"{len(todo) - failed} passed" + (f" ({flaky} flaky)" if flaky else "")
     print(f"test files: {passed}, {failed} failed, {jobs} at once, "
           f"{time.monotonic() - began:.0f}s")
+    if os.environ.get("AK_TEST_REPORT"):
+        write_report(os.environ["AK_TEST_REPORT"], number, total,
+                     {path.relative_to(root) for path in todo}, failed_names, skipped_names,
+                     {Path("tests") / f"{stem}.py" for stem in skip
+                      if (tests / f"{stem}.py").is_file()})
     return 1 if failed else 0
 
 
