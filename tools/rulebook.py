@@ -38,7 +38,7 @@ def write(session):
     path = config.rulebook_path(session)
     if os.environ.get(config.RULEBOOK_DIR_ENV):
         path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
-    elif repo and Path(repo).is_dir():
+    elif repo:
         try:
             orch.fetch_project(Path(repo))
         except config.Error:

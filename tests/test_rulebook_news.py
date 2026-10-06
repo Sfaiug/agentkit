@@ -706,6 +706,63 @@ class RulebookNews(Sandbox):
             orch.fetch_projects()
         self.assertIn("Acme policy two.", config.seat_rulebook(SEAT))
 
+    def test_a_project_whose_repository_moved_away_gets_neither_its_parent_s_rules_nor_fetch(self):
+        git = self.git
+        upstream, hub = self.root / "acme-hub-origin.git", self.root / "acme-hub"
+        elsewhere, child = self.root / "acme-hub-elsewhere", hub / "acme-archived"
+        git(self.root, "init", "-q", "--bare", "-b", "main", str(upstream))
+        git(self.root, "clone", "-q", str(upstream), str(hub))
+        (hub / "AGENTS.md").write_text("Acme hub rule.\n")
+        child.mkdir()
+        (child / "AGENTS.md").write_text("Acme archived rule.\n")
+        git(hub, "add", ".")
+        git(hub, "commit", "-qm", "hub rules")
+        git(hub, "push", "-q", "origin", "main")
+        git(self.root, "clone", "-q", str(upstream), str(elsewhere))
+        git(elsewhere, "commit", "-q", "--allow-empty", "-m", "merged since")
+        git(elsewhere, "push", "-q", "origin", "main")
+        git(child, "init", "-q", "-b", "main")
+        git(child, "add", "AGENTS.md")
+        git(child, "commit", "-qm", "own rules")
+        (child / ".git").rename(self.root / "acme-archived.git")
+        fetched = git(hub, "rev-parse", "refs/remotes/origin/main")
+        config.update_session(SEAT, repo=str(child))
+        with self.assertRaisesRegex(config.Error, "acme-archived is not a repository of its own"):
+            orch.fetch_projects()
+        self.assertEqual(git(hub, "rev-parse", "refs/remotes/origin/main"), fetched)
+        book = config.seat_rulebook(SEAT)
+        self.assertNotIn("Acme hub rule.", book)
+        self.assertNotIn("Acme archived rule.", book)
+
+    def test_a_merge_fetched_while_the_rules_are_read_never_hands_a_link_s_text(self):
+        git = self.git
+        checkout = self.root / "acme"
+        git(self.root, "init", "-q", "-b", "main", str(checkout))
+        (checkout / "AGENTS.md").write_text("Acme merged rule.\n")
+        git(checkout, "add", "AGENTS.md")
+        git(checkout, "commit", "-qm", "rules")
+        regular = git(checkout, "rev-parse", "HEAD")
+        (checkout / "AGENTS.md").unlink()
+        (checkout / "AGENTS.md").symlink_to("acme-link-target")
+        git(checkout, "add", "AGENTS.md")
+        git(checkout, "commit", "-qm", "rules become a link")
+        linked = git(checkout, "rev-parse", "HEAD")
+        git(checkout, "update-ref", "refs/remotes/origin/main", regular)
+        git(checkout, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+        config.update_session(SEAT, repo=str(checkout))
+        real = subprocess.run
+
+        def fetched_meanwhile(argv, **kwargs):
+            done = real(argv, **kwargs)
+            if "ls-tree" in argv:
+                git(checkout, "update-ref", "refs/remotes/origin/main", linked)
+            return done
+
+        with patch.object(subprocess, "run", side_effect=fetched_meanwhile):
+            book = config.seat_rulebook(SEAT)
+        self.assertIn("Acme merged rule.", book)
+        self.assertNotIn("acme-link-target", book)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

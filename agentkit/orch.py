@@ -2139,8 +2139,11 @@ def fetch_project(repo):
     """Bring `repo`'s `origin/HEAD` -- what `config.seat_rulebook` reads -- up to origin's default
     branch as it is now: every branch fetched, as a run fetches before cutting its base, whatever
     the clone's own refspec follows, then `origin/HEAD` pointed again at the branch origin calls
-    default, created where the checkout has none and moved where origin changed it."""
+    default, created where the checkout has none and moved where origin changed it.  A
+    directory that is no longer a checkout of its own fetches nothing (`config.own_checkout`)."""
     from . import run
+    if not config.own_checkout(repo):
+        raise config.Error(f"{repo} is not a repository of its own")
     run.fetch(repo, "--quiet", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*",
               check=True)
     run.git(repo, "remote", "set-head", "origin", "--auto")

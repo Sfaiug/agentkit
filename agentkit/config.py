@@ -1248,12 +1248,30 @@ def agents_body(repo, ref):
                               timeout=60).stdout
 
     try:
-        text = (git("show", f"{ref}:AGENTS.md")
-                if git("ls-tree", ref, "--", "AGENTS.md").startswith("100") else "")
+        listed = git("ls-tree", ref, "--", "AGENTS.md").split()
+        # the blob the listing names, never `ref` read twice: a fetch between the two reads
+        # could put a link where the listing saw a file
+        text = (git("cat-file", "blob", listed[2])
+                if listed and listed[0].startswith("100") else "")
     except (OSError, subprocess.TimeoutExpired):
         return ""
     match = FRONT.match(text)
     return (text[match.end():] if match else text).strip()
+
+
+def own_checkout(repo):
+    """Whether `repo` is the top of a checkout of its own.  One whose `.git` was moved away
+    leaves git to find a parent directory's repository, whose rules and remote are another
+    project's."""
+    if not repo:
+        return False
+    try:
+        top = subprocess.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                             timeout=60).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return bool(top) and Path(top).resolve() == Path(repo).resolve()
 
 
 def seat_rulebook(session, repo=None):
@@ -1265,7 +1283,7 @@ def seat_rulebook(session, repo=None):
     record = session_records().get(session, {})
     repo = record.get("repo") if repo is None else repo
     # the full name: a branch or tag called origin/HEAD would win the short one
-    project = agents_body(repo, "refs/remotes/origin/HEAD")
+    project = agents_body(repo, "refs/remotes/origin/HEAD") if own_checkout(repo) else ""
     if project:
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "
