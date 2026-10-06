@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, notify, orch, run, watch, worker
+from agentkit import config, menu, notify, orch, run, watch, worker
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -329,6 +329,23 @@ class Wait(Sandbox):
             typed.assert_not_called()
         self.assertEqual(self.tick(), [])       # and nothing wakes it
         self.assertNotIn("told", watch.seat_read(SEAT)["wait"])
+        # a turn of its own in flight is still working: the question is news of the other's
+        self.turn(SEAT, "UserPromptSubmit")
+        self.assertEqual(self.decide()[0], "working")
+        self.turn(SEAT, "Stop")
+        # ... and a run of its own parked undecided still gets its nudge, as the stop hook
+        # sends that stop back
+        self.receipt("20260101-0800-parked", SEAT, state="interrupted", recovery_pending=True,
+                     interruption_reason="The run stopped before recording completion.")
+        watch.seat_write(SEAT, state="at_prompt", turn_began=now - 900, stop_said_at=now - 3600)
+        with patch.object(watch, "type_into", return_value=True) as typed, \
+                patch.object(watch, "pane_text", return_value=pane):
+            watch.stop_nudge(self.seats[SEAT], "muse", pane, None, menu.run_records(), False,
+                             lambda _line: None)
+            self.assertEqual(typed.call_count, 1)
+        record.save_state(config.RUNS / "20260101-0800-parked", {
+            **record.read_state(config.RUNS / "20260101-0800-parked"), "state": "pass",
+            "recovery_pending": False, "finished_at": NOW - 30})
         # ... until the other stops on anything else: it is told, as before
         with patch.dict(os.environ, {config.SESSION_ENV: OTHER}), \
                 redirect_stdout(io.StringIO()):

@@ -2050,14 +2050,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                   else " · ".join(parts))
         return {"word": "working", "reason": reason,
                 "since": min(starts) if starts else None}
-    # 2a. ... or it ended its turn on `ak wait`, and the session it named is working, or waits
-    # on his answer to its own question: then so does this one
+    # 2a. ... or it ended its turn on `ak wait`, and the session it named is working
     wait = waiting_on(name, records, at, cfg) if waits else None
     if wait and wait["word"] == "working":
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
-    if wait:
-        return {"word": "needs you", "since": wait["since"],
-                "reason": f"waiting on {wait['on']}, which asks you: {wait['reason']}"}
     # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
     # somebody is still in has a screen to read.  The parked run below keeps its
     # word for the quiet prompt, but a turn answering him outranks it: the other
@@ -2125,6 +2121,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         told = " ".join(restart.split()) if isinstance(restart, str) else ""
         return {"word": "needs you", "since": None,
                 "reason": f"{reason} · {told}" if told else reason}
+    # 4a. ... or its `ak wait` holds through the other session's question to him: his answer
+    # moves this one too.  Below its own turn, its own parked runs and its own closed seat,
+    # which are each news of its own.
+    if wait:
+        return {"word": "needs you", "since": wait["since"],
+                "reason": f"waiting on {wait['on']}, which asks you: {wait['reason']}"}
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
     # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
     # seat's own standing until a newer notice, but a question on its screen, or typed text
@@ -3129,7 +3131,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     wait = live.get("wait")
     if isinstance(wait, dict) and not wait.get("told"):
         found = wait_peer(name, wait, records)[1]
-        if found is not None and found["word"] != "working":
+        if found is not None and not wait_holds(found):
             return      # that session has stopped: tell_waits says so, and why, instead
     mine = []
     for run_dir, record in records:
