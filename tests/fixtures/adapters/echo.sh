@@ -4,8 +4,9 @@
 # The proof that adding one is an adapter pair and a config.toml line: every verb the contract
 # in docs/guide.md names, with agentkit planning a seat on it,
 # running a loop through it, showing its meter and listing it in an update plan -- and not one
-# line of Python anywhere for it.  Paired with echo.toml; used by tests/test_v5al.py and by
-# smoke check 46.  Nothing here reaches a network, a harness or the owner's files.
+# line of Python anywhere for it.  Paired with echo.toml; used by
+# tests/test_harness_is_a_plugin.py and by smoke check 46.  Nothing here reaches a network, a
+# harness or the owner's files.
 set -uo pipefail
 
 case "${1:-}" in

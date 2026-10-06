@@ -8,7 +8,8 @@ refuses nothing.  A test file only the jobs changing its behaviour name still
 refuses as before, and a queued receipt counts as a job like any other run.
 
 Offline: a temporary HOME with fabricated run records and a throwaway git
-repository; a live rival carries this process's own identity, as test_v5ad does.
+repository; a live rival carries this process's own identity, as
+test_run_under_way_starts_once does.
 """
 
 from contextlib import ExitStack

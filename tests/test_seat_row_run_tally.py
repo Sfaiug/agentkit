@@ -1,4 +1,4 @@
-"""v5g: every seat row says what it has done -- the tally of the runs it launched; offline.
+"""every seat row says what it has done -- the tally of the runs it launched; offline.
 
 Fixed fake seats and run.json records, the real renderer.  The clock is pinned so that the
 seven-day window has something on either side of it.
@@ -17,7 +17,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox
-from test_v5y import offline
+from test_seat_status_bar import offline
 from agentkit import config, menu, orch, run, terminal, watch
 from agentkit import record
 

@@ -1,4 +1,4 @@
-"""v5ai: the usage bars are one column at every width; offline.
+"""the usage bars are one column at every width; offline.
 
 Five providers where Claude carries ``Fable 41%``, ChatGPT is spent and says
 ``resets Mon 12:00`` and Muse's reading is 22 minutes old and says nothing of it -- Grok

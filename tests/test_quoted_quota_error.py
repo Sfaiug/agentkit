@@ -1,4 +1,4 @@
-"""agentkit v5ah: a quoted quota error never spends the real quota.
+"""a quoted quota error never spends the real quota.
 
 Offline: every test drives the real ``adapters/muse.sh`` with a fake ``muse``
 on ``PATH`` and ``HOME`` pointing at a temporary directory, so only the temp

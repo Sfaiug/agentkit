@@ -1,4 +1,4 @@
-"""v5p: a typed line waits out its composer, and proves it left.
+"""a typed line waits out its composer, and proves it left.
 
 Offline: `orch.tmux_out` is a fake recording an event log and serving a scripted pane,
 and `watch.time.sleep` only records its pauses.  The composer patterns and screen rules

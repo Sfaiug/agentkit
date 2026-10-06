@@ -1,4 +1,4 @@
-"""agentkit v5q: several task files are one job, independent ones at once. Offline."""
+"""several task files are one job, independent ones at once. Offline."""
 
 from contextlib import ExitStack, redirect_stdout
 import io

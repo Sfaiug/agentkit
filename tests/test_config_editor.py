@@ -3,10 +3,10 @@
 A temporary HOME holds config.toml and the secrets.  The matrix is driven in-process with
 `terminal.read_key` fed its keys and a keyboard that is always taken (tests/test_config_matrix.py
 drives it on a real pty); Discord reads lines through the patched `menu.read` seam, the way
-test_v5u drives the screens, and the meters are an empty reading.  What is pinned is the round
-trip: a mark writes the seat `fix-api`'s record and never `[defaults]`, effort steps within its
-model's own words, add writes a whole block off its three lists, Discord writes the two
-secrets, and Version asks no harness anything.
+test_one_way_back drives the screens, and the meters are an empty reading.  What is pinned is
+the round trip: a mark writes the seat `fix-api`'s record and never `[defaults]`, effort steps
+within its model's own words, add writes a whole block off its three lists, Discord writes the
+two secrets, and Version asks no harness anything.
 """
 
 from contextlib import ExitStack, redirect_stdout

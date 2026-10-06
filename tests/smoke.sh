@@ -49,8 +49,9 @@ export PATH="$REPO/bin:$PATH"
 unset AK_RUN_ROLE AGENTKIT_SESSION AGENTKIT_RUN
 # The slot gate is off for this suite's own runs: AK_MAX_RUNS=0 leaves the count and the
 # host readings out of every launch below, so a loaded host never parks a check's run
-# behind thirty-second polls. Check 47 exercises the real queue through test_v5am.py, which
-# sets its own AK_MAX_RUNS per case; nothing else here asserts on gating.
+# behind thirty-second polls. Check 47 exercises the real queue through
+# test_host_slots_and_nested_runs.py, which sets its own AK_MAX_RUNS per case; nothing else here
+# asserts on gating.
 export AK_MAX_RUNS=0
 # A test is not a job, so nothing here may reach the user's Discord.  This marker outranks any
 # webhook the environment, the secrets file or a check's own HOME happens to configure, for
@@ -285,7 +286,7 @@ if [ "${1:-}" = --lock-probe ]; then
 fi
 export AK_NOTIFY_SINK=dry-run
 if [ "${1:-}" = --projects ]; then
-  python3 "$REPO/tests/test_v4z.py"
+  python3 "$REPO/tests/test_project_menus.py"
   exit $?
 fi
 if [ "${1:-}" = --retention ]; then
@@ -1127,10 +1128,11 @@ unittest.main(verbosity=2)
 PY
 }
 seat_state_check() {
-  # (a)-(h) are tests/test_v4y.py, offline on fixtures and fake hook facts, so they can be run
-  # on their own as every other suite here can; (g) and (i) are the shell's own below.
+  # (a)-(h) are tests/test_seat_doing_and_who_says.py, offline on fixtures and fake hook facts,
+  # so they can be run on their own as every other suite here can; (g) and (i) are the shell's
+  # own below.
   local rc=0 d
-  python3 "$REPO/tests/test_v4y.py" || rc=1
+  python3 "$REPO/tests/test_seat_doing_and_who_says.py" || rc=1
 
   # (g) a hook writes nothing for a worker, or for a call with no seat to write for
   d=$(mktemp -d "$REPO/.ak-test-seat-hook.XXXXXX") || return 1
@@ -1352,7 +1354,7 @@ PY
 }
 # Fake-adapter loops: a second root waits at max_runs=1; a depth-1 test run shares the slot.
 slot_queue_check() {
-  python3 "$REPO/tests/test_v5am.py" -v || return 1
+  python3 "$REPO/tests/test_host_slots_and_nested_runs.py" -v || return 1
   printf '%s\n' 'ok: max_runs=1 waits (ak run status says waiting for a slot · limit full (1 running) · 0 ahead), then starts; depth-1 tests share the parent slot'
 }
 # Run the offline regressions without entering the live acceptance gates below.
@@ -1393,9 +1395,9 @@ SH
 # --- offline_seat: seat states --------------------------------------------
   seat_state_check || OFFLINE_RC=1
 # --- offline_projects: project menu ---------------------------------------
-  python3 "$REPO/tests/test_v4z.py" || OFFLINE_RC=1
+  python3 "$REPO/tests/test_project_menus.py" || OFFLINE_RC=1
 # --- offline_desktop: desktop notices -------------------------------------
-  python3 "$REPO/tests/test_v5a.py" || OFFLINE_RC=1
+  python3 "$REPO/tests/test_desktop_notices_and_boot_recovery.py" || OFFLINE_RC=1
 # --- offline_notify: notification rules -----------------------------------
   python3 "$REPO/tests/test_notify_rule.py" || OFFLINE_RC=1
 # --- offline_sink: notification sink --------------------------------------
@@ -1403,7 +1405,8 @@ SH
 # --- offline_codex: adapter model argument --------------------------------
   codex_model_flag_check || OFFLINE_RC=1
 # --- offline_files: offline regressions -----------------------------------
-  for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_dead_code.py test_boundaries.py test_architecture.py test_docs.py \
+  for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py \
+              test_usage_menus_and_runs.py test_dead_code.py test_boundaries.py test_architecture.py test_docs.py \
               test_audit_phone_menu_recovery_layout.py test_choose_click.py test_note_screen.py \
               test_audit_retry_required_notifications.py \
               test_from_run_takes_the_target.py test_repo_suite.py; do
@@ -1479,13 +1482,13 @@ newrepo() {
 }
 echo "workdir: $WORK"
 # --- 44: desktop notices --------------------------------------------------
-if python3 "$REPO/tests/test_v5a.py"; then
+if python3 "$REPO/tests/test_desktop_notices_and_boot_recovery.py"; then
   ok "44 desktop notices and boot recovery: named offline checks a-f"
 else
   no "44 desktop notices and boot recovery"
 fi
 # --- 43: project menus ----------------------------------------------------
-if python3 "$REPO/tests/test_v4z.py"; then
+if python3 "$REPO/tests/test_project_menus.py"; then
   ok "43 project menus: named checks a-h, fixed rendering state and isolated tmux"
 else
   no "43 project menus"
@@ -5539,10 +5542,10 @@ else
   no "45 the Discord rule"; tail -30 "$WORK/notify-rule.log"
 fi
 # --- 39: usage screen -----------------------------------------------------
-if python3 "$REPO/tests/test_v4r.py" >"$WORK/v4r.log" 2>&1; then
+if python3 "$REPO/tests/test_usage_menus_and_runs.py" >"$WORK/usage-menus.log" 2>&1; then
   ok "39 usage left at 40/100 columns: Claude 21% · resets Sun 00:00 · Fable 47%, ChatGPT 69%, Muse spent; the notes give way on a phone; project counts fold run details, all lines fit"
 else
-  no "39 provider usage-left menu"; tail -30 "$WORK/v4r.log"
+  no "39 provider usage-left menu"; tail -30 "$WORK/usage-menus.log"
 fi
 # --- 46: a fourth harness plugs in (offline) -------------------------------
 # A config.toml line and an adapter pair, and nothing else: tests/fixtures/adapters/echo.sh

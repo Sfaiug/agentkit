@@ -1,4 +1,4 @@
-"""v5ae: the shared browser stays small, because the tick closes tabs nobody uses.
+"""the shared browser stays small, because the tick closes tabs nobody uses.
 
 Offline: a fake CDP HTTP server on a random loopback port answers /json/list,
 /json/version and /json/close/<id>, and browser.CDP points at it. All writes stay
