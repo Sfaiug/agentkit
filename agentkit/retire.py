@@ -4,7 +4,8 @@ A production project names its switches with one command, `features:` in its AGE
 its `list` prints with `everyone` on and `everyone_since` (when it last went on for everyone,
 ISO 8601 UTC) at least PROVEN ago is proven. Once every EVERY the tick reads the list of each
 checkout under ~/code that declares one, and tells the newest open seat filed under it every
-switch that list shows proven, longest first, in one line through the queue `ak tell` fills.
+switch that list shows proven, longest first, in one line through the queue `ak tell` fills,
+and every switch on for everyone that it cannot prove because its row gives no `everyone_since`.
 The line names the project, so it holds wherever it lands. A checkout is told again AGAIN
 after, while any is still listed so, until the project's own deploy drops each from the list
 once the code no longer reads it. What a seat was told stands: a switch turned off after is
@@ -76,17 +77,33 @@ def due(rows, now):
             if now - at >= PROVEN]
 
 
-def line(project, rows):
-    """What a seat on that project is told of those proven rows. One longer than a told line may
-    hold, or one a typed line would change (a switch or project named with a run of spaces or a
-    control character, which `tell.flat` folds), is written to a file the line names instead, as
-    `ak tell` asks of a longer line, so every name reaches the seat exactly as listed."""
-    named = ", ".join(f"`{row['id']}` since {time.strftime('%-d %b', time.localtime(since(row)))}"
-                      for row in rows)
-    text = (f"[from ak, not the owner] In {project}, these switches have been on for everyone two "
-            f"weeks or more, so they are proven: {named}. Take each out of {project}'s code, so "
-            "everyone keeps the feature for good. ak says this again each day one is still "
-            "listed.")
+def undated(rows):
+    """The rows on for everyone whose list gives no readable `everyone_since`: a list built to the
+    contract before that field, which could never prove them."""
+    return [row for row in rows if row.get("everyone") is True and since(row) is None]
+
+
+def line(project, proven, unproven=()):
+    """What a seat on that project is told: the proven rows to take out of the code, and the rows
+    its list cannot prove for want of `everyone_since`. One longer than a told line may hold, or
+    one a typed line would change (a switch or project named with a run of spaces or a control
+    character, which `tell.flat` folds), is written to a file the line names instead, as `ak tell`
+    asks of a longer line, so every name reaches the seat exactly as listed."""
+    told = []
+    if proven:
+        named = ", ".join(f"`{row['id']}` since "
+                          f"{time.strftime('%-d %b', time.localtime(since(row)))}" for row in proven)
+        told.append(f"In {project}, these switches have been on for everyone two weeks or more, "
+                    f"so they are proven: {named}. Take each out of {project}'s code, so everyone "
+                    "keeps the feature for good.")
+    if unproven:
+        named = ", ".join(f"`{row['id']}`" for row in unproven)
+        told.append(f"{project}'s switch list does not say since when these are on for everyone: "
+                    f"{named}. Have its features list give each row an everyone_since (when it last "
+                    "went on for everyone, ISO 8601 UTC, or null while it is not), so ak can tell "
+                    "when each is proven.")
+    text = (f"[from ak, not the owner] {' '.join(told)} ak says this again each day while it "
+            "holds.")
     if not tell.too_long(text) and tell.flat(text) == text:
         return text
     whole = config.STATE / "retire" / f"{hashlib.sha256(text.encode()).hexdigest()[:16]}.txt"
@@ -96,8 +113,8 @@ def line(project, rows):
         shown = f"~/{whole.relative_to(Path.home())}"   # as long however deep the home is
     except ValueError:
         shown = whole
-    return (f"[from ak, not the owner] Proven feature switches are yours to take out of the code: "
-            f"{shown} says which, and where.")
+    return (f"[from ak, not the owner] Feature switches on your project need work: {shown} says "
+            "which, and where.")
 
 
 def seat_for(checkout):
@@ -128,19 +145,21 @@ def hand(log, now=None):
             log(f"WARN {checkout.name}: its switches are unread, so none was told "
                 f"({why or 'no list'})")
             continue
-        proven = due(rows, now)
-        if not proven:
+        proven, unproven = due(rows, now), undated(rows)
+        if not (proven or unproven):
             continue
-        ids = ", ".join(str(row["id"]) for row in proven)
+        about = "; ".join(f"{what} {', '.join(str(row['id']) for row in found)}" for what, found in (
+            ("proven switches", proven), ("on for everyone with no everyone_since", unproven))
+            if found)
         seat = seat_for(checkout)
         if seat is None:
-            log(f"{checkout.name}: proven switches {ids}; no open seat to tell")
+            log(f"{checkout.name}: {about}; no open seat to tell")
             continue
-        refused = tell.queue(seat["name"], line(checkout.name, proven))
+        refused = tell.queue(seat["name"], line(checkout.name, proven, unproven))
         if refused:
-            log(f"WARN {checkout.name}: proven switches {ids} were not told: {refused}")
+            log(f"WARN {checkout.name}: {about}; not told: {refused}")
             continue
         record[key] = now
         write(record)
-        log(f"{checkout.name}: proven switches {ids}; told {seat['name']}")
+        log(f"{checkout.name}: {about}; told {seat['name']}")
     write(record)

@@ -125,8 +125,23 @@ class Retire(unittest.TestCase):
                       message["line"])
         self.assertIn("Take each out of ACME's code", message["line"])
         self.assertEqual(tell.source(message["from"]), "ak")
-        self.assertEqual(self.typed("acme-new"), [["older", "old"]])
-        self.assertIn("ACME: proven switches older, old; told acme-new", self.logged)
+        self.assertEqual(self.typed("acme-new"), [["older", "old", "unstamped"]])
+        self.assertIn("ACME: proven switches older, old; on for everyone with no everyone_since "
+                      "unstamped; told acme-new", self.logged)
+
+    def test_a_list_without_everyone_since_is_told_to_give_it(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(*({**row(feature), "everyone_since": None} for feature in ("search", "uk")),
+                      {key: value for key, value in row("hidden", everyone=False).items()
+                       if key != "everyone_since"})
+        self.hand()
+        [message] = self.queued("acme")
+        self.assertIn("ACME's switch list does not say since when these are on for everyone: "
+                      "`search`, `uk`. Have its features list give each row an everyone_since",
+                      message["line"])
+        self.assertNotIn("proven:", message["line"])
+        self.hand(NOW + retire.AGAIN)
+        self.assertEqual(self.typed("acme"), [["search", "uk"]])
 
     def test_told_again_a_day_later_while_one_is_still_listed(self):
         self.seat("acme", self.acme, created=10)
@@ -221,7 +236,7 @@ class Retire(unittest.TestCase):
         with patch.object(tell, "queue", return_value="acme is closed"):
             self.hand()
         self.assertNotIn(str(self.acme), retire.read())
-        self.assertIn("WARN ACME: proven switches first were not told: acme is closed",
+        self.assertIn("WARN ACME: proven switches first; not told: acme is closed",
                       self.logged)
         self.hand(NOW + retire.EVERY)
         self.assertEqual(self.typed("acme"), [["first"]])
