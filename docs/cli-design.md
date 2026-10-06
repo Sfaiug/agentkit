@@ -406,9 +406,18 @@ without UTF-8. A seat's tmux bar draws the same bar in 36 cells, narrowing to 24
 where line one is short of room, before its other seats fold or anything is cut. No screen
 says when a seat's work will finish: its progress is its tasks bar and its count.
 
+The highlighted seat opens its live line under its row, indented under the
+name and lit as the row is: its tmux bar's second line at the row's
+width, the first of its versions that fits. No other row grows: while a seat on
+screen has a live line, every page keeps a line for it, so no page overflows or
+turns as the highlight moves. The orchestrator column is the model in its
+company's colour, as on the seat bar, mirrored on a light background as the
+usage rows are.
+
 Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`, `terminal.cells`,
 `terminal.plain`, `terminal.styled`, `terminal.state_text`,
-`terminal.state_colour`, `terminal.plan_bar`, `menu.seat_runs`.
+`terminal.state_colour`, `terminal.plan_bar`, `menu.seat_runs`, `menu.live_line`,
+`menu.model_colour`.
 
 Example: `  1  atoll-fix  fable  ● working  ████▒▒░░░░ 2/5`.
 

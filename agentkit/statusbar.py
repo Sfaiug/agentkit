@@ -154,8 +154,9 @@ def lines(name, model, colour, word=None, last=""):
 
 def live(runs, cfg, now):
     """Line two of a working seat: its live runs (`menu.seat_runs`), as one version for each of
-    `WHYS`, the least folded first, each a list of (text, colour, bold), the colour as
-    `terminal.styled` takes one, or None.
+    `WHYS`, the least folded first, each a list of (text, colour, bold), the text plain on one
+    line (`terminal.plain`), the colour as `terminal.styled` takes one, or None.  The highlighted
+    row of the menu draws the same (`menu.live_line`).
 
     A run reads `gh2 ■■□□ opus reviewing · round 2 of 3 · 11m`: its task id in bold, red on its
     last round; a cell for each step of a round, dim for those it passed, the current one in the
@@ -205,8 +206,10 @@ def live(runs, cfg, now):
                 shown += [one(run) for run in group[doing]]
         if group["waiting"]:
             shown.append(count("waiting", timed))
-        versions.append([part for n, said in enumerate(shown)
-                         for part in ([("   ", None, False)] if n else []) + said])
+        # a task's file and a model may be named anything: each text is drawn as text, on one line
+        versions.append([(terminal.plain(text, spaced=True), colour, bold)
+                         for n, said in enumerate(shown)
+                         for text, colour, bold in ([("   ", None, False)] if n else []) + said])
     return versions
 
 
