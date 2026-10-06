@@ -22,7 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, menu, notify, orch, plan, terminal, watch
+from agentkit import config, menu, notify, orch, plan, terminal, usage, watch
 
 
 class PlanLines(Sandbox):
@@ -382,6 +382,63 @@ class PlanLines(Sandbox):
             self.assertEqual(notify.main(["done", "a worker's result", "--session", "fix-api"]), 0)
         self.assertFalse(marker.exists())
         self.assertEqual(config.plan_path("fix-api").read_bytes(), before)
+
+    def test_renaming_back_keeps_the_plan_the_seat_wrote_last(self):
+        config.plan_path("fix-api").write_text("- [x] an older outcome\n")
+        config.rename_session("fix-api", "fix-api-2")
+        os.utime(config.plan_path("fix-api-2"), (1, 1))
+        latest = "- [ ] the newly required outcome\n"
+        config.plan_path("fix-api").write_text(latest)  # still written under its launch name
+        self.assertEqual(watch.plan_text("fix-api-2"), latest)
+        config.rename_session("fix-api-2", "fix-api")
+        self.assertEqual(watch.plan_text("fix-api"), latest)
+
+    def test_a_handover_names_the_plan_the_seat_wrote_last(self):
+        config.plan_path("fix-api").write_text("- [x] an older outcome\n")
+        config.rename_session("fix-api", "fix-api-2")
+        os.utime(config.plan_path("fix-api-2"), (1, 1))
+        config.plan_path("fix-api").write_text("- [ ] the newly required outcome\n")
+        self.assertIn(f"The seat's plan is at {config.plan_path('fix-api')}.",
+                      orch.handover_text("fix-api-2", "opus", None))
+
+    def test_a_handover_names_a_plan_it_cannot_read_rather_than_failing(self):
+        private = self.root / "private-plan"
+        private.mkdir()
+        (private / "plan.md").write_text("- [ ] an outcome\n")
+        config.plan_path("fix-api").symlink_to(private / "plan.md")
+        private.chmod(0)
+        self.addCleanup(private.chmod, 0o700)
+        text = orch.handover_text("fix-api", "opus", None)
+        self.assertIn("The seat's plan cannot be read", text)
+        self.assertIn("ak run status", text)
+
+    def gone_seat_with_plans(self):
+        """fix-api, renamed to ship-api and back: its older plan stays under ship-api, a name
+        still leading to it, and its newer one under fix-api."""
+        config.save_session(self.cfg, "fix-api", "opus", ["opus"], {"cwd": str(self.root)})
+        config.plan_path("fix-api").write_text("- [ ] the gone seat's outcome\n")
+        config.rename_session("fix-api", "ship-api")
+        config.plan_path("fix-api").write_text("- [ ] the gone seat's later outcome\n")
+        config.rename_session("ship-api", "fix-api")
+        self.assertTrue(config.plan_path("ship-api").exists())
+
+    def test_a_new_seat_under_a_used_name_starts_without_a_plan(self):
+        # under its own name, and under a name a pointer still leads to it from
+        self.gone_seat_with_plans()
+        with patch.object(usage, "collect", return_value={}), \
+                patch.object(orch, "launch"), redirect_stdout(io.StringIO()):
+            orch.create(self.cfg, "fix-api", self.root, forced="astra", forced_workers="opus")
+        self.assertEqual(watch.plan_text("fix-api"), "")
+
+    def test_a_seat_renamed_into_a_freed_name_starts_without_a_plan(self):
+        self.gone_seat_with_plans()
+        config.session_path("fix-api").unlink()        # retired: record and pointer gone
+        config.session_path("ship-api").unlink()
+        config.save_session(self.cfg, "newer", "opus", ["opus"], {"cwd": str(self.root)})
+        for name in ("ship-api", "fix-api"):
+            with self.subTest(name=name):
+                config.rename_session(config.resolve_session("newer"), name)
+                self.assertEqual(watch.plan_text(name), "")
 
     def test_rename_during_done_keeps_all_requirements(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")

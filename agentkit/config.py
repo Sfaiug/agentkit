@@ -1016,6 +1016,11 @@ def rename_session(old, new):
     if target not in (old, new):
         raise Error(f"{new!r} points at another session; pick a name that is not a rename")
     ensure_dirs()
+    if target == new:
+        # a free name: the plan a gone seat left there, or under a name still leading there,
+        # is not this seat's
+        from . import plan
+        plan.forget(new)
     # under both records' locks: a field written to the old one meanwhile moves with it
     with _record_lock(session_path(old)), _record_lock(session_path(new)):
         selection = _read_json(session_path(old))
@@ -1026,11 +1031,14 @@ def rename_session(old, new):
             session_path(new).unlink(missing_ok=True)
         _write_json(session_path(old), {"renamed": new}, prepare=False)
     # The running orchestrator keeps reading the rulebook it was started on, and its hooks keep
-    # the turn's latch under the name it was started with.
+    # the turn's latch under the name it was started with.  Back to a name it had, what the
+    # seat wrote under it since is kept rather than moved over: a seat renamed still writes its
+    # plan under the name it was launched with, and `plan.path` reads the plan under every name
+    # the seat had, the newest one winning.
     for kind in SEAT_FILES.keys() - {"session", "rulebook", "stop"}:
-        was = seat_file(kind, old)
-        if was.exists():
-            was.replace(seat_file(kind, new))
+        was, now = seat_file(kind, old), seat_file(kind, new)
+        if was.exists() and not (target == old and now.exists()):
+            was.replace(now)
 
 
 def active_session(cfg):

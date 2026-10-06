@@ -44,7 +44,7 @@ from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import command_help, config, host, motion, retention, terminal, update, usage
+from . import command_help, config, host, motion, plan, retention, terminal, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -3358,14 +3358,17 @@ def handover_text(name, old_model, transcript):
     the old conversation's transcript is so it can read the last exchange -- or that the
     old conversation keeps no file to read, where its harness stores its sessions.
     """
-    plan = config.plan_path(name)
+    try:
+        where = f"The seat's plan is at {plan.path(name)}."
+    except config.Error as exc:     # a plan nothing can read never costs the handover
+        where = f"The seat's plan cannot be read: {exc}."
     if transcript:
         old = (f"The previous conversation's transcript is at {transcript}; "
                "read the last exchange to continue.")
     else:
         old = ("The previous conversation has no transcript file to read; "
                "continue from the plan and the runs.")
-    return (f"You took over this seat from {old_model}. The seat's plan is at {plan}. "
+    return (f"You took over this seat from {old_model}. {where} "
             f"Run `ak run status` to see its runs. {old}")
 
 
@@ -3781,13 +3784,14 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
             extra["id_source"] = LAUNCHER
         config.remember_defaults(config.save_session(cfg, name, model, workers, extra))
     # a name may be used again once its seat is gone, and this seat has said nothing yet: the
-    # last message of the one before it is not this one's state, and a question it left
-    # standing on Discord is closed rather than dropped with its card -- by a start, never by
-    # a preview of one
+    # last message of the one before it is not this one's state, nor is its plan, and a
+    # question it left standing on Discord is closed rather than dropped with its card -- by a
+    # start, never by a preview of one
     if not dry_run:
         from . import notify
         notify.forget_card(name)
         config.notify_path(name).unlink(missing_ok=True)
+        plan.forget(name)
     if dry_run:
         print(f"orch: {model} ({reason})")
         print(f"session {name} in {cwd} (new)")

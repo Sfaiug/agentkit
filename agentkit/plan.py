@@ -40,15 +40,28 @@ def seat():
     return config.resolve_session(name)
 
 
+def names(name):
+    """The names a seat's plan is read under: the one it goes by now, then every name whose
+    rename pointer leads there."""
+    current = config.resolve_session(name)
+    return [current, *(old for old, now in config.session_aliases().items() if now == current)]
+
+
+def forget(name):
+    """Remove every plan the name reads (`path`): a seat that takes a name -- made under it,
+    or renamed into a free one -- starts without the plan a gone seat left there."""
+    for each in names(name):
+        config.plan_path(each).unlink(missing_ok=True)
+
+
 def path(name):
     """The session's plan file: of its name and the names it was renamed from, the one
     written last -- a seat renamed still writes under the name it was launched with.  Read
     for the name the seat goes by now, and looked for again if a rename lands meanwhile."""
     while True:
-        current = config.resolve_session(name)
+        current, *_ = every = names(name)
         found = []
-        for each in [current, *(old for old, now in config.session_aliases().items()
-                                if now == current)]:
+        for each in every:
             try:
                 plan = config.plan_path(each)
                 found.append((plan.stat().st_mtime, plan))
