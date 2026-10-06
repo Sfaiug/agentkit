@@ -21,7 +21,9 @@ from types import SimpleNamespace
 from . import config, record
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
-SCRATCH = "land-"   # a stack's detached scratch checkout under ~/.agentkit/wt, named by tempfile
+# A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
+# left, whatever it holds, and no other checkout for it.
+SCRATCH_MARK = "ak-lander-scratch"
 
 
 def _trees(turn, kind="trees"):
@@ -366,12 +368,13 @@ def _stack_member(repo, state, top, upstream, opened):
     code, out = _member_commit(repo, state, head)
     if code:
         return None, f"[exit {code}]\nERROR: reviewed commit {head} is unavailable\n{out}"
-    scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix=SCRATCH)))
+    scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix="land-")))
     opened.callback(os.close, os.open(scratch, os.O_RDONLY))
     code, out = run.git_out(repo, "worktree", "add", "--detach", str(scratch), head)
     opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
     if code:
         return None, f"[exit {code}]\nERROR: checkout of {head} failed\n{out}"
+    (Path(run.git(scratch, "rev-parse", "--absolute-git-dir")) / SCRATCH_MARK).touch()
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))

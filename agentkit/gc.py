@@ -397,19 +397,22 @@ def stale_worktree(wt, now, paths, left):
 def holds_work(wt, now):
     """Whether removing a checkout no run owns could lose work, or somebody used it within a day.
 
-    The line's scratch -- detached, under the name `land` gives it -- is a killed lander's: its
-    output is nobody's.  A seat builds on a branch, in a worktree of a repository outside the
-    checkout that keeps its branches and commits when the checkout goes: it holds no work once
-    it holds its commit and nothing more, unchanged for a day (`same_as_commit`).  Anything
-    else holds work, or may: a clone, a worktree whose repository lies inside it, one detached
-    by a rebase or a bisect, and one git cannot read.
+    The line's scratch -- detached, its own git directory holding the lander's mark
+    (`land.SCRATCH_MARK`) -- is a killed lander's: its output is nobody's.  A seat builds on
+    a branch, in a worktree of a repository outside the checkout that keeps its branches and
+    commits when the checkout goes: it holds no work once it holds its commit and nothing
+    more, unchanged for a day (`same_as_commit`).  Anything else holds work, or may: a clone,
+    a worktree whose repository lies inside it, one detached by a rebase or a bisect, and one
+    git cannot read.
     """
     dirs = orch.git_dirs(wt)
     if not dirs or not dirs[1] or dirs[0].is_relative_to(wt.resolve()):
         return True
     code, _ = git_in(wt, "symbolic-ref", "-q", "HEAD")
-    if code == 1 and wt.name.startswith(land.SCRATCH):
-        return False
+    if code == 1:
+        known, private = git_in(wt, "rev-parse", "--absolute-git-dir")
+        return not (known == 0 and os.path.isfile(
+            os.path.join(os.fsdecode(private.removesuffix(b"\n")), land.SCRATCH_MARK)))
     return code != 0 or not same_as_commit(wt, now)
 
 
@@ -429,9 +432,10 @@ def git_in(wt, *args, env=None):
     return proc.returncode, proc.stdout
 
 
-# What git leaves in a worktree's own git directory between commands.  Anything else -- a
-# rebase, merge, cherry-pick or bisect under way, an autostash, a lock, a ref of the
-# checkout's own -- is work, or a hold, that would go with the checkout.
+# What git leaves in a worktree's own git directory between commands, besides a split
+# index's `sharedindex.<oid>` files.  Anything else -- a rebase, merge, cherry-pick or
+# bisect under way, an autostash, a lock, a ref of the checkout's own -- is work, or a hold,
+# that would go with the checkout.
 IDLE = frozenset({"HEAD", "commondir", "gitdir", "index", "logs", "refs", "config.worktree",
                   "ORIG_HEAD", "FETCH_HEAD", "COMMIT_EDITMSG", "MERGE_RR", "AUTO_MERGE",
                   "REBASE_HEAD"})
@@ -466,22 +470,29 @@ def same_as_commit(wt, now):
     files = {path: (meta.split()[0], meta.split()[2])
              for meta, _, path in (entry.partition(b"\t") for entry in tree.split(b"\0") if entry)}
     def snapshot():
-        """{path: (inode, size, mtime, ctime)} of everything read and every folder holding a
-        tracked file, or None when git is not idle."""
+        """{path: (inode, size, mtime, ctime)} of everything read -- the checkout's own git
+        directory, the tracked files and every folder in the checkout, where a new file
+        would show -- or None when git is not idle or a folder cannot be read."""
         def listed(*parts):
             try:
                 return set(os.listdir(os.path.join(private, *parts)))
             except FileNotFoundError:
                 return set()
+        unread = []
         try:
-            names = os.listdir(private)
+            # A split index's shared files are named by their content, and every read of the
+            # index touches them: they say nothing of use or work.
+            names = [name for name in os.listdir(private)
+                     if not re.fullmatch(r"sharedindex\.[0-9a-f]+", name)]
             if not set(names) <= IDLE or listed("refs") or not listed("logs") <= {"HEAD"}:
                 return None
-            tracked = [os.path.join(os.fsencode(wt), path) for path in files]
-            paths = [os.fspath(wt), private, *(os.path.join(private, name) for name in names),
-                     os.path.join(private, "logs", "HEAD"),
-                     *tracked, *{os.path.dirname(path) for path in tracked}]
+            folders = [root for root, _, _ in os.walk(os.fsencode(wt), onerror=unread.append)]
+            paths = [private, *(os.path.join(private, name) for name in names),
+                     os.path.join(private, "logs", "HEAD"), *folders,
+                     *(os.path.join(os.fsencode(wt), path) for path in files)]
         except OSError:
+            return None
+        if unread:
             return None
         found = {}
         for path in paths:
@@ -539,10 +550,11 @@ def stale_worktrees(now, paths):
             if (item := stale_worktree(wt, now, paths, left))]
 
 
-def clear_tree(tree):
+def clear_tree(tree, dirs=None):
     """Everything of a tree this user can remove, then git's registration of it in the
-    repository git names for it (`orch.git_dirs`), whatever its layout."""
-    dirs = orch.git_dirs(tree)
+    repository git names for it (`orch.git_dirs`, unless the caller asked already), whatever
+    its layout."""
+    dirs = orch.git_dirs(tree) if dirs is None else dirs
     retention.remove(tree, directory=True, ignore_errors=True)
     if dirs and dirs[1] and dirs[0].is_dir():
         git_in(dirs[0], f"--git-dir={dirs[0]}", "worktree", "prune")
@@ -826,6 +838,9 @@ def gc(report, automatic=False):
                                 or (recovery.exists() and not retention.safe(recovery))):
                             continue
                         paths = retention.process_paths()   # before our own lock is open
+                        # The repository is asked first: nothing runs between the proof and
+                        # the removal.
+                        dirs = orch.git_dirs(path)
                         with (record.recovery_lock(directory) if retention.present(directory)
                               else nullcontext()):
                             if not stale_worktree(path, time.time(), paths, leftovers()):
@@ -834,7 +849,7 @@ def gc(report, automatic=False):
                                 done = drop_tree(retention.read_json(directory / "run.json") or {},
                                                  path, report)
                             else:
-                                clear_tree(path)
+                                clear_tree(path, dirs)
                                 done = not left_behind(path, report)
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)

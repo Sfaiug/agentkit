@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, gc, orch, retention, run, worktrees
+from agentkit import config, gc, land, orch, retention, run, worktrees
 from agentkit import record as run_record
 
 DAY = 86400
@@ -258,6 +258,7 @@ class GcSweep(Sandbox):
         self.untouched(stray)
         scratch = config.WT / "land-scratch"
         self.git(self.repo, "worktree", "add", "-q", "--detach", str(scratch))
+        (Path(self.git(scratch, "rev-parse", "--absolute-git-dir")) / land.SCRATCH_MARK).touch()
         (scratch / "output").write_text("a killed check's\n")
         self.aged(scratch, 2 * DAY)
         fresh = config.WT / "fresh"
@@ -351,23 +352,27 @@ class GcSweep(Sandbox):
         symlinked = self.seat(project, "symlinked")
         (symlinked / ".git").unlink()
         (symlinked / ".git").symlink_to(project / ".git" / "worktrees" / "symlinked")
-        gone += [sandboxed, bare, relative, symlinked, self.seat(self.repo, "elsewhere")]
+        split = self.seat(project, "split")
+        self.git(split, "update-index", "--split-index")
+        gone += [sandboxed, bare, relative, symlinked, split, self.seat(self.repo, "elsewhere")]
         names = ("dirty", "untracked", "hidden-new", "unchanged", "skipped", "submodule",
                  "ignore-case", "same-stat", "mode", "staged", "mirrored", "filtered", "replaced",
-                 "gitlinked", "own-ref", "rebasing", "autostashed", "locked", "detached")
+                 "gitlinked", "own-ref", "rebasing", "land-seat", "autostashed", "locked",
+                 "detached")
         kept = [self.seat(project, name) for name in names]
         (dirty, untracked, hidden_new, unchanged, skipped, submodule, case, same_stat, mode,
-         staged, mirrored, filtered, replaced, gitlinked, own_ref, rebasing, autostashed, locked,
-         detached) = kept
-        # A rebase paused on a conflict, its resolution not yet committed; a merge holding the
-        # seat's edits in an autostash only the checkout names; a checkout locked against
-        # pruning; and a seat's own detached HEAD, not the line's scratch.
+         staged, mirrored, filtered, replaced, gitlinked, own_ref, rebasing, land_seat,
+         autostashed, locked, detached) = kept
+        # A rebase paused on a conflict, its resolution not yet committed, also in a checkout
+        # named like the line's scratch; a merge holding the seat's edits in an autostash only
+        # the checkout names; a checkout locked against pruning; and a seat's own detached HEAD.
         (project / "tracked").write_text("upstream\n")
         self.git(project, "commit", "-qam", "upstream")
-        paused = subprocess.run(["git", "-C", str(rebasing), "rebase", "main"], capture_output=True)
-        self.assertEqual(paused.returncode, 1)
-        (rebasing / "tracked").write_text("the seat's resolution\n")
-        self.git(rebasing, "add", "tracked")
+        for wt in (rebasing, land_seat):
+            paused = subprocess.run(["git", "-C", str(wt), "rebase", "main"], capture_output=True)
+            self.assertEqual(paused.returncode, 1)
+            (wt / "tracked").write_text("the seat's resolution\n")
+            self.git(wt, "add", "tracked")
         self.git(project, "branch", "topic", self.git(project, "commit-tree", "-p", "main~1",
                                                       "-m", "topic", "main~1^{tree}"))
         (autostashed / "tracked").write_text("only in the autostash\n")
@@ -489,15 +494,26 @@ class GcSweep(Sandbox):
 
     def test_a_seats_checkout_changed_while_gc_reads_it_stays(self):
         # Each changes during the last read of the proof gc takes right before removing it:
-        # a tracked file rewritten, and an edit staged with its file put back.
+        # a tracked file rewritten, an edit staged with its file put back, and a new file in a
+        # folder holding no tracked file itself, or in an empty one.
         project = self.make_repo("project")
-        cases = {self.untouched(self.seat(project, name)): name for name in ("file", "index")}
+        names = ("file", "index", "folder", "empty")
+        seats = [self.seat(project, name) for name in names]
+        (seats[2] / "src" / "pkg").mkdir(parents=True)
+        (seats[2] / "src" / "pkg" / "module").write_text("committed\n")
+        self.git(seats[2], "add", "src")
+        self.git(seats[2], "commit", "-qm", "module")
+        (seats[3] / "notes").mkdir()
+        cases = {self.untouched(wt): name for wt, name in zip(seats, names)}
+        written = {"folder": Path("src", "notes"), "empty": Path("notes", "draft")}
         scans, read = {wt: 0 for wt in cases}, gc.git_in
         def changing(wt, *args, **kw):
             result = read(wt, *args, **kw)
             if wt in cases and "--others" in args:
                 scans[wt] += 1
-                if scans[wt] == 2:
+                if scans[wt] == 2 and cases[wt] in written:
+                    (wt / written[cases[wt]]).write_text("written while gc read the checkout\n")
+                elif scans[wt] == 2:
                     kept = (wt / "tracked").read_bytes()
                     (wt / "tracked").write_text("written while gc read the checkout\n")
                     if cases[wt] == "index":
