@@ -595,7 +595,7 @@ def size_summary_line(repo):
     line = (f"{repo}: last 20 tasks: {med(overall)} · over 400 words: {med(words)} · "
             f"over 3 points: {med(points)}")
     rules, ceiling = history.rules_size(repo), config.instruction_ceiling()
-    if rules is not None:
+    if rules:
         line += f" · AGENTS.md {rules:,} bytes" + (f" of {ceiling[0]:,}" if ceiling else "")
     return line
 

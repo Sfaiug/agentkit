@@ -46,7 +46,8 @@ class RulesSize(unittest.TestCase):
         history.start_run(run_id, repo=str(self.acme), started_at=finished_at - 10)
         run.history_finish({"run_id": run_id, "repo": str(self.acme), "worktree": str(self.acme),
                             "base_sha": base, "state": "pass", "verdict": "PASS",
-                            "started_at": finished_at - 10, "finished_at": finished_at})
+                            "round_summaries": [{}], "started_at": finished_at - 10,
+                            "finished_at": finished_at})
         return history.get(run_id)["rules_bytes"]
 
     def test_a_run_keeps_the_bytes_a_checkout_held_at_its_base(self):
@@ -61,13 +62,28 @@ class RulesSize(unittest.TestCase):
         self.assertEqual(self.finish("r1", base, 100), handed)
         self.assertEqual(len(run.rules_bytes(self.acme, base)), handed)
 
-    def test_no_file_and_a_link_record_nothing(self):
-        (self.acme / "README.md").write_text("acme\n")
-        none = self.commit("no rules")
-        self.assertIsNone(self.finish("r1", none, 100))
+    def test_a_run_handed_no_file_clears_the_size_and_a_failed_read_keeps_it(self):
+        def line():
+            with patch.object(config, "instruction_ceiling", return_value=(32768, "codex")):
+                return status.size_summary_line("acme")
+
+        (self.acme / "AGENTS.md").write_text("# Acme\n\nShip small.\n")
+        self.assertEqual(self.finish("r1", self.commit("rules"), 100), 20)
+        self.assertTrue(line().endswith(" · AGENTS.md 20 bytes of 32,768"))
+        # deleted: its workers were handed no rules, so no older size stands in
+        self.git(self.acme, "rm", "-q", "AGENTS.md")
+        self.assertEqual(self.finish("r2", self.commit("no rules"), 200), 0)
+        self.assertNotIn("AGENTS.md", line())
+        # a link hands its workers no rules either
         os.symlink("docs/rules.md", self.acme / "AGENTS.md")
-        linked = self.commit("linked rules")
-        self.assertIsNone(self.finish("r2", linked, 200))
+        self.assertEqual(self.finish("r3", self.commit("linked rules"), 300), 0)
+        self.assertNotIn("AGENTS.md", line())
+        os.unlink(self.acme / "AGENTS.md")
+        (self.acme / "AGENTS.md").write_text("# Acme\n\nShip small. Test first.\n")
+        self.assertEqual(self.finish("r4", self.commit("rules again"), 400), 32)
+        # a base that cannot be read is unknown, and leaves the last known size shown
+        self.assertIsNone(self.finish("r5", "0" * 40, 500))
+        self.assertTrue(line().endswith(" · AGENTS.md 32 bytes of 32,768"))
 
     def test_the_history_line_shows_the_latest_size_against_the_ceiling(self):
         for run_id, size, finished in (("older", 1000, 100), ("newer", 2000, 200)):

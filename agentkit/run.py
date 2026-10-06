@@ -6369,8 +6369,9 @@ def history_finish(state, log=None):
     try:
         wt = state.get("worktree")
         repo = wt if wt and Path(wt).is_dir() else state.get("repo")
-        held = rules_bytes(repo, state["base_sha"]) if repo and state.get("base_sha") else None
-        rules = None if held is None else len(held)
+        if repo and state.get("base_sha"):
+            # no file, or a link, hands its workers no rules: 0, where a failed read stays unknown
+            rules = len(rules_bytes(repo, state["base_sha"]) or b"")
     except (config.Error, OSError, ValueError, TypeError):
         pass
     history.finish_run(state.get("run_id"), repo=state.get("repo"),
