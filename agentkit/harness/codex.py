@@ -457,21 +457,22 @@ def trust_here():
     any spelling -- its own table, a key under `[projects]`, an inline table -- gets no second
     table, which would leave a file Codex cannot parse; one that does not parse is Codex's to
     report, and stays as it is.  The appended file must parse too: a `projects` kept as an
-    inline table cannot take another table, so the file stays and Codex asks for itself.
+    inline table cannot take another table, so the file stays and Codex asks for itself.  So
+    does a file this cannot read or write: the trust only spares the seat Codex's question.
     """
     path, here = config_entries()["file"], str(Path.cwd().resolve())
-    text = path.read_text(encoding="utf-8") if path.exists() else ""
     entry = f"\n[projects.{json.dumps(here, ensure_ascii=False)}]\ntrust_level = \"trusted\"\n"
     try:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
         projects = tomllib.loads(text).get("projects", {})
         if not isinstance(projects, dict) or here in projects:
             return
         tomllib.loads(text + entry)
-    except tomllib.TOMLDecodeError:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(entry)
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(entry)
 
 
 def main(argv, launch=None):
