@@ -2787,6 +2787,26 @@ def files_scope(lp):
     return "outside files: " + ", ".join(outside) if outside else ""
 
 
+def rules_bytes(repo, rev):
+    """The bytes of AGENTS.md at `rev` as a checkout holds it, Git's line-end conversion and
+    filters applied: what a harness reads, not the stored blob, and read as bytes, since a text
+    read would fold CRLF to LF.  None where `rev` has no AGENTS.md file -- none, or a link,
+    whose text is a path -- and config.Error, with what git said, where it cannot be read."""
+    entry = git(repo, "ls-tree", rev, "--", "AGENTS.md")
+    if not entry or entry.startswith("120000 "):
+        return None
+    try:
+        read = subprocess.run(["git", "-C", str(repo), "cat-file", "--filters", f"{rev}:AGENTS.md"],
+                              capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
+                              env=tool_env())
+    except subprocess.TimeoutExpired as exc:
+        raise Stopped(f"git cat-file --filters {rev}:AGENTS.md was killed after {TOOL_CAP:g}s "
+                      f"in {repo}") from exc
+    if read.returncode != 0:
+        raise config.Error(read.stderr.decode("utf-8", "replace").strip())
+    return read.stdout
+
+
 def rules_check(lp):
     """Refuse a branch's change to AGENTS.md that workers would not get as written: a link, a
     Git filter, more than a harness reads of it, or a front matter line ak does not read.
@@ -2803,25 +2823,19 @@ def rules_check(lp):
                 "from it: make AGENTS.md the file itself.")
     if not git(lp.wt, "check-attr", "filter", "--", "AGENTS.md").endswith(("unspecified", "unset")):
         return "AGENTS.md must not go through a Git filter: ak reads its front matter as committed."
-    # the bytes a checkout holds, Git's line-end conversion applied: what a harness reads, not
-    # the stored blob, and read as bytes, since a text read would fold CRLF to LF
-    try:
-        read = subprocess.run(["git", "-C", str(lp.wt), "cat-file", "--filters", "HEAD:AGENTS.md"],
-                              capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
-                              env=tool_env())
-    except subprocess.TimeoutExpired as exc:
-        raise Stopped(f"git cat-file --filters HEAD:AGENTS.md was killed after {TOOL_CAP:g}s "
-                      f"in {lp.wt}") from exc
     ceiling = config.instruction_ceiling()
-    if read.returncode != 0:
-        said = read.stderr.decode("utf-8", "replace").strip()
+    try:
+        held = rules_bytes(lp.wt, "HEAD")
+    except Stopped:
+        raise
+    except config.Error as exc:
         unknown = (f"its size against the {ceiling[0]} bytes {ceiling[1]} reads of it is unknown"
                    if ceiling else "ak cannot check it")
-        return f"AGENTS.md could not be read as a checkout holds it, so {unknown}: {said}"
-    if ceiling and len(read.stdout) > ceiling[0]:
-        return (f"AGENTS.md is {len(read.stdout)} bytes, past the {ceiling[0]} bytes {ceiling[1]} "
+        return f"AGENTS.md could not be read as a checkout holds it, so {unknown}: {exc}"
+    if ceiling and len(held) > ceiling[0]:
+        return (f"AGENTS.md is {len(held)} bytes, past the {ceiling[0]} bytes {ceiling[1]} "
                 "reads of it: tighten it.")
-    text = read.stdout.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
+    text = held.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
     unread = unknown_front_lines(text.strip())
     if not unread:
         return ""
@@ -6338,18 +6352,30 @@ def history_finish(state, log=None):
     now = state.get("finished_at") or time.time()
     history.close_step(state.get("run_id"), now, log=log)
     files = changed_files(state)
+    # git is read from the run's worktree while it exists, else from its repository
+    wt = state.get("worktree")
+    try:
+        present = bool(wt) and Path(wt).is_dir()
+    except (OSError, TypeError):
+        present = False
+    repo = wt if present else state.get("repo")
     size = None
     if state.get("merged") and state.get("base_sha"):
         try:
-            wt = state.get("worktree")
-            present = wt and Path(wt).is_dir()
-            repo = wt if present else state.get("repo")
             review = state.get("review") or {}
             head = state.get("delivery_sha") or review.get("head_sha") or ("HEAD" if present else None)
             if repo and head:
                 size = diff_lines(repo, state["base_sha"], head)
         except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
             pass  # best-effort history must never change the merge's outcome
+    # the AGENTS.md its workers were handed, measured as the ceiling measures it
+    rules = None
+    if repo and state.get("base_sha"):
+        try:
+            # no file, or a link, hands its workers no rules: 0, where a failed read stays unknown
+            rules = len(rules_bytes(repo, state["base_sha"]) or b"")
+        except (config.Error, OSError, ValueError, TypeError):
+            pass
     history.finish_run(state.get("run_id"), repo=state.get("repo"),
                        executor=state.get("executor"), reviewer=state.get("reviewer"),
                        rounds_used=len(state.get("round_summaries") or []),
@@ -6357,7 +6383,7 @@ def history_finish(state, log=None):
                        started_at=state.get("started_at"), finished_at=now,
                        session=launched_session(state), peak_rss_mb=state.get("peak_rss_mb"),
                        task_files=json.dumps(files) if files is not None else None,
-                       changed_lines=size, log=log)
+                       changed_lines=size, rules_bytes=rules, log=log)
 
 
 def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):
