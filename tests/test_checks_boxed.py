@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, hand_in, run, worker
+from agentkit import box, config, gate, hand_in, run, worker
 
 
 class ChecksBoxed(unittest.TestCase):
@@ -181,9 +181,11 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertIn(f"[exit {code}]\npartial", text)
 
     def test_a_check_writes_where_its_project_says(self):
-        # A suite may fill a cache in HOME; only worker turns are walled. Its /tmp is the box's.
+        # A suite may fill a cache in HOME; only worker turns are walled. Its /tmp is the box's,
+        # as on the host: a box inside a box keeps that box's /tmp.
         outside = tempfile.TemporaryDirectory(prefix="ak-test-checks-boxed-", dir="/tmp")
         self.addCleanup(outside.cleanup)
+        self.stack.enter_context(patch.object(box, "_inside", return_value=False))
         for name in ("proof", "check"):
             with self.subTest(command=name):
                 cache, scratch = self.root / ".cache" / name, Path(outside.name) / name
