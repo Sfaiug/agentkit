@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""ak's release kit: put the newest commit ak tested live on this host, and the live release
+back by itself when the new one fails its health check.
+
+A project copies this file to deploy/release.py and runs it every minute or two from a
+systemd timer, as the project's own user, never root:
+
+    release.py ROOT          one tick for the project installed at ROOT
+    release.py ROOT --adopt  make ROOT/repo's checked-out commit the first release
+
+One tick fetches the branch ak lands on (what the clone's origin/HEAD names) and takes the
+newest first-parent commit that descends from the live
+release, carries ak's `Suite-Passed-Tree:` stamp for its own tree, and is no ancestor of a
+commit that failed after its switch here. It builds that commit in its own release directory
+with a fresh virtualenv, runs its install and migrate commands, switches the `current` link,
+runs its restart command, then its health command until that passes within its time. A
+failure before the switch changes nothing live, and the next tick tries again. A failure
+after it switches the link back, runs the live release's restart and health again, and
+remembers the commit as failed: it waits for a newer one. Either way the tick exits 1, so
+the timer's OnFailure= alert fires. A restore that fails, or a tick cut off mid-release, is
+finished by the next tick, and every tick first prunes old release directories. Main must
+keep containing the live release: a rewritten one is refused until someone releases by hand.
+
+The kit holds no privileges and installs nothing outside ROOT: the project's units point at
+ROOT/current and its own installer puts them in place; its restart command may use a sudo
+rule for exactly that restart. The commit is trusted code: its commands run as this user,
+with the tick's environment. Migrations run before the switch, so each must keep the live
+release working: a restore puts the code back, never the schema.
+
+ROOT holds repo/ (a clone of the project), releases/<sha>/, current -> releases/<sha>,
+released ("<sha> <time> <previous sha>", the live release), attempt (a release under way)
+and tick.lock; repo/ keeps a ref per failed commit under refs/release/failed/.
+
+The project's deploy/release.toml, read from the commit being released:
+
+    restart = "sudo -n systemctl restart app.service"   # after a switch and after a restore
+    health = "curl -fsS http://127.0.0.1:8100/healthz"
+    health_seconds = 90                 # how long the health command may take to pass
+    requirements = "requirements.txt"   # installed into the release's own .venv, if present
+    python = "/usr/local/bin/python3.11"
+    install = "npm ci && npm run build" # runs in every release, after the virtualenv
+    migrate = ".venv/bin/python -m scripts.migrate"
+    keep = 5                            # release directories kept besides live and previous
+
+Commands run from the release directory with `bash -c`, each in its own process group that
+ends with it. Python 3.11 standard library.
+"""
+
+import fcntl
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import tomllib
+
+STAMP = "Suite-Passed-Tree"
+CONFIG = "deploy/release.toml"
+GIT_SECONDS = 300
+COMMAND_SECONDS = 1800
+HEALTH_PAUSE_SECONDS = 0.5
+FAILED = "refs/release/failed/"     # a ref per failed commit keeps it, and its history, from gc
+
+
+class Failed(Exception):
+    """A tick that must end red, with the line that says why."""
+
+
+def say(line):
+    print(f"[release] {line}", flush=True)
+
+
+def why(exc):
+    return str(exc) if isinstance(exc, Failed) else f"{type(exc).__name__}: {exc}"
+
+
+def git(repo, *args):
+    done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL, timeout=GIT_SECONDS)
+    if done.returncode:
+        raise Failed(f"git {' '.join(args)}: {done.stderr.strip()}")
+    return done.stdout.strip()
+
+
+def git_ok(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                          stdin=subprocess.DEVNULL, timeout=GIT_SECONDS).returncode == 0
+
+
+def stamped(repo, sha):
+    """Whether `sha` carries ak's one stamp naming its own tree."""
+    tree = git(repo, "rev-parse", f"{sha}^{{tree}}")
+    values = git(repo, "show", "-s", f"--format=%(trailers:key={STAMP},valueonly)", sha).split()
+    return len(values) == 1 and values[0].lower() == tree
+
+
+def branch(repo):
+    """The branch ak lands on: what the clone's origin/HEAD names."""
+    if not git_ok(repo, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"):
+        raise Failed(f"{repo} has no origin/HEAD: run `git -C {repo} remote set-head origin "
+                     "--auto` once")
+    return git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").removeprefix("origin/")
+
+
+def candidate(repo, live, target):
+    """The newest stamped first-parent commit on `target` that descends from `live` and is no
+    ancestor of a commit that failed here (a rewrite cannot reopen an older release)."""
+    failed = git(repo, "for-each-ref", "--format=%(objectname)", FAILED).split()
+    for sha in git(repo, "rev-list", "--first-parent", f"{live}..{target}").split():
+        if any(git_ok(repo, "merge-base", "--is-ancestor", sha, bad) for bad in failed):
+            return None
+        if git_ok(repo, "merge-base", "--is-ancestor", live, sha) and stamped(repo, sha):
+            return sha
+    return None
+
+
+def load(repo, sha):
+    """`sha`'s deploy/release.toml, as committed."""
+    try:
+        config = tomllib.loads(git(repo, "show", f"{sha}:{CONFIG}"))
+    except (Failed, tomllib.TOMLDecodeError) as exc:
+        raise Failed(f"{CONFIG} unreadable in {sha[:12]}: {exc}") from exc
+    config.setdefault("health_seconds", 90)
+    config.setdefault("keep", 5)
+    for key in ("restart", "health"):
+        if not isinstance(config.get(key), str) or not config[key]:
+            raise Failed(f"{CONFIG} must name a `restart` and a `health` command")
+    if not isinstance(config["health_seconds"], int) or config["health_seconds"] < 1:
+        raise Failed(f"{CONFIG}: `health_seconds` must be a whole number of seconds, 1 or more")
+    if not isinstance(config["keep"], int) or config["keep"] < 0:
+        raise Failed(f"{CONFIG}: `keep` must be a whole number, 0 or more")
+    return config
+
+
+def run(release, argv, seconds=COMMAND_SECONDS):
+    """A project command in `release`, in its own process group, all of which ends the moment
+    the command does; its exit code, its output and whether `seconds` cut it short."""
+    with tempfile.TemporaryFile() as out:
+        try:
+            child = subprocess.Popen(argv, cwd=release, stdout=out, stderr=subprocess.STDOUT,
+                                     stdin=subprocess.DEVNULL, start_new_session=True)
+        except OSError as exc:
+            return 1, why(exc), False
+        # The leader stays unreaped until its group is killed, so its id names no other group.
+        deadline = time.monotonic() + seconds
+        late = False
+        while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+            if time.monotonic() >= deadline:
+                late = True
+                break
+            time.sleep(0.05)
+        try:
+            os.killpg(child.pid, signal.SIGKILL)   # whatever it left behind ends too
+        except ProcessLookupError:
+            pass
+        code = child.wait()
+        out.seek(0)
+        text = out.read().decode("utf-8", "replace").strip()
+    return (124, f"killed after {seconds:.1f}s\n{text}", True) if late else (code, text, False)
+
+
+def must(release, what, argv):
+    code, out, _ = run(release, argv)
+    if code:
+        tail = "\n".join(out.splitlines()[-20:])
+        raise Failed(f"{what} failed (exit {code}): `{' '.join(argv)}`\n{tail}")
+
+
+def remove(root, path):
+    if path.is_symlink():
+        path.unlink()
+    else:
+        shutil.rmtree(path, ignore_errors=True)
+    git(root / "repo", "worktree", "prune")
+
+
+def prepare(root, sha, migrate=True):
+    """Everything a release needs before anything live changes: releases/<sha> checked out
+    fresh, its own virtualenv installed from its requirements, its install and migrate."""
+    config = load(root / "repo", sha)
+    release = root / "releases" / sha
+    remove(root, release)
+    release.parent.mkdir(parents=True, exist_ok=True)
+    git(root / "repo", "worktree", "add", "--detach", "--force", str(release), sha)
+    requirements = config.get("requirements", "requirements.txt")
+    if (release / requirements).is_file():
+        remove(root, release / ".venv")             # a committed one is never reused
+        python = config.get("python", "python3")
+        must(release, "virtualenv", [python, "-m", "venv", ".venv"])
+        must(release, "pip install", [".venv/bin/pip", "install", "-q", "-r", requirements])
+    if config.get("install"):
+        must(release, "install", ["bash", "-c", config["install"]])
+    if migrate and config.get("migrate"):
+        must(release, "migrate", ["bash", "-c", config["migrate"]])
+    return config
+
+
+def start(root, sha):
+    """`sha`'s restart, then its health until it passes within its time."""
+    config = load(root / "repo", sha)
+    release = root / "releases" / sha
+    must(release, "restart", ["bash", "-c", config["restart"]])
+    deadline = time.monotonic() + config["health_seconds"]
+    ended = None        # the last try that ran to its own end
+    while True:
+        code, out, late = run(release, ["bash", "-c", config["health"]],
+                              deadline - time.monotonic())
+        left = deadline - time.monotonic()
+        if code == 0 and left >= 0:
+            return
+        if not late:
+            ended = code, out
+        if late or left <= HEALTH_PAUSE_SECONDS:
+            # A try the deadline cut short says less than one that ran to its end.
+            code, out = ended or (code, out)
+            result = f"exit {code}" if code else f"passed after its {config['health_seconds']}s"
+            raise Failed(f"health failed ({result}): `{config['health']}`: {out[-300:]}")
+        time.sleep(HEALTH_PAUSE_SECONDS)
+
+
+def switch(root, sha):
+    link = root / "current.new"
+    link.unlink(missing_ok=True)
+    link.symlink_to(Path("releases") / sha)
+    link.replace(root / "current")
+
+
+def write(path, text):
+    fresh = path.with_name(path.name + ".new")
+    fresh.write_text(text)
+    fresh.replace(path)
+
+
+def read_words(path):
+    try:
+        return path.read_text().split()
+    except FileNotFoundError:
+        return []
+
+
+def live(root):
+    words = read_words(root / "released")
+    return words[0] if words else None
+
+
+def finish_attempt(root, failure):
+    """An attempt that did not finish. Done when its release went live; dropped when its
+    switch never happened; else the live release is restored and the attempt's commit
+    remembered as failed."""
+    words = read_words(root / "attempt")
+    sha, previous, restoring = words[0], words[1], words[2:] == ["restoring"]
+    if live(root) == sha:
+        (root / "attempt").unlink()     # it had finished before a cut-off
+        return 0
+    if not restoring and os.readlink(root / "current") != f"releases/{sha}":
+        (root / "attempt").unlink()     # the next tick tries it again
+        raise Failed(f"{sha[:12]} not released, nothing live changed: {failure}")
+    write(root / "attempt", f"{sha} {previous} restoring\n")
+    try:
+        switch(root, previous)
+        start(root, previous)
+    except Exception as exc:  # noqa: BLE001 - the next tick tries again
+        raise Failed(f"{sha[:12]} failed ({failure}); restoring {previous[:12]} failed too, "
+                     f"the next tick tries again: {why(exc)}") from exc
+    git(root / "repo", "update-ref", FAILED + sha, sha)
+    (root / "attempt").unlink()
+    raise Failed(f"{sha[:12]} failed and {previous[:12]} is back live: {failure}")
+
+
+def prune(root):
+    """Keep the newest `keep` release directories besides the live and previous ones."""
+    words = read_words(root / "released")
+    held = {words[0], *words[2:3]}
+    keep = load(root / "repo", words[0])["keep"]
+    older = sorted((p for p in (root / "releases").iterdir() if p.name not in held),
+                   key=lambda p: p.lstat().st_mtime, reverse=True)
+    for release in older[keep:]:
+        remove(root, release)
+
+
+def tick(root):
+    if (root / "attempt").exists():
+        return finish_attempt(root, "the tick releasing it was cut off")
+    repo = root / "repo"
+    previous = live(root)
+    if previous is None:
+        raise Failed(f"no live release is recorded in {root}: run `release.py {root} --adopt`")
+    prune(root)
+    name = branch(repo)
+    target = f"origin/{name}"
+    git(repo, "fetch", "--quiet", "origin", f"+refs/heads/{name}:refs/remotes/{target}")
+    if not git_ok(repo, "merge-base", "--is-ancestor", previous, target):
+        raise Failed(f"{name} no longer contains the live release {previous[:12]}: it was "
+                     "rewritten, so release by hand")
+    sha = candidate(repo, previous, target)
+    if sha is None:
+        return 0
+    say(f"releasing {sha[:12]} over {previous[:12]}")
+    try:
+        prepare(root, sha)
+    except Exception as exc:  # noqa: BLE001 - nothing live changed: the next tick tries again
+        raise Failed(f"{sha[:12]} not released, nothing live changed: {why(exc)}") from exc
+    write(root / "attempt", f"{sha} {previous}\n")
+    try:
+        switch(root, sha)
+        start(root, sha)
+        write(root / "released", f"{sha} {time.strftime('%Y-%m-%dT%H:%M:%S%z')} {previous}\n")
+    except Exception as exc:  # noqa: BLE001 - finish_attempt restores whatever changed
+        return finish_attempt(root, why(exc))
+    (root / "attempt").unlink()
+    say(f"live: {sha[:12]}")
+    return 0
+
+
+def adopt(root):
+    """Make repo/'s checked-out commit the first release, built as any release is, without
+    migrating or restarting anything."""
+    if live(root):
+        raise Failed(f"{root} is adopted already: {live(root)[:12]} is live")
+    sha = git(root / "repo", "rev-parse", "HEAD")
+    prepare(root, sha, migrate=False)
+    switch(root, sha)
+    write(root / "released", f"{sha} {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n")
+    say(f"adopted {sha[:12]}; point the units at {root / 'current'}")
+    return 0
+
+
+def main(argv):
+    if len(argv) not in (2, 3) or (len(argv) == 3 and argv[2] != "--adopt"):
+        print("\n\n".join(__doc__.split("\n\n")[1:3]), file=sys.stderr)
+        return 2
+    if os.geteuid() == 0:
+        print("[release] runs as the project's user, never root", file=sys.stderr)
+        return 2
+    root = Path(argv[1]).resolve()
+    with (root / "tick.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            return adopt(root) if len(argv) == 3 else tick(root)
+        except Failed as exc:
+            say(str(exc))
+            return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
