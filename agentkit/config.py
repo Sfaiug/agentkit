@@ -1024,8 +1024,9 @@ def rename_session(old, new):
             # A legacy seat has no selection to overwrite its former pointer with.
             session_path(new).unlink(missing_ok=True)
         _write_json(session_path(old), {"renamed": new}, prepare=False)
-    # The running orchestrator keeps reading the rulebook it was started on.
-    for kind in SEAT_FILES.keys() - {"session", "rulebook"}:
+    # The running orchestrator keeps reading the rulebook it was started on, and its hooks keep
+    # the turn's latch under the name it was started with.
+    for kind in SEAT_FILES.keys() - {"session", "rulebook", "stop"}:
         was = seat_file(kind, old)
         if was.exists():
             was.replace(seat_file(kind, new))

@@ -16,10 +16,12 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
+from agentkit import config
 from agentkit.told import heading
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
@@ -160,6 +162,18 @@ class StopPeerTurn(unittest.TestCase):
         reason = self.blocked(self.stop())["reason"]
         self.assertIn("run parked-exhausted parked: ", reason)
         self.assertIn("ak run resume parked-exhausted", reason)
+
+    def test_a_rename_during_the_turn_keeps_its_parked_run_holding_the_stop(self):
+        """review 20261006-1337: the harness keeps its launch name, and so does its turn's latch,
+        so a rename does not let the standing done end a turn while a run sits parked."""
+        self.notified("done", self.done_at)
+        self.run_json("parked-exhausted", state="exhausted", started_at=self.done_at - 9000,
+                      finished_at=self.done_at - 60, error=SPENT)
+        self.prompt(PEER_PROMPT)
+        self.assertIn("run parked-exhausted parked: ", self.blocked(self.stop())["reason"])
+        with patch.object(config, "STATE", self.state), patch.object(config, "ensure_dirs"):
+            config.rename_session(SEAT, "renamed-peer")
+        self.assertIn("run parked-exhausted parked: ", self.blocked(self.stop())["reason"])
 
     def test_a_peer_opened_turn_waiting_on_a_run_is_judged_as_today(self):
         """A run launched during the turn still counts as waiting, peer or not."""
