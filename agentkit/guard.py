@@ -9,6 +9,7 @@ It guards against a seat's mistakes, not against a seat that means to get round 
 import fnmatch
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -17,48 +18,92 @@ from . import config
 
 KILLS = ("kill-server", "kill-session", "kill-window", "kill-pane")
 ALIASES = {"killp": "kill-pane", "killw": "kill-window"}
-BREAKS = {"&&", "||", "|", "|&", "&", "(", ")", "\n"}   # where a shell starts another command
-VALUED = {"-L", "-S", "-f", "-c", "-T"}                   # tmux's own options that take a value
+SHELL_BREAK = set(";&|()\n")       # a token of only these is where the shell starts a command
+SERVER_VALUED = set("fLScT")       # tmux's server options that take a value, as getopt reads them
+SHELLS = {"bash", "sh", "dash", "zsh", "ksh"}   # `<shell> -c '<script>'` runs that script
+# commands that run the command after their own options: tmux may be that command
+WRAPPERS = {"env", "sudo", "nohup", "nice", "command", "exec", "time", "timeout",
+            "stdbuf", "setsid", "doas", "ionice", "chrt"}
 
 
 def words(command):
-    """The shell words of a command; a quoted word holding a tmux call is scanned as one too."""
+    """The shell words of a command; a run of shell punctuation is its own token."""
     lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
     lexer.whitespace, lexer.whitespace_split = " \t\r", True
     try:
-        found = list(lexer)
+        return list(lexer)
     except ValueError:                    # unbalanced quotes: the shell refuses it anyway
-        found = command.split()
-    out = []
-    for word in found:
-        out.append(word)
-        if "tmux" in word and word.strip() != word.strip().split()[0]:   # `bash -c '...'`
-            out += ["\n", *words(word), "\n"]
-    return out
+        return command.split()
+
+
+def is_break(token):
+    """A token the shell reads as a command separator (`;`, `&&`, `|`, a newline, a run of them)."""
+    return bool(token) and all(ch in SHELL_BREAK for ch in token)
+
+
+def server_opts(tokens, i):
+    """(the -L/-S server a tmux call names, the index after its server options), read as getopt:
+    bundled booleans and a valued option's value in the same word (`-uL name`, `-Lname`)."""
+    server = []
+    while i < len(tokens) and tokens[i].startswith("-") and tokens[i] != "--" \
+            and not is_break(tokens[i]):
+        flags, i, at = tokens[i][1:], i + 1, 0
+        while at < len(flags):
+            flag = flags[at]
+            if flag in SERVER_VALUED:
+                value = flags[at + 1:] or (tokens[i] if i < len(tokens) else "")
+                i += not flags[at + 1:]
+                if flag in ("L", "S"):
+                    server += ["-" + flag, value]
+                break
+            at += 1
+    return server, i
 
 
 def tmux_calls(tokens):
-    """(server options, command, its arguments) for each tmux command the words run."""
-    i = 0
-    while i < len(tokens):
-        if os.path.basename(tokens[i]) != "tmux":
+    """(server options, subcommand, its args) for each tmux command the shell actually runs.
+
+    Only a word in command position -- the start, or after a separator, past assignments and
+    wrappers like env/sudo -- is a command; a `tmux` among another command's arguments (an echo,
+    a grep) runs nothing.  A `<shell> -c '<script>'` is scanned as the commands it runs.
+    """
+    i, n, at_command = 0, len(tokens), True
+    while i < n:
+        token = tokens[i]
+        if is_break(token):
+            at_command, i = True, i + 1
+            continue
+        if not at_command:
             i += 1
             continue
-        i, server = i + 1, []
-        while i < len(tokens) and tokens[i].startswith("-") and tokens[i] not in BREAKS:
-            flag, i = tokens[i], i + 1
-            if flag in VALUED and i < len(tokens):
-                server += [flag, tokens[i]] if flag in ("-L", "-S") else []
+        if re.match(r"\w+=", token):      # VAR=value before the command
+            i += 1
+            continue
+        base = os.path.basename(token)
+        if base in WRAPPERS:              # env, sudo, nohup, ...: the real command follows
+            i += 1
+            continue
+        if base != "tmux":
+            if base in SHELLS:            # a -c '<script>' argument is run
+                at = i + 1
+                while at < n and not is_break(tokens[at]):
+                    if tokens[at] == "-c" and at + 1 < n:
+                        yield from tmux_calls(words(tokens[at + 1]))
+                        break
+                    at += 1
+            while i < n and not is_break(tokens[i]):   # its other arguments are not commands
                 i += 1
-            elif flag[:2] in ("-L", "-S") and len(flag) > 2:
-                server += [flag[:2], flag[2:]]
-        while i < len(tokens) and tokens[i] not in BREAKS:
+            at_command = False
+            continue
+        i += 1                            # a tmux invocation: its server options, then its command
+        server, i = server_opts(tokens, i)
+        if i < n and not is_break(tokens[i]):
             name, args, i = tokens[i], [], i + 1
-            while i < len(tokens) and tokens[i] not in BREAKS and tokens[i] != ";":
+            while i < n and not is_break(tokens[i]):
                 args.append(tokens[i])
                 i += 1
             yield server, name, args
-            i += i < len(tokens) and tokens[i] == ";"
+        at_command = False
 
 
 def kill(name):
@@ -68,19 +113,24 @@ def kill(name):
     return name if name in KILLS else (hits[0] if len(hits) == 1 else None)
 
 
-def options(args):
-    """(-t target or None, -a given) from a kill command's arguments, read as tmux's getopt."""
-    target, every, i = None, False, 0
+def kill_options(args):
+    """(-t target or None, -a given, -C given) from a kill command's args, read as tmux's getopt.
+    `-C` clears a session's alerts and leaves it alive, so it is no kill."""
+    target, every, clear, i = None, False, False, 0
     while i < len(args) and args[i].startswith("-") and args[i] != "--":
-        flags, i = args[i][1:], i + 1
-        for at, flag in enumerate(flags):
+        flags, i, at = args[i][1:], i + 1, 0
+        while at < len(flags):
+            flag = flags[at]
             if flag == "a":
                 every = True
+            elif flag == "C":
+                clear = True
             elif flag == "t":
                 target = flags[at + 1:] or (args[i] if i < len(args) else "")
                 i += not flags[at + 1:]
                 break
-    return target, every
+            at += 1
+    return target, every, clear
 
 
 def sessions(server):
@@ -94,24 +144,35 @@ def sessions(server):
     return dict(line.split("\t", 1) for line in proc.stdout.splitlines() if "\t" in line)
 
 
-def named(server, target, live):
-    """The sessions a target may name, by tmux's own order: an id, the exact name, else every
-    name it is a prefix or a pattern of (tmux takes one of them, or refuses if there are two)."""
-    if target[:1] in ("%", "@"):
-        try:
-            proc = subprocess.run(["tmux", *server, "display-message", "-p", "-t", target,
-                                   "#{session_name}"], capture_output=True, text=True, timeout=5)
-        except (OSError, subprocess.TimeoutExpired):
-            return set()
-        return {proc.stdout.strip()} - {""}
-    if target[:1] == "$":
-        return {live[target]} if target in live else set()
+def display(server, target):
+    """The session name tmux resolves a target to (the current one when target is None), or ""."""
+    cmd = ["tmux", *server, "display-message", "-p"]
+    if target is not None:
+        cmd += ["-t", target]
+    try:
+        proc = subprocess.run(cmd + ["#{session_name}"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def target_sessions(server, target, live):
+    """The session names a kill's `-t target` may hit, by tmux's own target lookup: an id, a
+    contextual or marked target tmux resolves, the exact name, else every name it is a prefix
+    or pattern of.  A target whose session part is empty (`:0`) is the current session."""
+    sess = target.split(":", 1)[0] if ":" in target else target
+    if sess == "" or sess[:1] in ("%", "@", "~", "{"):
+        return {display(server, target if sess else None)} - {""}
+    if sess[:1] == "$":
+        return {live[sess]} if sess in live else set()
     names = set(live.values())
-    if target.startswith("="):
-        return {target[1:]} & names
-    if target in names:
-        return {target}
-    return {name for name in names if name.startswith(target) or fnmatch.fnmatchcase(name, target)}
+    if sess.startswith("="):
+        return {sess[1:]} & names
+    if sess in names:
+        return {sess}
+    hits = {name for name in names if name.startswith(sess) or fnmatch.fnmatchcase(name, sess)}
+    # an unmatched target may still be one tmux resolves: a client's tty, a window index
+    return hits or {display(server, target)} - {""}
 
 
 def seat(name):
@@ -122,9 +183,17 @@ def seat(name):
         return False
 
 
+def resolved(name):
+    """The name a session goes by now, following a rename; the name itself when it cannot say."""
+    try:
+        return config.resolve_session(name)
+    except (config.Error, OSError):
+        return config.normalize_session(name)
+
+
 def another_seats_tmux(tokens, env):
     """A seat never ends another seat: no kill of its tmux session, window, pane or server."""
-    own = config.normalize_session(env.get(config.SESSION_ENV, ""))
+    own = resolved(env.get(config.SESSION_ENV, ""))
     for server, name, args in tmux_calls(tokens):
         command = kill(name)
         if not command:
@@ -133,21 +202,30 @@ def another_seats_tmux(tokens, env):
         if command == "kill-server":
             hit = set(live.values())
         else:
-            target, every = options(args)
-            if target is None or target in ("", "="):
-                hit = set(live.values()) if every and command == "kill-session" else set()
+            target, every, clear = kill_options(args)
+            if command == "kill-session" and clear:
+                continue                  # -C clears alerts; the session lives, so it is no kill
+            if command == "kill-session" and every:
+                keep = target_sessions(server, target, live) if target else current(server)
+                hit = set(live.values()) - keep
+            elif target in (None, "", "="):
+                # a kill with no target ends the current session, or the current window or pane,
+                # all of which belong to the current session
+                hit = current(server)
             else:
-                # a window or pane named without its session's colon may be a session's name
-                hit = named(server, target.split(":", 1)[0] if ":" in target else target, live)
-                if every and command == "kill-session":
-                    hit = set(live.values()) - hit
-        others = sorted(n for n in hit if config.normalize_session(n) != own and seat(n))
+                hit = target_sessions(server, target, live)
+        others = sorted(n for n in hit if n and resolved(n) != own and seat(n))
         if others:
             whose = "another session's seat" if len(others) == 1 else "other sessions' seats"
             return (f"ak refused this command: `tmux {command}` would end {', '.join(others)}, "
                     f"{whose}. A seat never ends another seat; ask it with "
                     f"`ak tell {others[0]} \"...\"` or ask the owner.")
     return None
+
+
+def current(server):
+    """The current session on that server, as a set: what a kill with no target ends."""
+    return {display(server, None)} - {""}
 
 
 RULES = (another_seats_tmux,)
