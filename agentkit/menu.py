@@ -780,7 +780,9 @@ def seat_runs(name, records=None):
         else:
             continue
         step, model = DOING.get(doing, (doing, None))
-        task = Path(state.get("task_file") or "").stem.split("-")[0] or run_dir.name
+        # a file's name may hold anything: the id is drawn on one line, as text
+        task = terminal.plain(Path(state.get("task_file") or "").stem.split("-")[0]
+                              or run_dir.name)
         # the round anything last ran in, or a step was announced in before its directory was
         # made: one landing, rechecked or waiting on a push is still in the round its summary
         # closed, not the next
@@ -1041,19 +1043,17 @@ def _last_text(info, room, narrow=False):
 
 
 def live_line(cfg, info, room, now=None):
-    """The highlighted seat's live line in `room` cells, or "" for a seat with no live run: its
-    bar's second line (`statusbar.live`), the first version that fits, else the last cut."""
+    """The highlighted seat's live line in `room` cells, or "" for a seat with no live run, or
+    no seat at all (a project's heading): its bar's second line (`statusbar.live`), the first
+    version that fits, else the last cut."""
     from . import statusbar   # here, not at the top: the bar's module imports this one
-    if info.get("word") != "working" or not info.get("runs"):
+    if not info or info.get("word") != "working" or not info.get("runs"):
         return ""
     versions = statusbar.live(info["runs"], cfg, time.time() if now is None else now)
     fits = next((version for version in versions
                  if sum(terminal.cells(said) for said, _, _ in version) <= room), None)
-    if fits is None:          # cut by cells, as tmux cuts the bar: its own spacing kept
-        said = "".join(said for said, _, _ in versions[-1])
-        while said and terminal.cells(said) > room - 1:
-            said = said[:-1]
-        return said.rstrip() + "…"
+    if fits is None:          # cut as tmux cuts the bar: its own spacing kept
+        return terminal.cut("".join(said for said, _, _ in versions[-1]), room, spaced=True)
     painted = ""
     for said, kind, bold in fits:
         said = terminal.styled(said, kind) if kind else said

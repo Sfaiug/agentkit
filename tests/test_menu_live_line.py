@@ -95,6 +95,34 @@ class MenuLiveLine(Sandbox):
         self.assertIn(terminal.styled("fable", menu.model_colour(self.cfg, "fable")), row)
         self.assertEqual(menu.model_colour(self.cfg, "fable"), menu.COLOURS["anthropic"])
 
+    def test_d_a_project_heading_highlighted_opens_nothing(self):
+        # a project with switches has a heading the highlight can rest on; it is no seat
+        with patch.object(menu, "switches_command", return_value="features"), \
+                patch.object(menu, "switches", return_value=[]):
+            lines, _ = self.draw(config.CODE / "acme")
+        self.assertTrue(any(line.startswith("›") and "acme" in line for line in lines), lines)
+        self.assertNotIn("gh2", "\n".join(lines))
+        self.assertNotIn("lg1", "\n".join(lines))
+
+    def test_e_a_task_file_s_name_is_drawn_on_one_line_as_text(self):
+        state = record.read_state(config.RUNS / "20260101-0900-gh2-x")
+        record.save_state(config.RUNS / "20260101-0900-gh2-x",
+                          dict(state, task_file="/t/gh2\n\x1b[31mred\tx-task.md"))
+        lines, _ = self.draw("fix-api")
+        self.assertEqual(self.under(lines, "fix-api").split(" ■")[0].strip(), "gh2 red x")
+        [run] = menu.seat_runs("fix-api")
+        self.assertEqual(run["task"], "gh2 red x")     # the seat bar's line two reads the same
+
+    def test_f_a_line_nothing_fits_is_cut_with_its_spacing_kept(self):
+        runs = [{"task": "b1", "doing": "building", "step": "building", "since": NOW - 60,
+                 "round": 1, "rounds": 3, "model": "opus"},
+                {"task": "r1", "doing": "reviewing", "step": "review", "since": NOW - 60,
+                 "round": 1, "rounds": 3, "model": "astra"}]
+        info = {"word": "working", "runs": runs}
+        self.assertEqual(menu.live_line(self.cfg, info, 24, NOW), "building 1   reviewing 1")
+        self.assertEqual(menu.live_line(self.cfg, info, 18, NOW), "building 1   revi…")
+        self.assertEqual(menu.live_line(self.cfg, None, 40, NOW), "")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

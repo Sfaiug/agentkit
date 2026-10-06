@@ -226,10 +226,12 @@ def inset():
         sys.stdout.write("\033[H")    # what is written before a screen places itself is in too
 
 
-def plain(text):
+def plain(text, spaced=False):
+    """`text` with no escape or other control character, on one line: one space between its
+    words, or, `spaced`, its own spacing kept, each space character one space."""
     text = ANSI.sub("", str(text))
-    return " ".join("".join(c for c in text if c.isspace() or
-                            not unicodedata.category(c).startswith("C")).split())
+    kept = "".join(c for c in text if c.isspace() or not unicodedata.category(c).startswith("C"))
+    return "".join(" " if c.isspace() else c for c in kept) if spaced else " ".join(kept.split())
 
 
 def cells(text):
@@ -237,9 +239,10 @@ def cells(text):
                2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in ANSI.sub("", text))
 
 
-def cut(text, room):
-    """One ellipsis, preferring a word boundary at most four columns before the cut."""
-    text = plain(text)
+def cut(text, room, spaced=False):
+    """One ellipsis, preferring a word boundary at most four columns before the cut; the text
+    `plain`, its own spacing kept where `spaced`."""
+    text = plain(text, spaced)
     if cells(text) <= room:
         return text
     if room <= 0:
