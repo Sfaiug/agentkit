@@ -75,7 +75,7 @@ _LOADED = {}
 
 def says(text, word):
     """Does `text` say `word` on its own: never inside a longer word, nor its digits inside a
-    longer number, a file path or a run id?
+    longer number, a file path or a run id, nor a word without digits inside a run id?
 
     A `#` in a word is any one digit, a `~` up to three characters that are neither letters
     nor digits, or none (`status~5##` is `"status": 503` too), and `…` joins parts that each
@@ -89,25 +89,33 @@ def says(text, word):
         + re.escape(part).replace(r"\#", r"\d").replace(r"\~", r"[\W_]{0,3}")
         + (r"(?!\w)(?!\.\d)" if re.search(r"[\w#]$", part) else "")
         for part in parts)
+    matches = list(re.finditer(pattern, text, re.I))
+    if not matches:
+        return False
     # Paths and file names with their rotation and line references (`run.log.429`,
     # `run.py:429:7`, a traceback's `", line 429`), and ak's run and job ids (a date-time
-    # stamp, then words) join numbers with punctuation too. A match stands unless every
-    # number in it sits inside one: `HTTP/1.1 429`, `HTTP-503` and `Error-429` are still
-    # the status. Each kind is found on its own and every span counts, so one never cuts
+    # stamp, then words) join numbers with punctuation too. A match of a word with digits
+    # stands unless every number in it sits inside one: `HTTP/1.1 429`, `HTTP-503` and
+    # `Error-429` are still the status. A word without digits stands unless the whole match
+    # sits inside a run or job id as ak makes it -- the stamp, then the slug's letters and
+    # digits joined by hyphens (`run.slugify`) -- which names every run's worktree and
+    # directory, so a worker naming its own paths (`wt/20261005-0626-fix-agentkit-quota-wait`)
+    # says no limit. Each kind is found on its own and every span counts, so one never cuts
     # another short.
-    ignored = [span.span() for kind in (
-        r'''(?:[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*)(?::\d+)*''',
-        r"\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*(?:[-.]\w+)*\b(?::\d+)*", r"\b\d{8}-\d{4,6}(?:-[\w.]+)+",
-        r'(?<=", )line \d+') for span in re.finditer(kind, text)] if re.search(r"[\d#]", word) else []
+    digits = re.search(r"[\d#]", word)
+    kinds = ((r'''(?:[^\s"'`{}<>,:;|]*/[^\s"'`{}<>,:;|]*|(?:[A-Za-z]:\\|\\\\)[^\s"'`{}<>,:;|]*)(?::\d+)*''',
+              r"\b\w+(?:[-.]\w+)*\.[A-Za-z]\w*(?:[-.]\w+)*\b(?::\d+)*",
+              r"\b\d{8}-\d{4,6}(?:-[\w.]+)+", r'(?<=", )line \d+') if digits else
+             (r"\b\d{8}-\d{4,6}(?:-[a-z0-9]+)+",))
+    ignored = [span.span() for kind in kinds for span in re.finditer(kind, text)]
 
     def stands(match):
-        numbers = [(match.start() + number.start(), match.start() + number.end())
-                   for number in re.finditer(r"\d+", match.group())]
-        return not numbers or not all(any(start <= first and last <= end
-                                          for start, end in ignored)
-                                      for first, last in numbers)
+        inner = ([(match.start() + number.start(), match.start() + number.end())
+                  for number in re.finditer(r"\d+", match.group())] if digits else [match.span()])
+        return not all(any(start <= first and last <= end for start, end in ignored)
+                       for first, last in inner)
 
-    return any(stands(match) for match in re.finditer(pattern, text, re.I))
+    return any(stands(match) for match in matches)
 
 
 def limited(text):
