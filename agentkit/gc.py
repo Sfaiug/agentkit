@@ -412,41 +412,55 @@ def holds_work(wt):
     return code != 0 or not same_as_commit(wt)
 
 
-# What git leaves in a worktree's own git directory between commands, besides a split
-# index's `sharedindex.<oid>` files and empty folders.  Anything else -- a rebase, merge,
-# cherry-pick or bisect under way, an autostash, a lock, a ref or a reflog of the
+# What git leaves in a worktree's own git directory between commands, by path in it, besides
+# a split index's `sharedindex.<oid>` files and empty folders.  Anything else -- a rebase,
+# merge, cherry-pick or bisect under way, an autostash, a lock, a ref or a reflog of the
 # checkout's own but HEAD's -- is work, or a hold, that would go with the checkout.
-IDLE = frozenset({"HEAD", "commondir", "gitdir", "index", "logs", "refs", "config.worktree",
-                  "ORIG_HEAD", "FETCH_HEAD", "COMMIT_EDITMSG", "MERGE_RR", "AUTO_MERGE",
-                  "REBASE_HEAD"})
+IDLE = frozenset({"HEAD", "commondir", "gitdir", "index", "config.worktree", "logs/HEAD",
+                  "info/sparse-checkout", "ORIG_HEAD", "FETCH_HEAD", "COMMIT_EDITMSG",
+                  "MERGE_RR", "AUTO_MERGE", "REBASE_HEAD"})
 
 
 def same_as_commit(wt):
     """Whether a checkout holds its head commit and nothing more.
 
-    Git is idle in it (`IDLE`).  Its index lists exactly the commit's files, each file in it
-    hashes to the commit's blob, read raw (no filter, line ending or replacement object
-    stands in between), and git finds no new file beside them.  What git ignores is output,
-    not work.  A submodule, whose own commits only it may hold, keeps the checkout.  And
-    everything this reads -- the checkout's `.git`, its own git directory, the tracked files
-    and every folder, where a new file would show -- is the same after the last read as
-    before the first.
+    Git is idle in it (`IDLE`).  Its index lists exactly the commit's files, none of them
+    added in intent only, each file in it hashes to the commit's blob, read raw (no filter,
+    line ending or replacement object stands in between) -- or is one a sparse checkout
+    leaves out -- and git finds no new file beside them.  What git ignores is output, not
+    work.  A submodule, whose own commits only it may hold, keeps the checkout.  Everything
+    this reads -- where HEAD points, the checkout's `.git`, its own git directory, the
+    tracked files, every folder, where a new file would show, and every list of what git
+    ignores -- is the same after the last read as before the first.  No hook runs.
     """
+    base = os.fsencode(wt)
     git = ["--no-replace-objects", f"--work-tree={wt}", "--no-optional-locks",
            "-c", "core.ignoreCase=false", "-c", "core.fsmonitor=false",
-           "-c", "core.untrackedCache=false"]
+           "-c", "core.untrackedCache=false", "-c", "core.hooksPath=/dev/null"]
     def ask(*args, env=None):
         code, out = orch.git_in(wt, *git, *args, env=env)
         return out if code == 0 else None
-    head, private, fmt = (ask("rev-parse", "-q", "--verify", "HEAD^{commit}"),
-                          ask("rev-parse", "--absolute-git-dir"), ask("rev-parse", "--show-object-format"))
-    if head is None or private is None or fmt is None:
+    def where():
+        """HEAD's commit, the checkout's own git directory and the repository's, as git
+        reads them now."""
+        return (ask("rev-parse", "-q", "--verify", "HEAD^{commit}"),
+                ask("rev-parse", "--absolute-git-dir"),
+                ask("rev-parse", "--path-format=absolute", "--git-common-dir"))
+    found, fmt = where(), ask("rev-parse", "--show-object-format")
+    if None in found or fmt is None:
         return False
-    head, private = head.strip().decode(), os.fsdecode(private.removesuffix(b"\n"))
+    head = found[0].strip().decode()
+    private, common = (os.fsdecode(line.removesuffix(b"\n")) for line in found[1:])
+    # The list of what git ignores in every repository, read here once (git's own default
+    # when none is set) so a change to the setting cannot slip between the reads.
+    ignored = ask("config", "--path", "core.excludesFile")
+    ignored = (os.fsdecode(ignored.removesuffix(b"\n")) if ignored else os.path.join(
+        os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "git", "ignore"))
     tree = ask("ls-tree", "-r", "-z", "--full-tree", head)
     if tree is None:
         return False
-    # `<mode> blob <oid>\t<path>` and `<mode> <oid> <stage>\t<path>`, both by path
+    # `<mode> blob <oid>\t<path>`, and `<tag> <mode> <oid> <stage>\t<path>` whose tag is `S`
+    # on a file a sparse checkout leaves out; both by path
     files = {path: (meta.split()[0], meta.split()[2])
              for meta, _, path in (entry.partition(b"\t") for entry in tree.split(b"\0") if entry)}
     def held(top):
@@ -460,22 +474,25 @@ def same_as_commit(wt):
     def snapshot():
         """{path: (inode, size, mtime, ctime)} of everything read, or None when git is not
         idle or a folder cannot be read."""
+        own = held(private)
+        if own is None:
+            return None
         # A split index's shared files are named by their content, and every read of the
         # index touches them: they say nothing of work.
-        names = [name for name in os.listdir(private)
-                 if not re.fullmatch(r"sharedindex\.[0-9a-f]+", name)]
-        refs, logs = held(os.path.join(private, "refs")), held(os.path.join(private, "logs"))
-        if not set(names) <= IDLE or refs != set() or logs is None or not logs <= {"HEAD"}:
+        own = {path for path in own if not re.fullmatch(r"sharedindex\.[0-9a-f]+", path)}
+        if not own <= IDLE:
             return None
-        unread = []
-        folders = [root for root, _, _ in os.walk(os.fsencode(wt), onerror=unread.append)]
+        unread, folders, ignores = [], [], []
+        for folder, _, names in os.walk(base, onerror=unread.append):
+            folders.append(folder)
+            ignores += [os.path.join(folder, b".gitignore")] if b".gitignore" in names else []
         if unread:
             return None
         found = {}
-        for path in (os.path.join(os.fsencode(wt), b".git"), private,
-                     *(os.path.join(private, name) for name in names),
-                     os.path.join(private, "logs", "HEAD"), *folders,
-                     *(os.path.join(os.fsencode(wt), path) for path in files)):
+        for path in (os.path.join(base, b".git"), private,
+                     *(os.path.join(private, path) for path in own),
+                     os.path.join(common, "info", "exclude"), ignored, *folders, *ignores,
+                     *(os.path.join(base, path) for path in files)):
             try:
                 info = os.lstat(path)
             except FileNotFoundError:
@@ -487,33 +504,44 @@ def same_as_commit(wt):
         before = snapshot()
         if before is None:
             return False
-        index = ask("ls-files", "-s", "-z")
-        if index is None:
+        index = ask("ls-files", "-s", "-t", "-z")
+        if index is None or ask("diff-index", "--cached", "--quiet", "--ita-invisible-in-index",
+                                head) is None:
             return False
-        staged = {path: (meta.split()[0], meta.split()[1], meta.split()[2])
+        staged = {path: meta.split()
                   for meta, _, path in (entry.partition(b"\t") for entry in index.split(b"\0") if entry)}
-        if staged != {path: (mode, oid, b"0") for path, (mode, oid) in files.items()}:
+        if ({path: (tag in (b"H", b"S"), mode, oid, stage) for path, (tag, mode, oid, stage) in staged.items()}
+                != {path: (True, mode, oid, b"0") for path, (mode, oid) in files.items()}):
             return False
         for path, (mode, oid) in files.items():
-            full = os.path.join(os.fsencode(wt), path)
-            info = os.lstat(full)
+            full = os.path.join(base, path)
+            try:
+                info = os.lstat(full)
+            except FileNotFoundError:
+                if staged[path][0] == b"S":
+                    continue
+                return False
+            digest = hashlib.new(fmt.decode().strip())
             if mode == b"120000" and stat.S_ISLNK(info.st_mode):
-                data = os.readlink(full)
+                target = os.readlink(full)
+                digest.update(b"blob %d\0%s" % (len(target), target))
             elif (mode in (b"100644", b"100755") and stat.S_ISREG(info.st_mode)
-                    and bool(info.st_mode & 0o111) == (mode == b"100755")):
+                    and bool(info.st_mode & stat.S_IXUSR) == (mode == b"100755")):
                 with open(full, "rb") as handle:
-                    data = handle.read()
+                    digest.update(b"blob %d\0" % os.fstat(handle.fileno()).st_size)
+                    while chunk := handle.read(1 << 20):
+                        digest.update(chunk)
             else:                                # a submodule, or a changed kind of entry
                 return False
-            digest = hashlib.new(fmt.decode().strip(), b"blob %d\0" % len(data) + data)
             if digest.hexdigest().encode() != oid:
                 return False
         with tempfile.TemporaryDirectory() as scratch:
             env = {"GIT_INDEX_FILE": os.path.join(scratch, "index")}
             if ask("read-tree", head, env=env) is None:
                 return False
-            new = ask("ls-files", "--others", "--exclude-standard", "-z", env=env)
-        return new == b"" and snapshot() == before
+            new = ask("-c", f"core.excludesFile={ignored}", "ls-files", "--others",
+                      "--exclude-standard", "-z", env=env)
+        return new == b"" and snapshot() == before and where() == found
     except OSError:
         return False
 
