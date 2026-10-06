@@ -1,0 +1,30 @@
+  /model - choose what model and
+reasoning effort to use
+  /review - review any changes and find
+issues
+
+
+› run 20261006-1534 finished FAIL: a
+  case. run 20261006-1534 finished
+  FAIL: a case. run 20261006-1534
+  finished FAIL: a case. run 20261006-
+  1534 finished FAIL: a case. run
+  20261006-1534 finished FAIL: a case.
+  run 20261006-1534 finished FAIL: a
+  case. run 20261006-1534 finished
+  FAIL: a case. run 20261006-1534
+  finished FAIL: a case. run 20261006-
+  1534 finished FAIL: a case. run
+  20261006-1534 finished FAIL: a case.
+  run 20261006-1534 finished FAIL: a
+  case. run 20261006-1534 finished
+  FAIL: a case. run 20261006-1534
+  finished FAIL: a case. run 20261006-
+  1534 finished FAIL: a case. run
+  20261006-1534 finished FAIL: a case.
+  run 20261006-1534 finished FAIL: a
+  case. run 20261006-1534 finished
+  FAIL: a case. run and fix the login
+
+  GPT-6.1-Sol max · ~/code/fix-api…
+
