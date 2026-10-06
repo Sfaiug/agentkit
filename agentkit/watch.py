@@ -2787,7 +2787,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     too, with the name the seat goes by then, before each key: a line that has stopped being
     this seat's to have is typed no further.  Every Enter, the first, its retry and a mark's,
     goes only while the composer holds the line alone (`composer_holds`): what the owner typed
-    in the gap before it is never sent.
+    in the gap before it is never sent.  The line is delivered only once its composer reads
+    empty, the first pass's as a mark's: one the owner edited while its Enter was confirmed
+    no longer reads whole there, and is still theirs to send.
     """
     mark = {"line": text, "seat": session.get("created")}
     if typed == mark:
@@ -2821,10 +2823,11 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         return not (harness and takes_line(session, cfg=cfg, pane=pane, midturn=midturn)
                     and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
-    return type_checked(session, text, log, None,
-                        guard=lambda: seat_held(session["name"]), veto=veto,
-                        typed=lambda: receipt(mark), source=source,
-                        ready=lambda held: composer_holds(held, session, text, cfg) == "line")
+    return (type_checked(session, text, log, None,
+                         guard=lambda: seat_held(session["name"]), veto=veto,
+                         typed=lambda: receipt(mark), source=source,
+                         ready=lambda held: composer_holds(held, session, text, cfg) == "line")
+            and composer_holds(session["name"], session, text, cfg) == "empty")
 
 
 # --- a seat whose process died under its runs ------------------------------
