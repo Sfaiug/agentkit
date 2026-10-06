@@ -51,9 +51,12 @@ class QuestionWithMessageUnder(Sandbox):
                                        "started_at": NOW - 3600})]
         asked = {"event": "Notification", "kind": "permission_prompt",
                  "text": "Landing", "at": NOW - 600}
-        for fact in ({}, asked):
-            with self.subTest(fact=fact):
-                live = self.classify(RULED, fact)
+        rows = RULED.rstrip("\n").split("\n")
+        # every seat is a renamed session, whose name Claude draws into that closing rule
+        named = "\n".join(rows[:-1] + ["─" * 60 + f" {SEAT} ─"]) + "\n"
+        for fact, pane in ((fact, pane) for fact in ({}, asked) for pane in (RULED, named)):
+            with self.subTest(fact=fact, named=pane is named):
+                live = self.classify(pane, fact)
                 self.assertEqual(live["state"], "asking")
                 found = watch.session_state(
                     SEAT, NOW, session={"name": SEAT, "attached": False}, cfg=self.cfg,
@@ -73,6 +76,7 @@ class QuestionWithMessageUnder(Sandbox):
         for pane in ["\n".join(rows[:-2] + [typed, closing]) + "\n"
                      for typed in ("  Enter to select · ↑/↓ to navigate · Esc to cancel", "  ---")
                      ] + [DRAFT.rstrip("\n") + "\n" + rule + "\n",
+                          DRAFT.rstrip("\n") + "\n" + rule + f" {SEAT} ─\n",
                           # a draft in a box with corners, its continuation inside the box's edge
                           "⏺ Done.\n╭" + "─" * 40 + "╮\n│ ❯ Explain this footer:" + " " * 18
                           + "│\n│   Enter to confirm · Esc to cancel" + " " * 5 + "│\n╰"

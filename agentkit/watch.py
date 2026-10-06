@@ -1443,16 +1443,21 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
-    # A bare rule right under a row drawn at the left edge is that row's frame, not a newer
-    # line: Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest
-    # line it hid every question, which then read as answered.  A draft never sits there: its
+    # A rule right under a row drawn at the left edge is that row's frame, not a newer line:
+    # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
+    # it hid every question, which then read as answered.  In a renamed session -- every seat --
+    # that rule carries the session's name, which the adapter's composer pattern knows.  A draft never sits there: its
     # first row is prompt-marked and the rest are indented or inside a box's edge, so what is
     # typed stays a draft.
+    def drawn_rule(row):
+        # a bare rule, or a rule the harness's own chrome names, as one carrying a session's name
+        return bool(re.fullmatch(RULE, row) or (row[:1] in "─━═" and chrome_line(chrome, row)))
+
     newest = lines[-1]
-    if chrome["ruled"] and len(lines) > 1 and re.fullmatch(RULE, newest):
+    if chrome["ruled"] and len(lines) > 1 and drawn_rule(newest):
         above = strip_sgr(raw_lines[-2]).rstrip()
         if (above and not above[0].isspace() and above[0] not in "│┃║"
-                and not re.match(r"[❯›⟩>]", above) and not re.fullmatch(RULE, above.strip())):
+                and not re.match(r"[❯›⟩>]", above) and not drawn_rule(above.strip())):
             newest = lines[-2]
     for rule in chrome["rules"]:
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
