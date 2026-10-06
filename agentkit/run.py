@@ -130,7 +130,6 @@ CLASSIC_CHECKS_QUERY = (
     "requiredStatusChecks{context app{databaseId}}}}}}")
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
-FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
 NOTES = re.compile(r"^(#+)[ \t]*Notes\b[^\n]*$", re.M | re.I)
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
@@ -402,23 +401,15 @@ def gh(cwd, *args, timeout=None):
 
 
 def repo_rules(wt, ref):
-    """The body of the repository's AGENTS.md at `ref`, for every worker prompt.
+    """The body of the repository's AGENTS.md at `ref` (`config.agents_body`), for every worker
+    prompt.
 
     ak reads only its front matter itself, and a harness loads the body on its own terms
     (some never, some only beside no file of their own), so without this each brand
     worked to different rules.  Read at the base commit, never the checkout: the work
-    under review cannot rewrite the rules it is judged by.  A read that fails is no file,
-    and so is a link: its text is a path, not rules (`rules_cap` refuses one).
+    under review cannot rewrite the rules it is judged by.
     """
-    if not ref:
-        return ""
-    try:
-        mode = git(wt, "ls-tree", ref, "--", "AGENTS.md", check=False).partition(" ")[0]
-        text = git(wt, "show", f"{ref}:AGENTS.md", check=False) if mode.startswith("100") else ""
-    except Exception:
-        return ""
-    match = FRONT.match(text)
-    text = (text[match.end():] if match else text).strip()
+    text = config.agents_body(wt, ref)
     if not text:
         return ""
     return ("\n\n## Repository AGENTS.md\n"
@@ -10247,7 +10238,7 @@ def declared(wt, key):
 
 def front_value(text, key):
     """`key`'s value in AGENTS.md front matter text as written, or None."""
-    match = FRONT.match(text)
+    match = config.FRONT.match(text)
     if not match:
         return None
     for line in match.group(1).splitlines():
