@@ -3075,14 +3075,16 @@ def repair_open(state, tip):
         and not state.get("merged") and state.get("repair_tip") == tip)
 
 
-def open_followup(state, text, repair=None, tip=None, split=None):
-    """The open run already fixing `text`, or None.
+def open_followup(state, text, repair=None, tip=None, split=None, own=None):
+    """The open run already fixing `text`, or None; never `own`, the run being started.
 
     A follow-up is the same site in the same repository from the same seat.  A `repair` is
     the same repository, target and command from any seat, open at the target's `tip`: the
     target is everybody's. A suite split holds its line forever, and its repository while open.
     """
     for directory in run_record.run_dirs():
+        if directory == own:
+            continue
         other = run_record.read_state(directory) or {}
         if split:
             if (other.get("repo") == state.get("repo") and other.get("split_suite")
@@ -3160,13 +3162,13 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             if item in planned:
                 continue
             directory = None if request else started_by(run_dir, item)
-            if directory and not unlaunched(directory):
+            if directory and not claim_unlaunched(directory):
                 handed["followup_runs"].append(directory.name)
                 continue
             again = directory is not None   # its run, left before its launch: started here
             source = {**state, "repo": str(repo)}
-            opened = not again and open_followup(source, item, key, repair and repair["sha"],
-                                                 split and split["command"])
+            opened = open_followup(source, item, key, repair and repair["sha"],
+                                   split and split["command"], own=directory)
             if opened and request:
                 return opened
             if opened:
@@ -3270,11 +3272,21 @@ def started_by(run_dir, item):
     return None
 
 
-def unlaunched(directory):
-    """Whether a handoff cut off before `spawn_bg` left this fix run: its receipt, perhaps
-    prepared, with no launch begun and no ending -- nothing but the handoff's replay starts it."""
-    current = run_record.read_state(directory) or {}
-    return current.get("state") in (None, "queued", "running") and "launch_pending" not in current
+def claim_unlaunched(directory):
+    """Take over a fix run a handoff cut off before `spawn_bg` left where nothing else starts
+    it, and say whether it was: its receipt alone, or the slot its launch claimed with no
+    launch begun (`launch_pending`), no loop that died (`deaths`) and nobody else alive
+    holding it.  A slot wait is not one: the tick resumes that.  The owner becomes this
+    process under the record's lock, so no other launcher, reap or resume takes it meanwhile."""
+    with run_record.record(directory) as current:
+        left = ("state" not in current
+                or (current["state"] == "running" and "launch_pending" not in current
+                    and not current.get("deaths")
+                    and (current.get("pid") == os.getpid()
+                         or not run_record.process_active(current))))
+        if left:
+            current.update(run_record.process_owner())
+    return left
 
 
 def followups_handed(run_dir, state, handed):

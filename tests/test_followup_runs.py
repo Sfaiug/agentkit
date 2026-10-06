@@ -135,7 +135,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
-    def spawn(self, argv, unit, env, log_path, **kwargs):
+    def spawn(self, argv, unit, env, log_path, log=None, **kwargs):
         self.spawns.append((argv, env, Path(log_path).parent))
         kwargs["placement"].update(scope="none", scope_reason="fixture")
         return os.getpid()
@@ -367,6 +367,45 @@ class FollowupRuns(unittest.TestCase):
                 self.assertEqual(made, [child])
                 self.start(directory, record.read_state(directory))
                 self.assertEqual(len(self.spawns), spawned + 1)
+
+    def test_a_slot_wait_left_by_a_cut_off_handoff_is_resumed_by_the_tick_alone(self):
+        flaky = "flaky: python3 -m unittest passed only on its re-run"
+        directory, state = self.source(followups=[flaky])
+        real = run.prepare
+
+        def cut(child, *args, **kwargs):
+            real(child, *args, **kwargs)
+            raise KeyboardInterrupt
+
+        with patch.object(run.gate, "reserve_slot"), patch.object(run, "prepare", side_effect=cut), \
+                self.assertRaises(KeyboardInterrupt):
+            self.start(directory, state)
+        [child] = [d for d in record.run_dirs() if d != directory]
+        waiting = record.read_state(child)
+        self.assertEqual((waiting["state"], waiting["slot_waiting"]), ("queued", True))
+        self.start(directory, record.read_state(directory))
+        self.assertEqual(self.spawns, [])
+        with patch.object(record, "process_active", return_value=False):
+            watch.resume_dead_loops(self.cfg, log=self.logs.append, now=waiting["started_at"] + 3600)
+        self.assertEqual([where for _, _, where in self.spawns], [child])
+        self.start(directory, record.read_state(directory))
+        self.assertEqual(len(self.spawns), 1)
+
+    def test_a_replayed_handoff_leaves_a_site_another_open_fix_has(self):
+        directory, state = self.source("first", followups=[DEFECT])
+        real = record.save_state
+
+        def cut(target, saved):
+            real(target, saved)
+            if target != directory:     # the fix run's receipt
+                raise KeyboardInterrupt
+
+        with patch.object(record, "save_state", side_effect=cut), \
+                self.assertRaises(KeyboardInterrupt):
+            self.start(directory, state)
+        [other] = self.start(*self.source("second", followups=[DEFECT]))
+        self.start(directory, record.read_state(directory))
+        self.assertEqual([where for _, _, where in self.spawns], [other])
 
     def test_a_followup_line_ticks_once_its_fix_is_on_the_default_branch(self):
         self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
