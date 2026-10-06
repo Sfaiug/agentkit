@@ -15,7 +15,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import browser, config, gc, menu, orch, retention, run, stop, worktrees, watch
 from agentkit import record as run_record
 

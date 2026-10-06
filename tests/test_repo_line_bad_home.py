@@ -17,7 +17,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import config, job as jobs, menu, orch, run, watch
 from agentkit import record
 

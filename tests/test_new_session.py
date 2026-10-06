@@ -19,7 +19,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from test_v4n import Sandbox, menu_input
+from fixtures.sandbox import Sandbox, menu_input
 from agentkit import config, gc, menu, notify, orch, run, terminal, usage
 from agentkit import record as run_record
 

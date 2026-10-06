@@ -13,7 +13,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, watch
 
 SEAT = "fix-api"

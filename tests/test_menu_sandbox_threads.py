@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import test_live_status
 import test_menu_opens_at_once
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from test_audit_phone_menu_recovery_layout import Sandbox as PhoneSandbox
 from agentkit import config
 

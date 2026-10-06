@@ -19,7 +19,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import REPO, Sandbox, menu_input
+from fixtures.sandbox import REPO, Sandbox, menu_input
 from agentkit import host, command_help, config, menu, orch, run, status, terminal
 from agentkit import record
 

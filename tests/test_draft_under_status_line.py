@@ -9,7 +9,7 @@ lines spliced in above their footer; never a real seat, pane or ~/.claude.
 
 import unittest
 
-from test_v4n import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox
 from agentkit import watch
 
 NOW = 1_800_000_000

@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import browser, config, job, notify, orch, record, run, stop, worktrees, watch
 
 

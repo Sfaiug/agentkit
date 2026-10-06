@@ -17,7 +17,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import config, orch
 
 # The manager's scope, as far as the pane can tell: the work runs in the same process once the

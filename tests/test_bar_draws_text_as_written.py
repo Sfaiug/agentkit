@@ -15,7 +15,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import menu, orch, statusbar, watch
 
 SAID = "## heading, a ## b, ### c, 50% at %H, #{session_name} and #[bold] end #"

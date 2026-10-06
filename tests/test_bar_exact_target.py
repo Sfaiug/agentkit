@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from test_v4n import Sandbox
+from fixtures.sandbox import Sandbox
 from agentkit import orch, statusbar
 
 
