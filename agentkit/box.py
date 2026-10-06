@@ -247,8 +247,9 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     else:
         cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
     # Host services such as the tmux server and the user's service manager listen in the temporary
-    # places and the runtime directory. With an out dir the box has its own, on disk there. A box
-    # inside a box keeps that box's /tmp, where a suite keeps what the boxes its checks start use.
+    # places and the runtime directory. With an out dir the box has its own, on disk there, and
+    # reaches no other socket of the host's. A box inside a box keeps that box's /tmp, where a
+    # suite keeps what the boxes its checks start use.
     writable = _writable(clean, cwd, out_dir, state, places, logins)
     temporary = ["/var/tmp", "/dev/shm", f"/run/user/{os.getuid()}"]
     if out_dir is not None and _inside():
@@ -282,7 +283,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                       if path == real or not os.access(path, os.R_OK | os.X_OK))
         raise config.Error(f"{closed} is closed to you, so the worker box cannot see what it must "
                            f"hide there; run `chmod u+rx {shlex.quote(str(closed))}`") from None
-    targets.update(_sockets(writable | private))
+    if out_dir is not None:
+        targets.update(_sockets(writable | private))
     folders = {path for path in targets if path.is_dir()}
     for path in sorted(targets):
         # Inside a hidden folder it is gone already, and no mount point can be made there.
