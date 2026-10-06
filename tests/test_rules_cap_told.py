@@ -3,6 +3,7 @@
 from contextlib import ExitStack
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -155,7 +156,7 @@ class RulesCapTold(unittest.TestCase):
 
     def test_ceiling_counts_the_whole_file_and_accepts_the_exact_limit(self):
         lp = self.loop()
-        front = "---\nnotes: x\n---\n"
+        front = "---\nusers: x\n---\n"
         accents = (LIMIT - len(front)) // 2
         exact = front + "é" * accents + "x" * (LIMIT - len(front) - 2 * accents)
         self.assertEqual(len(exact.encode("utf-8")), LIMIT)
@@ -184,6 +185,54 @@ class RulesCapTold(unittest.TestCase):
         # the shipped adapters: Codex's own reader is the smallest today
         with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: ""}):
             self.assertEqual(config.instruction_ceiling(), (32768, "codex"))
+
+    def assert_round_fails_with(self, line):
+        ok, text = run.verify_work(self.loop_)
+        self.assertFalse(ok, text)
+        self.assertEqual(text.splitlines()[-1], line)
+
+    def test_a_front_matter_line_ak_does_not_read_fails_the_round(self):
+        # a misspelled `tests:` would silently run no suite at landing
+        self.commit_rules("---\nusers: none\n---\nAcme.\n")
+        self.loop_ = self.loop()
+        self.path.write_text("---\nusers: none\ntest: make check\npreview: make serve\n---\nAcme.\n")
+        self.assert_round_fails_with(
+            "AGENTS.md front matter has lines ak does not read: `test: make check`, "
+            "`preview: make serve` (it reads tests, health, cleanup, users, features): "
+            "remove them, or fix the misspelled name.")
+
+    def test_unread_lines_in_any_line_ending_or_after_a_blank_line_fail(self):
+        for text in (b"---\rtest: make check\r---\rAcme.\r",
+                     b"---\r\ntest: make check\r\n---\r\nAcme.\r\n",
+                     b"\n---\ntest: make check\n---\nAcme.\n"):
+            with self.subTest(text=text):
+                self.commit_rules("---\nusers: none\n---\nAcme.\n")
+                self.loop_ = self.loop()
+                self.path.write_bytes(text)
+                ok, out = run.verify_work(self.loop_)
+                self.assertFalse(ok, out)
+                self.assertIn("`test: make check`", out)
+                shutil.rmtree(self.loop_.run_dir)
+
+    def test_a_changed_agents_md_must_not_go_through_a_filter(self):
+        self.commit_rules("---\nusers: none\n---\nAcme.\n")
+        self.git("config", "filter.acme.smudge", "cat")
+        self.git("config", "filter.acme.clean", "cat")
+        (self.repo / ".gitattributes").write_text("AGENTS.md filter=acme\n")
+        self.loop_ = self.loop()
+        self.path.write_text("---\nusers: real\n---\nAcme.\n")
+        self.assert_round_fails_with(
+            "AGENTS.md must not go through a Git filter: ak reads its front matter as committed.")
+
+    def test_unread_lines_already_on_base_block_only_a_change_to_agents_md(self):
+        self.commit_rules("---\npreview: make serve\ntests: make check\n---\nAcme.\n")
+        lp = self.loop()
+        (self.repo / "deliverable").write_text("acme\n")
+        ok, text = run.verify_work(lp)
+        self.assertTrue(ok, text)
+        self.path.write_text("---\ntests: make check\n# kept as a note\n---\nAcme.\n")
+        ok, text = run.verify_work(lp)
+        self.assertTrue(ok, text)
 
     def test_untouched_oversized_base_file_passes_checks(self):
         self.commit_rules("x" * (LIMIT + 1))

@@ -131,6 +131,8 @@ CLASSIC_CHECKS_QUERY = (
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
+# The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
+FRONT_KEYS = ("tests", "health", "cleanup", "users", "features")
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
 NOTES = re.compile(r"^(#+)[ \t]*Notes\b[^\n]*$", re.M | re.I)
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
@@ -139,7 +141,7 @@ BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
 # their say: none is a command's output, and reading one as such would make a failure that
 # never moved look new every round.  See `run_done_when`, `verify_work` and `final_check`.
 LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |outside files: "
-                       r"|AGENTS\.md (?:is|could not be read) )")
+                       r"|AGENTS\.md (?:is|could not be read|must not|front matter has) )")
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
@@ -2542,7 +2544,7 @@ def settled_gate(lp):
     elif not lp.scratch:
         return None
     ok = (passed == len(lp.every)) if lp.every else passed == total
-    return ok and not files_scope(lp) and not rules_cap(lp), text
+    return ok and not files_scope(lp) and not rules_check(lp), text
 
 
 def continuation(lp):
@@ -2785,6 +2787,44 @@ def files_scope(lp):
     return "outside files: " + ", ".join(outside) if outside else ""
 
 
+def rules_check(lp):
+    """Every check a branch's change to AGENTS.md must pass: '' or the first that failed."""
+    return rules_cap(lp) or front_matter(lp)
+
+
+def front_matter(lp):
+    """Refuse a changed AGENTS.md that goes through a Git filter, or whose front matter holds a
+    line ak does not read.
+
+    ak reads its declarations from the committed file; with no filter (a link is refused by
+    `rules_cap`) that is also what any checkout holds, so the text checked is the text read.
+    """
+    if lp.scratch or not git(lp.wt, "diff", "--name-only", "--no-renames",
+                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
+        return ""
+    if not git(lp.wt, "ls-tree", "HEAD", "--", "AGENTS.md").startswith(("100644 ", "100755 ")):
+        return ""       # deleted, or a link `rules_cap` refuses
+    if not git(lp.wt, "check-attr", "filter", "--", "AGENTS.md").endswith(("unspecified", "unset")):
+        return "AGENTS.md must not go through a Git filter: ak reads its front matter as committed."
+    text = git_bytes(lp.wt, "show", "HEAD:AGENTS.md")
+    unread = unknown_front_lines(text.replace("\r\n", "\n").replace("\r", "\n").strip())
+    if not unread:
+        return ""
+    return (f"AGENTS.md front matter has lines ak does not read: "
+            f"{', '.join(f'`{line}`' for line in unread)} (it reads {', '.join(FRONT_KEYS)}): "
+            "remove them, or fix the misspelled name.")
+
+
+def unknown_front_lines(text):
+    """The front matter lines of AGENTS.md text whose name ak never reads, as written."""
+    match = FRONT.match(text)
+    if not match:
+        return []
+    return [line.strip() for line in match.group(1).splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+            and line.partition(":")[0].strip() not in FRONT_KEYS]
+
+
 def rules_cap(lp):
     """Refuse a linked AGENTS.md, or one past what a harness reads of it, only when this branch
     changes it."""
@@ -2860,7 +2900,7 @@ def verify_work(lp, cmds=None):
     lp.step("done-when")
     if not lp.scratch and not lp.state.get("review_pr"):
         commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
-    checks = (files_scope(lp), rules_cap(lp))
+    checks = (files_scope(lp), rules_check(lp))
     lp.validation = {} if lp.scratch else commit_identity(lp.wt)
     clean = lp.scratch or lp.state.get("review_pr") or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
     ok, text = gate.run_done_when(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
@@ -10727,7 +10767,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                   if tests else "(AGENTS.md declares no `tests:` command; nothing was run)")
         log(dw_log)
         # no suite stands in for it, and a PASS on this head is what merges
-        failure = rules_cap(lp)
+        failure = rules_check(lp)
         if failure:
             ok, dw_log = False, f"{dw_log}\n\n{failure}"
             log(failure)

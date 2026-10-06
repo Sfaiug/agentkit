@@ -93,5 +93,6 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - Credits a provider account still holds (ChatGPT credits first, any provider that reports a balance) count as usage left. [2 Oct]
 - ak never spends a usage-limit reset on its own; the owner spends one by hand, from the Providers row of `c`. [2 Oct]
 - No screen estimates when work will finish; a seat's progress is its tasks bar and its count, never a percentage. [2 Oct]
+- Every project meets one contract, enforced by checks and scaled by what is at stake: its suite runs every test file, its front matter holds only lines ak reads, and a live project proves it is live with a real `health:`, deploys only code ak tested, and puts the previous release back by itself when health breaks. How each project deploys stays its own; a ready-made deploy kit covers the common case. [5 Oct]
 - A seat's live runs are named on one line only, its live line (the seat bar's second line, and under the highlighted dashboard row): task id, what it is doing, the model doing it. No other row names a run. [18 Sep, 2 Oct]
 - Seats message each other only through `ak tell`, the same way for every harness and account; it is never taken for the owner's words. [4 Oct]
