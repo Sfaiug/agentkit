@@ -169,12 +169,19 @@ class Stopped(config.Error):
 
 
 def tool_env():
-    """What git and gh are given: this run's environment, with every prompt turned off.
+    """What git and gh are given: this run's environment, with every prompt turned off and the
+    seat's name dropped.
 
     A headless run has no terminal to answer on, so a credential prompt is not a question --
     it is a wait with nobody at the other end of it.
+
+    ak's git and gh speak for no seat: a merge or a push ak runs is ak's own machinery, not a
+    seat's hand, wherever it runs from (a background run, a seat's own `ak run merge`, a job).
+    Dropping $AGENTKIT_SESSION keeps the tmux and gh shims' seatless premise true by construction
+    -- they engage only on a seat's own by-hand call -- so ak's own merge is never refused.
     """
-    env = {**config.child_env(), "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"}
+    env = {k: v for k, v in config.child_env().items() if k != config.SESSION_ENV}
+    env.update(GIT_TERMINAL_PROMPT="0", GH_PROMPT_DISABLED="1")
     run_id = getattr(_RUN_CONTEXT, "state", {}).get("run_id")
     if run_id:
         # A git or gh the loop runs is the run's own: it carries the run's marker, so
@@ -9258,7 +9265,7 @@ def preflight(run_dir, opts, log):
             log("notification: verdict on GitHub; PASS with green checks merges, FAIL hands back "
                 "to the seat (stderr if unconfigured)")
         else:
-            log(f"notification: verdict on GitHub; PASS with green checks offered to {watch.inbox()} "
+            log(f"notification: verdict on GitHub; PASS with green checks offered to {config.inbox()} "
                 "and needs to Discord (stderr if unconfigured)")
     else:
         log(f"notification: {session}; dead-seat fallback: needs to Discord if that seat is gone "
@@ -10626,7 +10633,7 @@ def settle_pr_round(lp, url, info):
             pending = {"question": question, "url": url, "sha": head, "asked": False}
             if watch.ask_inbox(cfg, question, url, head, log,
                                typed=lambda: pending.update(asked=True)) == 0:
-                state["merge_note"] = f"offered to the {watch.inbox()} session at {head[:12]}"
+                state["merge_note"] = f"offered to the {config.inbox()} session at {head[:12]}"
             else:
                 state["merge_note"] = "merge question requires retry"
                 state["pending_inbox"] = pending

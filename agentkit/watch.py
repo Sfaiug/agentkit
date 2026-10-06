@@ -74,11 +74,6 @@ HOOK_LOOK_WAIT = 10.0   # how long a hook's look waits for the Stop hooks/orches
 LOGGED_OUT = re.compile(r"gh auth login|not logged in|bad credentials|HTTP 401", re.I)
 
 
-def inbox():
-    """The seat other people's PRs are offered in; the smoke suite points it elsewhere."""
-    return os.environ.get("AGENTKIT_INBOX_SESSION") or "inbox"
-
-
 def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
     """Put the question to the inbox seat, and then to the user.  0 once both have it.
 
@@ -90,7 +85,7 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
     """
     # the seat by the name it goes by now: renamed once, `inbox` is a pointer at it, and the
     # question, the keys and the ping all have to land on the seat and not on the old name
-    name = config.resolve_session(inbox())
+    name = config.resolve_session(config.inbox())
     if asked:
         return notify.shaped("needs", question, session=name, event_id=f"inbox:{url}:{sha}")
     if orch.ensure(cfg, name, log):

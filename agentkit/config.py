@@ -833,6 +833,15 @@ def current_session():
     return resolve_session(name) if name else None
 
 
+INBOX_ENV = "AGENTKIT_INBOX_SESSION"
+
+
+def inbox():
+    """The seat other people's PRs are offered in and merged from (`ak watch`); a test points it
+    elsewhere.  One home: the gh shim lets this seat's `gh pr merge` through, and watch asks it."""
+    return os.environ.get(INBOX_ENV) or "inbox"
+
+
 def check_stop_owner(owner):
     """A seat stops only its own work; the owner outside a seat may stop anything."""
     caller = current_session()

@@ -2,52 +2,15 @@
 """A `tmux` first on a seat's PATH: refuse a call that ends or types into another seat, else run
 the real tmux.  It gets the final argv bash built, so there is no shell string to parse.
 
-The real tmux is the next `tmux` on PATH past this shim's own directory; a seat with no record,
-a worker (AK_RUN_ROLE=worker), and every failure run the real tmux unchanged -- a shim that
-fails loudly is a seat that cannot work.
+The shim body is `agentkit.shim` (standard library only at import, the guard lazily, so a broken
+guard still execs the real tmux); this is the entry point PATH reaches.
 """
 
-import os
 import sys
 from pathlib import Path
 
-
-def real_tmux(invoked):
-    """The next `tmux` on PATH past the directory this shim was called from, never the shim itself.
-
-    The shim is reached by a symlink named `tmux`, so the directory it was invoked from (the
-    symlink's) is excluded by real path, and any candidate resolving to the shim is skipped.
-    """
-    me = Path(invoked).resolve()
-    mine = os.path.realpath(Path(invoked).parent)
-    for part in os.environ.get("PATH", "").split(os.pathsep):
-        if not part or os.path.realpath(part) == mine:
-            continue
-        cand = Path(part) / "tmux"
-        if cand.is_file() and os.access(cand, os.X_OK) and cand.resolve() != me:
-            return str(cand)
-    return None
-
-
-def main():
-    invoked = Path(sys.argv[0] if os.path.basename(sys.argv[0]) == "tmux" else __file__)
-    args = sys.argv[1:]
-    tmux = real_tmux(invoked)
-    if tmux is None:
-        sys.stderr.write("tmux-shim: no real tmux on PATH\n")
-        return 127
-    if os.environ.get("AGENTKIT_SESSION") and os.environ.get("AK_RUN_ROLE") != "worker":
-        try:
-            sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-            from agentkit import guard
-            reason = guard.refusal(args, tmux)
-        except Exception:                 # a guard that fails stops no seat's tmux
-            reason = None
-        if reason:
-            sys.stderr.write(reason + "\n")
-            return 1
-    os.execv(tmux, [tmux, *args])
-
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from agentkit import shim
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(shim.run("tmux", "refusal"))
