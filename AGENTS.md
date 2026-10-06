@@ -64,6 +64,8 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A test that asserts a UTF-8 glyph the menu draws (│ ▶ ✓ …) pins `patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"})`: under LANG=C the menu draws ASCII and the landing suite runs in the caller's locale.
 - Whatever a bar or the menu shows of a run is in run.json when its step publishes (round directories come later), and an open menu sees only the files it watches: a display fact derived from anything else lags (#504, 3 rounds).
 - A screen-reading change reads only the rows the code it replaces read: every reach further up (a whole-pane read, a tail extended to a box) met an older composer, echo or box a reviewer could place there (#507, nine rounds).
+- When each review round finds one more state, race or recovery path, stop patching paths: delete the state or change the design so fewer paths must be right (switch retirement, #547 to #586).
+- A screen-reading fix is proven on a pane captured from a real, renamed seat, not only a hand-drawn fixture: Claude draws the seat's name into the rule under a question's footer, which #591's fixture lacked (#609).
 
 ## Owner rules
 
@@ -97,3 +99,4 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A seat's live runs are named on one line only, its live line (the seat bar's second line, and under the highlighted dashboard row): task id, what it is doing, the model doing it. No other row names a run. [18 Sep, 2 Oct]
 - Seats message each other only through `ak tell`, the same way for every harness and account; it is never taken for the owner's words. [4 Oct]
 - `~/code` holds only the owner's checkouts: a seat builds in a checkout under `~/.agentkit/wt/`, and ak removes it a day after it last changed, merged or not, unless it holds a change not yet committed or is a clone; its branch and commits stay in the project's repository. Seats' worktrees in `~/code` showed as projects and were never cleaned; waiting for GitHub's merge only added races. [5 Oct, 6 Oct]
+- The vision at the top of this file, the landing gate and what the scoreboard measures change only with the owner's yes; the rest of ak the orchestrators improve on their own. [2 Oct]
