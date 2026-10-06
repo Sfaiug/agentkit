@@ -164,7 +164,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                       "Show the noVNC URL and password to sign a site in by hand.",
                       "ak browser login"),
     "browser mcp-register": ("usage: ak browser mcp-register",
-                             "Register browser and desktop MCP servers with Claude and Codex.",
+                             "Register browser and desktop MCP servers with every harness that can take them.",
                              "ak browser mcp-register"),
     "browser install": ("usage: ak browser install",
                         "Install the stack if absent; verify an existing installation.",

@@ -504,6 +504,16 @@ class Harness:
         hook = self._hook("tmp_rule")
         return hook(table) if hook else None
 
+    def register_mcp(self, servers):
+        """Point this harness at `servers` in its own config, as `ak browser mcp-register`
+        does: what it did and where, or None where its plugin writes no MCP entry.
+
+        `servers` is {name: {"url": …}} for a server by URL and {name: {"command", "args",
+        "env"}} for one it starts itself.
+        """
+        hook = self._hook("register_mcp")
+        return hook(servers) if hook else None
+
     # --- what one headless turn spent ----------------------------------------
 
     def record_turn(self, out, state_dir, account):

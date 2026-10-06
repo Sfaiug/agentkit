@@ -106,8 +106,8 @@
   every listing screen. Used by menu, usage, orch, watch, run, motion.
 - `motion.py`: one clock: time, easing, what moves; for menu, orch, terminal.
 - `command_help.py`: help text per verb, for bin/ak and each `main`; imports nothing.
-- `browser.py`: the shared Chromium stack: units, CDP, MCP, VNC, tab ownership. For run,
-  watch. Leak: registers its MCP per harness by name.
+- `browser.py`: the shared Chromium stack: units, CDP, MCP, VNC, tab ownership; each
+  harness's plugin writes the MCP entry (`register_mcp`). For run, watch.
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. For
   bin/ak, menu, install.sh.
 - `host.py`: memory, load, CPUs, pressure, process/cgroup counters, `alive`, `process_identity`,
@@ -125,9 +125,10 @@
 - `adapters/<h>.toml` is the manifest: update, usage, conversation, titles, launch, hooks,
   screen rules, stall/quota/auth/resume words, compact, effort, catalog, contract-check model/effort.
 - `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
-  resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`. `user_messages`: timed
-  owner input without notices or ak typing; `failure`: turn/seat failures in whole `[stall]`
-  words. For orch, usage, update, run, gc, menu, watch. Leak: orch imports `harness.claude`.
+  resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`, `register_mcp`.
+  `user_messages`: timed owner input without notices or ak typing; `failure`: turn/seat
+  failures in whole `[stall]` words. For orch, usage, update, run, gc, menu, watch, browser.
+  Leak: orch imports `harness.claude`.
 
 ## hooks/, tools/, tests/
 
