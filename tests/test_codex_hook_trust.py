@@ -14,19 +14,21 @@ sys.path.insert(0, str(REPO))
 from agentkit.harness import codex
 
 # What codex-cli 0.160.0's app server answered `hooks/list` with (`key`, `currentHash`) for
-# these hooks given on its command line, captured 3 Oct 2026.
+# these hooks given on its command line, captured 3 Oct 2026 (PreToolUse 6 Oct).
 HOOKS = {"SessionStart": [("/usr/bin/python3 /repo/tools/codex-seat.py capture", 5)],
          "UserPromptSubmit": [("bash /repo/hooks/seat-state.sh", 3)],
          "Stop": [("bash /repo/hooks/seat-state.sh", 3), ("bash /repo/hooks/orchestrator-stop.sh", 3)],
          "Interrupt": [("bash /repo/hooks/seat-state.sh", 3)],
-         "PermissionRequest": [("bash /repo/hooks/seat-state.sh", 3)]}
+         "PermissionRequest": [("bash /repo/hooks/seat-state.sh", 3)],
+         "PreToolUse": [("bash /repo/hooks/seat-guard.sh", 3)]}
 CODEX = {
     "session_start:0:0": "08f3e8f2cf105abfedf19931921aab34f2c1d1e689099aa7b0e73d76faa9fe92",
     "user_prompt_submit:0:0": "fd11767f233eef29de09af33ade4aadd852035d57078db2319e5a2b994794e35",
     "stop:0:0": "486f75f24bc0da1bd386ebd1ee5d9ac9289f6d59faabd6ff9d431b4edf2f8275",
     "stop:0:1": "8685042ddef8d1705a49c9fc70344cf5a085f538ec4e4f52502081cb01a883d2",
     "interrupt:0:0": "e376187e62d824d7de00d343edc5f71df565877cf47c6f7c5547feb3dede8298",
-    "permission_request:0:0": "99205413bb3bf695b0e8c4131068cc1fca5fac81fd9232fd5d0d308dfaa51edc"}
+    "permission_request:0:0": "99205413bb3bf695b0e8c4131068cc1fca5fac81fd9232fd5d0d308dfaa51edc",
+    "pre_tool_use:0:0": "0a8f11c1538e76b9c84eddc50898abb03e967f2570bbb1252074e7806158514b"}
 
 
 def state(flag):
@@ -55,8 +57,9 @@ class HookTrust(unittest.TestCase):
                     self.assertEqual(len(groups), 1, flag)
                     installed[event] = [(h["command"], h["timeout"]) for h in groups[0]["hooks"]]
         trusted = [flag for flag in flags if flag.startswith("hooks.state=")]
-        self.assertEqual(len(installed), 5, installed)
-        self.assertEqual(sum(map(len, installed.values())), 6)
+        self.assertEqual(len(installed), 6, installed)
+        self.assertEqual(sum(map(len, installed.values())), 7)
+        self.assertEqual(installed["PreToolUse"], [(f"bash {REPO}/hooks/seat-guard.sh", 3)])
         self.assertEqual(trusted, [codex.trust(installed)])
         self.assertNotIn("--dangerously-bypass-hook-trust", seen[0])
 

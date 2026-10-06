@@ -362,8 +362,10 @@ hooks)
   # The seat-state hooks, in agentkit's own file under the global hooks directory the TUI
   # always trusts: UserPromptSubmit and Stop feed hooks/seat-state.sh, Stop also feeds the
   # end-of-turn gate in hooks/orchestrator-stop.sh, and Notification feeds idle/permission
-  # facts to the same state script.  The file is agentkit's own, so installing it touches
-  # no file of the user's; an older agentkit file is backed up once before it is replaced.
+  # facts to the same state script; PreToolUse runs hooks/seat-guard.sh, which refuses a
+  # seat's shell command agentkit/guard.py refuses.  The file is agentkit's own, so installing
+  # it touches no file of the user's; an older agentkit file is backed up once before it is
+  # replaced.
   # Grok also loads these commands from ~/.claude/settings.json through its claude-compat
   # layer, and only deduplicates identical (event, command) pairs across the two sources --
   # so both must keep naming this same checkout path, or the hooks fire twice.
@@ -376,11 +378,13 @@ d = os.path.join(home, "hooks")
 os.makedirs(d, exist_ok=True)
 seat = f"bash {repo}/hooks/seat-state.sh"
 stop = f"bash {repo}/hooks/orchestrator-stop.sh"
+guard = f"bash {repo}/hooks/seat-guard.sh"
 wanted = {"hooks": {
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": seat}]}],
     "Stop": [{"hooks": [{"type": "command", "command": seat},
                         {"type": "command", "command": stop}]}],
-    "Notification": [{"hooks": [{"type": "command", "command": seat}]}]}}
+    "Notification": [{"hooks": [{"type": "command", "command": seat}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": guard}]}]}}
 target = os.path.join(d, "agentkit.json")
 try:
     with open(target) as fh:

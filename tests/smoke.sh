@@ -1162,10 +1162,11 @@ HOOKPY
   python3 - "$d/.claude/settings.json" <<'IDEMPY' || rc=1
 import json, sys
 hooks = json.load(open(sys.argv[1]))["hooks"]
-# the seat-state hook on every event, and the end-of-turn rule beside it on Stop
+# the seat-state hook on every event, the end-of-turn rule beside it on Stop, and the guard
 for event, scripts in (("UserPromptSubmit", ["seat-state.sh"]),
                        ("Stop", ["seat-state.sh", "orchestrator-stop.sh"]),
-                       ("Notification", ["seat-state.sh"])):
+                       ("Notification", ["seat-state.sh"]),
+                       ("PreToolUse", ["seat-guard.sh"])):
     entries = [e for g in hooks[event] for e in g["hooks"]]
     assert [e["command"].rsplit("/", 1)[-1] for e in entries] == scripts, (event, entries)
 IDEMPY

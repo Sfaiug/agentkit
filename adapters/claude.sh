@@ -329,7 +329,8 @@ hooks)
   # decides nothing.  Stop also carries the idle auto-compact stamp, so a seat left open all day
   # compacts itself instead of filling its context, and the one hook that does decide something:
   # a turn that ended with neither a question, nor a done, nor a run to wait on is sent back to
-  # work.  Merged into settings.json, never rewritten.
+  # work.  Before every tool call, hooks/seat-guard.sh refuses a seat's shell command that
+  # agentkit/guard.py's rules refuse.  Merged into settings.json, never rewritten.
   command -v python3 >/dev/null || { echo "claude.sh hooks: python3 is required" >&2; exit 2; }
   mkdir -p -- "$HOME/.claude" || exit 2
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -338,19 +339,31 @@ import json, os, pathlib, shutil, sys
 
 path, stamp, repo = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 # Which of our scripts runs on which event: the one that writes down what the seat is doing,
-# and on the end of a turn the one that decides whether that turn was allowed to end.
+# on the end of a turn the one that decides whether that turn was allowed to end, and before
+# every tool call the one that refuses a shell command a seat may not run.
 EVENTS = {"SessionStart": ("seat-state.sh",),
           "UserPromptSubmit": ("seat-state.sh",),
           "Stop": ("seat-state.sh", "orchestrator-stop.sh"),
-          "Notification": ("seat-state.sh",)}
+          "Notification": ("seat-state.sh",),
+          "PreToolUse": ("seat-guard.sh",)}
 # The names each was generalised from: a settings.json written by an older checkout keeps its
 # entry, repointed, so nothing is left calling a file that is no longer there.
 NAMES = {"seat-state.sh": ("seat-state.sh", "idle-compact-stop.sh"),
-         "orchestrator-stop.sh": ("orchestrator-stop.sh",)}
+         "orchestrator-stop.sh": ("orchestrator-stop.sh",),
+         "seat-guard.sh": ("seat-guard.sh",)}
 
 
 def command(script):
     return f"bash {repo}/hooks/{script}"
+
+
+def runs():
+    """Each script and the events it runs on, as EVENTS has them."""
+    on = {}
+    for event, scripts in EVENTS.items():
+        for script in scripts:
+            on.setdefault(script, []).append(event)
+    return "; ".join(f"hooks/{script} on {', '.join(events)}" for script, events in on.items())
 
 
 try:
@@ -391,8 +404,7 @@ def wired(event, script):
 
 # read before anything is mutated: the early exit below must see the file as it is on disk
 if all(wired(event, script) for event, scripts in EVENTS.items() for script in scripts):
-    print(f"hooks: {path} already runs hooks/seat-state.sh on {', '.join(EVENTS)}, "
-          "with hooks/orchestrator-stop.sh beside it on Stop")
+    print(f"hooks: {path} already runs {runs()}")
     raise SystemExit(0)
 if raw is not None:                     # back up only when something actually changes
     backup = path.with_name(f"{path.name}.bak-{stamp}")
@@ -413,8 +425,7 @@ data["hooks"] = hooks
 tmp = path.with_name(f"{path.name}.ak-tmp")
 tmp.write_text(json.dumps(data, indent=2) + "\n")
 os.replace(tmp, path)
-print(f"hooks: {path} hooks.{'/'.join(EVENTS)} -> {command('seat-state.sh')}, "
-      f"and {command('orchestrator-stop.sh')} on Stop")
+print(f"hooks: {path} now runs {runs()}, from {repo}")
 HOOKPY
   ;;
 models)

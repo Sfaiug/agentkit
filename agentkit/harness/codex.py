@@ -473,6 +473,10 @@ def main(argv, launch=None):
             seat = (shlex.join(["bash", str(config.REPO / "hooks/seat-state.sh")]), 3)
             hooks.update((event, [seat]) for event in SEAT_EVENTS)
             hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), 3))
+            # 0.160's PreToolUse hands its shell command over as Claude's does and honours a
+            # `permissionDecision: deny`, so the seat guard rides it unchanged
+            guard = shlex.join(["bash", str(config.REPO / "hooks/seat-guard.sh")])
+            hooks["PreToolUse"] = [(guard, 3)]
             os.environ[CAPTURE_ENV] = receipt
             for event, handlers in hooks.items():
                 run = ",".join(f'{{type="command",command={json.dumps(command)},timeout={timeout}}}'

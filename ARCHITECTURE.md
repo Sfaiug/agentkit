@@ -82,6 +82,8 @@
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye; a merged run writes its review follow-ups here.
 - `box.py`: credential masks, PID teardown. `command`, `check`, `returncode`, `leftovers`;
   for worker and run.
+- `guard.py`: the shell commands a seat may not run (ending another seat's tmux), each rule
+  a plain-words refusal. `refusal`, `main`; run by `hooks/seat-guard.sh`.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded
   evidence; worker names the channel; run replays proofs, weighs findings, drops disputes.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
@@ -134,6 +136,8 @@
 
 - `hooks/seat-state.sh`: every harness's lifecycle hook; writes a seat's `hook-`/`stop-`
   facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via run and watch.
+  `hooks/seat-guard.sh`: a seat's pre-command hook, where its harness has one; refuses what
+  guard.py refuses, lets everything else and every failure through.
   `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leak: both rebuild
   config.py's seat file names and rename chain.
 - `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
