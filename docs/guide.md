@@ -116,10 +116,11 @@ checks, no reviewer, no further round. `result.md` opens `# BLOCKED — <title>`
 
 Scheduled errors and merge waits send no ending. Every ending goes to the launching seat as one line typed at its next
 quiet prompt: `run <id> finished <PASS merged|PASS not merged|DONE|FAIL|BLOCKED|ERROR>: <why>. Result: <path>. Decide the
-next step.` A seat mid-turn gets it from the tick; its line is typed once, one still sitting in the seat's composer gets
-only its Enter, and no Enter goes out while text you typed sits beside it there. A seat that has died is reopened by the
-run and told `continue <task>`; only when that fails does a `Needs you` card go to you. A run you launch by hand has no
-seat: its result is on the terminal and in `ak run status`.
+next step.` A seat mid-turn gets it from the tick; its line is typed once, cut in the middle to what the seat's composer
+shows whole, and gets its Enter only while it sits there alone: none goes out with text you typed, and it counts as
+delivered once the composer reads empty. A seat that has died is reopened by the run and told `continue <task>`; only
+when that fails does a `Needs you` card go to you. A run you launch by hand has no seat: its result is on the terminal
+and in `ak run status`.
 Workers and checks run with `$AGENTKIT_UNATTENDED`, so a run one of them starts belongs to nobody. A project's `AGENTS.md` front matter may declare `health: <shell command>`: exit 0 means its live product works with the change deployed. For three hours after merging, the tick reads the declaration at the merge commit, from GitHub if it is unavailable locally, and runs it in the original repository checkout with `AK_MERGE_SHA` set to that commit. It tries at most once per commit per tick, stopping at the first pass: `live_at` goes into the run and its history row, and the launching seat hears that the change is live. Each attempt has a 30-second timeout that kills its process group. A command still failing when the window closes goes back once with its last output, using the merge-commit checks' existing break marks. An unreadable declaration retries next tick without changing merge-check handling. The project owns its deploy; without `health:`, merging behaves as before.
 
 Several task files run as one job: `ak run a.md b.md [--parallel N] [--bg]`, one card at the end, receipt in

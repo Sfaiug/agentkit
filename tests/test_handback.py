@@ -10,6 +10,7 @@ network, no repository, no tmux.
 
 from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, redirect_stdout
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -372,60 +373,57 @@ class HandBack(Sandbox):
         self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
                                              cfg=self.cfg, typed=mark))
 
-    def test_a_line_its_composer_cannot_show_whole_still_gets_its_first_enter(self):
+    def test_a_long_or_tall_line_is_read_whole_and_sent_only_once_its_composer_reads_empty(self):
         self.rows = [self.live()]
         seat = self.claude()
         fold = watch.screen("claude")["folds_over"]
-        # folded into a paste, or wrapped taller than the rows the composer is read from: either
-        # way the composer was read empty right before the line went in
+        head, end = "run acme finished FAIL: ", "Result: /runs/acme/result.md. Decide the next step."
+        # past the fold it goes in cut to what its composer shows whole, its head and its end
+        # kept; wrapped taller than the tail, its ruled composer is read from the whole screen
         for shape, line, folds, wrap in (
-                ("folded", ("Result: " + "acme-result " * 80).strip(), fold, None),
-                ("taller", ("Result: " + "acme-result " * 55).strip(), None, 40)):
+                ("long", head + "acme-finding " * 80 + end, fold, None),
+                ("tall", head + "acme-result " * 50 + end, None, 40)):
             with self.subTest(shape=shape):
                 seat.composer, seat.read, seat.folds, seat.wrap = "", [], folds, wrap
+                seat.takes = False  # its Enter goes, and the harness leaves the line where it was
+                marks = []
+                self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                      cfg=self.cfg, receipt=marks.append))
+                shown = seat.composer
+                self.assertEqual(seat.read, [])
+                self.assertLessEqual(len(shown), fold)
+                self.assertTrue(shown.startswith(head) and shown.endswith(end), shown)
+                seat.takes = True
+                self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                      cfg=self.cfg, typed=marks[-1]))
+                self.assertEqual((seat.read, seat.composer), ([shown], ""))
                 self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
-                                                     cfg=self.cfg))
-                self.assertEqual((seat.read, seat.composer), ([line], ""))
-
-    def test_a_folded_line_waiting_for_its_enter_is_sent_only_once_its_composer_reads_empty(self):
-        self.rows = [self.live()]
-        seat = self.claude()
-        seat.folds = watch.screen("claude")["folds_over"]
-        line = ("Result: " + "acme-result " * 80).strip()
-        marks = []
-        seat.fails = True           # the text goes in and its Enter does not
-        self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
-                                              cfg=self.cfg, receipt=marks.append))
-        # a paste in the composer may be the line or the owner's own: no Enter, and not sent
-        self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
-                                              cfg=self.cfg, typed=marks[-1]))
-        self.assertEqual((seat.read, seat.composer), ([], line))
-        seat.enter()                # the owner sends it
-        self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
-                                             cfg=self.cfg, typed=marks[-1]))
-        self.assertEqual(seat.read, [line])
+                                                     cfg=self.cfg, typed=marks[-1]))
 
     def test_text_the_owner_types_before_a_lines_first_enter_or_its_retry_is_never_sent(self):
         self.rows = [self.live()]
         seat = self.claude()
+        seat.wrap = 40              # read whole, however many rows the owner's words take
         line = "The acme tests passed."
+        edits = {"beside it": lambda text: text + " and the owner's own words",
+                 "into it": lambda text: text[:-1] + ", and the owner's own words",
+                 "past the tail": lambda text: text + " and the owner's own words" * 30}
         # the gap between the text and its Enter, then the wait for the line to leave
-        for stage, at in (("before the first Enter", 1), ("before the retried Enter", 2)):
-            with self.subTest(stage=stage):
+        for (stage, at), (edit, change) in itertools.product(
+                (("before the first Enter", 1), ("before the retried Enter", 2)), edits.items()):
+            with self.subTest(stage=stage, edit=edit):
                 seat.composer, seat.read, seat.typed, seat.takes = "", [], 0, at == 1
                 pauses = []
 
                 def owner_types(_seconds):
                     pauses.append(True)
                     if len(pauses) == at:
-                        seat.composer += " and the owner's own words"
-                        seat.takes = True
+                        seat.composer, seat.takes = change(seat.composer), True
 
                 with patch.object(watch.time, "sleep", side_effect=owner_types):
                     self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
                                                           cfg=self.cfg))
-                self.assertEqual((seat.read, seat.composer, seat.typed),
-                                 ([], line + " and the owner's own words", 1))
+                self.assertEqual((seat.read, seat.composer, seat.typed), ([], change(line), 1))
 
     def test_a_fail_at_the_last_round_hands_back_and_sends_no_card(self):
         directory = self.failed()

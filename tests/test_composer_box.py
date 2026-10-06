@@ -5,11 +5,12 @@ under the prompt row.  Those rows are the draft, even one that reads like a rule
 seat whose composer holds any of it is never typed into.  The screens are a real 2.1.289
 capture with invented names (tests/fixtures/claude-multiline-draft-pane.txt) and the empty
 prompt capture with drafts written into it.  The screen is read within the rows it always was
-(a draft rule's eight, the tail's fifteen); a draft taller than those is the typing gate's to
-refuse, as a composer it cannot read.
+(a draft rule's eight, the tail's fifteen), and a box closed in the tail but taller than it is
+read whole from the screen.
 """
 
 import json
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -187,6 +188,13 @@ class ComposerBox(Sandbox):
                               ("codex", "› Fix the old thing\n" + output + legacy)):
             with self.subTest(harness=harness):
                 self.assertNotIn("Fixtheoldthing", watch.composer_draft(harness, pane) or "")
+
+    def test_a_draft_taller_than_the_tail_is_read_whole(self):
+        words = " ".join(f"word{n}" for n in range(120))
+        pane = drafted("\n  ".join(textwrap.wrap(words, 40)))
+        self.assertGreater(len(watch._content_rows(pane)) - 4, watch.PANE_LINES)
+        self.assertEqual(watch.composer_draft("claude", pane), words.replace(" ", ""))
+        self.assertEqual(self.looked(pane)[2], [])     # never typed onto
 
     def test_an_older_claude_box_above_newer_output_is_not_the_composer(self):
         old = "─" * 40 + "\n❯ Fix the old thing\n" + "─" * 40 + "\n"
