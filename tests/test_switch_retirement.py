@@ -98,6 +98,12 @@ class Retire(unittest.TestCase):
     def queued(self, name):
         return tell.read(config.seat_file("tell", name))
 
+    def typed(self, name):
+        """The switches of the lines waiting for that seat, typed as the tick types them."""
+        waiting = [message["line"].split("`")[1] for message in self.queued(name)]
+        tell.write(config.seat_file("tell", name), [])
+        return waiting
+
     def lists(self):
         try:
             return (self.fake / "calls.log").read_text().splitlines().count("list")
@@ -124,47 +130,44 @@ class Retire(unittest.TestCase):
         self.seat("acme", self.acme, created=10)
         self.switches(row("older", 60), row("old", 40))
         self.hand()
+        self.assertEqual(self.typed("acme"), ["older"])
         self.hand(NOW + 2 * retire.EVERY)
-        self.assertEqual(len(self.queued("acme")), 1)
+        self.assertEqual(self.typed("acme"), [])
         self.switches(row("old", 40))
         self.hand(NOW + 3 * retire.EVERY)
-        lines = [message["line"] for message in self.queued("acme")]
-        self.assertEqual(len(lines), 2)
-        self.assertIn("`old` switch", lines[1])
+        self.assertEqual(self.typed("acme"), ["old"])
 
-    def test_one_still_listed_a_day_after_is_handed_again(self):
+    def test_one_still_listed_a_day_after_is_handed_again_in_place_of_a_waiting_copy(self):
         self.seat("acme", self.acme, created=10)
         self.switches(row("older", 60))
         self.hand()
+        self.assertEqual(self.typed("acme"), ["older"])
         self.hand(NOW + retire.AGAIN - 1)
-        self.assertEqual(len(self.queued("acme")), 1)
+        self.assertEqual(self.queued("acme"), [])
         self.hand(NOW + retire.AGAIN + retire.EVERY)
-        self.assertEqual([("`older` switch" in m["line"]) for m in self.queued("acme")],
-                         [True, True])
+        self.hand(NOW + 2 * retire.AGAIN + 2 * retire.EVERY)
+        self.assertEqual(self.typed("acme"), ["older"])
 
     def test_the_switch_in_hand_is_handed_again_before_an_older_one_listed_since(self):
         self.seat("acme", self.acme, created=10)
         self.switches(row("first", 40))
         self.hand()
+        handed = self.typed("acme")
         self.switches(row("first", 40), row("newer-listed", 60))
         self.hand(NOW + retire.AGAIN)
+        handed += self.typed("acme")
         self.switches(row("newer-listed", 60))
         self.hand(NOW + retire.AGAIN + retire.EVERY)
-        self.assertEqual([message["line"].split("`")[1] for message in self.queued("acme")],
-                         ["first", "first", "newer-listed"])
+        self.assertEqual(handed + self.typed("acme"), ["first", "first", "newer-listed"])
 
-    def test_one_turned_off_after_it_was_handed_stays_in_hand_until_it_leaves_the_list(self):
+    def test_one_turned_off_is_proven_no_longer_its_waiting_line_taken_back(self):
         self.seat("acme", self.acme, created=10)
         self.switches(row("first", 60), row("second", 40))
         self.hand()
         self.switches(row("first", everyone=False), row("second", 40))
         self.hand(NOW + retire.EVERY)
-        self.hand(NOW + retire.AGAIN)
-        self.switches(row("second", 40))
-        self.hand(NOW + retire.AGAIN + retire.EVERY)
-        lines = [message["line"] for message in self.queued("acme")]
-        self.assertEqual([line.split("`")[1] for line in lines], ["first", "first", "second"])
-        self.assertEqual(lines[0], lines[1])
+        self.assertEqual(self.typed("acme"), ["second"])
+        self.assertEqual(retire.read()[str(self.acme)]["id"], "second")
 
     def test_one_of_that_id_on_for_everyone_anew_is_another_switch(self):
         self.seat("acme", self.acme, created=10)
@@ -172,8 +175,33 @@ class Retire(unittest.TestCase):
         self.hand()
         self.switches(row("search", 1))
         self.hand(NOW + retire.AGAIN + retire.EVERY)
-        self.assertEqual(len(self.queued("acme")), 1)
+        self.assertEqual(self.queued("acme"), [])
         self.assertEqual(set(retire.read()), {"asked"})
+
+    def test_a_checkout_replaced_at_its_path_hands_its_own_switches(self):
+        self.seat("acme-old", self.acme, created=10)
+        self.switches(row("new-search", 60))
+        self.hand()
+        self.acme.rename(self.root / "old-acme")
+        self.acme = self.project("ACME", f"{sys.executable} {self.fake / 'features.py'}")
+        self.seats.clear()
+        self.seat("acme-new", self.acme, created=20)
+        self.switches(row("new-search", everyone=False), row("other-switch", 40))
+        self.hand(NOW + retire.AGAIN + retire.EVERY)
+        self.assertEqual(self.typed("acme-old"), [])
+        self.assertEqual(self.typed("acme-new"), ["other-switch"])
+
+    def test_a_line_that_cannot_be_taken_back_keeps_its_switch_in_hand(self):
+        self.seat("acme", self.acme, created=10)
+        self.switches(row("first", 60), row("second", 40))
+        self.hand()
+        self.switches(row("first", everyone=False), row("second", 40))
+        with patch.object(tell, "withdraw", return_value="acme's message queue cannot be read"):
+            self.hand(NOW + retire.EVERY)
+        self.assertEqual(self.typed("acme"), ["first"])
+        self.assertEqual(retire.read()[str(self.acme)]["id"], "first")
+        self.assertIn("WARN ACME: switch first is no longer proven, but its line may still wait: "
+                      "acme's message queue cannot be read", self.logged)
 
     def test_an_unread_record_hands_nothing(self):
         self.seat("acme", self.acme, created=10)

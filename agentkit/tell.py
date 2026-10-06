@@ -155,6 +155,19 @@ def queue(name, line, sender=""):
     return None
 
 
+def withdraw(name, line):
+    """Take back every copy of `line` still waiting for that seat, under its lock; None once
+    none waits, else why one may."""
+    def drop(messages):
+        messages[:] = [message for message in messages if message["line"] != line]
+
+    try:
+        locked(name, drop)
+    except (OSError, ValueError) as exc:
+        return f"{name}'s message queue cannot be read: {exc}"
+    return None
+
+
 def deliver_to(session, log, cfg=None):
     """Type the oldest message waiting for that seat; True once its line went in.
 

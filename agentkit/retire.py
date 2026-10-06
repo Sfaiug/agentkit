@@ -6,20 +6,19 @@ ISO 8601 UTC) at least PROVEN ago is due. A project is a checkout under ~/code, 
 in ak: once every EVERY the tick reads the list of each one that declares a command, and hands
 its longest-due switch to the newest open seat filed under that checkout, through the queue
 `ak tell` fills, in a line that names the project, so it holds wherever it lands. One switch is
-in hand per checkout at a time: it stays in hand until it has left the list, which the project's
-own deploy does when the code no longer reads it, and while it is still listed AGAIN after it
-was handed, the same line is handed again. A switch handed and then turned off stays in hand
-too: the owner's rule (5 Oct 2026) is that a proven switch comes out, and turning one off later
-is a code change. One of that id listed as on for everyone since another moment is another
-switch, unproven until its own two weeks are up. With no open seat there, nothing is handed and
-the next read tries again. A switch is recorded in hand before its line is queued, and a record
-that cannot be read or written stops the pass.
+in hand per checkout at a time, while its list still shows it as it was proven: on for everyone
+since the same moment. Once it is not -- out of the code, which the project's own deploy does
+when the code no longer reads it, turned off, or on for everyone anew -- the hand ends, its line
+is taken back if it still waits, and the next due switch is handed. One still in hand AGAIN
+after it was handed is handed again, in place of a copy still waiting. With no open seat there,
+nothing is handed and the next read tries again. A switch is recorded in hand before its line is
+queued, and a record that cannot be read or written stops the pass.
 
 Nothing here guesses which checkouts are one project: a guess that merges two hands one
 project's work to the other's seat and never reads the other's list. So one project checked
 out twice, with open seats filed under both, hears of a switch in each, and a checkout renamed
-starts its record afresh; one replaced at the same path keeps the switch in hand only while
-its list still shows that switch, on since the same moment, or off.
+starts its record afresh; one replaced at the same path keeps the switch in hand only while its
+own list proves it.
 """
 
 from datetime import datetime, timezone
@@ -127,8 +126,13 @@ def hand(log, now=None):
             continue
         handed = record.get(key)
         if handed and not any(isinstance(row, dict) and row.get("id") == handed["id"]
-                              and since(row) in (None, handed["since"]) for row in rows):
-            del record[key]    # out of the code, or one of that id went on for everyone anew
+                              and since(row) == handed["since"] for row in rows):
+            refused = tell.withdraw(handed["seat"], handed["line"])
+            if refused:
+                log(f"WARN {checkout.name}: switch {handed['id']} is no longer proven, but its "
+                    f"line may still wait: {refused}")
+                continue
+            del record[key]
             handed = None
         if handed:
             if now - handed["at"] < AGAIN:
@@ -147,7 +151,8 @@ def hand(log, now=None):
         record[key] = {"id": feature, "since": proof, "at": now, "seat": seat["name"],
                        "line": text}
         write(record)
-        refused = tell.queue(seat["name"], text)
+        refused = (tell.withdraw(handed["seat"], text) if handed else None) \
+            or tell.queue(seat["name"], text)
         if refused:
             if handed:
                 record[key] = handed
