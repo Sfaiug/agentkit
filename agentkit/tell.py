@@ -17,6 +17,7 @@ import time
 import uuid
 
 from . import command_help, config, notify, orch, watch
+from .told import heading
 
 # tmux refuses one command past 16 KiB, and the whole message goes in as one typed line.
 MAX_BYTES = 8000
@@ -205,8 +206,7 @@ def main(argv):
         print("ak tell: nothing to say", file=sys.stderr)
         return 1
     now = time.time()
-    line = (f"[from seat {sender} at {time.strftime('%H:%M', time.localtime(now))}, not the "
-            f"owner; reply with ak tell {sender}] {text}")
+    line = heading(sender, now) + text
     most = longest(config.load())
     if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
         print(f"ak tell: {len(line):,} characters is more than a composer shows whole ({most:,}); "
