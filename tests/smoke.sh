@@ -25,17 +25,18 @@ if [ $# = 0 ] && [ -n "${AK_SHARD:-}" ]; then
 fi
 # --- shared setup ----------------------------------------------------------
 if [ "${AK_SHARD:-1/1}" != 1/1 ]; then
-  # Short paths fit tmux sockets even when the checkout's path does not. No credentials,
-  # probe files, retention siblings or Python caches are shared by pieces.
-  SMOKE_SHARD_HOME=$(mktemp -d "/tmp/ak-test-share.XXXXXX") || exit 1
-  export HOME="$SMOKE_SHARD_HOME" TMPDIR="$SMOKE_SHARD_HOME/tmp" \
+  # No credentials, probe files, retention siblings or Python caches are shared by pieces. The
+  # HOME is in the checkout, where the boxes its checks start see it: a box has its own /tmp.
+  # Temporary files and sockets keep short paths in /tmp, which the checkout's may not be.
+  SMOKE_SHARD_HOME=$(mktemp -d "$REPO/.ak-test-share.XXXXXX") || exit 1
+  SMOKE_SHARD_TMP=$(mktemp -d "/tmp/ak-test-share.XXXXXX") || exit 1
+  export HOME="$SMOKE_SHARD_HOME" TMPDIR="$SMOKE_SHARD_TMP" \
     PYTHONPYCACHEPREFIX="$SMOKE_SHARD_HOME/pycache"
-  mkdir -p -- "$TMPDIR"
   unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME CODEX_HOME \
     CLAUDE_CONFIG_DIR GROK_HOME OPENCODE_CONFIG_DIR OPENCODE_CONFIG GH_CONFIG_DIR \
     AK_PARENT_RUN AK_RUN_LOG
   export AK_RUN_DEPTH=0
-  trap 'rm -rf -- "$SMOKE_SHARD_HOME"' EXIT
+  trap 'rm -rf -- "$SMOKE_SHARD_HOME" "$SMOKE_SHARD_TMP"' EXIT
 fi
 export PATH="$REPO/bin:$PATH"
 # The suite is nobody's worker and nobody's seat.  A session that executes tasks exports
@@ -1360,7 +1361,7 @@ if [ "${AGENTKIT_SMOKE_OFFLINE:-0}" = 1 ]; then
   # the loop never commits and sweeps if this suite is killed. tmux canonicalizes
   # TMUX_TMPDIR, so use an explicit short socket path for its isolated pane fixtures.
   SMOKE_TMP=$(mktemp -d "$REPO/.ak-test-smoke.XXXXXX") || exit 1
-  trap 'rm -rf -- "$SMOKE_TMP"; [ -z "${SMOKE_SHARD_HOME:-}" ] || rm -rf -- "$SMOKE_SHARD_HOME"' EXIT
+  trap 'rm -rf -- "$SMOKE_TMP"; [ -z "${SMOKE_SHARD_HOME:-}" ] || rm -rf -- "$SMOKE_SHARD_HOME" "$SMOKE_SHARD_TMP"' EXIT
   export TMPDIR="$SMOKE_TMP"
   if [ -d "/proc/$$/cwd" ]; then
     export TMPDIR="/proc/$$/cwd/${SMOKE_TMP##*/}"
@@ -1431,7 +1432,7 @@ trap 'SMOKE_RC=$?
       [ ! -d "$WORK/home" ] || smoke_sync_logins || SMOKE_RC=1
       HOME="$SMOKE_CALLER_HOME" PYTHONPATH="$REPO" python3 -m agentkit.retention settle "$WORK" "$SMOKE_RC" || :
       [ -z "${SMOKE_LOCK_PID:-}" ] || kill "$SMOKE_LOCK_PID" 2>/dev/null
-      [ -z "${SMOKE_SHARD_HOME:-}" ] || rm -rf -- "$SMOKE_SHARD_HOME"
+      [ -z "${SMOKE_SHARD_HOME:-}" ] || rm -rf -- "$SMOKE_SHARD_HOME" "$SMOKE_SHARD_TMP"
       exit "$SMOKE_RC"' EXIT
 # --- the suite's own tmux server, and nobody else's -------------------------
 # Every tmux command here runs against a throwaway server: a socket of its own, in a socket
@@ -1445,6 +1446,8 @@ trap 'SMOKE_RC=$?
 smoke_home
 export AGENTKIT_TMUX_SOCKET=agentkit-test
 export TMUX_TMPDIR="$WORK/tmux"
+# A piece's sandbox path is too long for a socket; tmux follows this link to a short one.
+[ -z "${SMOKE_SHARD_TMP:-}" ] || ln -s -- "$SMOKE_SHARD_TMP" "$TMUX_TMPDIR"
 mkdir -p -- "$TMUX_TMPDIR"
 tm()  { env -u TMUX tmux -L agentkit-test "$@"; }        # the seats
 # A new seat opens only where a person types (`orch.typed_here`): `typed ANSWERS CMD...` runs CMD
@@ -3812,7 +3815,7 @@ PY
 # two and never whatever the box is running: the number to press is then always 2, and nothing
 # here binds a key or starts a session on the tmux server the user's own seats live on. The
 # seat's environment carries that directory and the throwaway HOME, and the popup inherits both.
-OVH="$WORK/home-overlay"; OVTMP="$WORK/ovt"
+OVH="$WORK/home-overlay"; OVTMP="$TMUX_TMPDIR/ovt"
 mkdir -p -- "$OVH/.agentkit/state" "$OVTMP"
 cp "$MHOME/.agentkit/state/usage.json" "$OVH/.agentkit/state/usage.json"
 OVERLAY=0
@@ -5123,7 +5126,7 @@ grep -q ' scratch  delivered$' "$WORK/delivered-scratch.log" || DEL=1
 # harness understands, a second pass inside three minutes types nothing, Muse's window is waited
 # out and OpenAI's resets are never spent, an hour of it asks the user once and stops, a seat
 # that is working and a seat that is nobody's are never touched at all.
-STALLH="$WORK/home-stall"; STALLT="$WORK/stall-tmux"; STALLAD="$WORK/ad-stall"
+STALLH="$WORK/home-stall"; STALLT="$TMUX_TMPDIR/stall"; STALLAD="$WORK/ad-stall"
 STALLBIN="$WORK/bin-stall"; STALLTYPED="$WORK/stall-typed"
 mkdir -p -- "$STALLH/.agentkit/state" "$STALLT" "$STALLAD" "$STALLBIN" "$STALLTYPED"
 STALL=0
