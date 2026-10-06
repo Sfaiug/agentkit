@@ -1443,6 +1443,17 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
+    # A bare rule right under a row drawn at the left edge is that row's frame, not a newer
+    # line: Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest
+    # line it hid every question, which then read as answered.  A draft never sits there: its
+    # first row is prompt-marked and the rest are indented or inside a box's edge, so what is
+    # typed stays a draft.
+    newest = lines[-1]
+    if chrome["ruled"] and len(lines) > 1 and re.fullmatch(RULE, newest):
+        above = strip_sgr(raw_lines[-2]).rstrip()
+        if (above and not above[0].isspace() and above[0] not in "│┃║"
+                and not re.match(r"[❯›⟩>]", above) and not re.fullmatch(RULE, above.strip())):
+            newest = lines[-2]
     for rule in chrome["rules"]:
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
             region = lines[-rule["lines"]:]
@@ -1494,12 +1505,12 @@ def screen_state(harness, tail):
         if ((rule["all"] and not all(mark in low for mark in rule["all"]))
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
                 or (rule["none"] and any(mark in low for mark in rule["none"]))
-                or (rule["newest"] and not rule["newest"].search(lines[-1]))
+                or (rule["newest"] and not rule["newest"].search(newest))
                 or (rule["chrome"] and not chrome_line(chrome, lines[-1]))):
             continue
         marks = rule["all"] + rule["any"]
         evidence = next((line for line in reversed(region)
-                         if any(mark in line.lower() for mark in marks)), lines[-1])
+                         if any(mark in line.lower() for mark in marks)), newest)
         return rule["state"], rule["id"], evidence[:160]
     return None, "", ""
 
