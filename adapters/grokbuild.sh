@@ -45,6 +45,13 @@
 # per-model in the camelCase `modelUsage` object) -- and event_tokens reads them untaught.
 set -uo pipefail
 command -v grok >/dev/null || PATH="${GROK_BIN_DIR:-$HOME/.grok/bin}${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
+# The instruction files grok reads for Claude and Cursor -- CLAUDE.md under .claude, their
+# rules and skills -- are off for a worker's turn and a seat (`grok inspect` shows each cell
+# OFF (env)): their rules are the ones ak hands them, a seat's its rulebook with the
+# project's AGENTS.md in it (`config.seat_rulebook`).  What no switch reaches is said in
+# adapters/grokbuild.toml.  `run` sets these and `interactive` prints them.
+OWN_RULES_OFF="GROK_CLAUDE_AGENTS_ENABLED=false GROK_CLAUDE_RULES_ENABLED=false \
+GROK_CLAUDE_SKILLS_ENABLED=false GROK_CURSOR_RULES_ENABLED=false GROK_CURSOR_SKILLS_ENABLED=false"
 # A seat on an account hands its Grok home to everything it starts, so a call that names no
 # account drops one: that would spend the account's subscription, not the usual login's.
 case ${GROK_HOME:-} in "$HOME"/.grok-*) unset GROK_HOME ;; esac
@@ -99,13 +106,9 @@ run)
     || python3 -c 'import uuid; print(uuid.uuid4())')"; fi
   cd -- "$ws" || exit 2
   # The prompt is read from its file, never handed as `-p <text>`: Linux refuses one argument
-  # over 128 KiB, and a reviewer's prompt runs to three times that.  The instruction files grok
-  # reads for Claude and Cursor -- CLAUDE.md under .claude, their rules and skills -- are
-  # switched off, so a worker's rules are the ones ak's prompt carries (`grok inspect` shows
-  # each cell OFF (env)); what no switch reaches is said in adapters/grokbuild.toml.
-  GROK_CLAUDE_AGENTS_ENABLED=false GROK_CLAUDE_RULES_ENABLED=false GROK_CLAUDE_SKILLS_ENABLED=false \
-  GROK_CURSOR_RULES_ENABLED=false GROK_CURSOR_SKILLS_ENABLED=false \
-  grok --prompt-file "$pf" --model "$model" --reasoning-effort "$effort" --always-approve \
+  # over 128 KiB, and a reviewer's prompt runs to three times that.
+  # shellcheck disable=SC2086 # OWN_RULES_OFF is one NAME=value per word
+  env $OWN_RULES_OFF grok --prompt-file "$pf" --model "$model" --reasoning-effort "$effort" --always-approve \
     --output-format streaming-messages-json "$@" >"$out/events.jsonl" 2>"$out/stderr.log"
   rc=$?
   # slurp: the terminal `result` event is one JSON object per line, so take the last one's
@@ -158,11 +161,9 @@ interactive)
   # instead of the "do you trust the contents of this directory?" dialog (whose default is
   # "No, quit"); --always-approve is the seat's standing permission mode.  The printed
   # command runs later, outside this adapter's environment, so an account's home rides it.
-  # The instruction files it reads for Claude and Cursor are off, as for a worker: the seat's
-  # rulebook carries its project's AGENTS.md (`config.seat_rulebook`).
   [ -z "$ACCOUNT" ] || printf 'env -u XAI_API_KEY GROK_HOME=%q ' "$GROK_HOME"
-  printf 'python3 %q --harness grokbuild -- env GROK_CLAUDE_AGENTS_ENABLED=false GROK_CLAUDE_RULES_ENABLED=false GROK_CLAUDE_SKILLS_ENABLED=false GROK_CURSOR_RULES_ENABLED=false GROK_CURSOR_SKILLS_ENABLED=false grok %s%s--trust --always-approve --model %q --reasoning-effort %q\n' \
-      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" ;;
+  printf 'python3 %q --harness grokbuild -- env %s grok %s%s--trust --always-approve --model %q --reasoning-effort %q\n' \
+      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$resume" "$rules" "$1" "$2" ;;
 usage)
   # No login is a failed probe, not a missing meter: without one an unauthenticated xai
   # would read as a neutral 1.0 provider and be picked ahead of logged-in ones, only for
