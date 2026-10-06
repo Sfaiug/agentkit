@@ -2845,12 +2845,14 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     goes only while the composer holds the line alone (`composer_holds`): what the owner typed
     in the gap before it is never sent.  The line is delivered only once its composer reads
     empty, the first pass's as a mark's: one the owner edited while its Enter was confirmed
-    no longer reads whole there, and is still theirs to send.
+    no longer reads whole there, and is still theirs to send.  A question the seat asked with
+    `ak notify needs` holds none of this back: the seat works on what does not wait on the
+    answer, which only the owner's own prompt gives (`notify.progress`).
     """
     mark = {"line": text, "seat": session.get("created")}
     if typed == mark:
         with seat_held(session["name"]) as held:
-            if owner_question(notify.last(held)) or stale(held):
+            if stale(held):
                 return False    # the screen is somebody else's: next pass
             holds = composer_holds(held, session, text, cfg)
             if holds == "empty":
@@ -2863,7 +2865,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     composed = []
 
     def veto(held):
-        if owner_question(notify.last(held)) or stale(held):
+        if stale(held):
             return True
         if composed:
             return False        # the text is typed; what is left is the Enter that sends it
