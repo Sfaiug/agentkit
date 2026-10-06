@@ -1135,13 +1135,16 @@ def without_output(node):
     return node
 
 
-# A line break or tab in a record's text, re-encoded, reads as `\n` or `\t` and runs into the
-# word after it, which then never stands on its own.
-ONE_LINE = str.maketrans("\n\r\t", "   ")
+# Re-encoded, a control character in a record's text -- a line break, a tab -- reads as an
+# escape (`\n`, `\t`, `\u000b`) that runs into the word after it, which then never stands on
+# its own; so do characters outside ASCII unless they are written as they are.  With every
+# control character a space and the rest written as is, the only escapes left are `\"` and
+# `\\`, which end in neither a letter nor a digit.
+ONE_LINE = {code: " " for code in range(0x20)}
 
 
 def one_line(node):
-    """`node` with every line break and tab in its text a space, at any depth."""
+    """`node` with every control character in its text a space, at any depth."""
     if isinstance(node, dict):
         return {k: one_line(v) for k, v in node.items()}
     if isinstance(node, list):
@@ -1197,7 +1200,7 @@ def record_text(node):
 
 def failures(chunk, terminal, terminal_only=False, handed_in=False):
     """The failure records of an event log, each minus the output of the work it quotes, its
-    text's line breaks and tabs read as spaces.
+    text's control characters read as spaces and the rest as written.
 
     The output goes first, so a command that failed while printing the words a refusal uses
     contributes its exit code and nothing else.  The run's terminal record is kept beside
@@ -1231,7 +1234,7 @@ def failures(chunk, terminal, terminal_only=False, handed_in=False):
                        or (is_terminal(record, terminal)
                            and not handed_in and not answered(record_text(record))))
         if failure:
-            records.append(json.dumps(one_line(record)))
+            records.append(json.dumps(one_line(record), ensure_ascii=False))
     return records
 
 

@@ -101,12 +101,13 @@ class Quota(unittest.TestCase):
             "meta": {"meters": [meter("weekly", meta_used, self.now + WEEK)]},
         }
 
-    def test_a_word_after_a_line_break_in_an_error_event_is_still_said(self):
-        # the event is read re-encoded: a line break or tab before the word must not run into it
+    def test_a_word_after_any_character_in_an_error_event_is_still_said(self):
+        # the event is read re-encoded: no escape before the word may run into it
         for name, word, expected in (("opencode", "quota", harness.SPENT),
                                      ("claude", "rate_limit_error", harness.LIMITED),
                                      ("opencode", "overloaded", harness.REFUSAL)):
-            for gap in ("\n", "\t", "\r\n"):
+            for gap in ("\n", "\t", "\r\n", "\f", "\v", "\x01", "\u00a0", "\u0085",
+                        "\u2028", "\u2014", "\u00e9 "):
                 for message in ("/tmp/acme/log.txt" + gap + word, "Error:" + gap + word):
                     event = json.dumps({"type": "error", "error": message})
                     said = "\n".join(run.failures(event, None))
