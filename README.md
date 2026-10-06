@@ -77,6 +77,8 @@ Agentkit does not stop until the work ships, or until it truly needs you. Truly 
 
 `AGENTS.md`'s `health:` command checks merged changes in production; passing reports them live.
 
+`AGENTS.md`'s `owner:` names the files, folders and `file#Heading` sections that change only on your yes (agentkit names its vision, its landing gate and its scoreboard). A run whose change touches one waits and asks you; `ak run yes <run>` lands it, `ak run no <run>` leaves it unmerged with its branch kept.
+
 A turn can end waiting on its job while the launcher is alive and any task is unsettled, even before the first run starts and after a seat rename. A job whose launcher is gone or whose tasks have all settled gives no wait.
 
 Sessions talk to each other with `ak tell <session> "<text>"`, the same way for every harness: ak types the message into that session at its next quiet prompt, or mid-turn where its harness holds a typed line for its next step, headed with who sent it. It never counts as your words and never answers your question.

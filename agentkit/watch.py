@@ -4930,6 +4930,8 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                     state, run_dir, now=now):
                 continue
             if state.get("state") == "waiting":
+                if (state.get("waiting_on") or {}).get("owner"):
+                    continue    # a change to owner parts resumes only by `ak run yes`, not a move
                 if not run_mod.tick_admission(state, now=now):
                     continue
                 wt = state.get("worktree")
