@@ -16,9 +16,12 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+
+from agentkit import config
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
@@ -136,6 +139,17 @@ class StopPeerTurn(unittest.TestCase):
         self.notified("done", self.done_at)
         self.typed(TOLD, "seat:acme-fix-api")
         self.assertTrue(self.prompt(TOLD)["peer"])
+        self.assertFalse(self.prompt(TOLD)["peer"])
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
+    def test_a_rename_leaves_the_told_line_spent(self):
+        """The turn latch stays under the launch name the harness keeps, so a rename between the
+        told line and the owner's own later prompt with its words does not make it a peer's."""
+        self.notified("done", self.done_at)
+        self.typed(TOLD, "seat:acme-fix-api")
+        self.assertTrue(self.prompt(TOLD)["peer"])
+        with patch.object(config, "STATE", self.state), patch.object(config, "ensure_dirs"):
+            config.rename_session(SEAT, "renamed-peer")
         self.assertFalse(self.prompt(TOLD)["peer"])
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
