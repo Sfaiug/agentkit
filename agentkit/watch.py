@@ -2008,7 +2008,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if found.get("state") == "draft":
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
-                "since": found.get("began")}
+                "since": found.get("began"), "question": found["state"] == "asking"}
     # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
     # asks, then gets on with the work that does not wait on the answer, so neither its runs
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
@@ -2016,7 +2016,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     last = notify.last(name)
     if not gone and owner_question(last):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
-                "since": last.get("time")}
+                "since": last.get("time"), "question": True}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
     # is the exception, as in the stop hook's `parked`: `going` counts it, but only
     # `ak run resume` moves one, so rung 3 has it.
@@ -2052,7 +2052,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                 "since": min(starts) if starts else None}
     # 2a. ... or it ended its turn on `ak wait`, and the session it named is working
     wait = waiting_on(name, records, at, cfg) if waits else None
-    if wait:
+    if wait and wait["word"] == "working":
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
     # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
     # somebody is still in has a screen to read.  The parked run below keeps its
@@ -2121,6 +2121,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         told = " ".join(restart.split()) if isinstance(restart, str) else ""
         return {"word": "needs you", "since": None,
                 "reason": f"{reason} · {told}" if told else reason}
+    # 4a. ... or its `ak wait` holds through the other session's question to him: his answer
+    # moves this one too.  Below its own turn, its own parked runs and its own closed seat,
+    # which are each news of its own.
+    if wait:
+        return {"word": "needs you", "since": wait["since"],
+                "reason": f"waiting on {wait['on']}, which asks you: {wait['reason']}"}
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
     # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
     # seat's own standing until a newer notice, but a question on its screen, or typed text
@@ -2160,13 +2166,16 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
 
 def waiting_on(name, records=None, now=None, cfg=None):
-    """That seat's own `ak wait`, while the session it names is working; else None.
+    """That seat's own `ak wait`, while the session it names is working or waits on his answer
+    to its own question (`wait_holds`); else None.
 
     The wait is the seat's word, kept in its record's `wait` by `ak wait` and dropped by its
     next `ak notify`, and nothing that looks at a screen ever writes or ends it: this only says
     whether it holds now.  It holds while the other session's own ladder says `working` --
     its runs or its turn, under every rung above them, such as a login its run is parked on --
-    and never by a wait of its own, so two seats waiting on each other are both his.  A wait
+    or `needs you` on a question it asked him, and never by a wait of its own, so two seats
+    waiting on each other are both his.  Through a question the seat reads `needs you` too,
+    and neither its stop nor the tick wakes it to decide what only his answer decides.  A wait
     the tick has told the seat the end of (`told`, see `tell_waits`) is over for good, however
     the other session reads since.  The ladder, the stop hook and the tick's `stop_nudge` all
     ask this, so the word a seat reads and the stop it is allowed are the same decision.
@@ -2175,9 +2184,17 @@ def waiting_on(name, records=None, now=None, cfg=None):
     if not isinstance(wait, dict) or wait.get("told"):
         return None
     other, found = wait_peer(name, wait, records, now, cfg)
-    if found is None or found["word"] != "working":
+    if not wait_holds(found):
         return None
-    return {"on": other, "at": _stamp(wait.get("at"))}
+    return {"on": other, "at": _stamp(wait.get("at")), "word": found["word"],
+            "reason": found.get("reason"), "since": found.get("since")}
+
+
+def wait_holds(found):
+    """Whether a wait on a session whose own word is `found` holds: while it works, and while
+    it waits on his answer to a question it asked, since the seat waiting on it waits on that
+    same answer.  Any other stop -- done, closed, his for another reason -- ends it."""
+    return bool(found) and (found["word"] == "working" or bool(found.get("question")))
 
 
 def wait_peer(name, wait, records=None, now=None, cfg=None):
@@ -2201,8 +2218,9 @@ def wait_peer(name, wait, records=None, now=None, cfg=None):
 def tell_waits(cfg, log):
     """Tell a seat the session its `ak wait` names has stopped, once, and end the wait on it.
 
-    The other session's own word off its ladder, the moment it is no longer `working`: done,
-    needs you or closed, with its reason, so the seat decides on that and never on whether
+    The other session's own word off its ladder, the moment the wait no longer holds
+    (`wait_holds`): done, needs you for anything but its own question, or closed, with its
+    reason, so the seat decides on that and never on whether
     the other remembers to write to it.  One line through the confirmed send, only at the
     seat's own quiet prompt, the way a run's ending is handed back; a seat mid-turn is tried
     again next tick.  The send that took the line is written on the wait as `told`, and that
@@ -2223,7 +2241,7 @@ def tell_waits(cfg, log):
         if wait is None or any(session.get(key) for key in orch.CLOSED):
             continue
         other, found = wait_peer(name, wait, cfg=cfg)
-        if found is None or found["word"] == "working":
+        if found is None or wait_holds(found):
             continue
         reason = " ".join(str(found.get("reason") or "").split())
         line = f"{other} is now {found['word']}: {reason}. Decide the next step."
@@ -3113,7 +3131,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     wait = live.get("wait")
     if isinstance(wait, dict) and not wait.get("told"):
         found = wait_peer(name, wait, records)[1]
-        if found is not None and found["word"] != "working":
+        if found is not None and not wait_holds(found):
             return      # that session has stopped: tell_waits says so, and why, instead
     mine = []
     for run_dir, record in records:

@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, notify, orch, run, watch, worker
+from agentkit import config, menu, notify, orch, run, watch, worker
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -306,6 +306,52 @@ class Wait(Sandbox):
         self.turn(OTHER, "Stop")
         self.assertEqual(self.tick(), [TOLD])
         self.assertEqual(self.tick(), [])
+
+    def test_l_a_wait_holds_while_the_other_waits_on_his_answer_to_its_own_question(self):
+        # the other asks him: the seat waiting on it waits on that same answer and reads so,
+        # and neither its stop nor the tick wakes it for what only his answer decides
+        question = "Ship the acme parser today?"
+        self.wait(OTHER)
+        self.turn(OTHER, "UserPromptSubmit")
+        with patch.dict(os.environ, {config.SESSION_ENV: OTHER}), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(notify.main(["needs", question]), 0)
+        self.turn(OTHER, "Stop")
+        self.assertEqual(self.decide(OTHER), ("needs you", question))
+        self.assertEqual(self.decide(), ("needs you", f"waiting on {OTHER}, which asks you: {question}"))
+        # its stop stands: the stop hook and the tick's end-of-turn rule both ask waiting_on
+        self.assertEqual(watch.waiting_on(SEAT)["on"], OTHER)
+        pane, now = f"{RECOMMENDATION}\n\n⟩", watch.time.time()
+        watch.seat_write(SEAT, state="at_prompt", turn_began=now - 900, stop_said_at=now - 3600)
+        with patch.object(watch, "type_into", return_value=True) as typed, \
+                patch.object(watch, "pane_text", return_value=pane):
+            watch.stop_nudge(self.seats[SEAT], "muse", pane, None, [], False, lambda _line: None)
+            typed.assert_not_called()
+        self.assertEqual(self.tick(), [])       # and nothing wakes it
+        self.assertNotIn("told", watch.seat_read(SEAT)["wait"])
+        # a turn of its own in flight is still working: the question is news of the other's
+        self.turn(SEAT, "UserPromptSubmit")
+        self.assertEqual(self.decide()[0], "working")
+        self.turn(SEAT, "Stop")
+        # ... and a run of its own parked undecided still gets its nudge, as the stop hook
+        # sends that stop back
+        self.receipt("20260101-0800-parked", SEAT, state="interrupted", recovery_pending=True,
+                     interruption_reason="The run stopped before recording completion.")
+        watch.seat_write(SEAT, state="at_prompt", turn_began=now - 900, stop_said_at=now - 3600)
+        with patch.object(watch, "type_into", return_value=True) as typed, \
+                patch.object(watch, "pane_text", return_value=pane):
+            watch.stop_nudge(self.seats[SEAT], "muse", pane, None, menu.run_records(), False,
+                             lambda _line: None)
+            self.assertEqual(typed.call_count, 1)
+        record.save_state(config.RUNS / "20260101-0800-parked", {
+            **record.read_state(config.RUNS / "20260101-0800-parked"), "state": "pass",
+            "recovery_pending": False, "finished_at": NOW - 30})
+        # ... until the other stops on anything else: it is told, as before
+        with patch.dict(os.environ, {config.SESSION_ENV: OTHER}), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(notify.main(["done", "Shipped the parser"]), 0)
+        self.assertEqual(self.tick(),
+                         [f"{OTHER} is now done: Shipped the parser. Decide the next step."])
 
 
 if __name__ == "__main__":
