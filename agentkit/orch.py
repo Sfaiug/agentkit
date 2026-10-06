@@ -44,7 +44,7 @@ from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import command_help, config, host, motion, plan, retention, terminal, update, usage
+from . import command_help, config, guard, host, motion, plan, retention, terminal, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -954,7 +954,7 @@ def tmux_env(client=False):
     return dict(os.environ) if client else {k: v for k, v in os.environ.items() if k != "TMUX"}
 
 
-def tmux_out(*args, socket=None, client=False, unit=None, timeout=None):
+def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False):
     """(exit code, output) of one tmux command; 127 when there is no tmux to ask.
 
     `unit` names the transient scope a command that starts a server runs in, so that the
@@ -965,6 +965,10 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None):
     fix_term()
     socket = socket_name() if socket is None else socket
     argv, env = tmux_argv(socket, *args), tmux_env(client)
+    if path_shim:
+        # tmux gives a pane it spawns the PATH of the client that asked, over the session env, so
+        # the seat guard's dir is put first on this client's PATH: the harness's `tmux` is the shim.
+        env = {**env, "PATH": os.pathsep.join([str(guard.install_shim()), env.get("PATH", "")])}
     if unit:
         argv, env = in_slice(argv, unit, socket, env)
     try:
@@ -973,7 +977,7 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None):
     except OSError as exc:
         return 127, str(exc)
     if proc.returncode != 0 and unit and argv[0] != "tmux":
-        return tmux_out(*args, socket=socket, client=client, timeout=timeout)
+        return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim)
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
@@ -1767,7 +1771,7 @@ def start(name, cwd, cmd, orchestrator):
     # that one can put the server in agentkit's slice.  The harness goes in either way.
     running = tmux_out("source-file", str(conf))[0] == 0
     rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
-                       *env, seat_command(name, cmd),
+                       *env, seat_command(name, cmd), path_shim=True,
                        unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
@@ -2103,7 +2107,7 @@ def _start_harness(name, model, cwd, cmd, session):
             if rc or owner != name:
                 target = f"={name}:"
         rc, out = tmux_out("respawn-pane", "-k", "-t", target,
-                           seat_command(name, cmd, server), socket=server)
+                           seat_command(name, cmd, server), socket=server, path_shim=True)
         if rc != 0:
             raise config.Error(f"cannot resume the session {name}: {out}")
         tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)

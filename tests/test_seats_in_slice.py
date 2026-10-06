@@ -12,6 +12,8 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -72,8 +74,8 @@ class SeatsInSlice(Sandbox):
                 python=sys.executable, said=f"systemd {said} (fake)"))
             (where / "systemd-run").chmod(0o755)
 
-    def tmux(self, *args, socket=None, client=False, unit=None, **_kw):
-        self.calls.append((args, unit))
+    def tmux(self, *args, socket=None, client=False, unit=None, path_shim=False, **_kw):
+        self.calls.append((args, unit, path_shim))
         if args[0] == "source-file":
             return (0, "") if self.server_up else (1, "no server running")
         if args[0] == "show-options":
@@ -84,7 +86,7 @@ class SeatsInSlice(Sandbox):
 
     def launched(self, verb):
         """The pane command and the server's own unit of each `new-session`/`respawn-pane`."""
-        return [(args[-1], unit) for args, unit in self.calls if verb in args]
+        return [(args[-1], unit) for args, unit, _ in self.calls if verb in args]
 
     def scope(self, line):
         """The unit a pane command puts its harness in, after checking the line around it."""
@@ -104,6 +106,18 @@ class SeatsInSlice(Sandbox):
                              env=pane, cwd=cwd)
         self.assertEqual(out.returncode, 0, out.stderr)
         return json.loads(out.stdout)
+
+    def test_a_new_seat_and_a_respawn_spawn_with_the_shim_first_on_path(self):
+        # tmux gives a pane the client's PATH, so the spawn calls carry the shim dir first.
+        from agentkit import guard
+        with patch.object(config, "HOME", self.root / ".agentkit"):
+            orch.start("acme", self.root, HARNESS, "opus")
+            orch._start_harness("acme", "opus", self.root, HARNESS, {"name": "acme"})
+        for verb in ("new-session", "respawn-pane"):
+            shimmed = [p for a, _, p in self.calls if verb in a]
+            self.assertTrue(shimmed and all(shimmed), f"{verb} did not spawn with path_shim")
+        # a management call that spawns no pane is not shimmed
+        self.assertFalse(any(p for a, _, p in self.calls if "list-sessions" in a))
 
     def test_a_a_seat_on_a_server_already_up_runs_its_harness_in_its_own_scope(self):
         orch.start("acme", self.root, HARNESS, "opus")
@@ -182,6 +196,31 @@ class SeatsInSlice(Sandbox):
         orch.start("acme", self.root, HARNESS, "opus")
         (line, _), = self.launched("new-session")
         self.scope(line)
+
+
+class ShimDelivery(unittest.TestCase):
+    """The real tmux_out, not the mock: path_shim puts the seat-guard dir first on the PATH tmux
+    gives the pane it spawns (tmux copies the client's PATH), and only on a spawn."""
+
+    def test_path_shim_puts_the_shim_first_on_the_spawn_clients_path(self):
+        from agentkit import config, guard, orch
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        seen = []
+
+        def fake_run(argv, **kw):
+            seen.append((kw.get("env") or {}).get("PATH", ""))
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        with patch.object(config, "HOME", Path(tmp.name) / ".agentkit"), \
+                patch.object(orch, "fix_term", lambda: ""), \
+                patch("subprocess.run", fake_run):
+            shim = str(guard.shim_dir())
+            orch.tmux_out("new-session", path_shim=True, socket="x")
+            self.assertEqual(seen[-1].split(os.pathsep)[0], shim)       # a spawn carries the shim
+            self.assertTrue((Path(tmp.name) / ".agentkit/bin/tmux").is_symlink())
+            orch.tmux_out("list-sessions", socket="x")
+            self.assertNotEqual(seen[-1].split(os.pathsep)[0], shim)    # a query does not
 
 
 if __name__ == "__main__":

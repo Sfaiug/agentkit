@@ -87,6 +87,8 @@
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye; a merged run writes its review follow-ups here.
 - `box.py`: credential masks, PID teardown. `command`, `check`, `returncode`, `leftovers`;
   for worker and run.
+- `guard.py`: what a seat's tmux may not do (end, or type into, another seat), read from the
+  final argv the `tools/tmux-shim` hands it, the `-t` resolved by the real tmux; `refusal`. 
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded
   evidence; worker names the channel; run replays proofs, weighs findings, drops disputes.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
@@ -142,8 +144,9 @@
   facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via config, run, stop and
   watch. `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leaks: the first
   two rebuild config.py's seat file names, and seat-state.sh its rename chain.
-- `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
-  `catalog.py`, `desktop-mcp.py`.
+- `tools/`: `tmux-shim` (a `tmux` first on a seat's PATH; refuses a kill or type whose `-t`
+  is another seat, else execs the real tmux), and, called by adapters:
+  `rulebook.py`, `idle-compact.py`, `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.
 - `tests/`: `landing.py` runs offline `smoke.sh` beside `every_file.py`, with grouped
