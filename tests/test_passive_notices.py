@@ -4,6 +4,7 @@ Both hooks run against a temporary HOME, with real captured panes and no live se
 A paused notice also proves it cannot put an earlier fact back over either hook's Stop.
 """
 
+from datetime import datetime
 import json
 import os
 import shutil
@@ -44,6 +45,13 @@ class PassiveNotices(Sandbox):
         path = config.hook_facts_path(self.seat["name"])
         return path.read_bytes() if path.exists() else None
 
+    def asked(self):
+        """The question this turn ends on, asked as a seat must: `ak notify needs`, recorded."""
+        # the hook reads the real clock; this sandbox's time.time() is a fixed fake
+        config.notify_path(SEAT).write_text(json.dumps({
+            "session": SEAT, "kind": "needs", "time": datetime.now().timestamp(),
+            "text": "Which schema should acme use?"}))
+
     def looked(self, pane=PROMPT):
         live = watch.live_state(self.seat, "claude", pane=pane, cfg=self.cfg)
         word = watch.session_state(
@@ -74,6 +82,7 @@ class PassiveNotices(Sandbox):
         for script in ("seat-state.sh", "orchestrator-stop.sh"):
             with self.subTest(script=script):
                 self.hook("UserPromptSubmit", prompt="Build the parser.")
+                self.asked()
                 payload = {"background_tasks": []} if script == "orchestrator-stop.sh" else {}
                 before = self.hook("Stop", script=script,
                                    last_assistant_message="Which schema should acme use?", **payload)
@@ -190,6 +199,7 @@ exec "$REAL_PYTHON" "$@"
                     while not ready.exists() and proc.poll() is None and time.monotonic() < deadline:
                         time.sleep(0.01)
                     self.assertTrue(ready.exists(), "the notice never asked the manifest")
+                    self.asked()
                     payload = {"background_tasks": []} if script == "orchestrator-stop.sh" else {}
                     newer = self.hook(event, script=script,
                                       last_assistant_message="Which schema should acme use?", **payload)

@@ -23,7 +23,8 @@ sys.path.insert(0, str(REPO))
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "peer-seat"
-REASON = ("You stopped without asking the user a question, declaring done with ak notify done, "
+REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
+          "declaring done with ak notify done, "
           "or waiting on a run. Continue: decide the next step and do it.")
 ACK = "Noted -- nothing new on my side."      # the seat acknowledges the message and stops
 PEER_PROMPT = ('<cross-session-message from="acme-fix-api" to="peer-seat">'

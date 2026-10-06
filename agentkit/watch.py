@@ -1223,26 +1223,6 @@ def progress_output(harness, pane):
                             if not re.match(r"(?:│\s*)?[>›❯⟩]", line)).split())
 
 
-def last_paragraph(harness, tail):
-    """The block that pane's last message ends with, as the hook reads one off a transcript.
-
-    hooks/orchestrator-stop.sh looks for the question mark in the last paragraph and never in
-    the last line, because "Which branch do you want?" with "main or release." under it is one
-    question over two of them.  A screen has no paragraphs until its chrome is off the bottom,
-    so that comes off first -- the same chrome content_lines trims -- and the block above the
-    blank line that is left is the answer.
-    """
-    lines = [strip_sgr(line).rstrip() for line in tail.splitlines()]
-    chrome = screen(harness)
-    lines = lines[:chrome_below(chrome, lines)]
-    while lines and (not lines[-1].strip() or chrome_line(chrome, lines[-1])):
-        lines.pop()
-    block = []
-    while lines and lines[-1].strip():
-        block.append(lines.pop().strip())
-    return "\n".join(reversed(block))
-
-
 def recorded_error(harness, name):
     """The error that seat's harness recorded as its conversation's last event, "" where it
     recorded none there, or None where it keeps no record to read, and only then is its screen.
@@ -3001,15 +2981,12 @@ def done_holds(name, live, notice, began, said, dry_run):
 
 
 def stop_nudge(session, harness, pane, notice, records, dry_run, log):
-    """The end-of-turn rule where no hook can hold it: a turn ends with a question, a done or a
-    run or live job to wait on, and a seat that stopped on none of the three is told to get on
-    with it.
+    """The end-of-turn rule where no hook can hold it: a turn ends with a question asked through
+    `ak notify needs`, a done or a run or live job to wait on, and a seat that stopped on none
+    of the three is told to get on with it.  A question mark on the screen asks nobody anything.
 
     An unanswered question of this seat's own never reaches here -- health() leaves those
-    alone -- so what is left to read is the last paragraph on the screen, the `done` on record
-    and the runs and jobs.  The whole pane and not its content lines, because a paragraph is
-    what the blank line above it makes one and pane_tail keeps none: "Which one?" with a
-    decision under it is not a question the user was left with.
+    alone -- so what is left to read is the `done` on record and the runs and jobs.
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
     `done`, as it holds the hook's.  A wait whose session has stopped is tell_waits' to end, with
@@ -3049,11 +3026,11 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     stood = _stamp(live.get("stop_said_at"))
     if stood is None or time.time() - stood < STALL_WAIT:
         return          # what it stopped on has to stand, as every screen here has to
-    if "?" in last_paragraph(harness, pane):
-        return
     began = _stamp(live.get("turn_began"))
     if began is None:
         return          # nothing has watched this seat finish a turn; there is none to judge
+    if notice and notice.get("kind") == "needs" and (_stamp(notice.get("time")) or 0) >= began:
+        return          # it asked with ak notify needs: a question mark on the screen asks nothing
     said = progress_output(harness, pane_tail(pane))
     if not said or live.get("stop_nudged") == [began, said]:
         return

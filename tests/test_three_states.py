@@ -89,13 +89,18 @@ class ThreeStates(Sandbox):
             said += done.stdout
         return said
 
-    def transcript(self, said):
+    def transcript(self, said, question=False):
         """A Claude Code transcript whose last assistant message is `said`."""
         path = self.root / "transcript.jsonl"
-        path.write_text("".join(json.dumps(line) + "\n" for line in (
+        lines = [
             {"type": "user", "message": {"role": "user", "content": "go"}},
             {"type": "assistant", "isSidechain": False,
-             "message": {"role": "assistant", "content": [{"type": "text", "text": said}]}})))
+             "message": {"role": "assistant", "content": [{"type": "text", "text": said}]}}]
+        if question:
+            lines.insert(1, {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "question", "name": "AskUserQuestion", "input": {"questions": [
+                    {"question": said}]}}]}})
+        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
         return str(path)
 
     def receipt(self, name, owner="atoll", **extra):
@@ -502,7 +507,8 @@ class ThreeStates(Sandbox):
         # ... until it reports back: the notification starts a turn, which asks him something
         self.hooks("UserPromptSubmit", "seat-state.sh")
         payload.update(background_tasks=[],
-                       transcript_path=self.transcript("Which of the two schemas should it read?"))
+                       transcript_path=self.transcript("Which of the two schemas should it read?",
+                                                       question=True))
         self.assertEqual(self.hooks("Stop", *STOP, **payload), "")
         self.assertEqual(self.decide()["word"], "needs you")
 
@@ -530,7 +536,7 @@ class ThreeStates(Sandbox):
         self.assertEqual(self.decide()["word"], "working")
         # a choice only he can make still ends the turn, and is his
         asked = self.transcript("The parser is fixed.\n\nShould I proceed with SQLite or "
-                                "PostgreSQL?")
+                                "PostgreSQL?", question=True)
         self.assertEqual(self.hooks("Stop", *STOP, transcript_path=asked, background_tasks=[],
                                     stop_hook_active=True), "")
         self.assertEqual(self.decide()["word"], "needs you")
