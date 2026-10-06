@@ -189,7 +189,7 @@ class Retire(unittest.TestCase):
     def test_a_recorded_time_that_is_not_past_counts_as_never(self):
         self.seat("acme", self.acme, created=10)
         self.switches(row("first", 40))
-        for at in ("1e309", "NaN", str(NOW + 10 * retire.AGAIN)):
+        for at in ("1e309", "NaN", "1" + "0" * 400, str(NOW + 10 * retire.AGAIN)):
             for key in ("asked", str(self.acme)):
                 with self.subTest(key=key, at=at):
                     retire.path().write_text(f'{{"{key}": {at}}}')

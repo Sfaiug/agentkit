@@ -43,9 +43,10 @@ def read():
         data = json.loads(path().read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError):
         return {}
-    if not (isinstance(data, dict) and all(isinstance(at, (int, float)) for at in data.values())):
+    try:
+        return {key: float(at) for key, at in data.items()} if isinstance(data, dict) else {}
+    except (TypeError, ValueError, OverflowError):
         return {}
-    return data
 
 
 def write(data):
