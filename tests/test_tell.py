@@ -134,6 +134,29 @@ class Tell(Seats):
         self.assertEqual(self.typed, [self.header() + "Parser merged."])
         self.assertEqual(self.waiting(), [])
 
+    def test_a_long_line_drawn_slowly_gets_its_enter_in_the_same_pass(self):
+        """A long conversation draws a typed line slower than KEY_GAP: the Enter waits until the
+        composer shows it whole, not for the next tick, while the seat reads the owner's draft
+        (judgment-redo, 6 Oct 13:42 and 13:54)."""
+        typing, drawing = self.tmux, []
+
+        def slow(*args, **kw):
+            done = typing(*args, **kw)
+            if "-l" in args:
+                drawing[:] = [args[-1][:40]] * 2     # two reads see only its start
+            return done
+
+        def capture(*_a, **_kw):
+            return (self.base.replace(self.empty, "❯ " + drawing.pop() + "\n") if drawing
+                    else self.pane)
+        line = "Parser merged; " * 20
+        self.tell(SEAT, line)
+        with patch.object(orch, "tmux_out", side_effect=slow), \
+                patch.object(watch, "pane_text", side_effect=capture):
+            self.tick()
+        self.assertEqual(self.typed, [self.header() + " ".join(line.split())])
+        self.assertEqual(self.waiting(), [])
+
     def test_messages_go_in_oldest_first_one_per_quiet_prompt(self):
         self.tell(SEAT, "First.")
         self.tell(SEAT, "Second.")

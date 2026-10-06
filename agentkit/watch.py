@@ -59,7 +59,7 @@ RETRY_BACKOFF = (600, 1800, 3600)  # after that, hourly; a head is never abandon
 KEY_GAP = 0.5           # text and Enter go separately: a return in the same read as the text
                         # is absorbed by the TUI, leaving the line unsent; equal to KEY_GAP in
                         # tools/idle-compact.py, measured on Codex 0.153.4 and Muse 1.2.1
-SENT_WAIT = 5.0         # how long a typed line gets to leave its composer
+SENT_WAIT = 5.0         # how long a typed line gets to show whole in its composer, and to leave it
 SENT_POLL = 0.5         # ... polling the pane this often for its absence
 RESUME_EVERY = 600      # seconds between resume attempts for one exhausted run: a start that
                         # failed -- and a launch already on its way -- is retried at most this often
@@ -2335,6 +2335,16 @@ def _pane_sent(session, harness, pane, text):
     return not _holds_text(pane, text)
 
 
+def _wait_ready(ready, held):
+    """Poll `ready` for SENT_WAIT: a long conversation draws a typed line slower than KEY_GAP,
+    and its Enter waits for the whole of it rather than for the next tick."""
+    for _ in range(int(SENT_WAIT / SENT_POLL)):
+        if ready(held):
+            return True
+        time.sleep(SENT_POLL)
+    return False
+
+
 def _wait_sent(session, harness, text):
     """Poll the pane for SENT_WAIT; True where the typed line left its composer in time."""
     for _ in range(int(SENT_WAIT / SENT_POLL)):
@@ -2410,8 +2420,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
-    `ready` is asked under the guard right before each Enter, after the gap: the owner can
-    type in it, and an Enter it refuses is never sent.
+    `ready` is asked under the guard right before each Enter, after the gap, and the first
+    Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
+    never sent.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -2445,7 +2456,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not _send_line(seat, text, log, typed, source=source):
                 return False
             time.sleep(KEY_GAP)
-        if not ready(held if held is not None else name) or not _send_enter(seat, log):
+        if not _wait_ready(ready, held if held is not None else name) or not _send_enter(seat, log):
             return False
     if not confirm or _wait_sent(seat, harness, text):
         return True
