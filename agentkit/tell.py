@@ -11,7 +11,6 @@ only once its line was seen leaving the composer: it goes in at least once and i
 """
 
 import json
-import re
 import sys
 import time
 import uuid
@@ -96,21 +95,6 @@ def seat_of(name):
     return record.get("created", "")
 
 
-def composer_holds(name, session, line):
-    """What that seat's composer holds now, off one capture: "line" (that line alone), "empty",
-    or "other" -- anything else, no composer read, or a question to the owner on the screen,
-    as a dialog that keeps the composer drawn is."""
-    name = config.resolve_session(name)
-    harness = orch.seat_plugin(config.session_records().get(name) or {}).name
-    pane = watch.pane_text(session)
-    held = watch.composer_draft(harness, pane)
-    if held is None or watch.asking(name, harness, pane):
-        return "other"
-    if held == "":
-        return "empty"
-    return "line" if held == re.sub(r"\s+", "", line) else "other"
-
-
 def refusal(name, seat):
     """Why nothing can be queued for that seat, asked under its lock, else None."""
     if name == config.current_session():
@@ -152,9 +136,9 @@ def deliver_to(session, log, cfg=None):
     def ready(current):
         # under the typing lock, right before each Enter: the composer holds this line alone,
         # never an edit the owner made meanwhile, and no question to the owner is up
-        return composer_holds(current, session, first["line"]) == "line"
+        return watch.composer_holds(current, session, first["line"], cfg) == "line"
 
-    held = composer_holds(name, session, first["line"])
+    held = watch.composer_holds(name, session, first["line"], cfg)
     if held == "line":
         # typed by a tick that died before its Enter: only the Enter, and its confirmation
         typed = watch.type_checked(
@@ -162,7 +146,7 @@ def deliver_to(session, log, cfg=None):
             guard=lambda: watch.seat_held(session["name"]), ready=ready,
             veto=lambda current: watch.owner_question(notify.last(current)) or stale(current))
     elif held == "empty":
-        typed = watch.type_at_prompt(session, first["line"], log, cfg=cfg, ready=ready,
+        typed = watch.type_at_prompt(session, first["line"], log, cfg=cfg,
                                      source=source(first["from"]), stale=stale, midturn=True)
     else:
         return False
@@ -172,7 +156,7 @@ def deliver_to(session, log, cfg=None):
 
     # leaves the queue only on positive evidence: its composer read empty right after, with no
     # question up -- never on a capture that failed or a dialog that came up over the line
-    if not typed or composer_holds(name, session, first["line"]) != "empty":
+    if not typed or watch.composer_holds(name, session, first["line"], cfg) != "empty":
         return False
     locked(name, drop)
     log(f"{config.resolve_session(name)}: typed a message from {first['from']}")

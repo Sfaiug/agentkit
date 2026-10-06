@@ -238,10 +238,18 @@ class OwnerWords(unittest.TestCase):
 
     def test_all_typing_wrappers_use_the_receipt_and_owner_source(self):
         # an empty composer to type into: `type_at_prompt` reads one before its first key
+        # it sits in the composer until its Enter takes it
         empty = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
-        with patch.object(orch, "tmux_out", return_value=(0, "")), \
+        screen = [empty]
+
+        def keys(*args, **_kw):
+            screen[0] = (empty.replace("\u276f\u00a0\n", f"\u276f {args[-1]}\n")
+                         if args[-2] == "-l" else empty)
+            return 0, ""
+
+        with patch.object(orch, "tmux_out", side_effect=keys), \
                 patch.object(watch, "at_prompt", return_value=True), \
-                patch.object(watch, "pane_text", return_value=empty):
+                patch.object(watch, "pane_text", side_effect=lambda *_a: screen[0]):
             self.assertTrue(watch.type_into(self.seat, "ak notice", lambda _: None))
             self.append(prompt(101, "ak notice"))
             self.assertTrue(watch.type_at_prompt(self.seat, "Owner reply", lambda _: None, source="owner"))
