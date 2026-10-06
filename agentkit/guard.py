@@ -3,7 +3,11 @@
 hooks/seat-guard.sh hands `main` the harness's PreToolUse payload; a rule reads the command's
 words and returns why it is refused, in plain words, or nothing.  Each adapter whose harness
 has a blocking pre-command hook installs it; elsewhere the rule is only in the seat's rulebook.
-It guards against a seat's mistakes, not against a seat that means to get round it.
+It guards against a seat's mistakes, not against a seat that means to get round it: it reads
+the command as plain shell words and resolves a tmux target through tmux itself, so a kill hidden
+behind a shell expansion (a `$(...)` substitution, a `$variable`), tmux's own command language
+(`run-shell`, `if-shell`, a chained command), a bundled shell option (`bash -lc`), a wrapper's
+own options, or a window linked across sessions, is beyond it, as the rulebook also says.
 """
 
 import fnmatch
@@ -21,9 +25,7 @@ ALIASES = {"killp": "kill-pane", "killw": "kill-window"}
 SHELL_BREAK = set(";&|()\n")       # a token of only these is where the shell starts a command
 SERVER_VALUED = set("fLScT")       # tmux's server options that take a value, as getopt reads them
 SHELLS = {"bash", "sh", "dash", "zsh", "ksh"}   # `<shell> -c '<script>'` runs that script
-# commands that run the command after their own options: tmux may be that command
-WRAPPERS = {"env", "sudo", "nohup", "nice", "command", "exec", "time", "timeout",
-            "stdbuf", "setsid", "doas", "ionice", "chrt"}
+HEREDOC = re.compile(r"^<<-?(.*)$")             # `cat <<EOF`: its body is text, not commands
 
 
 def words(command):
@@ -60,13 +62,40 @@ def server_opts(tokens, i):
     return server, i
 
 
+def strip_heredocs(tokens):
+    """The tokens with every `<<DELIM` ... `DELIM` body removed: its lines are text, not commands."""
+    out, i, n = [], 0, len(tokens)
+    while i < n:
+        out.append(tokens[i])
+        here = HEREDOC.match(tokens[i])
+        i += 1
+        if not here:
+            continue
+        delim = here.group(1).strip().strip("'\"")
+        if not delim and i < n:           # `<< DELIM` with a space: the delimiter is the next word
+            delim = tokens[i].strip().strip("'\"")
+            out.append(tokens[i])
+            i += 1
+        while i < n and tokens[i] != "\n":   # the rest of the command's own line stays
+            out.append(tokens[i])
+            i += 1
+        if i < n:
+            out.append(tokens[i])         # the newline that ends the command line
+            i += 1
+        while i < n and tokens[i].strip() != delim:   # drop the body up to the delimiter line
+            i += 1
+        i += 1                            # and the delimiter line itself
+    return out
+
+
 def tmux_calls(tokens):
     """(server options, subcommand, its args) for each tmux command the shell actually runs.
 
-    Only a word in command position -- the start, or after a separator, past assignments and
-    wrappers like env/sudo -- is a command; a `tmux` among another command's arguments (an echo,
-    a grep) runs nothing.  A `<shell> -c '<script>'` is scanned as the commands it runs.
+    Only a word in command position -- the start, or after a separator, past assignments -- is a
+    command; a `tmux` among another command's arguments (an echo, a grep) runs nothing.  A
+    `<shell> -c '<script>'` is scanned as the commands it runs, and a heredoc body is skipped.
     """
+    tokens = strip_heredocs(tokens)
     i, n, at_command = 0, len(tokens), True
     while i < n:
         token = tokens[i]
@@ -80,9 +109,6 @@ def tmux_calls(tokens):
             i += 1
             continue
         base = os.path.basename(token)
-        if base in WRAPPERS:              # env, sudo, nohup, ...: the real command follows
-            i += 1
-            continue
         if base != "tmux":
             if base in SHELLS:            # a -c '<script>' argument is run
                 at = i + 1
@@ -97,6 +123,8 @@ def tmux_calls(tokens):
             continue
         i += 1                            # a tmux invocation: its server options, then its command
         server, i = server_opts(tokens, i)
+        if i < n and tokens[i] == "--":   # tmux's end-of-options marker, before the subcommand
+            i += 1
         if i < n and not is_break(tokens[i]):
             name, args, i = tokens[i], [], i + 1
             while i < n and not is_break(tokens[i]):

@@ -1,4 +1,7 @@
-"""A seat's harness refuses a shell command that would end another seat's tmux, and only that.
+"""A seat's harness refuses a seat's plain tmux kill aimed at another seat, and nothing it reads
+as inert text.  A kill hidden behind a shell expansion, tmux's own command language, a wrapper's
+options or a linked window is out of reach of a hook that reads the command as plain words, and
+`test_out_of_reach_forms_are_named_and_pass` pins that these pass rather than silently block.
 
 Offline: hooks/seat-guard.sh is run as Claude Code, Codex and Grok Build run it -- their shared
 PreToolUse payload on stdin -- against a throwaway HOME holding two seat records and a fake
@@ -60,7 +63,8 @@ REFUSED = ("tmux kill-session -t other-seat",
            "tmux -uS /tmp/x.sock kill-session -t other-seat",
            "tmux kill-window -t '~'",                      # the marked pane's seat
            "tmux kill-pane -t '{marked}'",
-           "tmux kill-session -t /dev/pts/41")              # a client's tty, resolved by tmux
+           "tmux kill-session -t /dev/pts/41",              # a client's tty, resolved by tmux
+           "tmux -- kill-session -t other-seat")             # tmux's end-of-options marker
 ALLOWED = ("tmux kill-session -t mine",
            "tmux kill-session -t plain",
            "tmux kill-session -t =other",                  # exactly `other`, and none is
@@ -72,7 +76,8 @@ ALLOWED = ("tmux kill-session -t mine",
            "tmux kill-window -t :0",                        # a window of this seat's own session
            "tmux kill-pane -t :0.0",
            "tmux kill-session -C -t other-seat",            # -C clears alerts; the session lives
-           "tmux kill-session -aC -t mine")
+           "tmux kill-session -aC -t mine",
+           "cat <<'EOF'\ntmux kill-session -t other-seat\nEOF")   # a kill in a heredoc body
 
 
 class SeatGuard(unittest.TestCase):
@@ -131,6 +136,18 @@ class SeatGuard(unittest.TestCase):
         (self.home / ".agentkit/state/session-renamed-seat.json").write_text("{}\n")
         self.tmux.write_text(TMUX.replace("\\tmine\\n", "\\trenamed-seat\\n"))
         for command in ("tmux kill-session -t renamed-seat", "tmux kill-window -t renamed-seat:0"):
+            with self.subTest(command=command):
+                self.assertEqual(self.hook(command), "")
+
+    def test_out_of_reach_forms_are_named_and_pass(self):
+        # A PreToolUse hook reads the command as plain words; a kill hidden behind these is beyond
+        # it, named in the docstring and the PR. It passes rather than silently over-blocking.
+        for command in ("echo \"$(tmux kill-session -t other-seat)\"",      # command substitution
+                        "peer=other-seat; tmux kill-session -t \"$peer\"",  # a variable
+                        "tmux ls \\; kill-session -t other-seat",           # a tmux command sequence
+                        "tmux run-shell 'tmux kill-session -t other-seat'",   # tmux runs a script
+                        "tmux if-shell -F 1 'kill-session -t other-seat'",
+                        "sudo tmux kill-session -t other-seat"):              # a wrapper's own options
             with self.subTest(command=command):
                 self.assertEqual(self.hook(command), "")
 
