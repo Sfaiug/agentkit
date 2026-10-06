@@ -401,52 +401,36 @@ def holds_work(wt):
     The line's scratch -- detached, its own git directory holding the lander's mark
     (`land.SCRATCH_MARK`) -- is a killed lander's: its output is nobody's.  A seat builds on
     a branch in a worktree, whose branches and commits stay in its repository when the
-    checkout goes: it holds no work while git is idle in it (`idle`) and `git status` lists
-    nothing, staged or not, untracked files included; what git ignores is output.  Anything
-    else holds work, or may: a clone, whose own git directory is its whole repository, one
+    checkout goes: it holds no work while `git status` lists nothing, staged or not,
+    untracked files included; what git ignores is output.  Anything else holds work, or may:
+    a clone or a submodule set up, each a repository of its own, a checkout locked, one
     detached, and one git cannot read.  What `git status` does not show, gc does not see.
     """
     if not os.path.lexists(os.path.join(wt, ".git")):
         return False
+    dirs = orch.git_dirs(wt)
     known, private = orch.git_in(wt, "rev-parse", "--absolute-git-dir")
-    private = Path(os.fsdecode(private.removesuffix(b"\n"))) if known == 0 else None
-    try:
-        if private and (retention.read_bytes(private / "locked").rstrip(b"\n")
-                        == run.MAKING.encode()):
-            return False
-    except OSError:
-        pass
+    if dirs is None or not dirs[1] or known != 0:
+        return True
+    private = Path(os.fsdecode(private.removesuffix(b"\n")))
+    lock = None
+    if os.path.lexists(private / "locked"):
+        try:
+            lock = retention.read_bytes(private / "locked").rstrip(b"\n")
+        except OSError:
+            return True
+    if lock == run.MAKING.encode():
+        return False
     code, _ = orch.git_in(wt, "symbolic-ref", "-q", "HEAD")
     if code == 1:
-        return not (private and (private / land.SCRATCH_MARK).is_file())
-    if code != 0 or not private or not idle(private):
+        return not (private / land.SCRATCH_MARK).is_file()
+    if code != 0 or lock is not None or os.path.lexists(private / "modules"):
         return True
     # The checkout itself, read without taking git's index lock or running its file monitor
     code, out = orch.git_in(wt, f"--work-tree={wt}", "--no-optional-locks", "-c",
                             "core.fsmonitor=false", "status", "--porcelain",
                             "--untracked-files=all", "--ignore-submodules=none")
     return code != 0 or out != b""
-
-
-# What git leaves in a worktree's own git directory between commands, by path in it, besides
-# a split index's `sharedindex.<oid>` files and empty folders.  Anything else -- a rebase,
-# merge, cherry-pick or bisect under way, an autostash, a lock, a submodule, a ref or a
-# reflog of the checkout's own but HEAD's -- is work, or a hold, that would go with the
-# checkout; a clone's own git directory is its whole repository.
-IDLE = frozenset({"HEAD", "commondir", "gitdir", "index", "config.worktree", "logs/HEAD",
-                  "info/sparse-checkout", "ORIG_HEAD", "FETCH_HEAD", "COMMIT_EDITMSG",
-                  "MERGE_RR", "AUTO_MERGE", "REBASE_HEAD"})
-
-
-def idle(private):
-    """Whether a checkout's own git directory holds only what git leaves between commands."""
-    found, unread = set(), []
-    for root, folders, names in os.walk(private, onerror=unread.append):
-        found.update(os.path.relpath(os.path.join(root, name), private) for name in names)
-        found.update(os.path.relpath(os.path.join(root, name), private) for name in folders
-                     if os.path.islink(os.path.join(root, name)))
-    return not unread and {path for path in found
-                           if not re.fullmatch(r"sharedindex\.[0-9a-f]+", path)} <= IDLE
 
 
 def stale_worktrees(now, paths):

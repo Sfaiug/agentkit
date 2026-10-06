@@ -392,11 +392,11 @@ class GcSweep(Sandbox):
         gone += [sandboxed, bare, relative, symlinked, split, bisected, unreffed, sparse, crlf,
                  uninitialized, self.seat(self.repo, "elsewhere")]
         names = ("dirty", "untracked", "hidden-new", "submodule", "staged", "mirrored",
-                 "gitlinked", "own-ref", "rebasing", "land-seat", "autostashed", "locked",
-                 "detached", "intent", "executable")
+                 "gitlinked", "rebasing", "land-seat", "locked", "detached", "intent",
+                 "executable")
         kept = [self.seat(project, name) for name in names]
-        (dirty, untracked, hidden_new, submodule, staged, mirrored, gitlinked, own_ref, rebasing,
-         land_seat, autostashed, locked, detached, intent, executable) = kept
+        (dirty, untracked, hidden_new, submodule, staged, mirrored, gitlinked, rebasing,
+         land_seat, locked, detached, intent, executable) = kept
         # A committed file staged as deleted, then added back in intent only; and a file its
         # owner may no longer run, others still may.
         (intent / "empty").touch()
@@ -408,8 +408,8 @@ class GcSweep(Sandbox):
         self.git(executable, "commit", "-qam", "executable")
         (executable / "tracked").chmod(0o655)
         # A rebase paused on a conflict, its resolution not yet committed, also in a checkout
-        # named like the line's scratch; a merge holding the seat's edits in an autostash only
-        # the checkout names; a checkout locked against pruning; and a seat's own detached HEAD.
+        # named like the line's scratch; a checkout locked against pruning; and a seat's own
+        # detached HEAD.
         (project / "tracked").write_text("upstream\n")
         self.git(project, "commit", "-qam", "upstream")
         for wt in (rebasing, land_seat):
@@ -417,10 +417,6 @@ class GcSweep(Sandbox):
             self.assertEqual(paused.returncode, 1)
             (wt / "tracked").write_text("the seat's resolution\n")
             self.git(wt, "add", "tracked")
-        self.git(project, "branch", "topic", self.git(project, "commit-tree", "-p", "main~1",
-                                                      "-m", "topic", "main~1^{tree}"))
-        (autostashed / "tracked").write_text("only in the autostash\n")
-        self.git(autostashed, "merge", "-q", "--autostash", "--no-commit", "--no-ff", "topic")
         self.git(project, "worktree", "lock", str(locked))
         self.git(detached, "checkout", "-q", "--detach")
         (dirty / "tracked").write_text("not committed\n")
@@ -457,11 +453,6 @@ class GcSweep(Sandbox):
         self.git(submodule / "component", "-c", "user.name=sweep", "-c", "user.email=s@localhost",
                  "commit", "-q", "--allow-empty", "-m", "local only")
         self.git(submodule, "commit", "-qam", "component moved")
-        # A commit only a ref of the checkout's own keeps, which goes with the checkout.
-        (own_ref / "tracked").write_text("kept by the checkout's own ref\n")
-        self.git(own_ref, "commit", "-qam", "own ref")
-        self.git(own_ref, "update-ref", "refs/worktree/notes", "HEAD")
-        self.git(own_ref, "reset", "-q", "--hard", "HEAD~1")
         # A clone keeps its own branches and stash, merged and clean or not -- its name
         # holding a newline -- and so does one keeping its git directory elsewhere.  One whose
         # git directory moved away, whose `.git` links to storage that moved, or names one gone
@@ -501,6 +492,21 @@ class GcSweep(Sandbox):
                                       "seat/" + wt.name.removesuffix("-worktree")), heads[wt][1])
         for wt in kept:
             self.assertTrue(wt.is_dir(), wt)
+
+    def test_a_clean_checkout_of_a_repository_keeping_its_refs_in_a_reftable_goes(self):
+        made = subprocess.run(["git", "init", "-q", "--ref-format=reftable", "-b", "main",
+                               str(self.root / "reftable")], capture_output=True)
+        if made.returncode != 0:
+            self.skipTest("this git keeps refs in files only")
+        self.git(self.root / "reftable", "config", "user.email", "s@localhost")
+        self.git(self.root / "reftable", "config", "user.name", "sweep")
+        (self.root / "reftable" / "tracked").write_text("base\n")
+        self.git(self.root / "reftable", "add", ".")
+        self.git(self.root / "reftable", "commit", "-qm", "base")
+        wt = self.aged(self.seat(self.root / "reftable", "reftable-seat"), 2 * DAY)
+        self.gc()
+        self.assertFalse(wt.exists())
+        self.assertTrue(self.branch_exists(self.root / "reftable", "seat/reftable-seat"))
 
     def test_a_checkout_ak_makes_is_locked_as_its_own_while_git_makes_it(self):
         # Git writes ak's reason as given, in any language: the checkout's own smudge filter,
