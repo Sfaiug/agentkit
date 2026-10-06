@@ -3105,9 +3105,10 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
 
     A review follow-up becomes a line in the seat's own plan, checked by its failing command:
     the seat builds it with the context it already has.  Anything else on the list (a flaky
-    check's evidence) starts an ordinary run.  The receipt is the duplicate guard even while
-    admission waits. There is no collector or backlog: this ending alone gets to hand on its
-    list.
+    check's evidence) starts an ordinary run.  The receipt is written once the list is handed
+    on: a process cut off before that hands it on again, and each item finds what the cut-off
+    one already did -- its open plan line, the fix run it started.  There is no collector or
+    backlog: this ending alone gets to hand on its list.
 
     A target failing a check on its own tip starts one the same way, before any merge:
     `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, the
@@ -3131,8 +3132,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 state.update({key: current[key] for key in ("followup_runs", "followup_plan")
                               if key in current})
                 return None
-            state["followup_runs"] = []
-            run_record.save_state(run_dir, state)
+            if state.get("state") != "stopped":
+                run_record.stop_check(run_dir)   # a stop that landed first ends the ending
         if watch.seat_closed(session):
             return None
         request = repair or split
@@ -3140,12 +3141,13 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         items = [request["text"]] if request else state["followups"]
         planned = [item for item in items if item in checks]   # the seat's own, executors or not
         repo = main_checkout(Path(state["repo"])) if planned else None
-        for item in planned:
-            plan_followup(state, run_dir, session, repo, item, checks[item], log)
+        handed = {"followup_runs": [], "followup_plan": [
+            plan_followup(session, repo, item, checks[item], state.get("base_sha"), log)
+            for item in planned]}
         cfg = report_config(cfg)
         record = config.session_records().get(config.resolve_session(session), {})
         if record.get("workers") == []:
-            return None
+            return None if request else followups_handed(run_dir, state, handed)
         repo = repo or main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
         if split:
@@ -3155,6 +3157,10 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         key = repair and {"target": target, "command": repair["command"]}
         for item in items:
             if item in planned:
+                continue
+            started = None if request else started_by(run_dir, item)
+            if started:
+                handed["followup_runs"].append(started)
                 continue
             source = {**state, "repo": str(repo)}
             opened = open_followup(source, item, key, repair and repair["sha"],
@@ -3233,7 +3239,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 spawn_bg(directory, [str(directory / "task.md")])
             except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
-                return None
+                return None if request else followups_handed(run_dir, state, handed)
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 if split:
@@ -3246,31 +3252,42 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 continue
             if request:
                 return directory.name
-            try:
-                state["followup_runs"].append(directory.name)
-                run_record.save_state(run_dir, state)
-            except run_record.StopRequested as exc:
-                log(f"follow-up {directory.name} could not start: {exc}")
-                return None
-            except (config.Error, OSError) as exc:
-                log(f"follow-up {directory.name} could not start: {exc}")
-                continue
+            handed["followup_runs"].append(directory.name)
+        if not request:
+            return followups_handed(run_dir, state, handed)
 
 
-def plan_followup(state, run_dir, session, repo, item, check, log):
+def started_by(run_dir, item):
+    """The fix run this ending already started for `item`, whatever became of it, or None: a
+    handoff cut off before its receipt starts no item twice, not even one stopped since."""
+    for directory in run_record.run_dirs():
+        followup = (run_record.read_state(directory) or {}).get("followup") or {}
+        if followup.get("run") == run_dir.name and followup.get("text") == item:
+            return directory.name
+    return None
+
+
+def followups_handed(run_dir, state, handed):
+    """Write the receipt that this ending's list is handed on: onto the record as it stands,
+    so nothing written there meanwhile -- a stop, a delivery's mark -- is put back."""
+    state.update(handed)
+    with run_record.record(run_dir) as current:
+        current.update(handed)
+
+
+def plan_followup(session, repo, item, check, proven, log):
     """Write one review follow-up into the seat's plan, unless an open line already holds its
-    check in this project; the run's ending names it, or why the plan refused it."""
+    check in this project; the entry the run's ending names it by, or why the plan refused it."""
     from . import plan   # here, not at the top: a seat's small verb, this the loop
     outcome = "Fix " + item.splitlines()[0].replace("·", "-")
     try:
-        plan.add(session, outcome, check, repo, proven=state.get("base_sha"))
+        plan.add(session, outcome, check, repo, proven=proven)
         entry = {"outcome": outcome}
     except (config.Error, OSError) as exc:
         entry = {"outcome": outcome, "refused": str(exc)}
     log(f"follow-up for {session}: {outcome}" + (f" (not planned: {entry['refused']})"
                                                 if "refused" in entry else " (in its plan)"))
-    state.setdefault("followup_plan", []).append(entry)
-    run_record.save_state(run_dir, state)
+    return entry
 
 
 def done_when_counts(dw_log, cmds):

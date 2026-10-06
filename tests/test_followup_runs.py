@@ -270,10 +270,55 @@ class FollowupRuns(unittest.TestCase):
         config.update_session("seat", workers=[])
         flaky = "flaky: python3 -m unittest passed only on its re-run"
         directory, state = self.source(followups=[DEFECT, flaky], followup_checks={DEFECT: CHECK})
-        self.assertEqual(self.start(directory, state), [])
+        red = {"command": "false", "check": "false", "sha": state["base_sha"],
+               "text": "The target fails its check"}
+        self.assertIsNone(run.start_followups(state, directory, self.logs.append, self.cfg,
+                                              repair=red))   # a repair is not the merge's list
+        self.assertEqual(self.start(directory, record.read_state(directory)), [])
         self.assertIn(f"- [ ] Fix {DEFECT} · check: `{CHECK}` · {plan.named(self.repo)} · ",
                       config.plan_path("seat").read_text())
         self.assertEqual(self.spawns, [])
+
+    def test_a_handoff_cut_off_before_its_receipt_hands_its_list_on_again(self):
+        flaky = "flaky: python3 -m unittest passed only on its re-run"
+        directory, state = self.source(followups=[DEFECT, flaky], followup_checks={DEFECT: CHECK})
+        for step in ("main_checkout", "report_config"):   # before anything, after the plan line
+            with patch.object(run, step, side_effect=KeyboardInterrupt), \
+                    self.assertRaises(KeyboardInterrupt):
+                self.start(directory, record.read_state(directory))
+        real = run.report_config
+
+        def marked(cfg):
+            with record.record(directory) as current:
+                current["handed_back"] = True   # the ending delivered meanwhile
+            return real(cfg)
+
+        with patch.object(run, "report_config", side_effect=marked):
+            children = self.start(directory, record.read_state(directory))
+        self.assertEqual(len(children), 1)
+        self.assertEqual(config.plan_path("seat").read_text().count("- [ ] "), 1)
+        ended = record.read_state(directory)
+        self.assertTrue(ended["handed_back"])
+        self.assertIn("now in your plan, yours to build: Fix broken.py:1",
+                      run.handback_line(ended, directory, self.cfg))
+        self.start(directory, ended)
+        self.assertEqual(len(self.spawns), 1)
+
+    def test_a_fix_stopped_before_a_cut_off_receipt_is_not_started_again(self):
+        directory, state = self.source(followups=["flaky: python3 -m unittest passed only on its re-run"])
+        real = run.spawn_bg
+
+        def stopped_then_cut(child, *args, **kwargs):
+            real(child, *args, **kwargs)
+            with record.record(child) as current:
+                current.update(state="stopped", verdict="STOPPED")
+            raise KeyboardInterrupt
+
+        with patch.object(run, "spawn_bg", side_effect=stopped_then_cut), \
+                self.assertRaises(KeyboardInterrupt):
+            self.start(directory, state)
+        self.start(directory, record.read_state(directory))
+        self.assertEqual(len(self.spawns), 1)
 
     def test_a_followup_line_ticks_once_its_fix_is_on_the_default_branch(self):
         self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
