@@ -241,7 +241,16 @@ class GcSweep(Sandbox):
         self.assertNotIn("no eligible", out)
 
     def aged(self, path, age):
-        os.utime(path, (time.time() - age, time.time() - age))
+        """`path` left alone for `age`: a checkout's index and HEAD log too, which git writes
+        on every use."""
+        used = [path]
+        if os.path.lexists(path / ".git"):
+            used += subprocess.run(["git", "-C", str(path), "rev-parse", "--path-format=absolute",
+                                    "--git-path", "index", "--git-path", "logs/HEAD"],
+                                   capture_output=True, text=True).stdout.splitlines()
+        for each in used:
+            if os.path.lexists(each):
+                os.utime(each, (time.time() - age, time.time() - age))
         return path
 
     def test_gc_takes_orphan_and_unmerged_worktrees_with_their_reasons(self):
@@ -519,6 +528,15 @@ class GcSweep(Sandbox):
         self.gc()
         self.assertFalse(wt.exists())
         self.assertTrue(self.branch_exists(self.root / "reftable", "seat/reftable-seat"))
+
+    def test_a_seats_checkout_used_within_a_day_stays_though_its_folder_is_older(self):
+        # A commit writes git's index and HEAD log, never the checkout's own folder.
+        wt = self.aged(self.seat(self.repo, "in-use"), 2 * DAY)
+        (wt / "tracked").write_text("committed just now\n")
+        self.git(wt, "commit", "-qam", "just now")
+        self.assertLess(wt.stat().st_mtime, time.time() - DAY)
+        self.gc()
+        self.assertTrue(wt.is_dir())
 
     def test_a_checkout_ak_makes_is_locked_as_its_own_while_git_makes_it(self):
         # Git writes ak's reason as given, in any language: the checkout's own smudge filter,

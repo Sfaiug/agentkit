@@ -356,9 +356,10 @@ def leftovers():
 def stale_worktree(wt, now, paths, left):
     """The collector's item for a checkout under ~/.agentkit/wt nothing comes back for, or None.
 
-    One whose run left no record, a day old: the line's scratch, a seat's own checkout, or
-    one whose run never wrote its `run.json` -- unless one is being written, somebody is in
-    the run's directory, or it holds work not yet committed (`holds_work`).  A record that
+    One whose run left no record, a day after its last use (`last_used`): the line's
+    scratch, a seat's own checkout, or one whose run never wrote its `run.json` -- unless one
+    is being written, somebody is in the run's directory, or it holds work not yet committed
+    (`holds_work`).  A record that
     cannot be read is still a record.
     And a run that passed and whose delivery
     ended without a merge -- the merge failed, or none was asked for -- a week after it
@@ -373,7 +374,7 @@ def stale_worktree(wt, now, paths, left):
     directory = config.RUNS / wt.name
     if not retention.present(directory / "run.json"):
         if (not record.writing(directory) and not retention.busy(directory, paths)
-                and retention.expired(wt.lstat().st_mtime, now, retention.EPHEMERAL_AGE)
+                and retention.expired(last_used(wt), now, retention.EPHEMERAL_AGE)
                 and not holds_work(wt)):
             return {"action": "remove", "kind": "orphan-worktree", "path": str(wt),
                     "why": "no run record"}
@@ -389,6 +390,20 @@ def stale_worktree(wt, now, paths, left):
         return {"action": "remove", "kind": "unmerged-worktree", "path": str(wt),
                 "why": f"passed, never merged, ended {int((now - finished) // 86400)} days ago"}
     return None
+
+
+def last_used(wt):
+    """When a checkout was last used: its folder changed, or git wrote its index or moved its
+    HEAD (an add, a commit, a checkout, a reset), whichever is newest."""
+    times = [wt.lstat().st_mtime]
+    code, out = orch.git_in(wt, "rev-parse", "--path-format=absolute", "--git-path", "index",
+                            "--git-path", "logs/HEAD")
+    for path in out.removesuffix(b"\n").split(b"\n") if code == 0 else ():
+        try:
+            times.append(os.lstat(path).st_mtime)
+        except OSError:
+            pass
+    return max(times)
 
 
 def holds_work(wt):
