@@ -157,6 +157,21 @@ class Tell(Seats):
         self.assertEqual(self.typed, [self.header() + " ".join(line.split())])
         self.assertEqual(self.waiting(), [])
 
+    def read(self):
+        live = watch.live_state(self.seat, "claude", pane=self.pane, cfg=self.cfg)
+        return live["state"], watch.session_state(
+            SEAT, NOW, session=dict(self.seat, attached=False), cfg=self.cfg, records=[],
+            live=live, harness="claude", auth_out={}, gh_out={}, token_out={}, previous={})["word"]
+
+    def test_a_line_waiting_for_its_enter_is_the_seat_about_to_work_not_the_owners_draft(self):
+        """A tick that typed a line and left its Enter to the next one: the seat reads working,
+        never `needs you` with ak's line as the owner's unsent text (judgment-redo, 6 Oct 13:42-13:57)."""
+        line = self.header() + "Parser merged."
+        self.assertTrue(watch._send_line(self.seat, line, lambda _: None, source=f"seat:{SENDER}"))
+        self.assertEqual(self.read(), ("working", "working"))
+        self.pane = self.base.replace(self.empty, "❯ Fix the login redirect\n")
+        self.assertEqual(self.read(), ("draft", "needs you"))     # the owner's own text stays the owner's
+
     def test_messages_go_in_oldest_first_one_per_quiet_prompt(self):
         self.tell(SEAT, "First.")
         self.tell(SEAT, "Second.")

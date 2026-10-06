@@ -45,7 +45,7 @@ from urllib.parse import urlsplit
 from . import (browser, command_help, config, gc, host, notify, orch, statusbar, update, usage,
                worker)
 from . import record as run_record
-from .harness import LIMITED, SPENT, says
+from .harness import LIMITED, SPENT, entries, says
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
@@ -1666,10 +1666,22 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         return {"state": "at_prompt", "since": None, "began": None, "hooked": None,
                 "hooked_at": None, "hooked_event": None, "authority": "", "rule": "none",
                 "evidence": str(exc)[:160]}
+    if found.get("state") == "draft" and _typed_by_ak(name, composer_draft(harness, pane)):
+        # the line ak typed last, waiting for its Enter: the seat about to work, not his draft
+        found = dict(found, state="working", authority="screen", rule="typed.pending",
+                     evidence="a line ak typed waits for its Enter")
     fields = dict(found, **stop_marks(harness, pane, found, previous, at))
     if any(previous.get(key) != value for key, value in fields.items()):
         seat_write(name, **fields)
     return found
+
+
+def _typed_by_ak(name, draft):
+    """Is that composer text, read whole, the line ak typed into the seat last -- its newest
+    typing receipt, the owner's relayed words included -- rather than anything he typed?"""
+    sent = next((row for row in reversed(list(entries(config.seat_file("input", name))))
+                 if isinstance(row.get("text"), str)), None) if draft else None
+    return bool(sent) and re.sub(r"\s+", "", sent["text"]) == draft
 
 
 def _turn_in_flight(harness, found):
