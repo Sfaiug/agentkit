@@ -287,7 +287,6 @@ else:
                     env["XDG_RUNTIME_DIR"] = host_runtime
                 env["BOX_EXTERNAL_RUNTIME"] = "1" if host_runtime == "/run/runtime" else ""
                 out = Path(tempfile.mkdtemp(dir=run if host_runtime is None else root))
-                env["BOX_OUT"] = str(out)
                 argv = [sys.executable, __file__, "probe", str(root)]
                 with box.command(argv, env, out, cwd=root, walls=walls) as (cmd, env, spawn):
                     # Mounts and later writes must not bypass the snapshot or expose services.
