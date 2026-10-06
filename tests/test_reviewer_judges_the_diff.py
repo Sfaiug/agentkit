@@ -1,4 +1,4 @@
-"""agentkit v5ab: the reviewer judges the diff; it does not repeat verification.
+"""the reviewer judges the diff; it does not repeat verification.
 
 The loop runs every done-when command on the exact commit it hands to the reviewer, so the
 reviewer prompt names that commit and its exit counts and tells the reviewer not to run the

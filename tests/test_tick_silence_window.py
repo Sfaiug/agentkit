@@ -1,7 +1,7 @@
-"""v5ag: the tick uses the shared silence window, ignoring retired time keys.
+"""the tick uses the shared silence window, ignoring retired time keys.
 
 Offline and deterministic: fake run directories under a temporary HOME with fake
-`ak run` process trees, reusing tests/test_v5x.py's builders. No tmux beyond
+`ak run` process trees, reusing tests/test_silent_run_recovered.py's builders. No tmux beyond
 `agentkit-test`, no webhook, no model calls.
 """
 
@@ -10,7 +10,7 @@ import time
 import unittest
 from pathlib import Path
 
-import test_v5x as _v5x
+import test_silent_run_recovered as _v5x
 from agentkit import watch
 
 

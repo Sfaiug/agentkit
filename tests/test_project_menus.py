@@ -396,7 +396,7 @@ class Projects(Sandbox):
                                  f"state · {word}")
 
     def test_status_bar_check_can_run_from_another_working_directory(self):
-        result = subprocess.run([sys.executable, str(REPO / "tests/test_v4z.py"),
+        result = subprocess.run([sys.executable, str(REPO / "tests/test_project_menus.py"),
                                  "Projects.test_h_status_bar_and_title_are_plain_text_in_isolated_tmux"],
                                 cwd=self.root, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

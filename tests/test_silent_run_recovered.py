@@ -1,4 +1,4 @@
-"""v5x: nothing stays stuck -- a silent run is recovered by the tick, by itself.
+"""nothing stays stuck -- a silent run is recovered by the tick, by itself.
 
 Offline and deterministic: fake run directories under a temporary HOME with fake
 `ak run` processes (a `sleep` that spawns a child holding an `flock`). No tmux

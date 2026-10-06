@@ -20,7 +20,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import gate, host, config, run, status, watch, worker
 from agentkit import record
 from agentkit import task as taskfile
-from test_v5j import E2E, SMOKE, lock_argv, lock_program
+from test_suites_never_collide import E2E, SMOKE, lock_argv, lock_program
 
 
 class Clock:

@@ -1,4 +1,4 @@
-"""v5ad: a run that is already under way is not started a second time.
+"""a run that is already under way is not started a second time.
 
 Two seats once repaired the same red release gate at once because neither could see
 the other's in-flight run.  `ak run <task.md>` now refuses -- exit 2, before a run

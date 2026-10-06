@@ -1,4 +1,4 @@
-"""v5v: the interactive new-session picker after project selection was removed."""
+"""the interactive new-session picker after project selection was removed."""
 
 from contextlib import redirect_stdout
 import io

@@ -1,7 +1,8 @@
-"""v5c: the menu's header and its usage rows, and the polarity `ak usage` prints; offline.
+"""the menu's header and its usage rows, and the polarity `ak usage` prints; offline.
 
-These used to live in test_v4r.py beside the runs drill-down.  They are the usage row's own
-behaviours, so they are their own file now, and they read the row as it stands today: the
+These used to live in test_usage_menus_and_runs.py beside the runs drill-down.  They are the
+usage row's own behaviours, so they are their own file now, and they read the row as it stands
+today: the
 provider's shared week, when that week resets, a scoped cap only where it differs, the
 5-hour window's note, and the adapter's own reason when a probe failed.
 """

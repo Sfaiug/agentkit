@@ -1,4 +1,4 @@
-"""v5r: an exhausted run resumes itself when a window refills.
+"""an exhausted run resumes itself when a window refills.
 
 Entirely offline. The usage cache is a fake dict (or a fake usage.json on disk), the
 resume is a fake hook on run.spawn_bg, and no real adapter, reset or model call is

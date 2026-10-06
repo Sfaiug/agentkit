@@ -1,4 +1,4 @@
-"""v5o: the menu at rest answers one question and reads at every width; offline.
+"""the menu at rest answers one question and reads at every width; offline.
 
 Fixed fake state, the real renderer. The clock is pinned so the three snapshots
 match byte for byte. See docs/cli-design.md for the visual system.

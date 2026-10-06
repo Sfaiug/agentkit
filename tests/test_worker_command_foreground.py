@@ -1,4 +1,4 @@
-"""agentkit v5w: a worker's long command runs in the foreground.  Entirely offline fixture state."""
+"""a worker's long command runs in the foreground.  Entirely offline fixture state."""
 
 import io
 import json

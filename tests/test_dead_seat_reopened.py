@@ -1,4 +1,4 @@
-"""v5s: a dead orchestrator seat is reopened and told to continue, by the run and by the tick.
+"""a dead orchestrator seat is reopened and told to continue, by the run and by the tick.
 
 Offline: no tmux (`orch.sessions`/`orch.listing` say what the seat is), a fake `ensure`, a
 fake confirmed send and a fake notify.  The one test of the real `ensure(saved=True)` and

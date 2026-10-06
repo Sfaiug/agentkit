@@ -1,4 +1,4 @@
-"""agentkit v5aj: a reviewer that gives no verdict is asked once more. Offline fixtures."""
+"""a reviewer that gives no verdict is asked once more. Offline fixtures."""
 
 import io
 import json
