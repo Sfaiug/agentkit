@@ -21,7 +21,9 @@ from agentkit.harness import claude
 SEAT = "fix-api"
 CONVERSATION = "3f0c2a5e-0000-4000-8000-000000000001"
 FIX = REPO / "tests/fixtures"
-PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8")         # an empty composer
+# real captures: right after an Esc, and once the next prompt runs
+INTERRUPTED = (FIX / "claude-interrupted-pane.txt").read_text(encoding="utf-8")
+NEXT_TURN = (FIX / "claude-after-interrupt-next-turn-pane.txt").read_text(encoding="utf-8")
 DRAFT = (FIX / "claude-multiline-draft-pane.txt").read_text(encoding="utf-8")  # the owner's draft
 INTERRUPT, TOOL_INTERRUPT = claude.INTERRUPTS
 
@@ -61,7 +63,7 @@ class InterruptedTurn(Sandbox):
         """The hook's record where this sandbox's watch reads it."""
         config.hook_facts_path(SEAT).write_text(json.dumps(fact))
 
-    def looked(self, pane=PROMPT):
+    def looked(self, pane=INTERRUPTED):
         with patch.object(watch, "pane_text", return_value=pane):
             free = watch.at_prompt({"name": SEAT}, cfg=self.cfg)
         live = watch.live_state({"name": SEAT}, "claude", pane=pane, cfg=self.cfg)
@@ -70,7 +72,7 @@ class InterruptedTurn(Sandbox):
                                    auth_out={}, gh_out={}, token_out={}, previous={})["word"]
         return word, free
 
-    def handed_back(self, capture=lambda: PROMPT):
+    def handed_back(self, capture=lambda: INTERRUPTED):
         keys = []
         with patch.object(watch, "pane_text", side_effect=lambda _session: capture()), \
                 patch.object(orch, "tmux_out",
@@ -99,9 +101,9 @@ class InterruptedTurn(Sandbox):
         fact = self.prompt("Run the acme tests.")
         self.said("user", fact["at"] + 3, INTERRUPT)
         self.prompt("Run them in the foreground.", publish=False)
-        self.assertEqual(self.looked(), ("working", False))
+        self.assertEqual(self.looked(), ("working", False))     # its screen not drawn yet
         self.publish(json.loads((self.root / f".agentkit/state/hook-{SEAT}.json").read_text()))
-        self.assertEqual(self.looked(), ("working", False))
+        self.assertEqual(self.looked(NEXT_TURN), ("working", False))
         self.assertEqual(self.handed_back(), [])
 
     def test_a_prompt_whose_hook_lands_while_the_screen_is_read_gets_no_keys(self):
@@ -120,7 +122,7 @@ class InterruptedTurn(Sandbox):
                     looks.append(look)
                     if len(looks) == look:
                         self.publish(newer)
-                    return PROMPT
+                    return INTERRUPTED
                 self.assertEqual(self.handed_back(capture), [])
 
     def test_a_draft_typed_after_an_interrupt_is_the_owners_and_closed_to_typing(self):
