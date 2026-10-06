@@ -314,11 +314,25 @@ root = Path(sys.argv[2])
 if sys.argv[1] == "mount":
     subprocess.run(["mount", "--make-rprivate", "/"], check=True)
     subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/run"], check=True)
+    keys = Path("/run/agenix/keys")
+    keys.mkdir(parents=True)
+    for source, alias in ((Path("/run/agenix/id_acme"), Path("/run/mounted-key")),
+                          (keys, Path("/run/mounted-keys")),
+                          (root / ".ssh/id_local", Path("/run/mounted-local-key")),
+                          (root / ".cache/git/credential/key", Path("/run/mounted-cache-key"))):
+        if source.is_dir():
+            alias.mkdir()
+        else:
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.touch()
+            alias.touch()
+        subprocess.run(["mount", "--bind", str(source), str(alias)], check=True)
     os.execvp("setpriv", ["setpriv", "--inh-caps=-all", "--ambient-caps=-all",
                          sys.executable, __file__, "host", str(root)])
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
-secrets = ("fixture-key", "fixture-folder-key", "fixture-git-store", "fixture-gh-login")
+secrets = ("fixture-key", "fixture-folder-key", "fixture-git-store", "fixture-gh-login",
+           "fixture-local-key", "fixture-cache-key")
 
 def check_backing(out):
     for scratch in Path(out).glob(".box-*"):
@@ -332,17 +346,25 @@ if sys.argv[1] == "probe":
     assert Path("/run/agenix/git-store").read_text() == ""
     assert Path("/run/agenix/hosts.yml").read_text() == ""
     assert Path("/run/agenix/ordinary").read_text() == "public"
+    assert Path("/run/public-hardlink").read_text() == "public"
+    for alias in ("mounted-key", "mounted-keys", "mounted-local-key", "mounted-cache-key",
+                  "hardlinked-key", "hardlinked-folder-key"):
+        assert not os.path.lexists("/run/" + alias), alias
     check_backing(sys.argv[3])
     print("ok")
 else:
     run = Path("/run/agenix")
-    (run / "keys").mkdir(parents=True)
+    (run / "keys").mkdir(parents=True, exist_ok=True)
     for name, value in zip(("id_acme", "keys/id_other", "git-store", "hosts.yml"), secrets):
         (run / name).write_text(value)
     (run / "ordinary").write_text("public")
-    (root / ".ssh").mkdir()
+    (root / ".ssh/id_local").write_text(secrets[-2])
+    (root / ".cache/git/credential/key").write_text(secrets[-1])
     (root / ".ssh/id_acme").symlink_to(run / "id_acme")
     (root / ".ssh/keys").symlink_to(run / "keys")
+    Path("/run/hardlinked-key").hardlink_to(run / "id_acme")
+    Path("/run/hardlinked-folder-key").hardlink_to(run / "keys/id_other")
+    Path("/run/public-hardlink").hardlink_to(run / "ordinary")
     for login, target in ((root / ".git-credentials", run / "git-store"),
                           (root / ".config/gh/hosts.yml", run / "hosts.yml")):
         login.unlink()
