@@ -2689,6 +2689,20 @@ def commit_identity(wt):
             "tree_sha": git(wt, "rev-parse", "HEAD^{tree}")}
 
 
+def plan_context(seat):
+    """The seat's open plan lines (`plan.open_lines`), for the review of its own PR: the
+    outcomes the user agreed to, each with the check that proves it and the project it is
+    on.  A review launched from no seat has no plan."""
+    from . import plan
+    open_lines = plan.open_lines(seat) if seat else []
+    if not open_lines:
+        return ""
+    return ("## The plan this PR serves\nThe session's open plan lines, the outcomes the user "
+            "agreed to, each naming the project it is on:\n" + "\n".join(open_lines) + "\nAn "
+            "outcome on this repository that this PR claims to deliver but misses is a finding "
+            "whose proof is that line's check, run with `--run`.\n\n")
+
+
 def suite_evidence(lp, cmds, identity):
     """Keep the checked tree: integration can carry the SHA without running the suite again."""
     suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
@@ -10510,6 +10524,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     target_sha = git(repo, "rev-parse", f"origin/{base}^{{commit}}")
     base_sha = git(repo, "merge-base", target_sha, head)
+    # read before any checkout is made: a plan that refuses the review leaves nothing behind
+    planned = plan_context(session_at_launch) if is_own else ""
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
         if advancing:
@@ -10529,7 +10545,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     body = (f"# {title}\n\n## Goal\nJudge {url} by {info['author']} against this repository: "
             f"its AGENTS.md, README, tests and conventions, and the intent the PR states. {wrote}\n\n"
             f"## The PR says\n{(info.get('body') or '(no description)').strip()}\n\n"
-            "## Done when\n```bash\n" + (cmds[0] if cmds else "true   # AGENTS.md declares no tests:") + "\n```\n")
+            + planned
+            + "## Done when\n```bash\n" + (cmds[0] if cmds else "true   # AGENTS.md declares no tests:") + "\n```\n")
     (run_dir / "task.md").write_text(f"---\nrepo: {repo}\nrounds: {n_rounds}\n---\n{body}")
     state = stamp_origin({**(run_record.read_state(run_dir) or {}), "run_id": run_dir.name,
              "title": title, "task": str(run_dir / "task.md"),

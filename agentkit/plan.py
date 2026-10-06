@@ -94,6 +94,14 @@ def lines(name):
         raise config.Error(f"cannot read the plan {plan}: {exc}") from None
 
 
+def open_lines(name):
+    """The plan's open lines `ak plan` wrote, each naming the project it is on, read under the
+    plan's lock so a rename never moves the plan out from under the read."""
+    with held(name) as current:
+        return [line.strip() for line in lines(current)
+                if LINE.match(line.strip()) and is_open(line)]
+
+
 def write(name, text_lines):
     path_ = path(name)
     path_.parent.mkdir(parents=True, exist_ok=True)

@@ -10,12 +10,13 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, gc, history, run, status, watch
+from agentkit import gate, config, gc, history, notify, plan, run, status, watch
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -88,11 +89,13 @@ class OwnPrReview(unittest.TestCase):
             run.capture_launch(directory, {"--review-pr": URL})
             for name, value in (("pr_view", info), ("viewer_login", "owner"),
                                 ("checkout_for", self.repo), ("fetch", (0, "")),
-                                ("make_worktree", (self.repo, "ak/pr-7")),
                                 ("collect_usage", {}),
                                 ("ready_order", ["astra"]), ("post_review", True),
                                 ("checks", (True, "")), ("gh_json", (info, ""))):
                 mocks.enter_context(patch.object(run, name, return_value=value))
+            self.made = []
+            mocks.enter_context(patch.object(run, "make_worktree", side_effect=lambda *args: (
+                self.made.append(args), (self.repo, "ak/pr-7"))[1]))
             mocks.enter_context(patch.object(gc, "disk_pressure", return_value=False))
             for name in ("exclude_junk", "join_session_project", "restore_review_checkout",
                          "write_result", "refused"):
@@ -125,6 +128,64 @@ class OwnPrReview(unittest.TestCase):
                 self.assertEqual(usage.call_count, 2 if background else 1)
                 run.history_finish(state)
                 self.assertEqual(history.get(state["run_id"])["changed_lines"], 5000)
+
+    def test_an_own_pr_review_carries_the_seats_open_plan_lines(self):
+        here = plan.named(self.repo)
+        config.plan_path("fix-api").write_text(
+            f"- [x] the gate opens · your eye · {here} · written 2026-10-01 10:00"
+            " · done your yes 2026-10-01 11:00\n"
+            f"- [ ] the fence holds · check: `test -f fence.txt` · {here} · written 2026-10-02 12:00\n"
+            "- [ ] the other site loads · check: `true` · ~/code/site#0123456789ab"
+            " · written 2026-10-02 12:00\n"
+            "- [ ] a hand-kept note\n")
+        self.change(5)
+        own = Path(self.review()[0]["task"]).read_text()
+        self.assertIn("## The plan this PR serves", own)
+        self.assertIn("- [ ] the fence holds · check: `test -f fence.txt`", own)
+        self.assertIn("- [ ] the other site loads · check: `true` · ~/code/site#", own)
+        self.assertNotIn("the gate opens", own)
+        self.assertNotIn("a hand-kept note", own)
+        self.assertIn("An outcome on this repository that this PR claims to deliver but misses "
+                      "is a finding whose proof is that line's check, run with `--run`.", own)
+        theirs = Path(self.review(author="acme-friend")[0]["task"]).read_text()
+        self.assertNotIn("## The plan this PR serves", theirs)
+
+    def test_a_rename_while_the_plan_is_read_keeps_its_lines(self):
+        line = plan.add("fix-api", "the fence holds", check="test -f fence.txt",
+                        repo=self.repo, proven=self.base)
+        renamed, errors = threading.Event(), []
+
+        def rename():       # as `ak orch rename` does, under both names' locks
+            try:
+                with notify.session_lock("fix-api"), notify.session_lock("fix-api-renamed"):
+                    config.rename_session("fix-api", "fix-api-renamed")
+            except BaseException as exc:    # noqa: BLE001 - reported below
+                errors.append(exc)
+            finally:
+                renamed.set()
+
+        renamer, located = threading.Thread(target=rename), plan.path
+
+        def rename_once_located(name):
+            found = located(name)
+            if not renamer.is_alive() and not renamed.is_set():
+                renamer.start()
+                renamed.wait(1)     # under the plan's lock it waits for the read
+            return found
+
+        with patch.object(plan, "path", side_effect=rename_once_located):
+            context = run.plan_context("fix-api")
+        renamer.join(5)
+        self.assertEqual(errors, [])
+        self.assertIn(line, plan.lines("fix-api-renamed"))
+        self.assertIn(line, context)
+
+    def test_an_unreadable_plan_refuses_the_review_before_any_checkout(self):
+        self.change(5)
+        config.plan_path("fix-api").write_bytes(b"- [ ] \xff\xfe not text\n")
+        with self.assertRaises(config.Error):
+            self.review()
+        self.assertEqual(self.made, [], "a checkout was made for a refused review")
 
     def test_another_authors_pr_and_a_review_without_a_seat_run(self):
         self.change(1000)
