@@ -422,16 +422,19 @@ IDLE = frozenset({"HEAD", "commondir", "gitdir", "index", "config.worktree", "lo
 
 
 def same_as_commit(wt):
-    """Whether a checkout holds its head commit and nothing more.
+    """Whether a checkout holds its branch's head commit and nothing more.
 
     Git is idle in it (`IDLE`).  Its index lists exactly the commit's files, none of them
     added in intent only, each file in it hashes to the commit's blob, read raw (no filter,
     line ending or replacement object stands in between) -- or is one a sparse checkout
     leaves out -- and git finds no new file beside them.  What git ignores is output, not
-    work.  A submodule, whose own commits only it may hold, keeps the checkout.  Everything
-    this reads -- where HEAD points, the checkout's `.git`, its own git directory, the
-    tracked files, every folder, where a new file would show, and every list of what git
-    ignores -- is the same after the last read as before the first.  No hook runs.
+    work.  A submodule, whose own commits only it may hold, keeps the checkout.  What this
+    reads stays put while it reads: git names the same branch, commit and directories just
+    after the first look as before it, and the checkout's `.git`, its own git directory,
+    where its branch is kept, the tracked files, every folder, where a new file would show,
+    and every list of what git ignores -- each with what a link leads to -- look the same
+    after the last read as before the first.  Settings that would change git's answers are
+    fixed on its command line, and no hook runs.
     """
     base = os.fsencode(wt)
     git = ["--no-replace-objects", f"--work-tree={wt}", "--no-optional-locks",
@@ -441,20 +444,21 @@ def same_as_commit(wt):
         code, out = orch.git_in(wt, *git, *args, env=env)
         return out if code == 0 else None
     def where():
-        """HEAD's commit, the checkout's own git directory and the repository's, as git
-        reads them now."""
-        return (ask("rev-parse", "-q", "--verify", "HEAD^{commit}"),
+        """HEAD's branch and commit, the checkout's own git directory and the repository's,
+        as git reads them now."""
+        return (ask("symbolic-ref", "-q", "HEAD"), ask("rev-parse", "-q", "--verify", "HEAD^{commit}"),
                 ask("rev-parse", "--absolute-git-dir"),
                 ask("rev-parse", "--path-format=absolute", "--git-common-dir"))
     found, fmt = where(), ask("rev-parse", "--show-object-format")
     if None in found or fmt is None:
         return False
-    head = found[0].strip().decode()
-    private, common = (os.fsdecode(line.removesuffix(b"\n")) for line in found[1:])
+    head = found[1].strip().decode()
+    branch, private, common = (os.fsdecode(line.removesuffix(b"\n")) for line in (found[0], *found[2:]))
     # The list of what git ignores in every repository, read here once (git's own default
-    # when none is set) so a change to the setting cannot slip between the reads.
+    # when none is set, a relative one from the checkout, where git runs) so a change to
+    # the setting cannot slip between the reads.
     ignored = ask("config", "--path", "core.excludesFile")
-    ignored = (os.fsdecode(ignored.removesuffix(b"\n")) if ignored else os.path.join(
+    ignored = os.path.join(wt, os.fsdecode(ignored.removesuffix(b"\n")) if ignored else os.path.join(
         os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "git", "ignore"))
     tree = ask("ls-tree", "-r", "-z", "--full-tree", head)
     if tree is None:
@@ -471,9 +475,21 @@ def same_as_commit(wt):
             found.update(os.path.relpath(os.path.join(root, name), top) for name in folders
                          if os.path.islink(os.path.join(root, name)))
         return found if not [error for error in unread if not isinstance(error, FileNotFoundError)] else None
+    def stats(path):
+        """(inode, size, mtime, ctime) of the entry at `path` and of what it leads to, each
+        None when there is none."""
+        found = []
+        for look in (os.lstat, os.stat):
+            try:
+                info = look(path)
+            except FileNotFoundError:
+                found.append(None)
+            else:
+                found.append((info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns))
+        return tuple(found)
     def snapshot():
-        """{path: (inode, size, mtime, ctime)} of everything read, or None when git is not
-        idle or a folder cannot be read."""
+        """{path: stats} of every file git reads, or None when git is not idle or a folder
+        cannot be read."""
         own = held(private)
         if own is None:
             return None
@@ -488,21 +504,14 @@ def same_as_commit(wt):
             ignores += [os.path.join(folder, b".gitignore")] if b".gitignore" in names else []
         if unread:
             return None
-        found = {}
-        for path in (os.path.join(base, b".git"), private,
-                     *(os.path.join(private, path) for path in own),
-                     os.path.join(common, "info", "exclude"), ignored, *folders, *ignores,
-                     *(os.path.join(base, path) for path in files)):
-            try:
-                info = os.lstat(path)
-            except FileNotFoundError:
-                found[path] = None
-            else:
-                found[path] = (info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
-        return found
+        return {path: stats(path) for path in (
+            os.path.join(base, b".git"), private, *(os.path.join(private, path) for path in own),
+            *(os.path.join(common, path) for path in (branch, "packed-refs", "reftable/tables.list",
+                                                       "info/exclude")),
+            ignored, *folders, *ignores, *(os.path.join(base, path) for path in files))}
     try:
         before = snapshot()
-        if before is None:
+        if before is None or where() != found:
             return False
         index = ask("ls-files", "-s", "-t", "-z")
         if index is None or ask("diff-index", "--cached", "--quiet", "--ita-invisible-in-index",
@@ -541,7 +550,7 @@ def same_as_commit(wt):
                 return False
             new = ask("-c", f"core.excludesFile={ignored}", "ls-files", "--others",
                       "--exclude-standard", "-z", env=env)
-        return new == b"" and snapshot() == before and where() == found
+        return new == b"" and snapshot() == before
     except OSError:
         return False
 
