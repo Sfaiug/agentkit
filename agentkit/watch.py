@@ -2723,8 +2723,10 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     or still waits for its Enter.  `receipt` is handed a mark the moment the text is in, for the
     ending's own record to keep until its delivery is recorded; given that mark back as `typed`,
     this only presses Enter, and only while the composer still holds the line alone -- read under
-    the send lock, past any dialog -- and gone from there, the seat has it.  A reopened seat is a
-    new one, with an empty composer, and matches no mark.  `stale` is asked under the send lock
+    the send lock, past any dialog -- and once that composer, read whole, is empty, the seat has
+    it.  A composer holding anything else, or one that cannot be read, says nothing yet: a line
+    wrapped past the bottom rows still sits there.  A reopened seat is a new one, with an empty
+    composer, and matches no mark.  `stale` is asked under the send lock
     too, with the name the seat goes by then, before each key: a line that has stopped being
     this seat's to have is typed no further, and `ready` before each Enter.
     """
@@ -2739,10 +2741,11 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             if (not pane.strip() or owner_question(notify.last(held)) or stale(held)
                     or asking(held, harness, pane)):
                 return False    # nothing to read, or the screen is somebody else's: next pass
-            if not _holds_text(pane, text):
+            draft = composer_draft(harness, pane) if harness else None
+            if draft == "":
                 return True
             # the line alone: an Enter would send whatever the owner has typed beside it since
-            if composer_draft(harness, pane) == re.sub(r"\s+", "", text) and ready(held):
+            if draft == re.sub(r"\s+", "", text) and ready(held):
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
