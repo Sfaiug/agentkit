@@ -63,6 +63,13 @@ class WaitHistory(unittest.TestCase):
                 (run_id, self.now - days_ago * DAY - total, self.now - days_ago * DAY, total))
             connection.commit()
 
+    def before_the_check_waits(self, run_id, days_ago, total, **waits):
+        """A finished row as an agentkit that kept every wait but its landing checks' wrote it."""
+        self.finished(run_id, days_ago, total, **waits)
+        with closing(sqlite3.connect(history.path())) as connection:
+            connection.execute("UPDATE runs SET lander_wait_seconds=NULL WHERE run_id=?", (run_id,))
+            connection.commit()
+
     def board_row(self):
         """The scoreboard's waits row, both weeks on its one line."""
         with patch.object(terminal, "content_width", return_value=400):
@@ -573,6 +580,88 @@ class WaitHistory(unittest.TestCase):
                 record.save_state(directory, state)
                 self.assertEqual(self.waits(directory.name), (0.0, 0.0, 685.0))
 
+    def test_a_landing_checks_wait_for_a_heavy_turn_is_kept_beside_the_line_wait(self):
+        clock = [1000.0]
+        for target, value in ((time, "time"), (time, "monotonic")):
+            self.stack.enter_context(patch.object(target, value, lambda: clock[0]))
+        self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
+        for module, name, options in (
+                (config, "max_gates", {"return_value": 1}),
+                (run, "commit_identity", {"return_value": {"head_sha": "a", "tree_sha": "b"}}),
+                (run, "git_out", {"return_value": (0, "")}),
+                (gate, "run_done_when", {"return_value": (True, "passed")}),
+                (land, "start_line", {"return_value": False})):
+            self.stack.enter_context(patch.object(module, name, **options))
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        directory = config.RUNS / "fix-api"
+        directory.mkdir()
+        history.start_run(directory.name, repo="acme", started_at=clock[0])
+        state = {"run_id": directory.name, "state": "waiting", "pid": None,
+                 "repo": str(self.root / "acme"), "started_at": clock[0],
+                 "waiting_on": {"line": ".merge-fixture.lock", "joined": clock[0]}}
+        record.save_state(directory, state)
+        with gate.gate_lock(None, 0).open("a") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+
+            def release(_seconds):
+                clock[0] += 1800
+                # The lander counts it as it polls, beside the line time the record keeps.
+                self.assertEqual(history.get(directory.name)["lander_wait_seconds"], 0.0)
+                fcntl.flock(holder, fcntl.LOCK_UN)
+            with patch.object(time, "sleep", release):
+                self.assertTrue(land._check(directory, state, scratch, ["true"],
+                                            directory / "lander.log", lambda _: None)[0])
+        self.assertEqual(history.get(directory.name)["lander_wait_seconds"], 1800.0)
+        clock[0] += 1800
+        with record.record(directory) as current:
+            current.update(state="pass", merged=True, finished_at=clock[0])
+        history.finish_run(directory.name, final_state="pass", finished_at=clock[0])
+        self.assertEqual(self.waits(directory.name), (0.0, 0.0, 3600.0))
+        self.assertEqual(history.get(directory.name)["lander_wait_seconds"], 1800.0)
+        with patch.object(time, "time", return_value=clock[0]):
+            self.assertIn("1.0 hours in a landing line, where checks waited 0.5 hours for a suite turn",
+                          self.board_row())
+
+    def test_a_landing_check_stops_counting_once_its_member_leaves_the_line(self):
+        clock = [1000.0]
+        for target, value in ((time, "time"), (time, "monotonic")):
+            self.stack.enter_context(patch.object(target, value, lambda: clock[0]))
+        self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
+        for module, name, options in (
+                (config, "max_gates", {"return_value": 1}),
+                (run, "commit_identity", {"return_value": {"head_sha": "a", "tree_sha": "b"}}),
+                (run, "git_out", {"return_value": (0, "")}),
+                (gate, "run_done_when", {"return_value": (True, "passed")}),
+                (land, "start_line", {"return_value": False})):
+            self.stack.enter_context(patch.object(module, name, **options))
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        directory = config.RUNS / "fix-api"
+        directory.mkdir()
+        history.start_run(directory.name, repo="acme", started_at=clock[0])
+        state = {"run_id": directory.name, "state": "waiting", "pid": None,
+                 "repo": str(self.root / "acme"), "started_at": clock[0],
+                 "waiting_on": {"line": ".merge-fixture.lock", "joined": clock[0]}}
+        record.save_state(directory, state)
+        polls = []
+        with gate.gate_lock(None, 0).open("a") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+
+            def poll(_seconds):
+                polls.append(clock[0])
+                if len(polls) == 2:
+                    # stopped from the line: its check no longer waits for finished work
+                    record.save_state(directory, {**state, "state": "stopped"})
+                clock[0] += 1800 if len(polls) == 1 else 600
+                if len(polls) == 3:
+                    fcntl.flock(holder, fcntl.LOCK_UN)
+            with patch.object(time, "sleep", poll):
+                land._check(directory, state, scratch, ["true"], directory / "lander.log",
+                            lambda _: None)
+        self.assertEqual(len(polls), 3)
+        self.assertEqual(history.get(directory.name)["lander_wait_seconds"], 1800.0)
+
     def test_stopping_a_parked_member_closes_its_wait_once(self):
         lp, _ = self.line_loop()
         run.join_line(lp, "origin/main", lambda: True)
@@ -629,6 +718,19 @@ class WaitHistory(unittest.TestCase):
         row = self.board_row()
         self.assertIn("10% of run time waiting for a slot or its own suite turn; 0.0 hours in a landing line", row)
         self.assertTrue(row.endswith("not recorded"), row)
+
+    def test_a_week_with_a_row_from_before_the_check_waits_reads_them_as_not_recorded(self):
+        self.finished("fix-api", 1, 3600, merge=3600)
+        self.before_the_check_waits("fix-ui", 2, 3600, merge=3600)
+        self.finished("fix-db", 9, 3600, merge=1800, lander=1440)
+        recent, before = scoreboard.compute(self.now)["waits"]
+        self.assertIsNone(recent["lander_hours"])
+        self.assertAlmostEqual(recent["merge_hours"], 2.0)    # the line time it did keep still counts
+        self.assertAlmostEqual(before["lander_hours"], 0.4)
+        row = self.board_row()
+        self.assertIn("2.0 hours in a landing line, where checks' waits for a suite turn are not "
+                      "recorded", row)
+        self.assertIn("0.5 hours in a landing line, where checks waited 0.4 hours for a suite turn", row)
 
 if __name__ == "__main__":
     unittest.main()

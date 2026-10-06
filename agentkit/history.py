@@ -23,8 +23,9 @@ REAL_WORK = "COALESCE(final_state,'') != 'stopped' AND NOT suite_run(run_id, rep
 STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds",
                 "reviewer": "reviewer_seconds", "merge": "merge_seconds"}
 # The waits a run marks, each summed across its resumes; NULL on a row written before them.
+# A landing check's wait for a heavy-suite turn is the lander's, inside the run's line wait.
 WAIT_COLUMNS = {"slot": "slot_wait_seconds", "suite": "suite_wait_seconds",
-                "merge": "merge_wait_seconds"}
+                "merge": "merge_wait_seconds", "lander": "lander_wait_seconds"}
 _OPEN = {}     # run_id -> [step, since]: the step this process runs, counted up to `since`
 _OPEN_LOCK = threading.Lock()
 
@@ -56,14 +57,16 @@ CREATE TABLE IF NOT EXISTS runs (
     changed_lines INTEGER,
     slot_wait_seconds REAL,
     suite_wait_seconds REAL,
-    merge_wait_seconds REAL
+    merge_wait_seconds REAL,
+    lander_wait_seconds REAL
 )
 """
 
 MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
-              ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"))
+              ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
+              ("lander_wait_seconds", "REAL"))
 
 REVIEWS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviews (
@@ -167,7 +170,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     repo = Path(repo).name if repo else None
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
-              task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0)
+              task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0)
 
     def insert(connection):
         connection.execute(
@@ -175,8 +178,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "started_at, finished_at, executor_seconds, done_when_seconds, reviewer_seconds, "
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
-            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "

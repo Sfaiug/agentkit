@@ -14,7 +14,8 @@ def compute(now=None):
     Shares use all ended runs; merge time and token medians use merged runs only.
     Changed lines survive run cleanup as evidence of a merge; older, unsized merges
     need their run record. Missing token measurements never become free work. Waits share
-    the run time of the ended runs that recorded them; a week of none is not recorded. A run
+    the run time of the ended runs that recorded them; a week of none is not recorded, and its
+    landing checks' waits are not recorded while one of its rows was written without them. A run
     started again since its row ended (a resume, a delivery retry) counts waits for an attempt
     still going, so its waits wait until its row publishes the ending its record saved.
     """
@@ -56,9 +57,11 @@ def compute(now=None):
                     if row.get("slot_wait_seconds") is not None and row.get("total_seconds")
                     and settled(row)]
         run_time = sum(row["total_seconds"] for row in recorded)
+        checks = [row.get("lander_wait_seconds") for row in recorded]
         waits.append({"compute": sum(row["slot_wait_seconds"] + row["suite_wait_seconds"]
                                      for row in recorded) / run_time,
-                      "merge_hours": sum(row["merge_wait_seconds"] for row in recorded) / 3600}
+                      "merge_hours": sum(row["merge_wait_seconds"] for row in recorded) / 3600,
+                      "lander_hours": None if None in checks else sum(checks) / 3600}
                      if run_time else None)
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
@@ -129,8 +132,10 @@ def render():
     def waited(stats):
         if stats is None:
             return "not recorded"
+        checks = ("checks' waits for a suite turn are not recorded" if stats["lander_hours"] is None
+                  else f"checks waited {stats['lander_hours']:.1f} hours for a suite turn")
         return (f"{stats['compute']:.0%} of run time waiting for a slot or its own suite turn; "
-                f"{stats['merge_hours']:.1f} hours in a landing line")
+                f"{stats['merge_hours']:.1f} hours in a landing line, where {checks}")
 
     def size(stats):
         if stats is None:
