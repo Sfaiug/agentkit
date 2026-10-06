@@ -900,8 +900,7 @@ def invalidate_saved_pass(state, cfg, log):
     entries = state["round_summaries"]
     rnd = len(entries) + 1
     state.update(verdict=None, review=None,
-                 review_pending={"round": rnd, "since": "",      # a new round, no turn yet
-                                 "summary": entries[-1]["summary"] if entries else ""},
+                 review_pending={"round": rnd, "summary": entries[-1]["summary"] if entries else ""},
                  rounds=max(state["rounds"], rnd))
 
 
@@ -2551,13 +2550,6 @@ def review_turn(round_dir, session, since=""):
     return None if latest is None or str(latest) == since else latest
 
 
-def review_begins(lp):
-    """Where a review that begins now starts on its reviewer's session: the round's latest
-    turn there, whose records belong to a review before it.  Every pending record a fresh
-    review is given keeps it as `since`."""
-    return str(review_turn(lp.dir("reviewer").parent, lp.review_sid) or "")
-
-
 def saved_worker_answer(round_dir):
     """The executor or fixer answer file already written for this round."""
     latest = latest_worker_turn(round_dir)
@@ -2992,7 +2984,7 @@ def pending_review(lp, reason):
     entries = lp.state["round_summaries"]
     passed_head = passed_review_head(lp.state)
     lp.state.update(verdict=None, review=None,
-                    review_pending={"round": lp.rnd, "record": False, "since": review_begins(lp),
+                    review_pending={"round": lp.rnd, "record": False,
                                     "summary": entries[-1]["summary"] if entries else "",
                                     "reason": reason,
                                     **({"passed_head_sha": passed_head} if passed_head else {})})
@@ -3773,10 +3765,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     on it.
     """
     passed_head = passed_review_head(lp.state)
+    # where this review began on its reviewer's session, kept from its first entry across
+    # parks; a pending record that holds none was written before any turn of it ran
     pending = lp.state.get("review_pending") or {}
-    # a review going on from its park keeps where it began; one parked before pending
-    # records kept that was never verdicted, so its latest turn is its own and hands on
-    since = pending.get("since", "") if pending else review_begins(lp)
+    since = pending["since"] if "since" in pending else str(
+        review_turn(lp.dir("reviewer").parent, lp.review_sid) or "")
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd, "summary": summary, "since": since,
                                     **({"passed_head_sha": passed_head} if passed_head else {})})
@@ -4062,7 +4055,7 @@ def rounds(lp, execv=None):
         # A changed checkout needs a task review, not landing's target integration on resume.
         entries = lp.state["round_summaries"]
         lp.state.update(verdict=None, review=None,
-                        review_pending={"round": lp.rnd + 1, "since": "",  # a new round
+                        review_pending={"round": lp.rnd + 1,
                                         "summary": entries[-1]["summary"] if entries else "",
                                         "reason": "The saved reviewed commit changed; "
                                                   "verify the current checkout.",
@@ -4397,8 +4390,7 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
     set_base(lp, tip)
     # Keep the passed head for target probes; a provider wait also resumes as a
     # conflict round, outside the task budget.
-    lp.state["review_pending"] = {"since": review_begins(lp),
-                                  **(lp.state.get("review_pending") or {}),
+    lp.state["review_pending"] = {**(lp.state.get("review_pending") or {}),
                                   "round": lp.rnd, "summary": summary,
                                   "reason": f"Re-review after {what}.", "record": False}
     lp.save()
@@ -4621,7 +4613,6 @@ def integrate(lp, upstream):
                         lp.rnd = old_rnd
                         reason = f"Re-review after the {how} of {upstream}."
                         lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
-                                                      "since": review_begins(lp),
                                                       "reason": reason, "record": False,
                                                       "passed_head_sha": passed_review_head(lp.state)}
                         lp.save()
@@ -5498,7 +5489,7 @@ def fix_final_check(lp, upstream, text):
     """Repair failing landing output and re-review, without recording a task round."""
     fix = (f"{lp.context}\n\n## The final check failed. Fix the root cause.\n```\n"
            f"{text[-OUT_CAP:]}\n```")
-    lp.state["review_pending"] = {"round": lp.rnd, "summary": "", "since": review_begins(lp),
+    lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
                                   "reason": "Re-review after the final check.",
                                   "passed_head_sha": passed_review_head(lp.state),
                                   "record": False}
@@ -9763,7 +9754,7 @@ def resume_run(argv):
                 # review spends the round number below, never an executor turn.
                 last = summaries[-1] if summaries else {}
                 state["review_pending"] = {
-                    "round": len(summaries) + 1, "since": "",      # a new round, no turn yet
+                    "round": len(summaries) + 1,
                     "summary": last.get("summary") or "",
                     "reason": "Resume the unfinished integration review."}
     state.setdefault("merge_method", "squash")

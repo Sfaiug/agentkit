@@ -433,7 +433,7 @@ class WorkerList(unittest.TestCase):
         self.assertEqual(saved["review_pending"]["round"], 1)
         self.assertEqual(saved["round_summaries"], [])
 
-    def resumed_review(self, closed, legacy=False):
+    def resumed_review(self, closed):
         """A finding, then a refused verdict ask that had said `done` or not, then the resume.
 
         The resumed session only says `done`, which closes the review it began.  The
@@ -486,8 +486,6 @@ class WorkerList(unittest.TestCase):
             with self.assertRaises(run.Exhausted) as parked:
                 run.review(lp, "Review the work.", None, "")
             run.park_exhausted(lp.state, parked.exception)
-            if legacy:      # parked before pending records kept where their review began
-                lp.state["review_pending"].pop("since")
             record.save_state(lp.run_dir, lp.state)
             with patch.object(run.Loop, "save", stopped), \
                     self.assertRaises(record.StopRequested):
@@ -509,9 +507,39 @@ class WorkerList(unittest.TestCase):
         # a `done` the refused turn handed in is no verdict: the loop never recorded one
         self.resumed_review(closed=True)
 
-    def test_a_review_parked_before_this_rule_keeps_its_finding(self):
-        # its pending record never said where it began: never verdicted, its turns are its own
-        self.resumed_review(closed=False, legacy=True)
+    def test_a_re_review_a_writer_left_pending_starts_clean(self):
+        # landing writes a re-review's pending record before its first turn: the turn before
+        # it on the session is the review whose verdict is recorded, and hands on nothing
+        lp = self.loop("alpha", "gamma", ["alpha"])
+        lp.state["reviewers"] = ["gamma"]
+        (lp.wt / "api.py").write_text("wrong answer\n")
+        record.save_state(lp.run_dir, lp.state)
+        turns = []
+
+        def fake(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
+            out = Path(out_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            channel = hand_in.start(out, workspace, (env or {}).get(hand_in.CONTINUE), role=role)
+            turns.append(len(hand_in.read(channel).findings))
+            with patch.dict(os.environ, {hand_in.ENV: channel}):
+                if len(turns) == 1:
+                    hand_in.main(["finding", "api.py:1", "wrong result", "breaks callers",
+                                  "--quote", "wrong answer"])
+                hand_in.main(["done"])
+            (out / "final.md").write_text("Handed in.")
+            (out / "session_id").write_text("review-session")
+            return 0, "Handed in.", "review-session", False
+
+        with patch.object(run.worker, "call", side_effect=fake), \
+                patch.object(run.worker, "marked_pids", return_value=[]), \
+                patch.object(run.worker.box, "leftovers", return_value=[]), \
+                self.refused(usage.Readings(self.providers(b=100))), \
+                redirect_stderr(io.StringIO()):
+            self.assertEqual(run.review(lp, "Review the work.", None, ""), "FAIL")
+            lp.state["review_pending"] = {"round": lp.rnd, "summary": "", "record": False,
+                                          "reason": "Re-review after the final check."}
+            run.review(lp, "Review the work.", None, "")
+        self.assertEqual(turns, [0, 0])
 
     def test_a_tick_no_run_waits_on_asks_no_harness(self):
         # asking runs each harness's `auth`: a pass with nothing to pick asks nobody

@@ -1164,8 +1164,7 @@ class HandBack(Sandbox):
             target="main",
             wt=str(self.root), run_dir=directory, artifacts=set(), done_when_limit=1,
             turn_limit=1, context="ctx", executor="opus", log=self.logs.append,
-            save=lambda: None, write=lambda: None, dir=lambda name: directory / name,
-            review_sid=None)
+            save=lambda: None, write=lambda: None)
         with patch.object(run, "git", return_value="a" * 40), \
                 patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity",
@@ -1204,8 +1203,7 @@ class HandBack(Sandbox):
             target="main",
             wt=str(self.root), run_dir=directory, artifacts=set(), done_when_limit=1,
             turn_limit=1, context="ctx", executor="opus", log=self.logs.append,
-            save=lambda: None, write=lambda: None, dir=lambda name: directory / name,
-            review_sid=None)
+            save=lambda: None, write=lambda: None)
         with patch.object(run, "git", return_value="a" * 40), \
                 patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity",
