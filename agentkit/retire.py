@@ -3,9 +3,11 @@
 A production project names its switches with one command, `features:` in its AGENTS.md. A row
 its `list` prints with `everyone` on and `everyone_since` (when it last went on for everyone,
 ISO 8601 UTC) at least PROVEN ago is proven. Once every EVERY the tick reads the list of each
-checkout under ~/code that declares one, and tells the newest open seat filed under it every
-switch that list shows proven, longest first, in one line through the queue `ak tell` fills,
-and every switch on for everyone that it cannot prove because its row gives no `everyone_since`.
+checkout under ~/code that declares one, and tells the open seats filed under it every switch
+that list shows proven, longest first, through the queue `ak tell` fills, and every switch on
+for everyone that it cannot prove because its row gives no `everyone_since`. A switch goes to
+the newest seat whose open plan already names it, since that seat has it in hand; the rest go to
+the newest seat. Each seat gets one line.
 The line names the project, so it holds wherever it lands. A checkout is told again AGAIN
 after, while any is still listed so, until the project's own deploy drops each from the list
 once the code no longer reads it. What a seat was told stands: a switch turned off after is
@@ -23,9 +25,10 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
 import time
 
-from . import config, orch, tell
+from . import config, orch, plan, tell
 
 PROVEN = 14 * 86400    # the owner's two weeks: on for everyone this long, a switch is proven
 EVERY = 3600           # how often the lists are read for this
@@ -117,14 +120,36 @@ def line(project, proven, unproven=()):
             "which, and where.")
 
 
-def seat_for(checkout):
-    """The newest open seat filed under that checkout, or None."""
+def seats_for(checkout):
+    """The open seats filed under that checkout, newest first."""
     records = config.session_records()
     seats = [session for session in orch.sessions()
              if not any(session.get(key) for key in orch.CLOSED)
              and orch.checkout_of((records.get(session["name"]) or {}).get("repo")) == checkout]
-    return max(seats, key=lambda session: (session.get("created") or 0, session["name"]),
-               default=None)
+    return sorted(seats, key=lambda session: (session.get("created") or 0, session["name"]),
+                  reverse=True)
+
+
+def planned(name):
+    """What that seat's open plan lines set out to do, as one text; none from a plan nothing can
+    read."""
+    try:
+        return "\n".join(plan.LINE.match(line)["what"] for line in plan.open_lines(name))
+    except config.Error:
+        return ""
+
+
+def owners(seats, rows):
+    """Each row's seat: the newest whose open plan names that switch, since it already has it in
+    hand, else the newest of all."""
+    plans = {seat["name"]: planned(seat["name"]) for seat in seats}
+    found = {}
+    for row in rows:
+        word = re.compile(rf"(?<![\w-]){re.escape(str(row['id']))}(?![\w-])")
+        name = next((seat["name"] for seat in seats if word.search(plans[seat["name"]])),
+                    seats[0]["name"])
+        found[str(row["id"])] = name
+    return found
 
 
 def hand(log, now=None):
@@ -151,15 +176,21 @@ def hand(log, now=None):
         about = "; ".join(f"{what} {', '.join(str(row['id']) for row in found)}" for what, found in (
             ("proven switches", proven), ("on for everyone with no everyone_since", unproven))
             if found)
-        seat = seat_for(checkout)
-        if seat is None:
+        seats = seats_for(checkout)
+        if not seats:
             log(f"{checkout.name}: {about}; no open seat to tell")
             continue
-        refused = tell.queue(seat["name"], line(checkout.name, proven, unproven))
+        owner = owners(seats, proven + unproven)
+        told = {}
+        for rows_of, kind in ((proven, 0), (unproven, 1)):
+            for row in rows_of:
+                told.setdefault(owner[str(row["id"])], ([], []))[kind].append(row)
+        refused = [f"{name}: {why}" for name, (mine, unproven_mine) in told.items()
+                   if (why := tell.queue(name, line(checkout.name, mine, unproven_mine)))]
         if refused:
-            log(f"WARN {checkout.name}: {about}; not told: {refused}")
+            log(f"WARN {checkout.name}: {about}; not told: {'; '.join(refused)}")
             continue
         record[key] = now
         write(record)
-        log(f"{checkout.name}: {about}; told {seat['name']}")
+        log(f"{checkout.name}: {about}; told {', '.join(told)}")
     write(record)

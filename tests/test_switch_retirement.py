@@ -143,6 +143,26 @@ class Retire(unittest.TestCase):
         self.hand(NOW + retire.AGAIN)
         self.assertEqual(self.typed("acme"), [["search", "uk"]])
 
+    def test_a_switch_an_open_plan_names_goes_to_that_seat(self):
+        self.seat("acme-gb", self.acme, created=10)
+        self.seat("acme-help", self.acme, created=20)
+        self.seat("acme-new", self.acme, created=30)
+        written = " · check: `true` · ACME · written 2026-10-06 12:00"
+        config.plan_path("acme-gb").write_text(
+            f"- [ ] Proven switches region_gb, vat_fee are gone from the code{written}\n"
+            f"- [x] help_chat copy reviewed · your eye · ACME · written 2026-10-06 12:00"
+            " · done your yes 2026-10-06 13:00\n")
+        config.plan_path("acme-help").write_text(
+            f"- [ ] The help_chat switch is gone{written}\n")
+        self.switches(row("help_chat", 120), row("region_gb", 110),
+                      row("region_gb_rff", 100), row("vat_fee", 50))
+        self.hand()
+        self.assertEqual(self.typed("acme-gb"), [["region_gb", "vat_fee"]])
+        self.assertEqual(self.typed("acme-help"), [["help_chat"]])
+        self.assertEqual(self.typed("acme-new"), [["region_gb_rff"]])
+        self.assertIn("ACME: proven switches help_chat, region_gb, region_gb_rff, vat_fee; "
+                      "told acme-help, acme-gb, acme-new", self.logged)
+
     def test_told_again_a_day_later_while_one_is_still_listed(self):
         self.seat("acme", self.acme, created=10)
         self.switches(row("older", 60), row("old", 40))
@@ -236,7 +256,7 @@ class Retire(unittest.TestCase):
         with patch.object(tell, "queue", return_value="acme is closed"):
             self.hand()
         self.assertNotIn(str(self.acme), retire.read())
-        self.assertIn("WARN ACME: proven switches first; not told: acme is closed",
+        self.assertIn("WARN ACME: proven switches first; not told: acme: acme is closed",
                       self.logged)
         self.hand(NOW + retire.EVERY)
         self.assertEqual(self.typed("acme"), [["first"]])
