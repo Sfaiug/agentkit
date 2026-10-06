@@ -60,7 +60,6 @@ STAMP = "Suite-Passed-Tree"
 CONFIG = "deploy/release.toml"
 GIT_SECONDS = 300
 COMMAND_SECONDS = 1800
-HEALTH_TRY_SECONDS = 20
 HEALTH_PAUSE_SECONDS = 0.5
 FAILED = "refs/release/failed/"     # a ref per failed commit keeps it, and its history, from gc
 
@@ -197,15 +196,14 @@ def start(root, sha):
     must(release, "restart", ["bash", "-c", config["restart"]])
     deadline = time.monotonic() + config["health_seconds"]
     while True:
-        code, out = run(release, ["bash", "-c", config["health"]],
-                        min(HEALTH_TRY_SECONDS, deadline - time.monotonic()))
+        code, out = run(release, ["bash", "-c", config["health"]], deadline - time.monotonic())
         left = deadline - time.monotonic()
         if code == 0 and left >= 0:
             return
-        if left <= 0:
+        if left <= HEALTH_PAUSE_SECONDS:     # no time for another try: this one's word stands
             result = f"exit {code}" if code else f"passed after its {config['health_seconds']}s"
             raise Failed(f"health failed ({result}): `{config['health']}`: {out[-300:]}")
-        time.sleep(min(HEALTH_PAUSE_SECONDS, left))
+        time.sleep(HEALTH_PAUSE_SECONDS)
 
 
 def switch(root, sha):
@@ -315,7 +313,7 @@ def adopt(root):
 
 def main(argv):
     if len(argv) not in (2, 3) or (len(argv) == 3 and argv[2] != "--adopt"):
-        print(__doc__.split("\n\n")[1], file=sys.stderr)
+        print("\n\n".join(__doc__.split("\n\n")[1:3]), file=sys.stderr)
         return 2
     if os.geteuid() == 0:
         print("[release] runs as the project's user, never root", file=sys.stderr)

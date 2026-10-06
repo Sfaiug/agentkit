@@ -22,7 +22,7 @@ GIT_ENV = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM":
 CONFIG = """restart = '{restart}'
 python = "{python}"
 health = "{health}"
-health_seconds = 1
+health_seconds = {health_seconds}
 migrate = "{migrate}"
 keep = {keep}
 {extra}
@@ -56,14 +56,14 @@ class ReleaseKit(unittest.TestCase):
                               text=True, env=GIT_ENV).stdout.strip()
 
     def commit(self, healthy=True, stamp=True, migrate="true", keep=5, files=None, extra="",
-               health="test -f healthy", merge=None):
+               health="test -f healthy", merge=None, health_seconds=1):
         work = self.work
         restart = (f"n=${{PWD##*/}}; if [ -f {self.failing}/$n ]; then rm {self.failing}/$n; "
                    f"exit 1; fi; echo $n >> {self.restarts}")
         (work / "deploy").mkdir(exist_ok=True)
         (work / "deploy" / "release.toml").write_text(CONFIG.format(
             restart=restart, migrate=migrate, keep=keep, python=self.python, extra=extra,
-            health=health))
+            health=health, health_seconds=health_seconds))
         (work / "healthy").unlink(missing_ok=True)
         if healthy:
             (work / "healthy").write_text("yes\n")
@@ -358,16 +358,25 @@ class ReleaseKit(unittest.TestCase):
         code, out = self.tick()
         self.assertEqual(code, 1)
         self.assertIn("health failed (exit 124)", out)
+        # a command that keeps failing says its own exit and output, not a timeout
+        self.commit(health="sleep 0.1; echo refused-now; exit 7")
+        code, out = self.tick()
+        self.assertIn("health failed (exit 7)", out)
+        self.assertIn("refused-now", out)
+        # one try may take as much of the health time as it needs
+        slow = self.commit(health="sleep 1.5; true", health_seconds=3)
+        self.assertEqual(self.tick()[0], 0)
+        self.assertEqual(self.live(), slow)
         # one failed try does not end it while time is left
         flaky = self.commit(health="test -f tried || { touch tried; exit 1; }")
         self.assertEqual(self.tick()[0], 0)
         self.assertEqual(self.live(), flaky)
         # a pass counts only within the time, however slow the command was to start
-        slow, popen = [], release.subprocess.Popen
+        delayed, popen = [], release.subprocess.Popen
 
         def starting(argv, **kwargs):
-            if argv[-1] == "true" and not slow:
-                slow.append(time.sleep(1.5))
+            if argv[-1] == "true" and not delayed:
+                delayed.append(time.sleep(1.5))
             return popen(argv, **kwargs)
         self.commit(health="true", migrate="")
         with patch.object(release.subprocess, "Popen", starting):
@@ -376,8 +385,9 @@ class ReleaseKit(unittest.TestCase):
         self.assertEqual(self.live(), flaky)
 
     def test_usage_and_never_root(self):
-        with redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()):
+        with redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()) as said:
             self.assertEqual(release.main(["release.py"]), 2)
+            self.assertIn("release.py ROOT --adopt  make ROOT/repo's checked-out commit", said.getvalue())
             self.assertEqual(release.main(["release.py", str(self.root), "--now"]), 2)
             with patch.object(release.os, "geteuid", return_value=0):
                 self.assertEqual(release.main(["release.py", str(self.root)]), 2)
