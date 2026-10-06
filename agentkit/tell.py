@@ -155,7 +155,9 @@ def deliver_to(session, log, cfg=None):
 
     held = composer_holds(name, session, first["line"])
     if held == "line":
-        # typed by a tick that died before its Enter: only the Enter, and its confirmation
+        # typed by a tick that died before its Enter, maybe before it said its keys were in:
+        # only the Enter, and its confirmation
+        watch.keys_in(name, first["line"])
         typed = watch.type_checked(
             session, first["line"], log, pending=True, source=source(first["from"]),
             guard=lambda: watch.seat_held(session["name"]), ready=ready,

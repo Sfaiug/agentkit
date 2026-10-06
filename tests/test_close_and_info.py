@@ -417,8 +417,7 @@ class ClosedSeat(Sandbox):
     def test_a_renamed_seat_leaves_nothing_under_the_name_it_was_launched_with(self):
         stamps = config.STATE / "idle-compact"
         stamps.mkdir()
-        left = [config.STATE / "rulebook-atoll.md", config.STATE / "stop-atoll.json",
-                stamps / "atoll-4242.json"]
+        left = [config.STATE / "rulebook-atoll.md", stamps / "atoll-4242.json"]
         for path in left:
             path.write_text("{}\n")
         config.rename_session("atoll", "beta")    # what a rename moves, and what it leaves
@@ -428,16 +427,15 @@ class ClosedSeat(Sandbox):
         for path in left + [config.session_path("atoll"), config.session_path("beta")]:
             self.assertFalse(path.exists(), path)
 
-    def test_a_rename_carries_every_seat_file_but_the_rulebook_and_the_turn_latch(self):
+    def test_a_rename_carries_every_seat_file_but_the_rulebook(self):
         kinds = config.SEAT_FILES.keys() - {"session"}
         for kind in kinds:
             config.seat_file(kind, "atoll").write_text("{}\n")
         config.rename_session("atoll", "beta")
-        for kind in kinds - {"rulebook", "stop"}:
+        for kind in kinds - {"rulebook"}:
             self.assertFalse(config.seat_file(kind, "atoll").exists(), kind)
             self.assertTrue(config.seat_file(kind, "beta").exists(), kind)
         self.assertTrue(config.rulebook_path("atoll").exists())   # its orchestrator still reads it
-        self.assertTrue(config.stop_path("atoll").exists())       # its hooks still write it
 
     def test_idle_compact_names_its_stamp_for_its_seat(self):
         told = self.root / "told"

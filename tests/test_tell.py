@@ -94,7 +94,7 @@ class Seats(unittest.TestCase):
                 f"reply with ak tell {sender}] ")
 
     def receipts(self, name=SEAT):
-        return list(harness.entries(config.seat_file("input", name)))
+        return [row for row in harness.entries(config.seat_file("input", name)) if "text" in row]
 
     def waiting(self, name=SEAT):
         return tell.read(config.seat_file("tell", name))
@@ -382,6 +382,13 @@ class TyperDied(Typing):
     def test_a_line_typed_without_its_enter_gets_its_enter_once(self):
         self.died()
         self.assertEqual((self.taken, len(self.receipts())), ([], 1))
+        rows = list(harness.entries(config.seat_file("input", SEAT)))
+        self.assertEqual([row for row in rows if "typed" in row], [])   # killed before saying so
+        tell.deliver(self.cfg, lambda _: None)
+        # found alone in its composer, its keys are in: the prompt it makes is the sender's
+        rows = list(harness.entries(config.seat_file("input", SEAT)))
+        self.assertEqual([row["typed"] for row in rows if "typed" in row],
+                         [self.receipts()[0]["at"]])
         for _ in range(3):
             tell.deliver(self.cfg, lambda _: None)
         self.assertEqual(self.taken, [self.header() + "Parser merged."])

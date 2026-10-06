@@ -76,14 +76,16 @@ class StopPeerTurn(unittest.TestCase):
         return {"PATH": os.environ["PATH"], "HOME": str(self.home),
                 "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"}
 
-    def prompt(self, text):
-        """Open a turn through hooks/seat-state.sh, as the harness does on a prompt."""
+    def prompt(self, text, seat=SEAT, field="prompt"):
+        """Open a turn through hooks/seat-state.sh, as the harness launched as `seat` does on
+        a prompt."""
         done = subprocess.run(["bash", str(SEAT_STATE)], text=True, capture_output=True,
                               input=json.dumps({"hook_event_name": "UserPromptSubmit",
-                                                "prompt": text}),
-                              env={**self.env(), "IDLE_COMPACT_STATE": ""})
+                                                field: text}),
+                              env={**self.env(), "AGENTKIT_SESSION": seat,
+                                   "IDLE_COMPACT_STATE": ""})
         self.assertEqual(done.returncode, 0, done.stderr)
-        return json.loads((self.state / f"stop-{SEAT}.json").read_text())
+        return json.loads((self.state / f"stop-{seat}.json").read_text())
 
     def stop(self, said=ACK, **payload):
         """One end-of-turn hook call; the answer is what the harness reads off stdout."""
@@ -100,11 +102,15 @@ class StopPeerTurn(unittest.TestCase):
         self.assertTrue(output.strip(), "the hook allowed the stop")
         return json.loads(output)
 
-    def typed(self, text, source):
-        """ak's typing receipt for a line it is about to type into the seat, as watch writes it."""
+    def typed(self, text, source, keys_in=True, at=None):
+        """ak's typing receipt for a line it types into the seat, and its `typed` row once the
+        keys are in, as watch writes them."""
+        at = time.time() if at is None else at
         with (self.state / f"input-{SEAT}.jsonl").open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"at": time.time(), "text": text, "source": source,
+            fh.write(json.dumps({"at": at, "text": text, "source": source,
                                  "harness": "claude", "conversation": "fake", "after": 0}) + "\n")
+            if keys_in:
+                fh.write(json.dumps({"typed": at}) + "\n")
 
     # --- the standing done ----------------------------------------------------
 
@@ -142,16 +148,34 @@ class StopPeerTurn(unittest.TestCase):
         self.assertFalse(self.prompt(TOLD)["peer"])
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
-    def test_a_rename_leaves_the_told_line_spent(self):
-        """The turn latch stays under the launch name the harness keeps, so a rename between the
-        told line and the owner's own later prompt with its words does not make it a peer's."""
+    def test_a_rename_or_a_relaunch_under_the_new_name_leaves_the_told_line_spent(self):
+        """Its `used` row moves with the receipts, whichever name the harness was started under."""
         self.notified("done", self.done_at)
         self.typed(TOLD, "seat:acme-fix-api")
         self.assertTrue(self.prompt(TOLD)["peer"])
         with patch.object(config, "STATE", self.state), patch.object(config, "ensure_dirs"):
             config.rename_session(SEAT, "renamed-peer")
         self.assertFalse(self.prompt(TOLD)["peer"])
-        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+        self.assertFalse(self.prompt(TOLD, seat="renamed-peer")["peer"])
+
+    def test_a_prompt_in_between_leaves_the_told_line_its_peer_turn(self):
+        """The owner's prompt over Remote Control lands while the line waits for its Enter."""
+        self.notified("done", self.done_at)
+        self.typed(TOLD, "seat:acme-fix-api")
+        self.assertFalse(self.prompt("Check the docs too.", field="message")["peer"])
+        self.assertTrue(self.prompt(TOLD)["peer"])
+        self.assertEqual(self.stop(), "")
+
+    def test_a_receipt_with_no_keys_in_or_written_after_the_prompt_opens_no_peer_turn(self):
+        """A sender that died before its keys typed nothing, and a receipt newer than the prompt
+        cannot be what the prompt says: the owner typing those words is the owner."""
+        for keys_in, later in ((False, 0), (True, 3600)):
+            with self.subTest(keys_in=keys_in, later=later):
+                self.setUp()
+                self.notified("done", self.done_at)
+                self.typed(TOLD, "seat:acme-fix-api", keys_in=keys_in, at=time.time() + later)
+                self.assertFalse(self.prompt(TOLD)["peer"])
+                self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_a_line_ak_types_for_itself_or_the_owner_opens_no_peer_turn(self):
         for source in ("ak", "owner"):

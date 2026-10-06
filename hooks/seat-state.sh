@@ -52,7 +52,7 @@ watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None,
 }
 
 seat_state() {
-  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner since latch
+  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner used latch
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
@@ -150,18 +150,22 @@ sys.exit(0 if passive else 1)
     peer=true
   fi
   # So does a line another seat sent with `ak tell`: ak writes its typing receipt, source
-  # `seat:<sender>`, before the text goes in, so it was written since the turn before this one
-  # began.  The owner's own later prompt with the same words comes after a newer turn's start.
+  # `seat:<sender>`, before the text goes in and a `typed` row once its keys are in.  Such a
+  # receipt opens one prompt, the first after it with its words, and a `used` row beside it
+  # says so, in the file that keeps the seat's name through renames and relaunches.
   latch="$dir/stop-$seat.json"
   if [[ $peer = false && -r $dir/input-$row.jsonl ]]; then
-    since=$("$jq" -r '.turn | numbers' "$latch" 2>/dev/null) || since=''
-    if "$jq" -Rse --argjson p "$payload" --argjson since "${since:-0}" '
-        [split("\n")[] | fromjson? | objects] as $sent
+    used=$("$jq" -Rr --slurp --argjson p "$payload" --argjson now "$ts" '
+        [split("\n")[] | fromjson? | objects] as $rows
+        | [$rows[] | .typed | numbers] as $typed | [$rows[] | .used | numbers] as $spent
         | [($p.prompt // empty), ($p.message // empty)] | map(strings | gsub("\\s"; "")) as $said
-        | any($sent[]; (.source | strings | startswith("seat:")) and ((.at | numbers) > $since)
-                       and ((.text | strings | gsub("\\s"; "")) as $t | any($said[]; . == $t)))' \
-        "$dir/input-$row.jsonl" >/dev/null 2>&1; then
+        | first($rows[] | select((.source | strings | startswith("seat:")) and (.at | numbers) < $now
+            and (.at as $at | any($typed[]; . == $at) and all($spent[]; . != $at))
+            and ((.text | strings | gsub("\\s"; "")) as $t | any($said[]; . == $t)))) | .at' \
+        "$dir/input-$row.jsonl" 2>/dev/null) || used=''
+    if [[ -n $used ]]; then
       peer=true
+      printf '{"used": %s}\n' "$used" >>"$dir/input-$row.jsonl" || true
     fi
   fi
   asked=false

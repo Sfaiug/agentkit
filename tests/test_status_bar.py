@@ -117,7 +117,7 @@ class StatusBar(Sandbox):
         self.assertIn("Merged ##75", why)
         self.assertEqual(title, "herdr · done")
 
-    def test_rename_moves_every_state_file_but_the_turn_latch_and_run_records(self):
+    def test_rename_moves_every_state_file_and_run_records(self):
         seats = [dict(self.seat)]
 
         def tmux(*args, **kwargs):
@@ -144,12 +144,12 @@ class StatusBar(Sandbox):
         for path in (config.notify_path("parser"), config.card_path("parser"),
                      config.seat_state_path("parser"), config.hook_facts_path("parser"),
                      config.compact_path("parser"), config.plan_path("parser"),
-                     config.stop_path("herdr")):    # its hooks keep the launch name's latch
+                     config.stop_path("parser")):
             self.assertTrue(path.exists(), path)
         for path in (config.notify_path("herdr"), config.card_path("herdr"),
                      config.seat_state_path("herdr"), config.hook_facts_path("herdr"),
                      config.compact_path("herdr"), config.plan_path("herdr"),
-                     config.stop_path("parser")):
+                     config.stop_path("herdr")):
             self.assertFalse(path.exists(), path)
         self.assertEqual(record.read_state(config.RUNS / "20260101-0900-mine")["launched_session"],
                          "parser")

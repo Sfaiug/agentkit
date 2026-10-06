@@ -217,7 +217,7 @@ class OwnerWords(unittest.TestCase):
         self.append(prompt(104, "Yes, ship."))
         self.assertEqual([message["text"] for message in self.messages()], [
             "continue", "continue", "Your subscription ran out. An owner can say this too.", "Yes, ship."])
-        rows = list(harness.entries(config.seat_file("input", "lagoon")))
+        rows = [row for row in harness.entries(config.seat_file("input", "lagoon")) if "text" in row]
         self.assertEqual([row["source"] for row in rows], ["ak", "owner", "ak"])
         self.assertEqual([row["after"] for row in rows], [1, 4, 5])
 
@@ -229,7 +229,7 @@ class OwnerWords(unittest.TestCase):
         self.assertTrue(self.type("ak notice", pending=True))
         self.append(prompt(101, "ak notice"))
         self.assertEqual(self.messages(), [])
-        self.assertEqual(len(list(harness.entries(config.seat_file("input", "lagoon")))), 1)
+        self.assertEqual(len([row for row in harness.entries(config.seat_file("input", "lagoon")) if "text" in row]), 1)
         with patch.object(orch, "tmux_out", return_value=(1, "fake failure")):
             self.assertFalse(watch.type_checked(self.seat, "owner later", lambda _: None, "claude"))
         self.assertFalse(self.type("owner later", veto=lambda _: True))

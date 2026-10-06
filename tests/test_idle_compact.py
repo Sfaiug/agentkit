@@ -422,7 +422,8 @@ class Seat(unittest.TestCase):
         _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_STOP_ON="/compact", FAKE_LIFE=15,
                                   AGENTKIT_SESSION="seat")
         self.assert_compacted(events, manifest_command("claude"))
-        receipts = [json.loads(line) for line in (state / "input-seat.jsonl").read_text().splitlines()]
+        receipts = [row for row in map(json.loads, (state / "input-seat.jsonl").read_text().splitlines())
+                    if "text" in row]
         self.assertEqual(len(receipts), 1)
         receipt = receipts[0]
         self.assertEqual((receipt["text"], receipt["source"], receipt["harness"], receipt["conversation"]),

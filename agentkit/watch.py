@@ -45,7 +45,7 @@ from urllib.parse import urlsplit
 from . import (browser, command_help, config, gc, host, notify, orch, statusbar, update, usage,
                worker)
 from . import record as run_record
-from .harness import LIMITED, SPENT, says
+from .harness import LIMITED, SPENT, entries, says
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
@@ -2366,12 +2366,33 @@ def _send_enter(session, log):
     return True
 
 
+def _keys_in(fh, at):
+    """The `typed` row after a receipt whose keys went in: one whose sender died before them
+    typed nothing."""
+    fh.write(json.dumps({"typed": at}) + "\n")
+    fh.flush()
+
+
+def keys_in(name, text):
+    """Its line found alone in that seat's composer: the newest receipt of it without a `typed`
+    row gets one, for a sender that died right after its keys went in."""
+    path = config.seat_file("input", name)
+    rows = list(entries(path))
+    typed = {row.get("typed") for row in rows}
+    at = next((row["at"] for row in reversed(rows)
+               if row.get("text") == text and row.get("at") not in typed), None)
+    if at is not None:
+        with path.open("a", encoding="utf-8") as fh:
+            _keys_in(fh, at)
+
+
 def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None):
     """Type one literal line; the caller waits KEY_GAP before sending its Enter.
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
-    A pty sender supplies `send(text)`; both transports share the same typing receipt.
+    A pty sender supplies `send(text)`; both transports share the same typing receipt, and the
+    `typed` row that follows it once the keys are in.
     """
     name = session["name"]
     record = config.session_records().get(name, {})
@@ -2392,6 +2413,7 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None
             fh.truncate(before)
             log(f"WARN could not type into the {name} seat: {out[-200:]}")
             return False
+        _keys_in(fh, sent["at"])
     typed()
     return True
 
