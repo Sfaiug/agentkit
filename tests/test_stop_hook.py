@@ -222,6 +222,18 @@ class StopHook(unittest.TestCase):
         self.assertEqual(self.stop("Waiting for the job.",
                                    env={"AGENTKIT_SESSION": "renamed-seat"}), "")
 
+    def test_a_seat_renamed_as_often_as_ak_follows_is_judged_under_its_last_name(self):
+        # `ak orch rename` takes each of these renames, so the hook follows all of them: the
+        # seat's own run is found under the last name, and the Stop lands where its row reads.
+        names = [SEAT, *(f"renamed-{hop}" for hop in range(1, config.RENAME_HOPS + 1))]
+        for before, after in zip(names, names[1:]):
+            (self.state / f"session-{before}.json").write_text(json.dumps({"renamed": after}))
+        (self.state / f"session-{names[-1]}.json").write_text("{}")
+        self.run_json("one", launched_session=names[-1], state="running")
+        self.assertEqual(self.stop("Waiting on run one.", background_tasks=[]), "")
+        self.assertEqual(json.loads((self.state / f"hook-{names[-1]}.json").read_text())["event"],
+                         "Stop")
+
     def test_a_job_waits_until_its_last_task_settles(self):
         self.job_json("merged", "failed", "running")
         self.assertEqual(self.stop("Waiting for the job."), "")
