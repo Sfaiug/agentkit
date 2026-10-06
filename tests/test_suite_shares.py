@@ -160,12 +160,14 @@ mark() { printf 'ran: %s\n' "$1"; }
             sandbox = next(line for line in out.splitlines() if line.startswith("sandbox: "))
             home, temp, cache = sandbox.removeprefix("sandbox: ").split("|")
             homes.append(home)
-            self.assertEqual(temp, home + "/tmp")
+            # The boxes a piece's checks start see its HOME in the checkout, not in /tmp, which
+            # is each box's own; tmux follows $WORK/tmux to the short temporary directory.
+            self.assertEqual(Path(home).parent, self.root)
             self.assertEqual(cache, home + "/pycache")
-            socket = (Path(home) / ".agentkit/tmp/smoke-20000101-000000/tmux" /
-                      f"tmux-{os.getuid()}/agentkit-test")
-            self.assertLessEqual(len(os.fsencode(socket.resolve())), 103)
+            socket = Path(temp, f"tmux-{os.getuid()}/agentkit-test")
+            self.assertLessEqual(len(os.fsencode(socket)), 103)
             self.assertFalse(Path(home).exists(), "piece left its sandbox behind")
+            self.assertFalse(Path(temp).exists(), "piece left its temporary files behind")
             seen.extend(line.removeprefix("ran: ") for line in out.splitlines()
                         if line.startswith("ran: "))
         self.assertEqual(len(set(homes)), 3)
