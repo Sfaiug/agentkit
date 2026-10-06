@@ -606,7 +606,9 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 continue
                             checks = commands(index) if batched else own
                             running[pool.submit(_check_tree, member, saved, scratch, tree, checks, log,
-                                                (tree, base))] = index, checks
+                                                # judged only under its own tests: line
+                                                (tree, base) if run.declared_suite(scratch) == suite
+                                                else None)] = index, checks
                             active.add((tree, own))
                         if not running:
                             break

@@ -7,7 +7,7 @@ lands on must have run (`judge`), so a new test file runs before it lands; a mis
 ordinary red the lander narrows down to its change.  A suite that writes no report is not
 judged.  A kind of test file (Python, Go, JavaScript) the report names no case of is not
 judged when the report also holds cases it does not tie to a file (node's own junit reporter
-names none).
+names none), nor a file whose name in the report several test files share.
 """
 
 import os
@@ -17,7 +17,6 @@ import subprocess
 import xml.etree.ElementTree as ET
 
 ENV = "AK_TEST_REPORT"
-SHOWN = 20      # file names a failure prints before it counts the rest
 # The usual test file names across Python, Go and JavaScript; files under a fixtures
 # folder are a test's data, not tests.
 TEST_FILE = re.compile(r"(?:^|/)(?:test_[^/]+\.py|[^/]+_test\.(?:py|go)"
@@ -40,7 +39,8 @@ def kind(name):
 
 def ran(report_dir, files, checkout):
     """(the `files` a report under `report_dir` ran a case of, whether it also ran cases it
-    ties to no test file), or None when it holds no report."""
+    ties to no test file, the `files` behind a name several of them share), or None when it
+    holds no report."""
     reports = sorted(Path(report_dir).rglob("*.xml"))
     if not reports:
         return None
@@ -51,7 +51,7 @@ def ran(report_dir, files, checkout):
         parts = name.split("/")
         for start in range(len(parts)):
             tails.setdefault("/".join(parts[start:]), set()).add(name)
-    seen, blind, known = set(), False, {}
+    seen, blind, unsure, known = set(), False, set(), {}
     for path in reports:
         try:
             root = ET.parse(path).getroot()
@@ -64,15 +64,19 @@ def ran(report_dir, files, checkout):
                 key = (case.get("file") or parent.get("file"), case.get("classname"))
                 if key not in known:
                     known[key] = _file(*key, tails, checkout)
-                if known[key]:
-                    seen.add(known[key])
+                hit, shared = known[key]
+                if hit:
+                    seen.add(hit)
+                elif shared:
+                    unsure |= shared
                 else:
                     blind = True
-    return seen, blind
+    return seen, blind, unsure
 
 
 def _file(path, classname, tails, checkout):
-    """The one test file a case belongs to: its own path, else its dotted module name."""
+    """(the one test file a case belongs to, by its own path, else its dotted module name, or
+    None; the files sharing the name it gave when none is the one)."""
     candidates = []
     if path:
         if os.path.isabs(path):
@@ -82,11 +86,13 @@ def _file(path, classname, tails, checkout):
         parts = classname.split(".")
         candidates += ["/".join(parts[:end]) + ".py" for end in range(len(parts), 0, -1)]
         candidates.append(classname)        # JavaScript reporters put the path here
+    shared = set()
     for candidate in candidates:
-        found = tails.get(candidate, ())
+        found = tails.get(candidate, set())
         if len(found) == 1:
-            return next(iter(found))
-    return None
+            return next(iter(found)), set()
+        shared = shared or found
+    return None, shared
 
 
 def judge(checkout, report_dir, tree, base):
@@ -100,11 +106,9 @@ def judge(checkout, report_dir, tree, base):
     report = ran(report_dir, files, checkout) if added else None
     if report is None:
         return ""       # nothing added, or no report to judge it by
-    seen, blind = report
+    seen, blind, unsure = report
     judged = {kind(name) for name in seen} if blind else {kind(name) for name in added}
-    new = sorted(name for name in added - seen if kind(name) in judged)
+    new = sorted(name for name in added - seen - unsure if kind(name) in judged)
     if not new:
         return ""
-    more = f" and {len(new) - SHOWN} more" if len(new) > SHOWN else ""
-    return (f"{NEVER_RAN}{', '.join(new[:SHOWN])}{more}: add them to the `tests:` suite, "
-            "or delete them.")
+    return f"{NEVER_RAN}{', '.join(new)}: add them to the `tests:` suite, or delete them."

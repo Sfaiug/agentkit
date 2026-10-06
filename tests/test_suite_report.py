@@ -75,7 +75,8 @@ class SuiteReport(unittest.TestCase):
         self.write(PYTEST_XUNIT1)
         files = suite_report.test_files(self.repo, self.tree())
         self.assertEqual(suite_report.ran(self.report, files, self.repo),
-                         ({"tests/test_billing.py", "tests/test_menu.py", "tests/test_red.py"}, False))
+                         ({"tests/test_billing.py", "tests/test_menu.py", "tests/test_red.py"}, False,
+                          set()))
 
     def test_no_report_is_none_and_a_broken_one_proves_nothing(self):
         files = suite_report.test_files(self.repo, self.tree())
@@ -83,19 +84,22 @@ class SuiteReport(unittest.TestCase):
         self.write("<testsuite><testcase", "half.xml")
         self.write(self.case_xml(str(self.repo / "tests/test_menu.py")), "absolute.xml")
         self.assertEqual(suite_report.ran(self.report, files, self.repo),
-                         ({"tests/test_menu.py"}, False))
+                         ({"tests/test_menu.py"}, False, set()))
 
     def test_a_runner_started_in_a_subfolder_still_names_its_files(self):
         self.write('<testsuite><testcase classname="test_menu" name="a" file="test_menu.py"/>'
                    '<testcase classname="test_billing" name="b"/></testsuite>')
         files = suite_report.test_files(self.repo, self.tree())
         self.assertEqual(suite_report.ran(self.report, files, self.repo),
-                         ({"tests/test_menu.py", "tests/test_billing.py"}, False))
-        # a tail two tracked files share credits neither
+                         ({"tests/test_menu.py", "tests/test_billing.py"}, False, set()))
+        # a tail two tracked files share credits neither, and leaves both unjudged
+        base = self.tree()
         self.add("app/tests/test_menu.py")
         files = suite_report.test_files(self.repo, self.tree())
         self.assertEqual(suite_report.ran(self.report, files, self.repo),
-                         ({"tests/test_billing.py"}, True))
+                         ({"tests/test_billing.py"}, False,
+                          {"tests/test_menu.py", "app/tests/test_menu.py"}))
+        self.assertEqual(suite_report.judge(self.repo, self.report, self.tree(), base), "")
 
     def test_a_test_file_a_change_adds_must_run(self):
         base = self.tree()
@@ -104,6 +108,11 @@ class SuiteReport(unittest.TestCase):
         self.assertEqual(said, "Test files the suite never ran: tests/test_new.py: add them "
                                "to the `tests:` suite, or delete them.")
         self.assertEqual(self.judge(base, "tests/test_billing.py", "tests/test_new.py"), "")
+        # every one is named, never cut short
+        for index in range(25):
+            self.add(f"tests/test_many_{index:02}.py")
+        said = self.judge(base, "tests/test_billing.py", "tests/test_new.py")
+        self.assertTrue(all(f"tests/test_many_{index:02}.py" in said for index in range(25)), said)
 
     def test_test_files_the_base_has_are_never_this_change_s(self):
         # whatever the tree it lands on left unrun, or a merge outside the line added
@@ -152,28 +161,6 @@ class SuiteReport(unittest.TestCase):
             self.assertFalse(Path(report).exists())
             self.assertNotIn(suite_report.ENV, gate.suite_env())
 
-    def test_a_landing_check_fails_a_clean_pass_that_left_an_added_file_unrun(self):
-        self.git("add", "-A")
-        self.git("-c", "user.name=acme", "-c", "user.email=acme@localhost", "commit", "-q", "-m", "acme")
-        base = self.tree()
-        self.add("tests/test_new.py")
-        self.git("add", "-A")
-        self.git("-c", "user.name=acme", "-c", "user.email=acme@localhost", "commit", "-q", "-m", "new")
-        state = {"repo": str(self.repo), "waiting_on": {"joined": 1.0, "line": "main"}}
-        report = f"printf '%s' '{self.case_xml('tests/test_billing.py')}' > \"$AK_TEST_REPORT/p.xml\""
-        env = {"AK_MAX_RUNS": "0", "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
-               "AK_RUN_DEPTH": "0"}
-        with patch.dict(os.environ, env):
-            ok, text = land._check(self.root, state, self.repo, [report], self.root / "l1.log",
-                                   lambda _: None, coverage=(self.tree(), base))
-            self.assertFalse(ok)
-            self.assertIn("Test files the suite never ran: tests/test_new.py", text)
-            self.assertTrue(run.LOOP_NOTE.match(text.splitlines()[-1]))
-            ran_it = report.replace("tests/test_billing.py", "tests/test_new.py")
-            ok, text = land._check(self.root, state, self.repo, [ran_it], self.root / "l2.log",
-                                   lambda _: None, coverage=(self.tree(), base))
-        self.assertTrue(ok, text)
-
     def test_agentkit_s_own_suite_reports_its_files_and_smoke_s(self):
         every_file.write_report(self.report, 2, 3, {Path("tests/test_menu.py"), Path("tests/test_red.py"),
                                                     Path("tests/test_skipped.py")},
@@ -181,7 +168,8 @@ class SuiteReport(unittest.TestCase):
                                 {Path("tests/test_billing.py")})
         files = suite_report.test_files(self.repo, self.tree())
         self.assertEqual(suite_report.ran(self.report, files, self.repo),
-                         ({"tests/test_menu.py", "tests/test_red.py", "tests/test_billing.py"}, False))
+                         ({"tests/test_menu.py", "tests/test_red.py", "tests/test_billing.py"}, False,
+                          set()))
         self.assertEqual(every_file.cases_skipped("Ran 2 tests in 0.1s\n\nOK (skipped=2)\n"), 2)
         self.assertIn("<failure", (self.report / "every-file-2-of-3.xml").read_text())
 
@@ -217,6 +205,43 @@ class CoverageInTheLine(LanderFixture, unittest.TestCase):
         fix = self.wait(later)["fix"]
         self.assertIn("Test files the suite never ran: tests/test_other.py", fix["line"])
         self.assertIn("tests/test_other.py", Path(fix["log"]).read_text())
+
+    def test_a_landing_check_fails_a_clean_pass_that_left_an_added_file_unrun(self):
+        self.suite("tests/test_old.py\n")
+        base = run.git(self.repo, "rev-parse", "HEAD^{tree}")
+        state = {"repo": str(self.repo), "waiting_on": {"joined": 1.0, "line": "main"}}
+        scratch = self.root / "scratch"
+
+        def check(log):
+            # the lander checks a pinned scratch checkout of the tree, never the repository
+            head = run.git(self.repo, "rev-parse", "HEAD")
+            if scratch.exists():
+                run.git(scratch, "checkout", "-q", "--detach", head)
+            else:
+                run.git(self.repo, "worktree", "add", "-q", "--detach", str(scratch), head)
+            return land._check(self.root, state, scratch, ["python3 report.py"], self.root / log,
+                               lambda _: None,
+                               coverage=(run.git(scratch, "rev-parse", "HEAD^{tree}"), base))
+        (self.repo / "tests/test_new.py").write_text("x\n")
+        self.commit("adds a test file the suite does not run")
+        ok, text = check("l1.log")
+        self.assertFalse(ok)
+        self.assertIn("Test files the suite never ran: tests/test_new.py", text)
+        self.assertTrue(run.LOOP_NOTE.match(text.splitlines()[-1]))
+        (self.repo / "ran.txt").write_text("tests/test_old.py\ntests/test_new.py\n")
+        self.commit("runs it")
+        ok, text = check("l2.log")
+        self.assertTrue(ok, text)
+
+    def test_a_change_to_its_own_tests_line_is_not_judged_by_the_target_s(self):
+        self.suite("tests/test_old.py\n")
+        # it adds a test file and a line that runs it: the target's line cannot know it
+        mine = self.member("mine", **{"tests/test_new.py": "x\n", "AGENTS.md":
+                                      "---\ntests: python3 report.py && echo also new\n---\n"})
+        self.advance()
+        with patch.object(gate, "derived_heavy_limit", return_value=2):
+            land.check_line(self.turn)
+        self.assertIn("land", self.wait(mine))
 
     def test_a_change_that_narrows_the_suite_never_holds_up_the_ones_after_it(self):
         self.suite("tests/test_old.py\n")
