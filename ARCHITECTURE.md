@@ -93,8 +93,9 @@
 - `box.py`: credential masks, own temporary places and /run, PID teardown. `command`, `check`,
   `returncode`, `leftovers`; for worker and run.
 - `guard.py`: what a seat's tmux may not do (end, or type into, another seat; `refusal`, the `-t`
-  resolved by the real tmux) and gh may not (`gh pr merge` from a seat; `gh_refusal`), read from the
-  final argv a `tools/*-shim` hands it; `install_shim` links each as `<HOME>/bin/<name>`.
+  resolved by the real tmux), gh may not (`gh pr merge` from a seat; `gh_refusal`) and git may not
+  (`git worktree add` into ~/code; `worktree_refusal`), read from the final argv a `tools/*-shim`
+  hands it; `install_shim` links each as `<HOME>/bin/<name>`.
 - `shim.py`: the body every `tools/*-shim` runs -- find the real binary, engage only for a seat's
   own by-hand call, ask `guard`, else exec the real one; imports `guard` lazily, so a guard that
   cannot import still execs the real binary.
@@ -156,7 +157,9 @@
   two rebuild config.py's seat file names, and seat-state.sh its rename chain.
 - `tools/`: `*-shim`, each a thin entry point linked as `<HOME>/bin/<name>` first on a seat's PATH,
   running `agentkit.shim` -- `tmux-shim` (refuses ending or typing into another seat) and `gh-shim`
-  (refuses a seat's `gh pr merge`); and, called by adapters:
+  (refuses a seat's `gh pr merge`) -- but `git-shim`, sh of its own because git is hot: it runs the
+  real git at once unless a seat's call names `worktree`, then asks `python3 -m agentkit.guard`
+  (refusing a `git worktree add` into ~/code); and, called by adapters:
   `rulebook.py`, `idle-compact.py`, `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.
