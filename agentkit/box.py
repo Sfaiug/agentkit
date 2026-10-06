@@ -193,7 +193,7 @@ def _writable(clean, cwd, out_dir, state, places, logins):
 
 
 def _sockets(own):
-    """Every Unix socket bound on the host now, but those in the box's own places.
+    """Where to cover every Unix socket bound on the host now, but those in the box's own places.
 
     A host service runs commands for whoever connects, outside the box. Abstract names have no
     file to cover, and a relative one names a place in a directory the list does not give."""
@@ -209,8 +209,12 @@ def _sockets(own):
         except (OSError, RuntimeError):
             # Gone, or a name no longer leading to a socket: nothing to connect to there.
             continue
-        if not any(parent in own for parent in path.parents):
-            found.add(path)
+        if any(parent in own for parent in path.parents):
+            continue
+        # Bubblewrap opens each directory on the way to a mount point: one closed to you is
+        # covered whole.
+        found.add(next((parent for parent in reversed(path.parents)
+                        if not os.access(parent, os.R_OK)), path))
     return found
 
 
