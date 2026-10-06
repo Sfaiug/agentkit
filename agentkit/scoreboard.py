@@ -13,10 +13,19 @@ def compute(now=None):
 
     Shares use all ended runs; merge time and token medians use merged runs only.
     Changed lines survive run cleanup as evidence of a merge; older, unsized merges
-    need their run record. Missing token measurements never become free work.
+    need their run record. Missing token measurements never become free work. Waits share
+    the run time of the ended runs that recorded them; a week of none is not recorded. A run
+    started again since its row ended (a resume, a delivery retry) counts waits for an attempt
+    still going, so its waits wait until its row publishes the ending its record saved.
     """
     now = time.time() if now is None else now
     week = 7 * 86400
+
+    def settled(row):
+        """Whether the run's record still ends where its row does, or is gone."""
+        saved = record.read_state(config.RUNS / row["run_id"])
+        return saved is None or (saved.get("state"), saved.get("finished_at")) == (
+            row["final_state"], row["finished_at"])
 
     def git(*args):
         try:
@@ -33,14 +42,24 @@ def compute(now=None):
     if common:
         own_names.add((config.REPO / os.fsdecode(common).strip()).resolve().parent.name)
     rows = [row for row in history.ended_runs(now - 2 * week, now)
-            if row["final_state"] in ("pass", *record.FAILED, "exhausted")]
+            if row["final_state"] in ("pass", *record.FAILED, "exhausted", "not_needed")]
 
-    board = {"products": [], "ak": []}
+    board, waits = {"products": [], "ak": []}, []
     for end in (now, now - week):
-        ended = [row for row in rows if end - week <= row["finished_at"] and
-                 (row["finished_at"] <= end if end == now else row["finished_at"] < end)]
+        finished = [row for row in rows if end - week <= row["finished_at"] and
+                    (row["finished_at"] <= end if end == now else row["finished_at"] < end)]
+        # A run found not needed waited and ran like any other, but delivered nothing to score.
+        ended = [row for row in finished if row["final_state"] != "not_needed"]
         total_tokens = sum((row.get(role + "_tokens") or 0)
                            for row in ended for role in ("executor", "reviewer"))
+        recorded = [row for row in finished
+                    if row.get("slot_wait_seconds") is not None and row.get("total_seconds")
+                    and settled(row)]
+        run_time = sum(row["total_seconds"] for row in recorded)
+        waits.append({"compute": sum(row["slot_wait_seconds"] + row["suite_wait_seconds"]
+                                     for row in recorded) / run_time,
+                      "merge_hours": sum(row["merge_wait_seconds"] for row in recorded) / 3600}
+                     if run_time else None)
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group:
@@ -77,6 +96,7 @@ def compute(now=None):
 
     before = git("rev-list", "--first-parent", "-1",
                  "--before=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - week)), "HEAD")
+    board["waits"] = waits
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
     return board
 
@@ -106,6 +126,12 @@ def render():
             text += f"; {share:.0%} of all recorded tokens" if share is not None else "; no tokens recorded"
         return text
 
+    def waited(stats):
+        if stats is None:
+            return "not recorded"
+        return (f"{stats['compute']:.0%} of run time waiting for a slot or its own suite turn; "
+                f"{stats['merge_hours']:.1f} hours in a landing line")
+
     def size(stats):
         if stats is None:
             return "size unavailable"
@@ -117,6 +143,7 @@ def render():
     rows = [("", "last 7 days", "7 days before"),
             ("products", *(week(stats, False) for stats in board["products"])),
             ("ak", *(week(stats, True) for stats in board["ak"])),
+            ("waits", *(waited(stats) for stats in board["waits"])),
             ("ak size", *(size(stats) for stats in board["size"]))]
     room = max(1, (terminal.content_width() - 12) // 2)
     lines = terminal.wrap("Scoreboard (reported tokens; size now and 7 days ago)", terminal.content_width())

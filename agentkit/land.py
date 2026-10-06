@@ -77,21 +77,27 @@ def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red
     fresh.replace(path)
 
 
+def member(state):
+    """Whether a record holds a place in its line: parked, or a green delivery that continues
+    itself."""
+    from . import run
+    wait = state.get("waiting_on")
+    return (isinstance(wait, dict) and not state.get("merged")
+            and (state.get("state") == "waiting"
+                 or (green_delivery(wait)
+                     and state.get("state") not in record.ENDED
+                     and run.followup_open(state)
+                     and (record.process_active(state) or run.tick_resumes(state))))
+            and isinstance(wait.get("line"), str)
+            and type(wait.get("joined")) in (int, float))
+
+
 def line(turn):
     """Green deliveries in tested stack order, then the rest in join order."""
-    from . import run
     members = []
     for directory in record.run_dirs():
         state = record.read_state(directory) or {}
-        wait = state.get("waiting_on")
-        if (isinstance(wait, dict) and not state.get("merged")
-                and (state.get("state") == "waiting"
-                     or (green_delivery(wait)
-                         and state.get("state") not in record.ENDED
-                         and run.followup_open(state)
-                         and (record.process_active(state) or run.tick_resumes(state))))
-                and wait.get("line") == turn.name
-                and type(wait.get("joined")) in (int, float)):
+        if member(state) and state["waiting_on"]["line"] == turn.name:
             members.append((directory, state))
     deliveries = {directory.name: state["waiting_on"]["land"] for directory, state in members
                   if green_delivery(state["waiting_on"])}

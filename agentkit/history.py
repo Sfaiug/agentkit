@@ -22,6 +22,9 @@ SANDBOX_REPOS = ("agentkit-smoke", "agentkit-e2e")
 REAL_WORK = "COALESCE(final_state,'') != 'stopped' AND NOT suite_run(run_id, repo)"
 STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds",
                 "reviewer": "reviewer_seconds", "merge": "merge_seconds"}
+# The waits a run marks, each summed across its resumes; NULL on a row written before them.
+WAIT_COLUMNS = {"slot": "slot_wait_seconds", "suite": "suite_wait_seconds",
+                "merge": "merge_wait_seconds"}
 _OPEN = {}     # run_id -> [step, since]: the step this process runs, counted up to `since`
 _OPEN_LOCK = threading.Lock()
 
@@ -50,13 +53,17 @@ CREATE TABLE IF NOT EXISTS runs (
     task_checks INTEGER,
     task_files TEXT,
     orchestrator TEXT,
-    changed_lines INTEGER
+    changed_lines INTEGER,
+    slot_wait_seconds REAL,
+    suite_wait_seconds REAL,
+    merge_wait_seconds REAL
 )
 """
 
 MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"),
-              ("changed_lines", "INTEGER"), ("live_at", "REAL"))
+              ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
+              ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"))
 
 REVIEWS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviews (
@@ -160,15 +167,16 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     repo = Path(repo).name if repo else None
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
-              task_words, task_points, task_checks, task_files, orchestrator)
+              task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0)
 
     def insert(connection):
         connection.execute(
             "INSERT INTO runs (run_id, repo, executor, reviewer, rounds_used, final_state, verdict, "
             "started_at, finished_at, executor_seconds, done_when_seconds, reviewer_seconds, "
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
-            "task_words, task_points, task_checks, task_files, orchestrator) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "task_words, task_points, task_checks, task_files, orchestrator, "
+            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -185,6 +193,10 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
 
 def update_run(run_id, *, log=None, **fields):
     """Update known row fields, silently retaining unknown state keys."""
+    _write(lambda connection: _update(connection, run_id, fields), log)
+
+
+def _update(connection, run_id, fields):
     allowed = {"repo", "executor", "reviewer", "rounds_used", "final_state", "verdict",
                "started_at", "finished_at", "executor_seconds", "done_when_seconds",
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
@@ -197,8 +209,7 @@ def update_run(run_id, *, log=None, **fields):
         fields["repo"] = Path(fields["repo"]).name
     columns = ", ".join(f"{key}=?" for key in fields)
     values = [fields[key] for key in fields]
-    _write(lambda connection: connection.execute(
-        f"UPDATE runs SET {columns} WHERE run_id=?", [*values, run_id]), log)
+    connection.execute(f"UPDATE runs SET {columns} WHERE run_id=?", [*values, run_id])
 
 
 def add_seconds(run_id, step, seconds, *, log=None):
@@ -209,6 +220,15 @@ def add_seconds(run_id, step, seconds, *, log=None):
     _write(lambda connection: connection.execute(
         f"UPDATE runs SET {column}=COALESCE({column},0)+? WHERE run_id=?",
         (max(0.0, seconds), run_id)), log)
+
+
+def add_wait(run_id, wait, seconds, *, log=None):
+    """Add one finished wait to its column; a row from before the columns stays unrecorded."""
+    if not isinstance(seconds, (int, float)) or not math.isfinite(seconds):
+        return
+    column = WAIT_COLUMNS[wait]
+    _write(lambda connection: connection.execute(
+        f"UPDATE runs SET {column}={column}+? WHERE run_id=?", (max(0.0, seconds), run_id)), log)
 
 
 def add_tokens(run_id, role, tokens, *, log=None):
@@ -284,7 +304,10 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
                changed_lines=None, log=None):
-    """Record the row's final lifecycle fields and duration."""
+    """Record the row's final lifecycle fields and duration in one commit.
+
+    No reader sees an ending without the run time it closes.
+    """
     finished_at = time.time() if finished_at is None else finished_at
     values = {"final_state": final_state, "verdict": verdict, "rounds_used": rounds_used,
               "finished_at": finished_at, "peak_rss_mb": peak_rss_mb,
@@ -292,17 +315,24 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
               "task_files": task_files, "changed_lines": changed_lines}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
-    if started_at is not None:
-        values["started_at"] = started_at
-    if values:
-        update_run(run_id, log=log, **values)
-    if peak is not None:
-        _write(lambda connection: connection.execute(
-            "UPDATE runs SET peak_rss_mb=MAX(COALESCE(peak_rss_mb,0), ?) WHERE run_id=?",
-            (peak, run_id)), log)
-    _write(lambda connection: connection.execute(
-        "UPDATE runs SET total_seconds=CASE WHEN started_at IS NULL THEN total_seconds "
-        "ELSE MAX(0, ?-started_at) END WHERE run_id=?", (finished_at, run_id)), log)
+
+    def publish(connection):
+        _update(connection, run_id, values)
+        if peak is not None:
+            connection.execute(
+                "UPDATE runs SET peak_rss_mb=MAX(COALESCE(peak_rss_mb,0), ?) WHERE run_id=?",
+                (peak, run_id))
+        if started_at is not None:
+            # the earliest start stays: a loop restamps its record's start once it wins its
+            # slot, and the wait for that slot is run time too
+            connection.execute(
+                "UPDATE runs SET started_at=COALESCE(MIN(started_at, ?), ?) WHERE run_id=?",
+                (started_at, started_at, run_id))
+        connection.execute(
+            "UPDATE runs SET total_seconds=CASE WHEN started_at IS NULL THEN total_seconds "
+            "ELSE MAX(0, ?-started_at) END WHERE run_id=?", (finished_at, run_id))
+
+    _write(publish, log)
 
 
 def sample_rss(run_id, pid=None, *, log=None):

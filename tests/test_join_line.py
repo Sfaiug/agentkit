@@ -7,12 +7,13 @@ import io
 import os
 from pathlib import Path
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job, land, menu, record, run, watch
+from agentkit import config, gate, history, job, land, menu, record, run, scoreboard, watch
 from test_merge_step import make_loop, make_repos
 from test_v4n import Sandbox
 
@@ -154,6 +155,62 @@ class JoinLine(Sandbox):
                         patch.object(run, "spawn_bg") as spawn:
                     watch.resume_waiting(log=self.lp.log, run=self.directory)
                 spawn.assert_called_once()
+
+    def test_a_delivery_retrys_suite_wait_waits_for_its_ending(self):
+        """The heavy-turn wait of a retried delivery is its new attempt's, not its last ending's."""
+        clock, polls, real_sleep = [1070.0], [], time.sleep
+
+        def sleep(seconds):
+            if seconds != 600:
+                return real_sleep(seconds)
+            # the board never divides the new wait by the ended attempt's run time
+            self.assertEqual(scoreboard.compute(clock[0])["waits"], [None, None])
+            if polls:
+                raise SystemExit("stopped waiting")
+            polls.append(seconds)
+            clock[0] += seconds
+
+        for module, name, options in (
+                (time, "time", {"side_effect": lambda: clock[0]}),
+                (time, "monotonic", {"side_effect": lambda: clock[0]}),
+                (time, "sleep", {"side_effect": sleep}),
+                (config, "REPO", {"new": self.root / "agentkit"}),
+                (config, "load", {"return_value": self.cfg}),
+                (config, "max_gates", {"return_value": 1}),
+                (gate, "GATE_POLL", {"new": 600}),
+                (run, "pickup_new_code", {}), (run, "redress_seat", {}),
+                (run, "integrate", {"return_value": True})):
+            self.stack.enter_context(patch.object(module, name, **options))
+        self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
+        self.rights.return_value = ("acme/widget", "READ")
+        (self.directory / "task.md").write_text(
+            "# Fix API\n\n## Done when\n```bash\ntrue  # once\n```\n")
+        self.lp.state.update(state="pass", merge_failed=True, started_at=1000.0,
+                             finished_at=1060.0, merge_note="push stopped")
+        self.lp.write()
+        history.start_run(self.directory.name, repo=self.wt, started_at=1000.0)
+        history.finish_run(self.directory.name, final_state="pass", finished_at=1060.0)
+        with gate.gate_lock(self.wt, 0).open("a") as holder, self.assertRaises(SystemExit):
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            run.cmd_merge([self.directory.name])
+        self.assertEqual(history.get(self.directory.name)["suite_wait_seconds"], 600.0)
+        # the retry ends as cmd_merge does: its record first, its row after; the board reads
+        # between them and after every commit the row takes
+        with record.record(self.directory) as state:
+            state.update(state="pass", finished_at=clock[0])
+        boards, commit = [scoreboard.compute(clock[0])["waits"][0]], history._write
+
+        def observed(fn, log=None):
+            result = commit(fn, log)
+            boards.append(scoreboard.compute(clock[0])["waits"][0])
+            return result
+
+        with patch.object(history, "_write", side_effect=observed):
+            run.history_finish(record.read_state(self.directory))
+        shares = [board and round(board["compute"], 9) for board in boards]
+        self.assertEqual(shares[0], None)
+        self.assertEqual(shares[-1], round(600 / 670, 9))
+        self.assertLessEqual(set(shares), {None, round(600 / 670, 9)})
 
     def test_foreground_merge_retry_follows_a_fast_success_or_failure(self):
         self.lp.state.update(state="pass", merge_failed=True, pr="https://github.com/acme/widget/pull/7")

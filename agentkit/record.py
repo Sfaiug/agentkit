@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -106,17 +107,35 @@ def recovery_lock(run_dir):
         held.discard(mine)
 
 
+def _in_line(state):
+    """Whether the record holds a place in its line (`land.member`), not woken to fix."""
+    from . import land
+    return land.member(state) and "fix" not in state["waiting_on"]
+
+
 def _write_state(run_dir, state, temp=_RUN_TEMP):
     """The bare record write every save ends in; the guard and the lock live in `save_state`.
 
     One temporary file per lock a writer holds: `mark_delivery` writes under another lock
     than a save, and two writers filling one temporary file would put a torn record in place.
+    A place in the line counts from the write that gives it to the write that ends it, its
+    start read from the record on disk, never from a writer's older copy; the ending write
+    adds it to the run's history.
     """
+    from . import history
     previous = read_state(run_dir) or {}
+    now = time.time()
+    since = previous.get("line_since")
+    if _in_line(state):
+        state["line_since"] = now if since is None else since
+    else:
+        state.pop("line_since", None)
     record_limits(state)
     tmp = run_dir / temp
     tmp.write_text(json.dumps(state, indent=2))
     tmp.replace(run_dir / "run.json")
+    if since is not None and "line_since" not in state:
+        history.add_wait(state.get("run_id"), "merge", now - since)
     waits = [wait if isinstance(wait := saved.get("waiting_on"), dict) else {}
              for saved in (previous, state)]
     if (any(waits[0].get(key) != waits[1].get(key) for key in ("line", "joined", "land", "fix"))

@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate as suite_gate, config, run, status, worker
+from agentkit import gate as suite_gate, config, history, run, status, worker
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
@@ -115,6 +115,8 @@ class GateTurns(unittest.TestCase):
         self.until(lambda: "start" in self.marks.read_text(), "the first gate to start")
 
     def test_two_gates_of_one_repository_run_one_after_the_other(self):
+        for name in ("one", "two"):
+            history.start_run(name, repo=ACME)
         first = Gate(self, "one", ACME, [self.mark("start", 1), self.mark("end")])
         second = Gate(self, "two", ACME, [self.mark("start", 0.2), self.mark("end")])
         self.started(first)
@@ -135,6 +137,9 @@ class GateTurns(unittest.TestCase):
         self.assertTrue(second.result[0], second.result[1])
         self.assertNotIn("waiting for a heavy suite turn", second.result[1])
         self.assertEqual(suite_gate.gate_turn_note(run_record.read_state(second.run_dir)), "")
+        # the waiter's history row keeps the wait, the first gate's none
+        self.assertEqual(history.get("one")["suite_wait_seconds"], 0.0)
+        self.assertGreater(history.get("two")["suite_wait_seconds"], 0.5)
 
     def test_gates_of_different_repositories_share_heavy_turns_host_wide(self):
         first = Gate(self, "one", ACME, [self.mark("start", 1), self.mark("end")])
@@ -166,6 +171,7 @@ class GateTurns(unittest.TestCase):
         self.assertIn("[exit 0]\n0\n1\n", second.result[1])
 
     def test_a_stop_while_waiting_runs_no_command(self):
+        history.start_run("two", repo=ACME)
         with suite_gate.gate_lock(ACME, 0).open("a") as holder:
             fcntl.flock(holder, fcntl.LOCK_EX)
             waiter = Gate(self, "two", ACME, [self.mark("ran")])
@@ -177,6 +183,7 @@ class GateTurns(unittest.TestCase):
         self.assertIsInstance(waiter.error, run_record.StopRequested)
         self.assertEqual(self.marks.read_text(), "")
         self.assertEqual(suite_gate.gate_turn_note(run_record.read_state(waiter.run_dir)), "")
+        self.assertGreater(history.get("two")["suite_wait_seconds"], 0)    # the stopped wait counts
 
     def test_a_killed_command_lets_the_turn_go_and_max_gates_zero_never_waits(self):
         killed = Gate(self, "one", ACME, ["sleep 30"], silence=0.3)

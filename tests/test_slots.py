@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, host, config, run  # noqa: E402
+from agentkit import gate, history, host, config, run  # noqa: E402
 from agentkit import record
 
 
@@ -161,7 +161,8 @@ class Slots(unittest.TestCase):
             root = Path(temp)
             runs = root / "runs"
             runs.mkdir()
-            with patch.object(config, "RUNS", runs), patch.object(gate, "SLOT_POLL", .001), \
+            with patch.object(config, "RUNS", runs), patch.object(config, "HOME", root), \
+                    patch.object(gate, "SLOT_POLL", .001), \
                     patch.object(gate, "slot_counts", return_value=(0, 0)), \
                     patch.object(host, "host_readings",
                                  side_effect=[{**HEALTHY, "free_mb": 1024}, HEALTHY, HEALTHY]), \
@@ -169,6 +170,7 @@ class Slots(unittest.TestCase):
                 directory = runs / "r"
                 directory.mkdir()
                 (directory / "log.txt").write_text("started\n")
+                history.start_run("r", repo="/home/fixture/code/acme")
                 record.save_state(directory, {"run_id": "r", "state": "queued",
                                             "slot_waiting": True, "queued_at": time.time(),
                                             "pid": os.getpid(), "run_depth": 0})
@@ -176,6 +178,8 @@ class Slots(unittest.TestCase):
                 content = (directory / "log.txt").read_text()
                 self.assertRegex(content.splitlines()[0],
                                  r"^waited \d+ min for a slot \(memory\)$")
+                # the history row keeps the wait its waiter counted
+                self.assertGreater(history.get("r")["slot_wait_seconds"], 0)
 
 
 if __name__ == "__main__":

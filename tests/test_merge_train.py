@@ -328,7 +328,10 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             if key == "land":
                 self.assertEqual(current["waiting_on"].pop("after"),
                                  {} if directory == first else {first.name: self.wait(first)["land"]})
-            self.assertEqual(current, originals[directory])
+            expected = dict(originals[directory])
+            if key == "fix":
+                expected.pop("line_since")
+            self.assertEqual(current, expected)
         self.assert_cleaned()
 
     def test_each_red_member_leaves_only_itself_out_of_later_stacks(self):
@@ -413,7 +416,9 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assertTrue(all("third.txt" not in files for _, files in self.trees))
         current = record.read_state(third)
         current["waiting_on"].pop("fix")
-        self.assertEqual(current, original)
+        expected = dict(original)
+        expected.pop("line_since")
+        self.assertEqual(current, expected)
         self.assertEqual(run.git(self.repo, "rev-parse", original["branch"]),
                          original["review"]["head_sha"])
         self.assert_cleaned()
