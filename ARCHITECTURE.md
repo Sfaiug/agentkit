@@ -88,9 +88,8 @@
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and Muse call its private helpers.
 - `usage_probe.py`: one deadline for an adapter usage call and its children. For usage
-  and muse_usage. Leak: Muse's names.
-- `muse_usage.py`: Muse meters from one billed request, cached; run by
-  `adapters/muse-usage.sh`. Leak: harness code in the core.
+  and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
+  `adapters/muse-usage.sh`). Leak: Muse's names.
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.

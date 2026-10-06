@@ -50,7 +50,7 @@ CACHE_TTL = 300
 # asks whenever it comes round.  Only a probe that brings back no meters leaves a reading to
 # age, and past half an hour the row says when it was taken.  Muse's usage call spends
 # a model request, so its adapter answers from its own ten-minute cache in between
-# (`muse_usage.CACHE_TTL`).
+# (`harness/muse_usage.py`'s `CACHE_TTL`).
 # A probe that brings back no meters keeps the reading it could not replace, and that reading
 # still ranks for PROBE_TRUSTED_FOR: a meter nobody could read again is not a meter nobody ever
 # read, and calling one unknown is how a rate limit came to push every run onto the other

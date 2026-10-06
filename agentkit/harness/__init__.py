@@ -9,7 +9,8 @@ launch receipt its thread is proven by, `grokbuild.py` the session directory it 
 `muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe
 and the session store its tokens are in,
 `opencode.py` the receipt its seat plugin writes its session into and the endpoint that says
-how a model is paid.
+how a model is paid.  A script its adapter runs on its own sits beside its module, named for
+it: `muse_usage.py` is Muse's billed usage probe.
 
 No module outside this package names a harness: the core asks
 `harness.load(config.model(cfg, m)["harness"]).<hook>(...)` and takes the answer.
