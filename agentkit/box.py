@@ -13,6 +13,7 @@ import select
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -24,8 +25,7 @@ from string import Template
 # What a box never passes on: GitHub tokens, and the SSH agent's address.
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK")
 PROCESSES = "box-processes.json"
-# Name resolution's settings, which may link into /run: a box keeps them in its own.
-RESOLVER = Path("/etc/resolv.conf")
+TRANSIENT = tuple(map(Path, ("/run", "/tmp", "/var/tmp", "/dev/shm")))
 # The supervisor runs from the text this module was loaded from: the file on disk can change
 # under a running launcher, when a probe checks out another revision of ak's own checkout.
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
@@ -193,60 +193,63 @@ def _writable(clean, cwd, out_dir, state, places, logins):
     return writable
 
 
-def _follow(path, keep):
-    """Where an absolute path leads, walked as the kernel walks it; each link on the way goes to
-    keep. The kernel follows at most 40 links."""
-    real, names, links = Path("/"), [*reversed(Path(path).parts)], 0
-    while names and links <= 40:
-        name = names.pop()
-        step = real.parent if name == ".." else real / name
-        if step.is_symlink():
-            links += 1
-            keep(step)
-            names.extend(reversed(Path(os.readlink(step)).parts))
-        else:
-            real = step
-    return real
+def _copy_run(source, destination):
+    """Keep readable directories, links and files; let the kernel resolve their paths."""
+    for directory, dirs, files, fd in os.fwalk(source):
+        # An out dir in /run must not copy its own growing scratch back into itself.
+        dirs[:] = [name for name in dirs if Path(directory, name) != destination.parent]
+        if Path(directory) == source:
+            dirs[:] = [name for name in dirs if name != "user"]
+            files = [name for name in files if name != "user"]
+        target = destination / Path(directory).relative_to(source)
+        target.mkdir(parents=True, exist_ok=True)
+        for name in dirs + files:
+            try:
+                mode = os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode
+                link = os.readlink(name, dir_fd=fd) if stat.S_ISLNK(mode) else None
+            except OSError:
+                continue
+            if stat.S_ISDIR(mode):
+                (target / name).mkdir(exist_ok=True)
+            elif link is not None:
+                (target / name).symlink_to(link)
+            elif stat.S_ISREG(mode):
+                try:
+                    # A service may replace an entry during the copy. Never follow its new
+                    # link or block on its new FIFO; read only an opened regular file.
+                    opened = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+                except OSError:
+                    continue
+                with os.fdopen(opened, "rb") as readable:
+                    if stat.S_ISREG(os.fstat(opened).st_mode):
+                        with (target / name).open("wb") as copied:
+                            shutil.copyfileobj(readable, copied)
 
 
-def _own(scratch, clean, cwd, walls):
-    """The box's own /run, /tmp, /var/tmp, /dev/shm and runtime directory: empty, in scratch.
-
-    Host services listen there: the tmux server in /tmp, the user's service manager in the
-    runtime directory, the system bus in /run. A place of the box's own reaches none of them, nor
-    a socket a service makes there later. What leads into them, the runtime directory's own path
-    and name resolution's settings, leads there inside the box too.
-    """
-    own = set()
-
-    def keep(path):
-        # What the host has at a path inside a place of the box's own, a link or the resolver's
-        # settings, is kept at the same path there.
-        if any(place in path.parents for place in own):
-            kept = Path(scratch, *path.parts[1:])
-            kept.parent.mkdir(parents=True, exist_ok=True)
-            if not os.path.lexists(kept):
-                shutil.copyfile(path, kept, follow_symlinks=False)
-
-    for path in (*map(Path, ("/run", "/tmp", "/var/tmp", "/dev/shm")),
-                 *_paths(("$XDG_RUNTIME_DIR",), clean, cwd)):
-        real = _follow(path, keep)
-        # A mount covers only a directory, so one the host has yet to make is made now: a
-        # service making it later would find the host's. Inside a place of the box's own, its
-        # scratch holds it.
-        if not any(place == real or place in real.parents for place in own):
-            real.mkdir(mode=0o700, parents=True, exist_ok=True)
-        own.add(real)
+def _own(scratch, clean, cwd, walls, writable):
+    """A copy of /run without services, and empty temporary and runtime directories."""
+    own = {path.resolve() for path in TRANSIENT}
+    for path in _paths(("$XDG_RUNTIME_DIR",), clean, cwd):
+        if path.is_dir():
+            real = path.resolve()
+            # A writable workspace or state inside /tmp exposes its children again, so its
+            # host runtime directory still needs a cover of its own.
+            if not any(place == real or place in real.parents for place in own) or any(
+                    place == real or place in real.parents for place in writable):
+                own.add(real)
     if walls:
         # A walled box's /dev is bubblewrap's, whose shm is a directory even where the host's
         # links into /run.
         own.add(Path("/dev/shm"))
-    binds = {path: Path(scratch, *path.parts[1:]) for path in own}
+    binds = {path: Path(scratch, str(i)) for i, path in enumerate(sorted(own))}
     for source in binds.values():
         source.mkdir(parents=True, exist_ok=True)
-    resolver = _follow(RESOLVER, keep)
-    if resolver.is_file():
-        keep(resolver)
+    run = Path("/run").resolve()
+    _copy_run(run, binds[run])
+    runtime = Path("user", str(os.getuid()))
+    (binds[run] / runtime).mkdir(mode=0o700, parents=True)
+    binds[run / runtime] = binds[run] / runtime
+    clean["XDG_RUNTIME_DIR"] = str(Path("/run") / runtime)
     return binds
 
 
@@ -275,10 +278,10 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
-    directories the command may also write. With an out dir, /tmp, /var/tmp, /dev/shm, /run and
-    the runtime directory are the box's own, empty. Without walls every other write stays as it
-    is outside: a check runs a project's own suite, which writes where that project says, like a
-    cache in HOME.
+    directories the command may also write. With an out dir, /run is copied without services
+    or /run/user, and temporary and runtime directories are the box's own, empty. Without walls
+    every other write stays as it is outside: a check runs a project's own suite, which writes
+    where that project says, like a cache in HOME.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
@@ -288,6 +291,11 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     else:
         cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
     at = len(cmd)
+    if out_dir is not None:
+        for path in TRANSIENT:
+            if not path.is_dir():
+                from . import config
+                raise config.Error(f"worker box needs {path}: the host directory is missing")
     writable = _writable(clean, cwd, out_dir, state, places, logins)
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
@@ -365,7 +373,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            cmd[at:at] = _bind(_own(scratch, clean, cwd, walls), writable)
+            cmd[at:at] = _bind(_own(scratch, clean, cwd, walls, writable), writable)
             clean["TMPDIR"] = "/var/tmp"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop}
