@@ -193,8 +193,14 @@ class FollowupRule(unittest.TestCase):
         bodies = []
 
         def gh(_cwd, *args):
-            self.assertEqual(args[:4], ("pr", "edit", url, "--body-file"))
-            bodies.append(Path(args[4]).read_text())
+            # `gh pr edit` as gh 2.46 answers since GitHub retired Projects (classic): it fails
+            # and changes nothing, so the description goes through the REST API
+            if args[:2] == ("pr", "edit"):
+                return 1, ("GraphQL: Projects (classic) is being deprecated in favor of the new "
+                           "Projects experience (repository.pullRequest.projectCards)")
+            self.assertEqual(args[:4], ("api", "-X", "PATCH", "repos/acme/project/pulls/7"))
+            self.assertEqual(args[4], "-F")
+            bodies.append(Path(args[5].removeprefix("body=@")).read_text())
             return (1, "update failed") if len(bodies) == 1 else (0, "")
 
         with patch.object(run, "gh", side_effect=gh):

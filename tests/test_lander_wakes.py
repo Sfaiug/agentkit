@@ -98,7 +98,7 @@ class LanderWakes(Sandbox):
         self.assert_free(False)
         if args[:2] == ("pr", "create"):
             return 0, URL
-        if args[:2] == ("pr", "edit"):
+        if args[:3] == ("api", "-X", "PATCH"):
             return 0, ""
         if args[:2] == ("api", "graphql"):
             return 0, json.dumps("Reviewed work\n\nCo-authored-by: Fixture <fixture@localhost>")
