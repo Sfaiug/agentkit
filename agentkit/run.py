@@ -5263,23 +5263,99 @@ def merged_anyway(lp, url, upstream):
             and merged(lp, url, lp.state["merge_method"]))
 
 
+OWNER_YES = "owner-yes"           # under STATE: the owner's yes to a run's change to their parts
+
+
+def owner_env():
+    """git with replacement objects off, so a planted replacement cannot show base content."""
+    return {"GIT_NO_REPLACE_OBJECTS": "1"}
+
+
+def qualified(upstream):
+    """A target as its remote-tracking ref, so a tag or branch of the same name cannot stand in."""
+    return f"refs/remotes/{upstream}" if upstream.startswith("origin/") else upstream
+
+
+def owner_declaration(wt, upstream):
+    """The target's `owner:` value as written, from the remote-tracking ref; a read that stops
+    (a timeout, a refused prompt) raises, so the guard never fails open on a git that is slow."""
+    text = git(wt, "show", f"{qualified(upstream)}:AGENTS.md", check=False, env=owner_env())
+    return front_value(text, "owner") if text else None
+
+
+def owner_contents(wt, rev, declaration):
+    """[(path, heading, bytes|None)] for each owner part at `rev`; None where the path is absent.
+    A whole file or folder is its git object id (byte-exact); a section is its own bytes."""
+    out = []
+    for path, heading in owner.parts(declaration):
+        code, _ = git_out(wt, "rev-parse", "--verify", "--quiet", f"{rev}:{path}")
+        if code != 0:
+            out.append((path, heading, None))
+        elif heading is None:   # a whole file or folder: its object id is its byte-exact identity
+            out.append((path, heading, git(wt, "rev-parse", "--verify", f"{rev}:{path}",
+                                           env=owner_env())))
+        else:                   # a section: its own text, kept byte-lossless (surrogateescape)
+            out.append((path, heading, owner.piece(git_bytes(wt, "show", f"{rev}:{path}"), heading)))
+    return out
+
+
+def owner_digest(wt, rev, declaration):
+    return owner.digest(owner_contents(wt, rev, declaration))
+
+
 def owner_parts(wt, upstream, sha):
     """(the target's `owner:` value, the names of the parts the change at `sha` touches)."""
-    declaration = declared_at(wt, upstream, "owner")
+    declaration = owner_declaration(wt, upstream)
     if not declaration:
         return None, []
-    return declaration, owner.touched(wt, declaration, git(wt, "merge-base", upstream, sha), sha)
+    base = git(wt, "merge-base", qualified(upstream), sha, env=owner_env())
+    before = owner_contents(wt, base, declaration)
+    after = owner_contents(wt, sha, declaration)
+    hit = [owner.name(p, h) for (p, h, a), (_, _, b) in zip(before, after) if a != b]
+    return declaration, hit
 
 
-def owner_unasked(lp, upstream):
-    """Why this delivery waits for the owner's yes, or "": its change touches parts the target
-    names as theirs, and no yes of theirs is for that content."""
-    sha = lp.state["delivery_sha"]
-    declaration, hit = owner_parts(lp.wt, upstream, sha)
-    if not hit or owner.said(lp.run_dir.name) == owner.digest(lp.wt, declaration, sha):
-        return ""
-    return (f"it changes {', '.join(hit)}, which land only on the owner's yes: show them the "
-            f"change, and on their yes run `ak run yes {lp.run_dir.name}`")
+def owner_said(run_id):
+    """The fingerprint the owner said yes to for that run, or None."""
+    try:
+        return json.loads((config.STATE / OWNER_YES / f"{run_id}.json").read_text()).get("digest")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def owner_say(run_id, fingerprint):
+    """Keep the owner's yes to that content, where a worker's box cannot write."""
+    path = config.STATE / OWNER_YES / f"{run_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}")
+    tmp.write_text(json.dumps({"digest": fingerprint}) + "\n")
+    os.replace(tmp, path)
+
+
+def owner_block(lp, upstream):
+    """True, having parked the run and asked the owner, when its change touches owner parts with
+    no yes of theirs for that content.  The question goes to the owner, never a self-serve note to
+    the seat that wrote the change, so an improvement loop cannot approve its own.  On a shared
+    host the orchestrator seat has a shell ak cannot tell from the owner's, so this stops the loop
+    merging owner parts in its normal run, not a seat that means to forge the owner's yes."""
+    head = lp.state.get("delivery_sha") or git(lp.wt, "rev-parse", "HEAD")
+    declaration, hit = owner_parts(lp.wt, upstream, head)
+    if not hit or owner_said(lp.run_dir.name) == owner_digest(lp.wt, head, declaration):
+        return False
+    reason = (f"it changes {', '.join(hit)}, which land only on the owner's yes; the owner was "
+              f"asked -- `ak run yes {lp.run_dir.name}` to land, `ak run no {lp.run_dir.name}` not")
+    note(lp, reason, failed=False)
+    lp.state.update(state="waiting", error=reason, waiting_on={"owner": head},
+                    merge_failed=False, merged=False, finished_at=None)
+    lp.state.pop("recovery_pending", None)
+    lp.write()
+    session = launch_session(lp.run_dir) or lp.state.get("session")
+    line = (f"Run {lp.run_dir.name} changes {', '.join(hit)}, which land only on your yes. "
+            f"Review it, then `ak run yes {lp.run_dir.name}` to land or `ak run no {lp.run_dir.name}`.")
+    with speaking_for(lp.state):
+        notify.shaped("needs", line, session=session, event_id=f"owner:{lp.run_dir.name}:{head}")
+    lp.log(f"--- merge: parked for the owner's yes; asked the owner about {', '.join(hit)}")
+    return True
 
 
 def do_merge(lp, url, upstream):
@@ -5298,6 +5374,8 @@ def do_merge(lp, url, upstream):
     that passed review is never thrown away over one lost race or one bad answer.
     """
     method = lp.state["merge_method"]
+    if owner_block(lp, upstream):     # a change to the owner's parts delivers only on their yes
+        return False
     why, raced = "", 0
     for attempt in (1, 2):
         ready, lost = True, False
@@ -5310,9 +5388,6 @@ def do_merge(lp, url, upstream):
                     fetch(lp.wt, "origin", "--prune", check=True)
                     if not integrated(lp.wt, upstream):
                         return rejoin_line(lp, upstream, "the PR's target moved")
-                unasked = owner_unasked(lp, upstream)
-                if unasked:
-                    return note(lp, unasked, failed=True)
                 body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
                              "--match-head-commit", lp.state["delivery_sha"], *body)
@@ -9762,27 +9837,46 @@ def cmd_resume(argv):
         raise
 
 
+def owner_waiting(argv, verb):
+    """(run_dir, state, worktree, upstream, head) for a run parked on the owner's yes, or raise."""
+    if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
+        raise config.Error(f"usage: ak run {verb} <runid>")
+    if os.environ.get(worker.RUN_MARKER):
+        raise config.Error(f"`ak run {verb}` is the owner's word; a run cannot give it")
+    run_dir = config.RUNS / argv[0]
+    state = (run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None) or {}
+    head = (state.get("waiting_on") or {}).get("owner")
+    target = state.get("target") or state.get("base")
+    wt = next((path for path in (state.get("worktree"), state.get("repo"))
+               if path and Path(path).is_dir()), None)
+    if not (head and target and wt):
+        raise config.Error(f"{argv[0]} is not waiting for the owner's yes")
+    upstream = target if target.startswith("origin/") else f"origin/{target}"
+    return run_dir, state, wt, upstream, head
+
+
 def cmd_yes(argv):
     """`ak run yes ID`: the owner's yes to the content a run changes in their parts, then its
     delivery once more.  A later change to those parts asks again."""
-    if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
-        raise config.Error("usage: ak run yes <runid>")
-    if os.environ.get(worker.RUN_MARKER):
-        raise config.Error("`ak run yes` is the owner's word; a run cannot give it")
-    run_dir = config.RUNS / argv[0]
-    state = (run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None) or {}
-    sha, target = state.get("delivery_sha"), state.get("target") or state.get("base")
-    wt = next((path for path in (state.get("worktree"), state.get("repo"))
-               if path and Path(path).is_dir()), None)
-    if not (sha and target and wt):
-        raise config.Error(f"{argv[0]} has no delivery to say yes to")
-    upstream = target if target.startswith("origin/") else f"origin/{target}"
-    declaration, hit = owner_parts(wt, upstream, sha)
+    run_dir, state, wt, upstream, head = owner_waiting(argv, "yes")
+    declaration, hit = owner_parts(wt, upstream, head)
     if not hit:
         raise config.Error(f"{argv[0]} changes none of the owner's parts; nothing waits for a yes")
-    owner.say(run_dir.name, owner.digest(wt, declaration, sha))
-    print(f"the owner's yes to {', '.join(hit)} at {sha[:12]} is kept; delivering {argv[0]} again")
+    owner_say(run_dir.name, owner_digest(wt, head, declaration))
+    print(f"the owner's yes to {', '.join(hit)} at {head[:12]} is kept; delivering {argv[0]} again")
     return cmd_resume([argv[0], "--bg"])
+
+
+def cmd_no(argv):
+    """`ak run no ID`: the owner declines the change to their parts; the run ends, its branch kept."""
+    run_dir, state, wt, upstream, head = owner_waiting(argv, "no")
+    with run_record.record(run_dir) as state:
+        state.update(state="blocked", verdict="BLOCKED", finished_at=time.time(),
+                     error="the owner said no to the change to their parts; the branch is kept")
+        state.pop("waiting_on", None)
+        state.pop("recovery_pending", None)
+    print(f"{argv[0]} is left unmerged and its branch kept; the owner said no")
+    return 0
 
 
 def resume_run(argv):
@@ -11190,6 +11284,8 @@ def main(argv):
         return cmd_resume(argv[1:])
     if argv[:1] == ["yes"]:
         return cmd_yes(argv[1:])
+    if argv[:1] == ["no"]:
+        return cmd_no(argv[1:])
     if argv[:1] == ["merge"]:
         return cmd_merge(argv[1:])
     if argv[:1] == ["stop"]:

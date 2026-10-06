@@ -62,6 +62,7 @@ COMMANDS = {
        ak run status [ID] [--history] [--why] [--plain] [--json]
        ak run resume ID [--rounds N] [--bg]
        ak run yes ID
+       ak run no ID
        ak run stop ID [--keep]
        ak run merge ID | ak run clean ID | ak run gc [--dry-run]""",
             """Execute, verify, review, push, open a PR and merge.
@@ -87,6 +88,9 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
     "run yes": ("usage: ak run yes ID",
                 "The owner's yes to a run's change to their parts (AGENTS.md `owner:`), then its delivery.",
                 "ak run yes RUN_ID"),
+    "run no": ("usage: ak run no ID",
+               "The owner declines a run's change to their parts; the run ends, its branch kept.",
+               "ak run no RUN_ID"),
     "run merge": ("usage: ak run merge ID",
                   "Retry delivery of a finished PASS; reverify if integration changes its commit.",
                   "ak run merge RUN_ID"),
