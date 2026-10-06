@@ -2,9 +2,10 @@
 
 Claude Code 2.1.291 sends no Stop and no idle_prompt after an Esc.  The conversation's own record
 says so: it ends in `[Request interrupted by user]`, and the next prompt is written there before
-its hook runs.  Esc before any answer writes nothing and puts the prompt back in the composer,
-where it is a draft.  hooks/seat-state.sh runs as the harness runs it; the records follow the
-shape of real ones, with invented names.
+its hook runs.  An Esc before any answer is not read here: the record of it is the record of a
+turn not yet answered (2.1.292: the prompt, its attachments, `last-prompt`, then nothing), and
+no hook runs, so that seat reads `working` until its next prompt.  hooks/seat-state.sh runs as
+the harness runs it; the records follow the shape of real ones, with invented names.
 """
 
 from datetime import datetime, timezone
