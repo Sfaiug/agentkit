@@ -133,7 +133,9 @@ class StopPeerTurn(unittest.TestCase):
 
     def test_the_same_words_without_the_heading_up_front_are_the_owners(self):
         heading = tell.heading("acme-fix-api", time.time())
-        for said in (NEWS, f"Did you read this: {heading}{NEWS}"):
+        for said in (NEWS, f"Did you read this: {heading}{NEWS}",
+                     "[from seat acme-fix-api at 12:34, not the owner; ...] expand this example",
+                     heading.replace("ak tell acme-fix-api", "ak tell acme-docs") + NEWS):
             with self.subTest(said=said):
                 self.setUp()
                 self.notified("done", self.done_at)
