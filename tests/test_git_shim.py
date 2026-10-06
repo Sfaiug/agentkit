@@ -90,6 +90,22 @@ class GitShim(unittest.TestCase):
         self.assertEqual(ran.returncode, 0, ran.stderr)
         self.assertTrue(ran.stdout.startswith("git version"), ran.stdout)
 
+    def test_a_wrapper_ahead_with_no_git_after_the_shim_finds_no_git(self):
+        # Nothing after the shim's own dir: no git, never the wrapper ahead, which would loop.
+        wrapper = self.home / "wrapper"
+        wrapper.mkdir()
+        (wrapper / "git").write_text(f'#!/bin/sh\nexec "{self.shimdir / "git"}" "$@"\n')
+        (wrapper / "git").chmod(0o755)
+        ran = self.git(self.repo, "--version", PATH=os.pathsep.join([str(wrapper), str(self.shimdir)]))
+        self.assertEqual(ran.returncode, 127, ran.stderr)
+        self.assertIn("no real git on PATH", ran.stderr)
+        # Its own dir off PATH -- the shim run by its path -- the first git on PATH is the real one.
+        path = self.env["PATH"].split(os.pathsep)[1:]
+        ran = subprocess.run([str(self.shimdir / "git"), "--version"], capture_output=True, text=True,
+                             timeout=60, env={**self.env, "PATH": os.pathsep.join(path)})
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertTrue(ran.stdout.startswith("git version"), ran.stdout)
+
     def test_a_guard_that_will_not_import_stops_no_git(self):
         # The shim beside a broken agentkit: git still runs, a seat's checkout in ~/code included.
         broken = self.home / "broken"

@@ -24,7 +24,7 @@ for dir in $PATH; do
 done
 unset IFS
 set +f
-real=${real:-$first}
+[ -n "$past" ] || real=$first
 if [ -z "$real" ]; then
     echo "$name-shim: no real $name on PATH" >&2
     exit 127
