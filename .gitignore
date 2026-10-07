@@ -3,3 +3,8 @@ __pycache__/
 .playwright-mcp/
 # test sandboxes: a killed suite leaves these inside the checkout; the loop never commits them
 .ak-test-*
+# macOS writes these beside a checkout's files -- Finder's folder settings, and AppleDouble
+# metadata where a copy or an archive kept a file's resource fork; untracked, they would make a
+# Mac's checkout read as somebody's work and stop its updates (update.left_as_is)
+.DS_Store
+._*
