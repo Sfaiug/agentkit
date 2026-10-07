@@ -37,7 +37,8 @@ set -u
 look() {
   local seat=$1 heard=${2:-} answered=${3:-} said=${4:-}
   [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 0
-  ( /usr/bin/env python3 -c '
+  # the prompt's words go on its stdin: on its command line, a long one would never run it
+  ( printf '%s' "$said" | /usr/bin/env python3 -c '
 import os, sys
 from pathlib import Path
 try:
@@ -47,8 +48,8 @@ except OSError:
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import watch
 watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None,
-                float(sys.argv[4]) if sys.argv[4] else None, sys.argv[5])
-' "${BASH_SOURCE[0]}" "$seat" "$heard" "$answered" "$said" </dev/null >/dev/null 2>&1 & )
+                float(sys.argv[4]) if sys.argv[4] else None, sys.stdin.read())
+' "${BASH_SOURCE[0]}" "$seat" "$heard" "$answered" >/dev/null 2>&1 & )
 }
 
 seat_state() {
