@@ -207,45 +207,56 @@ Path.write_text = paused_write
         self.assertEqual(codex.conversation(config.session_records()['acme-seat']), 'acme-thread')
         self.stop(proc, home)
 
-    def test_pairing_is_one_card_with_exact_step_even_after_resume(self):
+    def test_opening_or_resuming_unpaired_sends_no_notice(self):
         with patch.dict(os.environ, {'FAKE_PAIRING': '1'}):
             proc, home, _ = self.start()
             self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
-            with patch.object(notify, 'close_needs') as close:
-                for word in ('working', 'ready', 'working'):
-                    notify.transition('acme-seat', {'word': word, 'reason': 'acme',
-                                                  'since': time.time()}, now=time.time())
-                event = json.loads(notify_events()[0].read_text())
-                event.update(status='pending', next_attempt=0)
-                notify._write_event(event)
-                notify.retry_pending()
-            close.assert_not_called()
+            self.assertEqual(notify_events(), [])
+            self.assertFalse((self.root / 'pairings.jsonl').exists())
             self.assertIsNone(notify.last('acme-seat', include_seen=True))
             self.stop(proc, home)
             proc, resumed, _ = self.start('acme-thread')
             self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
             self.stop(proc, resumed)
-        events = [json.loads(p.read_text()) for p in notify_events()]
-        self.assertEqual(len(events), 1)
-        card = events[0]['payload']['embeds'][0]
-        self.assertEqual(card['title'], 'Needs you · acme-seat')
-        self.assertIn('ChatGPT app', card['description'])
-        self.assertIn('ACME-1234', card['description'])
-        self.assertIn('--pair', card['description'])
-        self.assertEqual(len((self.root / 'pairings.jsonl').read_text().splitlines()), 1)
+        self.assertEqual(notify_events(), [])
+        self.assertFalse((self.root / 'pairings.jsonl').exists())
 
-    def test_only_a_paired_client_closes_the_pairing_card(self):
+    def test_pairing_is_requested_explicitly_without_a_needs_notice(self):
+        with patch.dict(os.environ, {'FAKE_PAIRING': '1'}):
+            proc, home, _ = self.start()
+            self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
+            result = subprocess.run([sys.executable, str(REPO / 'tools/codex-seat.py'),
+                                     '--pair', str(home)], capture_output=True, text=True,
+                                    env=os.environ, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, 'Pairing code: ACME-1234\n')
+            requests = [json.loads(line) for line in
+                        (self.root / 'pairings.jsonl').read_text().splitlines()]
+            self.assertEqual(requests, [{'manualCode': True}])
+            self.assertEqual(notify_events(), [])
+            self.assertIsNone(proc.poll())
+            self.stop(proc, home)
+
+    def test_resuming_retires_an_old_optional_pairing_card(self):
         with patch.dict(os.environ, {'FAKE_PAIRING': '1'}):
             proc, home, _ = self.start()
             self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
             self.stop(proc, home)
-        proc, home, _ = self.start('acme-thread')
-        self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
-        self.stop(proc, home)
-        events = [json.loads(p.read_text()) for p in notify_events()]
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]['closed'], 'Paired')
-        self.assertIsNone(notify.last('acme-seat', include_seen=True))
+            environment = next(iter(json.loads((home / 'agentkit-enrollments.json').read_text())))
+            module = runpy.run_path(str(REPO / 'tools/codex-seat.py'))
+            key = module['pairing_key'](environment)
+            notify._write_event({'id': key, 'source': 'codex-pair:' + environment,
+                                 'session': None, 'kind': 'needs', 'status': 'pending',
+                                 'payload': {'embeds': [{'title': 'Needs you · acme-seat'}]},
+                                 'next_attempt': 0, 'attempts': 0})
+            proc, resumed, _ = self.start('acme-thread')
+            self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
+            event = notify._read_event(key)
+            self.assertEqual(event['closed'], 'Pairing optional')
+            self.assertEqual(event['status'], 'disabled')
+            self.assertIsNone(event['next_attempt'])
+            self.assertFalse((self.root / 'pairings.jsonl').exists())
+            self.stop(proc, resumed)
 
     def test_two_seats_have_separate_servers_and_identities(self):
         first, a, _ = self.start()
@@ -296,8 +307,8 @@ Path.write_text = paused_write
             self.assertEqual((home / 'state_5.sqlite').read_bytes(), database)
             self.assertEqual((home / 'auth.json').resolve(), account / 'auth.json')
             self.assertEqual(codex.conversation(config.session_records()['acme-seat']), 'acme-thread')
-            self.assertEqual(len(notify_events()), 1)
-            self.assertEqual(len((self.root / 'pairings.jsonl').read_text().splitlines()), 1)
+            self.assertEqual(notify_events(), [])
+            self.assertFalse((self.root / 'pairings.jsonl').exists())
             self.stop(proc, home)
 
     def test_new_launch_waits_for_old_cleanup_before_reusing_home(self):

@@ -8,7 +8,6 @@ import json
 import os
 from pathlib import Path
 import select
-import shlex
 import shutil
 import signal
 import socket
@@ -245,38 +244,6 @@ def close_pairing(environment, status):
             notify._write_event(event)
 
 
-def pairing(client, home, status):
-    """Pairing belongs to an enrollment, never to a conversation's turn or card."""
-    environment = status["environmentId"]
-    clients = client.call("remoteControl/client/list", {"environmentId": environment})
-    if clients["data"]:
-        close_pairing(environment, "Paired")
-        return
-    key = pairing_key(environment)
-    with notify.outbox_lock():
-        event = notify._read_event(key)
-        if event is None:
-            pair = client.call("remoteControl/pairing/start", {"manualCode": True})
-            name = config.resolve_session(os.environ[config.SESSION_ENV])
-            retry = shlex.join(["python3", str(Path(__file__).resolve()), "--pair", str(home)])
-            step = (f"In the ChatGPT app, open Remote and pair {name} with code "
-                    f"{pair['manualPairingCode']}, then open {name}. "
-                    f"If the code expires, run {retry} on the host for a new code.")
-            payload = {"username": "agentkit", "embeds": [
-                {**notify.embed("needs", name, step), "description": step}]}
-            if who := notify.mention():
-                payload["content"] = who
-            # A session-less outbox event is durable but cannot satisfy the Stop
-            # rule or be answered by a prompt, a working tick or a seat rename.
-            event = {"id": key, "source": "codex-pair:" + environment,
-                     "session": None, "kind": "needs", "text": step, "pr": None,
-                     "files": [], "payload": payload, "message": f"Needs you · {name}: {step}",
-                     "created_at": time.time(), "sink": notify.sink() is not None,
-                     "status": "pending", "attempts": 0, "next_attempt": 0}
-            notify._write_event(event)
-        notify._attempt(event)
-
-
 def remove_home(home):
     # A failed DELETE raises before the rmtree: the home stays with its receipt
     # and .forgotten marker, and the next forget retries it.
@@ -387,7 +354,9 @@ def connected(cmd, home, alive):
                         status = client.call("remoteControl/status/read")
                         named = enroll(home, status, named)
                         if status["status"] == "connected":
-                            pairing(client, home, status)
+                            # Older seats posted optional setup as a question. Retire that
+                            # card without starting pairing; --pair is the owner's request.
+                            close_pairing(status["environmentId"], "Pairing optional")
                             check_at = time.monotonic() + 30
                     except (OSError, ValueError, config.Error) as exc:
                         print(f"Codex remote control: {exc}", file=log, flush=True)
