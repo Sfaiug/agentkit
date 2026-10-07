@@ -92,10 +92,11 @@
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye; a merged run writes its review follow-ups here.
 - `box.py`: credential masks, own temporary places and /run, PID teardown. `command`, `check`,
   `returncode`, `leftovers`; for worker and run.
-- `guard.py`: what a seat's tmux may not do (end or type into another seat; `refusal`, the `-t`
-  resolved by the real tmux), gh may not (`gh pr merge`; `gh_refusal`) and git may not (`git
-  worktree add` into ~/code; `worktree_refusal`), from the argv `tools/shim` hands `main`, which
-  `REFUSALS` dispatches by tool; `install_shim` links each `tools/<name>-shim` as `<HOME>/bin/<name>`.
+- `guard.py`: what a seat may not do and its refusal -- tmux end or type into another seat
+  (`refusal`), `gh pr merge` (`gh_refusal`), `git worktree add` into ~/code (`worktree_refusal`),
+  scp/rsync/sftp a transfer to the live server (`transfer_refusal`); `tools/shim` hands `main`
+  the argv, `REFUSALS` dispatches by tool, and `install_shim` links each `tools/<name>-shim` as
+  `<HOME>/bin/<name>`.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded
   evidence; worker names the channel; run replays proofs, weighs findings, drops disputes.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
@@ -157,7 +158,8 @@
   the shim's own; a worker's or seatless call runs it at once (git is hot: no Python start), a
   seat's own asks `python3 -m agentkit.guard`, and only its refusal code stops the call -- with
   `tmux-shim` (refuses ending or typing into another seat), `gh-shim` (refuses a seat's `gh pr
-  merge`) and `git-shim` (refuses a `git worktree add` into ~/code) links to it, each linked as
+  merge`), `git-shim` (refuses a `git worktree add` into ~/code) and `scp-shim`/`rsync-shim`/
+  `sftp-shim` (refuse a transfer to the live server) links to it, each linked as
   `<HOME>/bin/<name>` first on a seat's PATH; and, called by adapters:
   `rulebook.py`, `idle-compact.py`, `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its

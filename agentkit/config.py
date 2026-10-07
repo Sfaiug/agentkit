@@ -1101,6 +1101,20 @@ def server_alias():
         return None
 
 
+def live_host():
+    """The ssh alias of the live product host a seat must not write to by hand, from `live_host` in
+    config.toml, or None when the owner has set none.  The deploy host is each owner's own -- ak ships
+    with no alias for it, so it guards none until the owner names theirs; this is not `server_alias`
+    (the ak coordination server), and a file reaches the live host through the repo, never a seat's
+    scp/rsync/sftp."""
+    try:
+        with (HOME / CONFIG_NAME).open("rb") as fh:
+            alias = tomllib.load(fh).get("live_host")
+    except (OSError, ValueError):
+        return None
+    return alias or None
+
+
 def workers(cfg):
     """The session's selection, else the default workers."""
     session = active_session(cfg)
