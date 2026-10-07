@@ -23,7 +23,7 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config, notify
-from agentkit.harness.codex import main, seat_conversations
+from agentkit.harness.codex import main, read, seat_conversations
 
 
 CONVERSATIONS = ("sessions", "archived_sessions")
@@ -420,7 +420,14 @@ def launch(cmd, receipt):
 
 
 def pair_again(home):
-    home = Path(home)
+    target = home
+    home = Path(target)
+    if not home.is_dir():
+        name = config.resolve_session(target)
+        remote = read(config.session_records().get(name, {})).get("remote")
+        if not remote:
+            raise config.Error(f"{name} has no Codex remote connection; open its Codex seat first")
+        home = config.STATE / ("codex-remote-" + remote)
     connection = json.loads((home / "connection.json").read_text())
     client = Client(connection["socket"])
     try:

@@ -225,30 +225,36 @@ Path.write_text = paused_write
         with patch.dict(os.environ, {'FAKE_PAIRING': '1'}):
             proc, home, _ = self.start()
             self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
-            result = subprocess.run([sys.executable, str(REPO / 'tools/codex-seat.py'),
-                                     '--pair', str(home)], capture_output=True, text=True,
-                                    env=os.environ, timeout=10)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, 'Pairing code: ACME-1234\n')
+            config.session_path('acme-before').write_text(json.dumps({'renamed': 'acme-seat'}))
+            for target in ('acme-seat', 'acme-before', str(home)):
+                result = subprocess.run([sys.executable, str(REPO / 'tools/codex-seat.py'),
+                                         '--pair', target], capture_output=True, text=True,
+                                        env=os.environ, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, 'Pairing code: ACME-1234\n')
             requests = [json.loads(line) for line in
                         (self.root / 'pairings.jsonl').read_text().splitlines()]
-            self.assertEqual(requests, [{'manualCode': True}])
+            self.assertEqual(requests, [{'manualCode': True}] * 3)
             self.assertEqual(notify_events(), [])
             self.assertIsNone(proc.poll())
             self.stop(proc, home)
+
+    def legacy_card(self, home):
+        environment = next(iter(json.loads((home / 'agentkit-enrollments.json').read_text())))
+        module = runpy.run_path(str(REPO / 'tools/codex-seat.py'))
+        key = module['pairing_key'](environment)
+        notify._write_event({'id': key, 'source': 'codex-pair:' + environment,
+                             'session': None, 'kind': 'needs', 'status': 'pending',
+                             'payload': {'embeds': [{'title': 'Needs you · acme-seat'}]},
+                             'next_attempt': 0, 'attempts': 0})
+        return key
 
     def test_resuming_retires_an_old_optional_pairing_card(self):
         with patch.dict(os.environ, {'FAKE_PAIRING': '1'}):
             proc, home, _ = self.start()
             self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
             self.stop(proc, home)
-            environment = next(iter(json.loads((home / 'agentkit-enrollments.json').read_text())))
-            module = runpy.run_path(str(REPO / 'tools/codex-seat.py'))
-            key = module['pairing_key'](environment)
-            notify._write_event({'id': key, 'source': 'codex-pair:' + environment,
-                                 'session': None, 'kind': 'needs', 'status': 'pending',
-                                 'payload': {'embeds': [{'title': 'Needs you · acme-seat'}]},
-                                 'next_attempt': 0, 'attempts': 0})
+            key = self.legacy_card(home)
             proc, resumed, _ = self.start('acme-thread')
             self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
             event = notify._read_event(key)
@@ -376,12 +382,17 @@ Path.write_text = paused_write
         proc, home, _ = self.start()
         self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
         self.stop(proc, home)
+        key = self.legacy_card(home)
         codex.forget(config.session_records()['acme-seat'])
         self.assertFalse(home.exists())
         self.assertFalse(home.with_suffix('.forgotten').exists())
         self.assertFalse(home.with_suffix('.lock').exists())
         calls = [json.loads(s) for s in (self.root / 'remote-http.jsonl').read_text().splitlines()]
         self.assertEqual([c['method'] for c in calls], ['PATCH', 'DELETE'])
+        event = notify._read_event(key)
+        self.assertEqual(event['closed'], 'Closed')
+        self.assertEqual(event['status'], 'disabled')
+        self.assertIsNone(event['next_attempt'])
 
     def test_forget_offline_still_forgets_and_retries_enrollment_later(self):
         proc, home, _ = self.start()
