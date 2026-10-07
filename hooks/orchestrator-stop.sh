@@ -290,7 +290,7 @@ def held(launched, payload):
     ends, undecided = recorded_ending(
         seat, question=(questioned(payload) or told(seat, turn, "needs")
                         or owner_question(notify.last(seat))),
-        completion=told(seat, turn, "done", peer), answer=asked and not peer, since=turn)
+        completion=lambda: told(seat, turn, "done", peer), answer=asked and not peer, since=turn)
     if ends:
         return ""
     blocks = record.get("blocks")

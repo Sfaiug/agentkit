@@ -22,7 +22,8 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
     The native hook reads all run receipts; the tick supplies its existing census. A question
     stands past parked work, which holds a completion, an answer and every live wait.
     `since` retains the prompt hook's wait on work launched in this turn even after it ends.
-    A callable completion binds the tick's notice to its output only when no wait ends it.
+    A callable completion reads the native notice after the census. A callable answer binds
+    the tick's notice to its output only when no wait ends it.
     """
     if question:
         return True, []
@@ -47,7 +48,7 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
               if (not going or state.get("state") == "stalled") and run.unfinished(state, records)]
     if parked:
         return False, parked
-    if not callable(completion) and completion:
+    if completion() if callable(completion) else completion:
         return True, []
     for _, state, going in mine:
         if going:
@@ -59,9 +60,7 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
                     return True, []
     if jobs.job_waiting(name) or watch.waiting_on(name, supplied):
         return True, []
-    if callable(completion) and completion():
-        return True, []
-    return bool(answer), []
+    return bool(answer() if callable(answer) else answer), []
 
 
 def stoppable(state):

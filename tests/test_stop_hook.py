@@ -218,6 +218,20 @@ Path.iterdir = during_census
                 else:
                     self.assertEqual(output, "")
 
+    def test_a_completion_published_during_the_wait_check_holds_the_next_stop(self):
+        (self.home / "sitecustomize.py").write_text(f'''import json, os, time
+from pathlib import Path
+from agentkit import watch
+def during_wait(*args, **kwargs):
+    notice = Path(os.environ["HOME"]) / ".agentkit/state/notify-{SEAT}.json"
+    notice.write_text(json.dumps({{"session": {SEAT!r}, "kind": "done",
+                                  "text": "Shipped the parser", "time": time.time()}}) + "\\n")
+    return None
+watch.waiting_on = during_wait
+''')
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+        self.assertEqual(self.stop(), "")
+
     def test_a_seen_current_done_keeps_the_native_stop_policy(self):
         self.notified("done", self.turn + 1)
         path = self.state / f"notify-{SEAT}.json"
