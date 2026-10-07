@@ -7,8 +7,6 @@ a real seat or ~/.agentkit.  A sentence of the opening prompt ending in `?` (the
 mark followed by whitespace or the end, so a URL's `?` is none), or a prompt
 opening on a question word or a request to be told, lets a plain answer stand,
 unless a run sits parked undecided or another session's message opened the turn.
-A follow-up landing in a turn still going -- the owner's, or another session's
-message -- never undoes the owner's question.
 """
 
 import json
@@ -103,11 +101,6 @@ class StopAnswer(unittest.TestCase):
         with patch.object(config, "STATE", self.state):
             return watch.hook_state("claude", watch.hook_facts(SEAT))[:2]
 
-    def seated(self):
-        """A record naming the seat's model, so its hooks can read its harness's manifest."""
-        (self.state / f"session-{SEAT}.json").write_text(json.dumps(
-            {"orchestrator": "opus", "workers": ["opus"]}))
-
     def latch(self):
         return json.loads((self.state / f"stop-{SEAT}.json").read_text())
 
@@ -147,36 +140,6 @@ class StopAnswer(unittest.TestCase):
                 self.setUp()
                 self.assertTrue(self.prompt(opened)["asked"])
                 self.assertEqual(self.stop(), "")
-
-    def test_a_follow_up_in_a_turn_still_going_keeps_the_owners_question(self):
-        for follow_up in ("Also the cache, all of it.",
-                          heading("acme-fix-api", time.time()) + "fix-api landed."):
-            with self.subTest(follow_up=follow_up):
-                self.setUp()
-                self.seated()
-                self.prompt("Which parser does it use?")
-                latch = self.prompt(follow_up)
-                self.assertTrue(latch["asked"])
-                self.assertFalse(latch["peer"])
-                self.assertEqual(self.stop(), "")
-
-    def test_a_prompt_after_the_turn_ended_opens_a_turn_of_its_own(self):
-        self.seated()
-        self.prompt("Which parser does it use?")
-        self.assertEqual(self.stop(said=None, transcript_path=str(self.transcript(ANSWER)),
-                                   background_tasks=[]), "")
-        self.assertEqual(self.read_as(), ("at_prompt", "Stop"))
-        self.assertFalse(self.prompt("Merge the parser now")["asked"])
-        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
-
-    def test_the_owner_speaking_in_a_peers_turn_makes_it_the_owners(self):
-        self.seated()
-        self.assertTrue(self.prompt(heading("acme-fix-api", time.time())
-                                    + "Which parser should I use?")["peer"])
-        latch = self.prompt("Merge the parser now")
-        self.assertFalse(latch["peer"])
-        self.assertFalse(latch["asked"])     # a peer's question is not the owner's
-        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_an_instruction_opening_like_a_question_asks_nothing(self):
         for opened in ("When it lands, merge it", "Do the migration now",

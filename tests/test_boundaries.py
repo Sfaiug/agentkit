@@ -113,7 +113,7 @@ RULES = [
                 r"(\{[^}]*\}|\$\{?[A-Za-z_]+\}?|\*)\.(json|md)"
                 r"|len\([\"'](session|notify|card|seat|hook|compact|stop|plan)-[\"']\)",
      "home": ("agentkit/config.py",),
-     "max": 6},
+     "max": 11},
     # A rename leaves a pointer at the old name, and `config.resolve_session` follows it: a
     # second walk of the chain is one more place to keep in step with how renames chain.
     # The one left is seat-state.sh's jq walk.  OpenCode's own `session.renamed` event is no

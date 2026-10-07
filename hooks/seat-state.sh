@@ -53,7 +53,7 @@ watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None,
 }
 
 seat_state() {
-  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner fact latch before peer open asked
+  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
@@ -95,9 +95,6 @@ seat_state() {
     case "$next" in */*|.|..|"") break ;; esac
     row=$next
   done
-  # what the seat is doing, under the name it goes by now; when its turn began, under the
-  # launch name hooks/orchestrator-stop.sh reads it by
-  fact="$dir/hook-$row.json" latch="$dir/stop-$seat.json"
   # Only events that could be passive ask the classifier; prompt and Stop stay on their fast
   # path. A notice the seat's own manifest gives no state writes nothing, even if another hook
   # ends the turn while Python is deciding: there is no old fact to put back over that Stop.
@@ -123,20 +120,17 @@ sys.exit(0 if passive else 1)
   # in flight.  A seat waiting on work it started is not idle, and the Stop that said so stands
   # until that work's notification begins a turn; a question going up still replaces it.
   if [[ $event = Notification && $kind = idle_prompt ]] &&
-    [[ $("$jq" -r '"\(.event)/\(.kind)"' "$fact" 2>/dev/null) = Stop/background ]]
+    [[ $("$jq" -r '"\(.event)/\(.kind)"' "$dir/hook-$row.json" 2>/dev/null) = Stop/background ]]
   then
     return 0
   fi
   /bin/mkdir -p -- "$dir" || return 0
-  # the fact a prompt replaces says whether it lands in a turn still going (see below)
-  before=''
-  [[ $event != UserPromptSubmit ]] || before=$(/bin/cat -- "$fact" 2>/dev/null)
-  tmp="$fact.tmp.$$"
+  tmp="$dir/hook-$row.json.tmp.$$"
   "$jq" -n --arg session "$seat" --arg event "$event" --arg kind "$kind" --arg text "$text" \
     --argjson at "$ts" \
     '{session: $session, event: $event, kind: $kind, text: $text, at: $at}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
-  /bin/mv -f -- "$tmp" "$fact" || /bin/rm -f -- "$tmp"
+  /bin/mv -f -- "$tmp" "$dir/hook-$row.json" || /bin/rm -f -- "$tmp"
 
   # A new prompt is a new turn: hooks/orchestrator-stop.sh judges that turn against this
   # moment, and the two blocks it is allowed start again from zero here.
@@ -152,28 +146,17 @@ sys.exit(0 if passive else 1)
   # a request to be told, since a question is often typed without its mark -- is ended by
   # its answer.  `when` and `do` open instructions as often as questions ("when it lands,
   # merge it"), so they ask nothing.  The latch says which kind of prompt opened the turn.
-  # A prompt that lands in a turn still going -- the fact it replaces is one the seat's
-  # manifest reads as working: a tool call, a stop sent back, background work in flight --
-  # is a follow-up, never a new question's undoing: the owner's question stands until it is
-  # answered, and the turn is a peer's only while peers alone have spoken in it.
-  peer=false open=false
-  read -r peer open < <(/usr/bin/env python3 -c '
+  peer=false
+  if /usr/bin/env python3 -c '
 import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit.told import told
 payload = json.load(sys.stdin)
-peer = any(told(payload.get(key)) for key in ("prompt", "message"))
-try:
-    from agentkit import config, watch
-    harness = watch.seat_model(config.load(), sys.argv[2])[0]
-    going = bool(harness) and watch.hook_state(harness, json.loads(sys.argv[3]))[0] == "working"
-except Exception:
-    going = False     # nothing can say: the prompt opens a turn, as it always did
-print(str(peer).lower(), str(going).lower())
-' "${BASH_SOURCE[0]}" "$row" "$before" <<<"$payload" 2>/dev/null)
-  [[ $peer = true ]] || peer=false
-  [[ $open = true ]] || open=false
+sys.exit(0 if any(told(payload.get(key)) for key in ("prompt", "message")) else 1)
+' "${BASH_SOURCE[0]}" <<<"$payload" 2>/dev/null; then
+    peer=true
+  fi
   asked=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
                | any(test("\\?([[:space:]]|$)")
@@ -181,17 +164,12 @@ print(str(peer).lower(), str(going).lower())
       <<<"$payload" >/dev/null 2>&1; then
     asked=true
   fi
-  tmp="$latch.tmp.$$"
+  tmp="$dir/stop-$seat.json.tmp.$$"
   "$jq" -n --arg session "$seat" --argjson turn "$ts" --argjson peer "$peer" \
-    --argjson asked "$asked" --argjson open "$open" --rawfile old <(
-      [[ $open = true ]] && /bin/cat -- "$latch" 2>/dev/null) \
-    '(try ($old | fromjson) catch {}) as $was
-     | if $open and ($was | type) == "object" and $was.session == $session then
-         {session: $session, turn: $turn, blocks: 0, peer: (($was.peer == true) and $peer),
-          asked: ((($was.asked == true) and ($was.peer != true)) or ($asked and ($peer | not)))}
-       else {session: $session, turn: $turn, blocks: 0, peer: $peer, asked: $asked} end' \
+    --argjson asked "$asked" \
+    '{session: $session, turn: $turn, blocks: 0, peer: $peer, asked: $asked}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
-  /bin/mv -f -- "$tmp" "$latch" || /bin/rm -f -- "$tmp"
+  /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question, once the background look checks its pane.
   # The launch name still resolves after a rename; messages and slash commands answer nothing.
   # Background reports keep the normal stop rules, so they must not set the peer latch.
