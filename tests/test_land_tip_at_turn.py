@@ -20,6 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.landing import landing
+from fixtures.sandbox import account_home
 from agentkit import gate, host, config, run, worker
 from agentkit import record
 
@@ -90,6 +91,7 @@ class LandTipAtTurn(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root, places=(self.root,)))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         # the suites' AK_MAX_RUNS=0 takes no gate turn at all; these laps must take one
