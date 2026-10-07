@@ -154,15 +154,13 @@ interactive)
   printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 %s ' \
       "$OWN_RULES_OFF"
   # Seat preparation runs in the seat's actual cwd before the TUI, on either login: bypass
-  # permissions, and the first-run questions answered, trust in this directory among them.
+  # permissions, Claude's own messages between sessions refused (seats talk through `ak tell`),
+  # and the first-run questions answered, trust in this directory among them.
   printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
   # Remote Control on, named after the seat: the owner follows his seats from the Claude
   # app, and a seat reopened without it -- a resume, an account move -- would be lost there.
-  # Claude's own messages between sessions refused: seats talk through `ak tell`, which reaches
-  # every harness and account, says who sent it, and is never taken for the owner's words.
-  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions --remote-control %q --settings %q\n' \
-      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" "${AGENTKIT_SESSION:-}" \
-      '{"crossSessionInbound":"refuse"}' ;;
+  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions --remote-control %q\n' \
+      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" "${AGENTKIT_SESSION:-}" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   # One request per ask: the seat login's token while its own expiry is still in the future,

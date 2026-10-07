@@ -1,40 +1,44 @@
 """A Claude seat refuses Claude Code's own messages from other sessions; seats use `ak tell`.
 
-Offline: the real adapters/claude.sh against a temporary HOME; it only prints the command.
+The launch writes it into the login's user settings, which Claude Code reads again when
+they change, so a seat opened before the launch refuses them too. Offline: a temporary
+HOME, the real `account_config` each seat launch runs, on either login.
 """
 
 import json
 import os
-import shlex
-import subprocess
+from pathlib import Path
+import sys
 import tempfile
 import unittest
-from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
-ADAPTER = REPO / "adapters/claude.sh"
-CONVERSATION = "9f3a7c1e-2b4d-4e6f-8a0c-1d2e3f4a5b6c"
+sys.path.insert(0, str(REPO))
+from agentkit.harness.claude import account_config
 
 
 class SeatRefusesNativePeer(unittest.TestCase):
-    def test_every_seat_launch_refuses_cross_session_messages(self):
-        with tempfile.TemporaryDirectory(prefix="ak-seat-refuses-peer-") as tmp:
-            env = {k: v for k, v in os.environ.items()
-                   if k not in ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN")}
-            for account in ("", "quay"):
-                for extra in ([CONVERSATION, "new"], [CONVERSATION]):
-                    with self.subTest(account=account or "usual", resume=len(extra) == 1):
-                        proc = subprocess.run(
-                            [str(ADAPTER), "interactive", "opus", "medium", *extra],
-                            capture_output=True, text=True,
-                            env={**env, "HOME": tmp, "AGENTKIT_SESSION": "lagoon",
-                                 "AGENTKIT_ACCOUNT": account})
-                        self.assertEqual(proc.returncode, 0, proc.stderr)
-                        words = shlex.split(proc.stdout)
-                        tail = words[len(words) - words[::-1].index("--"):]
-                        self.assertEqual(tail[0], "claude")
-                        settings = json.loads(tail[tail.index("--settings") + 1])
-                        self.assertEqual(settings["crossSessionInbound"], "refuse")
+    def test_every_seat_launch_refuses_cross_session_messages_in_its_logins_settings(self):
+        for account in ("", "quay"):
+            for start in ({}, {"crossSessionInbound": "accept", "theme": "dark"}):
+                with self.subTest(account=account or "usual", start=start), \
+                        tempfile.TemporaryDirectory(prefix="ak-seat-refuses-peer-") as tmp:
+                    home = Path(tmp)
+                    (home / ".claude").mkdir()
+                    (home / ".claude/settings.json").write_text(json.dumps(start))
+                    cwd = os.getcwd()
+                    try:
+                        os.chdir(tmp)
+                        with patch.dict(os.environ, {"HOME": tmp, "AGENTKIT_ACCOUNT": account}):
+                            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+                            account_config()
+                    finally:
+                        os.chdir(cwd)
+                    login = home / (f".claude-{account}" if account else ".claude")
+                    settings = json.loads((login / "settings.json").read_text())
+                    self.assertEqual(settings["crossSessionInbound"], "refuse")
+                    self.assertEqual(settings.get("theme"), start.get("theme"))
 
 
 if __name__ == "__main__":
