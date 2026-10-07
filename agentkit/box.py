@@ -307,7 +307,13 @@ def _overlay(path, mounts, through, files):
             elif stat.S_ISLNK(mode):
                 args.extend(["--symlink", os.readlink(child), str(child)])
             elif stat.S_ISREG(mode):
-                fd = os.open(child, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                try:
+                    fd = os.open(child, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                except PermissionError:
+                    # Unreadable files need no copy; keep their inode and permissions behind
+                    # a read-only mount, just as for other entries the box cannot copy.
+                    args.extend(["--ro-bind", str(child), str(child)])
+                    continue
                 files[fd] = os.fdopen(fd, "rb")
                 if stat.S_ISREG(os.fstat(fd).st_mode):
                     args.extend(["--perms", f"{stat.S_IMODE(mode):o}", "--file",

@@ -314,6 +314,47 @@ class ChecksBoxed(unittest.TestCase):
         self.assertFalse((home / "inner-only").exists())
         self.assertEqual((home / ".ssh/id_fixture").read_text(), "fixture-key")
 
+    def test_unreadable_home_files_do_not_stop_nested_checks(self):
+        homes = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-unreadable-", dir=REPO)
+        self.addCleanup(homes.cleanup)
+        home, account = (Path(homes.name, name) for name in ("home", "account"))
+        unreadable = []
+        for place in (home, account):
+            (place / ".config/gh").mkdir(parents=True)
+            (place / ".config/gh/hosts.yml").write_text("fixture-login")
+            for name in (".viminfo", ".config/gh/.viminfo"):
+                path = place / name
+                path.write_text("unreadable")
+                path.chmod(0)
+                unreadable.append(path)
+        read = ("from pathlib import Path\n"
+                f"for path in map(Path, {list(map(str, unreadable))!r}):\n"
+                " assert path.exists()\n"
+                " try:\n"
+                "  path.read_text()\n"
+                " except PermissionError:\n"
+                "  pass\n"
+                " else:\n"
+                "  raise AssertionError('unreadable file became readable')\n")
+        inner = read + "Path.cwd().joinpath('inner-ran').touch()\n"
+        outer = (read + "import os, subprocess, sys\n"
+                 f"sys.path.insert(0, {str(REPO)!r})\n"
+                 "from agentkit import worker\n"
+                 f"activity = Path({str(self.root / 'nested.log')!r})\n"
+                 "activity.touch()\n"
+                 f"code, text, killed = worker.boxed([sys.executable, '-c', {inner!r}], 10, "
+                 f"env=dict(os.environ), cwd={str(self.root)!r}, activity=activity, "
+                 "stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)\n"
+                 "assert (code, killed) == (0, False), (code, text, killed)\n")
+        with account_home(account), patch.dict(os.environ, {"HOME": str(home)}):
+            result = self.proof(self.command(outer))
+        self.assertEqual(result["returncode"], 0, result)
+        self.assertTrue((self.root / "inner-ran").exists())
+        for path in unreadable:
+            self.assertEqual(path.stat().st_mode & 0o777, 0)
+            path.chmod(0o600)
+            self.assertEqual(path.read_text(), "unreadable")
+
     def test_declared_writes_inside_home_still_persist(self):
         home = self.root / "home"
         workspace, out, state = (home / name for name in ("workspace", "out", "state"))
