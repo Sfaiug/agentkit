@@ -123,11 +123,15 @@ at_composer = true
 # the account and hands the round over.
 [stall]
 signatures = ["Error ID: "]
-refusals = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "(code 429)",
+refusals = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "quota reached",
+  "(code 429)",
   "UNAVAILABLE", "experiencing high traffic", "currently overloaded",
   "(code 500)", "(code 502)", "(code 503)", "(code 504)", "Internal server error",
   "overloaded", "at capacity"]
-quotas = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "(code 429)"]
+# agy 1.3.1 on a spent Starter quota: "Individual quota reached. Please upgrade your subscription
+# to increase your limits. Resets in 51m38s." (a seat's screen, 7 Oct)
+quotas = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "quota reached",
+          "(code 429)"]
 # `error_marks` begin the `⚠ <message>` line an `Error ID:` closes on a seat's screen, which is
 # read with it; a line above drawn any other way is not agy's.
 error_marks = ["⚠ "]
