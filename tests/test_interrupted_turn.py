@@ -2,9 +2,10 @@
 
 Claude Code 2.1.291 sends no Stop and no idle_prompt after an Esc.  The conversation's own record
 says so: it ends in `[Request interrupted by user]`, and the next prompt is written there before
-its hook runs.  An Esc before any answer is not read here: the record of it is the record of a
-turn not yet answered (2.1.292: the prompt, its attachments, `last-prompt`, then nothing), and
-no hook runs, so that seat reads `working` until its next prompt.  hooks/seat-state.sh runs as
+its hook runs.  An Esc before any answer records nothing a turn not yet answered lacks (2.1.292:
+the prompt, its attachments, `last-prompt`, then nothing) and runs no hook, but puts the prompt
+back in the composer word for word: that is the owner's draft again.  A composer they then
+empty still reads `working` until their next prompt.  hooks/seat-state.sh runs as
 the harness runs it; the records follow the shape of real ones, with invented names.
 """
 
@@ -26,6 +27,8 @@ FIX = REPO / "tests/fixtures"
 INTERRUPTED = (FIX / "claude-interrupted-pane.txt").read_text(encoding="utf-8")
 NEXT_TURN = (FIX / "claude-after-interrupt-next-turn-pane.txt").read_text(encoding="utf-8")
 DRAFT = (FIX / "claude-multiline-draft-pane.txt").read_text(encoding="utf-8")  # the owner's draft
+# a real 2.1.292 capture of a renamed seat: Esc before any answer put the prompt back
+CANCELLED = (FIX / "claude-cancelled-before-any-answer-pane.txt").read_text(encoding="utf-8")
 INTERRUPT, TOOL_INTERRUPT = claude.INTERRUPTS
 
 
@@ -180,6 +183,16 @@ class InterruptedTurn(Sandbox):
         self.said("user", fact["at"] + 3, INTERRUPT)
         self.assertEqual(self.looked(DRAFT), ("needs you", False))
         self.assertEqual(self.handed_back(lambda: DRAFT), [])
+
+    def test_a_turn_cancelled_before_any_answer_is_the_owners_draft_again(self):
+        """Esc before any answer: Claude records nothing and sends no hook, so the record is a
+        turn not yet answered; but the prompt is back in the composer word for word, which a
+        turn that runs never leaves (review 20261006-2254 round 1)."""
+        fact = self.prompt("Run the acme tests.")
+        self.assertEqual(self.looked(CANCELLED), ("needs you", False))   # its draft again
+        self.assertEqual(self.handed_back(lambda: CANCELLED), [])         # and never typed onto
+        self.said("assistant", fact["at"] + 2, "Running them now.")      # once answered: no cancel
+        self.assertEqual(self.looked(CANCELLED), ("working", False))
 
     def test_a_seat_whose_record_cannot_be_read_reads_as_its_hooks_say(self):
         fact = self.prompt("Run the acme tests.")
