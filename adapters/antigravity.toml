@@ -123,8 +123,7 @@ at_composer = true
 # the account and hands the round over.
 [stall]
 signatures = ["Error ID: "]
-refusals = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "quota reached",
-  "(code 429)",
+refusals = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "(code 429)",
   "UNAVAILABLE", "experiencing high traffic", "currently overloaded",
   "(code 500)", "(code 502)", "(code 503)", "(code 504)", "Internal server error",
   "overloaded", "at capacity"]
