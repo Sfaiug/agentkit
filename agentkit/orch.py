@@ -2209,11 +2209,11 @@ def fetch_project(repo):
 
 
 def fetched(repo):
-    """Whether `repo` has the `origin/HEAD` its seats' rules are read from: `fetch_project` made
-    it, or a clone did."""
+    """Whether `repo` has the ref its seats' rules are read from (`config.RULES_REF`):
+    `fetch_project` made it, or a clone did."""
     from . import run
-    return bool(run.git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD",
-                        check=False, env=run.project_env(repo)).strip())
+    return bool(run.git(repo, "rev-parse", "--verify", "--quiet", config.RULES_REF,
+                        check=False, env=run.project_env(repo)))
 
 
 def fetch_projects():
