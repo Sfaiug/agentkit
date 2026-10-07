@@ -333,10 +333,10 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                 from . import config
                 raise config.Error(f"worker box needs {path}: the host directory is missing")
     writable = _writable(clean, cwd, out_dir, state, places, logins)
-    homes = {path.resolve() for path in _homes(clean, cwd)} if home_overlay else set()
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
     try:
+        homes = {path.resolve() for path in _homes(clean, cwd)} if home_overlay else set()
         for path in _credentials(clean, cwd, env.get("SSH_AUTH_SOCK")):
             try:
                 targets.add(path.resolve(strict=True))
