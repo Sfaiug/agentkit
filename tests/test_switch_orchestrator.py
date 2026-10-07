@@ -28,6 +28,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
+from fixtures import pane
 from fixtures.sandbox import Sandbox
 from agentkit import config, menu, orch, run, stop, terminal, watch
 from agentkit import record as run_record
@@ -113,7 +114,7 @@ class Switch(Sandbox):
                                "finished_at": 9990})
 
     def tmux(self, *args, **kwargs):
-        self.calls.append(args)
+        self.calls.append(pane.resolved(args))
         if args[0] in self.fail:
             return 1, "boom"
         return 0, ""

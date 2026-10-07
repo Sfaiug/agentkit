@@ -7,6 +7,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
+from fixtures.pane import resolved
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, watch
 from agentkit.harness import claude
@@ -69,7 +70,7 @@ class SeatFollowsClear(Sandbox):
         claude.capture("lagoon", self.payload(**extra), pid)
 
     def tmux(self, *args, **kwargs):
-        self.tmux_calls.append(args)
+        self.tmux_calls.append(resolved(args))
         if args[0] == "source-file":
             return (0 if self.server_up else 1), ""
         if args[0] == "display-message":

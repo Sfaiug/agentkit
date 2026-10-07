@@ -11,6 +11,7 @@ import shlex
 import unittest
 from unittest.mock import patch
 
+from fixtures import pane
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, watch
 from agentkit.harness import claude
@@ -61,7 +62,7 @@ class SeatTitle(Sandbox):
         return (REPO / "tests/fixtures" / f"claude-{kind}-pane.txt").read_text()
 
     def tmux(self, *args, **kwargs):
-        self.commands.append(args)
+        self.commands.append(pane.resolved(args))
         if args[0] == "rename-session":
             self.seat = dict(self.seat, name=args[-1])
         elif args[0] == "capture-pane":

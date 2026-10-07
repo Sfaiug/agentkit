@@ -17,6 +17,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
+from fixtures import pane
 from fixtures.sandbox import Sandbox
 from agentkit import config, orch
 
@@ -75,6 +76,7 @@ class SeatsInSlice(Sandbox):
             (where / "systemd-run").chmod(0o755)
 
     def tmux(self, *args, socket=None, client=False, unit=None, path_shim=False, **_kw):
+        args = pane.resolved(args)
         self.calls.append((args, unit, path_shim))
         if args[0] == "source-file":
             return (0, "") if self.server_up else (1, "no server running")

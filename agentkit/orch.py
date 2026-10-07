@@ -1740,14 +1740,26 @@ def seat_command(name, cmd, socket=None):
     Every launch names a new scope, so a respawn never meets the one the last harness may
     have left behind.  The bus is the one `user_manager` found: a server started from cron
     never told its panes where it is.  Where no manager answers, the command runs plainly.
+
+    tmux refuses a command longer than its 16 KiB message ("command too long"), and a harness
+    that takes its rulebook as an argument (Grok's `--rules`, OpenCode's config) carries tens
+    of KiB.  So the pane runs the seat's launch file, which removes itself and execs the
+    command: any length, and nothing left behind once the harness is up.
     """
-    if not user_manager():
-        return shlex.join(cmd)
-    unit = f"agentkit-seat-{name}-{uuid.uuid4().hex[:8]}"
-    run, *literal = seat_scope_run()
-    return shlex.join(["env", f"XDG_RUNTIME_DIR={bus_env()['XDG_RUNTIME_DIR']}",
-                       run, "--user", f"--slice={seat_slice_name(socket)}", "--scope",
-                       "--quiet", f"--unit={unit}", *literal, "--", *cmd])
+    if user_manager():
+        unit = f"agentkit-seat-{name}-{uuid.uuid4().hex[:8]}"
+        run, *literal = seat_scope_run()
+        cmd = ["env", f"XDG_RUNTIME_DIR={bus_env()['XDG_RUNTIME_DIR']}",
+               run, "--user", f"--slice={seat_slice_name(socket)}", "--scope",
+               "--quiet", f"--unit={unit}", *literal, "--", *cmd]
+    path = launch_file(name)
+    path.write_text('rm -f -- "$0"\nexec ' + shlex.join(cmd) + "\n")
+    return shlex.join(["sh", str(path)])
+
+
+def launch_file(name):
+    """The file `seat_command` has the seat's pane run; a launch tmux refused removes it."""
+    return config.STATE / f"launch-{name}.sh"
 
 
 def start(name, cwd, cmd, orchestrator):
@@ -1774,6 +1786,7 @@ def start(name, cwd, cmd, orchestrator):
                        *env, seat_command(name, cmd), path_shim=True,
                        unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
+        launch_file(name).unlink(missing_ok=True)
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
     tmux_out("set-option", "-t", f"={name}:", MARK, "1")
     # A server started as a systemd service writes its stdout to the journal, so tmux
@@ -2109,6 +2122,7 @@ def _start_harness(name, model, cwd, cmd, session):
         rc, out = tmux_out("respawn-pane", "-k", "-t", target,
                            seat_command(name, cmd, server), socket=server, path_shim=True)
         if rc != 0:
+            launch_file(name).unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
         tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
         if on_own_server(session):
