@@ -51,6 +51,7 @@ class SeatEnvironment(Sandbox):
         self.command = [sys.executable, "-c", HARNESS, str(REPO), *self.roots]
         self.launched = []
         self.menus = []
+        self.refuse_respawn = False
         self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
         self.stack.enter_context(patch.object(statusbar, "dress"))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
@@ -68,6 +69,8 @@ class SeatEnvironment(Sandbox):
             return 0, ""
         if "new-session" not in args and "respawn-pane" not in args:
             return 0, ""
+        if "respawn-pane" in args and self.refuse_respawn:
+            return 1, "tmux refused; the old pane is still running"
         if "new-session" in args:
             self.session_env = {**os.environ, **self.server_roots, "HOME": str(self.server_home),
                                 config.SESSION_ENV: "old-seat", orch.SOCKET_ENV: "old-server",
@@ -75,15 +78,17 @@ class SeatEnvironment(Sandbox):
                                 notify.SINK_LOG_ENV: "old-sink-log",
                                 "AGENTKIT_DISCORD_WEBHOOK": "http://stale.invalid/hook",
                                 "AGENTKIT_DISCORD_USER_ID": "old-owner"}
+        child_env = self.session_env.copy()
         for index, arg in enumerate(args[:-1]):
             if arg == "-e":
                 key, value = args[index + 1].split("=", 1)
-                self.session_env[key] = value
-        self.launched.append(self.ran(["sh", "-c", args[-1]]))
+                child_env[key] = value
+        self.launched.append(self.ran(["sh", "-c", args[-1]], child_env))
         return 0, ""
 
-    def ran(self, command):
-        child = subprocess.run(command, env=self.session_env, capture_output=True,
+    def ran(self, command, environment=None):
+        child = subprocess.run(command, env=self.session_env if environment is None else environment,
+                               capture_output=True,
                                text=True, timeout=15)
         self.assertEqual(child.returncode, 0, child.stderr)
         return json.loads(child.stdout)
@@ -161,6 +166,30 @@ class SeatEnvironment(Sandbox):
             self.launch_both()
         self.assertEqual([child["state_roots"]["ACME_HOME"] for child in self.launched],
                          [str(self.root / "acme")] * 2)
+
+    def test_a_failed_respawn_keeps_the_old_harness_and_menu_together(self):
+        self.server_sink = "off"
+        original = {key: str(self.root / "original-state" / key.lower()) for key in self.roots}
+        with patch.dict(os.environ, {**original, notify.SINK_ENV: "http://original.invalid/hook",
+                notify.SINK_LOG_ENV: str(self.root / "original-log"),
+                "AGENTKIT_DISCORD_USER_ID": "original-owner"}):
+            orch.start("acme", self.root, self.command, "any-model")
+        old_harness = self.launched[-1]
+        self.assertEqual(self.ran(self.command), old_harness)
+        old_environment = self.session_env.copy()
+        self.refuse_respawn = True
+        caller = self.root / "next-home"
+        caller.mkdir()
+        with patch.dict(os.environ, {"HOME": str(caller), notify.SINK_ENV: "off",
+                notify.SINK_LOG_ENV: str(caller / "next-log"),
+                "AGENTKIT_DISCORD_WEBHOOK": "http://next.invalid/hook",
+                "AGENTKIT_DISCORD_USER_ID": "next-owner"}), self.assertRaises(config.Error):
+            orch._start_harness("acme", "any-model", self.root, self.command,
+                                {"name": "acme", "exited": False})
+        self.assertEqual(self.launched, [old_harness])
+        self.assertEqual(self.ran(self.command), old_harness)
+        self.assertEqual(self.session_env, old_environment)
+        self.assertFalse(config.seat_file("launch", "acme").exists())
 
 
 if __name__ == "__main__":
