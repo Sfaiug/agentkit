@@ -274,6 +274,27 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertIn("Read-only file system", text)
                 self.assertFalse(path.exists())
 
+    def test_declared_writes_inside_home_still_persist(self):
+        home = self.root / "home"
+        workspace, out, state = (home / name for name in ("workspace", "out", "state"))
+        workspace.mkdir(parents=True)
+        out.mkdir()
+        source = ("from pathlib import Path\n"
+                  f"for place in map(Path, {[str(workspace), str(out), str(state)]!r}):\n"
+                  " (place / 'kept').write_text('declared')\n"
+                  f"Path({str(home / 'cache')!r}).write_text('temporary')")
+        with patch.dict(os.environ, {"HOME": str(home)}), \
+                box.command([sys.executable, "-c", source], dict(os.environ), out,
+                            cwd=workspace, state=("$HOME/state",),
+                            home_overlay=True) as (cmd, env, spawn):
+            spawn.pop("stop")
+            result = subprocess.run(cmd, env=env, cwd=workspace, capture_output=True,
+                                    text=True, timeout=10, **spawn)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for place in (workspace, out, state):
+            self.assertEqual((place / "kept").read_text(), "declared")
+        self.assertFalse((home / "cache").exists())
+
     def test_missing_home_overlay_support_refuses_before_the_check_starts(self):
         bindir = self.root / "bin"
         bindir.mkdir()
