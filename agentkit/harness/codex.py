@@ -37,6 +37,13 @@ BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---
 END = "# --- end agentkit browser bridge ---"
 
 
+def seat_conversations(remote):
+    """Where the seat of that remote id keeps its conversations: under the usual ~/.codex, where
+    adapters/codex.sh keeps every login's, so the place is the same whichever login the seat
+    runs on, and stays after the seat's home is removed."""
+    return Path.home() / ".codex" / "agentkit-seats" / remote
+
+
 def path_for(record):
     token = record.get("codex_launch")
     if isinstance(token, str) and re.fullmatch(r"[0-9a-f]{32}", token):
@@ -93,12 +100,15 @@ def conversation(record, cwd=None):
 
 
 def transcript(record, cwd, conversation):
-    """The rollout file the new orchestrator reads the last exchange from."""
+    """The rollout file the new orchestrator reads the last exchange from.
+
+    Codex names it through the seat's home, whose `sessions` is a link the seat's removal takes
+    away; where the link leads stays (tools/codex-seat.py `seat_home`), so that is the path."""
     if not conversation:
         return None
     event = read(record).get("event") or {}
     path = event.get("transcript_path")
-    return path if isinstance(path, str) and path else None
+    return str(Path(path).resolve()) if isinstance(path, str) and path else None
 
 
 def prompt(entry):

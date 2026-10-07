@@ -24,7 +24,10 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config, notify
-from agentkit.harness.codex import main
+from agentkit.harness.codex import main, seat_conversations
+
+
+CONVERSATIONS = ("sessions", "archived_sessions")
 
 
 def seat_home(receipt):
@@ -34,15 +37,26 @@ def seat_home(receipt):
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
     source = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).resolve()
     source.mkdir(parents=True, exist_ok=True)
-    (source / "sessions").mkdir(exist_ok=True)
     (source / "session_index.jsonl").touch(exist_ok=True)
     # Enrollment is tied to installation_id AND the state database. Sharing either
-    # lets a second seat take the first seat's remote connection. Everything else,
-    # including the login, configured extensions and conversations, stays shared.
+    # lets a second seat take the first seat's remote connection. A new database
+    # imports every conversation under its home's sessions and archived_sessions
+    # before the server listens (3,500 kept a seat blank for a minute), so those are
+    # the seat's own, in a directory that outlives its home and is the same whichever
+    # login it runs on (`seat_conversations`). A home keeps the links it has, made
+    # before or on another login. The login, config, extensions and thread names stay
+    # shared.
+    own = seat_conversations(data["remote"])
+    for name in CONVERSATIONS:
+        if not (home / name).is_symlink() and not (home / name).exists():
+            (own / name).mkdir(mode=0o700, parents=True, exist_ok=True)
+            (home / name).symlink_to(own / name, target_is_directory=True)
     names = {p.name for p in source.iterdir()} if source.exists() else set()
-    names.update(("auth.json", "config.toml", "sessions", "session_index.jsonl"))
+    names.update(("auth.json", "config.toml", "session_index.jsonl"))
     for name in names:
-        if name in ("installation_id", "app-server-control", "tmp") or ".sqlite" in name:
+        if (name in ("installation_id", "app-server-control", "tmp", own.parent.name,
+                     *CONVERSATIONS)
+                or ".sqlite" in name):
             continue
         target = home / name
         if target.is_symlink():

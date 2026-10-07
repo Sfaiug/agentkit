@@ -171,7 +171,7 @@ signatures = [
 # Verified against Codex 0.153.4: `/compact` -- "summarize conversation to prevent hitting the
 # context limit" -- is in its slash-command list, and hooks/seat-state.sh, which its seats run on
 # Stop through tools/codex-seat.py, gets a `transcript_path` pointing at the rollout file under
-# ~/.codex/sessions.  That file's last `event_msg` of type `token_count` carries
+# the seat's own sessions.  That file's last `event_msg` of type `token_count` carries
 # `info.last_token_usage.total_tokens` (15,217 on the launch that was read) beside
 # `info.model_context_window` (258,400): the input and output of the turn that just ended, which
 # is what the next one starts on.

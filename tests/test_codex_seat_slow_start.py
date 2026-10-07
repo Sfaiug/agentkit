@@ -50,6 +50,8 @@ with sqlite3.connect(home / 'state_5.sqlite') as db:
     db.execute("INSERT OR IGNORE INTO threads VALUES ('acme-thread')")
 if status != 'complete':
     (home / 'backfill-started').touch()
+    (home / 'imported').write_text(str(sum(1 for name in ('sessions', 'archived_sessions')
+                                           for _ in (home / name).rglob('*.jsonl'))))
     time.sleep(float(os.environ.get('FAKE_DELAY', '0')))
     with sqlite3.connect(home / 'state_5.sqlite') as db:
         db.execute("UPDATE backfill_state SET status = 'complete'")
@@ -143,6 +145,65 @@ class SlowStart(unittest.TestCase):
                              [('acme-older-thread',), ('acme-thread',)])
         self.assertEqual((self.source / 'state_5.sqlite').read_bytes(), b'acme-owner-database')
         self.assertEqual((self.source / 'installation_id').read_text(), 'acme-owner-installation')
+
+    def test_new_seat_imports_none_of_the_owners_conversations(self):
+        owners = [self.source / name / '2026' / 'rollout-acme.jsonl'
+                  for name in ('sessions', 'archived_sessions')]
+        for rollout in owners:
+            rollout.parent.mkdir(parents=True, exist_ok=True)
+            rollout.write_text('{"type":"session_meta"}\n')
+        self.home = self.api['seat_home'](self.root / 'receipt.json')
+        self.assertEqual(self.start(), 0)
+        self.assertTrue((self.home / 'tui-started').exists())
+        self.assertEqual((self.home / 'imported').read_text(), '0')
+        for rollout in owners:
+            self.assertEqual(rollout.read_text(), '{"type":"session_meta"}\n')
+
+    def test_a_seats_conversations_outlive_its_home(self):
+        rollout = self.home / 'sessions' / '2026' / 'rollout-acme-seat.jsonl'
+        rollout.parent.mkdir(parents=True)
+        rollout.write_text('{"type":"session_meta"}\n')
+        self.api['remove_home'](self.home)
+        self.assertFalse(self.home.exists())
+        kept = list((self.root / '.codex').rglob('rollout-acme-seat.jsonl'))
+        self.assertEqual([path.read_text() for path in kept], ['{"type":"session_meta"}\n'])
+
+    def test_a_seats_conversations_stay_in_one_place_whichever_login_it_runs_on(self):
+        rollout = self.home / 'sessions' / '2026' / 'rollout-acme-seat.jsonl'
+        rollout.parent.mkdir(parents=True)
+        rollout.write_text('{"type":"session_meta"}\n')
+        kept = self.root / '.codex' / 'agentkit-seats' / 'acme-seat'
+        self.assertEqual(rollout.resolve(), kept / 'sessions' / '2026' / 'rollout-acme-seat.jsonl')
+        # its subscription runs out and it moves to another login's Codex home: same place,
+        # and no empty one made beside that login's
+        other = self.root / '.codex-acme'
+        other.mkdir()
+        with patch.dict(os.environ, CODEX_HOME=str(other)):
+            self.assertEqual(self.api['seat_home'](self.root / 'receipt.json'), self.home)
+        self.assertEqual(rollout.resolve(), kept / 'sessions' / '2026' / 'rollout-acme-seat.jsonl')
+        self.assertEqual(list(other.rglob('agentkit-seats')), [])
+
+    def test_the_handover_reads_a_removed_seats_last_exchange(self):
+        from agentkit.harness import codex
+        rollout = self.home / 'sessions' / '2026' / 'rollout-acme-seat.jsonl'
+        rollout.parent.mkdir(parents=True)
+        rollout.write_text('{"type":"session_meta"}\n')
+        record = {'codex_launch': 'a' * 32}
+        codex.path_for(record).write_text(json.dumps(
+            {'launch': 'a' * 32, 'event': {'transcript_path': str(rollout)}}))
+        handed = codex.transcript(record, None, 'acme-thread')   # read as a switch reads it
+        self.api['remove_home'](self.home)                       # then the old seat goes
+        self.assertEqual(Path(handed).read_text(), '{"type":"session_meta"}\n')
+
+    def test_seat_from_before_keeps_its_conversations_in_the_shared_sessions(self):
+        rollout = self.source / 'sessions' / 'rollout-acme-older.jsonl'
+        rollout.parent.mkdir(exist_ok=True)
+        rollout.write_text('{"type":"session_meta"}\n')
+        (self.home / 'sessions').unlink()       # as a seat home made before linked it
+        (self.home / 'sessions').symlink_to(self.source / 'sessions', target_is_directory=True)
+        self.home = self.api['seat_home'](self.root / 'receipt.json')
+        self.assertEqual((self.home / 'sessions' / rollout.name).read_text(),
+                         '{"type":"session_meta"}\n')
 
     def test_completed_backfill_is_kept_on_resume(self):
         self.assertEqual(self.start(), 0)
