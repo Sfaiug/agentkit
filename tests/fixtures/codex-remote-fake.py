@@ -108,6 +108,7 @@ if args[:1] == ['app-server']:
                     sid = params.get('threadId') or os.environ['FAKE_THREAD']
                     transcript = ch / 'sessions' / ('rollout-' + sid + '.jsonl')
                     if not transcript.exists():
+                        transcript.parent.mkdir(exist_ok=True)   # as Codex makes its own
                         transcript.write_text(json.dumps({'type': 'session_meta', 'payload': {
                             'id': sid, 'cwd': os.getcwd(), 'timestamp': os.environ.get(
                                 'FAKE_STAMP', '2026-09-11T08:00:00Z')}}) + '\n')
