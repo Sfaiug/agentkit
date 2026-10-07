@@ -728,6 +728,7 @@ def live_tick(log, now, fetched):
     started, detached, as soon as none runs; a red one is started again on
     `watch.RETRY_BACKOFF` from its end.  As `watch.after_merge_checks` does, the newest red
     check no later check passed is handed back (`live_hand_back`), wherever main went since,
+    once it is the second red in a row (a first red is only logged and waits for its retry),
     unless an older one's notice was typed or told already.
     Offline, no check starts: what was fetched last may be what origin has since moved on from.
     """
@@ -756,14 +757,19 @@ def live_tick(log, now, fetched):
     if pruned:
         _git("worktree", "prune")
     episode = None      # a pass ends what was red before it; one typed or told stands until then
+    reds = 0            # red checks in a row since the last pass, whichever commits they checked
     for _, commit, check, code in done:
         record = _handed(episode[1]) if episode else None
         if code == 0:
-            episode = None
-        elif not (record and (record["typed"] or record["told"])):
+            episode, reds = None, 0
+            continue
+        reds += 1
+        if not (record and (record["typed"] or record["told"])):
             episode = (commit, check, code)
     if episode:
-        live_hand_back(*episode, log)
+        # A first red is logged and waits for its retry: the gate makes real model calls, and
+        # one provider blip is not main broken.  The second red in a row goes to a seat.
+        live_hand_back(*episode, log, hand=reds > 1)
     mine = [(started, check, code) for started, commit, check, code in done if commit == tip]
     if (running or not tip or any(code == 0 for _, _, code in mine)
             or _git("merge-base", "--is-ancestor", tip, "HEAD")[0] != 1
@@ -819,8 +825,9 @@ def _live_excerpt(said):
     return lines
 
 
-def live_hand_back(commit, check, code, log):
-    """Hand that red check of that commit back to fix, once, with its failures and summary.
+def live_hand_back(commit, check, code, log, hand=True):
+    """Hand that red check of that commit back to fix, once, with its failures and summary;
+    with `hand` false it is only logged, as a first red waiting for its retry is.
 
     Its record is `handed` in the check's directory, the tick's own file: the line, the
     composer's mark while its Enter has not landed, so it is entered and never typed twice,
@@ -849,7 +856,7 @@ def live_hand_back(commit, check, code, log):
         keep(line=f"tests/live.sh failed on agentkit's main at {commit[:12]}, so this host "
                   f"stays on the agentkit it runs: {' / '.join(lines)}. Fix main.",
              typed=None, told=False)
-    if record["told"]:
+    if record["told"] or not hand:
         return
     key = run.remote_key(_git("remote", "get-url", "origin")[1])
     if watch.after_merge_deliver(None, {}, key, record["line"], log, typed=record["typed"],
