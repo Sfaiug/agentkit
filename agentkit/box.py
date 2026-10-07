@@ -1,10 +1,11 @@
-"""The worker's filesystem and process walls, built in one place.
+"""The worker's filesystem, network and process walls, built in one place.
 
 Offline worker fixtures may patch command to yield (argv, env, {}), keeping
 their process audit active outside the turn. The real walls are exercised by
 tests/test_worker_box.py.
 """
 
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -318,6 +319,78 @@ def _bind(own, writable, homes=()):
 
 
 @contextmanager
+def _network(cmd, env, out_dir=None, info=None):
+    # With no usable route, pasta has no outside to connect to. Bubblewrap still
+    # supplies a private network namespace with its own working loopback.
+    routes = any(line.split()[0] != "lo" and int(line.split()[3], 16) & 0x201 == 1
+                 for line in Path("/proc/net/route").read_text().splitlines()[1:])
+    ipv6 = Path("/proc/net/ipv6_route")
+    routes6 = ipv6.exists() and any(
+        line.split()[-1] != "lo" and int(line.split()[8], 16) & 0x201 == 1
+        for line in ipv6.read_text().splitlines())
+    if info is not None:
+        # Pasta closes extra descriptors. Open the witness after it starts;
+        # the box's private /tmp hides this file from the command.
+        cmd = ["sh", "-c", 'exec 3>"$1"; shift; exec "$@"', "box", info, *cmd]
+    if not (routes or routes6):
+        yield [*cmd, "--unshare-net"]
+        return
+    # Keep the account's numbers in pasta's user namespace. Its default maps the
+    # account to root; bwrap must also receive no ambient capabilities.
+    # A different address inside keeps host listeners on its LAN address reachable.
+    # Loopback supplies both IP families, including a resolver's only family.
+    prefix = ["unshare", "--user", "--map-current-user", "--keep-caps", "pasta",
+              "--netns-only", "--config-net", "--no-map-gw", "--quiet",
+              "--interface", "lo", "--ns-ifname", "tap0",
+              "--address", "10.0.2.15", "--netmask", "24", "--gateway", "10.0.2.2",
+              "--address", "fd00::15", "--gateway", "fe80::1",
+              "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
+    resolver = Path("/etc/resolv.conf")
+    content = resolver.read_text() if resolver.exists() else ""
+    hosts = {}
+
+    def forward(match):
+        try:
+            address = ipaddress.ip_address(match[2])
+        except ValueError:
+            return match[0]
+        if not address.is_loopback:
+            return match[0]
+        hosts.setdefault(address.version, str(address).split("%")[0])
+        return match[1] + ("10.0.2.3" if address.version == 4 else "fd00::3")
+
+    content = re.sub(r"(?m)^([^\S\n]*nameserver[ \t]+)(\S+)", forward, content)
+    for version, address in hosts.items():
+        prefix.extend(["--dns-forward", "10.0.2.3" if version == 4 else "fd00::3",
+                       "--dns-host", address])
+    prefix.extend(["setpriv", "--inh-caps=-all", "--ambient-caps=-all"])
+    # In an enclosing box, the host's pasta may be unable to start a command
+    # (for example an AppArmor exec transition under no_new_privs).
+    with subprocess.Popen([*prefix, "/usr/bin/true"], env=env,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as probe:
+        try:
+            ready = probe.wait(timeout=10) == 0
+        except subprocess.TimeoutExpired:
+            probe.terminate()
+            try:
+                probe.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                probe.kill()
+                probe.wait()
+            ready = False
+    if not ready:
+        yield [*cmd, "--unshare-net"]
+        return
+    if not hosts:
+        yield [*prefix, *cmd]
+        return
+    with tempfile.NamedTemporaryFile(mode="w", prefix=".box-dns-", dir=out_dir) as dns:
+        dns.write(content)
+        dns.flush()
+        yield [*prefix, *cmd, "--ro-bind", dns.name, str(resolver.resolve())]
+
+
+@contextmanager
 def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(),
             home_overlay=False, drain=False):
     """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
@@ -368,7 +441,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
         cmd[at:at] = _bind({}, writable, homes)
-        yield [*cmd, "--", *argv], clean, {}
+        with _network(cmd, clean) as connected:
+            yield [*connected, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
     report.unlink(missing_ok=True)
@@ -376,18 +450,15 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     # every descendant, even one with a new session or an empty environment.
     argv = [sys.executable, "-I", "-c", SUPERVISOR, str(report),
             *(["--drain"] if drain else []), *argv]
-    read, write = os.pipe()
     target = None
     lock = threading.Lock()
 
     def namespace():
-        nonlocal write, target
+        nonlocal target
         with lock:
-            if write is not None:
-                os.close(write)
-                write = None
-                with os.fdopen(read) as info:
-                    target = _pidfd(info.read())
+            if target is None:
+                info.seek(0)
+                target = _pidfd(info.read())
         return target
 
     def stop(proc, grace):
@@ -395,7 +466,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         deadline = time.monotonic() + grace
         if target is not None:
             fd, pid = target
-            # The info pipe precedes exec. PID 1 ignores TERM until the supervisor
+            # The witness precedes exec. PID 1 ignores TERM until the supervisor
             # installs its handler, so an early interruption must wait for it.
             while proc.poll() is None and time.monotonic() < deadline:
                 try:
@@ -408,18 +479,23 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                 except (FileNotFoundError, ProcessLookupError):
                     break
                 time.sleep(.01)
+        elif proc.poll() is None:
+            # Before bwrap publishes its witness, pasta's TERM handler destroys
+            # its nascent namespace. KILL would leave that child waiting for it.
+            proc.terminate()
         try:
             proc.wait(timeout=max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
             proc.kill()
 
-    with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
+    with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch, \
+            tempfile.NamedTemporaryFile(mode="r+", prefix=".box-pid-") as info:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
-                "pass_fds": (write,), "stop": stop}
+            with _network(cmd, clean, out_dir, info.name) as connected:
+                yield [*connected, "--info-fd", "3", "--", *argv], clean, {"stop": stop}
         finally:
             target = namespace()
             if target is not None:
@@ -428,11 +504,27 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
 
 def _pidfd(info):
     # A killed bwrap can exit before its PID 1 finishes killing descendants.
-    # Its private info pipe names that process; a pidfd waits for the kernel's
+    # Its private witness names that process; a pidfd waits for the kernel's
     # teardown, not an environment sweep or a delay guessed to be long enough.
     try:
         info = json.loads(info)
         pid = info["child-pid"]
+        # Pasta also makes a PID namespace, so bwrap's child number may be local
+        # to it. Find PID 1 by the namespace inode before opening its host pidfd.
+        for entry in [Path(f"/proc/{pid}"), *Path("/proc").iterdir()]:
+            if not entry.name.isdigit():
+                continue
+            try:
+                if (entry / "ns/pid").stat().st_ino != info["pid-namespace"]:
+                    continue
+                status = (entry / "status").read_text().splitlines()
+                if next(line.split()[-1] for line in status if line.startswith("NSpid:")) == "1":
+                    pid = int(entry.name)
+                    break
+            except (FileNotFoundError, PermissionError):
+                continue
+        else:
+            return
         fd = os.pidfd_open(pid)
     except (ValueError, KeyError, ProcessLookupError):
         return
@@ -471,10 +563,14 @@ def check():
     remedy = "sudo apt-get install -y bubblewrap"
     if not shutil.which("bwrap"):
         raise config.Error(f"worker box needs bubblewrap; run `{remedy}`")
+    if not shutil.which("pasta"):
+        raise config.Error("worker box needs pasta; run `sudo apt-get install -y passt`")
     try:
-        with command(["true"], os.environ) as (inner, env, _):
-            with command(inner, env) as (outer, env, _):
-                result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
+        # The nested probe needs only loopback, like an offline check.
+        inner = ["bwrap", "--unshare-user", "--unshare-pid", "--unshare-net",
+                 "--ro-bind", "/", "/", "--", "true"]
+        with command(inner, os.environ) as (outer, env, _):
+            result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
             return
         why = result.stderr.strip() or f"exit {result.returncode}"
@@ -496,7 +592,7 @@ def check():
             remedy = f"sudo sysctl -w {setting}"
             break
     raise config.Error(f"worker box cannot start: {why}; run `{remedy}`; "
-                       "the host must allow nested unprivileged user and PID namespaces")
+                       "the host must allow nested unprivileged user, network and PID namespaces")
 
 
 def _report(out_dir):
