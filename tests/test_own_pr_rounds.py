@@ -520,8 +520,8 @@ class OwnPrRounds(unittest.TestCase):
     def test_killed_after_merge_settles_without_another_merge(self):
         merge = run.merge_own_pr
 
-        def killed(lp, url, head, **_kw):
-            merge(lp, url, head)
+        def killed(lp, url, **_kw):
+            merge(lp, url)
             self.pr["state"] = "MERGED"
             raise InterruptedError("fixture: loop died after merging")
 
