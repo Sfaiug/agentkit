@@ -90,11 +90,11 @@
   `turn`, `call`, `boxed` checks, `kill_marked`, `auth_ok`.
   Used by run, gate, watch, usage, menu, harness. Leak: Claude shell timeout.
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye; a merged run writes its review follow-ups here.
-- `box.py`: credential masks, PID teardown. `command`, `check`, `returncode`, `leftovers`;
-  for worker and run.
+- `box.py`: credential masks, own temporary places and /run, PID teardown. `command`, `check`,
+  `returncode`, `leftovers`; for worker and run.
 - `guard.py`: what a seat's tmux may not do (end, or type into, another seat; `refusal`, the `-t`
   resolved by the real tmux) and gh may not (`gh pr merge` from a seat; `gh_refusal`), read from the
-  final argv a `tools/*-shim` hands it; `install_shim` links each as `<HOME>/bin/<name>`. 
+  final argv a `tools/*-shim` hands it; `install_shim` links each as `<HOME>/bin/<name>`.
 - `shim.py`: the body every `tools/*-shim` runs -- find the real binary, engage only for a seat's
   own by-hand call, ask `guard`, else exec the real one; imports `guard` lazily, so a guard that
   cannot import still execs the real binary.

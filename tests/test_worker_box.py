@@ -104,6 +104,285 @@ with (out / "alive.lock").open("w") as lock:
 '''
 
 
+SOCKETS = r'''import json, os, socket, subprocess, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, os.environ["BOX_REPO"])
+from agentkit import box
+work, role, places = Path(os.environ["BOX_WORK"]), sys.argv[1], [Path(path) for path in sys.argv[2:]]
+
+
+def listen(path):
+    # A service's socket, with a file beside it. AF_UNIX names are short; the checkout's may not be.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    (path.parent / "file").write_text("")
+    os.chdir(path.parent)
+    server = socket.socket(socket.AF_UNIX)
+    server.bind(path.name)
+    server.listen(8)
+    return server
+
+
+def reach(path):
+    try:
+        os.chdir(path.parent)
+        with socket.socket(socket.AF_UNIX) as client:
+            client.connect(path.name)
+        return True
+    except OSError:
+        return False
+
+
+def boxed(role, walls):
+    out = Path(tempfile.mkdtemp(dir=work))
+    argv = [sys.executable, __file__, role, *map(str, places)]
+    with box.command(argv, dict(os.environ), out, cwd=work, walls=walls,
+                     state=("/tmp/state", "/var/tmp/state")) as (cmd, env, spawn):
+        spawn.pop("stop")
+        result = subprocess.run(cmd, env=env, cwd=work, capture_output=True, text=True,
+                                timeout=60, **spawn)
+    return json.loads(result.stdout) if result.returncode == 0 else result.stderr
+
+
+if role == "probe":
+    seen = {str(path): [reach(path), (path.parent / "file").exists()] for path in places}
+    own = Path(tempfile.mkdtemp(dir="/tmp"), "s")
+    with listen(own):
+        seen["own"] = reach(own)
+    seen["state"] = []
+    for place in map(Path, ("/tmp/state", "/var/tmp/state")):
+        seen["state"].append((place / "kept").read_text())
+        (place / "write").write_text("own")
+    print(json.dumps(seen))
+elif role == "host":
+    work.mkdir(parents=True)
+    if os.environ.get("BOX_RUNTIME_LINK"):
+        Path(os.environ["BOX_RUNTIME_LINK"]).mkdir()
+        Path(os.environ["XDG_RUNTIME_DIR"]).symlink_to(os.environ["BOX_RUNTIME_LINK"])
+    listeners = list(map(listen, places))
+    for place in map(Path, ("/tmp/state", "/var/tmp/state")):
+        place.mkdir()
+        (place / "kept").write_text("kept")
+    seen = {}
+    for name, walls in (("walls", True), ("no walls", False)):
+        seen[name] = boxed("probe", walls)
+        seen[f"{name} inside a box"] = boxed(name, walls)
+    seen["unboxed"] = json.loads(subprocess.run([sys.executable, __file__, "probe", *sys.argv[2:]],
+                                                capture_output=True, text=True).stdout or "null")
+    print(json.dumps(seen))
+else:
+    # A box inside a box, its parent's walls named by its role: what the parent keeps in its own
+    # /tmp is the parent's alone.
+    places.append(Path("/tmp/parent/s"))
+    with listen(places[-1]):
+        print(json.dumps(boxed("probe", role == "walls")))
+'''
+
+SHM = r'''import json, os, subprocess, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, os.environ["BOX_REPO"])
+from agentkit import box
+root = Path(sys.argv[1])
+write = "from pathlib import Path; p = Path('/dev/shm/acme'); p.write_text('own'); print(p.read_text())"
+seen = {}
+for walls in (True, False):
+    out = Path(tempfile.mkdtemp(dir=root))
+    with box.command([sys.executable, "-c", write], dict(os.environ), out, cwd=root,
+                     walls=walls) as (cmd, env, spawn):
+        spawn.pop("stop")
+        result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
+                                timeout=60, **spawn)
+    seen["walls" if walls else "no walls"] = result.stdout.strip() or result.stderr
+seen["host"] = os.path.exists("/run/shm/acme")
+print(json.dumps(seen))
+'''
+
+
+RUN_LINKS = r'''import os, shutil, socket, stat, subprocess, sys, tempfile
+from pathlib import Path
+root = Path(sys.argv[2])
+if sys.argv[1] == "mount":
+    # Only this namespace sees the stand-in /run and /etc; no host file is changed.
+    etc = root / "etc"
+    etc.mkdir()
+    for name in ("passwd", "group", "nsswitch.conf", "hosts"):
+        shutil.copyfile(Path("/etc", name), etc / name)
+    (etc / "resolv.conf").symlink_to("/run/acme/first")
+    subprocess.run(["mount", "--make-rprivate", "/"], check=True)
+    subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/run"], check=True)
+    resolver = Path("/run/acme/real")
+    resolver.mkdir(parents=True)
+    subprocess.run(["mount", "-t", "tmpfs", "tmpfs", str(resolver)], check=True)
+    subprocess.run(["mount", "--bind", str(etc), "/etc"], check=True)
+    device = Path("/run/device")
+    device.touch()
+    subprocess.run(["mount", "--bind", "/dev/null", str(device)], check=True)
+    namespace = Path("/run/netns/acme")
+    namespace.parent.mkdir()
+    namespace.touch()
+    subprocess.run(["mount", "--bind", "/proc/self/ns/uts", str(namespace)], check=True)
+    os.execvp("setpriv", ["setpriv", "--inh-caps=-all", "--ambient-caps=-all",
+                         sys.executable, __file__, "host", str(root)])
+sys.path.insert(0, os.environ["BOX_REPO"])
+from agentkit import box
+paths = ["/etc/resolv.conf", "/run/acme/first", "/run/acme/linked/resolver",
+         "/run/acme/real/deep/../resolver", "/run/acme/outside/resolver"]
+runtime = Path("/run/user", str(os.getuid()))
+if sys.argv[1] == "probe":
+    assert [Path(path).read_text() for path in paths] == ["nameserver 192.0.2.1\n"] * len(paths)
+    for name in ("socket", "late", "fifo"):
+        assert not os.path.lexists("/run/acme/" + name), name
+    assert not os.path.lexists("/run/device")
+    assert not os.path.lexists("/run/netns/acme")
+    assert not Path("/run/acme/closed/secret").exists()
+    assert not Path("/run/acme/unreadable").exists()
+    assert os.readlink("/run/acme/dangling") == "missing"
+    assert os.readlink("/run/acme/socket-link") == "socket"
+    assert not Path("/run/acme/socket-link").exists()
+    assert Path("/run/acme/key").read_text() == ""
+    assert not Path("/run/user/other").exists()
+    assert os.environ["XDG_RUNTIME_DIR"] == str(runtime)
+    assert stat.S_IMODE(runtime.stat().st_mode) == 0o700
+    assert list(runtime.iterdir()) == []
+    (runtime / "write").write_text("own")
+    if os.environ.get("BOX_EXTERNAL_RUNTIME"):
+        assert list(Path("/run/runtime").iterdir()) == []
+        Path("/run/runtime/write").write_text("own")
+    print("ok")
+else:
+    run = Path("/run/acme")
+    (run / "real/deep").mkdir(parents=True)
+    (run / "real/resolver").write_text("nameserver 192.0.2.1\n")
+    (run / "first").symlink_to("second")
+    (run / "second").symlink_to("linked/deep/../resolver")
+    (run / "linked").symlink_to("real")
+    (root / "settings").mkdir()
+    (root / "settings/resolver").symlink_to("/run/acme/first")
+    (run / "outside").symlink_to(root / "settings")
+    (run / "dangling").symlink_to("missing")
+    (run / "socket-link").symlink_to("socket")
+    (run / "key").write_text("fixture-key")
+    (root / ".ssh").mkdir()
+    (root / ".ssh/id_fixture").symlink_to(run / "key")
+    os.mkfifo(run / "fifo")
+    (run / "closed").mkdir()
+    (run / "closed/secret").write_text("unreadable")
+    (run / "closed").chmod(0)
+    (run / "unreadable").write_text("unreadable")
+    (run / "unreadable").chmod(0)
+    (root / "runtime").mkdir()
+    (root / "runtime/host").write_text("host")
+    Path("/run/runtime").symlink_to(root / "runtime")
+    runtime.mkdir(parents=True)
+    (runtime / "host").write_text("host")
+    Path("/run/user/other").mkdir()
+    assert Path("/etc/resolv.conf").read_text() == "nameserver 192.0.2.1\n"
+    with socket.socket(socket.AF_UNIX) as server:
+        server.bind(str(run / "socket"))
+        server.listen(1)
+        for walls in (True, False):
+            for host_runtime in ("/run/runtime", str(runtime), str(root / "missing"), None):
+                env = dict(os.environ)
+                env.pop("XDG_RUNTIME_DIR", None)
+                if host_runtime is not None:
+                    env["XDG_RUNTIME_DIR"] = host_runtime
+                env["BOX_EXTERNAL_RUNTIME"] = "1" if host_runtime == "/run/runtime" else ""
+                out = Path(tempfile.mkdtemp(dir=run if host_runtime is None else root))
+                argv = [sys.executable, __file__, "probe", str(root)]
+                with box.command(argv, env, out, cwd=root, walls=walls) as (cmd, env, spawn):
+                    # Mounts and later writes must not bypass the snapshot or expose services.
+                    (run / "real/resolver").write_text("nameserver 192.0.2.2\n")
+                    with socket.socket(socket.AF_UNIX) as late:
+                        late.bind(str(run / "late"))
+                        late.listen(1)
+                        spawn.pop("stop")
+                        result = subprocess.run(cmd, env=env, cwd=root, capture_output=True,
+                                                text=True, timeout=60, **spawn)
+                    (run / "late").unlink()
+                    (run / "real/resolver").write_text("nameserver 192.0.2.1\n")
+                assert result.returncode == 0, (walls, host_runtime, result.stderr)
+                assert result.stdout.strip() == "ok", result.stdout
+                assert (root / "runtime/host").read_text() == "host"
+                assert (runtime / "host").read_text() == "host"
+                assert not (root / "missing").exists()
+    print("ok")
+'''
+
+
+RUN_CREDENTIALS = r'''import os, subprocess, sys, tempfile
+from pathlib import Path
+root = Path(sys.argv[2])
+if sys.argv[1] == "mount":
+    subprocess.run(["mount", "--make-rprivate", "/"], check=True)
+    subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/run"], check=True)
+    keys = Path("/run/agenix/keys")
+    keys.mkdir(parents=True)
+    for source, alias in ((Path("/run/agenix/id_acme"), Path("/run/mounted-key")),
+                          (keys, Path("/run/mounted-keys")),
+                          (root / ".ssh/id_local", Path("/run/mounted-local-key")),
+                          (root / ".cache/git/credential/key", Path("/run/mounted-cache-key"))):
+        if source.is_dir():
+            alias.mkdir()
+        else:
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.touch()
+            alias.touch()
+        subprocess.run(["mount", "--bind", str(source), str(alias)], check=True)
+    os.execvp("setpriv", ["setpriv", "--inh-caps=-all", "--ambient-caps=-all",
+                         sys.executable, __file__, "host", str(root)])
+sys.path.insert(0, os.environ["BOX_REPO"])
+from agentkit import box
+secrets = ("fixture-key", "fixture-folder-key", "fixture-git-store", "fixture-gh-login",
+           "fixture-local-key", "fixture-cache-key")
+
+def check_backing(out):
+    for scratch in Path(out).glob(".box-*"):
+        for path in scratch.rglob("*"):
+            if not path.is_symlink() and path.is_file():
+                assert path.read_text() not in secrets, ("credential copied to disk", str(path))
+
+if sys.argv[1] == "probe":
+    assert Path("/run/agenix/id_acme").read_text() == ""
+    assert list(Path("/run/agenix/keys").iterdir()) == []
+    assert Path("/run/agenix/git-store").read_text() == ""
+    assert Path("/run/agenix/hosts.yml").read_text() == ""
+    assert Path("/run/agenix/ordinary").read_text() == "public"
+    assert Path("/run/public-hardlink").read_text() == "public"
+    for alias in ("mounted-key", "mounted-keys", "mounted-local-key", "mounted-cache-key",
+                  "hardlinked-key", "hardlinked-folder-key"):
+        assert not os.path.lexists("/run/" + alias), alias
+    check_backing(sys.argv[3])
+    print("ok")
+else:
+    run = Path("/run/agenix")
+    (run / "keys").mkdir(parents=True, exist_ok=True)
+    for name, value in zip(("id_acme", "keys/id_other", "git-store", "hosts.yml"), secrets):
+        (run / name).write_text(value)
+    (run / "ordinary").write_text("public")
+    (root / ".ssh/id_local").write_text(secrets[-2])
+    (root / ".cache/git/credential/key").write_text(secrets[-1])
+    (root / ".ssh/id_acme").symlink_to(run / "id_acme")
+    (root / ".ssh/keys").symlink_to(run / "keys")
+    Path("/run/hardlinked-key").hardlink_to(run / "id_acme")
+    Path("/run/hardlinked-folder-key").hardlink_to(run / "keys/id_other")
+    Path("/run/public-hardlink").hardlink_to(run / "ordinary")
+    for login, target in ((root / ".git-credentials", run / "git-store"),
+                          (root / ".config/gh/hosts.yml", run / "hosts.yml")):
+        login.unlink()
+        login.symlink_to(target)
+    for walls in (True, False):
+        a, b = (Path(tempfile.mkdtemp(dir=root)) for _ in "ab")
+        with box.command(["true"], dict(os.environ), a, cwd=root, walls=walls):
+            argv = [sys.executable, __file__, "probe", str(root), str(a)]
+            with box.command(argv, dict(os.environ), b, cwd=root, walls=walls) as (cmd, env, spawn):
+                spawn.pop("stop")
+                result = subprocess.run(cmd, env=env, cwd=root, capture_output=True,
+                                        text=True, timeout=60, **spawn)
+            assert (result.returncode, result.stdout.strip()) == (0, "ok"), result.stderr
+            check_backing(a)
+    print("ok")
+'''
+
+
 class WorkerBox(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-worker-box-", dir=REPO)
@@ -293,6 +572,129 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual((code, killed), (0, False))
         self.assertEqual(json.loads(text)["paths"], [""] * len(paths))
         self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * len(paths))
+
+    def test_a_box_reaches_no_host_socket(self):
+        # Host services run commands for whoever connects, outside the box: a tmux server in
+        # /tmp, the user's service manager in its runtime directory, the system bus in /run.
+        # With walls and without, and in a box inside a box, the box reaches none of them and
+        # keeps /run's readable file beside its socket; the socket it makes in its own /tmp
+        # it reaches. The host runtime directory is linked from /run to a directory outside
+        # the box's temporary places, or is in a workspace in /tmp, which stays writable.
+        script = self.root / "sockets.py"
+        script.write_text(SOCKETS)
+        for work, runtime, link in ((self.root / "work", Path("/run/runtime"), self.root / "runtime"),
+                                    (Path("/tmp/ws"), Path("/tmp/ws/runtime"), ""),
+                                    (Path("/var/tmp/ws"), Path("/var/tmp/ws/runtime"), "")):
+            with self.subTest(runtime=str(runtime)):
+                places = ["/tmp/host/s", "/var/tmp/host/s", str(runtime / "s"), "/run/acme/s"]
+                # Fresh /tmp, /var and /run of the test's own stand for the host's, even inside a
+                # box.
+                host = ["bwrap", "--unshare-user", "--unshare-pid", "--die-with-parent",
+                        "--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc",
+                        "--tmpfs", "/tmp", "--tmpfs", "/var", "--tmpfs", "/run"]
+                result = subprocess.run(
+                    [*host, "--", sys.executable, str(script), "host", *places],
+                    env={**os.environ, "BOX_REPO": str(REPO), "BOX_WORK": str(work),
+                         "XDG_RUNTIME_DIR": str(runtime), "BOX_RUNTIME_LINK": str(link)},
+                    capture_output=True, text=True, timeout=300)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                hidden = {**dict.fromkeys(places, [False, False]), "/run/acme/s": [False, True],
+                          "own": True, "state": ["kept", "kept"]}
+                nested = {**hidden, "/tmp/parent/s": [False, False]}
+                self.assertEqual(json.loads(result.stdout), {
+                    "unboxed": {**dict.fromkeys(places, [True, True]), "own": True,
+                                "state": ["kept", "kept"]},
+                    "walls": hidden, "walls inside a box": nested,
+                    "no walls": hidden, "no walls inside a box": nested})
+
+    def test_shared_memory_is_the_boxs_own_where_the_host_links_it_into_run(self):
+        # Older hosts link /dev/shm to /run/shm. A walled box's /dev is bubblewrap's, with a
+        # directory there; either way the box writes its own shared memory, not the host's.
+        devices = [arg for name in ("null", "zero", "full", "random", "urandom", "tty")
+                   for arg in ("--dev-bind", f"/dev/{name}", f"/dev/{name}")]
+        host = ["bwrap", "--unshare-user", "--unshare-pid", "--die-with-parent", "--bind", "/", "/",
+                "--tmpfs", "/dev", *devices, "--proc", "/proc", "--tmpfs", "/tmp",
+                "--tmpfs", "/run", "--dir", "/run/shm", "--symlink", "/run/shm", "/dev/shm"]
+        result = subprocess.run([*host, "--", sys.executable, "-c", SHM, str(self.root)],
+                                env={**os.environ, "BOX_REPO": str(REPO)}, capture_output=True,
+                                text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout),
+                         {"walls": "own", "no walls": "own", "host": False})
+
+    def test_a_box_resolves_names_through_any_run_links(self):
+        script = self.root / "run-links.py"
+        script.write_text(RUN_LINKS)
+        result = subprocess.run(
+            ["unshare", "--user", "--map-current-user", "--mount", "--keep-caps",
+             sys.executable, str(script), "mount", str(self.root)],
+            env={**os.environ, "BOX_REPO": str(REPO)}, capture_output=True, text=True,
+            timeout=300)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "ok"), result.stderr)
+
+    def test_run_credentials_never_reach_the_backing_copy_or_another_box(self):
+        script = self.root / "run-credentials.py"
+        script.write_text(RUN_CREDENTIALS)
+        result = subprocess.run(
+            ["unshare", "--user", "--map-current-user", "--mount", "--keep-caps",
+             sys.executable, str(script), "mount", str(self.root)],
+            env={**os.environ, "BOX_REPO": str(REPO)}, capture_output=True, text=True,
+            timeout=120)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "ok"), result.stderr)
+
+    def test_a_failed_run_read_discards_partial_bytes_but_write_errors_still_fail(self):
+        source, destination = self.root / "run", self.root / "copy"
+        source.mkdir()
+        destination.mkdir()
+        (source / "file").write_text("ordinary")
+        fdopen = os.fdopen
+
+        class FailingRead:
+            def __init__(self, fd, mode):
+                self.stream = fdopen(fd, mode)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                self.stream.close()
+
+            def read(self, length):
+                if self.stream.tell():
+                    raise OSError("source read failed")
+                return self.stream.read(2)
+
+        with patch.object(box.os, "fdopen", FailingRead):
+            box._copy_run(source, destination, set())
+        self.assertFalse((destination / "file").exists())
+        with patch.object(Path, "open", side_effect=OSError("destination write failed")), \
+                self.assertRaisesRegex(OSError, "destination write failed"):
+            box._copy_run(source, destination, set())
+        box._copy_run(source, destination, set())
+        self.assertEqual((destination / "file").read_text(), "ordinary")
+
+    def test_a_runtime_directory_that_is_the_workspace_refuses_the_box(self):
+        # The box keeps its runtime directory empty and writes through to its workspace: one
+        # directory cannot be both.
+        self.out.mkdir()
+        for walls in (True, False):
+            with self.subTest(walls=walls), \
+                    patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(self.root)}), \
+                    self.assertRaisesRegex(config.Error, "keeps empty and one it writes"):
+                with box.command(["true"], dict(os.environ), self.out, cwd=self.root, walls=walls):
+                    pass
+
+    def test_a_missing_temporary_place_refuses_before_creating_any_host_directory(self):
+        is_dir = Path.is_dir
+        for missing in map(Path, ("/tmp", "/var/tmp", "/dev/shm", "/run")):
+            for walls in (True, False):
+                with self.subTest(missing=str(missing), walls=walls), \
+                        patch.object(Path, "is_dir", lambda path: path != missing and is_dir(path)), \
+                        patch.object(box, "_writable", side_effect=AssertionError("host write")), \
+                        self.assertRaisesRegex(config.Error, f"{missing}:.*missing"):
+                    with box.command(["true"], dict(os.environ), self.out, cwd=self.root,
+                                     state=(str(missing / "state"),), walls=walls):
+                        pass
 
     def test_a_relative_home_hides_the_keys_where_the_turn_reads_them(self):
         # The turn resolves HOME=home in its own directory, not in the launcher's.

@@ -13,24 +13,26 @@ import select
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from string import Template
 
 # What a box never passes on: GitHub tokens, and the SSH agent's address.
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK")
 PROCESSES = "box-processes.json"
+TRANSIENT = tuple(map(Path, ("/run", "/tmp", "/var/tmp", "/dev/shm")))
 # The supervisor runs from the text this module was loaded from: the file on disk can change
 # under a running launcher, when a probe checks out another revision of ak's own checkout.
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 
 
-def _links(root):
-    """Every link reachable from root, through linked directories too, each directory once.
+def _contents(root):
+    """Every path under root, through linked directories too, each directory once.
 
     A closed directory on the way raises PermissionError: what it holds is unknown."""
     found, seen, pending = [], set(), [Path(root)]
@@ -46,8 +48,7 @@ def _links(root):
             continue
         seen.add(real)
         for entry in entries:
-            if entry.is_symlink():
-                found.append(Path(entry.path))
+            found.append(Path(entry.path))
             try:
                 if entry.is_dir():
                     pending.append(Path(entry.path))
@@ -91,10 +92,7 @@ def _credentials(env, cwd, agent=None):
     places.update(root / "git/credentials" for root in configs)
     places.update(root / "hosts.yml" for root in gh)
     # A worker reaches no server: only the orchestrator's own shell holds SSH keys and agent.
-    for ssh in (home / ".ssh" for home in homes):
-        places.add(ssh)
-        # A key linked in from elsewhere stays readable at its target unless that is hidden too.
-        places.update(_links(ssh))
+    places.update(home / ".ssh" for home in homes)
     if agent:
         # The address is the caller's, so a relative one names a place in the caller's directory;
         # the box passes no address on, so nothing inside reads it any other way.
@@ -122,6 +120,9 @@ def _credentials(env, cwd, agent=None):
                 path = Path(value.replace("~/", str(env.get("HOME") or Path.home()) + "/", 1)
                             if value.startswith("~/") and not literal else value)
                 places.add(base / path)
+    # A masked folder's files and links must not gain another name in /run's copy.
+    for path in tuple(places):
+        places.update(_contents(path))
     return places
 
 
@@ -138,13 +139,13 @@ def _paths(names, env, cwd):
         yield path if path.is_absolute() else Path(cwd or os.getcwd()) / path
 
 
-def _walls(cmd, clean, cwd, out_dir, state, places, logins):
-    """Make all but the turn's own places read-only; return where its scratch mounts go."""
+def _walls(cmd):
+    """Make the whole filesystem read-only, keeping devices usable."""
     cmd.extend(["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"])
     # A read-only bind disables devices too. Restore the nodes, leaving their
     # directories read-only so ordinary files cannot fill the host's /dev tmpfs.
     for device in Path("/dev").rglob("*"):
-        # The turn gets disk-backed shm below; do not bind the host's transient files.
+        # The box gets disk-backed shm; do not bind the host's transient files.
         if device.is_relative_to("/dev/shm"):
             continue
         # ptmx needs its devpts mount; binding one inode breaks terminal allocation.
@@ -157,7 +158,10 @@ def _walls(cmd, clean, cwd, out_dir, state, places, logins):
             option = "--dev-bind" if device.is_char_device() or device.is_block_device() else "--ro-bind"
             cmd.extend([option, str(device), str(device)])
     cmd.extend(["--remount-ro", "/dev"])
-    at = len(cmd)
+
+
+def _writable(clean, cwd, out_dir, state, places, logins):
+    """The command's own places: its workspace and Git storage, out dir and harness state."""
     writable = set()
     for path in [*_paths(state, clean, cwd), *map(Path, places)]:
         path = path.resolve()
@@ -185,12 +189,118 @@ def _walls(cmd, clean, cwd, out_dir, state, places, logins):
             writable.update((workspace / path).resolve() for path in result.stdout.splitlines())
     if out_dir is not None:
         writable.add(Path(out_dir).resolve())
-    for path in sorted(writable):
-        # A redundant file mount prevents atomic refresh within its writable parent.
-        if any(parent in writable for parent in path.parents):
+    return writable
+
+
+def _copy_run(source, destination, hidden):
+    """Keep readable directories, links and files; let the kernel resolve their paths."""
+    if source in hidden or any(parent in hidden for parent in source.parents):
+        return
+    # Bind mounts and hard links can give the same credential another path.
+    hidden_ids = set()
+    for path in hidden:
+        try:
+            info = path.stat()
+        except OSError:
             continue
-        cmd.extend(["--bind", str(path), str(path)])
-    return at
+        hidden_ids.add((info.st_dev, info.st_ino))
+    for directory, dirs, files, fd in os.fwalk(source):
+        info = os.fstat(fd)
+        if (info.st_dev, info.st_ino) in hidden_ids:
+            dirs.clear()
+            continue
+        directory = Path(directory)
+        # An out dir in /run must not copy its own growing scratch back into itself.
+        # Credentials must never gain a second path on disk, even if the launcher dies.
+        dirs[:] = [name for name in dirs if directory / name != destination.parent
+                   and directory / name not in hidden]
+        files = [name for name in files if directory / name not in hidden]
+        if directory == source:
+            dirs[:] = [name for name in dirs if name != "user"]
+            files = [name for name in files if name != "user"]
+        target = destination / directory.relative_to(source)
+        target.mkdir(parents=True, exist_ok=True)
+        for name in dirs + files:
+            try:
+                info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                if (info.st_dev, info.st_ino) in hidden_ids:
+                    if name in dirs:
+                        dirs.remove(name)
+                    continue
+                mode = info.st_mode
+                link = os.readlink(name, dir_fd=fd) if stat.S_ISLNK(mode) else None
+            except OSError:
+                continue
+            if stat.S_ISDIR(mode):
+                (target / name).mkdir(exist_ok=True)
+            elif link is not None:
+                (target / name).symlink_to(link)
+            elif stat.S_ISREG(mode):
+                try:
+                    # A service may replace an entry during the copy. Never follow its new
+                    # link or block on its new FIFO; read only an opened regular file.
+                    opened = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+                except OSError:
+                    continue
+                with os.fdopen(opened, "rb") as readable:
+                    info = os.fstat(opened)
+                    if stat.S_ISREG(info.st_mode) and (info.st_dev, info.st_ino) not in hidden_ids:
+                        with (target / name).open("wb") as copied:
+                            while True:
+                                try:
+                                    content = readable.read(shutil.COPY_BUFSIZE)
+                                except OSError:
+                                    (target / name).unlink()
+                                    break
+                                if not content:
+                                    break
+                                copied.write(content)
+
+
+def _own(scratch, clean, cwd, walls, writable, hidden):
+    """A copy of /run without services, and empty temporary and runtime directories."""
+    own = {path.resolve() for path in TRANSIENT}
+    for path in _paths(("$XDG_RUNTIME_DIR",), clean, cwd):
+        if path.is_dir():
+            real = path.resolve()
+            # A writable workspace or state inside /tmp exposes its children again, so its
+            # host runtime directory still needs a cover of its own.
+            if not any(place == real or place in real.parents for place in own) or any(
+                    place == real or place in real.parents for place in writable):
+                own.add(real)
+    if walls:
+        # A walled box's /dev is bubblewrap's, whose shm is a directory even where the host's
+        # links into /run.
+        own.add(Path("/dev/shm"))
+    binds = {path: Path(scratch, str(i)) for i, path in enumerate(sorted(own))}
+    for source in binds.values():
+        source.mkdir(parents=True, exist_ok=True)
+    run = Path("/run").resolve()
+    _copy_run(run, binds[run], hidden)
+    runtime = Path("user", str(os.getuid()))
+    (binds[run] / runtime).mkdir(mode=0o700, parents=True)
+    binds[run / runtime] = binds[run] / runtime
+    clean["XDG_RUNTIME_DIR"] = str(Path("/run") / runtime)
+    return binds
+
+
+def _bind(own, writable):
+    """Mount the box's own places and its writable ones, parents first so the deeper of two wins:
+    a workspace in /tmp, a runtime directory in the workspace."""
+    clash = sorted(own.keys() & writable)
+    if clash:
+        from . import config
+        raise config.Error(f"{clash[0]} is a place the box keeps empty and one it writes through "
+                           "to; give each a directory of its own")
+    binds = {**own, **{path: path for path in writable}}
+    args = []
+    for path in sorted(binds):
+        # What the nearest mounted parent already shows needs no mount of its own, and a
+        # redundant file mount prevents atomic refresh within its writable parent.
+        parent = next((parent for parent in path.parents if parent in binds), None)
+        if parent is None or binds[parent] / path.relative_to(parent) != binds[path]:
+            args.extend(["--bind", str(binds[path]), str(path)])
+    return args
 
 
 @contextmanager
@@ -199,16 +309,25 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
-    directories the command may also write. Without walls every write stays as it is outside: a check runs a project's own
-    suite, which writes where that project says, like a log in /tmp.
+    directories the command may also write. With an out dir, /run is copied without services
+    or /run/user, and temporary and runtime directories are the box's own, empty. Without walls
+    every other write stays as it is outside: a check runs a project's own suite, which writes
+    where that project says, like a cache in HOME.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
            "--new-session"]
     if walls:
-        at = _walls(cmd, clean, cwd, out_dir, state, places, logins)
+        _walls(cmd)
     else:
         cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
+    at = len(cmd)
+    if out_dir is not None:
+        for path in TRANSIENT:
+            if not path.is_dir():
+                from . import config
+                raise config.Error(f"worker box needs {path}: the host directory is missing")
+    writable = _writable(clean, cwd, out_dir, state, places, logins)
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
     try:
@@ -236,6 +355,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
+        cmd[at:at] = _bind({}, writable)
         yield [*cmd, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
@@ -281,19 +401,11 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         except subprocess.TimeoutExpired:
             proc.kill()
 
-    with (tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) if walls
-          else nullcontext()) as scratch:
-        if scratch is not None:
-            mounts = []
-            for name, destination in (("tmp", "/var/tmp"), ("shm", "/dev/shm")):
-                source = Path(scratch) / name
-                source.mkdir()
-                mounts.extend(["--bind", str(source), destination])
-            # Short aliases allow Unix sockets even when out has a long run id. Bind
-            # these first so a workspace or declared state under /var/tmp still wins.
-            cmd[at:at] = mounts
-            clean["TMPDIR"] = "/var/tmp"
+    with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
+            # Short aliases allow Unix sockets even when out has a long run id.
+            cmd[at:at] = _bind(_own(scratch, clean, cwd, walls, writable, targets), writable)
+            clean["TMPDIR"] = "/var/tmp"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop}
         finally:

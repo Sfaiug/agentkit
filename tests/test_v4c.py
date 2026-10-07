@@ -609,9 +609,10 @@ esac
         task = self.root / "task.md"
         task.write_text(f"---\nrepo: {repo}\nbase: main\n---\n# Different title\n\n"
                         "## Done when\n```bash\ntest \"$(cat delivered)\" = from-basename\n```\n")
-        # no user manager in XDG_RUNTIME_DIR: the foreground run is never moved into a unit
+        # no user manager in XDG_RUNTIME_DIR: the foreground run is never moved into a unit.
+        # A box empties its runtime directory, so the adapters live beside it, not in it.
         env = dict(os.environ, HOME=str(home), AGENTKIT_ADAPTER_DIR=str(adapters),
-                   AK_SLOT_POLL=".05", XDG_RUNTIME_DIR=str(self.root),
+                   AK_SLOT_POLL=".05", XDG_RUNTIME_DIR=str(self.root / "runtime"),
                    AK_HOST_READINGS=json.dumps({"free_mb": 4096, "mem_total_mb": 16384,
                                                 "load": 1, "cpus": 8,
                                                 "unit_memory_current_mb": 100,
