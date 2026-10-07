@@ -31,7 +31,7 @@ for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_SESSION", "
     os.environ.pop(key, None)
 sys.path.insert(0, str(REPO))
 from agentkit import config, orch, record, run, statusbar, watch
-from fixtures.tmux import commands  # noqa: E402
+from agentkit.guard import commands  # noqa: E402
 
 # Answers list-sessions and list-panes as tmux 3.5a does, from the seats each server holds
 # (`own`, `legacy`), and writes down every command it is given.  `run-shell -b -t =seat:` is
@@ -109,7 +109,7 @@ class BarFollowsRuns(unittest.TestCase):
         rows = [line.split("\t") for line in self.calls.read_text().splitlines()]
         return [command[4] for row in rows if row[0] == "agentkit-test"
                 for command in commands(row[1:])
-                if command[:4] == ("set-option", "-t", f"={name}:", statusbar.TOP)]
+                if command[:4] == ["set-option", "-t", f"={name}:", statusbar.TOP]]
 
     def step(self, name):
         run.Loop.step(self.loop, name)

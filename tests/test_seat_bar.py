@@ -12,8 +12,8 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from fixtures.tmux import commands
 from agentkit import config, menu, orch, run, statusbar, terminal, watch
+from agentkit.guard import commands  # noqa: E402
 from agentkit import record
 
 NOW = 1_800_000_000

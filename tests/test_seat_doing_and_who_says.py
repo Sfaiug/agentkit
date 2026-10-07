@@ -23,6 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, notify, orch, terminal, usage, watch
+from agentkit.guard import commands  # noqa: E402
 
 FIXTURES = config.REPO / "tests/fixtures"
 
@@ -59,8 +60,9 @@ class SeatStates(unittest.TestCase):
         return (FIXTURES / f"{harness}-{kind}-pane.txt").read_text()
 
     def tmux(self, *args, **kwargs):
-        if args[0] == "set-option":
-            self.options[args[3]] = args[4]      # set-option -t <seat> <option> <value>
+        for command in commands(args):
+            if command[0] == "set-option":
+                self.options[command[3]] = command[4]   # set-option -t <seat> <option> <value>
         return 0, self.pane if args[0] == "capture-pane" else ""
 
     def fact(self, event, kind="", text="", at=None):

@@ -28,7 +28,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from agentkit import config, menu, orch, record, run, statusbar, terminal, watch  # noqa: E402
-from fixtures.tmux import commands  # noqa: E402
+from agentkit.guard import commands  # noqa: E402
 
 # The hook's own process asks tmux through PATH, so this stands in for the server: one marked
 # seat on the suite's socket, which lives at /fake/agentkit-test, whose pane is %7, a capture as

@@ -17,8 +17,8 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from fixtures.tmux import commands
 from agentkit import config, history, menu, orch, statusbar, terminal, watch
+from agentkit.guard import commands  # noqa: E402
 from agentkit import run as ak_run
 from agentkit import record
 

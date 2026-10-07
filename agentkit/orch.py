@@ -48,6 +48,9 @@ from . import command_help, config, guard, host, motion, plan, retention, termin
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
+# tmux refuses a client message past 16 KiB, its header included ("command too long"): the most
+# one call's words may hold, with room left for that header
+TMUX_MESSAGE = 15 * 1024
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
 PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of the active window
 SOCKET_ENV = "AGENTKIT_TMUX_SOCKET"   # the test suite's way to a server of its own
