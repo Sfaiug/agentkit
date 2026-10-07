@@ -77,6 +77,10 @@ name = "PermissionRequest"
 state = "asking"
 
 [screen]
+# A line typed while a turn runs waits under "Messages to be submitted after next tool call"
+# and goes to the model then (0.161.0): another seat's `ak tell` is typed then, not held for
+# the turn's end.
+queues_typing = true
 composer = '(?:[▌›]\s+Ask Codex\b.*|⏎ send\b.*|tab to queue message\b.*|[\w.-]+ (?:default|low|medium|high|xhigh|max|ultra) · .+)$'
 footer = ['\? for shortcuts']
 
