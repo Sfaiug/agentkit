@@ -4,9 +4,9 @@ Offline and deterministic: hooks/seat-state.sh opens the turn and
 hooks/orchestrator-stop.sh judges its end, both run as their harness runs them --
 the hook's own JSON on stdin -- against fake records and a throwaway HOME, never
 a real seat or ~/.agentkit.  A sentence of the opening prompt ending in `?` (the
-mark followed by whitespace or the end, so a URL's `?` is none) lets a plain
-answer stand, unless a run sits parked undecided or another session's message
-opened the turn.
+mark followed by whitespace or the end, so a URL's `?` is none), or a prompt
+opening on a question word, lets a plain answer stand, unless a run sits parked
+undecided or another session's message opened the turn.
 """
 
 import json
@@ -121,6 +121,24 @@ class StopAnswer(unittest.TestCase):
         latch = self.prompt("Merge the parser now")
         self.assertFalse(latch["asked"])
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
+    def test_a_question_typed_without_its_mark_asks_all_the_same(self):
+        for opened in ("what languages and infrastructure does it run on",
+                       "  How does the lander pick a stack",
+                       "is main green"):
+            with self.subTest(opened=opened):
+                self.setUp()
+                self.assertTrue(self.prompt(opened)["asked"])
+                self.assertEqual(self.stop(), "")
+                self.assertEqual(self.latch()["blocks"], 0)
+
+    def test_an_instruction_opening_like_a_question_asks_nothing(self):
+        for opened in ("When it lands, merge it", "Do the migration now",
+                       "Isolate the box first", "Merge it.\nwhat it reads comes later"):
+            with self.subTest(opened=opened):
+                self.setUp()
+                self.assertFalse(self.prompt(opened)["asked"])
+                self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_a_urls_question_mark_is_no_question(self):
         for opened in ("See docs/guide.md?foo for the schema",

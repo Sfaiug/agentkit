@@ -142,8 +142,10 @@ sys.exit(0 if passive else 1)
   # (agentkit/told.py) -- keeps the seat's standing done: the seat only acknowledged the
   # message, so its done from before the turn still tells.
   # A prompt that asks something -- a sentence ending in `?`, the mark followed by
-  # whitespace or the end so a URL's `?` is none -- is ended by its answer.  The
-  # latch says which kind of prompt opened the turn.
+  # whitespace or the end so a URL's `?` is none, or a prompt opening on a question word,
+  # since a question is often typed without its mark -- is ended by its answer.  `when`
+  # and `do` open instructions as often as questions ("when it lands, merge it"), so they
+  # ask nothing.  The latch says which kind of prompt opened the turn.
   peer=false
   if /usr/bin/env python3 -c '
 import json, sys
@@ -157,7 +159,8 @@ sys.exit(0 if any(told(payload.get(key)) for key in ("prompt", "message")) else 
   fi
   asked=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(test("\\?([[:space:]]|$)"))' \
+               | any(test("\\?([[:space:]]|$)")
+                     or test("^[[:space:]]*(what|why|how|which|where|who|whose|is|are|does|should)\\b"; "i"))' \
       <<<"$payload" >/dev/null 2>&1; then
     asked=true
   fi
