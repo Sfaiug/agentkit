@@ -72,19 +72,19 @@ class QuestionCameDown(Sandbox):
         self.assertEqual(watch.screen_state("claude", watch.pane_tail(unread))[0], None)
         self.assertEqual(self.looked(unread, fact), ("needs you", False))
 
-    def test_its_turn_still_ends_on_a_stop_or_an_idle_prompt(self):
+    def test_its_turn_ends_on_a_recorded_question_or_an_idle_prompt(self):
         self.hook("UserPromptSubmit", prompt="Which schema should acme use?")
         self.hook("Notification", notification_type="permission_prompt",
                   message="Claude needs your permission")
         fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
                          last_assistant_message="Which schema should acme use?")
         self.assertEqual(self.looked(PROMPT, fact)[0], "working")
-        result = subprocess.run([sys.executable, str(REPO / "bin/ak"), "notify", "done",
-                                 "--quiet", "--session", SEAT, "Use the second schema."],
+        result = subprocess.run([sys.executable, str(REPO / "bin/ak"), "notify", "needs",
+                                 "--session", SEAT, "Which schema should acme use?"],
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
-                         last_assistant_message="Use the second schema.")
+                         last_assistant_message="Which schema should acme use?")
         self.assertNotEqual(self.looked(PROMPT, fact)[0], "working")
         self.hook("UserPromptSubmit", prompt="The second one.")
         self.hook("Notification", notification_type="permission_prompt",
