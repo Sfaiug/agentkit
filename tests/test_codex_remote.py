@@ -370,9 +370,7 @@ Path.write_text = paused_write
         calls = [json.loads(s) for s in (self.root / 'remote-http.jsonl').read_text().splitlines()]
         self.assertEqual([c['method'] for c in calls], ['PATCH', 'DELETE', 'DELETE'])
         self.assertEqual(calls[0]['body'], {'name': 'acme-seat'})
-        event = json.loads(notify_events()[0].read_text())
-        self.assertEqual(event['closed'], 'Closed')
-        self.assertEqual(event['status'], 'disabled')
+        self.assertEqual(notify_events(), [])
 
     def test_forget_stopped_seat_removes_its_remote_enrollment(self):
         proc, home, _ = self.start()
