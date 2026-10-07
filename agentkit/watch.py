@@ -3209,25 +3209,24 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     kept = kept if isinstance(kept, dict) and kept.get("notice") == since else {}
     runs = kept.get("runs") if isinstance(kept.get("runs"), dict) else {}
     stops = kept.get("stops", 0)
-    if (all(runs.get(run, 0) >= STOP_NUDGES for run in parked) if parked
-            else stops >= STOP_NUDGES):
-        if dry_run:
-            log(f"would ask for help with {name}: {notify.STOP_FAILED}")
-        else:
-            notify.shaped("needs", notify.STOP_FAILED, session=name)
-        return
+    exhausted = (all(runs.get(run, 0) >= STOP_NUDGES for run in parked) if parked
+                 else stops >= STOP_NUDGES)
     nudged = {"notice": since,
               "runs": {**runs, **{run: runs.get(run, 0) + 1 for run in parked}},
               "stops": stops + (not parked)}
     tail = pane_tail(pane)
     keys = keystroke(harness, tail)
     if dry_run:
-        log(f"would resume {name}, stopped with no question, no done and no run, with {keys!r}")
+        log(f"would ask for help with {name}: {notify.STOP_FAILED}" if exhausted else
+            f"would resume {name}, stopped with no question, no done and no run, with {keys!r}")
         return
     current = pane_text(session)
     if (_decided_state(name, harness, current) != "at_prompt"
             or progress_output(harness, pane_tail(current)) != said):
         return          # it moved, or the seat is the user's again: neither is this rule's
+    if exhausted:
+        notify.shaped("needs", notify.STOP_FAILED, session=name)
+        return
     if type_into(session, keys, log):
         seat_write(name, stop_nudged=[began, said], stop_corrections=nudged)
         log(f"{name}: stopped with no question, no done and no run; typed {keys!r}")

@@ -263,6 +263,10 @@ class NudgeTurnRule(Sandbox):
                     self.assertEqual(self.tick(), ["continue"])
                     self.assertEqual(self.tick(), [])  # a redraw spends no correction
                 self.stopped()
+                with patch.object(watch, "pane_text", return_value=self.screen("working")):
+                    self.assertEqual(self.tick(), [])
+                    self.assertIsNone(notify.last(SEAT))  # it resumed before the failure check
+                self.stopped()
                 self.assertEqual(self.tick(), [])
                 self.assertEqual(notify.last(SEAT)["kind"], "needs")
                 self.assertIn("cannot continue", notify.last(SEAT)["text"])
