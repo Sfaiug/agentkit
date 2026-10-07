@@ -290,43 +290,6 @@ def _own(scratch, clean, cwd, writable, hidden):
     return binds
 
 
-def _overlay(path, mounts, through, files):
-    # A lower directory with inherited child mounts is locked in the new user namespace:
-    # overlayfs refuses it. Assemble only those ancestors in tmpfs, overlaying their children
-    # separately and copying their immediate files into the box, never onto host disk.
-    if not any(path in mount.parents for mount in mounts):
-        return ["--overlay-src", str(path), "--tmp-overlay", str(path)]
-    args = ["--perms", f"{stat.S_IMODE(path.stat().st_mode):o}", "--tmpfs", str(path)]
-    for child in sorted(path.iterdir()):
-        if child in through:
-            continue
-        try:
-            mode = child.lstat().st_mode
-            if stat.S_ISDIR(mode):
-                args.extend(_overlay(child, mounts, through, files))
-            elif stat.S_ISLNK(mode):
-                args.extend(["--symlink", os.readlink(child), str(child)])
-            elif stat.S_ISREG(mode):
-                try:
-                    fd = os.open(child, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-                except PermissionError:
-                    # Unreadable files need no copy; keep their inode and permissions behind
-                    # a read-only mount, just as for other entries the box cannot copy.
-                    args.extend(["--ro-bind", str(child), str(child)])
-                    continue
-                files[fd] = os.fdopen(fd, "rb")
-                if stat.S_ISREG(os.fstat(fd).st_mode):
-                    args.extend(["--perms", f"{stat.S_IMODE(mode):o}", "--file",
-                                 str(fd), str(child)])
-            else:
-                args.extend(["--ro-bind", str(child), str(child)])
-        except FileNotFoundError:
-            # A cache or tool lock can disappear while the box is being built.
-            continue
-    return args
-
-
-@contextmanager
 def _bind(own, writable, homes=()):
     """Mount HOME overlays, private and writable places, parents first so deeper mounts win."""
     clash = sorted(own.keys() & writable)
@@ -334,26 +297,24 @@ def _bind(own, writable, homes=()):
         from . import config
         raise config.Error(f"{clash[0]} is a place the box keeps empty and one it writes through "
                            "to; give each a directory of its own")
-    binds = {**{path: path for path in homes}, **own, **{path: path for path in writable}}
     overlays = set(homes) - own.keys() - writable
     mounts = {Path(re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), line.split()[4]))
               for line in Path("/proc/self/mountinfo").read_text().splitlines()} if overlays else set()
-    files = {}
-    try:
-        args = []
-        for path in sorted(binds):
-            # What the nearest mounted parent already shows needs no mount of its own, and a
-            # redundant file mount prevents atomic refresh within its writable parent.
-            parent = next((parent for parent in path.parents if parent in binds), None)
-            if path in overlays:
-                args.extend(_overlay(path, mounts, own.keys() | writable, files))
-            elif (parent is None or parent in overlays
-                  or binds[parent] / path.relative_to(parent) != binds[path]):
-                args.extend(["--bind", str(binds[path]), str(path)])
-        yield args, tuple(files)
-    finally:
-        for opened in files.values():
-            opened.close()
+    # Overlayfs refuses inherited child mounts. Leave those homes read-only rather than
+    # rebuilding their contents: a box's arguments must not grow with directory entries.
+    overlays = {path for path in overlays if not any(path in mount.parents for mount in mounts)}
+    binds = {**{path: path for path in overlays}, **own, **{path: path for path in writable}}
+    args = []
+    for path in sorted(binds):
+        # What the nearest mounted parent already shows needs no mount of its own, and a
+        # redundant file mount prevents atomic refresh within its writable parent.
+        parent = next((parent for parent in path.parents if parent in binds), None)
+        if path in overlays:
+            args.extend(["--overlay-src", str(path), "--tmp-overlay", str(path)])
+        elif (parent is None or parent in overlays
+              or binds[parent] / path.relative_to(parent) != binds[path]):
+            args.extend(["--bind", str(binds[path]), str(path)])
+    return args
 
 
 @contextmanager
@@ -365,7 +326,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     directories the command may also write. With an out dir, /run is copied without services
     or /run/user, and temporary and runtime directories are the box's own, empty. Everything
     else is read-only; `home_overlay` gives checks throwaway writes in the account's home and
-    HOME, beneath the writable places and credential masks.
+    HOME without child mounts, beneath the writable places and credential masks.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
@@ -406,9 +367,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
-        with _bind({}, writable, homes) as (binds, fds):
-            cmd[at:at] = binds
-            yield [*cmd, "--", *argv], clean, {"pass_fds": fds} if fds else {}
+        cmd[at:at] = _bind({}, writable, homes)
+        yield [*cmd, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
     report.unlink(missing_ok=True)
@@ -456,11 +416,10 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            with _bind(_own(scratch, clean, cwd, writable, targets), writable, homes) as (binds, fds):
-                cmd[at:at] = binds
-                clean["TMPDIR"] = "/var/tmp"
-                yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
-                    "pass_fds": (write, *fds), "stop": stop}
+            cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
+            clean["TMPDIR"] = "/var/tmp"
+            yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
+                "pass_fds": (write,), "stop": stop}
         finally:
             target = namespace()
             if target is not None:

@@ -1,6 +1,7 @@
 """Proofs and checks have worker walls, throwaway HOME writes and process teardown."""
 
 from contextlib import ExitStack
+import errno
 import fcntl
 import json
 import os
@@ -274,86 +275,58 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertIn("Read-only file system", text)
                 self.assertFalse(path.exists())
 
-    def test_nested_checks_keep_their_home_writes_private(self):
-        home = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-nested-", dir=REPO)
-        self.addCleanup(home.cleanup)
-        home = Path(home.name)
+    def test_a_nested_check_starts_beside_a_crowded_folder(self):
+        home = self.root / "home with space"
+        crowded = home / "crowded"
+        mounted = crowded / "mounted"
+        mounted.mkdir(parents=True)
+        workspace, out = (self.root / name for name in ("workspace", "out"))
+        workspace.mkdir()
+        out.mkdir()
         (home / ".bashrc").write_text("original")
-        (home / ".ssh").mkdir()
-        (home / ".ssh/id_fixture").write_text("fixture-key")
-        inner = ("from pathlib import Path\n"
-                 "home = Path.home()\n"
-                 "assert (home / '.bashrc').read_text() == 'outer'\n"
-                 "assert (home / 'cache/kept').read_text() == 'outer'\n"
-                 "assert not (home / '.ssh/id_fixture').exists()\n"
-                 "(home / '.bashrc').write_text('inner')\n"
-                 "(home / 'cache/kept').write_text('inner')\n"
-                 "(home / 'inner-only').touch()\n"
-                 "assert (home / '.bashrc').read_text() == 'inner'\n")
-        outer = ("import os, subprocess, sys; from pathlib import Path\n"
-                 f"sys.path.insert(0, {str(REPO)!r})\n"
-                 "from agentkit import worker\n"
-                 "home = Path.home()\n"
-                 "(home / '.bashrc').write_text('outer')\n"
-                 "(home / 'cache').mkdir()\n"
-                 "(home / 'cache/kept').write_text('outer')\n"
-                 f"activity = Path({str(self.root / 'nested.log')!r})\n"
-                 "activity.touch()\n"
-                 f"code, text, killed = worker.boxed([sys.executable, '-c', {inner!r}], 10, "
-                 f"env=dict(os.environ), cwd={str(self.root)!r}, activity=activity, "
-                 "stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)\n"
-                 "assert (code, killed) == (0, False), (code, text, killed)\n"
-                 "assert (home / '.bashrc').read_text() == 'outer'\n"
-                 "assert (home / 'cache/kept').read_text() == 'outer'\n"
-                 "assert not (home / 'inner-only').exists()\n")
-        with patch.dict(os.environ, {"HOME": str(home)}):
-            result = self.proof(self.command(outer))
-        self.assertEqual(result["returncode"], 0, result)
+        probe = ("import json\nfrom pathlib import Path\nerrors = []\n"
+                 "for path in (Path.home() / 'new-file', Path.home() / '.bashrc'):\n"
+                 " try:\n  path.write_text('check-only')\n"
+                 " except OSError as exc:\n  errors.append(exc.errno)\n"
+                 " else:\n  errors.append(None)\n"
+                 "Path.cwd().joinpath('ran').touch()\nprint(json.dumps(errors))\n")
+        script = self.root / "nested.py"
+        script.write_text(
+            "import json, os, subprocess, sys\nfrom pathlib import Path\n"
+            f"home, crowded, mounted, workspace, out = map(Path, "
+            f"{list(map(str, (home, crowded, mounted, workspace, out)))!r})\n"
+            "if sys.argv[1] == 'mount':\n"
+            " subprocess.run(['mount', '--make-rprivate', '/'], check=True)\n"
+            " subprocess.run(['mount', '-t', 'tmpfs', 'tmpfs', str(mounted)], check=True)\n"
+            " os.execvp('setpriv', ['setpriv', '--inh-caps=-all', '--ambient-caps=-all', "
+            "sys.executable, __file__, 'check'])\n"
+            f"sys.path.insert(0, {str(REPO)!r})\n"
+            f"sys.path.insert(0, {str(REPO / 'tests')!r})\n"
+            "from agentkit import box\nfrom fixtures.sandbox import account_home\n"
+            "os.environ['HOME'] = str(home)\ncounts, writes = [], []\n"
+            "with account_home(home):\n"
+            " for entries in (0, 2500):\n"
+            "  for number in range(entries):\n"
+            "   (crowded / str(number)).touch()\n"
+            f"  with box.command([sys.executable, '-c', {probe!r}], dict(os.environ), out, "
+            "cwd=workspace, home_overlay=True) as (cmd, env, spawn):\n"
+            "   counts.append(len(cmd[:cmd.index('--')]))\n"
+            "   spawn.pop('stop')\n"
+            "   result = subprocess.run(cmd, env=env, cwd=workspace, capture_output=True, "
+            "text=True, timeout=30, **spawn)\n"
+            "  assert result.returncode == 0, result.stderr\n"
+            "  writes.append(json.loads(result.stdout))\n"
+            "print(json.dumps({'counts': counts, 'writes': writes}))\n")
+        result = subprocess.run(
+            ["unshare", "--user", "--map-current-user", "--mount", "--keep-caps",
+             sys.executable, str(script), "mount"], capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        seen = json.loads(result.stdout)
+        self.assertEqual(seen["counts"][0], seen["counts"][1])
+        self.assertEqual(seen["writes"], [[errno.EROFS, errno.EROFS]] * 2)
+        self.assertTrue((workspace / "ran").exists())
+        self.assertFalse((home / "new-file").exists())
         self.assertEqual((home / ".bashrc").read_text(), "original")
-        self.assertFalse((home / "cache").exists())
-        self.assertFalse((home / "inner-only").exists())
-        self.assertEqual((home / ".ssh/id_fixture").read_text(), "fixture-key")
-
-    def test_unreadable_home_files_do_not_stop_nested_checks(self):
-        homes = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-unreadable-", dir=REPO)
-        self.addCleanup(homes.cleanup)
-        home, account = (Path(homes.name, name) for name in ("home", "account"))
-        unreadable = []
-        for place in (home, account):
-            (place / ".config/gh").mkdir(parents=True)
-            (place / ".config/gh/hosts.yml").write_text("fixture-login")
-            for name in (".viminfo", ".config/gh/.viminfo"):
-                path = place / name
-                path.write_text("unreadable")
-                path.chmod(0)
-                unreadable.append(path)
-        read = ("from pathlib import Path\n"
-                f"for path in map(Path, {list(map(str, unreadable))!r}):\n"
-                " assert path.exists()\n"
-                " try:\n"
-                "  path.read_text()\n"
-                " except PermissionError:\n"
-                "  pass\n"
-                " else:\n"
-                "  raise AssertionError('unreadable file became readable')\n")
-        inner = read + "Path.cwd().joinpath('inner-ran').touch()\n"
-        outer = (read + "import os, subprocess, sys\n"
-                 f"sys.path.insert(0, {str(REPO)!r})\n"
-                 "from agentkit import worker\n"
-                 f"activity = Path({str(self.root / 'nested.log')!r})\n"
-                 "activity.touch()\n"
-                 f"code, text, killed = worker.boxed([sys.executable, '-c', {inner!r}], 10, "
-                 f"env=dict(os.environ), cwd={str(self.root)!r}, activity=activity, "
-                 "stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)\n"
-                 "assert (code, killed) == (0, False), (code, text, killed)\n")
-        with account_home(account), patch.dict(os.environ, {"HOME": str(home)}):
-            result = self.proof(self.command(outer))
-        self.assertEqual(result["returncode"], 0, result)
-        self.assertTrue((self.root / "inner-ran").exists())
-        for path in unreadable:
-            self.assertEqual(path.stat().st_mode & 0o777, 0)
-            path.chmod(0o600)
-            self.assertEqual(path.read_text(), "unreadable")
 
     def test_declared_writes_inside_home_still_persist(self):
         home = self.root / "home"
