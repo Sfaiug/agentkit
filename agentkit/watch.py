@@ -3166,7 +3166,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     seat is read once more first, because a composer the user has begun typing into is theirs
     and a line appended to it would send what they are still writing.
     """
-    from . import job as jobs, run as run_mod   # here, not at the top, as health()'s own import is
+    from . import stop   # here, not at the top: stop also calls the watcher
     if not stop_enforced(harness):
         return
     name = session["name"]
@@ -3179,29 +3179,23 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     began = _stamp(live.get("turn_began"))
     if began is None:
         return          # nothing has watched this seat finish a turn; there is none to judge
-    if notice and notice.get("kind") == "needs" and (_stamp(notice.get("time")) or 0) >= began:
-        return          # it asked with ak notify needs: a question mark on the screen asks nothing
+    question = bool(notice and notice.get("kind") == "needs"
+                    and (_stamp(notice.get("time")) or 0) >= began)
     said = progress_output(harness, pane_tail(pane))
     if not said or live.get("stop_nudged") == [began, said]:
         return
     wait = live.get("wait")
-    if isinstance(wait, dict) and not wait.get("told"):
+    if not question and isinstance(wait, dict) and not wait.get("told"):
         found = wait_peer(name, wait, records)[1]
         if found is not None and not wait_holds(found):
             return      # that session has stopped: tell_waits says so, and why, instead
-    mine = []
-    for run_dir, record in records:
-        try:
-            if run_mod.launched_session(record) == name:
-                mine.append((run_dir.name, record, run_mod.going(record)))
-        except config.Error:
-            continue    # a record whose seat cannot be resolved is nobody's run to wait on
-    # the hook's `parked`: `unfinished` over the records, so not a run a later merged run
-    # replaced, and not going -- or `stalled`, which nothing resumes
-    parked = [run for run, record, going in mine if (not going or record.get("state") == "stalled")
-              and run_mod.unfinished(record, records)]
-    if not parked and (any(going for *_, going in mine) or jobs.job_waiting(name)):
+    ends, undecided = stop.recorded_ending(
+        name, records, question=question,
+        completion=lambda: bool(notice and notice["kind"] == "done" and done_holds(
+            name, live, notice, began, said, dry_run)))
+    if ends:
         return
+    parked = [directory.name for directory, _ in undecided]
     nudged = {}
     if parked:
         since = (notify.last(name, include_seen=True) or {}).get("time")
@@ -3213,11 +3207,6 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
             return      # it has had its nudges for every run parked: this stop stands
         nudged = {"notice": since,
                   "runs": {**nudged, **{run: nudged.get(run, 0) + 1 for run in parked}}}
-    if not parked and waiting_on(name, records):
-        return          # it ended its turn on `ak wait`, and that session is working
-    if not parked and notice and notice["kind"] == "done" and done_holds(
-            name, live, notice, began, said, dry_run):
-        return          # it said the job was finished, in the turn that has just ended
     tail = pane_tail(pane)
     keys = keystroke(harness, tail)
     if dry_run:

@@ -64,17 +64,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
-from agentkit.run import going, handback_reason, unfinished
-from agentkit.stop import ways_out
-from agentkit.job import job_waiting
-from agentkit.watch import owner_question, waiting_on
+from agentkit.run import handback_reason
+from agentkit.stop import recorded_ending, ways_out
+from agentkit.watch import owner_question
 
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
           "declaring done with ak notify done, "
           "or waiting on a run. Continue: decide the next step and do it.")
 HOME = Path(os.path.expanduser("~")) / ".agentkit"
-STATE, RUNS = HOME / "state", HOME / "runs"
+STATE = HOME / "state"
 def loads(text):
     try:
         data = json.loads(text or "")
@@ -252,62 +251,12 @@ def told(seat, turn, kind, peer=False):
     return when is not None and when >= turn
 
 
-def waiting(seat, turn):
-    """A run this turn launched from this seat, or one of its runs or live jobs still going."""
-    try:
-        directories = sorted(path for path in RUNS.iterdir() if path.is_dir())
-    except OSError:
-        directories = []
-    for directory in directories:
-        state = read(directory / "run.json")
-        owner = state.get("launched_session") or state.get("session")
-        # the rename chain is only walked for a run whose recorded name is not already this one
-        if not isinstance(owner, str) or not owner or (owner != seat and resolve(owner) != seat):
-            continue
-        if going(state):
-            return True
-        if state.get("state") in ("error", "waiting"):
-            continue    # a rejected retry is no reason to wait, even if launched this turn
-        for key in ("started_at", "queued_at"):
-            when = moment(state.get(key))
-            if when is not None and when >= turn:
-                return True
-    return job_waiting(seat)
-
-
-def parked(seat):
-    """(run, parked reason) for this seat's runs that sit parked and undecided.
-
-    Undecided is `unfinished` whole over every run's record -- the runs `ak notify done`
-    refuses on, so not one a later merged relaunch or continuation replaced -- read through
-    agentkit's own function, never a copy of its rule.  A run going somewhere is not parked:
-    it resumes itself, and a stop that waits on it stands as it always did.  `stalled` is the
-    exception: `going` counts it, but nothing resumes one -- the tick only told the seat --
-    so it sits parked for `ak run resume` and holds the turn like any undecided run.
-    """
-    try:
-        directories = sorted(path for path in RUNS.iterdir() if path.is_dir())
-    except OSError:
-        return []
-    records = [(directory, read(directory / "run.json")) for directory in directories]
-    found = []
-    for directory, state in records:
-        owner = state.get("launched_session") or state.get("session")
-        # the rename chain is only walked for a run whose recorded name is not already this one
-        if not isinstance(owner, str) or not owner or (owner != seat and resolve(owner) != seat):
-            continue
-        if going(state) and state.get("state") != "stalled":
-            continue
-        if not unfinished(state, records):
-            continue
-        found.append((directory.name, handback_reason(state), ways_out(state, directory)))
-    return found
-
-
 def parked_reason(found):
     """The block where runs sit parked and undecided: each run, its reason and the commands its
     state takes -- `ways_out`, so none that refuses it -- and the ways out."""
-    runs = "; ".join(f"run {name} parked: {why} ({' / '.join(ways)})" for name, why, ways in found)
+    runs = "; ".join(f"run {directory.name} parked: {handback_reason(state)} "
+                     f"({' / '.join(ways_out(state, directory))})"
+                     for directory, state in found)
     return (f"{runs}. Continue: settle each with one of its commands -- ak run status marks an "
             f"ended run looked at, ak run resume carries it on, ak run stop ends it -- relaunch "
             f"it split or on another model, or ask the owner.")
@@ -338,11 +287,11 @@ def held(launched, payload):
         return ""    # nothing it said can be read; nothing here can judge the turn
     # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
     # a hand-back or a told line opens turns on a seat while it stands (`watch.stop_nudge`)
-    if questioned(payload) or told(seat, turn, "needs") or owner_question(notify.last(seat)):
-        return ""
-    undecided = parked(seat)
-    if not undecided and (told(seat, turn, "done", peer) or waiting(seat, turn)
-                          or waiting_on(seat) or (asked and not peer)):
+    ends, undecided = recorded_ending(
+        seat, question=(questioned(payload) or told(seat, turn, "needs")
+                        or owner_question(notify.last(seat))),
+        completion=told(seat, turn, "done", peer), answer=asked and not peer, since=turn)
+    if ends:
         return ""
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1

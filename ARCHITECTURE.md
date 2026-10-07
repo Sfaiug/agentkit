@@ -37,7 +37,8 @@
 - `stop.py`: `ak run stop` and `ak run clean`. A stop writes `stopped` under the lock
   first, then ends its scope, tree and marked processes, then the checkout unless kept.
   `stop_owned_runs` and `release_session` for orch, `cmd_stop` for menu,
-  `ways_out` for the stop hook, `marker_pids` for status. Leaks: run's
+  `recorded_ending` decides turns for the native hook and the hookless tick from their evidence
+  and existing run census; `ways_out` for the stop hook, `marker_pids` for status. Leaks: run's
   `launched_session`, `note_in`, `history_finish`, `redress_seat`, `record_result`.
 - `worktrees.py`: a run's worktree and local branch: whether they may go (final run, gone
   loop, never ~/code, held for a resume) and the one way they go, `stop_checkout`: the
@@ -63,7 +64,8 @@
 - `watch.py`: tick (its passes in one list, `local_passes`), watch.json, errors
   (harness/manifest; `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`), typing
   receipts by source, revive, resume, PR scans, after-merge checks, `health:` probes,
-  `doctor`. For run, job, orch, menu, notify, update, usage, worker, hooks.
+  `doctor`. Hookless stops ask stop.recorded_ending; screen guards and bounded nudges stay here.
+  For run, job, orch, menu, notify, update, usage, worker, hooks.
   Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
 - `retire.py`: the tick's pass that tells a project's seats, once a day via `tell.queue`,
   each feature switch on for everyone two weeks, to take out of the code: the seat whose plan

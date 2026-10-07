@@ -2,6 +2,7 @@
 
 A stop writes the record first, then ends the loop and everything it started, then takes
 the checkout unless kept. `ways_out` names the commands that settle a parked run.
+`recorded_ending` decides whether recorded work lets a seat's turn end.
 """
 
 import os
@@ -12,6 +13,55 @@ from pathlib import Path
 from . import config, orch, run, watch, worker, worktrees
 from . import job as jobs
 from . import record as run_record
+
+
+def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
+                    since=None):
+    """(the turn may end, parked records), from the evidence its caller can see.
+
+    The native hook reads all run receipts; the tick supplies its existing census. A question
+    stands past parked work, which holds a completion, an answer and every live wait.
+    `since` retains the prompt hook's wait on work launched in this turn even after it ends.
+    A callable completion binds the tick's notice to its output only when no wait ends it.
+    """
+    if question:
+        return True, []
+    supplied = records
+    if records is None:
+        try:
+            records = [(directory, run_record.read_state(directory) or {})
+                       for directory in run_record.run_dirs()]
+        except OSError:
+            records = []
+    mine = []
+    for directory, state in records:
+        owner = state.get("launched_session") or state.get("session")
+        if supplied is not None or owner != name:
+            try:
+                owner = run.launched_session(state)
+            except config.Error:
+                continue
+        if owner == name:
+            mine.append((directory, state, run.going(state)))
+    parked = [(directory, state) for directory, state, going in mine
+              if (not going or state.get("state") == "stalled") and run.unfinished(state, records)]
+    if parked:
+        return False, parked
+    if not callable(completion) and completion:
+        return True, []
+    for _, state, going in mine:
+        if going:
+            return True, []
+        if since is not None and state.get("state") not in ("error", "waiting"):
+            for key in ("started_at", "queued_at"):
+                stamp = watch._stamp(state.get(key))
+                if stamp is not None and stamp >= since:
+                    return True, []
+    if jobs.job_waiting(name) or watch.waiting_on(name, supplied):
+        return True, []
+    if callable(completion) and completion():
+        return True, []
+    return bool(answer), []
 
 
 def stoppable(state):
