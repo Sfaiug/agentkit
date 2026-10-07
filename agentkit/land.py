@@ -375,12 +375,10 @@ def _pr_moved(state, heads):
         except config.Error:
             heads[url] = None
     head = heads[url]
-    known = {run.passed_review_head(state), (state.get("review") or {}).get("head_sha"),
-             state.get("delivery_sha")}
-    if not head or head in known:
+    if not head or head in run.own_pr_heads(state):
         return ""
     return (f"its PR's head moved to {head[:12]} after review of "
-            f"{(run.passed_review_head(state) or '?')[:12]}: the new commits are reviewed before "
+            f"{(state.get('head_sha') or '?')[:12]}: the new commits are reviewed before "
             "the line checks them")
 
 

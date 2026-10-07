@@ -475,6 +475,21 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertTrue(self.review(directory, url)["merged"])
         self.assertEqual(len(self.checks), 1)
 
+    def test_a_wording_pr_rejoining_after_a_target_move_is_not_a_moved_head(self):
+        # its delivery rebased it locally; GitHub still holds the head it was reviewed at
+        directory, url = self.own_pr("README", 1)
+        state = self.review(directory, url)
+        self.assertTrue(state["review"]["skipped"])
+        land.check_line(self.turn)
+        self.advance(**{"later.txt": "later\n"})
+        state = self.review(directory, url)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(self.prs[url]["head"], state["head_sha"], "nobody pushed")
+        land.check_line(self.turn)
+        with patch.object(run, "wait_for_own_pr", return_value=False):
+            state = self.review(directory, url)
+        self.assertTrue(state.get("merged"), (state.get("final_check") or {}).get("line"))
+
     def test_a_seat_push_racing_the_tested_push_is_protected_by_the_lease(self):
         directory, url = self.own_pr("first", 1)
         self.review(directory, url)

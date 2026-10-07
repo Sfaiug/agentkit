@@ -286,8 +286,7 @@ class JoinLine(Sandbox):
         self.lp.state["own_orchestrator"] = "opus"
         with patch.object(run, "gh", side_effect=AssertionError("delivery")), \
                 patch.object(run, "merge_lock", side_effect=AssertionError("delivery lock")):
-            self.assertFalse(run.merge_own_pr(self.lp, "https://github.com/acme/widget/pull/7",
-                                              self.lp.state["review"]["head_sha"]))
+            self.assertFalse(run.merge_own_pr(self.lp, "https://github.com/acme/widget/pull/7"))
         self.assertEqual(self.saved()["waiting_on"]["line"], run.turn_path(self.lp, "origin/main").name)
         self.assertFalse(list(config.RUNS.glob("*.wait")))
 
