@@ -25,17 +25,20 @@ from test_suites_never_collide import E2E, SMOKE, lock_argv, lock_program
 
 
 class Clock:
-    """Advance only on the watchdog's ticks, leaving real child processes to run."""
+    """Advance only on the watchdog's ticks, leaving real child processes to run.
 
-    def __init__(self, step):
+    Time stands still until `started()`: a busy host may need seconds to start a command's box.
+    """
+
+    def __init__(self, step, started=lambda: True):
         self.owner = threading.current_thread()
-        self.step, self.now = step, 0
+        self.step, self.now, self.started = step, 0, started
         self.seen = set()
 
     def __call__(self):
         current = threading.current_thread()
         if current is not self.owner:
-            if current in self.seen:
+            if current in self.seen and self.started():
                 self.now += self.step
             self.seen.add(current)
         return self.now
@@ -65,6 +68,14 @@ class Silence(unittest.TestCase):
 
     def command(self, text):
         return f"{shlex.quote(sys.executable)} -u -c {shlex.quote(text)}"
+
+    def printed(self, line):
+        return lambda: line in (self.root / "donewhen.log").read_bytes()
+
+    def emitted(self, out):
+        """Whether every attempt at the turn in `out`, retries too, has emitted an event."""
+        return lambda: all((attempt / "events.jsonl").exists()
+                           for attempt in out.parent.glob(f"{out.name}*"))
 
     def gate(self, commands, clock):
         logs = []
@@ -125,16 +136,15 @@ class Silence(unittest.TestCase):
 
     def test_silent_command_keeps_its_last_output_line(self):
         cmd = self.command("import time; print('first'); print('last'); time.sleep(600)")
-        ok, text, logs = self.gate([cmd], Clock(600))
+        ok, text, logs = self.gate([cmd], Clock(600, self.printed(b"\nlast\n")))
         self.assertFalse(ok)
         self.assertIn("first\nlast", text)
         self.assertIn(f"{cmd} (last output: last)", logs[0])
 
     def test_silence_stop_names_the_sleeping_child(self):
-        logs = []
         path = self.root / "donewhen.log"
-        ok, text = gate.run_done_when(["sleep 600 & wait"], self.root, path, set(),
-                                     limit=60, silence=3, log=logs.append)
+        ok, text, logs = self.gate(["touch up; sleep 600 & wait"],
+                                   Clock(600, (self.root / "up").exists))
         self.assertFalse(ok, text)
         self.assertEqual(len(logs), 1)
         detail = logs[0].split("(last output: (no output))", 1)[1]
@@ -166,7 +176,7 @@ class Silence(unittest.TestCase):
     def test_background_child_holding_output_does_not_escape_silence(self):
         child = self.root / "child.lock"
         cmd = f"flock -x {shlex.quote(str(child))} sleep 600 &"
-        ok, text, logs = self.gate([cmd], Clock(600))
+        ok, text, logs = self.gate([cmd], Clock(600, child.exists))
         self.assertFalse(ok, text)
         self.assertIn("20 min of silence", logs[0])
         self.assertRegex(logs[0], r"; still running: sleep 600 \(\d+s\)$")
@@ -176,7 +186,7 @@ class Silence(unittest.TestCase):
     def test_chatty_command_past_silence_total_is_not_killed(self):
         # No newline: any output counts, and it reaches the gate log before exit.
         cmd = self.command("import time\nfor _ in range(35):\n print('.', end='', flush=True)\n time.sleep(.1)")
-        clock = Clock(600)
+        clock = Clock(600, self.printed(b"\n."))
         ok, text, logs = self.gate([cmd], clock)
         self.assertTrue(ok, text)
         self.assertGreater(clock.now, 60 * record.SILENCE_MINUTES)
@@ -185,7 +195,7 @@ class Silence(unittest.TestCase):
 
     def test_ceiling_kills_a_command_that_prints_forever(self):
         cmd = self.command("import time\nwhile True:\n print('still going', flush=True)\n time.sleep(.05)")
-        clock = Clock(3600 * record.CEILING_HOURS / 3)
+        clock = Clock(3600 * record.CEILING_HOURS / 3, self.printed(b"\nstill going\n"))
         ok, text, logs = self.gate([cmd, "echo never"], clock)
         self.assertFalse(ok)
         self.assertGreaterEqual(clock.now, 3600 * record.CEILING_HOURS)
@@ -202,11 +212,11 @@ class Silence(unittest.TestCase):
         logs = []
         # two levels under the sandbox, as a round's out dir sits under its run: the turn reads
         # the run directory as the out dir's grandparent, and one level up here is the checkout
-        with patch.object(worker.time, "monotonic", side_effect=Clock(600)), \
+        out = self.root / "turns" / "executor"
+        with patch.object(worker.time, "monotonic", side_effect=Clock(600, self.emitted(out))), \
                 patch.object(run, "TRANSIENT_BACKOFF", (0, 0)):
             code, text, sid, dead = run.call_retrying(
-                cfg, "fixture", "do it", self.root, self.root / "turns" / "executor",
-                "executor", None, logs.append)
+                cfg, "fixture", "do it", self.root, out, "executor", None, logs.append)
         self.assertEqual((code, sid, dead), (0, "sid", False))
         self.assertIn("Finished", text)
         self.assertTrue(any("emitted no event for 20m" in line and "resuming session sid" in line
@@ -456,7 +466,8 @@ class Silence(unittest.TestCase):
             with self.subTest(harness=harness):
                 cfg["models"]["fixture"]["harness"] = harness
                 out = self.root / harness / "executor"
-                with patch.object(worker.time, "monotonic", side_effect=Clock(600)), \
+                with patch.object(worker.time, "monotonic",
+                                  side_effect=Clock(600, self.emitted(out))), \
                         patch.object(run, "TRANSIENT_BACKOFF", (0, 0, 0, 0, 0)):
                     code, text, _, dead = run.call_retrying(
                         cfg, "fixture", "do it", self.root, out, "executor", None, lambda _: None)
