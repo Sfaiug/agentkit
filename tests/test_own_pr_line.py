@@ -459,6 +459,22 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertEqual(len(self.checks), 1)
         self.assertEqual(self.merges, [])
 
+    def test_a_head_pushed_while_waiting_for_the_lander_is_reviewed_before_any_check(self):
+        directory, url = self.own_pr("first", 1)
+        self.review(directory, url)
+        self.advance()
+        self.push_fix(url)
+        newest = self.prs[url]["head"]
+        land.check_line(self.turn)
+        self.assertEqual(self.checks, [], "the line checked a head nobody will land")
+        self.assertIn(newest[:12], self.wait(directory)["fix"]["line"])
+        state = self.review(directory, url)
+        self.assertEqual(state["head_sha"], newest)
+        self.assertEqual(len(self.reviews), 2)
+        land.check_line(self.turn)
+        self.assertTrue(self.review(directory, url)["merged"])
+        self.assertEqual(len(self.checks), 1)
+
     def test_a_seat_push_racing_the_tested_push_is_protected_by_the_lease(self):
         directory, url = self.own_pr("first", 1)
         self.review(directory, url)
