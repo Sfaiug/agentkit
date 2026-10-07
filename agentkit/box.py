@@ -340,16 +340,16 @@ def _network(cmd, env, out_dir=None, info=None):
     if not (routes or routes6):
         yield [*cmd, "--unshare-net"]
         return
-    unshare, pasta, setpriv = map(_host_binary, ("unshare", "pasta", "setpriv"))
-    if not all((unshare, pasta, setpriv)):
+    pasta = _host_binary("pasta")
+    if pasta is None:
         yield [*cmd, "--unshare-net"]
         return
-    # Keep the account's numbers in pasta's user namespace. Its default maps the
-    # account to root; bwrap must also receive no ambient capabilities.
+    # Pasta's own user namespace maps the account to root, and bwrap maps it back for the
+    # command: asked to keep the account's numbers itself, pasta prints its failed attempts
+    # into the command's stderr.
     # A different address inside keeps host listeners on its LAN address reachable.
     # Loopback supplies both IP families, including a resolver's only family.
-    prefix = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
-              "--netns-only", "--config-net", "--no-map-gw", "--quiet",
+    prefix = [pasta, "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
               "--address", "10.0.2.15", "--netmask", "24", "--gateway", "10.0.2.2",
               "--address", "fd00::15", "--gateway", "fe80::1",
@@ -372,31 +372,40 @@ def _network(cmd, env, out_dir=None, info=None):
     for version, address in hosts.items():
         prefix.extend(["--dns-forward", "10.0.2.3" if version == 4 else "fd00::3",
                        "--dns-host", address])
-    prefix.extend([setpriv, "--inh-caps=-all", "--ambient-caps=-all"])
     # In an enclosing box, the host's pasta may be unable to start a command
-    # (for example an AppArmor exec transition under no_new_privs).
-    with subprocess.Popen([*prefix, "/usr/bin/true"], env=env,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as probe:
+    # (for example an AppArmor exec transition under no_new_privs). Where it can, that
+    # transition may clear variables the loader distrusts (TMPDIR, LD_LIBRARY_PATH):
+    # the probe says which survive, and bwrap gives the command the rest back.
+    # A pasta that fails leaves the process it had made for the command waiting: the probe
+    # writes to a file, never a pipe that process would hold open, and its group ends with it.
+    with tempfile.TemporaryFile() as said, \
+            subprocess.Popen([*prefix, "/usr/bin/env", "-0"], env=env, stdout=said,
+                             stderr=subprocess.DEVNULL, start_new_session=True) as probe:
         try:
             ready = probe.wait(timeout=10) == 0
         except subprocess.TimeoutExpired:
-            probe.terminate()
-            try:
-                probe.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                probe.kill()
-                probe.wait()
             ready = False
+        finally:
+            try:
+                os.killpg(probe.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        said.seek(0)
+        kept = {entry.partition(b"=")[0] for entry in said.read().split(b"\0")}
     if not ready:
         yield [*cmd, "--unshare-net"]
         return
+    account = ["--uid", str(os.getuid()), "--gid", str(os.getgid())]
+    for name, value in env.items():
+        if os.fsencode(name) not in kept:
+            account.extend(["--setenv", name, value])
     if not hosts:
-        yield [*prefix, *cmd]
+        yield [*prefix, *cmd, *account]
         return
     with tempfile.NamedTemporaryFile(mode="w", prefix=".box-dns-", dir=out_dir) as dns:
         dns.write(content)
         dns.flush()
-        yield [*prefix, *cmd, "--ro-bind", dns.name, str(resolver.resolve())]
+        yield [*prefix, *cmd, *account, "--ro-bind", dns.name, str(resolver.resolve())]
 
 
 @contextmanager

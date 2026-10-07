@@ -206,12 +206,16 @@ if role == "mount":
     # The package's AppArmor profile uses an unconfined exec transition, forbidden
     # by an enclosing box's no_new_privs. This private copy tests pasta itself.
     bindir = root / "bin"
-    bindir.mkdir()
+    (bindir / "real").mkdir(parents=True)
     pasta = Path(shutil.which("pasta"))
     for binary in (pasta, pasta.with_name("pasta.avx2")):
         if binary.exists():
-            shutil.copyfile(binary, bindir / binary.name)
-            (bindir / binary.name).chmod(0o755)
+            shutil.copyfile(binary, bindir / "real" / binary.name)
+            (bindir / "real" / binary.name).chmod(0o755)
+    # That transition also clears variables the loader distrusts before the command
+    # starts; this launcher loses one of the test's own the same way.
+    (bindir / "pasta").write_text(f'#!/bin/sh\nunset BOX_DROPPED\nexec {bindir}/real/pasta "$@"\n')
+    (bindir / "pasta").chmod(0o755)
     os.environ["PATH"] = str(bindir) + os.pathsep + os.environ["PATH"]
     os.execvp("setpriv", ["setpriv", "--inh-caps=-all", "--ambient-caps=-all",
                          sys.executable, __file__, str(root), "host", *sys.argv[3:]])
@@ -243,6 +247,8 @@ def boxed(source, overlay=False):
         result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
                                 timeout=30, **spawn)
     assert result.returncode == 0, result.stderr
+    # The walls print nothing of their own into what a command prints.
+    assert result.stderr == "", result.stderr
     return json.loads(result.stdout)
 
 
@@ -339,6 +345,8 @@ try:
                 assert seen == [True, False, False, False, False], seen
                 assert (root / "written").stat().st_uid == os.getuid()
                 assert (root / "written").stat().st_gid == os.getgid()
+            os.environ["BOX_DROPPED"] = "given back"
+            assert boxed('import json, os; print(json.dumps(os.environ.get("BOX_DROPPED")))') == "given back"
             # Stop the supervisor across pasta's PID namespace and let the command
             # save its cleanup before the broker exits.
             from agentkit import worker
@@ -365,10 +373,14 @@ try:
             assert json.loads(result.stdout) == "ok"
             unavailable = root / "unavailable"
             unavailable.mkdir()
-            (unavailable / "pasta").write_text("#!/bin/sh\nexit 1\n")
+            # A pasta that fails has already made a process for the command, and leaves it.
+            (unavailable / "pasta").write_text(
+                f'#!/bin/sh\nsleep 300 &\necho $! > {unavailable}/left\nexit 1\n')
             (unavailable / "pasta").chmod(0o755)
             os.environ["PATH"] = str(unavailable) + os.pathsep + os.environ["PATH"]
             assert boxed('import json, socket; print(json.dumps(socket.if_nameindex()))') == [[1, "lo"]]
+            left = Path("/proc", (unavailable / "left").read_text().strip(), "stat")
+            assert not left.exists() or left.read_text().rsplit(")", 1)[1].split()[0] == "Z"
         stop.set()
         for thread in threads:
             thread.join()
