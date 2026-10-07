@@ -594,13 +594,9 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             if ok:
                                 note(turn, [target_tree], directory.name, checks=[suite])
                             else:
-                                printed = "\n".join("    " + line
-                                                    for line in probe[-run.OUT_CAP:].splitlines())
                                 red = {"probe": {"command": suite, "check": f"{suite}  # once",
                                        "sha": tip,
-                                       "text": f"`{suite}` fails on {upstream} at {tip}, the target's "
-                                               f"own tip, whichever branch runs it. What it printed "
-                                               f"there:\n\n{printed}"}}
+                                       "text": run.red_target_text(suite, upstream, tip, probe)}}
                                 note(turn, [], directory.name, red={target_tree: red})
                                 _repair(turn, member, saved, target_tree, red, log)
                                 target_red = True
