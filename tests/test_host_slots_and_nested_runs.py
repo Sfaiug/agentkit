@@ -1,4 +1,4 @@
-"""v5am: atomic host slots, durable FIFO, and one generation of nested test runs.
+"""atomic host slots, durable FIFO, and one generation of nested test runs.
 
 Offline: real loop processes and fake adapters, all files beneath this checkout.
 """

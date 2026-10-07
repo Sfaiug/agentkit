@@ -115,8 +115,8 @@ outer blank lines were removed. Selecting `3`, then Enter reached the normal TUI
 trusting the hook or making a model request; smoke 6d uses that same choice.
 
 `v4z-40.txt` and `v4z-100.txt` come from the real renderer with fixed fake state in
-`tests/test_v4z.py`: ATOLL, agentkit, newsletter-tool and scratch; running, asking,
-waiting, recovery and PASS states. Refresh with `python3 tests/test_v4z.py --fixtures`.
+`tests/test_project_menus.py`: ATOLL, agentkit, newsletter-tool and scratch; running, asking,
+waiting, recovery and PASS states. Refresh with `python3 tests/test_project_menus.py --fixtures`.
 Run the named checks with `bash tests/smoke.sh --projects`. The 100-column screen shows
 run details and blue usage bars; at 40 columns run details and usage fold to preserve
 project headers and seat rows. The suite also checks collapsed project pages, stable
@@ -131,11 +131,11 @@ Since v5g the 100-column screen carries each seat's tally of runs after its stat
 is the first column dropped, so `v4z-40.txt` is unchanged.
 
 `v5g-100.txt` and `v5g-40.txt` come from the same renderer with the fixed state in
-`tests/test_v5g.py`: herdr with a run going and one merged, atoll-fix with three merges this
+`tests/test_seat_row_run_tally.py`: herdr with a run going and one merged, atoll-fix with three merges this
 week (a fourth is eight days old, an interruption was acknowledged), atoll-proxy with a failure
 nobody acknowledged beside two merges, and scribe with no runs. The clock is pinned to
 1 800 000 000 and the title's version lookup to `3de8bef · 14 Sep`, so nothing in them moves
-with the checkout. Refresh with `python3 tests/test_v5g.py --fixtures`.
+with the checkout. Refresh with `python3 tests/test_seat_row_run_tally.py --fixtures`.
 
 ## Seat-state captures (v4y)
 
@@ -263,7 +263,7 @@ preserved, and every file holds SGR attributes (`\x1b[`) so dim tells from typed
   back) is painted by the model-pushed `inlineGhostText` path: a fresh prompt, a failed turn,
   an interrupted turn, history recall, `@`/`/` menus, permission-mode cycling, a resume and
   the queued-message composer were all captured live on the test socket and none of them
-  paints SGR 2 in the composer, so no offline capture can hold one. `tests/test_v5n.py`
+  paints SGR 2 in the composer, so no offline capture can hold one. `tests/test_working_needs_evidence.py`
   replays both captured texts (`you write it` and
   `Also fix the login page non-200 thing you mentioned`) in the bundle's verified ghost
   shape — the inverted first character with only the remainder faint — through the same
@@ -306,9 +306,9 @@ One fixed fake state over three widths, rendered with `menu.draw` under pinned
 a seat with a job (3 of 7 tasks done, two runs on opus and astra, the running
 task's title as its sentence), a seat with one run and no job, an idle seat, a seat
 that needs the owner with a long question, a project with no seat and one unfinished
-run, and a merged run that must not appear. `tests/test_v5o.py` checks all three
+run, and a merged run that must not appear. `tests/test_menu_at_rest_every_width.py` checks all three
 byte for byte; the reviewer renders the same three and reads them as the owner would.
-Refresh with `python3 tests/test_v5o.py --fixtures`.
+Refresh with `python3 tests/test_menu_at_rest_every_width.py --fixtures`.
 
 ## v5ai usage bars are one column (`v5ai-40.txt`, `v5ai-100.txt`)
 
@@ -316,8 +316,8 @@ One fixed fake usage record over two widths, rendered with `menu.usage_lines`
 under a pinned clock: Claude carries `(Fable 98%)`, ChatGPT is spent with
 `back 21 Sep` and Muse carries `22m old`. At 40 columns every bar is the one
 width the row with the least room can afford; at 100 columns every bar is 12
-cells, as before. `tests/test_v5ai.py` checks both byte for byte.
-Refresh with `python3 tests/test_v5ai.py --fixtures`.
+cells, as before. `tests/test_usage_bars_one_column.py` checks both byte for byte.
+Refresh with `python3 tests/test_usage_bars_one_column.py --fixtures`.
 
 ## Refused-run terminal records (v5i)
 

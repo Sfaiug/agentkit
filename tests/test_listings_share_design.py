@@ -1,10 +1,10 @@
-"""v5z: every listing outside the menu wears the same design; offline.
+"""every listing outside the menu wears the same design; offline.
 
 Fixed fake state -- three runs (working, unfinished, done merged) and two
 seats -- through the real renderers. COLUMNS is set and there is no tty, so
 the output is plain text with UTF-8 glyphs and the clock is pinned.
 
-`python3 tests/test_v5z.py --fixtures` re-renders the three fixtures for
+`python3 tests/test_listings_share_design.py --fixtures` re-renders the three fixtures for
 review by eye; the tests below pin them byte for byte.
 """
 

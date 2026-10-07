@@ -1,4 +1,4 @@
-"""v5ak: the menu at rest is the projects and their seats, nothing else; offline.
+"""the menu at rest is the projects and their seats, nothing else; offline.
 
 A fake ~/code with two checkouts, fake seats and fake run.json records, the real
 renderer.  Nothing here touches a harness, a tmux server or the owner's own
@@ -291,9 +291,9 @@ class Projects(Sandbox):
         self.assertNotIn("press r", screen)
 
     def test_v5ak_h_the_three_fixtures_reproduce_byte_for_byte(self):
-        import test_v5o
+        import test_menu_at_rest_every_width
         for width in (40, 100, 170):
-            fixture = test_v5o.V5oMenu()
+            fixture = test_menu_at_rest_every_width.V5oMenu()
             fixture.setUp()
             try:
                 screen = fixture.draw(width, 30)[0]

@@ -464,6 +464,13 @@ class Harness:
         hook = self._hook("error")
         return hook(record, cwd, conversation) if hook else None
 
+    def interrupted(self, record, cwd, conversation):
+        """When the owner interrupted that conversation's turn, where the harness recorded it as
+        the last event -- an end it reports by no hook -- or None.  OSError where a record
+        exists and cannot be read."""
+        hook = self._hook("interrupted")
+        return hook(record, cwd, conversation) if hook else None
+
     @property
     def keeps_errors(self):
         """Whether `error` reads anything: a transcript alone may hold no error a reader knows."""

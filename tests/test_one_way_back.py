@@ -1,4 +1,4 @@
-"""agentkit v5u: one way back, everywhere; offline, through the scripted-input seam.
+"""one way back, everywhere; offline, through the scripted-input seam.
 
 `q`, Esc and an empty Enter go back on every sub-screen; an arrow key or other
 escape sequence is neither Esc nor a key. Every sub-screen is drawn in

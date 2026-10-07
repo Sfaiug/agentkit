@@ -1242,6 +1242,20 @@ def recorded_error(harness, name):
         return None
 
 
+def interrupted_at(harness, name):
+    """When the owner interrupted that seat's turn, as its harness recorded it -- a turn's end it
+    reports by no hook -- or None where it recorded none or keeps no record to read."""
+    record = config.session_records().get(name) if name else None
+    if not record:
+        return None
+    plugin = orch.harness_plugin(harness)
+    cwd = record.get("cwd")
+    try:
+        return plugin.interrupted(record, cwd, plugin.conversation(record, cwd))
+    except OSError:
+        return None
+
+
 def auth_expired_on(harness, tail, name=None):
     """Match a harness's terminal auth message, including wrapped lines, never quoted prose.
 
@@ -1517,7 +1531,7 @@ def screen_state(harness, tail):
     return None, "", ""
 
 
-def classify(harness, tail, fact, opened_at, previous, now):
+def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
     """What that live seat is doing, since when, and what decided it.  A pure function.
 
     The hook decides the states its manifest reserves for it, except where a rule positively
@@ -1529,7 +1543,8 @@ def classify(harness, tail, fact, opened_at, previous, now):
     hook fact nor a rule the answer is `at_prompt`: `working` needs a `UserPromptSubmit` hook
     fact, an answered question or a rule that names it.  These are the facts, not the word a
     screen says: what the user reads is one of `session_state`'s three, and this is one of the
-    things it reads.
+    things it reads.  `interrupted` is when the harness recorded the owner interrupting the
+    turn, which then ended with no Stop: it ends a turn its hook began before it.
     """
     authority = config.manifest(harness).get("authority") or {}
     opened = (opened_at if isinstance(opened_at, (int, float))
@@ -1538,6 +1553,8 @@ def classify(harness, tail, fact, opened_at, previous, now):
     seen, rule, line = screen_state(harness, tail)
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
+    if hooked == "working" and interrupted is not None and interrupted > when:
+        hooked, spoken = "at_prompt", "the owner interrupted its turn"
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
     elif seen:
@@ -1659,9 +1676,17 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
     if pane is None:
         pane = pane_text(session)
     at = time.time() if now is None else now
+    fact = hook_facts(name)
     try:
-        found = classify(harness, pane_tail(pane), hook_facts(name), previous.get("opened_at"),
-                         previous, at)
+        # only a turn its hooks say runs, or asked in, can have ended unreported; and a prompt
+        # whose hook lands while the record is read is a newer turn, which the record may not
+        # show yet
+        ended = (interrupted_at(harness, name)
+                 if hook_state(harness, fact)[0] in ("working", "asking") else None)
+        if ended is not None and hook_facts(name) != fact:
+            ended = None
+        found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
+                         interrupted=ended)
     except config.Error as exc:
         # a manifest somebody is in the middle of writing is not a reason for a blank menu
         print(f"WARN cannot read what {name} is doing: {exc}", file=sys.stderr)
@@ -2773,15 +2798,17 @@ def at_prompt(session, cfg=None, pane=None):
 
 
 def takes_line(session, cfg=None, pane=None, midturn=False):
-    """May a line be typed into that seat now: at its own prompt, or -- `midturn` -- during a
-    turn whose harness holds a typed line for its model's next step (`[screen] queues_typing`)."""
+    """May a line be typed into that seat now: at its own prompt; stopped on background work,
+    whose composer stays open and sends a typed line at once (`background` on that hook event);
+    or -- `midturn` -- during a turn whose harness holds a typed line for its model's next step
+    (`[screen] queues_typing`)."""
     if at_prompt(session, cfg=cfg, pane=pane):
         return True
-    if not midturn or any(session.get(key) for key in orch.CLOSED):
+    if any(session.get(key) for key in orch.CLOSED):
         return False
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
-        if not harness or not screen(harness)["queues"]:
+        if not harness:
             return False
         pane = pane_text(session) if pane is None else pane
         if not pane.strip():
@@ -2789,7 +2816,9 @@ def takes_line(session, cfg=None, pane=None, midturn=False):
         found = live_state(session, harness, pane=pane, cfg=cfg)
     except (config.Error, OSError):
         return False
-    return _turn_in_flight(harness, found)[0]
+    if found.get("hooked_event") in _background_stops(harness):
+        return True
+    return midturn and screen(harness)["queues"] and _turn_in_flight(harness, found)[0]
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,

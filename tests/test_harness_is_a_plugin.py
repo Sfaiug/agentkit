@@ -1,4 +1,4 @@
-"""v5al: a harness is a plugin -- an adapter pair and a config.toml line, never code.
+"""a harness is a plugin -- an adapter pair and a config.toml line, never code.
 
 Offline throughout.  The fifth harness is tests/fixtures/adapters/echo.sh and echo.toml, a
 fake with nothing behind it; the four real ones keep their own adapters/*.toml -- the screen,

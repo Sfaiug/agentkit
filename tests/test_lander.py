@@ -486,7 +486,8 @@ class Lander(LanderFixture, unittest.TestCase):
         later = self.member("later", joined=2)
         self.advance()
         before = (first / "run.json").read_bytes()
-        with patch.object(record, "process_active", side_effect=[False, False, True]):
+        # claimed once its stack has been checked: before then the pass reads it free
+        with patch.object(record, "process_active", side_effect=lambda *_: bool(self.checks)):
             land.check_line(self.turn)
         self.assertEqual(len(self.checks), 1)
         self.assertEqual((first / "run.json").read_bytes(), before)

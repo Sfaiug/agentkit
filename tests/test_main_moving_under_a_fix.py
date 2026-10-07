@@ -1,4 +1,4 @@
-"""agentkit v5aa: main moving under a fix never fails the run. Entirely offline.
+"""main moving under a fix never fails the run. Entirely offline.
 
 Real throwaway git repos under a temp dir with a bare `origin`; no network, no real
 harness.  The fixer is a stub that edits files and runs `git rebase --continue` itself.

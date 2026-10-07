@@ -3,7 +3,7 @@
 Fake run receipts under a throwaway HOME, fixture cgroup files for the scope
 readings, and injected marker/rss callables for the fallback: the status
 answers never signal a process, stop a unit, or read the real /proc. The only
-child ever started is `tests/test_v4r.py` itself. It is killed only when it
+child ever started is `tests/test_usage_menus_and_runs.py` itself. It is killed only when it
 overruns its timeout. The leak check gives that child a marker of its own and,
 after it exits, reads /proc for processes still carrying the marker and for
 processes still in that child's session. A pid is signalled only when it still
@@ -263,7 +263,7 @@ class StatusAlive(Sandbox):
         # land on this test's own child, and only when it overruns.
         read_fd, write_fd = os.pipe()
         proc = subprocess.Popen(
-            [sys.executable, str(REPO / "tests/test_v4r.py")],
+            [sys.executable, str(REPO / "tests/test_usage_menus_and_runs.py")],
             stdin=read_fd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             cwd=str(REPO), preexec_fn=_cap_500mb)
         os.close(read_fd)
@@ -273,7 +273,7 @@ class StatusAlive(Sandbox):
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.communicate()
-                self.fail("tests/test_v4r.py did not finish within 60s "
+                self.fail("tests/test_usage_menus_and_runs.py did not finish within 60s "
                           "on an open-pipe stdin")
             self.assertEqual(proc.returncode, 0,
                              out.decode(errors="replace")[-2000:])
@@ -287,7 +287,7 @@ class StatusAlive(Sandbox):
         marker = f"v4r-{os.getpid()}-{time.time_ns()}"
         read_fd, write_fd = os.pipe()
         proc = subprocess.Popen(
-            [sys.executable, str(REPO / "tests/test_v4r.py")],
+            [sys.executable, str(REPO / "tests/test_usage_menus_and_runs.py")],
             stdin=read_fd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             cwd=str(REPO), preexec_fn=_cap_500mb, start_new_session=True,
             env={**os.environ, "AGENTKIT_RUN": marker})
@@ -301,7 +301,7 @@ class StatusAlive(Sandbox):
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     pass
-                self.fail("tests/test_v4r.py did not finish within 60s "
+                self.fail("tests/test_usage_menus_and_runs.py did not finish within 60s "
                           "on an open-pipe stdin")
             text = out.decode(errors="replace")
             self.assertEqual(proc.returncode, 0, text[-2000:])

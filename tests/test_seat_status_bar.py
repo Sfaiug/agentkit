@@ -1,4 +1,4 @@
-"""v5y: every seat shows its state on its own status bar, in the menu's words; offline.
+"""every seat shows its state on its own status bar, in the menu's words; offline.
 
 The seat's tmux status bar carries the menu row's own values -- the state word and the
 last column -- written through the one writer by the tick and every menu draw; no run

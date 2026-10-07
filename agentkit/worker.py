@@ -91,7 +91,8 @@ LEAST = ("[worker judgement] Minimum change that solves the task completely; the
 COMMITS = ("[checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.")
 PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running "
              "when your turn ends and asks once to finish in the foreground.")
-CHECKS = ("[checked by ak: tests/test_v5ab.py] ak runs per-round done-when commands even when the worker skips them.")
+CHECKS = ("[checked by ak: tests/test_reviewer_judges_the_diff.py] ak runs per-round done-when "
+          "commands even when the worker skips them.")
 REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
                "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
@@ -247,7 +248,7 @@ PREAMBLES = {
         f"{NO_NOTIFY}\n{BLOCKED}"),
     "reviewer": (
         f"You are the reviewer.\n{REVIEW_COPY}\n{PROCESSES}\n"
-        "[checked by ak: tests/test_v5ab.py] ak ran every done-when "
+        "[checked by ak: tests/test_reviewer_judges_the_diff.py] ak ran every done-when "
         "command on exactly the commit under review; the complete output is below under "
         "`## Done-when output`, except the commands marked deferred, which run once "
         "at landing on the commit to be merged.\n"
@@ -291,7 +292,7 @@ PREAMBLES = {
     "reviewer-scratch": (
         f"You are the reviewer.\n{PROCESSES}\n"
         "[worker judgement] Read-only: do not edit files under review.\n"
-        "[checked by ak: tests/test_v5ab.py] ak ran every done-when "
+        "[checked by ak: tests/test_reviewer_judges_the_diff.py] ak ran every done-when "
         "command on exactly the workspace under review; the complete output is below under "
         "`## Done-when output`.\n"
         "[worker judgement] Run whatever is needed to prove or dismiss a finding, except "

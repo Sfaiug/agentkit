@@ -1,4 +1,4 @@
-"""v5n: a seat never reads working without evidence; offline.
+"""a seat never reads working without evidence; offline.
 
 The classifier reports facts -- `asking`, `working`, `at_prompt`, `draft` -- and
 `watch.session_state` turns them into the one word a row says.

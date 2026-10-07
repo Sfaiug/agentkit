@@ -1,4 +1,4 @@
-"""agentkit v5j: two suites never collide on the smoke repo, and a branch name is unique on origin.
+"""two suites never collide on the smoke repo, and a branch name is unique on origin.
 
 Entirely offline: the only remotes here are bare repositories under a temporary directory, and
 the only locks are files of this test's own, handed to the suite through $AK_SMOKE_LOCK.  The

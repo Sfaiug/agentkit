@@ -117,7 +117,8 @@ class SuiteRunsEveryFile(unittest.TestCase):
         harness = ('#!/usr/bin/env bash\nREPO=$1\nWORK=$REPO\nFAILED=0\n'
                    'ok() { :; }\nno() { FAILED=1; }\n' + slot +
                    '\nslot_queue_check || FAILED=1\n' + balance + '\nexit "$FAILED"\n')
-        names = ("test_v5am", "test_usage_balance", "test_audit_enforce_review_contract")
+        names = ("test_host_slots_and_nested_runs", "test_usage_balance",
+                 "test_audit_enforce_review_contract")
         # Chosen methods pass; only the omitted method can make the suite fail.
         broken = '''import pathlib, sys, unittest
 class Acme(unittest.TestCase):

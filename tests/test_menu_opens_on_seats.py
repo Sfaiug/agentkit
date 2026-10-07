@@ -1,4 +1,4 @@
-"""v5m: the menu opens on the seats, and a worker is nobody's seat.
+"""the menu opens on the seats, and a worker is nobody's seat.
 
 Two rules, both offline.  `ak orch`'s maintenance no longer hands the endings back to the
 owner -- the orchestrator seat that launched a run reports it, and did already -- so opening a

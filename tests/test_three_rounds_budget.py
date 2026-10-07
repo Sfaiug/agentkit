@@ -1,4 +1,4 @@
-"""agentkit v5l: three rounds is the budget; a FAIL below it resumes only with more rounds.
+"""three rounds is the budget; a FAIL below it resumes only with more rounds.
 
 Entirely offline fixture state."""
 
