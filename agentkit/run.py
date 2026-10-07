@@ -2534,6 +2534,22 @@ def open_review(round_dir):
     return (None, None, None) if best is None else (best[1], best[2], best[3])
 
 
+def review_turn(round_dir, session, since=""):
+    """The round's latest reviewer turn on `session`, unless it is the one named `since`.
+
+    A review is pending until its verdict is saved, not until its reviewer says `done`, and
+    its pending record keeps where its session stood when it began.  Parked before the
+    verdict (a spent window, an expired login, a stop while its proofs replay), it goes on in
+    a conversation that has handed in what it found already: the next turn starts from the
+    records of the latest turn since, or its `done` alone would pass the work.  A turn from
+    before belongs to a review whose verdict is on the record, and hands on nothing.
+    """
+    turns = [path for path in Path(round_dir).glob("reviewer*")
+             if session and path.is_dir() and session_of(path) == session]
+    latest = max(turns, key=lambda path: (path.stat().st_mtime_ns, path.name), default=None)
+    return None if latest is None or str(latest) == since else latest
+
+
 def saved_worker_answer(round_dir):
     """The executor or fixer answer file already written for this round."""
     latest = latest_worker_turn(round_dir)
@@ -3749,8 +3765,13 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     on it.
     """
     passed_head = passed_review_head(lp.state)
+    # where this review began on its reviewer's session, kept from its first entry across
+    # parks; a pending record that holds none was written before any turn of it ran
+    pending = lp.state.get("review_pending") or {}
+    since = pending["since"] if "since" in pending else str(
+        review_turn(lp.dir("reviewer").parent, lp.review_sid) or "")
     lp.state.update(verdict=None, review=None,
-                    review_pending={"round": lp.rnd, "summary": summary,
+                    review_pending={"round": lp.rnd, "summary": summary, "since": since,
                                     **({"passed_head_sha": passed_head} if passed_head else {})})
     if not record:
         lp.state["review_pending"]["record"] = False
@@ -3873,6 +3894,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.review_sid = None
             note = {"at": time.time(), "role": "reviewer", "restarted": True}
             lp.state["resume_notice"] = note
+        else:
+            resume = {"previous": review_turn(rd, lp.review_sid, since)}
         why, ending = "died on API/transport errors", Exhausted
         model = lp.reviewer     # a fallback below moves on from it before its tokens are read
         reviewed = config.model(lp.cfg, model)
