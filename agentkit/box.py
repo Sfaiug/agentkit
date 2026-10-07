@@ -333,8 +333,9 @@ def _network(cmd, env, out_dir=None, info=None):
         line.split()[-1] != "lo" and int(line.split()[8], 16) & 0x201 == 1
         for line in ipv6.read_text().splitlines())
     if info is not None:
-        # Pasta closes extra descriptors. Open the witness after it starts;
-        # the box's private /tmp hides this file from the command.
+        # Pasta closes extra descriptors. Open the witness after it starts,
+        # and keep its contents unreachable from the command.
+        cmd.extend(["--dev-bind", "/dev/null", info])
         cmd = [_host_binary("sh"), "-c", 'exec 3>"$1"; shift; exec "$@"', "box", info, *cmd]
     if not (routes or routes6):
         yield [*cmd, "--unshare-net"]
@@ -502,7 +503,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             proc.kill()
 
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch, \
-            tempfile.NamedTemporaryFile(mode="r+", prefix=".box-pid-", dir="/tmp") as info:
+            tempfile.NamedTemporaryFile(mode="r+", prefix=".box-pid-", dir=out_dir) as info:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)

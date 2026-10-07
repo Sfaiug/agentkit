@@ -337,7 +337,11 @@ try:
             out = Path(tempfile.mkdtemp(dir=root))
             source = ('import signal, sys, time; from pathlib import Path; '
                       'signal.signal(signal.SIGTERM, lambda *_: '
-                      '(Path("closed").touch(), sys.exit(0))); Path("ready").touch(); time.sleep(300)')
+                      '(Path("closed").touch(), sys.exit(0))); '
+                      f'witnesses = list(Path({str(out)!r}).glob(".box-pid-*")); '
+                      'assert len(witnesses) == 1 and witnesses[0].read_text() == ""; '
+                      'witnesses[0].write_text("not a pid witness"); '
+                      'Path("ready").touch(); time.sleep(300)')
             with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
                                                 out, cwd=root) as (cmd, env, spawn):
                 _, _, killed = worker.limited(cmd, None, env=env, cwd=root,
