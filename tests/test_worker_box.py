@@ -626,9 +626,14 @@ def stop_box(root, *, already_gone, online):
                                     start_new_session=True, **spawn)
             try:
                 if named:
-                    assert select.select([proc.stderr], [], [], 30)[0], "bwrap named no process"
-                    status = os.read(proc.stderr.fileno(), 4096)
-                    assert b'"child-pid"' in status, status
+                    # Pasta's diagnostics can arrive before bwrap's status.
+                    status, deadline = b"", time.monotonic() + 30
+                    while b'"child-pid"' not in status:
+                        assert select.select([proc.stderr], [], [], max(
+                            0, deadline - time.monotonic()))[0], "bwrap named no process"
+                        chunk = os.read(proc.stderr.fileno(), 4096)
+                        assert chunk, status
+                        status += chunk
                 if already_gone:
                     proc.kill()
                     proc.wait()
