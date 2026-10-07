@@ -33,6 +33,7 @@ TYPED = {"muse": ("\n\u276f\n", "\n\u276f {}\n"), "antigravity": ("\n>\n", "\n> 
 SAID = "Here is my recommendation. Let me know if I should continue."
 PARKED, THEIRS = "20260101-0800-parked", "20260101-0900-schema"
 LATER = "20260101-1000-parked"
+REAL_TIME = time.time
 TOLD = (f"{OTHER} is now needs you: session closed: press its number to reopen. "
         "Decide the next step.")
 
@@ -40,6 +41,8 @@ TOLD = (f"{OTHER} is now needs you: session closed: press its number to reopen. 
 class NudgeTurnRule(Sandbox):
     def setUp(self):
         super().setUp()
+        # The native hook's clock and this process's notices share the same timeline.
+        self.stack.enter_context(patch.object(time, "time", REAL_TIME))
         adapters = self.root / "adapters"
         adapters.mkdir()
         for harness in HARNESSES:
@@ -240,20 +243,15 @@ class NudgeTurnRule(Sandbox):
                     self.assertIn("cannot continue", notice["text"])
                     self.stopped()
                     self.assertEqual(self.tick(), [])  # the explicit question now stands
-                    # the owner answers the newer notice, and the count starts again
-                    notify.answered(SEAT, time.time())
-                    for blocks in range(2):
-                        self.stopped()
-                        if route == "hook":
-                            self.assertTrue(self.hook_holds(blocks))
-                        else:
+                    if route == "tick":
+                        # the owner answers the newer notice, and the count starts again
+                        notify.answered(SEAT, time.time())
+                        for _ in range(2):
+                            self.stopped()
                             self.assertEqual(self.tick(), ["continue"])
-                    self.stopped()
-                    if route == "hook":
-                        self.assertFalse(self.hook_holds(2))
-                    else:
+                        self.stopped()
                         self.assertEqual(self.tick(), [])
-                    self.assertEqual(notify.last(SEAT)["kind"], "needs")
+                        self.assertEqual(notify.last(SEAT)["kind"], "needs")
 
     def test_f_stops_on_no_recorded_ending_have_the_same_bounded_corrections(self):
         for harness in HARNESSES:

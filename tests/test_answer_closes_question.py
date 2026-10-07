@@ -337,8 +337,11 @@ class AnswerClosesQuestion(Sandbox):
                 output = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
                                    last_assistant_message="Acme's second schema failed.")
                 self.assertEqual(json.loads(output)["decision"], "block")
-                self.assertEqual(notify.shaped("done", "Acme's second schema failed.",
-                                              session=SEAT, quiet=True), 0)
+                result = subprocess.run([sys.executable, str(REPO / "bin/ak"), "notify", "done",
+                                         "--quiet", "--session", SEAT,
+                                         "Acme's second schema failed."],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
                 output = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
                                    last_assistant_message="Acme's second schema failed.")
                 self.assertEqual(output, "")

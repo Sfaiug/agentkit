@@ -11,11 +11,12 @@ temporary HOME; the screens are real captures with invented names
 import json
 import os
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, notify, watch
+from agentkit import config, watch
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -78,7 +79,10 @@ class QuestionCameDown(Sandbox):
         fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
                          last_assistant_message="Which schema should acme use?")
         self.assertEqual(self.looked(PROMPT, fact)[0], "working")
-        notify.record(SEAT, "done", "Use the second schema.", quiet=True)
+        result = subprocess.run([sys.executable, str(REPO / "bin/ak"), "notify", "done",
+                                 "--quiet", "--session", SEAT, "Use the second schema."],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
         fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
                          last_assistant_message="Use the second schema.")
         self.assertNotEqual(self.looked(PROMPT, fact)[0], "working")
