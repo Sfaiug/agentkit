@@ -5488,6 +5488,13 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 current["live_notified"] = now
             return "passed", None, None
         seat = orch.find(session)
+        if seat and not st.get("live_typed") and done_since(seat["name"], st.get("finished_at")):
+            # its job is over: the line would open a turn it could end only by saying so again
+            with run_record.record(run_dir) as current:
+                current["live_notified"] = now
+            log(f"run {run_dir.name} is live; the {seat['name']} seat declared done after it "
+                "finished, so it is not told")
+            return "passed", None, None
         if after_merge_live(seat):
             def kept(mark):
                 with run_record.record(run_dir) as current:
@@ -5592,6 +5599,13 @@ def after_merge_status(owner, repo, host, sha, log):
     if passed:
         return "passed", None, None
     return "ignored", None, None
+
+
+def done_since(name, since):
+    """Has that seat declared its job done, in a done ak notify still holds, since `since`?"""
+    notice = notify.last(name) or {}
+    when, since = _stamp(notice.get("time")), _stamp(since)
+    return notice.get("kind") == "done" and None not in (when, since) and when >= since
 
 
 def after_merge_live(seat):
