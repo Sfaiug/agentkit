@@ -422,7 +422,8 @@ def launch(cmd, receipt):
 def pair_again(home):
     target = home
     home = Path(target)
-    if not home.is_dir():
+    # A bare name always names a seat, even beside a checkout with that name.
+    if home.name == target:
         name = config.resolve_session(target)
         remote = read(config.session_records().get(name, {})).get("remote")
         if not remote:

@@ -226,10 +226,13 @@ Path.write_text = paused_write
             proc, home, _ = self.start()
             self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
             config.session_path('acme-before').write_text(json.dumps({'renamed': 'acme-seat'}))
+            # Project folders often have the seat's name; pairing chooses the seat.
+            (self.root / 'acme-seat').mkdir()
+            (self.root / 'acme-before').mkdir()
             for target in ('acme-seat', 'acme-before', str(home)):
                 result = subprocess.run([sys.executable, str(REPO / 'tools/codex-seat.py'),
                                          '--pair', target], capture_output=True, text=True,
-                                        env=os.environ, timeout=10)
+                                        env=os.environ, cwd=self.root, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, 'Pairing code: ACME-1234\n')
             requests = [json.loads(line) for line in
