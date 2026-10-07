@@ -5,7 +5,7 @@ WORKER_USAGE = ("usage: ak worker MODEL TASK [--workspace DIR] [--out DIR] [--se
                 "fixer-scratch|reviewer-scratch]")
 NOTIFY_NEEDS = 'ak notify needs "QUESTION" [--session NAME] [--dry-run]'
 NOTIFY_DONE = ('ak notify done "SUMMARY" [--pr URL] '
-               '[--session NAME] [--dry-run]')
+               '[--session NAME] [--quiet] [--dry-run]')
 NOTIFY_USAGE = (f"usage: {NOTIFY_NEEDS}\n       {NOTIFY_DONE}\n"
                 "       ak notify --check")
 HAND_IN_FINDING = 'ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES)'
@@ -126,14 +126,16 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                      "ak orch project acme"),
     "notify": (NOTIFY_USAGE,
                "Record a needs-you question or a job summary.\n"
-               "--session and --dry-run apply to needs/done; --check checks without posting.",
+               "--session and --dry-run apply to needs/done; --check checks without posting.\n"
+               "done --quiet records an information-only answer without a completion alert.",
                'ak notify done "Parser fixed" --session parser-fix --dry-run'),
     "notify needs": (f"usage: {NOTIFY_NEEDS}",
                      "Ask for a blocking decision: the question first, context after it.\n"
                      "--dry-run prints the payload without posting.",
                      'ak notify needs "Which branch?" --session parser-fix --dry-run'),
     "notify done": (f"usage: {NOTIFY_DONE}",
-                    "Report the finished job; --dry-run prints the payload without posting.",
+                    "Report the finished job; --dry-run prints the preview without posting.\n"
+                    "--quiet records an information-only answer with the same completion checks.",
                     'ak notify done "Parser fixed" --dry-run'),
     "wait": ("usage: ak wait SESSION", "End this turn waiting on another session's work.",
              "ak wait fix-api"),

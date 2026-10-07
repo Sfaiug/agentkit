@@ -303,6 +303,51 @@ sys.exit(p.returncode)
         self.assertEqual(config.notify_path("seat").read_bytes(), before)
         self.assertEqual(len(self.requests), 1)
 
+    def test_quiet_completion_stays_quiet_across_ticks_and_a_later_job_announces(self):
+        result = self.cli("done", "The parser caches its schema.", "--quiet")
+        self.assertEqual((result.stdout, result.stderr), ("", ""))
+        self.assertEqual(menu.state({"name": "seat"}), "done")
+        self.assertEqual(notify.last("seat")["text"], "The parser caches its schema.")
+        for _ in range(3):
+            notify.transition("seat")
+            notify.retry_pending(log=lambda _: None)
+        self.assertEqual(self.requests, [])
+        self.assertEqual(list(notify.outbox().glob("*.json")), [])
+        self.cli("done", "The requested job is now live.")
+        self.assertEqual([r[0] for r in self.requests], ["POST"])
+        self.assertEqual(self.requests[0][2]["embeds"][0]["title"], "Done · seat")
+
+    def test_quiet_completion_closes_an_answered_question_without_posting(self):
+        self.cli("needs", "Which schema?")
+        self.open_and_progress()
+        self.requests.clear()
+        self.cli("done", "Explained the schema.", "--quiet")
+        notify.transition("seat")
+        self.assertFalse(any(r[0] == "POST" for r in self.requests))
+        self.assertEqual(menu.state({"name": "seat"}), "done")
+
+    def test_quiet_completion_waits_for_live_and_unfinished_runs(self):
+        directory = config.RUNS / "acme-parser"
+        directory.mkdir()
+        for state in ("running", "stalled"):
+            (directory / "run.json").write_text(json.dumps({
+                "run_id": directory.name, "launched_session": "seat", "state": state,
+                "started_at": time.time() - 60}))
+            self.cli("done", "Explained the parser.", "--quiet")
+            self.assertNotEqual(menu.state({"name": "seat"}), "done")
+            self.assertFalse(any(r[0] == "POST" and
+                                 r[2]["embeds"][0]["title"] == "Done · seat"
+                                 for r in self.requests))
+
+    def test_quiet_preview_records_nothing_and_needs_cannot_be_quiet(self):
+        result = self.cli("done", "An answer", "--quiet", "--dry-run")
+        self.assertEqual(json.loads(result.stdout), {
+            "session": "seat", "kind": "done", "text": "An answer", "quiet": True})
+        self.assertIsNone(notify.last("seat", include_seen=True))
+        self.assertEqual(self.requests, [])
+        with self.assertRaises(config.Error):
+            notify.main(["needs", "Which schema?", "--quiet"])
+
     def test_freeform_and_file_arguments_are_removed(self):
         with self.assertRaises(config.Error):
             notify.main(["plain message"])

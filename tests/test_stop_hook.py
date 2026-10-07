@@ -27,7 +27,8 @@ SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "stop-seat"
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
           "declaring done with ak notify done, "
-          "or waiting on a run. Continue: decide the next step and do it.")
+          "or waiting on a run. Continue: decide the next step and do it. "
+          "For an information-only answer, record ak notify done --quiet.")
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 STOOD = 300     # longer than watch.STALL_WAIT: how long a tick lets a screen stand
 # The screen a Muse seat opens on, captured: its update notice, its banner and an empty
@@ -165,7 +166,7 @@ class StopHook(unittest.TestCase):
                 for _ in range(2):
                     self.assertEqual(self.blocked(self.stop(
                         f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]))["reason"], REASON)
-                self.assertEqual(self.stop(f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]), "")
+                self.assertEqual(self.blocked(self.stop(f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]))["decision"], "block")
 
     def test_a_needs_or_done_recorded_this_turn_allows_the_stop(self):
         for kind in ("needs", "done"):
@@ -178,10 +179,10 @@ class StopHook(unittest.TestCase):
         self.notified("done", self.turn - 600)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
-    def test_a_run_launched_during_the_turn_allows_the_stop(self):
+    def test_a_finished_run_is_no_longer_a_live_wait(self):
         self.run_json("finished", state="done", started_at=self.turn + 5,
                       finished_at=self.turn + 6)
-        self.assertEqual(self.stop(), "")
+        self.assertEqual(self.blocked(self.stop())["decision"], "block")
 
     def test_an_unfinished_run_of_this_seat_allows_the_stop(self):
         # `stalled` is not here: nothing resumes one, so it sits parked undecided and now
@@ -209,8 +210,6 @@ class StopHook(unittest.TestCase):
                     self.runs.rmdir()
                 for _ in range(3):
                     self.assertEqual(self.stop("Waiting for the job."), "")
-                self.assertEqual(json.loads((self.state / f"stop-{SEAT}.json")
-                                            .read_text())["blocks"], 0)
 
     def test_a_jobs_seat_is_followed_through_renames(self):
         self.job_json("queued", "waiting", "waiting")
@@ -267,7 +266,6 @@ class StopHook(unittest.TestCase):
         self.assertEqual(self.stop(said=None, **payload), "")
         self.stop(said=None, hook=SEAT_STATE, **payload)
         self.assertEqual(self.read_as(), ("working", "Stop/background"))
-        self.assertEqual(json.loads((self.state / f"stop-{SEAT}.json").read_text())["blocks"], 0)
         # ... and it reports back: the notifications start a turn, which ends on nothing
         payload.update(background_tasks=[], last_assistant_message=RECOMMENDATION,
                        transcript_path=str(self.transcript(RECOMMENDATION, before=before + [
@@ -309,7 +307,7 @@ class StopHook(unittest.TestCase):
 
         The two hooks run side by side and either can finish first, so what the row reads
         between them is the turn it was already in, never a Stop nobody has judged yet; the
-        third stop of the turn stands, and reads as the seat at its prompt.
+        every attempt stays working until an explicit ending is recorded.
         """
         for order in ((SEAT_STATE, HOOK), (HOOK, SEAT_STATE)):
             with self.subTest(first=order[0].name):
@@ -325,29 +323,24 @@ class StopHook(unittest.TestCase):
                     self.assertEqual(self.blocked("".join(answers))["reason"], REASON)
                     self.assertEqual(self.read_as(), ("working", "Stop/held"))
                     payload["stop_hook_active"] = True
+                answers = [self.stop(said=None, hook=hook, **payload) for hook in order]
+                self.assertEqual(self.blocked("".join(answers))["decision"], "block")
+                self.assertEqual(self.read_as(), ("working", "Stop/held"))
+                self.notified("done", time.time())
                 self.assertEqual([self.stop(said=None, hook=hook, **payload) for hook in order],
                                  ["", ""])
                 self.assertEqual(self.read_as(), ("at_prompt", "Stop"))
 
-    def test_the_third_stop_of_one_turn_is_allowed(self):
-        self.assertEqual(self.blocked(self.stop())["decision"], "block")
-        self.assertEqual(self.blocked(self.stop())["decision"], "block")
+    def test_repeated_stops_require_an_explicit_ending(self):
+        for _ in range(5):
+            self.assertEqual(self.blocked(self.stop())["decision"], "block")
+        self.notified("done", time.time())
         self.assertEqual(self.stop(), "")
-        self.assertEqual(json.loads((self.state / f"stop-{SEAT}.json").read_text())["blocks"], 2)
 
-    def test_a_new_user_prompt_resets_the_counter(self):
-        self.blocked(self.stop())
-        self.blocked(self.stop())
+    def test_a_new_prompt_requires_a_new_completion(self):
+        self.notified("done", time.time())
         self.assertEqual(self.stop(), "")
-        # the prompt hook the harness already runs is what starts the next turn
-        subprocess.run(["bash", str(SEAT_STATE)], text=True,
-                       input=json.dumps({"hook_event_name": "UserPromptSubmit"}),
-                       env={"PATH": os.environ["PATH"], "HOME": str(self.home),
-                            "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator",
-                            "IDLE_COMPACT_STATE": ""}, check=True)
-        record = json.loads((self.state / f"stop-{SEAT}.json").read_text())
-        self.assertEqual(record["blocks"], 0)
-        self.assertGreater(record["turn"], self.turn)
+        self.stop(said=None, hook=SEAT_STATE, hook_event_name="UserPromptSubmit")
         self.assertEqual(self.blocked(self.stop())["decision"], "block")
 
     # --- who this hook may never speak for ----------------------------------
@@ -356,7 +349,6 @@ class StopHook(unittest.TestCase):
         for env in ({"AK_RUN_ROLE": "worker"}, {"AGENTKIT_SESSION": ""}):
             with self.subTest(env=env):
                 self.assertEqual(self.stop(env=env), "")
-        self.assertEqual(json.loads((self.state / f"stop-{SEAT}.json").read_text())["blocks"], 0)
 
     # --- nothing to judge on is never a reason to block ---------------------
 
@@ -364,8 +356,10 @@ class StopHook(unittest.TestCase):
         (self.state / f"stop-{SEAT}.json").unlink()
         self.assertEqual(self.stop(), "")
 
-    def test_an_unreadable_transcript_is_left_alone(self):
-        self.assertEqual(self.stop(said=None, transcript_path=str(self.home / "gone.jsonl")), "")
+    def test_completion_is_required_even_without_readable_reply_text(self):
+        self.assertEqual(self.blocked(self.stop(said=None, transcript_path=str(self.home / "gone.jsonl")))["decision"], "block")
+        self.assertEqual(self.blocked(self.stop(said=None))["decision"], "block")
+        self.notified("done", time.time())
         self.assertEqual(self.stop(said=None), "")
 
     def test_a_payload_no_argument_list_would_carry_still_decides(self):

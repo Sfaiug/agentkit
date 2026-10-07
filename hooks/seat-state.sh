@@ -133,19 +133,13 @@ sys.exit(0 if passive else 1)
   /bin/mv -f -- "$tmp" "$dir/hook-$row.json" || /bin/rm -f -- "$tmp"
 
   # A new prompt is a new turn: hooks/orchestrator-stop.sh judges that turn against this
-  # moment, and the two blocks it is allowed start again from zero here.
+  # moment, so a previous completion cannot end the new turn.
   if [[ $event != UserPromptSubmit ]]; then
     look "$seat"
     return 0
   fi
-  # A prompt another session's message opened -- `ak tell` starts it with its heading
-  # (agentkit/told.py) -- keeps the seat's standing done: the seat only acknowledged the
-  # message, so its done from before the turn still tells.
-  # A prompt that asks something -- a sentence ending in `?`, the mark followed by
-  # whitespace or the end so a URL's `?` is none, or a prompt opening on a question word,
-  # since a question is often typed without its mark -- is ended by its answer.  `when`
-  # and `do` open instructions as often as questions ("when it lands, merge it"), so they
-  # ask nothing.  The latch says which kind of prompt opened the turn.
+  # A prompt another session sent does not answer the owner's question. The heading's
+  # one home is agentkit/told.py; completion follows the same rule on every prompt.
   peer=false
   if /usr/bin/env python3 -c '
 import json, sys
@@ -157,17 +151,9 @@ sys.exit(0 if any(told(payload.get(key)) for key in ("prompt", "message")) else 
 ' "${BASH_SOURCE[0]}" <<<"$payload" 2>/dev/null; then
     peer=true
   fi
-  asked=false
-  if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(test("\\?([[:space:]]|$)")
-                     or test("^[[:space:]]*(what|why|how|which|where|who|whose|is|are|does|should)\\b"; "i"))' \
-      <<<"$payload" >/dev/null 2>&1; then
-    asked=true
-  fi
   tmp="$dir/stop-$seat.json.tmp.$$"
-  "$jq" -n --arg session "$seat" --argjson turn "$ts" --argjson peer "$peer" \
-    --argjson asked "$asked" \
-    '{session: $session, turn: $turn, blocks: 0, peer: $peer, asked: $asked}' \
+  "$jq" -n --arg session "$seat" --argjson turn "$ts" \
+    '{session: $session, turn: $turn}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question, once the background look checks its pane.

@@ -7,8 +7,8 @@ as the hook holds it, and a seat whose `ak wait` names a session that has stoppe
 with its reason, before any bare `continue`.  Offline: a fake tmux, fake adapters for the three
 harnesses, fake run receipts and a throwaway HOME; the hook runs as its harness runs it, JSON on
 stdin.  The seat's turn began once, long ago, and never moves: what is decided here is read off
-runs, notices, waits and the screen.  So the hook's two blocks a turn are two nudges for the
-same parked run, until a different run parks or the seat has a new notice.
+runs, notices, waits and the screen. Every new stopped turn is judged, including repeated
+attempts to stop without a recorded ending.
 """
 
 from contextlib import redirect_stdout
@@ -215,34 +215,21 @@ class NudgeTurnRule(Sandbox):
                 self.stopped()
                 self.assertEqual(self.tick(), ["continue"])
 
-    def test_d_the_same_parked_run_is_nudged_twice_and_the_third_stop_stands(self):
-        """Each `continue` is a turn, so a seat that never decides was nudged forever."""
+    def test_d_repeated_parked_stops_require_an_explicit_ending_on_every_harness(self):
         for harness in HARNESSES:
             with self.subTest(harness=harness):
                 self.setUp()
                 self.harness = harness
                 self.receipt(PARKED, SEAT, "interrupted", recovery_pending=True)
-                self.assertEqual(self.judged(0), (True, ["continue"]))
-                self.assertEqual(self.judged(1), (True, ["continue"]))
-                self.assertEqual(self.judged(2), (False, []))
-                self.stopped()
-                self.assertEqual(self.tick(), [])       # and every stop after it stands too
-                # the first is resumed and a different run parks, which is nudged for twice
-                self.receipt(PARKED, SEAT, "running")
-                self.receipt(LATER, SEAT, "stalled", error="no output for 20 minutes")
-                for typed in (["continue"], ["continue"], []):
-                    self.stopped()
-                    self.assertEqual(self.tick(), typed)
-                # the first parks again: it has had its nudges, and swapping them buys no more
-                self.receipt(LATER, SEAT, "running")
-                self.receipt(PARKED, SEAT, "interrupted", recovery_pending=True)
-                self.stopped()
-                self.assertEqual(self.tick(), [])
-                # the owner is asked and answers: a new notice, and the count starts again
-                notify.record(SEAT, "needs", "Resume it?", answered_at=time.time() + 1)
-                for typed in (["continue"], ["continue"], []):
-                    self.stopped()
-                    self.assertEqual(self.tick(), typed)
+                for attempts in range(5):
+                    self.assertEqual(self.judged(attempts), (True, ["continue"]))
+                    self.assertEqual(self.tick(), [])  # one nudge for the same stopped screen
+                notify.record(SEAT, "done", "Answered the question", quiet=True)
+                self.assertEqual(self.judged(20), (True, ["continue"]))
+                self.decided(PARKED)
+                self.assertEqual(self.judged(), (False, []))
+                notify.record(SEAT, "needs", "Which schema?")
+                self.assertEqual(self.judged(), (False, []))
 
     def test_e_a_run_a_later_merged_run_replaced_holds_nothing(self):
         """Settled as `ak notify done` and the seat's state read it, on both sides of the rule."""

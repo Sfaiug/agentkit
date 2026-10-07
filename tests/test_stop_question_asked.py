@@ -75,12 +75,10 @@ class StopQuestionAsked(unittest.TestCase):
 
     def test_a_question_only_in_prose_ends_nothing(self):
         """A question mark is no ending: the block names the two ways that alert the owner."""
-        for _ in range(2):
+        for _ in range(4):
             reason = self.stop(background_tasks=[])["reason"]
             self.assertIn("question prompt", reason)
             self.assertIn("ak notify needs", reason)
-        self.assertIsNone(self.stop(background_tasks=[]))   # the third stop stands, as always
-        self.assertEqual(json.loads(self.latch.read_text())["blocks"], 2)
 
     def test_a_run_going_ends_the_turn_whatever_its_last_words(self):
         """Reading prose for a question is judgement, not this hook's: the run going decides."""

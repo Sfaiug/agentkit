@@ -1,12 +1,6 @@
-"""An answer ends a turn the owner opened with a question.
+"""Every answer records completion; question wording grants no stop exception.
 
-Offline and deterministic: hooks/seat-state.sh opens the turn and
-hooks/orchestrator-stop.sh judges its end, both run as their harness runs them --
-the hook's own JSON on stdin -- against fake records and a throwaway HOME, never
-a real seat or ~/.agentkit.  A sentence of the opening prompt ending in `?` (the
-mark followed by whitespace or the end, so a URL's `?` is none), or a prompt
-opening on a question word, lets a plain answer stand, unless a run sits parked
-undecided or another session's message opened the turn.
+Offline: real hooks and completion CLI against invented records in a temporary HOME.
 """
 
 import json
@@ -29,7 +23,8 @@ SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "answer-seat"
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
           "declaring done with ak notify done, "
-          "or waiting on a run. Continue: decide the next step and do it.")
+          "or waiting on a run. Continue: decide the next step and do it. "
+          "For an information-only answer, record ak notify done --quiet.")
 ANSWER = "The parser reads the schema at startup and caches it."
 SPENT = "three rounds spent: split or re-scope the task"
 
@@ -70,7 +65,8 @@ class StopAnswer(unittest.TestCase):
 
     def env(self):
         return {"PATH": os.environ["PATH"], "HOME": str(self.home),
-                "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"}
+                "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator",
+                "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(self.home)}
 
     def prompt(self, text):
         """Open a turn through hooks/seat-state.sh, as the harness does on a prompt."""
@@ -104,81 +100,62 @@ class StopAnswer(unittest.TestCase):
     def latch(self):
         return json.loads((self.state / f"stop-{SEAT}.json").read_text())
 
-    # --- the answer ----------------------------------------------------------
+    def complete_quietly(self):
+        done = subprocess.run([sys.executable, str(REPO / "bin/ak"), "notify", "done",
+                               "--quiet", ANSWER], capture_output=True, text=True,
+                              env=self.env(), timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual((done.stdout, done.stderr), ("", ""))
 
-    def test_a_plain_answer_ends_a_turn_the_owner_opened_with_a_question(self):
+    def test_questions_and_mixed_requests_require_explicit_completion(self):
         for opened in ("Which parser does it use?",
-                       "Which parser does it use? Please explain."):
+                       "Why did it stop? Fix the parser and the notification.",
+                       "how does the parser work",
+                       "Merge the parser now",
+                       heading("acme-fix-api", time.time()) + "Which parser should I use?"):
             with self.subTest(opened=opened):
                 self.setUp()
-                latch = self.prompt(opened)
-                self.assertTrue(latch["asked"])
-                self.assertFalse(latch["peer"])
-                self.assertEqual(self.stop(), "")
-                self.assertEqual(self.latch()["blocks"], 0)
-
-    def test_a_prompt_with_no_question_is_judged_as_today(self):
-        latch = self.prompt("Merge the parser now")
-        self.assertFalse(latch["asked"])
-        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
-
-    def test_a_question_typed_without_its_mark_asks_all_the_same(self):
-        for opened in ("what languages and infrastructure does it run on",
-                       "  How does the lander pick a stack",
-                       "is main green"):
-            with self.subTest(opened=opened):
-                self.setUp()
-                self.assertTrue(self.prompt(opened)["asked"])
-                self.assertEqual(self.stop(), "")
-                self.assertEqual(self.latch()["blocks"], 0)
-
-    def test_an_instruction_opening_like_a_question_asks_nothing(self):
-        for opened in ("When it lands, merge it", "Do the migration now",
-                       "Isolate the box first", "Merge it.\nwhat it reads comes later"):
-            with self.subTest(opened=opened):
-                self.setUp()
-                self.assertFalse(self.prompt(opened)["asked"])
+                self.prompt(opened)
                 self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+                self.complete_quietly()
+                self.assertEqual(self.stop(), "")
 
-    def test_a_urls_question_mark_is_no_question(self):
-        for opened in ("See docs/guide.md?foo for the schema",
-                       "See https://example.com/docs?a=b for the schema"):
-            with self.subTest(opened=opened):
-                self.setUp()
-                latch = self.prompt(opened)
-                self.assertFalse(latch["asked"])
-                self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+    def test_legacy_question_and_retry_flags_grant_no_exception(self):
+        self.prompt("Why did it stop? Fix it.")
+        path = self.state / f"stop-{SEAT}.json"
+        path.write_text(json.dumps({**self.latch(), "asked": True, "peer": True,
+                                    "blocks": 20}))
+        for _ in range(4):
+            self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+        self.complete_quietly()
+        self.assertEqual(self.stop(), "")
 
-    def test_an_answer_stands_on_claude_with_no_held_notice(self):
+    def test_a_quiet_answer_leaves_claude_at_its_prompt_after_both_hooks(self):
         self.prompt("Which parser does it use?")
-        payload = {"transcript_path": str(self.transcript(ANSWER)),
-                   "background_tasks": []}
+        self.complete_quietly()
+        payload = {"transcript_path": str(self.transcript(ANSWER)), "background_tasks": []}
         self.assertEqual(self.stop(said=None, **payload), "")
         self.stop(said=None, hook=SEAT_STATE, **payload)
         self.assertEqual(self.read_as(), ("at_prompt", "Stop"))
-        self.assertEqual(self.latch()["blocks"], 0)
 
-    # --- what still holds it ---------------------------------------------------
-
-    def test_a_parked_run_holds_an_answer_as_it_holds_a_done(self):
-        self.prompt("Which parser does it use?")
-        self.assertEqual(self.stop(), "")       # no parked run: the answer stands
-        self.parked_exhausted()
-        self.prompt("Which parser does it use?")
-        reason = self.blocked(self.stop())["reason"]
-        self.assertIn("run parked-exhausted parked: ", reason)
-        self.assertIn("ak run resume parked-exhausted", reason)
-        # ... and the latch that says so is still the question's one on the second stop
-        self.assertTrue(self.latch()["asked"])
-        self.assertIn("parked-exhausted", self.blocked(self.stop())["reason"])
-        self.assertEqual(self.stop(), "")       # the third stop stands, as it always did
-
-    def test_a_peer_message_asking_is_not_the_owner_asking(self):
-        peer = heading("acme-fix-api", time.time()) + "Which parser should I use?"
-        latch = self.prompt(peer)
-        self.assertTrue(latch["peer"])
-        self.assertTrue(latch["asked"])    # only the peer exclusion keeps it held
+    def test_a_quiet_answer_cannot_complete_an_open_plan(self):
+        self.prompt("Why did it stop? Fix it.")
+        (self.state / f"plan-{SEAT}.md").write_text(
+            "- [ ] Parser fixed · your eye · acme · written 2026-10-07 12:00\n")
+        done = subprocess.run([sys.executable, str(REPO / "bin/ak"), "notify", "done",
+                               "--quiet", ANSWER], capture_output=True, text=True,
+                              env=self.env(), timeout=30)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("plan line(s) still open", done.stderr)
+        self.assertFalse((self.state / f"notify-{SEAT}.json").exists())
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
+    def test_a_parked_run_holds_even_an_explicit_quiet_answer(self):
+        self.prompt("Which parser does it use?")
+        self.complete_quietly()
+        self.parked_exhausted()
+        for _ in range(4):
+            self.assertIn("run parked-exhausted parked: ", self.blocked(self.stop())["reason"])
 
 
 if __name__ == "__main__":

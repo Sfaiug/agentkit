@@ -4,8 +4,7 @@ Offline and deterministic: hooks/orchestrator-stop.sh is run as its harness runs
 hook's own JSON on stdin -- against fake run records and a throwaway HOME, never a real seat
 or ~/.agentkit.  Undecided is `run.unfinished` whole, the runs `ak notify done` refuses on,
 so a run still going never holds the turn and an acknowledged or stopped one holds nothing;
-a question, `ak notify needs`, background work and the third stop stand past a parked run as
-they always did, while a done, a run going or an `ak wait` ends the turn only with none.
+a question, `ak notify needs` and background work stand past a parked run, while a done, a run going or an `ak wait` ends the turn only with none.
 """
 
 import json
@@ -178,7 +177,7 @@ class StopParked(unittest.TestCase):
         self.parked_exhausted()
         self.assertEqual(self.stop(asked, **payload), "")
 
-    def test_needs_background_and_the_third_stop_stand_past_a_parked_run(self):
+    def test_needs_and_background_work_stand_but_repeated_stops_stay_held(self):
         self.parked_exhausted()
         self.notified("needs", self.turn + 1)
         self.assertEqual(self.stop(), "")
@@ -188,8 +187,7 @@ class StopParked(unittest.TestCase):
         self.latch(self.turn)
         self.assertIn("parked-exhausted", self.blocked(self.stop())["reason"])
         self.assertIn("parked-exhausted", self.blocked(self.stop())["reason"])
-        self.assertEqual(self.stop(), "")
-        self.assertEqual(json.loads((self.state / f"stop-{SEAT}.json").read_text())["blocks"], 2)
+        self.assertIn("parked-exhausted", self.blocked(self.stop())["reason"])
 
 
 if __name__ == "__main__":

@@ -34,11 +34,11 @@ You are one model in one terminal, talking to one person. You understand, decide
 
 ## Never stop
 
-Every turn ends in exactly one of four ways: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), the answer to a question the user asked, `ak notify done "<summary>"` because the whole job is finished, or a run you are waiting on, yours or another session's (`ak wait <session>`). "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
+Every turn records one of three endings: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), `ak notify done "<summary>"` because the whole job is finished, or live work you are waiting on, yours or another session's (`ak wait <session>`). An information-only answer records `ak notify done --quiet "<summary>"`, with the same completion checks. Unfinished work continues. Time is the user's scarcest asset.
 
 ## Talk to the user
 
-- `ak notify done` once, when the whole job's work is finished, with what changed and where; never for a turn that only answered or discussed. Questions that do not block go into that message or wait in the terminal.
+- `ak notify done` once, when the whole job's work is finished, with what changed and where. An information-only answer records completion with `--quiet`. Questions that do not block go into the finished job's message or wait in the terminal.
 - The user is told nothing else: never progress, never a run's PR link, never a status.
 
 ## Less is more

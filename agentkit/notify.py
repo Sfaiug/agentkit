@@ -1071,6 +1071,11 @@ def done_transition(session, card, answer, now):
     # carded before or not.
     _close_card(session, card, "Done")
     declared = last(session, include_seen=True)
+    if declared and declared["kind"] == "done" and declared.get("quiet"):
+        # Keep the declaration quiet through future ticks without marking a card sent:
+        # a later finished job may still announce its completion in this episode.
+        _card_write(session, card)
+        return 0
     if declared and declared["kind"] == "done" and _carded(session, declared):
         card["sent"] = True
         _card_write(session, card)
@@ -1230,7 +1235,8 @@ class Refused(config.Error):
     """A `shaped` gate said no: nothing was recorded, and the caller hears why."""
 
 
-def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
+def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None,
+           quiet=False):
     """Record the question or declaration, then evaluate the same transition latch.
 
     A done, whoever declares it, waits for every line of the seat's plan: its checks run
@@ -1241,8 +1247,14 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         return 0
     if paths:
         raise config.Error("--file was removed: notification cards carry no attachments")
+    if quiet and kind != "done":
+        raise config.Error("--quiet applies only to done")
     name = config.resolve_session(session) if session else config.current_session()
     if dry_run:
+        if quiet:
+            print(json.dumps({"session": name, "kind": kind, "text": text, "quiet": True},
+                             indent=2))
+            return 0
         payload = {"username": "agentkit", "embeds": [embed(kind, name, text)]}
         who = mention()
         if who:
@@ -1278,6 +1290,8 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     # carries it there, in a field of its own: it answered only the one replaced.
                     extra["earlier_answer_at"] = earlier
                 if kind == "done":
+                    if quiet:
+                        extra["quiet"] = True
                     extra["runs"] = [directory.name for directory, state in menu.run_records()
                                      if run.launched_session(state) == name and
                                      (run.going(state) or run.unfinished(state))]
@@ -1347,7 +1361,7 @@ def main(argv):
     if argv == ["--check"]:
         return check()
     kind = argv[0] if argv[:1] in (["needs"], ["done"]) else None
-    rest, pr, session, dry_run, i = [], None, None, False, 1 if kind else 0
+    rest, pr, session, dry_run, quiet, i = [], None, None, False, False, 1 if kind else 0
     while i < len(argv):
         arg = argv[i]
         if kind == "done" and arg == "--pr":
@@ -1361,6 +1375,8 @@ def main(argv):
             session, i = argv[i + 1], i + 2
         elif kind and arg == "--dry-run":
             dry_run, i = True, i + 1
+        elif kind == "done" and arg == "--quiet":
+            quiet, i = True, i + 1
         elif kind and arg == "--file":
             raise config.Error("--file was removed: notification cards carry no attachments")
         else:
@@ -1377,5 +1393,5 @@ def main(argv):
                                "the status bar and the menu show a question's start; context "
                                "goes after it")
     if kind:
-        return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run)
+        return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run, quiet=quiet)
     raise config.Error(USAGE)
