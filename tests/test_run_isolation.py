@@ -50,7 +50,9 @@ class RunIsolation(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.enterContext(account_home(self.root))
-        self.enterContext(patch.dict(os.environ, {"HOME": str(self.root)}))
+        self.enterContext(patch.dict(os.environ, {
+            "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         self.sentinel = self.root / "sentinel.txt"
         self.sentinel.write_text("this keyboard must not leak\n")
         self.log_path = self.root / "donewhen.log"

@@ -88,8 +88,8 @@ class Sandbox(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "NO_COLOR": "1", "LANG": "C.UTF-8",
             config.SESSION_ENV: SEAT, config.RUN_DIR_ENV: "", config.UNATTENDED_ENV: "",
-            "AK_RUN_ROLE": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_PARENT_RUN": "",
+            "AK_RUN_ROLE": "", "AK_RUN_LOG": "", "AGENTKIT_RUN": "",
+            "AK_RUN_DEPTH": "0", "AK_PARENT_RUN": "", "AK_MAX_RUNS": "0",
             "IDLE_COMPACT_STATE": "", "AGENTKIT_DISCORD_WEBHOOK": "off",
             "AGENTKIT_DISCORD_USER_ID": "", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "PYTHONDONTWRITEBYTECODE": "1",
