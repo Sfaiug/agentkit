@@ -1168,17 +1168,18 @@ def ruled_composer(chrome, rows):
 
     It is the bottom-most prompt row whose first chrome row under it is a bare rule, so a
     user's status line under that rule is never the composer, even where it starts with a
-    prompt mark.  The box's prompt row and rules start at the pane's left edge and a draft's
-    rows under its prompt row are indented, so `rows` keep their leading spaces (raw or plain)
+    prompt mark.  The box's prompt row and rules start at the pane's left edge, with at most
+    one space after `│`, and a draft's rows are indented farther.  Only that edge and inset
+    are removed: `rows` keep their remaining leading spaces (raw or plain),
     and only rows at the left edge are its prompt row and its chrome: nothing typed -- a run
     of rule glyphs, `---`, a prompt mark -- is ever the box, and every row between is the
     composer's.
     """
     if not chrome["ruled"]:
         return None, None
-    cells = [strip_sgr(row).rstrip() for row in rows]
+    cells = [re.sub(r"^│\s?", "", strip_sgr(row)).rstrip() for row in rows]
     for at in range(len(cells) - 1, -1, -1):
-        if re.match(r"(?:│\s*)?[❯›⟩]", cells[at]):
+        if re.match(r"[❯›⟩]", cells[at]):
             end = next((row for row in range(at + 1, len(cells))
                         if not cells[row].startswith(" ") and chrome_line(chrome, cells[row])),
                        len(cells))
