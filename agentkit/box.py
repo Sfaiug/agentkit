@@ -411,6 +411,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         try:
             proc.wait(timeout=max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
+            if target is not None:
+                _kill(target[0])
             proc.kill()
 
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
@@ -451,13 +453,18 @@ def _pidfd(info):
     return fd, pid
 
 
+def _kill(fd):
+    # Bwrap ties PID 1 to its own life only as it execs the command: killed while it still
+    # builds the box, it leaves PID 1 running. Ending PID 1 itself ends everything inside.
+    try:
+        signal.pidfd_send_signal(fd, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 def _wait(fd):
     try:
-        # Also cover bwrap dying before it armed its parent-death signal.
-        try:
-            signal.pidfd_send_signal(fd, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        _kill(fd)
         poll = select.poll()
         poll.register(fd, select.POLLIN)
         poll.poll()
