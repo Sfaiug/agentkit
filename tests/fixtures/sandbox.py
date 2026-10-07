@@ -32,12 +32,13 @@ def _passwd(home):
 
 
 @contextmanager
-def account_home(home):
-    """Give boxes and their subprocesses a temporary passwd home, without the caller's mounts."""
+def account_home(home, *, places=()):
+    """Give boxes a temporary passwd home and declared writable fixture state."""
     account, command = box.pwd.getpwuid(os.getuid()), box.command
 
     @contextmanager
     def boxed(*args, **kwargs):
+        kwargs["places"] = (*kwargs.get("places", ()), *places)
         with command(*args, **kwargs) as (argv, env, spawn):
             at = argv.index("--")
             argv[at:at] = ["--ro-bind", passwd, "/etc/passwd"]

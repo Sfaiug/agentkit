@@ -79,7 +79,7 @@ class BusySuite(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.stack.enter_context(account_home(self.root))
+        self.stack.enter_context(account_home(self.root, places=(self.root,)))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         # a worker running this file carries its run's marker, which a killed command would
