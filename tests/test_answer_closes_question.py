@@ -370,12 +370,12 @@ class AnswerClosesQuestion(Sandbox):
         self.assertEqual(self.edits, [])
         self.assertNotIn("closed", notify._card_read(SEAT))
 
-    def test_opening_through_ak_still_answers_after_output(self):
+    def test_opening_through_ak_and_output_after_it_answer_nothing(self):
         self.notice()
         notify.opened(SEAT, lambda: PROMPT)
-        self.assertTrue(notify.progress(SEAT, lambda: PROMPT + "\nThe schema is updated."))
-        self.assertFalse(watch.owner_question(notify.last(SEAT)))
-        self.assertTrue(self.handback())
+        self.assertFalse(notify.progress(SEAT, lambda: PROMPT + "\nThe schema is updated.",
+                                         watch.seat_model(self.cfg, SEAT)[0]))
+        self.assertTrue(watch.owner_question(notify.last(SEAT)))
 
     def test_owner_prompt_leaves_a_done_standing(self):
         notify.record(SEAT, "done", "Acme now reads both schemas.")

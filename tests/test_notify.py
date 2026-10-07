@@ -102,7 +102,7 @@ class Notifications(unittest.TestCase):
                 patch("sys.stdout.isatty", return_value=True):
             menu.open_session(config.load(), {"name": "seat"}, False)
         between()
-        notify.progress("seat", lambda: "Fresh output after the answer")
+        notify.progress("seat", lambda: "Fresh output after the answer", None)
 
     def test_lifecycle_and_approved_payload(self):
         self.cli("needs", "Merge PR #7? yes/no")

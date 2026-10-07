@@ -441,7 +441,8 @@ def answered(session, at):
     cannot reopen it. The background look checks the pane and waits for this lock; card
     delivery stays with the tick. Watcher alerts end through their own recovery rules.
     With no question notice standing, the needs you only the screen said -- a dialog, a
-    waiting prompt -- is what was answered, and its card keeps the answer.
+    waiting prompt -- is what was answered, and its card keeps the answer.  An answered
+    question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
     """
     with session_lock(session) as session:
         previous = last(session)
@@ -453,9 +454,12 @@ def answered(session, at):
                 _card_write(session, {**card, "answered_at": at})
             return
         previous["answered_at"] = at
-        if resolved(previous):
-            record(session, previous["kind"], previous["text"],
-                   **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
+        if not resolved(previous):
+            return
+        record(session, previous["kind"], previous["text"],
+               **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
+    from . import watch    # here, not at the top: watch imports this module
+    watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
 
 
 def job_done(notice):
@@ -492,7 +496,7 @@ def typed_since(session, since):
             and not isinstance(sent.get("at"), bool) and sent["at"] >= since]
 
 
-def progress(session, capture):
+def progress(session, capture, seat_harness):
     """Persist new output after an open; Discord and the row use the same resolved fact.
 
     Capture under the notice lock: output sampled before an open or a newer notify cannot
@@ -501,11 +505,18 @@ def progress(session, capture):
     hand-back, a told line, an idle `/compact`: the seat's turn, not the owner's answer, which
     its harness's prompt hook then reports.  A line typed before the open is history, and so is
     one typed where no prompt hook reports anything: there this output is the only answer.
+    Nor is any output the answer to the seat's own question where `seat_harness`, its harness
+    (None for a seat ak has no record of), reports his prompts: a seat asks with `ak notify
+    needs` and works on, so its screen moves whether he answered or only looked, and his prompt
+    (`answered`) is what answers it.
     """
     with session_lock(session) as session:
         previous = last(session)
         if not previous or previous.get("opened_at") is None or previous["kind"] == "done":
             return                 # output after an open answers a question, never a done
+        if (seat_harness and previous.get("watcher") is not True
+                and harness.load(seat_harness).prompt_hook is not None):
+            return
         if any(isinstance(sent.get("harness"), str)
                and harness.load(sent["harness"]).prompt_hook is not None
                for sent in typed_since(session, previous["opened_at"])):
@@ -1015,7 +1026,12 @@ def needs_transition(session, card, answer, now, seat=None):
     answered_at = max(card.get("answered_at") or 0, declared.get("earlier_answer_at") or 0,
                       (declared.get("answered_at") or 0) if resolved(declared) else 0)
     answered_here = answered_at > card["since"]
-    if _attached(session, card["since"], seat) or answered_here:
+    # The seat's own question stands until he answers it: input in its seat once the card is
+    # out is him looking, and a seat that asked and works on shows no question on its screen.
+    asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
+             and not resolved(declared))
+    if ((_attached(session, card["since"], seat) and not (asked and card.get("sent")))
+            or answered_here):
         if not card.get("closed") or card.get("open_needs") or answered_here:
             if card.get("sent"):
                 _close_card(session, card, "Answered")
