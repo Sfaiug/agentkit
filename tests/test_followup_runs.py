@@ -250,8 +250,11 @@ class FollowupRuns(unittest.TestCase):
         text = config.plan_path("seat").read_text()
         self.assertEqual(text.count("- [ ] "), 1)
         self.assertIn(f"- [ ] Fix {DEFECT} · check: `{check}` · {plan.named(self.repo)} · written ", text)
-        self.assertIn("now in your plan, yours to build: Fix broken.py:1",
-                      run.handback_line(state, directory, self.cfg))
+        # it names the commit its check failed on: the review's base
+        self.assertEqual(plan.LINE.match(text.strip())["base"], state["base_sha"][:12])
+        ending = run.handback_line(state, directory, self.cfg)
+        self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
+        self.assertIn("until `ak plan check N` puts your fix's own test in its place", ending)
         self.start(directory, record.read_state(directory))
         found_again = DEFECT + "\nfound again by a later review"
         later, again = self.source("later", followups=[found_again],

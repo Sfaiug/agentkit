@@ -7463,7 +7463,8 @@ def planned_followups(state):
     refused = [f"{entry['outcome']} ({entry['refused']})" for entry in entries
                if "refused" in entry]
     return ((f"Review follow-ups now in your plan, yours to build: {'; '.join(planned)}. "
-             if planned else "")
+             "Each is checked by the reviewer's probe until `ak plan check N` puts your fix's "
+             "own test in its place. " if planned else "")
             + (f"Review follow-ups your plan refused, yours to judge: {'; '.join(refused)}. "
                if refused else ""))
 

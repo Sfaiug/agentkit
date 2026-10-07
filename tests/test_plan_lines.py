@@ -80,7 +80,8 @@ class PlanLines(Sandbox):
     def test_a_check_failing_on_main_is_written_and_listed(self):
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
         self.assertRegex(line, r"^- \[ \] the feature exists · check: `test -f feature.txt` · "
-                               + re.escape(self.project) + r" · written \d{4}-\d\d-\d\d \d\d:\d\d$")
+                               + re.escape(self.project) + r" · written \d{4}-\d\d-\d\d \d\d:\d\d on "
+                               + self.git("rev-parse", "--short=12", "main") + "$")
         self.assertEqual(self.plan_lines(), [line])
         with patch.object(terminal, "width", return_value=len(line) + 10):
             self.assertEqual(self.ak().strip(), f"1  {line}")
@@ -302,6 +303,75 @@ class PlanLines(Sandbox):
         with self.assertRaisesRegex(config.Error, r"2 plan line\(s\) still open, first: "
                                                   r"- \[ \] the feature exists"):
             plan.require_done("fix-api")
+
+    def test_a_probe_the_fix_outgrew_gives_way_to_the_seat_s_own_test(self):
+        def land(files, message):
+            self.git("checkout", "-q", "main")
+            for name, text in files.items():
+                (self.repo / name).write_text(text)
+            self.commit(message)
+            self.git("push", "-q", "origin", "main")
+            self.git("checkout", "-q", "work")
+
+        # a review follow-up's probe: it fakes the exact call the code makes
+        self.ak("add", "the feature exists", "--check", "grep -q old-call feature.txt")
+        land({"feature.txt": "old-call\n"}, "the fix")
+        self.assertIn("1  - [x] the feature exists", self.listed())
+        # a later change calls it another way, rightly, with its own test
+        land({"feature.txt": "new-call\n", "feature_test.sh": "test -s feature.txt\n"},
+             "the call changes")
+        with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open, first: "
+                                                  r"- \[ \] the feature exists.+`ak plan check N`"):
+            plan.require_done("fix-api")
+        # the test passes on main now; it fails on the commit the probe failed on
+        line = self.ak("check", "1", "sh feature_test.sh").strip()
+        self.assertRegex(line, r"^- \[ \] the feature exists · check: `sh feature_test.sh` · "
+                               + re.escape(self.project) + r" · written \d{4}-\d\d-\d\d \d\d:\d\d "
+                               + "on " + self.git("rev-parse", "--short=12", "main~2") + "$")
+        self.assertEqual(self.plan_lines(), [line])
+        self.assertEqual(plan.require_done("fix-api"), {line[6:]})
+        # a done line takes one too, its done gone until the new check passes
+        self.assertEqual(self.ak("check", "1", "test -f feature_test.sh").strip(),
+                         line.replace("sh feature_test.sh", "test -f feature_test.sh"))
+
+    def test_a_new_check_passing_where_its_line_failed_is_refused(self):
+        line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
+        self.ak("add", "the hero looks calm", "--eye")
+        with self.assertRaisesRegex(config.Error, "already passes on [0-9a-f]{12}, the commit "
+                                                  "line 1 names"):
+            plan.main(["check", "1", "test -f base.txt"])
+        with self.assertRaisesRegex(config.Error, "only a check line takes another check"):
+            plan.main(["check", "2", "test -f feature.txt"])
+        with self.assertRaisesRegex(config.Error, "no plan line 3"):
+            plan.main(["check", "3", "false"])
+        with self.assertRaisesRegex(config.Error, "without backticks"):
+            plan.main(["check", "1", "test `true`"])
+        self.assertEqual(self.plan_lines()[0], line)
+
+    def test_a_line_naming_no_commit_takes_its_new_check_unproven(self):
+        # written before lines named one: nothing says where its check failed, and the fix's
+        # own test already passes on main
+        path = config.plan_path("fix-api")
+        path.write_text(f"- [x] the base exists · check: `false` · {self.project} · "
+                        "written 2026-10-01 09:00 · done 0123456789ab claimed\n")
+        self.assertEqual(self.ak("check", "1", "test -f base.txt").strip(),
+                         f"- [ ] the base exists · check: `test -f base.txt` · {self.project} · "
+                         "written 2026-10-01 09:00")
+        self.assertIn("1  - [x] the base exists", self.listed())
+
+    def test_a_line_changed_while_its_new_check_ran_is_left_as_it_is(self):
+        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
+        path = config.plan_path("fix-api")
+        changed = path.read_text().replace("the feature", "the whole feature")
+        fails = plan.fails
+
+        def meanwhile(*args):
+            path.write_text(changed)
+            return fails(*args)
+        with patch.object(plan, "fails", side_effect=meanwhile), \
+                self.assertRaisesRegex(config.Error, "plan line 1 changed while its new check ran"):
+            plan.main(["check", "1", "sh feature_test.sh"])
+        self.assertEqual(path.read_text(), changed)
 
     def test_each_check_starts_from_the_default_branch_never_from_anothers_files(self):
         self.ak("add", "the feature exists", "--check", "touch generated.txt; test -f feature.txt")
@@ -868,6 +938,16 @@ class PlanLines(Sandbox):
         self.git("remote", "set-url", "origin", str(self.root / "other-origin.git"))
         self.listed()
         self.assertTrue(self.plan_lines()[0].startswith("- [ ]"))
+
+    def test_a_new_check_is_proven_only_in_its_line_s_own_repository(self):
+        line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
+        self.other_acme(has_feature=False)
+        self.git("remote", "set-url", "origin", str(self.root / "other-origin.git"))
+        # base.txt is on the commit the line names, though the other repository has none
+        with self.assertRaisesRegex(config.Error, "already passes on [0-9a-f]{12}, the commit "
+                                                  "line 1 names"):
+            plan.main(["check", "1", "test -f base.txt"])
+        self.assertEqual(self.plan_lines(), [line])
 
     def test_a_rename_back_to_an_earlier_name_holds_that_name_until_its_files_follow(self):
         config.rename_session("fix-api", "fix-api-2")       # fix-api is now an old name
