@@ -648,9 +648,10 @@ class WorkerBox(unittest.TestCase):
         with patch.object(box.os, "access", zero_is_closed), \
                 box.command(["true"], dict(os.environ)) as (cmd, _, _):
             bound = {tuple(cmd[at + 1:at + 3]) for at, arg in enumerate(cmd) if arg == "--dev-bind"}
+        # What the box binds itself, on top of the standard nodes bubblewrap's own /dev holds.
         self.assertIn(("/dev/null", "/dev/null"), bound)
         self.assertNotIn(("/dev/zero", "/dev/zero"), bound)
-        # Bubblewrap's own /dev already holds the standard links; the host's are not copied.
+        # That /dev already holds the standard links too; the host's are not copied.
         self.assertFalse([cmd[at + 2] for at, arg in enumerate(cmd)
                           if arg == "--symlink" and cmd[at + 2].startswith("/dev/")])
 
