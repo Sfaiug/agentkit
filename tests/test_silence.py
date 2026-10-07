@@ -47,7 +47,7 @@ class Silence(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.addCleanup(patch.stopall)
-        account_home(self.root).start()
+        self.enterContext(account_home(self.root))
         # ak's state is the sandbox's: a run parked below tells its seat, and run from a seat
         # that was the real seat, held with a stray "needs you" that blocked its hand-backs
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):

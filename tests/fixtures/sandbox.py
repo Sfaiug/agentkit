@@ -23,22 +23,40 @@ from agentkit import record as run_record
 from fixtures.hand_in import records
 
 
+@contextmanager
+def _passwd(home):
+    with tempfile.NamedTemporaryFile(dir=home, prefix="passwd-", mode="w") as passwd:
+        passwd.write(f"acme:x:{os.getuid()}:{os.getgid()}:Fixture:{home}:/bin/sh\n")
+        passwd.flush()
+        yield passwd.name
+
+
+@contextmanager
 def account_home(home):
-    """Give boxes a temporary passwd home too, never the caller's home and its mounts."""
-    account = box.pwd.getpwuid(os.getuid())
-    return patch.object(box.pwd, "getpwuid", return_value=box.pwd.struct_passwd(
-        (*account[:5], str(home), account.pw_shell)))
+    """Give boxes and their subprocesses a temporary passwd home, without the caller's mounts."""
+    account, command = box.pwd.getpwuid(os.getuid()), box.command
+
+    @contextmanager
+    def boxed(*args, **kwargs):
+        with command(*args, **kwargs) as (argv, env, spawn):
+            at = argv.index("--")
+            argv[at:at] = ["--ro-bind", passwd, "/etc/passwd"]
+            yield argv, env, spawn
+
+    with _passwd(home) as passwd, \
+            patch.object(box.pwd, "getpwuid", return_value=box.pwd.struct_passwd(
+                (*account[:5], str(home), account.pw_shell))), \
+            patch.object(box, "command", boxed):
+        yield
 
 
 def in_account_home(argv, home, **kwargs):
     """Subprocesses need the same temporary account home, through their own passwd file."""
-    with tempfile.NamedTemporaryFile(dir=home, prefix="passwd-", mode="w") as passwd:
-        passwd.write(f"acme:x:{os.getuid()}:{os.getgid()}:Fixture:{home}:/bin/sh\n")
-        passwd.flush()
+    with _passwd(home) as passwd:
         return subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/",
                                "--dev", "/dev", "--proc", "/proc",
                                "--bind", str(REPO), str(REPO),
-                               "--ro-bind", passwd.name, "/etc/passwd", "--", *argv], **kwargs)
+                               "--ro-bind", passwd, "/etc/passwd", "--", *argv], **kwargs)
 
 
 @contextmanager

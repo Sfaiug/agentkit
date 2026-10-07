@@ -94,7 +94,7 @@ class Sandbox(unittest.TestCase):
             "AGENTKIT_DISCORD_USER_ID": "", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "PYTHONDONTWRITEBYTECODE": "1",
             # no user manager here: a foreground `ak run` it starts is never moved into a unit
-            "XDG_RUNTIME_DIR": str(sockets),
+            "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}",
             config.ADAPTER_DIR_ENV: str(self.adapters), "V5M_FIXTURE": str(self.root)}))
         config.ensure_dirs()
         self.cfg = config.load()
@@ -262,11 +262,11 @@ class NothingBelowTheLoopHasASeat(Sandbox):
             self.assertEqual(call["run_role"], "worker", call)
 
     def test_v5m_done_when_commands_run_without_the_seat_the_loop_keeps(self):
-        seen = self.root / "donewhen.txt"
-        code, _, state = self.launch(self.task(
+        code, directory, state = self.launch(self.task(
             "Seatless done-when",
-            ['printf \'%s\\n\' "${AGENTKIT_SESSION:-none}" >>"$V5M_FIXTURE/donewhen.txt"']))
+            ['printf \'%s\\n\' "${AGENTKIT_SESSION:-none}" >>donewhen.txt']))
         self.assertEqual(code, 0, state)
+        seen = Path(state["worktree"]) / "donewhen.txt"
         self.assertEqual(seen.read_text().split(), ["none"])
         # ... while the loop itself still knows whose run this is
         self.assertEqual(config.current_session(), SEAT)

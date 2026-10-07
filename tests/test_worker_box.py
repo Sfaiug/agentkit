@@ -111,7 +111,11 @@ sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
 sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
 from fixtures.sandbox import account_home
-account_home(os.environ["HOME"]).start()
+import atexit
+if sys.argv[1] == "host":
+    homes = account_home(os.environ["HOME"])
+    homes.__enter__()
+    atexit.register(homes.__exit__, None, None, None)
 work, role, places = Path(os.environ["BOX_WORK"]), sys.argv[1], [Path(path) for path in sys.argv[2:]]
 
 
@@ -186,7 +190,11 @@ sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
 sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
 from fixtures.sandbox import account_home
-account_home(os.environ["HOME"]).start()
+import atexit
+if True:
+    homes = account_home(os.environ["HOME"])
+    homes.__enter__()
+    atexit.register(homes.__exit__, None, None, None)
 root = Path(sys.argv[1])
 write = "from pathlib import Path; p = Path('/dev/shm/acme'); p.write_text('own'); print(p.read_text())"
 seen = {}
@@ -232,7 +240,11 @@ sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
 sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
 from fixtures.sandbox import account_home
-account_home(os.environ["HOME"]).start()
+import atexit
+if sys.argv[1] == "host":
+    homes = account_home(os.environ["HOME"])
+    homes.__enter__()
+    atexit.register(homes.__exit__, None, None, None)
 paths = ["/etc/resolv.conf", "/run/acme/first", "/run/acme/linked/resolver",
          "/run/acme/real/deep/../resolver", "/run/acme/outside/resolver"]
 runtime = Path("/run/user", str(os.getuid()))
@@ -343,7 +355,11 @@ sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
 sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
 from fixtures.sandbox import account_home
-account_home(os.environ["HOME"]).start()
+import atexit
+if sys.argv[1] == "host":
+    homes = account_home(os.environ["HOME"])
+    homes.__enter__()
+    atexit.register(homes.__exit__, None, None, None)
 secrets = ("fixture-key", "fixture-folder-key", "fixture-git-store", "fixture-gh-login",
            "fixture-local-key", "fixture-cache-key")
 
