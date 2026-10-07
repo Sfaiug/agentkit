@@ -83,6 +83,8 @@ class SeatEnvironment(Sandbox):
             if arg == "-e":
                 key, value = args[index + 1].split("=", 1)
                 child_env[key] = value
+                if "new-session" in args:
+                    self.session_env[key] = value
         self.launched.append(self.ran(["sh", "-c", args[-1]], child_env))
         return 0, ""
 
