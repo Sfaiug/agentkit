@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import select
 import shlex
 import shutil
@@ -289,6 +290,37 @@ def _own(scratch, clean, cwd, writable, hidden):
     return binds
 
 
+def _overlay(path, mounts, through, files):
+    # A lower directory with inherited child mounts is locked in the new user namespace:
+    # overlayfs refuses it. Assemble only those ancestors in tmpfs, overlaying their children
+    # separately and copying their immediate files into the box, never onto host disk.
+    if not any(path in mount.parents for mount in mounts):
+        return ["--overlay-src", str(path), "--tmp-overlay", str(path)]
+    args = ["--perms", f"{stat.S_IMODE(path.stat().st_mode):o}", "--tmpfs", str(path)]
+    for child in sorted(path.iterdir()):
+        if child in through:
+            continue
+        try:
+            mode = child.lstat().st_mode
+            if stat.S_ISDIR(mode):
+                args.extend(_overlay(child, mounts, through, files))
+            elif stat.S_ISLNK(mode):
+                args.extend(["--symlink", os.readlink(child), str(child)])
+            elif stat.S_ISREG(mode):
+                fd = os.open(child, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                files[fd] = os.fdopen(fd, "rb")
+                if stat.S_ISREG(os.fstat(fd).st_mode):
+                    args.extend(["--perms", f"{stat.S_IMODE(mode):o}", "--file",
+                                 str(fd), str(child)])
+            else:
+                args.extend(["--ro-bind", str(child), str(child)])
+        except FileNotFoundError:
+            # A cache or tool lock can disappear while the box is being built.
+            continue
+    return args
+
+
+@contextmanager
 def _bind(own, writable, homes=()):
     """Mount HOME overlays, private and writable places, parents first so deeper mounts win."""
     clash = sorted(own.keys() & writable)
@@ -298,17 +330,24 @@ def _bind(own, writable, homes=()):
                            "to; give each a directory of its own")
     binds = {**{path: path for path in homes}, **own, **{path: path for path in writable}}
     overlays = set(homes) - own.keys() - writable
-    args = []
-    for path in sorted(binds):
-        # What the nearest mounted parent already shows needs no mount of its own, and a
-        # redundant file mount prevents atomic refresh within its writable parent.
-        parent = next((parent for parent in path.parents if parent in binds), None)
-        if path in overlays:
-            args.extend(["--overlay-src", str(path), "--tmp-overlay", str(path)])
-        elif (parent is None or parent in overlays
-              or binds[parent] / path.relative_to(parent) != binds[path]):
-            args.extend(["--bind", str(binds[path]), str(path)])
-    return args
+    mounts = {Path(re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), line.split()[4]))
+              for line in Path("/proc/self/mountinfo").read_text().splitlines()} if overlays else set()
+    files = {}
+    try:
+        args = []
+        for path in sorted(binds):
+            # What the nearest mounted parent already shows needs no mount of its own, and a
+            # redundant file mount prevents atomic refresh within its writable parent.
+            parent = next((parent for parent in path.parents if parent in binds), None)
+            if path in overlays:
+                args.extend(_overlay(path, mounts, own.keys() | writable, files))
+            elif (parent is None or parent in overlays
+                  or binds[parent] / path.relative_to(parent) != binds[path]):
+                args.extend(["--bind", str(binds[path]), str(path)])
+        yield args, tuple(files)
+    finally:
+        for opened in files.values():
+            opened.close()
 
 
 @contextmanager
@@ -361,8 +400,9 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
-        cmd[at:at] = _bind({}, writable, homes)
-        yield [*cmd, "--", *argv], clean, {}
+        with _bind({}, writable, homes) as (binds, fds):
+            cmd[at:at] = binds
+            yield [*cmd, "--", *argv], clean, {"pass_fds": fds} if fds else {}
         return
     report = Path(out_dir).resolve() / PROCESSES
     report.unlink(missing_ok=True)
@@ -410,10 +450,11 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
-            clean["TMPDIR"] = "/var/tmp"
-            yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
-                "pass_fds": (write,), "stop": stop}
+            with _bind(_own(scratch, clean, cwd, writable, targets), writable, homes) as (binds, fds):
+                cmd[at:at] = binds
+                clean["TMPDIR"] = "/var/tmp"
+                yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
+                    "pass_fds": (write, *fds), "stop": stop}
         finally:
             target = namespace()
             if target is not None:
@@ -498,6 +539,26 @@ def _report(out_dir):
         return json.loads((Path(out_dir) / PROCESSES).read_text())
     except (OSError, ValueError):
         return {}
+
+
+def launch_error(out_dir, env):
+    """Name missing overlay support only when a plain box starts and an isolated overlay fails."""
+    message = "check box cannot start"
+    probe = ["bwrap", "--unshare-user", "--unshare-pid", "--ro-bind", "/", "/"]
+    try:
+        plain = subprocess.run([*probe, "--", "true"], env=env, capture_output=True,
+                               text=True, timeout=10)
+        if plain.returncode == 0:
+            with tempfile.TemporaryDirectory(dir=out_dir) as home:
+                overlay = subprocess.run([*probe, "--overlay-src", home, "--tmp-overlay", home,
+                                          "--", "true"], env=env, capture_output=True,
+                                         text=True, timeout=10)
+            if overlay.returncode != 0:
+                message += f": HOME overlays unavailable: {overlay.stderr.strip()}; {OVERLAY_REMEDY}"
+    except (OSError, subprocess.SubprocessError):
+        # The launcher's own diagnostic already names an ordinary mount or namespace failure.
+        pass
+    return f"\n{message}\n"
 
 
 def returncode(out_dir, fallback):

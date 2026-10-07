@@ -181,7 +181,7 @@ else:
     # What a parent box keeps in its own /tmp is the parent's alone.
     places.append(Path("/tmp/parent/s"))
     with listen(places[-1]):
-        print(json.dumps(boxed("probe", False)))
+        print(json.dumps(boxed("probe", role == "check")))
 '''
 
 SHM = r'''import json, os, subprocess, sys, tempfile

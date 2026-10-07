@@ -299,7 +299,9 @@ class ChecksBoxed(unittest.TestCase):
         bindir = self.root / "bin"
         bindir.mkdir()
         wrapper = bindir / "bwrap"
-        wrapper.write_text("#!/bin/sh\nprintf 'bwrap: overlayfs unavailable\\n' >&2\nexit 1\n")
+        wrapper.write_text("#!/bin/sh\ncase \" $* \" in\n"
+                           " *' --tmp-overlay '*) printf 'bwrap: overlayfs unavailable\\n' >&2; exit 1;;\n"
+                           "esac\nexec " + shlex.quote(shutil.which("bwrap")) + ' "$@"\n')
         wrapper.chmod(0o755)
         with patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}"}):
             result = self.proof("touch started")
@@ -330,6 +332,21 @@ class ChecksBoxed(unittest.TestCase):
             ok, text = self.check("true")
             self.assertFalse(ok, text)
             self.assertIn("[exit 126]", text)
+            for output in (result["output"], text):
+                self.assertIn("missing-mount-source", output)
+                self.assertNotIn(box.OVERLAY_REMEDY, output)
+
+    def test_a_missing_home_is_not_missing_overlay_support(self):
+        home = self.root / "absent-home"
+        with patch.dict(os.environ, {"HOME": str(home)}):
+            result = self.proof("touch started")
+            self.assertEqual(result["returncode"], 126, result)
+            ok, text = self.check("touch started")
+            self.assertFalse(ok, text)
+            for output in (result["output"], text):
+                self.assertIn("absent-home", output)
+                self.assertNotIn(box.OVERLAY_REMEDY, output)
+        self.assertFalse((self.root / "started").exists())
 
     def test_orphans_are_reaped_while_the_output_drains(self):
         # The shell is gone at once; its background child holds the output and leaves

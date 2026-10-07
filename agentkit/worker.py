@@ -571,7 +571,7 @@ def boxed(cmd, limit, *, env, cwd, **kwargs):
             # report that is no exit of the command: it never started, the shell's 126.
             code = box.returncode(out_dir, 126 if code == 1 else code)
             if code == 126 and not (Path(out_dir) / box.PROCESSES).exists():
-                message = f"\ncheck box cannot start; for HOME overlays, {box.OVERLAY_REMEDY}\n"
+                message = box.launch_error(out_dir, env)
                 if kwargs.get("output") is not None:
                     kwargs["output"].write(message.encode())
                     kwargs["output"].flush()
