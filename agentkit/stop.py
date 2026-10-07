@@ -15,18 +15,8 @@ from . import job as jobs
 from . import record as run_record
 
 
-def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
-                    since=None):
-    """(the turn may end, parked records), from the evidence its caller can see.
-
-    The native hook reads all run receipts; the tick supplies its existing census. A question
-    stands past parked work, which holds a completion, an answer and every live wait.
-    `since` retains the prompt hook's wait on work launched in this turn even after it ends.
-    A callable completion reads the native notice after the census. A callable answer binds
-    the tick's notice to its output only when no wait ends it.
-    """
-    if question:
-        return True, []
+def _ending_work(name, records):
+    """The run census and this seat's records, keeping native reads and supplied reads apart."""
     supplied = records
     if records is None:
         try:
@@ -43,15 +33,35 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
             except config.Error:
                 continue
         if owner == name:
-            mine.append((directory, state, run.going(state)))
-    parked = [(directory, state) for directory, state, going in mine
-              if (not going or state.get("state") == "stalled") and run.unfinished(state, records)]
+            mine.append((directory, state))
+    return records, mine
+
+
+def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
+                    since=None):
+    """(the turn may end, parked records), from the evidence its caller can see.
+
+    The native hook reads parked work, then completion, then fresh wait receipts; the tick
+    supplies its existing census. A question stands past parked work, which holds a
+    completion, an answer and every live wait. `since` retains the prompt hook's wait on
+    work launched in this turn even after it ends. A callable completion reads the native
+    notice after the census; a callable answer binds the tick's output after live waits.
+    """
+    if question:
+        return True, []
+    supplied = records
+    records, mine = _ending_work(name, records)
+    parked = [(directory, state) for directory, state in mine
+              if (not run.going(state) or state.get("state") == "stalled")
+              and run.unfinished(state, records)]
     if parked:
         return False, parked
     if completion() if callable(completion) else completion:
         return True, []
-    for _, state, going in mine:
-        if going:
+    if supplied is None:
+        _, mine = _ending_work(name, None)
+    for _, state in mine:
+        if run.going(state):
             return True, []
         if since is not None and state.get("state") not in ("error", "waiting"):
             for key in ("started_at", "queued_at"):
