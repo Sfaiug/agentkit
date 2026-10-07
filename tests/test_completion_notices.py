@@ -206,6 +206,26 @@ class CompletionNotices(Sandbox):
         self.declare('Earlier failure explained; API remains shipped')
         self.assertEqual(len(self.posted()), 1)
 
+    def test_a_missing_owner_source_does_not_reannounce_the_completed_work(self):
+        path = self.owner_transcript()
+        self.append_owner(path, 20, 'Build the API')
+        self.declare()
+        self.internal_turn()
+        path.unlink()
+        self.declare('Internal handback while the transcript is unavailable')
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_later_question_keeps_its_alert_without_reannouncing_the_job(self):
+        self.checked('API shipped')
+        self.declare()
+        self.now += 100
+        self.assertEqual(notify.shaped('needs', 'Which export format?', session=self.name), 0)
+        self.assertEqual(len(self.posted(kind='needs')), 1)
+        self.declare('Question settled; API remains shipped')
+        self.assertEqual(len(self.posted()), 1)
+        patches = [payload for method, payload in self.requests if method == 'PATCH']
+        self.assertEqual(patches[-1]['embeds'][0]['title'], f'Done · {self.name}')
+
     def test_a_real_question_and_unfinished_work_still_hold_the_completion(self):
         self.checked('API shipped')
         self.assertEqual(notify.shaped('needs', 'Which export format?', session=self.name), 0)

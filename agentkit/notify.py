@@ -1260,7 +1260,10 @@ def _completion(session):
         cwd = record.get("cwd")
         messages = plugin.user_messages(record, cwd, plugin.conversation(record, cwd), seat=session)
         if not messages:
-            return None
+            # A disappearing transcript or a switch to a harness without that reader
+            # cannot make an already completed job new work.
+            return (_card_read(session).get("completed") or
+                    (last(session, include_seen=True) or {}).get("completion"))
         work = ["owner", messages[-1]]
     body = json.dumps([record.get("created"), work], sort_keys=True)
     return hashlib.sha256(body.encode()).hexdigest()
