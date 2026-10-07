@@ -107,13 +107,14 @@ RULES = [
      "home": (),
      "max": 0},
     # A seat's files are named once, so a rename, a forget or a new store moves them all.
+    # Completion eligibility reuses the existing card and outbox, adding no seat-file names.
     {"name": "per-seat state file names",
      "flags": (),
      "pattern": r"(session|notify|card|seat|hook|compact|stop|plan|title|rulebook)-"
                 r"(\{[^}]*\}|\$\{?[A-Za-z_]+\}?|\*)\.(json|md)"
                 r"|len\([\"'](session|notify|card|seat|hook|compact|stop|plan)-[\"']\)",
      "home": ("agentkit/config.py",),
-     "max": 11},
+     "max": 10},
     # A rename leaves a pointer at the old name, and `config.resolve_session` follows it: a
     # second walk of the chain is one more place to keep in step with how renames chain.
     # The one left is seat-state.sh's jq walk.  OpenCode's own `session.renamed` event is no
