@@ -120,7 +120,7 @@ class Limits(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.stack.enter_context(account_home(self.root))
+        self.stack.enter_context(account_home(self.root, places=(self.root,)))
         # what is checked here is not the change: its base proof is test_regression_fails_before's
         self.stack.enter_context(patch.object(run, "needs_base_proof", return_value=False))
         self.stack.enter_context(patch.object(run, "join_line", side_effect=fork_turn))
