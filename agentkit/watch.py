@@ -1167,6 +1167,14 @@ def prompt_rows(rows):
     return [at for at in sorted(marks, reverse=True) if marks[at] == left]
 
 
+def _composer_end(chrome, rows, at):
+    """The row after the composer whose prompt row is `at`: the first of `rows` under it that
+    is the harness's chrome, else their end.  A wrap or a newline puts a draft on the rows
+    between; `screen_state` and `composer_draft` both end it here."""
+    return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
+                len(rows))
+
+
 def ruled_composer(chrome, rows):
     """(prompt row, closing rule row) of the composer a ruled harness draws, else (None, None).
 
@@ -1491,13 +1499,11 @@ def screen_state(harness, tail):
                 # a line without a rule under it, a composer drawn right on the footer, counts
                 # only under no composer with its own rule, and never where the manifest says
                 # its composer always has one.  A draft's own rows run from its prompt row
-                # down to that chrome, as `composer_draft` reads them.
-                def under(index):
-                    return next((row for row in range(index + 1, len(region))
-                                 if chrome_line(chrome, region[row])), len(region))
+                # down to that chrome (`_composer_end`).
                 marked = [index for index in marked if index + 1 == len(region)
-                          or (under(index) < len(region) and chrome_line(chrome, region[-1]))]
-                end = under(marked[0]) if marked else None
+                          or (_composer_end(chrome, region, index) < len(region)
+                              and chrome_line(chrome, region[-1]))]
+                end = _composer_end(chrome, region, marked[0]) if marked else None
                 marked = [index for index in marked if index + 1 < len(region)
                           and re.fullmatch(RULE, region[index + 1])] or [
                               index for index in marked
@@ -2582,13 +2588,9 @@ def _composer_rows(harness, pane):
             return None
         return _unscrolled(chrome, [row for block in found for row in block.splitlines()])
 
-    def end(at):
-        return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
-                    len(rows))
-
     marked = prompt_rows(raws)
     at = next(iter(marked), None)
-    stop = None if at is None else end(at)
+    stop = None if at is None else _composer_end(chrome, rows, at)
     if chrome["ruled"]:
         # Its box between its own rules; a pane's bottom row stands in where none is drawn.
         at, stop = ruled_composer(chrome, raws)
