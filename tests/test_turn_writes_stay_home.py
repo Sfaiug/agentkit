@@ -198,8 +198,10 @@ class TurnWritesStayHome(unittest.TestCase):
         self.assertEqual(seen, {"manager": {"a": 1}, "socket": True})
 
     def test_shared_memory_and_host_devices_still_work(self):
-        devices = [path for path in ("/dev/fuse", "/dev/kvm", "/dev/dri", "/dev/net/tun")
-                   if Path(path).exists()]
+        # A turn keeps each host device whose mode gives its account read or write access.
+        named = [Path("/dev/fuse"), Path("/dev/kvm"), Path("/dev/net/tun"), *Path("/dev/dri").glob("*")]
+        devices = [str(path) for path in named if path.is_char_device()
+                   and (os.access(path, os.R_OK) or os.access(path, os.W_OK))]
         seen, _, _ = self.turn(self.wt, "devices", DEVICES=json.dumps(devices))
         self.assertEqual(seen, {"pool": 8, "executor": 8, "devices": devices})
 

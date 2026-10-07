@@ -639,7 +639,7 @@ class WorkerBox(unittest.TestCase):
                     "worker": hidden, "worker inside a box": nested,
                     "check": hidden, "check inside a box": nested})
 
-    def test_a_box_binds_only_the_devices_its_account_can_open(self):
+    def test_a_box_binds_only_the_devices_its_account_has_access_to(self):
         opens = os.access
 
         def zero_is_closed(path, mode, **how):

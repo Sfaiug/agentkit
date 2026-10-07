@@ -148,12 +148,12 @@ def _paths(names, env, cwd):
 
 
 def _walls(cmd):
-    """Make the whole filesystem read-only, keeping the devices the account can open."""
+    """Make the whole filesystem read-only, keeping the devices the account has access to."""
     cmd.extend(["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"])
     # A read-only bind disables devices too. Bubblewrap's own /dev holds its standard nodes
-    # and links, whatever their modes. Beyond those, restore each node the account can open:
-    # one it cannot was no use outside either, and every bind is a mount that each box started
-    # in this one copies again.
+    # and links, whatever their modes. Beyond those, restore each node whose mode gives the
+    # account read or write access, never opening one to find out: one without was no use
+    # outside either, and every bind is a mount that each box started in this one copies again.
     for device in sorted(Path("/dev").rglob("*")):
         # The box gets disk-backed shm; do not bind the host's transient files.
         if device.is_relative_to("/dev/shm"):
