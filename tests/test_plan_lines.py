@@ -331,6 +331,9 @@ class PlanLines(Sandbox):
                                + re.escape(self.project) + r" · written \d{4}-\d\d-\d\d \d\d:\d\d$")
         self.assertEqual(self.plan_lines(), [line])
         self.assertEqual(plan.require_done("fix-api"), {line[6:]})
+        # a done line takes one too, its done gone until the new check passes
+        self.assertEqual(self.ak("check", "1", "test -f feature_test.sh").strip(),
+                         line.replace("sh feature_test.sh", "test -f feature_test.sh"))
 
     def test_a_new_check_passing_when_its_line_was_written_is_refused(self):
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()

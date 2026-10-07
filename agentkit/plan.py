@@ -521,7 +521,8 @@ def recheck(name, number, check):
         raise config.Error(f"this check already passed on {repo.name}'s default branch when "
                            "the line was written, so it proves nothing; write one that failed "
                            "until the work was done")
-    new = f"- [ ] {found['what']} · check: `{check}` · {found['project']} · written {found['when']}"
+    # the line as it reads, open and with only its check changed
+    new = "- [ ] " + line[6:found.start("check")] + check + undone(line, found)[found.end("check"):]
     with held(name) as current:
         text = lines(current)
         same = [at for at, old in enumerate(text) if old.strip() == line]
