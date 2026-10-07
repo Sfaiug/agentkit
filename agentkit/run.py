@@ -2901,11 +2901,11 @@ def unknown_front_lines(text):
 
 
 def needs_base_proof(lp):
-    """A run launched under the rule owes one until a check fails on base; one launched
-    before it owes none -- a process change applies to the next launch.  A fix run proves
-    its regression.sh on base in its own checkout instead (`regression_fails_before`)."""
-    return (lp.state.get("base_proof") == "owed" and not lp.scratch
-            and not regression_script(lp.run_dir).is_file())
+    """A run launched under the rule owes one until a check fails on base, as its record
+    says; one launched before it owes none -- a process change applies to the next launch.
+    A fix run's receipt says it proves its regression.sh instead (`regression_fails_before`),
+    a repair's that it is proven at landing, and a scratch run's record that it has no base."""
+    return lp.state.get("base_proof") == "owed"
 
 
 def own_checks(lp):
@@ -3488,6 +3488,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                            **({"repair": key, "repair_tip": repair["sha"],
                                "base_proof": "at landing"} if repair else {}),
                            **({"split_suite": split["command"]} if split else {}),
+                           # a fix run is proven by its own regression.sh
+                           # (`regression_fails_before`), not by its checks on base
+                           **({} if repair or split else {"base_proof": "regression.sh"}),
                            "launched_session": session, "repo": str(repo),
                            **{role: list(lists[role]) for role in ("workers", "reviewers")
                               if isinstance(lists.get(role), list) and lists[role]},
@@ -6229,6 +6232,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                  "finished_at": None, "round_summaries": [], "findings": "",
                  "merge_method": method, "no_merge": bool(opts["--no-merge"]) or scratch,
                  "pr": None, "merged": False, "merge_note": None, "reported": False,
+                 # a scratch run has no base to prove anything on
+                 **({"base_proof": None} if scratch else {}),
                  "task_words": sized_words, "task_points": sized_points,
                  "task_checks": sized_checks})
         if from_branch:

@@ -194,11 +194,13 @@ class RegressionFailsBefore(unittest.TestCase):
         self.commit("Handle empty input")
         self.script.write_text(f"cd {shlex.quote(str(self.wt))}\nPYTHONPATH=. python3 tests/check.py\n")
         lp = self.loop()
-        lp.state["base_proof"] = "owed"
+        lp.state["base_proof"] = "regression.sh"      # as start_followups' receipt says
         ok, text = run.verify_work(lp)
         self.assertTrue(ok, text)
-        self.assertTrue(record.read_state(self.directory)["regression_checked"])
+        state = record.read_state(self.directory)
+        self.assertTrue(state["regression_checked"])
         self.assertFalse((self.directory / "base.log").exists())    # no replay of its own
+        self.assertEqual(run.base_proof_line(state), "")             # nor a line in its PR
 
     def test_interrupted_probe_restores_the_branch_without_recording_success(self):
         self.script.write_text("exit 0\n")
