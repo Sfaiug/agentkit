@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import threading
 import unittest
@@ -144,6 +145,46 @@ class CompletionNotices(Sandbox):
             line.replace('done your yes 2026-01-02', 'done your yes 2026-01-03')
             for line in reversed(lines)) + '\n')
         self.declare('Proof refreshed; still shipped')
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_check_proofs_refresh_on_main_without_reannouncing_the_work(self):
+        repo = config.CODE / 'acme'
+        repo.mkdir(parents=True)
+        self.stack.enter_context(patch.dict(os.environ, {
+            'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1'}))
+        self.stack.enter_context(patch.object(plan.os, 'killpg'))
+
+        def git(*args):
+            return subprocess.run(['git', '-C', str(repo), *args], check=True,
+                                  capture_output=True, text=True, timeout=30).stdout.strip()
+
+        git('init', '-q', '-b', 'main')
+        git('config', 'user.name', 'Completion test')
+        git('config', 'user.email', 'completion@localhost')
+        (repo / 'base.txt').write_text('base\n')
+        git('add', '.')
+        git('commit', '-q', '-m', 'Base')
+        origin = self.root / 'origin.git'
+        subprocess.run(['git', 'clone', '-q', '--bare', str(repo), str(origin)],
+                       check=True, capture_output=True, timeout=30)
+        git('remote', 'add', 'origin', str(origin))
+        config.update_session(self.name, repo=str(repo))
+        plan.add(self.name, 'API shipped', check='test -f shipped.txt')
+        with self.assertRaises(notify.Refused):
+            self.declare('Not live yet')
+        (repo / 'shipped.txt').write_text('shipped\n')
+        git('add', '.')
+        git('commit', '-q', '-m', 'Ship API')
+        git('push', '-q', 'origin', 'main')
+        self.declare()
+        before = config.plan_path(self.name).read_text()
+        self.internal_turn()
+        (repo / 'base.txt').write_text('unrelated update\n')
+        git('add', '.')
+        git('commit', '-q', '-m', 'Unrelated update')
+        git('push', '-q', 'origin', 'main')
+        self.declare('The check passed on newer main too')
+        self.assertNotEqual(config.plan_path(self.name).read_text(), before)
         self.assertEqual(len(self.posted()), 1)
 
     def test_history_still_deduplicates_after_card_loss_and_rename(self):
