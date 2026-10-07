@@ -240,6 +240,41 @@ class NudgeTurnRule(Sandbox):
                     self.assertIn("cannot continue", notice["text"])
                     self.stopped()
                     self.assertEqual(self.tick(), [])  # the explicit question now stands
+                    # the owner answers the newer notice, and the count starts again
+                    notify.answered(SEAT, time.time())
+                    for blocks in range(2):
+                        self.stopped()
+                        if route == "hook":
+                            self.assertTrue(self.hook_holds(blocks))
+                        else:
+                            self.assertEqual(self.tick(), ["continue"])
+                    self.stopped()
+                    if route == "hook":
+                        self.assertFalse(self.hook_holds(2))
+                    else:
+                        self.assertEqual(self.tick(), [])
+                    self.assertEqual(notify.last(SEAT)["kind"], "needs")
+
+    def test_f_stops_on_no_recorded_ending_have_the_same_bounded_corrections(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                for _ in range(2):
+                    self.stopped()
+                    self.assertEqual(self.tick(), ["continue"])
+                    self.assertEqual(self.tick(), [])  # a redraw spends no correction
+                self.stopped()
+                self.assertEqual(self.tick(), [])
+                self.assertEqual(notify.last(SEAT)["kind"], "needs")
+                self.assertIn("cannot continue", notify.last(SEAT)["text"])
+                notify.answered(SEAT, time.time())
+                for _ in range(2):
+                    self.stopped()
+                    self.assertEqual(self.tick(), ["continue"])
+                self.stopped()
+                self.assertEqual(self.tick(), [])
+                self.assertEqual(notify.last(SEAT)["kind"], "needs")
 
     def test_e_a_run_a_later_merged_run_replaced_holds_nothing(self):
         """Settled as `ak notify done` and the seat's state read it, on both sides of the rule."""

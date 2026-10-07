@@ -212,6 +212,8 @@ class StopHook(unittest.TestCase):
                     self.runs.rmdir()
                 for _ in range(3):
                     self.assertEqual(self.stop("Waiting for the job."), "")
+                self.assertEqual(json.loads((self.state / f"stop-{SEAT}.json").read_text())
+                                 ["blocks"], 0)
 
     def test_a_jobs_seat_is_followed_through_renames(self):
         self.job_json("queued", "waiting", "waiting")
@@ -268,6 +270,7 @@ class StopHook(unittest.TestCase):
         self.assertEqual(self.stop(said=None, **payload), "")
         self.stop(said=None, hook=SEAT_STATE, **payload)
         self.assertEqual(self.read_as(), ("working", "Stop/background"))
+        self.assertEqual(json.loads((self.state / f"stop-{SEAT}.json").read_text())["blocks"], 0)
         # ... and it reports back: the notifications start a turn, which ends on nothing
         payload.update(background_tasks=[], last_assistant_message=RECOMMENDATION,
                        transcript_path=str(self.transcript(RECOMMENDATION, before=before + [
@@ -354,6 +357,8 @@ class StopHook(unittest.TestCase):
         for env in ({"AK_RUN_ROLE": "worker"}, {"AGENTKIT_SESSION": ""}):
             with self.subTest(env=env):
                 self.assertEqual(self.stop(env=env), "")
+                self.assertEqual(json.loads((self.state / f"stop-{SEAT}.json").read_text())
+                                 ["blocks"], 0)
 
     # --- nothing to judge on is never a reason to block ---------------------
 

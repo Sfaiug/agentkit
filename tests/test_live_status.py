@@ -27,7 +27,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from agentkit import config, menu, orch, record, run, statusbar, terminal, watch  # noqa: E402
+from agentkit import config, menu, notify, orch, record, run, statusbar, terminal, watch  # noqa: E402
 from agentkit.guard import commands  # noqa: E402
 
 # The hook's own process asks tmux through PATH, so this stands in for the server: one marked
@@ -511,6 +511,11 @@ class LiveStatus(unittest.TestCase):
         self.assertEqual(watch.hook_look("herdr")["word"], "working")
         hook("orchestrator-stop.sh", {"hook_event_name": "Stop", "background_tasks": []})
         self.assertEqual(watch.hook_facts("tern")["event"], "Stop")
+        self.assertEqual(watch.hook_facts("tern")["kind"], "held")
+        self.assertEqual(watch.hook_look("herdr")["word"], "working")
+        self.assertIn("● working▌  tern  opus orchestrates", drawn(self.options[statusbar.TOP]))
+        notify.record("tern", "needs", "Which schema should acme use?")
+        hook("orchestrator-stop.sh", {"hook_event_name": "Stop", "background_tasks": []})
         self.assertEqual(watch.hook_look("herdr")["word"], "needs you")
         self.assertIn("! needs you▌  tern  opus orchestrates", drawn(self.options[statusbar.TOP]))
 

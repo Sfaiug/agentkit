@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, watch
+from agentkit import config, notify, watch
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -77,6 +77,10 @@ class QuestionCameDown(Sandbox):
                   message="Claude needs your permission")
         fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
                          last_assistant_message="Which schema should acme use?")
+        self.assertEqual(self.looked(PROMPT, fact)[0], "working")
+        notify.record(SEAT, "done", "Use the second schema.", quiet=True)
+        fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
+                         last_assistant_message="Use the second schema.")
         self.assertNotEqual(self.looked(PROMPT, fact)[0], "working")
         self.hook("UserPromptSubmit", prompt="The second one.")
         self.hook("Notification", notification_type="permission_prompt",

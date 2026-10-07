@@ -289,8 +289,10 @@ def held(launched, payload):
     blocks = record.get("blocks")
     blocks = max(0, blocks) + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
-        notify.record(seat, "needs", notify.STOP_FAILED)
-        return ""    # a recorded question ends the turn; unfinished work stays unfinished
+        notify.shaped("needs", notify.STOP_FAILED, session=seat)
+        if owner_question(notify.last(seat)):
+            return ""    # a recorded question ends the turn; unfinished work stays unfinished
+        return REASON    # persistence failed: no question stands yet
     kept = {"session": launched, "turn": turn, "blocks": blocks}
     tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
     tmp.write_text(json.dumps(kept) + "\n")

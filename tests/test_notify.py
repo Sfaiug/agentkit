@@ -326,6 +326,37 @@ sys.exit(p.returncode)
         self.assertFalse(any(r[0] == "POST" for r in self.requests))
         self.assertEqual(menu.state({"name": "seat"}), "done")
 
+    def test_failed_corrections_after_an_answer_raise_a_new_visible_question(self):
+        for route in ("hook", "tick"):
+            with self.subTest(route=route):
+                self.setUp()
+                self.cli("needs", "Which schema?")
+                notify.answered("seat", time.time())
+                turn = time.time()
+                if route == "hook":
+                    config.stop_path("seat").write_text(json.dumps(
+                        {"session": "seat", "turn": turn, "blocks": 2}) + "\n")
+                    result = subprocess.run(
+                        ["bash", str(REPO / "hooks/orchestrator-stop.sh")],
+                        input=json.dumps({"hook_event_name": "Stop", "background_tasks": []}),
+                        capture_output=True, text=True, env=os.environ, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                else:
+                    notice = notify.last("seat", include_seen=True)
+                    watch.seat_write("seat", state="at_prompt", turn_began=turn,
+                                     stop_said_at=turn - 2 * watch.STALL_WAIT,
+                                     stop_corrections={"notice": notice["time"],
+                                                       "stops": 2, "runs": {}})
+                    pane = (REPO / "tests/fixtures/muse-prompt-pane.txt").read_text()
+                    watch.stop_nudge({"name": "seat"}, "muse", pane, None, [], False,
+                                     lambda _line: None)
+                notify.transition("seat", now=time.time() + 2 * notify.CARD_WAIT)
+                self.assertEqual(sum(r[0] == "POST" for r in self.requests), 2)
+                self.assertEqual(notify.last("seat")["text"], notify.STOP_FAILED)
+                # The bar cuts the row after the question, not before it.
+                self.cli("needs", notify.STOP_FAILED, "--dry-run")
+
     def test_quiet_completion_waits_for_live_and_unfinished_runs(self):
         directory = config.RUNS / "acme-parser"
         directory.mkdir()

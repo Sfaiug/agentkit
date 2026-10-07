@@ -943,7 +943,7 @@ SGR_ALL = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[ -/]*[@-
 PANE_LINES = 15         # how much of a pane's tail says what it is doing
 STALL_WAIT = 180        # how long a stall line has to stand before anything is typed at all
 NUDGE_EVERY = 180       # and at most one keystroke per seat in that many seconds
-PARKED_NUDGES = 2       # corrections before an explicit failure question
+STOP_NUDGES = 2         # corrections before an explicit failure question
 GIVE_UP = 3600          # an hour of it: the user is asked, once, and the nudging stops
 # Unknown logout wording is still a reason to ask, never a reason to type `continue`.
 LOGIN_HINT = re.compile(r"/login\b|\b(?:log[ -]?in|sign[ -]in|logged out|expired|revoked|"
@@ -3142,9 +3142,9 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     the line saying what that session is now and why: a bare keystroke typed first would take
     the prompt that line waits for, and leave the seat deciding without it.
 
-    The same stopped screen receives one nudge. Repeated stops on a parked run receive
-    bounded corrections, then record an explicit failure question rather than silent permission
-    to stop. Only a newer notice resets those counts.
+    The same stopped screen receives one nudge. Repeated stops receive bounded corrections,
+    per parked run or on no recorded ending, then record an explicit failure question.
+    Only a newer notice resets those counts.
 
     The episode is `turn_began` and the output that turn stopped on, both of them stop_marks'
     to say, so a footer that repainted is the same episode and the same words after another
@@ -3199,26 +3199,26 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
               and run_mod.unfinished(record, records)]
     if not parked and (any(going for *_, going in mine) or jobs.job_waiting(name)):
         return
-    nudged = {}
-    if parked:
-        since = (notify.last(name, include_seen=True) or {}).get("time")
-        kept = live.get("parked_nudged")
-        if isinstance(kept, dict) and kept.get("notice") == since and isinstance(
-                kept.get("runs"), dict):
-            nudged = kept["runs"]
-        if all(nudged.get(run, 0) >= PARKED_NUDGES for run in parked):
-            if dry_run:
-                log(f"would ask for help with {name}: {notify.STOP_FAILED}")
-            else:
-                notify.record(name, "needs", notify.STOP_FAILED)
-            return
-        nudged = {"notice": since,
-                  "runs": {**nudged, **{run: nudged.get(run, 0) + 1 for run in parked}}}
     if not parked and waiting_on(name, records):
         return          # it ended its turn on `ak wait`, and that session is working
     if not parked and notice and notice["kind"] == "done" and done_holds(
             name, live, notice, began, said, dry_run):
         return          # it said the job was finished, in the turn that has just ended
+    since = (notify.last(name, include_seen=True) or {}).get("time")
+    kept = live.get("stop_corrections")
+    kept = kept if isinstance(kept, dict) and kept.get("notice") == since else {}
+    runs = kept.get("runs") if isinstance(kept.get("runs"), dict) else {}
+    stops = kept.get("stops", 0)
+    if (all(runs.get(run, 0) >= STOP_NUDGES for run in parked) if parked
+            else stops >= STOP_NUDGES):
+        if dry_run:
+            log(f"would ask for help with {name}: {notify.STOP_FAILED}")
+        else:
+            notify.shaped("needs", notify.STOP_FAILED, session=name)
+        return
+    nudged = {"notice": since,
+              "runs": {**runs, **{run: runs.get(run, 0) + 1 for run in parked}},
+              "stops": stops + (not parked)}
     tail = pane_tail(pane)
     keys = keystroke(harness, tail)
     if dry_run:
@@ -3229,7 +3229,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
             or progress_output(harness, pane_tail(current)) != said):
         return          # it moved, or the seat is the user's again: neither is this rule's
     if type_into(session, keys, log):
-        seat_write(name, stop_nudged=[began, said], **({"parked_nudged": nudged} if nudged else {}))
+        seat_write(name, stop_nudged=[began, said], stop_corrections=nudged)
         log(f"{name}: stopped with no question, no done and no run; typed {keys!r}")
 
 

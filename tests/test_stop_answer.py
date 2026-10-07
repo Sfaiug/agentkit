@@ -132,6 +132,17 @@ class StopAnswer(unittest.TestCase):
         self.assertEqual(notice["kind"], "needs")
         self.assertIn("cannot continue", notice["text"])
 
+    def test_failed_corrections_cannot_stop_until_the_question_is_recorded(self):
+        self.prompt("Fix the parser.")
+        for _ in range(2):
+            self.assertEqual(self.blocked(self.stop())["decision"], "block")
+        path = self.state / f"notify-{SEAT}.json"
+        path.mkdir()   # the declaration cannot replace this directory
+        self.assertEqual(self.blocked(self.stop())["decision"], "block")
+        path.rmdir()
+        self.assertEqual(self.stop(), "")
+        self.assertEqual(json.loads(path.read_text())["kind"], "needs")
+
     def test_a_quiet_answer_leaves_claude_at_its_prompt_after_both_hooks(self):
         self.prompt("Which parser does it use?")
         self.complete_quietly()
