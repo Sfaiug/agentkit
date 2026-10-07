@@ -1126,8 +1126,9 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             # A newer declaration or run can outrank the answer shaped read before this
             # lock. An unchanged word keeps its observed beginning, including the explicit
             # question's clock before shaped advances the hold.
-            if answer is None or answer["word"] != current["word"]:
-                answer = current
+            if answer is not None and answer["word"] == current["word"]:
+                current["since"] = answer.get("since")
+            answer = current
             since = answer.get("since")
             since = since if isinstance(since, (int, float)) and math.isfinite(since) else at
             word = answer["word"]
