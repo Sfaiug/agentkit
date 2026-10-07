@@ -154,7 +154,7 @@ class DryRun(unittest.TestCase):
         self.dry_run(["acme-fix"], "acme-fix")
         self.assertEqual(notice.read_text(), '{"kind": "question", "summary": "merge acme?"}\n')
 
-    def test_every_launch_of_a_seat_in_a_project_carries_its_rules_as_merged_now(self):
+    def test_a_launch_in_a_project_carries_its_rules_and_waits_on_no_network(self):
         def git(cwd, *args):
             subprocess.run(["git", "-C", str(cwd), "-c", "user.name=Acme", "-c",
                             "user.email=acme@example.com", *args], check=True, capture_output=True)
@@ -185,6 +185,7 @@ class DryRun(unittest.TestCase):
 
         self.addCleanup(os.chdir, os.getcwd())
         os.chdir(checkout)
+        # the project's first seat: nothing has fetched it yet, so its launch does
         policy = merged("two")
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.main(["acme-fix"]), 0)
@@ -196,17 +197,23 @@ class DryRun(unittest.TestCase):
                 redirect_stdout(io.StringIO()), self.assertRaisesRegex(config.Error, "no harness"):
             orch.main(["acme-fix", "--model", "gemini"])
         self.assertEqual(config.session_path("acme-fix").read_bytes(), before)
-        # reopened, and moved to another model: each launch fetches what was merged since
+        # reopened, and moved to another model: each launch reads the rules as last fetched,
+        # as every open seat has them, and the tick's fetch brings what was merged since
         cfg = config.load()
         with patch.object(config, "harness_binary", return_value="/bin/true"), \
                 redirect_stdout(io.StringIO()):
-            policy = merged("three")
+            merged("three")
             RESUME(cfg, "acme-fix", hand_over=False)
             handed(policy)
+            orch.fetch_projects()
             policy = merged("four")
             other_model = "mimo" if orch.records()["acme-fix"]["orchestrator"] != "mimo" else "opus"
             self.assertEqual(orch.switch_orchestrator(cfg, "acme-fix", other_model, providers={}), "")
-            handed(policy)
+            handed("Acme release policy three.")
+            # with its origin out of reach it opens all the same, on those rules
+            upstream.rename(upstream.with_name("acme-gone.git"))
+            RESUME(cfg, "acme-fix", hand_over=False)
+            handed("Acme release policy three.")
 
 
 if __name__ == "__main__":
