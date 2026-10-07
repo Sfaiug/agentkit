@@ -232,6 +232,31 @@ watch.waiting_on = during_wait
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
         self.assertEqual(self.stop(), "")
 
+    def test_a_run_started_while_reading_completion_is_a_live_wait(self):
+        (self.home / "sitecustomize.py").write_text(f'''import json, os, time
+from pathlib import Path
+root = Path(os.environ["HOME"]) / ".agentkit"
+original_iterdir, original_read = Path.iterdir, Path.read_text
+censused, started = False, False
+def during_census(path):
+    global censused
+    if path == root / "runs":
+        censused = True
+    return original_iterdir(path)
+def during_completion(path, *args, **kwargs):
+    global started
+    if censused and not started and path == root / "state/notify-{SEAT}.json":
+        started = True
+        directory = root / "runs/late-work"
+        directory.mkdir()
+        (directory / "run.json").write_text(json.dumps({{"run_id": "late-work",
+            "launched_session": {SEAT!r}, "state": "running", "started_at": time.time()}}))
+    return original_read(path, *args, **kwargs)
+Path.iterdir, Path.read_text = during_census, during_completion
+''')
+        self.assertEqual(self.stop(), "")
+        self.assertTrue((self.runs / "late-work/run.json").is_file())
+
     def test_a_seen_current_done_keeps_the_native_stop_policy(self):
         self.notified("done", self.turn + 1)
         path = self.state / f"notify-{SEAT}.json"
