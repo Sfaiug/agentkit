@@ -72,7 +72,7 @@ RULES = [
      "pattern": "claude|codex|muse|opencode|grok|grokbuild|antigravity|gemini|anthropic|openai"
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml"),
-     "max": 194},
+     "max": 192},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     # Every provider word counts, in code or comment, but none of ak's own names: the
@@ -113,7 +113,7 @@ RULES = [
                 r"(\{[^}]*\}|\$\{?[A-Za-z_]+\}?|\*)\.(json|md)"
                 r"|len\([\"'](session|notify|card|seat|hook|compact|stop|plan)-[\"']\)",
      "home": ("agentkit/config.py",),
-     "max": 11},
+     "max": 9},
     # A rename leaves a pointer at the old name, and `config.resolve_session` follows it: a
     # second walk of the chain is one more place to keep in step with how renames chain.
     # The one left is seat-state.sh's jq walk.  OpenCode's own `session.renamed` event is no
