@@ -5623,13 +5623,10 @@ def target_fails(lp, upstream, dw_log):
         if previous[2] or previous[0] != 0:
             lp.log(f"--- merge: `{cmd}` fails on {old_base[:12]} too: needs this branch")
             return ""
-    # indented, so nothing the command printed reads as a heading or a fence of the task
-    printed = "\n".join("    " + line for line in failing_blocks(output).splitlines())
     try:
         lp.repair = start_followups(lp.state, lp.run_dir, lp.log, lp.cfg, repair={
             "command": cmd, "check": f"{cmd}  # once" if heavy_probe else cmd, "sha": tip,
-            "text": f"`{cmd}` fails on {upstream} at {tip}, the target's own tip, whichever "
-                    f"branch runs it. What it printed there:\n\n{printed}"})
+            "text": red_target_text(cmd, upstream, tip, output)})
     except run_record.StopRequested:
         raise
     except Exception as exc:  # noqa: BLE001 - the park matters, not its repair
@@ -5662,6 +5659,15 @@ def failing_blocks(text, cap=OUT_CAP):
     if not named:
         return text[-cap:]
     return named if room <= 0 else f"{named}\n\n... the end of the output:\n{text[-room:]}"
+
+
+def red_target_text(cmd, upstream, tip, output):
+    """What a red target's repair is told: the command, where it fails, and what it printed
+    there, read as a fixer reads a failed check -- indented, so nothing it printed reads as a
+    heading or a fence of the task."""
+    printed = "\n".join("    " + line for line in failing_blocks(output).splitlines())
+    return (f"`{cmd}` fails on {upstream} at {tip}, the target's own tip, whichever branch runs "
+            f"it. What it printed there:\n\n{printed}")
 
 
 def fix_final_check(lp, upstream, text):

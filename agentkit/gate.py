@@ -1226,10 +1226,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
                                                piece.read(), activity, run_dir, log))
                 results[index - 1] = code, piece, killed
-                piece.seek(0, os.SEEK_END)
-                size = piece.tell()
-                piece.seek(max(0, size - run.OUT_CAP))
-                text = piece.read().decode("utf-8", errors="replace").rstrip()
+                piece.seek(0)
+                # every failure the piece printed, then its end: one far from the end is kept
+                text = run.failing_blocks(piece.read().decode("utf-8", errors="replace")).rstrip()
                 # Existing failure diagnostics read the last output; leave a red piece last.
                 (red if code else chunks).append(f"--- AK_SHARD={shard} ---\n"
                     f"[{'killed at the limit' if killed else f'exit {code}'}]\n{text}".rstrip())
@@ -1356,8 +1355,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 if log is not None and run_dir is not None:
                     run.memory_cap_note(run_dir, log)
                 with log_path.open("rb") as progress:
-                    progress.seek(max(offset, log_path.stat().st_size - run.OUT_CAP))
-                    out = progress.read().decode("utf-8", errors="replace")
+                    progress.seek(offset)
+                    out = run.failing_blocks(progress.read().decode("utf-8", errors="replace"))
                 if names_shard(cmd):
                     out = piece_text
                 if heavy and code == SUITE_BUSY and not killed:
@@ -1382,7 +1381,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             if marks is not None:
                 marks.append(None if killed else code)
             chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
-                          f"{out if names_shard(cmd) else out[-run.OUT_CAP:]}".rstrip())
+                          f"{out}".rstrip())
             if first is not None and code == 0:
                 # blank lines dropped: a record is what lies between two, and these are one
                 # both runs read whole from the gate log: the capped `out` starts mid-output
