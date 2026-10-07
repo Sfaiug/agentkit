@@ -196,6 +196,7 @@ if role == "mount":
     subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
     subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
     Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
+    Path("/proc/sys/net/ipv4/ping_group_range").write_text(f"{os.getgid()} {os.getgid()}")
     if sys.argv[3].startswith("dns"):
         resolver = root / "resolv.conf"
         address = "::1" if sys.argv[3] == "dns6" else "127.0.0.53"
@@ -268,7 +269,7 @@ def serve(server, stop, dns=False):
             break
 
 
-probe = r'''import json, os, socket
+probe = r'''import json, os, socket, struct
 from pathlib import Path
 assert [os.getuid(), os.getgid()] == json.loads(os.environ["IDENTITY"])
 Path("written").write_text("own")
@@ -284,6 +285,10 @@ seen = [reaches(socket.AF_INET, (host, int(os.environ["PORT"])))
         for host in ("192.0.2.1", "127.0.0.1", "10.0.2.2")]
 seen.append(reaches(socket.AF_UNIX, "\0acme"))
 seen.append(reaches(socket.AF_INET6, ("::1", int(os.environ["PORT"]))))
+with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP) as client:
+    client.settimeout(2)
+    client.sendto(struct.pack("!BBHHH", 8, 0, 0, 0, 1) + b"acme", ("192.0.2.1", 0))
+    seen.append(client.recv(100)[8:] == b"acme")
 print(json.dumps(seen))
 '''
 stop, threads = threading.Event(), []
@@ -318,9 +323,12 @@ try:
                 threads.append(thread)
             os.environ["PORT"] = str(port)
             os.environ["IDENTITY"] = json.dumps([os.getuid(), os.getgid()])
+            seen = json.loads(subprocess.check_output([sys.executable, "-c", probe],
+                                                     cwd=root, text=True, timeout=10))
+            assert seen == [True, True, False, True, True, True], seen
             for overlay in (False, True):
                 seen = boxed(probe, overlay)
-                assert seen == [True, False, False, False, False], seen
+                assert seen == [True, False, False, False, False, True], seen
                 assert (root / "written").stat().st_uid == os.getuid()
                 assert (root / "written").stat().st_gid == os.getgid()
             # Stop the supervisor across pasta's PID namespace and let the command

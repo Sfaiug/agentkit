@@ -335,7 +335,7 @@ def _network(cmd, env, out_dir=None, info=None):
     if info is not None:
         # Pasta closes extra descriptors. Open the witness after it starts;
         # the box's private /tmp hides this file from the command.
-        cmd = ["sh", "-c", 'exec 3>"$1"; shift; exec "$@"', "box", info, *cmd]
+        cmd = [_host_binary("sh"), "-c", 'exec 3>"$1"; shift; exec "$@"', "box", info, *cmd]
     if not (routes or routes6):
         yield [*cmd, "--unshare-net"]
         return
@@ -371,7 +371,12 @@ def _network(cmd, env, out_dir=None, info=None):
     for version, address in hosts.items():
         prefix.extend(["--dns-forward", "10.0.2.3" if version == 4 else "fd00::3",
                        "--dns-host", address])
-    prefix.extend([setpriv, "--inh-caps=-all", "--ambient-caps=-all"])
+    # Pasta's default ping group is root. Allow the account's gid before
+    # dropping capabilities, so ICMP echo works with the preserved identity.
+    prefix.extend([_host_binary("sh"), "-c",
+                   'printf "%s %s" "$1" "$1" > /proc/sys/net/ipv4/ping_group_range; '
+                   'shift; exec "$@"', "box", str(os.getgid()),
+                   setpriv, "--inh-caps=-all", "--ambient-caps=-all"])
     # In an enclosing box, the host's pasta may be unable to start a command
     # (for example an AppArmor exec transition under no_new_privs).
     with subprocess.Popen([*prefix, "/usr/bin/true"], env=env,
