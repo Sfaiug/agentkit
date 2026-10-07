@@ -289,6 +289,12 @@ class Seat(unittest.TestCase):
                 sent = []
 
                 def owner(test, proc, master, data=data):
+                    # The owner reaches the seat after its turn ended: wait for the harness's
+                    # own record of that, so a slow start under load never puts the input first.
+                    record = test.root / f"typed-{test.seats}.jsonl"
+                    deadline = time.monotonic() + 10
+                    while '"turn_end"' not in record.read_text() and time.monotonic() < deadline:
+                        time.sleep(0.02)
                     os.write(master, data)
                     sent.append(time.time())
 
