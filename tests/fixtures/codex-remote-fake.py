@@ -147,6 +147,10 @@ else:
     assert 'AGENTKIT_CODEX_RECEIPT' not in os.environ
     assert '--dangerously-bypass-hook-trust' not in args
     (home / 'last-command.json').write_text(json.dumps(args))
+    if 'resume' in args and '--yolo' in args:    # Codex 0.160.1's own refusal
+        print('Error: Permission overrides are not supported when resuming a remote task.',
+              file=sys.stderr)
+        sys.exit(1)
     Client = runpy.run_path(str(repo / 'tools/codex-seat.py'))['Client']
     client = Client(args[args.index('--remote') + 1].removeprefix('unix://'))
     try:

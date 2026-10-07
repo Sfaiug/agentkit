@@ -368,8 +368,11 @@ def connected(cmd, home, alive):
                 if proc.poll() is not None:
                     raise config.Error(f"Codex seat server did not start; see {home / 'server.log'}")
                 time.sleep(.05)
-            # --remote is global and must precede the resume subcommand.
-            tui = subprocess.Popen([cmd[0], "--remote", "unix://" + str(path), *cmd[1:]], env=env)
+            # --remote is global and must precede the resume subcommand. The server above
+            # holds the seat's permissions; since 0.160 a remote resume whose TUI asks for
+            # its own is refused.
+            tui = subprocess.Popen([cmd[0], "--remote", "unix://" + str(path),
+                                    *(word for word in cmd[1:] if word != "--yolo")], env=env)
             with (home / "connection.json").open("w") as fh:
                 json.dump({"socket": str(path)}, fh)
             check_at = 0
