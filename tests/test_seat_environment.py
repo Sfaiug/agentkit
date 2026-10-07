@@ -15,6 +15,10 @@ from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, statusbar
 
 
+ROOTS = ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "GROK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+         "XDG_STATE_HOME", "XDG_CACHE_HOME", "OPENCODE_CONFIG_DIR", "OPENCODE_DB", "OPENCODE_CONFIG")
+
+
 HARNESS = '''
 import json, os, sys
 sys.path.insert(0, sys.argv[1])
@@ -40,7 +44,7 @@ class SeatEnvironment(Sandbox):
         (config.SECRETS / "discord_webhook").write_text("http://acme.invalid/hook")
         self.server_home = self.root / "old-server-home"
         self.server_home.mkdir()
-        self.roots = sorted(config.state_env_names())
+        self.roots = ROOTS
         for key in self.roots:
             os.environ.pop(key, None)
         self.server_roots = {key: str(self.server_home / key.lower()) for key in self.roots}
