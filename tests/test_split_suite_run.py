@@ -60,7 +60,7 @@ class SplitSuiteRun(unittest.TestCase):
             output.write(b"fixture suite\n")
             return code, "", killed
         with patch.object(gate.time, "monotonic", side_effect=lambda: self.clock), \
-                patch.object(worker, "limited", side_effect=limited):
+                patch.object(worker, "boxed", side_effect=limited):
             gate.run_done_when([command], self.lp.wt, self.run_dir / "gate.log", set(),
                                limit=1000, run_dir=self.run_dir, heavy=True)
         return gate.suite_cost(command, self.lp.wt, self.run_dir)[0]

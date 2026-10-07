@@ -127,7 +127,7 @@ class SuitePieces(unittest.TestCase):
         def limited(cmd, limit, env, **_kw):
             calls.append(env.get("AK_SHARD"))
             return 0, "", False
-        with patch.object(worker, "limited", side_effect=limited), \
+        with patch.object(worker, "boxed", side_effect=limited), \
                 patch.dict(os.environ, {"AK_SHARD": "2/8"}):
             self.assertTrue(self.check(["true"])[0])
         self.assertEqual(calls, [None])
@@ -299,7 +299,7 @@ class SuitePieces(unittest.TestCase):
             with lock:
                 active.remove(shard)
             return (1 if attempt == 1 else 0), "", False
-        with patch.object(worker, "limited", side_effect=limited):
+        with patch.object(worker, "boxed", side_effect=limited):
             ok, text = self.check()
         self.assertTrue(ok, text)
         self.assertEqual(calls, {"1/2": 2, "2/2": 2})
@@ -318,7 +318,7 @@ class SuitePieces(unittest.TestCase):
             calls[shard] += 1
             output.write(f"{'FAIL: broken' if shard == '2/2' else 'passed'}\n".encode())
             return int(shard == "2/2"), "", False
-        with patch.object(worker, "limited", side_effect=limited):
+        with patch.object(worker, "boxed", side_effect=limited):
             ok, text = self.check()
         self.assertFalse(ok)
         self.assertEqual(calls, {"1/2": 1, "2/2": 2})
@@ -335,7 +335,7 @@ class SuitePieces(unittest.TestCase):
             output.write(("FAIL: broken\n" if shard == "1/2" else
                           "FAIL: timing\n" if code else "passed\n").encode())
             return code, "", False
-        with patch.object(worker, "limited", side_effect=limited):
+        with patch.object(worker, "boxed", side_effect=limited):
             ok, text = self.check()
         self.assertFalse(ok)
         self.assertEqual(calls, {"1/2": 2, "2/2": 2})
@@ -352,7 +352,7 @@ class SuitePieces(unittest.TestCase):
             code = (1, 75, 0)[min(calls[shard] - 1, 2)] if shard == "2/2" else 0
             output.write(f"{'FAIL: timing' if code == 1 else 'busy' if code == 75 else 'passed'}\n".encode())
             return code, "", False
-        with patch.object(worker, "limited", side_effect=limited), \
+        with patch.object(worker, "boxed", side_effect=limited), \
                 patch.object(gate, "busy_turn", return_value=0) as busy:
             ok, text = self.check()
         self.assertTrue(ok, text)
@@ -376,7 +376,7 @@ class SuitePieces(unittest.TestCase):
             seen.append((env["AK_SHARD"], gate._heavy_running(), env.get("AK_HEAVY_TURN")))
             return (1 if len(seen) <= 2 else 0), "", False
         with patch.dict(os.environ, {"AK_MAX_RUNS": ""}), \
-                patch.object(worker, "limited", side_effect=limited):
+                patch.object(worker, "boxed", side_effect=limited):
             (config.HOME / config.CONFIG_NAME).write_text("max_gates = 9\n")
             ok, text = self.check()
         self.assertTrue(ok, text)
