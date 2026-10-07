@@ -2172,12 +2172,14 @@ def fetch_project(repo):
     the clone's own refspec follows, then `origin/HEAD` pointed again at the branch origin calls
     default, created where the checkout has none and moved where origin changed it.  Only
     `repo`'s own repository (`run.project_env`): a path whose `.git` is gone or is none
-    fails."""
+    fails.  The rules are read once here: a partial clone's fetch leaves their file at origin
+    until something reads it, and neither a launch nor a prompt is to wait on origin for it."""
     from . import run
     env = run.project_env(repo)
     run.fetch(repo, "--quiet", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*",
               check=True, env=env)
     run.git(repo, "remote", "set-head", "origin", "--auto", env=env)
+    run.agents_body(repo, "refs/remotes/origin/HEAD")
 
 
 def fetched(repo):
