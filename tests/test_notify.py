@@ -104,6 +104,74 @@ class Notifications(unittest.TestCase):
         between()
         notify.progress("seat", lambda: "Fresh output after the answer", None)
 
+    def interleaved_declarations(self, kind, text, newer):
+        """A newer declaration reaches publication while the older answer waits."""
+        old_ready, new_ready, old_finished = (threading.Event() for _ in range(3))
+        transition = notify.transition
+
+        def interleave(*args, **kwargs):
+            if threading.current_thread().name.startswith("old-decision"):
+                old_ready.set()
+                if not new_ready.wait(10):
+                    raise RuntimeError("new declaration did not reach publication")
+                try:
+                    return transition(*args, **kwargs)
+                finally:
+                    old_finished.set()
+            new_ready.set()
+            if not old_finished.wait(10):
+                raise RuntimeError("old publication did not finish")
+            return transition(*args, **kwargs)
+
+        with patch.object(notify, "transition", side_effect=interleave), \
+                patch.object(notify, "terminal_notice"):
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="old-decision") as pool:
+                old = pool.submit(notify.shaped, kind, text, session="seat")
+                try:
+                    self.assertTrue(old_ready.wait(10))
+                    newer()
+                    self.assertEqual(old.result(10), 0)
+                finally:
+                    new_ready.set()
+
+    def cards(self, kind):
+        return [payload for method, _, payload in self.requests
+                if method == "POST" and payload["embeds"][0]["title"]
+                == f"{notify.TITLES[kind]} · seat"]
+
+    def test_a_cached_done_cannot_announce_a_running_job(self):
+        self.assertEqual(notify.shaped("needs", "Which API route?", session="seat"), 0)
+        pending = config.RUNS / "acme-run"
+        state = {"run_id": pending.name, "state": "running", "launched_session": "seat",
+                 "started_at": time.time(), "pid": 0}
+
+        def newer():
+            pending.mkdir()
+            (pending / "run.json").write_text(json.dumps(state))
+            self.assertEqual(notify.shaped("done", "Export ready pending its run",
+                                           session="seat"), 0)
+
+        self.interleaved_declarations("done", "Old API handback", newer)
+        self.assertEqual(len(self.cards("done")), 0)
+        state.update(state="pass", verdict="PASS", reported=True, finished_at=time.time())
+        (pending / "run.json").write_text(json.dumps(state))
+        self.assertEqual(notify.transition("seat"), 0)
+        self.assertEqual(len(self.cards("done")), 1)
+
+    def test_a_cached_done_cannot_replace_a_new_question(self):
+        self.interleaved_declarations("done", "Old API handback", lambda:
+            self.assertEqual(notify.shaped("needs", "Which export format?", session="seat"), 0))
+        self.assertEqual(len(self.cards("done")), 0)
+        self.assertEqual(len(self.cards("needs")), 1)
+        self.assertEqual(notify.last("seat")["text"], "Which export format?")
+
+    def test_a_cached_question_cannot_page_for_completed_work(self):
+        self.interleaved_declarations("needs", "Which API route?", lambda:
+            self.assertEqual(notify.shaped("done", "API shipped", session="seat"), 0))
+        self.assertEqual(len(self.cards("needs")), 0)
+        self.assertEqual(len(self.cards("done")), 1)
+        self.assertEqual(notify.last("seat")["text"], "API shipped")
+
     def test_lifecycle_and_approved_payload(self):
         self.cli("needs", "Merge PR #7? yes/no")
         self.assertEqual(self.requests[0][0:2], ("POST", "/hook?thread_id=42&wait=true"))
