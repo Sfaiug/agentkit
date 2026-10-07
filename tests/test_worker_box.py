@@ -109,6 +109,7 @@ SOCKETS = r'''import json, os, socket, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
 from fixtures.sandbox import account_home
 account_home(os.environ["HOME"]).start()
 work, role, places = Path(os.environ["BOX_WORK"]), sys.argv[1], [Path(path) for path in sys.argv[2:]]
@@ -183,6 +184,7 @@ SHM = r'''import json, os, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
 from fixtures.sandbox import account_home
 account_home(os.environ["HOME"]).start()
 root = Path(sys.argv[1])
@@ -228,6 +230,7 @@ if sys.argv[1] == "mount":
                          sys.executable, __file__, "host", str(root)])
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
 from fixtures.sandbox import account_home
 account_home(os.environ["HOME"]).start()
 paths = ["/etc/resolv.conf", "/run/acme/first", "/run/acme/linked/resolver",
@@ -338,6 +341,7 @@ if sys.argv[1] == "mount":
                          sys.executable, __file__, "host", str(root)])
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
 from fixtures.sandbox import account_home
 account_home(os.environ["HOME"]).start()
 secrets = ("fixture-key", "fixture-folder-key", "fixture-git-store", "fixture-gh-login",
