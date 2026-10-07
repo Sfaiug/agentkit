@@ -1,0 +1,41 @@
+#!/bin/sh
+# The body of every PATH shim (each tools/<name>-shim is a link here, and `guard.install_shim` links
+# it as <HOME>/bin/<name>, first on a seat's PATH): a seat's own call is asked of agentkit/guard.py,
+# which may refuse it; everything else, and every failure, runs the real <name>.  sh, not Python:
+# git is hot, and a Python start costs twenty times git's own call, so no seatless or worker call
+# -- ak's own work, a test's sandbox -- pays for one.
+name=${0##*/}
+name=${name%-shim}
+# The real <name>: the first file on PATH after this shim's own, so a wrapper ahead of it that calls
+# it never loops and one after it chains on; with this shim's own off PATH, the first that is not it.
+set -f
+IFS=:
+past= first= real=
+for dir in $PATH; do
+    [ -n "$dir" ] && [ -f "$dir/$name" ] && [ -x "$dir/$name" ] || continue
+    if [ "$dir/$name" -ef "$0" ]; then
+        past=1
+    elif [ -n "$past" ]; then
+        real=$dir/$name
+        break
+    else
+        first=${first:-$dir/$name}
+    fi
+done
+unset IFS
+set +f
+[ -n "$past" ] || real=$first
+if [ -z "$real" ]; then
+    echo "$name-shim: no real $name on PATH" >&2
+    exit 127
+fi
+# A seat's own call only: a worker (AK_RUN_ROLE=worker) and whatever runs seatless pass.  The guard
+# comes from this shim's own checkout, never the one the seat stands in (PYTHONSAFEPATH), and only
+# its refusal (`guard.REFUSED`, 3) stops the call: a guard that fails or will not import stops none.
+if [ -n "$AGENTKIT_SESSION" ] && [ "$AK_RUN_ROLE" != worker ]; then
+    shim=$(readlink "$0") || shim=$0
+    PYTHONSAFEPATH=1 PYTHONPATH="${shim%/tools/*}${PYTHONPATH:+:$PYTHONPATH}" \
+        python3 -m agentkit.guard "$name" "$real" "$@"
+    [ $? = 3 ] && exit 1
+fi
+exec "$real" "$@"

@@ -1,4 +1,5 @@
-"""What a seat's tmux may not do: end another seat, or type into it.
+"""What a seat's tmux may not do: end another seat, or type into it; and where its git may not
+make a checkout: in ~/code, which holds only the owner's checkouts (`worktree_refusal`).
 
 A `tmux` shim first on a seat's PATH (tools/tmux-shim) runs every tmux call the seat makes, with
 the final argv bash has already built -- `$(...)`, `$variables`, comments, backslash
@@ -33,13 +34,15 @@ them.  Like the tmux guard, this catches the merge a seat reflexively types, not
 to get round it; out of reach, by design: merging through gh's API (`gh api ... pulls/N/merge`, or a
 GraphQL `mergePullRequest`), a user's gh alias for `pr merge`, and gh reached by an absolute path.
 
-Every shim runs through `agentkit.shim` (which imports the guard lazily, so a guard it cannot
-import stops no seat's command), and `install_shim` links each `tools/<name>-shim` as
-`<HOME>/bin/<name>`, so a new shim needs no change there.
+Every shim is one sh body, tools/shim (each `tools/<name>-shim` links to it, and `install_shim` links
+each as `<HOME>/bin/<name>`): it runs the real binary at once for a worker and for whatever runs
+seatless, and asks `main` here only for a seat's own call, so no hot call pays for a Python start.
+A new shim is a link to that body and an entry in `REFUSALS`.
 """
 
 import os
 import subprocess
+import sys
 
 from . import config
 
@@ -275,8 +278,65 @@ def gh_refusal(args, gh="gh"):
             "checks. Leave it to land through the line; a seat runs no `gh pr merge` of its own.")
 
 
+# git's options before its command that take the next word as their value
+GIT_VALUED = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env",
+              "--super-prefix", "--attr-source")
+
+
+def worktree_refusal(args, git="git"):
+    """Why a seat's git call (its argv after `git`) may not run, or None: a `git worktree add`
+    whose new checkout lands in ~/code, which holds only the owner's checkouts (owner, 5 Oct) -- a
+    seat's goes under ~/.agentkit/wt.  The path is read as git reads it: from the working directory
+    and every `-C` before the command, past `worktree add`'s options (`-b`, `-B` and `--reason`
+    take a value).  An alias of `worktree add`, or a git reached by its absolute path, passes."""
+    base, i = os.getcwd(), 0
+    while i < len(args) and args[i].startswith("-"):
+        if args[i] == "-C" and i + 1 < len(args):
+            base = os.path.join(base, args[i + 1])
+        i += 2 if args[i] in GIT_VALUED else 1
+    if args[i:i + 2] != ["worktree", "add"]:
+        return None
+    from . import worktrees        # only now: every seat's git call starts this guard
+    rest, j = args[i + 2:], 0
+    while j < len(rest) and rest[j].startswith("-") and rest[j] not in ("-", "--"):
+        word, j = rest[j], j + 1
+        if word == "--reason":
+            j += 1
+        elif not word.startswith("--"):
+            for at, letter in enumerate(word[1:]):
+                if letter in "bB":            # its value rides in this word, or is the next one
+                    j += not word[at + 2:]
+                    break
+    j += j < len(rest) and rest[j] == "--"
+    if j >= len(rest) or not worktrees.under_code(os.path.join(base, rest[j])):
+        return None
+    return (f"ak refused `git worktree add {rest[j]}`: ~/code holds only the owner's checkouts. "
+            f"Make a seat's checkout under ~/.agentkit/wt/ instead: "
+            f"`git worktree add ~/.agentkit/wt/<name> ...`.")
+
+
+# What each shim asks: its refusal, called with the call's argv and the real binary's path.
+REFUSALS = {"tmux": refusal, "gh": gh_refusal, "git": worktree_refusal}
+REFUSED = 3            # an exit code Python itself never ends with: only a refusal stops a call
+
+
+def main(args):
+    """`python3 -m agentkit.guard NAME REAL ARGS...`, from tools/shim for a seat's own call:
+    `REFUSED` with the refusal, else 0 -- a guard that fails, or one that will not even import,
+    stops no seat's command."""
+    try:
+        name, real, *rest = args
+        reason = REFUSALS[name](rest, real) if name in REFUSALS else None
+    except Exception:
+        reason = None
+    if reason:
+        sys.stderr.write(reason + "\n")
+        return REFUSED
+    return 0
+
+
 def shim_dir():
-    """The directory whose `tmux` and `gh` are the shims: first on every seat's PATH."""
+    """The directory whose `tmux`, `gh` and `git` are the shims: first on every seat's PATH."""
     return config.HOME / "bin"
 
 
@@ -299,3 +359,7 @@ def install_shim():
         tmp.symlink_to(target)
         os.replace(tmp, link)
     return link_dir
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
