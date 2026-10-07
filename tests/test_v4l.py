@@ -380,9 +380,8 @@ class Babysitter(unittest.TestCase):
         self.typed.assert_not_called()
         self.notified.assert_not_called()
         # v4x: opening via the alias records a baseline; reading an owner question
-        # does not answer it. Where the harness reports no prompts, only fresh output after
-        # the open clears the live latch (where it does, his prompt is the answer).
-        self.harness = "muse"
+        # does not answer it, nor does the seat's output after the open: his prompt does,
+        # and clears the live latch with it.
         orch.seen_by_user("old")
         self.data = watch.load_state()
         self.assertGreater(self.data["seen_at"]["seat"], saved["seen_at"]["seat"])
@@ -396,12 +395,17 @@ class Babysitter(unittest.TestCase):
         self.tail = "Reading the next file"
         self.tick(1)
         watch.save_state(self.data)
+        self.assertEqual(watch.load_state()["stalls"]["seat"], {"since": 2, "told": 20})
+        self.assertEqual(watch.notify.last("seat"), opened)
+        watch.notify.answered("seat", self.now + 1)
+        self.tick(1)
+        watch.save_state(self.data)
         watch.save_state(stale)
         self.assertNotIn("seat", watch.load_state()["stalls"])
         self.assertIsNone(watch.notify.last("seat"))
         resolved = watch.notify.last("seat", include_seen=True)
         self.assertEqual(resolved["opened_at"], opened["opened_at"])
-        self.assertGreater(resolved["last_progress_at"], resolved["opened_at"])
+        self.assertGreater(resolved["answered_at"], resolved["opened_at"])
         self.typed.assert_not_called()
         self.notified.assert_not_called()
 

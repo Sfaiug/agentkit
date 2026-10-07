@@ -441,7 +441,8 @@ def answered(session, at):
     cannot reopen it. The background look checks the pane and waits for this lock; card
     delivery stays with the tick. Watcher alerts end through their own recovery rules.
     With no question notice standing, the needs you only the screen said -- a dialog, a
-    waiting prompt -- is what was answered, and its card keeps the answer.
+    waiting prompt -- is what was answered, and its card keeps the answer.  An answered
+    question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
     """
     with session_lock(session) as session:
         previous = last(session)
@@ -453,9 +454,12 @@ def answered(session, at):
                 _card_write(session, {**card, "answered_at": at})
             return
         previous["answered_at"] = at
-        if resolved(previous):
-            record(session, previous["kind"], previous["text"],
-                   **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
+        if not resolved(previous):
+            return
+        record(session, previous["kind"], previous["text"],
+               **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
+    from . import watch    # here, not at the top: watch imports this module
+    watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
 
 
 def job_done(notice):
