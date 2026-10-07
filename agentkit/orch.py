@@ -1760,6 +1760,16 @@ def seat_command(name, cmd, socket=None):
     return shlex.join(["sh", str(path)])
 
 
+def seat_env(name, server):
+    """A pane gets the caller's state and delivery boundary, not its server's old one."""
+    from . import notify
+    values = {"HOME": str(Path.home()), config.SESSION_ENV: name, SOCKET_ENV: server}
+    for key in (notify.SINK_ENV, notify.SINK_LOG_ENV,
+                "AGENTKIT_DISCORD_WEBHOOK", "AGENTKIT_DISCORD_USER_ID"):
+        values[key] = os.environ.get(key, "")
+    return [arg for key, value in values.items() for arg in ("-e", f"{key}={value}")]
+
+
 def start(name, cwd, cmd, orchestrator):
     """Create the seat detached with AGENTKIT_SESSION in its environment, and mark it as ours.
 
@@ -1769,10 +1779,7 @@ def start(name, cwd, cmd, orchestrator):
     or, for a seat that was never given one, fresh.  Only `ak orch stop` ends a seat.
     """
     conf = tmux_conf()
-    env = ["-e", f"{config.SESSION_ENV}={name}"]
-    if os.environ.get(SOCKET_ENV):
-        # the seat's own `ak` -- and the menu its Ctrl-b m opens -- has to reach this server
-        env += ["-e", f"{SOCKET_ENV}={os.environ[SOCKET_ENV]}"]
+    env = seat_env(name, socket_name())
     # First, into whatever server is already up: `-f` is read only by the command that starts
     # one, and `remain-on-exit` has to be in force before the seat exists, not a moment after --
     # a harness that exits as it starts would otherwise take the session with it.  On a server
@@ -2120,7 +2127,7 @@ def _start_harness(name, model, cwd, cmd, session):
                                  socket=server)
             if rc or owner != name:
                 target = f"={name}:"
-        rc, out = tmux_out("respawn-pane", "-k", "-t", target,
+        rc, out = tmux_out("respawn-pane", "-k", "-t", target, *seat_env(name, server),
                            seat_command(name, cmd, server), socket=server, path_shim=True)
         if rc != 0:
             config.seat_file("launch", name).unlink(missing_ok=True)
