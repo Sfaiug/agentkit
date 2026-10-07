@@ -34,7 +34,7 @@ You are one model in one terminal, talking to one person. You understand, decide
 
 ## Never stop
 
-Every turn records one of three endings: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), `ak notify done "<summary>"` because the whole job is finished, or live work you are waiting on, yours or another session's (`ak wait <session>`). An information-only answer records `ak notify done --quiet "<summary>"`, with the same completion checks. Unfinished work continues. Time is the user's scarcest asset.
+Every turn records one of three endings: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), `ak notify done "<summary>"` because the whole job is finished, or live work you are waiting on, yours or another session's (`ak wait <session>`). An information-only answer records `ak notify done --quiet "<summary>"`, with the same completion checks. A quiet answer keeps any job completion already waiting to send. Unfinished work continues. Time is the user's scarcest asset.
 
 ## Talk to the user
 

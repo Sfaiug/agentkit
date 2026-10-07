@@ -1292,11 +1292,20 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     # carries it there, in a field of its own: it answered only the one replaced.
                     extra["earlier_answer_at"] = earlier
                 if kind == "done":
-                    if quiet:
-                        extra["quiet"] = True
-                    extra["runs"] = [directory.name for directory, state in menu.run_records()
-                                     if run.launched_session(state) == name and
-                                     (run.going(state) or run.unfinished(state))]
+                    if (quiet and previous and previous["kind"] == "done"
+                            and not previous.get("quiet") and not previous.get("seen")
+                            and not _carded(name, previous)):
+                        # The new turn's quiet ending cannot withdraw the job's pending
+                        # completion. Refresh its time, keeping its summary and delivery.
+                        text = previous["text"]
+                        extra = {k: v for k, v in previous.items()
+                                 if k not in ("session", "kind", "text", "time")}
+                    else:
+                        if quiet:
+                            extra["quiet"] = True
+                        extra["runs"] = [directory.name for directory, state in menu.run_records()
+                                         if run.launched_session(state) == name and
+                                         (run.going(state) or run.unfinished(state))]
                 record(name, kind, text, **extra)
                 if event_id is None:
                     watch.seat_write(name, wait=None)   # the seat's newer word ends its `ak wait`

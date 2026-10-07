@@ -371,6 +371,32 @@ sys.exit(p.returncode)
                                  r[2]["embeds"][0]["title"] == "Done · seat"
                                  for r in self.requests))
 
+    def test_quiet_answers_preserve_a_job_completion_waiting_for_its_run(self):
+        directory = config.RUNS / "acme-parser"
+        directory.mkdir()
+        path = directory / "run.json"
+        state = {"run_id": directory.name, "launched_session": "seat", "state": "running",
+                 "started_at": time.time() - 60}
+        path.write_text(json.dumps(state))
+        self.cli("done", "Parser fix merged.", "--pr", "https://example.invalid/pr/7")
+        pending = notify.last("seat")
+        for _ in range(2):
+            turn = time.time()
+            self.cli("done", "The parser caches its schema.", "--quiet")
+            self.assertGreater(notify.last("seat")["time"], turn)
+            self.assertEqual(notify.last("seat")["text"], pending["text"])
+            self.assertEqual(notify.last("seat")["pr"], pending["pr"])
+            self.assertEqual(notify.last("seat")["runs"], pending["runs"])
+            self.assertFalse(any(r[0] == "POST" for r in self.requests))
+        path.write_text(json.dumps({**state, "state": "done", "finished_at": time.time()}))
+        notify.transition("seat")
+        notify.retry_pending(log=lambda _line: None)
+        self.assertEqual([r[2]["embeds"][0]["title"] for r in self.requests if r[0] == "POST"],
+                         ["Done · seat"])
+        self.cli("done", "Explained the cache.", "--quiet")
+        notify.transition("seat")
+        self.assertEqual(sum(r[0] == "POST" for r in self.requests), 1)
+
     def test_quiet_preview_records_nothing_and_needs_cannot_be_quiet(self):
         result = self.cli("done", "An answer", "--quiet", "--dry-run")
         self.assertEqual(json.loads(result.stdout), {
