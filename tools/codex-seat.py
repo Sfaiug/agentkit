@@ -27,7 +27,7 @@ from agentkit import config, notify
 from agentkit.harness.codex import main
 
 
-SEATS = "agentkit-seats"         # under a Codex home: each seat's conversations, by its remote id
+SEATS = "agentkit-seats"         # under ~/.codex: each seat's conversations, by its remote id
 CONVERSATIONS = ("sessions", "archived_sessions")
 
 
@@ -43,13 +43,14 @@ def seat_home(receipt):
     # lets a second seat take the first seat's remote connection. A new database
     # imports every conversation under its home's sessions and archived_sessions
     # before the server listens (3,500 kept a seat blank for a minute), so those are
-    # the seat's own, in a directory beside the shared ones that outlives its home.
-    # A home made before keeps the links it has. The login, config, extensions and
-    # thread names stay shared.
-    own = source / SEATS / data["remote"]
+    # the seat's own, in a directory that outlives its home: under the usual ~/.codex,
+    # where every login's conversations are (adapters/codex.sh `home`), whichever login
+    # it runs on. A home keeps the links it has, made before or on another login. The
+    # login, config, extensions and thread names stay shared.
+    own = Path.home() / ".codex" / SEATS / data["remote"]
     for name in CONVERSATIONS:
-        (own / name).mkdir(mode=0o700, parents=True, exist_ok=True)
         if not (home / name).is_symlink() and not (home / name).exists():
+            (own / name).mkdir(mode=0o700, parents=True, exist_ok=True)
             (home / name).symlink_to(own / name, target_is_directory=True)
     names = {p.name for p in source.iterdir()} if source.exists() else set()
     names.update(("auth.json", "config.toml", "session_index.jsonl"))

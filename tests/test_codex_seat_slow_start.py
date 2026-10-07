@@ -165,16 +165,23 @@ class SlowStart(unittest.TestCase):
         rollout.write_text('{"type":"session_meta"}\n')
         self.api['remove_home'](self.home)
         self.assertFalse(self.home.exists())
-        kept = list(self.source.rglob('rollout-acme-seat.jsonl'))
+        kept = list((self.root / '.codex').rglob('rollout-acme-seat.jsonl'))
         self.assertEqual([path.read_text() for path in kept], ['{"type":"session_meta"}\n'])
 
-    def test_a_seats_conversations_stay_under_its_logins_codex_home(self):
-        # a seat opened on any subscription keeps them in that login's own Codex home
+    def test_a_seats_conversations_stay_in_one_place_whichever_login_it_runs_on(self):
         rollout = self.home / 'sessions' / '2026' / 'rollout-acme-seat.jsonl'
         rollout.parent.mkdir(parents=True)
         rollout.write_text('{"type":"session_meta"}\n')
-        self.assertEqual(rollout.resolve(), self.source / 'agentkit-seats' / 'acme-seat' /
-                         'sessions' / '2026' / 'rollout-acme-seat.jsonl')
+        kept = self.root / '.codex' / 'agentkit-seats' / 'acme-seat'
+        self.assertEqual(rollout.resolve(), kept / 'sessions' / '2026' / 'rollout-acme-seat.jsonl')
+        # its subscription runs out and it moves to another login's Codex home: same place,
+        # and no empty one made beside that login's
+        other = self.root / '.codex-acme'
+        other.mkdir()
+        with patch.dict(os.environ, CODEX_HOME=str(other)):
+            self.assertEqual(self.api['seat_home'](self.root / 'receipt.json'), self.home)
+        self.assertEqual(rollout.resolve(), kept / 'sessions' / '2026' / 'rollout-acme-seat.jsonl')
+        self.assertEqual(list(other.rglob('agentkit-seats')), [])
 
     def test_the_handover_reads_a_removed_seats_last_exchange(self):
         from agentkit.harness import codex
