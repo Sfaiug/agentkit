@@ -12,6 +12,9 @@ max_runs = 0              # no count cap; host memory and ak's CPU pressure are 
 pace_margin = 10          # the one knob: a subscription more than this far ahead of pace no
                           # longer keeps a payg provider out; workers rank on budget, not on
                           # pace, and the orchestrator choice reads neither
+# live_host = "<alias>" is the ssh alias of your live/deploy host a seat may not scp/rsync/sftp a file
+# onto (it reaches the live host through the repo). ak ships with none set, so no transfer is guarded
+# until you name your own host here; your deploy host is yours, and ak does not guess it.
 
 # Every [models.*] entry whose provider has a [providers.*] table can orchestrate and can work.
 # [defaults] is what a new seat takes with Enter, and what anything outside a seat works with.

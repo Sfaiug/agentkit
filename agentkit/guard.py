@@ -1,5 +1,6 @@
-"""What a seat's tmux may not do: end another seat, or type into it; and where its git may not
-make a checkout: in ~/code, which holds only the owner's checkouts (`worktree_refusal`).
+"""What a seat's tmux may not do: end another seat, or type into it; where its git may not make a
+checkout: in ~/code, which holds only the owner's checkouts (`worktree_refusal`); and where its
+scp/rsync/sftp may not put a file: on the live server (`transfer_refusal`).
 
 A `tmux` shim first on a seat's PATH (tools/tmux-shim) runs every tmux call the seat makes, with
 the final argv bash has already built -- `$(...)`, `$variables`, comments, backslash
@@ -33,6 +34,21 @@ own merges (the lander, a review run, `merge_own_pr`) run seatless, so the shim 
 them.  Like the tmux guard, this catches the merge a seat reflexively types, not a seat that means
 to get round it; out of reach, by design: merging through gh's API (`gh api ... pulls/N/merge`, or a
 GraphQL `mergePullRequest`), a user's gh alias for `pr merge`, and gh reached by an absolute path.
+
+`scp`/`rsync`/`sftp` shims on the same PATH refuse a transfer that WRITES to the live host; a read
+FROM live runs, as the rulebook has a seat operate live freely, editing no file there.
+`config.live_host()` names it: `live_host` in config.toml, the owner's own deploy host -- ak ships with
+no alias for it and guards none until the owner names theirs (not `config.server_alias()`, the ak
+coordination server, a different machine).  A file reaches the live host only through the repo, never a
+seat's hand.  scp/rsync write to an operand after the first (the first operand is a download's source,
+which runs); a live spec in any later operand is a write and is refused.  Testing by position, not by
+the last operand, catches a write a trailing `--exclude x` or `-e ssh` (rsync permutes its options)
+would hide from a last-word rule, and needs no list of each tool's value-taking options -- parsing
+those out only re-derives their grammars (AGENTS #520).  sftp connects to its host operand, so a live
+host there is refused.  Out of reach, by design and named: a download whose first operand is a
+value-option's argument (`scp -i key live:/x .`), and a write run inside `ssh live "<command>"`, whose
+remote shell tokenizes the command the shim never sees.  A transfer to any other host, a read from
+live, and any transfer when the seat reaches no live host, run.
 
 Every shim is one sh body, tools/shim (each `tools/<name>-shim` links to it, and `install_shim` links
 each as `<HOME>/bin/<name>`): it runs the real binary at once for a worker and for whatever runs
@@ -315,8 +331,57 @@ def worktree_refusal(args, git="git"):
             f"`git worktree add ~/.agentkit/wt/<name> ...`.")
 
 
+TRANSFER_SCHEMES = ("scp://", "sftp://", "rsync://", "ssh://")   # a remote spec's URI scheme
+
+
+def arg_host(arg, tool):
+    """The remote host an scp/rsync/sftp argument names, or "" when it names no host: a URI
+    (`scheme://[user@]host[:port]/path`), an `[user@]host:path` (scp, rsync), or -- for sftp, whose
+    operand is itself a host -- a bare `[user@]host`.  A local path (absolute, relative, or a bare
+    word for scp/rsync) names no host."""
+    for scheme in TRANSFER_SCHEMES:
+        if arg.startswith(scheme):
+            return arg[len(scheme):].split("/", 1)[0].split("@")[-1].split(":", 1)[0]
+    if ":" in arg and not arg.startswith(("/", "./", "../")):
+        return arg.split(":", 1)[0].split("@")[-1]
+    if tool == "sftp":
+        return arg.split("@")[-1]
+    return ""
+
+
+def transfer_refusal(args, real):
+    """Why the calling seat may not run this scp/rsync/sftp (its argv after the command), or None.
+    A file reaches the live host only through the repo, so a transfer that WRITES to the live host
+    (`config.live_host()`, the ssh alias the owner set in config.toml) is refused; a read FROM live
+    runs, as the rulebook has a seat operate live freely, editing no file there.
+
+    scp and rsync write to an operand after the first: the first operand is a download's source, so a
+    live spec there runs, and a live spec in any later operand is a write target and is refused.
+    Testing by position, not by the last operand, catches a write that a trailing `--exclude x` or
+    `-e ssh` (rsync permutes its options) would hide from a last-word rule, and needs no list of each
+    tool's value-taking options -- parsing those out only re-derives their grammars (AGENTS #520).
+    sftp connects to its host operand and can put files, so a live host there is refused outright.
+
+    Out of reach, by design and named: a download whose first operand is a value-option's argument
+    (`scp -i key live:/x .`, `rsync -e ssh live:/x b` -- name the key or transport in ssh config), and
+    a write run inside `ssh live "..."`, whose remote shell the shim never sees."""
+    own = config.current_session()
+    alias = config.live_host()
+    if not own or not alias:
+        return None
+    tool = os.path.basename(real)
+    operands = [a for a in args if not a.startswith("-")]
+    # sftp's operand is the host it connects to; scp/rsync write to an operand after the first.
+    suspect = operands if tool == "sftp" else operands[1:]
+    if any(arg_host(a, tool) == alias for a in suspect):
+        return (f"ak refused `{tool}` to {alias}: a file reaches the live host only through the "
+                f"repo. Commit the change and let it deploy; a seat writes nothing onto {alias} by hand.")
+    return None
+
+
 # What each shim asks: its refusal, called with the call's argv and the real binary's path.
-REFUSALS = {"tmux": refusal, "gh": gh_refusal, "git": worktree_refusal}
+REFUSALS = {"tmux": refusal, "gh": gh_refusal, "git": worktree_refusal,
+            "scp": transfer_refusal, "rsync": transfer_refusal, "sftp": transfer_refusal}
 REFUSED = 3            # an exit code Python itself never ends with: only a refusal stops a call
 
 
