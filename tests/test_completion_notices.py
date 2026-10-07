@@ -53,6 +53,11 @@ class CompletionNotices(Sandbox):
             notify.SINK_ENV: f'http://127.0.0.1:{server.server_port}/hook',
             'AGENTKIT_DISCORD_USER_ID': '123456789012345678', 'AK_RUN_ROLE': '',
             'AGENTKIT_RUN': '', 'AK_PARENT_RUN': '', 'AK_RUN_LOG': '',
+            'CLAUDE_CONFIG_DIR': str(self.root / '.claude'),
+            'CODEX_HOME': str(self.root / '.codex'),
+            'GROK_HOME': str(self.root / '.grok'),
+            'XDG_CONFIG_HOME': str(self.root / '.config'),
+            'XDG_DATA_HOME': str(self.root / '.local/share'),
         }))
         self.stack.enter_context(patch.object(notify.time, 'time', side_effect=lambda: self.now))
         self.stack.enter_context(patch.object(notify, 'terminal_notice'))
@@ -154,7 +159,7 @@ class CompletionNotices(Sandbox):
     def owner_transcript(self):
         # The plugin's real owner reader and occurrence-based typing receipts are used.
         model = next(name for name in self.cfg['models']
-                     if config.model(self.cfg, name)['harness'] == claude.NAME)
+                     if config.model(self.cfg, name)['harness'] == claude.__name__.rsplit('.', 1)[-1])
         self.seat(self.name, model)
         record = config.session_records()[self.name]
         path = claude.transcript_path(record, 'thread')
