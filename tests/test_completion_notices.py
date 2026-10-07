@@ -256,6 +256,49 @@ class CompletionNotices(Sandbox):
         self.declare('Internal handback while the transcript is unavailable')
         self.assertEqual(len(self.posted()), 1)
 
+    def test_a_legacy_sent_completion_adopts_identity_without_another_card(self):
+        self.checked('API shipped')
+        self.declare()
+        paths = [config.card_path(self.name), config.notify_path(self.name),
+                 *notify.outbox().glob('*.json')]
+        for path in paths:
+            old = json.loads(path.read_text())
+            old.pop('completion', None)
+            old.pop('completed', None)
+            path.write_text(json.dumps(old))
+        self.now += 100
+        self.declare('The API remains shipped after upgrade')
+        self.assertEqual(len(self.posted()), 1)
+        self.internal_turn()
+        config.card_path(self.name).unlink()
+        self.declare('Another handback after losing the episode file')
+        self.assertEqual(len(self.posted()), 1)
+        self.checked('API shipped', 'Export shipped')
+        self.declare('A new job after the legacy card adopted its identity')
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_a_missing_owner_source_preserves_a_newer_pending_completion(self):
+        path = self.owner_transcript()
+        self.append_owner(path, 20, 'Build the API')
+        self.declare()
+        self.now += 100
+        self.append_owner(path, 30, 'Build the export')
+        pending = config.RUNS / 'acme-run'
+        pending.mkdir()
+        state = {'run_id': pending.name, 'state': 'running', 'launched_session': self.name,
+                 'started_at': self.now, 'pid': 0}
+        (pending / 'run.json').write_text(json.dumps(state))
+        self.declare('Export ready pending its run')
+        self.assertEqual(len(self.posted()), 1)
+        path.unlink()
+        self.now += 100
+        self.declare('Internal handback while the transcript is unavailable')
+        state.update(state='pass', verdict='PASS', reported=True, finished_at=self.now + 1)
+        (pending / 'run.json').write_text(json.dumps(state))
+        self.now += 100
+        self.assertEqual(notify.transition(self.name), 0)
+        self.assertEqual(len(self.posted()), 2)
+
     def test_a_later_question_keeps_its_alert_without_reannouncing_the_job(self):
         self.checked('API shipped')
         self.declare()

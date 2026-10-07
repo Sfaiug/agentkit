@@ -994,6 +994,36 @@ def _went_at(name):
     return math.inf
 
 
+def _done_events(session):
+    """The seat's done events, including receipts under its earlier names."""
+    for path in outbox().glob("*.json"):
+        try:
+            event = json.loads(path.read_text())
+            if (event.get("kind") == "done" and event.get("session")
+                    and config.resolve_session(event["session"]) == session):
+                yield event
+        except (OSError, ValueError, AttributeError, TypeError, config.Error):
+            continue
+
+
+def _adopt_completion(session, card, completion):
+    """An already sent legacy episode keeps its latch when work gains an identity.
+
+    Persist the identity on its old receipt too, so losing the episode file cannot
+    reannounce it. A receipt written before an interrupted card write wins on retry.
+    """
+    with outbox_lock():
+        events = [event for event in _done_events(session)
+                  if event.get("episode") == card.get("episode")]
+        completed = next((event["completion"] for event in events if event.get("completion")),
+                         completion)
+        for event in events:
+            if not event.get("completion") and event.get("id"):
+                _write_event({**event, "completion": completed})
+        card["completed"] = completed
+        _card_write(session, card)
+
+
 def _carded(session, declared):
     """Was a done card already made for that declaration, by this version or one before it?
 
@@ -1004,16 +1034,14 @@ def _carded(session, declared):
     stamp = declared.get("time")
     if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
         return False
-    for path in outbox().glob("*.json"):
+    for event in _done_events(session):
         try:
-            event = json.loads(path.read_text())
             same = (event.get("completion") == declared["completion"]
                     if declared.get("completion") else
                     event.get("text") == declared["text"] and event.get("created_at", 0) >= stamp)
-            if (event.get("kind") == "done" and same and event.get("session")
-                    and config.resolve_session(event["session"]) == session):
+            if same:
                 return True
-        except (OSError, ValueError, AttributeError, TypeError, config.Error):
+        except (TypeError, KeyError):
             continue
     return False
 
@@ -1134,6 +1162,9 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             since = since if isinstance(since, (int, float)) and math.isfinite(since) else at
             word = answer["word"]
             completion = declared.get("completion") if declared and declared["kind"] == "done" else None
+            if (word == "done" and completion and card.get("word") == "done"
+                    and card.get("sent") and not card.get("completed")):
+                _adopt_completion(name, card, completion)
             if card.get("word") != word or (
                     word == "done" and completion and card.get("sent")
                     and card.get("completed") != completion):
@@ -1262,8 +1293,8 @@ def _completion(session):
         if not messages:
             # A disappearing transcript or a switch to a harness without that reader
             # cannot make an already completed job new work.
-            return (_card_read(session).get("completed") or
-                    (last(session, include_seen=True) or {}).get("completion"))
+            return ((last(session, include_seen=True) or {}).get("completion") or
+                    _card_read(session).get("completed"))
         work = ["owner", messages[-1]]
     body = json.dumps([record.get("created"), work], sort_keys=True)
     return hashlib.sha256(body.encode()).hexdigest()
