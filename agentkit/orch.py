@@ -2144,12 +2144,15 @@ def _start_harness(name, model, cwd, cmd, session):
                                  socket=server)
             if rc or owner != name:
                 target = f"={name}:"
-        seat_environment(name, server, seat_env(name, server))
+        values = seat_env(name, server)
+        env = [arg for key, value in values.items() for arg in ("-e", f"{key}={value or ''}")]
         rc, out = tmux_out("respawn-pane", "-k", "-t", target,
-                           seat_command(name, cmd, server), socket=server, path_shim=True)
+                           *env, seat_command(name, cmd, server), socket=server, path_shim=True)
         if rc != 0:
             config.seat_file("launch", name).unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
+        # A refused respawn leaves the old harness up: its menu keeps that same home too.
+        seat_environment(name, server, values)
         tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
         if on_own_server(session):
             from . import statusbar   # here, not at the top: the bar's module imports this one
