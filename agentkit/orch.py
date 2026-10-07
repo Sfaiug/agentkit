@@ -1849,12 +1849,13 @@ def inside(session):
     return Path(tmux.split(",")[0]).name == (seat_socket(session) or "default")
 
 
-def seen_by_user(name):
-    """An interactive open records a baseline; reading a question does not answer it."""
+def seen_by_user(name, session=None):
+    """An interactive open records a baseline; reading a question does not answer it.
+    `session` is the seat as the opener has it, which spares listing every seat again."""
     from . import notify, watch   # here, not at the top: watch imports this module
     try:
         name = config.resolve_session(name)
-        session = find(name)
+        session = find(name) if session is None else session
         if session and not session.get("exited"):
             # Cancel a tick already considering a nudge. An unanswered notice retains
             # its stop latch and row state; the generation alone is not acknowledgement.
@@ -1866,15 +1867,16 @@ def seen_by_user(name):
         print(f"WARN could not record opening {name}: {exc}", file=sys.stderr)
 
 
-def attach(name, log=print, wait=False):
+def attach(name, log=print, wait=False, session=None):
     """Hand this terminal over to that session.  Never returns when it succeeds, unless `wait`.
 
     With no terminal to hand over -- a pipe, a script, the smoke suite -- there is nothing to
     attach to it: the session is running, and saying where it is is the whole answer.  `wait`
     is the menu's way in: it comes back when the user detaches, and the menu is drawn again.
+    `session` is the seat as its caller has it listed, which spares asking tmux for it again.
     """
     name = config.resolve_session(name)
-    session = find(name)
+    session = find(name) if session is None else session
     socket = seat_socket(session)
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         log(f"session {name} is running; attach it with "
@@ -1885,14 +1887,14 @@ def attach(name, log=print, wait=False):
         rc, out = tmux_out("switch-client", "-t", f"={name}", socket=socket, client=True)
         if rc != 0:
             raise config.Error(f"cannot switch to the session {name}: {out}")
-        seen_by_user(name)
+        seen_by_user(name, session)
         return 0
     note = fix_term()
     if note:
         log(note)
     cmd = tmux_argv(socket, "attach-session", "-t", f"={name}")
     env = tmux_env()      # $TMUX gone: from a client on another server this one nests on purpose
-    seen_by_user(name)    # before the exec below, which never comes back here
+    seen_by_user(name, session)   # before the exec below, which never comes back here
     try:
         if wait:
             return subprocess.run(cmd, env=env).returncode
@@ -1931,7 +1933,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         if not resumable(record):
             raise config.Error(f"{name}: conversation ownership is no longer verified")
     if session and not session.get("exited") and account is None:
-        return attach(name, log=log, wait=wait) if hand_over else False
+        return attach(name, log=log, wait=wait, session=session) if hand_over else False
     if not session and not record:
         raise config.Error(f"no session {name!r} to resume and no record of one")
     selection = config.load_session(cfg, name, required=False)
@@ -1982,7 +1984,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if detached:
         return 0           # restarting is neither attaching nor reading the seat
     config.update_session(name, seen=int(time.time()))
-    return attach(name, log=log, wait=wait)
+    # the seat it just put a harness in: live now, whatever its row said before
+    return attach(name, log=log, wait=wait, session={**(session or {"name": name}), "exited": False})
 
 
 # --- the conversation a seat holds ------------------------------------------
@@ -3766,12 +3769,14 @@ def opening_account(cfg, model, providers, prompting):
 
 
 def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry_run=False,
-           selection=None, repo=None, unnamed=False):
-    """Select the models, record them, start the seat detached.  The TUI command it runs."""
+           selection=None, repo=None, unnamed=False, taken=None):
+    """Select the models, record them, start the seat detached.  The TUI command it runs.
+    `taken` is the names its caller listed for the name question (`taken_names`), which spares
+    listing them again; tmux is still asked whether it holds the name now."""
     name = session_name(name)
     if not name:
         raise config.Error("a session needs a name")
-    if name in alias_names():
+    if name in alias_names(taken):
         raise config.Error(f"{name!r} is what the session {config.resolve_session(name)!r} used "
                            f"to be called, and the orchestrator in it still answers to it; "
                            f"pick another name")
@@ -3936,17 +3941,20 @@ def main(argv):
         worker_names(cfg, forced_workers)
     cwd = Path.cwd()
     repo = cwd_project(cwd)
-    unnamed = False
+    unnamed, taken = False, None
     if not name:
-        name = ask_name(taken_names(), auto=True)
+        taken = taken_names()
+        name = ask_name(taken, auto=True)
         if name is BACK:
             return 0
         unnamed = name is None
-        name = name or unique_name("new", taken_names())
+        if unnamed:
+            taken = taken_names()       # its name is chosen now: the question may have waited
+            name = unique_name("new", taken)
     # A direct shell invocation keeps its working directory when no project is chosen.
     # The menu's n deliberately starts unassigned seats in ~/code instead.
     result = create(cfg, name, repo or cwd, forced, forced_workers, True, dry_run,
-                    repo=repo, unnamed=unnamed)
+                    repo=repo, unnamed=unnamed, taken=taken)
     if result is None:
         return 0
     return 0 if dry_run else attach(name)

@@ -1648,7 +1648,7 @@ def open_session(cfg, session, dry_run):
         if dry_run:
             print(f"would attach {name}")
             return
-        orch.attach(name, wait=True)
+        orch.attach(name, wait=True, session=session)
         return
     if dry_run:
         print(f"would resume {name}")
@@ -1669,7 +1669,8 @@ def new_session(cfg, dry_run, keyboard=None):
     if not cfg:
         return None               # no configuration means no models to offer
     cfg = config.load()           # the last creation's [defaults], whichever process made it
-    name = orch.ask_name(orch.taken_names(), auto=True, screen="new session")
+    taken = orch.taken_names()
+    name = orch.ask_name(taken, auto=True, screen="new session")
     if name is orch.BACK:
         return None
     unnamed = name is None
@@ -1686,13 +1687,15 @@ def new_session(cfg, dry_run, keyboard=None):
         return None
     if keyboard is not None:
         keyboard.give()
-    name = name or orch.unique_name("new", orch.taken_names())
+    if unnamed:
+        taken = orch.taken_names()        # its name is chosen now: the picker may have waited
+        name = orch.unique_name("new", taken)
     if dry_run:
         reviewers = selected[3] if len(selected) == 4 else cfg["defaults"].get("reviewers")
         print(f"would start {name}: {selected[0]}, workers {' '.join(selected[2])}"
               + (f", reviewers {' '.join(reviewers)}" if reviewers is not None else ""))
     elif orch.create(cfg, name, orch.seat_cwd(), prompting=True,
-                     selection=(providers, selected), unnamed=unnamed) is None:
+                     selection=(providers, selected), unnamed=unnamed, taken=taken) is None:
         return None
     open_session(cfg, {"name": name}, dry_run)
     return name
