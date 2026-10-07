@@ -3898,6 +3898,63 @@ def review_disputes(lp, head):
     return hand_in.Review(disputes)
 
 
+def earlier_findings(lp):
+    """The findings of the last completed review, read from its findings.json on disk.  review_records
+    is not read: a dead or no-verdict attempt -- this round's, or the base version's before an upgrade
+    -- overwrites it with its own empty records, while the completed review's file is immutable.  The
+    last completed review is the last recorded round; within it, the newest answer whose hand-in
+    closed with `done` is the completed one -- a parked landing attempt (record=False writes under the
+    same round, and record_findings writes a findings.json for a dead attempt too) is skipped, so a
+    PASS, a landing re-review or a text-only head correctly re-proves nothing."""
+    summaries = lp.state.get("round_summaries") or []
+    if not summaries:
+        return []
+    for path in reversed(review_files(lp.run_dir, summaries[-1]["round"])):
+        submitted = hand_in.read(path.with_name(hand_in.FILE))
+        source = path.with_name(hand_in.FINDINGS_FILE)
+        if submitted is not None and submitted.done and source.exists():
+            return json.loads(source.read_text())
+    return []
+
+
+def reprove_earlier(lp, findings, head=None):
+    """Re-prove each undisputed earlier finding on this head and report it to the re-reviewer as
+    prompt context.  This changes no record and no preface: the reviewer still rules on each,
+    re-handing one to uphold it and leaving one out to drop it.
+
+    A --run proof now exiting 0 (not killed) is fixed, one that fails (hand_in.proof_failed) is
+    still open, and one that shows nothing -- killed, or exit 126/127 -- is "no result", as
+    weigh_review would note it.  A --quote is fixed only when its quote is no longer in the file;
+    quotes go through quoted_sites, the one rule the reviewer's own findings are weighed under (its
+    full catch means a missing, out-of-checkout, unreadable or symlink-looping file is gone, never
+    a crash), at line 1 -- so a file now shorter than the finding's line is judged by whether the
+    quote is still there, not by the stale line number.
+    """
+    if not findings:
+        return ""
+    head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
+    submitted = hand_in.Review(findings)
+    lp.round_dir.mkdir(parents=True, exist_ok=True)
+    sites = quoted_sites(lp, hand_in.Review([{**row, "line": 1} for row in submitted.records]), head)
+    items = []
+    for index, row in enumerate(submitted.records, 1):
+        site = f"{row['path']}:{row['line']} - {row['what']}"
+        if "quote" in row["evidence"]:
+            gone = sites.get(index) is None
+            items.append(f"- {site} [{'fixed' if gone else 'still open'}]: its quoted line is "
+                         f"{'gone from' if gone else 'still in'} the file.")
+        else:
+            proof = proof_on(lp, row["evidence"]["run"],
+                             lp.round_dir / f"earlier-proof-{index}.log", head)
+            mark = ("fixed" if proof["returncode"] == 0 and not proof["killed"]
+                    else "still open" if hand_in.proof_failed(proof) else "no result")
+            body = f"  $ {row['evidence']['run']}\n  " + hand_in.proof_text(proof).replace("\n", "\n  ")
+            items.append(f"- {site} [{mark}]:\n{body}")
+    return ("## ak re-proved each earlier finding on this head\n"
+            "ak re-ran each undisputed earlier finding's proof (or re-checked its quote) on this "
+            "head; the result of each is below.\n" + "\n".join(items))
+
+
 def review(lp, summary, ok, dw_log, preface="", record=True):
     """Commit what the executor left, hand the work to the reviewer, record the round's verdict.
 
@@ -3954,6 +4011,15 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                       + "\n".join(stat.splitlines()[:-1]) + "\n```\n\n")
     identity = {} if lp.scratch else commit_identity(lp.wt)
     disputes = review_disputes(lp, identity.get("head_sha"))
+    # Exclude the exact finding the fixer disputed, matched as the whole captured record in
+    # d["finding"]: hand-in allows several findings on one line (same path, line, even what), so any
+    # partial key would hide an undisputed one.
+    disputed = [d["finding"] for d in disputes.disputes]
+    # Re-prove every undisputed earlier finding on this head and show the re-reviewer the result;
+    # this is prompt context only -- it writes no record and touches no preface, and the reviewer
+    # rules on each as always (re-hand to uphold, leave out to drop).
+    reproved = reprove_earlier(lp, [row for row in earlier_findings(lp) if row not in disputed],
+                               identity.get("head_sha"))
     validation = getattr(lp, "validation", identity if lp.state.get("review_pr") else {})
     # A hand-built stand-in for the loop (as in test_v4c) carries no commands; the real
     # Loop always does, and only then are markers attributed to their commands.
@@ -3975,6 +4041,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                  "that fails runs once more at once, and it passes if that re-run does.")
     lp.log(f"--- round {lp.rnd}: reviewer {lp.reviewer}")
     rbody = (f"{lp.body}\n\n{work}\n\n"
+             + (reproved + "\n\n" if reproved else "")
              + (disputes.text + "\n" if disputes.disputes else "")
              + f"## Executor summary\n{summary}\n\n{heading}\n"
              + (f"{deferred}\n" if deferred else "")
