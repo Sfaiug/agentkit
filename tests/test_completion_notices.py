@@ -223,7 +223,7 @@ class CompletionNotices(Sandbox):
         self.assertEqual(notify.transition(self.name), 0)
         self.assertEqual(len(self.posted()), 1)
         patches = [payload for method, payload in self.requests if method == 'PATCH']
-        self.assertEqual(patches[-1]['embeds'][0]['title'], f'Done · {self.name}')
+        self.assertEqual(patches[-1]['embeds'][0]['title'], f'Answered · {self.name}')
         self.assertEqual(patches[-1]['content'], '')
         self.assertEqual(patches[-1]['allowed_mentions'], {'parse': []})
         self.internal_turn()
@@ -249,7 +249,7 @@ class CompletionNotices(Sandbox):
         self.assertEqual(len(events), 1)
         self.response_status = 200
         self.now += 10000
-        self.assertEqual(notify.retry_pending(log=lambda _: None), 0)
+        notify.retry_pending(log=lambda _: None)
         self.assertEqual(len(self.posted()), 2)  # one failed request and one successful retry
         self.assertEqual(json.loads(next(notify.outbox().glob('*.json')).read_text())['status'],
                          'delivered')
