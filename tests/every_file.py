@@ -34,7 +34,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True   # another piece may be compiling the checkout
 sys.path.insert(0, str(REPO))
-from agentkit import host, orch
+from agentkit import guard, host, orch
 from suite_shares import shard, shares
 
 FILE_MEM_MB = 230   # reservation floor: the measured peak was 229 MB with children;
@@ -237,6 +237,11 @@ def main(root, others=None):
     # about three quarters of a short file's CPU. No other piece writes or reads it.
     pycache = tempfile.TemporaryDirectory(prefix="ak-test-pycache-", dir="/tmp")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
+    # This checkout's code and shims are under test, never the ones installed on the caller's
+    # PATH: a test's own shim takes the first `git` after it for the real one.
+    installed = str(guard.shim_dir())
+    env["PATH"] = os.pathsep.join(part for part in env.get("PATH", "").split(os.pathsep)
+                                  if part != installed)
     env["PYTHONPYCACHEPREFIX"] = pycache.name
     pending = iter(todo)
     path = next(pending, None)
