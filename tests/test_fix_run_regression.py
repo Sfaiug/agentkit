@@ -179,7 +179,10 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertIn("flaky", (self.directory / "regression-base.log").read_text())
         self.assert_restored(head)
 
-    def test_a_failing_done_when_does_not_probe(self):
+    def test_other_runs_and_failing_done_when_do_not_probe(self):
+        lp = self.loop(["true"])
+        self.assertTrue(run.verify_work(lp)[0])
+        self.assertFalse((self.directory / "regression-base.log").exists())
         self.script.write_text("exit 0\n")
         lp = self.loop(["false"])
         self.assertFalse(run.verify_work(lp)[0])
