@@ -165,6 +165,30 @@ class Notifications(unittest.TestCase):
         self.assertEqual(len(self.cards("needs")), 1)
         self.assertEqual(notify.last("seat")["text"], "Which export format?")
 
+    def test_input_before_a_new_question_does_not_suppress_it(self):
+        for kind in ("done", "needs"):
+            with self.subTest(older=kind):
+                config.card_path("seat").unlink(missing_ok=True)
+                config.notify_path("seat").unlink(missing_ok=True)
+                self.requests.clear()
+                watch.seat_write("seat", word="working", word_since=100.0)
+                clock = [200.0]
+
+                def tmux(*args, **kwargs):
+                    return (0, "seat\t250") if args[:1] == ("list-clients",) else (1, "")
+
+                def newer():
+                    clock[0] = 300.0
+                    self.assertEqual(notify.shaped("needs", "Which export format?",
+                                                   session="seat"), 0)
+
+                with patch.object(notify.time, "time", side_effect=lambda: clock[0]), \
+                        patch.object(notify, "installed_at", return_value=250.0), \
+                        patch.object(orch, "tmux_out", side_effect=tmux):
+                    self.interleaved_declarations(kind, "Which export format?", newer)
+                self.assertEqual(len(self.cards("needs")), 1)
+                self.assertEqual(notify.last("seat")["time"], 300.0)
+
     def test_a_cached_question_cannot_page_for_completed_work(self):
         self.interleaved_declarations("needs", "Which API route?", lambda:
             self.assertEqual(notify.shaped("done", "API shipped", session="seat"), 0))
