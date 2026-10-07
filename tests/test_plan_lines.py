@@ -929,6 +929,15 @@ class PlanLines(Sandbox):
         self.listed()
         self.assertTrue(self.plan_lines()[0].startswith("- [ ]"))
 
+    def test_a_new_check_is_proven_only_in_its_line_s_own_repository(self):
+        self.other_acme(has_feature=False)          # its main is older than the line
+        line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
+        self.git("remote", "set-url", "origin", str(self.root / "other-origin.git"))
+        # base.txt was on acme's main when the line was written; the other has none
+        with self.assertRaisesRegex(config.Error, "no longer the repository line 1 was written in"):
+            plan.main(["check", "1", "test -f base.txt"])
+        self.assertEqual(self.plan_lines(), [line])
+
     def test_a_rename_back_to_an_earlier_name_holds_that_name_until_its_files_follow(self):
         config.rename_session("fix-api", "fix-api-2")       # fix-api is now an old name
         renaming, real = threading.Event(), config.rename_session

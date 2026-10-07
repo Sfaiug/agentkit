@@ -517,7 +517,12 @@ def recheck(name, number, check):
     repo = place(name, found["project"])
     if not repo:
         raise config.Error(f"this host has no checkout of {found['project']}")
-    if not fails_on_main(repo, check, found["when"])[0]:
+    written = found["project"].rpartition("#")[2] if "#" in found["project"] else None
+    failing, at = fails_on_main(repo, check, found["when"])
+    if written and at != written:
+        raise config.Error(f"{repo.name}'s default branch is no longer the repository line "
+                           f"{number} was written in; its new check proves nothing there")
+    if not failing:
         raise config.Error(f"this check already passed on {repo.name}'s default branch when "
                            "the line was written, so it proves nothing; write one that failed "
                            "until the work was done")
