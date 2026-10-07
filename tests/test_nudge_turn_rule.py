@@ -217,19 +217,28 @@ class NudgeTurnRule(Sandbox):
 
     def test_d_repeated_parked_stops_require_an_explicit_ending_on_every_harness(self):
         for harness in HARNESSES:
-            with self.subTest(harness=harness):
-                self.setUp()
-                self.harness = harness
-                self.receipt(PARKED, SEAT, "interrupted", recovery_pending=True)
-                for attempts in range(5):
-                    self.assertEqual(self.judged(attempts), (True, ["continue"]))
-                    self.assertEqual(self.tick(), [])  # one nudge for the same stopped screen
-                notify.record(SEAT, "done", "Answered the question", quiet=True)
-                self.assertEqual(self.judged(20), (True, ["continue"]))
-                self.decided(PARKED)
-                self.assertEqual(self.judged(), (False, []))
-                notify.record(SEAT, "needs", "Which schema?")
-                self.assertEqual(self.judged(), (False, []))
+            for route in ("hook", "tick"):
+                with self.subTest(harness=harness, route=route):
+                    self.setUp()
+                    self.harness = harness
+                    self.receipt(PARKED, SEAT, "interrupted", recovery_pending=True)
+                    if route == "hook":
+                        self.stopped()
+                        self.assertTrue(self.hook_holds(0))
+                        self.assertTrue(self.hook_holds(1))
+                        self.assertFalse(self.hook_holds(2))
+                    else:
+                        for _ in range(2):
+                            self.stopped()
+                            self.assertEqual(self.tick(), ["continue"])
+                            self.assertEqual(self.tick(), [])  # one nudge per stopped screen
+                        self.stopped()
+                        self.assertEqual(self.tick(), [])
+                    notice = notify.last(SEAT)
+                    self.assertEqual(notice["kind"], "needs")
+                    self.assertIn("cannot continue", notice["text"])
+                    self.stopped()
+                    self.assertEqual(self.tick(), [])  # the explicit question now stands
 
     def test_e_a_run_a_later_merged_run_replaced_holds_nothing(self):
         """Settled as `ak notify done` and the seat's state read it, on both sides of the rule."""

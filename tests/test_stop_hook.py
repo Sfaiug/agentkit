@@ -166,7 +166,9 @@ class StopHook(unittest.TestCase):
                 for _ in range(2):
                     self.assertEqual(self.blocked(self.stop(
                         f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]))["reason"], REASON)
-                self.assertEqual(self.blocked(self.stop(f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]))["decision"], "block")
+                self.assertEqual(self.stop(f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]), "")
+                self.assertEqual(json.loads((self.state / f"notify-{SEAT}.json").read_text())["kind"], "needs")
+                (self.state / f"notify-{SEAT}.json").unlink()
 
     def test_a_needs_or_done_recorded_this_turn_allows_the_stop(self):
         for kind in ("needs", "done"):
@@ -307,7 +309,7 @@ class StopHook(unittest.TestCase):
 
         The two hooks run side by side and either can finish first, so what the row reads
         between them is the turn it was already in, never a Stop nobody has judged yet; the
-        every attempt stays working until an explicit ending is recorded.
+        the exhausted corrections record an explicit failure question.
         """
         for order in ((SEAT_STATE, HOOK), (HOOK, SEAT_STATE)):
             with self.subTest(first=order[0].name):
@@ -324,18 +326,21 @@ class StopHook(unittest.TestCase):
                     self.assertEqual(self.read_as(), ("working", "Stop/held"))
                     payload["stop_hook_active"] = True
                 answers = [self.stop(said=None, hook=hook, **payload) for hook in order]
-                self.assertEqual(self.blocked("".join(answers))["decision"], "block")
-                self.assertEqual(self.read_as(), ("working", "Stop/held"))
+                self.assertEqual(answers, ["", ""])
+                notice = json.loads((self.state / f"notify-{SEAT}.json").read_text())
+                self.assertEqual(notice["kind"], "needs")
                 self.notified("done", time.time())
                 self.assertEqual([self.stop(said=None, hook=hook, **payload) for hook in order],
                                  ["", ""])
                 self.assertEqual(self.read_as(), ("at_prompt", "Stop"))
 
-    def test_repeated_stops_require_an_explicit_ending(self):
-        for _ in range(5):
+    def test_failed_corrections_record_a_question_instead_of_a_silent_stop(self):
+        for _ in range(2):
             self.assertEqual(self.blocked(self.stop())["decision"], "block")
-        self.notified("done", time.time())
         self.assertEqual(self.stop(), "")
+        notice = json.loads((self.state / f"notify-{SEAT}.json").read_text())
+        self.assertEqual(notice["kind"], "needs")
+        self.assertIn("cannot continue", notice["text"])
 
     def test_a_new_prompt_requires_a_new_completion(self):
         self.notified("done", time.time())

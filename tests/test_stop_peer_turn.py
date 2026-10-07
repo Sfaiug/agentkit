@@ -144,7 +144,8 @@ class StopPeerTurn(unittest.TestCase):
         latch = self.prompt(PEER_PROMPT)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
-        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+        self.assertEqual(self.stop(), "")
+        self.assertEqual(json.loads((self.state / f"notify-{SEAT}.json").read_text())["kind"], "needs")
 
     def test_a_peer_opened_turn_with_an_undecided_parked_run_is_held(self):
         self.notified("done", self.done_at)

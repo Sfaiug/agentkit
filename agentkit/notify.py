@@ -54,6 +54,8 @@ SUBJECT_CAP = 60   # a title the phone shows whole, when the task has to stand i
 ASK_CAP = 80
 TITLES = {"needs": "Needs you", "done": "Done"}
 CARD_WAIT = 60
+STOP_FAILED = ("This session repeatedly stopped without finishing or waiting on live work. "
+               "Can you open it and check why it cannot continue?")
 SINK_ENV = "AK_NOTIFY_SINK"   # the suites' destination; it outranks the owner's webhook
 SINK_LOG_ENV = "AK_NOTIFY_SINK_LOG"   # where a diversion is written, for the suite to fail on
 RETRY_BACKOFF = (60, 180, 600, 1800, 3600)

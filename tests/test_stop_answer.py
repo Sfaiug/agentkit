@@ -120,15 +120,17 @@ class StopAnswer(unittest.TestCase):
                 self.complete_quietly()
                 self.assertEqual(self.stop(), "")
 
-    def test_legacy_question_and_retry_flags_grant_no_exception(self):
+    def test_legacy_question_flags_grant_no_exception_and_failed_corrections_ask(self):
         self.prompt("Why did it stop? Fix it.")
         path = self.state / f"stop-{SEAT}.json"
         path.write_text(json.dumps({**self.latch(), "asked": True, "peer": True,
-                                    "blocks": 20}))
-        for _ in range(4):
+                                    "blocks": 0}))
+        for _ in range(2):
             self.assertEqual(self.blocked(self.stop())["reason"], REASON)
-        self.complete_quietly()
         self.assertEqual(self.stop(), "")
+        notice = json.loads((self.state / f"notify-{SEAT}.json").read_text())
+        self.assertEqual(notice["kind"], "needs")
+        self.assertIn("cannot continue", notice["text"])
 
     def test_a_quiet_answer_leaves_claude_at_its_prompt_after_both_hooks(self):
         self.prompt("Which parser does it use?")
@@ -154,8 +156,11 @@ class StopAnswer(unittest.TestCase):
         self.prompt("Which parser does it use?")
         self.complete_quietly()
         self.parked_exhausted()
-        for _ in range(4):
+        for _ in range(2):
             self.assertIn("run parked-exhausted parked: ", self.blocked(self.stop())["reason"])
+        self.assertEqual(self.stop(), "")
+        notice = json.loads((self.state / f"notify-{SEAT}.json").read_text())
+        self.assertEqual(notice["kind"], "needs")
 
 
 if __name__ == "__main__":

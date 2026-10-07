@@ -532,7 +532,7 @@ class ThreeStates(Sandbox):
         self.assertEqual(self.hooks("Stop", *STOP, **payload), "")
         self.assertEqual(self.decide()["word"], "needs you")
 
-    def test_r_repeated_stops_stay_working_until_an_explicit_ending(self):
+    def test_r_failed_corrections_record_a_question_after_staying_working(self):
         self.hooks("UserPromptSubmit", "seat-state.sh")
         stop = {"transcript_path": self.transcript("Here is my recommendation. Let me know if "
                                                    "I should continue."), "background_tasks": []}
@@ -544,8 +544,9 @@ class ThreeStates(Sandbox):
                 self.assertEqual(self.decide()["word"], "working")
             self.assertIn('"block"', said)
             stop["stop_hook_active"] = True
-        self.assertIn('"block"', self.hooks("Stop", *STOP, **stop))
-        self.assertEqual(self.decide()["word"], "working")
+        self.assertEqual(self.hooks("Stop", *STOP, **stop), "")
+        self.assertEqual(self.decide()["word"], "needs you")
+        self.assertIn("cannot continue", self.decide()["reason"])
 
     def test_s_asking_leave_to_go_on_asks_him_nothing_and_the_seat_works_on(self):
         self.hooks("UserPromptSubmit", "seat-state.sh")

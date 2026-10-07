@@ -178,7 +178,7 @@ class StopParked(unittest.TestCase):
         self.parked_exhausted()
         self.assertEqual(self.stop(asked, **payload), "")
 
-    def test_needs_and_background_work_stand_but_repeated_stops_stay_held(self):
+    def test_needs_and_background_work_stand_and_failed_corrections_ask(self):
         self.parked_exhausted()
         self.notified("needs", self.turn + 1)
         self.assertEqual(self.stop(), "")
@@ -188,7 +188,8 @@ class StopParked(unittest.TestCase):
         self.latch(self.turn)
         self.assertIn("parked-exhausted", self.blocked(self.stop())["reason"])
         self.assertIn("parked-exhausted", self.blocked(self.stop())["reason"])
-        self.assertIn("parked-exhausted", self.blocked(self.stop())["reason"])
+        self.assertEqual(self.stop(), "")
+        self.assertEqual(json.loads((self.state / f"notify-{SEAT}.json").read_text())["kind"], "needs")
 
 
 if __name__ == "__main__":

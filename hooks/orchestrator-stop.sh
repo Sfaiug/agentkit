@@ -25,7 +25,7 @@
 # and this decides nothing and exits 0.
 #
 # ~/.agentkit/state/stop-<seat>.json records the turn's start on every UserPromptSubmit.
-# Repeated attempts grant no exception: a model that cannot proceed asks a question.
+# Corrections are bounded; exhaustion records a question explaining the continuation failure.
 #
 # On that same harness this is also what writes the Stop down, in the record hooks/seat-state.sh
 # keeps for every other event: the two run side by side, and only this one knows whether the
@@ -64,6 +64,7 @@ from agentkit.stop import ways_out
 from agentkit.job import job_waiting
 from agentkit.watch import owner_question, waiting_on
 
+LIMIT = 2           # corrections before an explicit failure question
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
           "declaring done with ak notify done, "
           "or waiting on a run. Continue: decide the next step and do it. "
@@ -285,6 +286,15 @@ def held(launched, payload):
     if not undecided and (told(seat, turn, "done") or waiting(seat)
                           or waiting_on(seat)):
         return ""
+    blocks = record.get("blocks")
+    blocks = max(0, blocks) + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
+    if blocks > LIMIT:
+        notify.record(seat, "needs", notify.STOP_FAILED)
+        return ""    # a recorded question ends the turn; unfinished work stays unfinished
+    kept = {"session": launched, "turn": turn, "blocks": blocks}
+    tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(kept) + "\n")
+    tmp.replace(latch)
     return parked_reason(undecided) if undecided else REASON
 
 

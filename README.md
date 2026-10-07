@@ -73,7 +73,7 @@ Agentkit does not stop until the work ships, or until it truly needs you. Truly 
 
 `AGENTS.md`'s `health:` command checks merged changes in production; passing reports them live.
 
-Every turn records completion, an unanswered question or a live wait. Information-only answers use `ak notify done --quiet "<summary>"`, with the same completion checks and no completion alert. Unfinished work keeps going.
+Every turn records completion, an unanswered question or a live wait. Information-only answers use `ak notify done --quiet "<summary>"`, with the same completion checks and no completion alert. Unfinished work keeps going; failed continuation after bounded corrections records an explicit question asking for help.
 
 A turn can end waiting on its job while the launcher is alive and any task is unsettled, even before the first run starts and after a seat rename. A job whose launcher is gone or whose tasks have all settled gives no wait.
 

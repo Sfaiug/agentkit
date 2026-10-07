@@ -153,7 +153,7 @@ sys.exit(0 if any(told(payload.get(key)) for key in ("prompt", "message")) else 
   fi
   tmp="$dir/stop-$seat.json.tmp.$$"
   "$jq" -n --arg session "$seat" --argjson turn "$ts" \
-    '{session: $session, turn: $turn}' \
+    '{session: $session, turn: $turn, blocks: 0}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question, once the background look checks its pane.
