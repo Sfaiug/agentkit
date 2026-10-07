@@ -58,8 +58,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
-from agentkit import config, harness, notify
-from agentkit.run import going, handback_reason, unfinished
+from agentkit import config, harness, menu, notify, run
 from agentkit.stop import ways_out
 from agentkit.job import job_waiting
 from agentkit.watch import owner_question, waiting_on
@@ -70,7 +69,7 @@ REASON = ("You stopped without asking the user through the question prompt or ak
           "or waiting on a run. Continue: decide the next step and do it. "
           "For an information-only answer, record ak notify done --quiet.")
 HOME = Path(os.path.expanduser("~")) / ".agentkit"
-STATE, RUNS = HOME / "state", HOME / "runs"
+STATE = HOME / "state"
 def loads(text):
     try:
         data = json.loads(text or "")
@@ -196,59 +195,36 @@ def background(payload):
         isinstance(task, dict) and task.get("type") != "monitor" for task in tasks)
 
 
-def told(seat, turn, kind):
+def told(notice, turn, kind):
     """`ak notify <kind>` recorded for this seat during the turn."""
-    note = notify.last(seat) or {}
+    note = notice or {}
     if note.get("kind") != kind:
         return False
     when = moment(note.get("time"))
     return when is not None and when >= turn
 
 
-def waiting(seat):
-    """One of this seat's runs or live jobs is still going."""
-    try:
-        directories = sorted(path for path in RUNS.iterdir() if path.is_dir())
-    except OSError:
-        directories = []
-    for directory in directories:
-        state = read(directory / "run.json")
-        owner = state.get("launched_session") or state.get("session")
-        # the rename chain is only walked for a run whose recorded name is not already this one
-        if not isinstance(owner, str) or not owner or (owner != seat and resolve(owner) != seat):
-            continue
-        if going(state):
-            return True
-    return job_waiting(seat)
-
-
-def parked(seat):
-    """(run, parked reason) for this seat's runs that sit parked and undecided.
-
-    Undecided is `unfinished` whole over every run's record -- the runs `ak notify done`
-    refuses on, so not one a later merged relaunch or continuation replaced -- read through
-    agentkit's own function, never a copy of its rule.  A run going somewhere is not parked:
-    it resumes itself, and a stop that waits on it stands as it always did.  `stalled` is the
-    exception: `going` counts it, but nothing resumes one -- the tick only told the seat --
-    so it sits parked for `ak run resume` and holds the turn like any undecided run.
-    """
-    try:
-        directories = sorted(path for path in RUNS.iterdir() if path.is_dir())
-    except OSError:
-        return []
-    records = [(directory, read(directory / "run.json")) for directory in directories]
-    found = []
+def ending(seat, turn, payload, notice):
+    """The same recorded endings before and after a conditional failure question."""
+    if questioned(payload) or told(notice, turn, "needs") or owner_question(notice):
+        return True, []
+    records = menu.run_records()
+    mine = []
     for directory, state in records:
-        owner = state.get("launched_session") or state.get("session")
-        # the rename chain is only walked for a run whose recorded name is not already this one
-        if not isinstance(owner, str) or not owner or (owner != seat and resolve(owner) != seat):
-            continue
-        if going(state) and state.get("state") != "stalled":
-            continue
-        if not unfinished(state, records):
-            continue
-        found.append((directory.name, handback_reason(state), ways_out(state, directory)))
-    return found
+        try:
+            if run.launched_session(state) == seat:
+                mine.append((directory, state))
+        except config.Error:
+            continue    # a record whose seat cannot be resolved belongs to no live wait
+    index = run.supersession_index(records)
+    parked = [(directory.name, run.handback_reason(state), ways_out(state, directory))
+              for directory, state in mine
+              if (not run.going(state) or state.get("state") == "stalled")
+              and run.unfinished(state, index=index)]
+    complete = told(notice, turn, "done") and not notify.failed_declaration(notice, mine, index)
+    waiting = (any(run.going(state) for _, state in mine) or job_waiting(seat)
+               or waiting_on(seat, records))
+    return not parked and (complete or waiting), parked
 
 
 def parked_reason(found):
@@ -278,20 +254,16 @@ def held(launched, payload):
     if background(payload):
         return ""
     seat = resolve(launched)
-    # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
-    # a hand-back or a told line opens turns on a seat while it stands (`watch.stop_nudge`)
-    if questioned(payload) or told(seat, turn, "needs") or owner_question(notify.last(seat)):
-        return ""
-    undecided = parked(seat)
-    if not undecided and (told(seat, turn, "done") or waiting(seat)
-                          or waiting_on(seat)):
+    notice = notify.last(seat)
+    allowed, undecided = ending(seat, turn, payload, notice)
+    if allowed:
         return ""
     blocks = record.get("blocks")
     blocks = max(0, blocks) + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
-        notify.shaped("needs", notify.STOP_FAILED, session=seat)
-        if owner_question(notify.last(seat)):
-            return ""    # a recorded question ends the turn; unfinished work stays unfinished
+        notify.stop_failed(seat, notice)
+        if ending(seat, turn, payload, notify.last(seat))[0]:
+            return ""    # a recorded ending stands; unfinished work stays unfinished
         return REASON    # persistence failed: no question stands yet
     kept = {"session": launched, "turn": turn, "blocks": blocks}
     tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")

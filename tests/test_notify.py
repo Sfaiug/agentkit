@@ -407,8 +407,8 @@ sys.exit(p.returncode)
             notify.main(["needs", "Which schema?", "--quiet"])
 
     def test_quiet_answers_do_not_revive_failed_job_completions(self):
-        for racing in (False, True):
-            with self.subTest(racing=racing):
+        for failure in ("before_refresh", "during_write", "delayed_record"):
+            with self.subTest(failure=failure):
                 self.setUp()
                 self.clock = 10000
                 self.stack.enter_context(patch.object(time, "time", lambda: self.clock))
@@ -425,15 +425,16 @@ sys.exit(p.returncode)
                          "started_at": original["time"]}
                 (second / "run.json").write_text(json.dumps(other))
 
-                def fail():
+                def fail(stamped=None):
                     self.clock += 0.25
                     (second / "run.json").write_text(json.dumps({
-                        **other, "state": "blocked", "finished_at": self.clock,
+                        **other, "state": "blocked",
+                        "finished_at": self.clock if stamped is None else stamped,
                         "handed_back": self.clock, "reported": True}))
                     self.clock += 0.25
 
                 self.clock = 10001
-                if not racing:
+                if failure == "before_refresh":
                     fail()
                 self.clock = 10002
                 record = notify.record
@@ -441,9 +442,9 @@ sys.exit(p.returncode)
 
                 def write(*args, **kwargs):
                     nonlocal written
-                    if racing and not written:
+                    if failure != "before_refresh" and not written:
                         written = True
-                        fail()
+                        fail(10001 if failure == "delayed_record" else None)
                     return record(*args, **kwargs)
 
                 with patch.object(notify, "record", side_effect=write):

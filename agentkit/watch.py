@@ -3225,7 +3225,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
             or progress_output(harness, pane_tail(current)) != said):
         return          # it moved, or the seat is the user's again: neither is this rule's
     if exhausted:
-        notify.shaped("needs", notify.STOP_FAILED, session=name)
+        notify.stop_failed(name, notice)
         return
     if type_into(session, keys, log):
         seat_write(name, stop_nudged=[began, said], stop_corrections=nudged)

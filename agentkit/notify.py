@@ -881,7 +881,7 @@ def failed_declaration(notice, mine, index=None):
     one supersession is not read.
     """
     from . import run as run_mod    # here, not at the top: the loop imports this module
-    stamp = notice.get("time", 0)
+    stamp = notice.get("declared_at", notice.get("time", 0))
     return [directory.name for directory, state in mine
             if state.get("state") in run_record.FAILED
             and (directory.name in notice.get("runs", []) or
@@ -1237,8 +1237,19 @@ class Refused(config.Error):
     """A `shaped` gate said no: nothing was recorded, and the caller hears why."""
 
 
+def stop_failed(session, observed):
+    """Ask about exhausted corrections only while no newer ending has replaced them."""
+    from . import watch
+
+    def preserve(previous):
+        visible = None if previous and resolved(previous) else previous
+        return watch.owner_question(visible) or visible != observed
+
+    return shaped("needs", STOP_FAILED, session=session, _preserve=preserve)
+
+
 def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None,
-           quiet=False):
+           quiet=False, _preserve=None):
     """Record the question or declaration, then evaluate the same transition latch.
 
     A done, whoever declares it, waits for every line of the seat's plan: its checks run
@@ -1282,6 +1293,8 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                 except config.Error as exc:
                     raise Refused(str(exc)) from None
             previous = last(name, include_seen=True)
+            if _preserve and _preserve(previous):
+                return 0
             if not (event_id and previous and previous.get("source") == event_id):
                 extra = {"source": event_id, "pr": pr,
                          "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:")),
@@ -1300,13 +1313,9 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                         text = previous["text"]
                         extra = {k: v for k, v in previous.items()
                                  if k not in ("session", "kind", "text", "time")}
-                        # Keep the original failure coverage as its time advances. Stamp
-                        # before reading runs so a racing failure stays covered too.
-                        extra["time"] = time.time()
-                        mine = [(directory, state) for directory, state in menu.run_records()
-                                if run.launched_session(state) == name]
-                        extra["runs"] = list(dict.fromkeys([
-                            *previous.get("runs", []), *failed_declaration(previous, mine)]))
+                        # The job's failure boundary outlives this turn's ending, even
+                        # when a run publishes its earlier failure after this refresh.
+                        extra.setdefault("declared_at", previous["time"])
                     else:
                         if quiet:
                             extra["quiet"] = True

@@ -96,6 +96,28 @@ class NudgeTurnRule(Sandbox):
         watch.seat_write(SEAT, state="at_prompt", turn_began=now - 7200,
                          stop_said_at=now - 3600, stop_nudged=None)
 
+    def test_exhaustion_preserves_a_concurrent_question_or_completion(self):
+        for harness in HARNESSES:
+            for kind, text in (("needs", "Which schema should acme use?"),
+                               ("done", "Explained the parser.")):
+                with self.subTest(harness=harness, kind=kind):
+                    self.setUp()
+                    self.harness = harness
+                    self.stopped()
+                    watch.seat_write(SEAT, stop_corrections={"notice": None, "stops": 2,
+                                                            "runs": {}})
+
+                    def captured(_session):
+                        notify.record(SEAT, kind, text)
+                        return self.pane
+
+                    with patch.object(watch, "pane_text", side_effect=captured):
+                        watch.stop_nudge(self.seat, harness, self.pane, None, [], False,
+                                         lambda _line: None)
+                    self.assertEqual((notify.last(SEAT)["kind"], notify.last(SEAT)["text"]),
+                                     (kind, text))
+                    self.assertEqual(self.sent, [])
+
     def tick(self):
         """The two passes this is about, in `watch.main`'s order -- the health pass's end-of-turn
         rule for the seat, then the wait pass -- and the lines the fake tmux was given."""

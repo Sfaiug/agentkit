@@ -183,6 +183,33 @@ class StopHook(unittest.TestCase):
         path.write_text(json.dumps({**json.loads(path.read_text()), "seen": True}))
         self.assertEqual(self.blocked(self.stop())["decision"], "block")
 
+    def test_a_failed_completion_does_not_allow_the_stop_before_retirement(self):
+        self.notified("done", time.time() - 10)
+        self.run_json("failed", state="blocked", finished_at=time.time() - 1,
+                      handed_back=time.time() - 1, reported=True)
+        self.assertEqual(self.blocked(self.stop())["decision"], "block")
+
+    def test_exhaustion_preserves_a_concurrent_question_or_completion(self):
+        for kind, text in (("needs", "Which schema should acme use?"),
+                           ("done", "Explained the parser.")):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.latch(self.turn, blocks=2)
+                (self.home / "sitecustomize.py").write_text(
+                    "import inspect\nfrom agentkit import notify\n"
+                    "previous_last = notify.last\npublished = False\n"
+                    "def concurrent_last(session, *args, **kwargs):\n"
+                    "    global published\n"
+                    "    snapshot = previous_last(session, *args, **kwargs)\n"
+                    "    if not published and inspect.currentframe().f_back.f_code.co_name == 'held':\n"
+                    "        published = True\n"
+                    f"        notify.record(session, {kind!r}, {text!r})\n"
+                    "    return snapshot\n"
+                    "notify.last = concurrent_last\n")
+                self.assertEqual(self.stop(background_tasks=[]), "")
+                notice = json.loads((self.state / f"notify-{SEAT}.json").read_text())
+                self.assertEqual((notice["kind"], notice["text"]), (kind, text))
+
     def test_a_notification_from_an_earlier_turn_does_not_allow_it(self):
         self.notified("done", self.turn - 600)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
