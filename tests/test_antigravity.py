@@ -233,9 +233,10 @@ class Antigravity(unittest.TestCase):
         text = (agents / ".agents/agents/agentkit/agent.md").read_text()
         head, sep, body = text[4:].partition("\n---\n")
         self.assertTrue(text.startswith("---\n") and sep)
+        # the seat runs commands: agy's agent that names no tools never did (see the adapter)
         self.assertEqual(head.splitlines(), ["name: agentkit",
                                              "description: the agentkit orchestrator seat",
-                                             "subagent: false"])
+                                             "subagent: false", "tools:", "  - run_command"])
         claude = subprocess.run(
             [str(REPO / "adapters/claude.sh"), "interactive", "opus", "xhigh"],
             capture_output=True, text=True, env=self.env)
