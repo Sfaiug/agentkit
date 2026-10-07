@@ -26,6 +26,8 @@ from string import Template
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK")
 PROCESSES = "box-processes.json"
 TRANSIENT = tuple(map(Path, ("/run", "/tmp", "/var/tmp", "/dev/shm")))
+OVERLAY_REMEDY = ("install bubblewrap with --tmp-overlay support and use a kernel that allows "
+                  "overlayfs in unprivileged user namespaces")
 # The supervisor runs from the text this module was loaded from: the file on disk can change
 # under a running launcher, when a probe checks out another revision of ak's own checkout.
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
@@ -73,10 +75,15 @@ def _git(args, env, cwd, **kwargs):
                           capture_output=True, text=True, timeout=10, **kwargs)
 
 
+def _homes(env, cwd):
+    base = Path(cwd or os.getcwd())
+    return {base / (env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
+
+
 def _credentials(env, cwd, agent=None):
     # The turn reads a relative path in its environment from its own directory.
     base = Path(cwd or os.getcwd())
-    homes = {base / (env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
+    homes = _homes(env, cwd)
     configs = {home / ".config" for home in homes}
     if env.get("XDG_CONFIG_HOME"):
         configs.add(base / env["XDG_CONFIG_HOME"])
@@ -257,7 +264,7 @@ def _copy_run(source, destination, hidden):
                                 copied.write(content)
 
 
-def _own(scratch, clean, cwd, walls, writable, hidden):
+def _own(scratch, clean, cwd, writable, hidden):
     """A copy of /run without services, and empty temporary and runtime directories."""
     own = {path.resolve() for path in TRANSIENT}
     for path in _paths(("$XDG_RUNTIME_DIR",), clean, cwd):
@@ -268,10 +275,8 @@ def _own(scratch, clean, cwd, walls, writable, hidden):
             if not any(place == real or place in real.parents for place in own) or any(
                     place == real or place in real.parents for place in writable):
                 own.add(real)
-    if walls:
-        # A walled box's /dev is bubblewrap's, whose shm is a directory even where the host's
-        # links into /run.
-        own.add(Path("/dev/shm"))
+    # Bubblewrap's /dev has a shm directory even where the host's links into /run.
+    own.add(Path("/dev/shm"))
     binds = {path: Path(scratch, str(i)) for i, path in enumerate(sorted(own))}
     for source in binds.values():
         source.mkdir(parents=True, exist_ok=True)
@@ -284,43 +289,43 @@ def _own(scratch, clean, cwd, walls, writable, hidden):
     return binds
 
 
-def _bind(own, writable):
-    """Mount the box's own places and its writable ones, parents first so the deeper of two wins:
-    a workspace in /tmp, a runtime directory in the workspace."""
+def _bind(own, writable, homes=()):
+    """Mount HOME overlays, private and writable places, parents first so deeper mounts win."""
     clash = sorted(own.keys() & writable)
     if clash:
         from . import config
         raise config.Error(f"{clash[0]} is a place the box keeps empty and one it writes through "
                            "to; give each a directory of its own")
-    binds = {**own, **{path: path for path in writable}}
+    binds = {**{path: path for path in homes}, **own, **{path: path for path in writable}}
+    overlays = set(homes) - own.keys() - writable
     args = []
     for path in sorted(binds):
         # What the nearest mounted parent already shows needs no mount of its own, and a
         # redundant file mount prevents atomic refresh within its writable parent.
         parent = next((parent for parent in path.parents if parent in binds), None)
-        if parent is None or binds[parent] / path.relative_to(parent) != binds[path]:
+        if path in overlays:
+            args.extend(["--overlay-src", str(path), "--tmp-overlay", str(path)])
+        elif (parent is None or parent in overlays
+              or binds[parent] / path.relative_to(parent) != binds[path]):
             args.extend(["--bind", str(binds[path]), str(path)])
     return args
 
 
 @contextmanager
-def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(), walls=True,
-            drain=False):
+def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(),
+            home_overlay=False, drain=False):
     """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
     directories the command may also write. With an out dir, /run is copied without services
-    or /run/user, and temporary and runtime directories are the box's own, empty. Without walls
-    every other write stays as it is outside: a check runs a project's own suite, which writes
-    where that project says, like a cache in HOME.
+    or /run/user, and temporary and runtime directories are the box's own, empty. Everything
+    else is read-only; `home_overlay` gives checks throwaway writes in the account's home and
+    HOME, beneath the writable places and credential masks.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
            "--new-session"]
-    if walls:
-        _walls(cmd)
-    else:
-        cmd.extend(["--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"])
+    _walls(cmd)
     at = len(cmd)
     if out_dir is not None:
         for path in TRANSIENT:
@@ -328,6 +333,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                 from . import config
                 raise config.Error(f"worker box needs {path}: the host directory is missing")
     writable = _writable(clean, cwd, out_dir, state, places, logins)
+    homes = {path.resolve() for path in _homes(clean, cwd)} if home_overlay else set()
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
     try:
@@ -355,7 +361,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
-        cmd[at:at] = _bind({}, writable)
+        cmd[at:at] = _bind({}, writable, homes)
         yield [*cmd, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
@@ -404,7 +410,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            cmd[at:at] = _bind(_own(scratch, clean, cwd, walls, writable, targets), writable)
+            cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop}
@@ -454,13 +460,13 @@ def _wait(fd):
 
 
 def check():
-    """Refuse before a run is allocated, including hosts that cannot nest a box."""
+    """Refuse before a run is allocated if nested boxes or check HOME overlays cannot start."""
     from . import config
     remedy = "sudo apt-get install -y bubblewrap"
     if not shutil.which("bwrap"):
         raise config.Error(f"worker box needs bubblewrap; run `{remedy}`")
     try:
-        with command(["true"], os.environ) as (inner, env, _):
+        with command(["true"], os.environ, home_overlay=True) as (inner, env, _):
             with command(inner, env) as (outer, env, _):
                 result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
@@ -484,7 +490,8 @@ def check():
             remedy = f"sudo sysctl -w {setting}"
             break
     raise config.Error(f"worker box cannot start: {why}; run `{remedy}`; "
-                       "the host must allow nested unprivileged user and PID namespaces")
+                       "the host must allow nested unprivileged user and PID namespaces; "
+                       f"for check HOME overlays, {OVERLAY_REMEDY}")
 
 
 def _report(out_dir):

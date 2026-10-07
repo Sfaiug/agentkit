@@ -1,4 +1,4 @@
-"""Proofs and checks have the worker's credential masks and process teardown."""
+"""Proofs and checks have worker walls, throwaway HOME writes and process teardown."""
 
 from contextlib import ExitStack
 import fcntl
@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, hand_in, run, worker
+from agentkit import box, config, gate, hand_in, run, worker
 
 
 class ChecksBoxed(unittest.TestCase):
@@ -181,26 +181,114 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertIn(f"[exit {code}]\npartial", text)
 
     def test_a_check_writes_where_its_project_says(self):
-        # A suite may fill a cache outside its checkout, in HOME say; only worker turns are
-        # walled. What it leaves in /tmp stays in the box's own.
+        # Caches and a suite's own services still work, but only workspace writes persist.
         home = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-home-", dir=REPO)
         self.addCleanup(home.cleanup)
         outside = Path("/tmp", self.root.name)
-        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
-        for name in ("proof", "check"):
-            with self.subTest(command=name):
+        for name in ("proof", "check", "sharded"):
+            with self.subTest(command=name), patch.dict(os.environ, {"HOME": home.name}):
                 cache, scratch = Path(home.name, ".cache", name), outside / name
-                command = " && ".join(f"mkdir -p {shlex.quote(str(path.parent))} && "
-                                      f"echo written > {shlex.quote(str(path))}"
-                                      for path in (cache, scratch))
+                command = self.command(
+                    "import os, socket, tempfile; from pathlib import Path; "
+                    f"paths = [Path({str(cache)!r}), Path({str(scratch)!r})]\n"
+                    "for path in paths:\n"
+                    " path.parent.mkdir(parents=True, exist_ok=True)\n"
+                    " path.write_text('written')\n"
+                    " assert path.read_text() == 'written'\n"
+                    "with tempfile.TemporaryDirectory() as tmp:\n"
+                    " assert str(Path(tmp).parent) == os.environ['TMPDIR']\n"
+                    " with socket.socket(socket.AF_UNIX) as server, socket.socket(socket.AF_UNIX) as client:\n"
+                    "  server.bind(tmp + '/server')\n"
+                    "  server.listen(1)\n"
+                    "  client.connect(tmp + '/server')\n"
+                    "  connection, _ = server.accept()\n"
+                    "  connection.close()\n"
+                    f"Path({str(self.root / name)!r}).write_text('workspace')")
                 if name == "proof":
                     result = self.proof(command)
                     self.assertEqual(result["returncode"], 0, result)
                 else:
-                    ok, text = self.check(command)
+                    ok, text = self.check(command + (" # AK_SHARD" if name == "sharded" else ""))
                     self.assertTrue(ok, text)
-                self.assertEqual(cache.read_text(), "written\n")
+                self.assertFalse(cache.exists())
                 self.assertFalse(scratch.exists())
+                self.assertEqual((self.root / name).read_text(), "workspace")
+
+    def test_a_check_leaves_no_program_ak_runs_later(self):
+        homes = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-homes-", dir=REPO)
+        self.addCleanup(homes.cleanup)
+        home, account = (Path(homes.name, name) for name in ("home", "account"))
+        for place in (home, account):
+            (place / "bin").mkdir(parents=True)
+            (place / ".bashrc").write_text("# original\n")
+            (place / ".ssh").mkdir()
+            (place / ".ssh/id_fixture").write_text("fixture-key")
+        for name in ("proof", "check", "sharded"):
+            with self.subTest(command=name), \
+                    patch.object(box.pwd, "getpwuid", return_value=SimpleNamespace(pw_dir=str(account))), \
+                    patch.dict(os.environ, {"HOME": str(home),
+                                            "PATH": f"{home / 'bin'}:{os.environ['PATH']}"}):
+                command = self.command(
+                    "import subprocess; from pathlib import Path\n"
+                    f"for place in map(Path, {[str(home), str(account)]!r}):\n"
+                    " program = place / 'bin/ak-fixture-later'\n"
+                    " program.write_text('#!/bin/sh\\nprintf check-only\\n')\n"
+                    " program.chmod(0o755)\n"
+                    " (place / 'owner-yes').write_text('check-only')\n"
+                    " assert (place / 'owner-yes').read_text() == 'check-only'\n"
+                    " with (place / '.bashrc').open('a') as shell:\n"
+                    "  shell.write('# check-only\\n')\n"
+                    " assert (place / '.bashrc').read_text() == '# original\\n# check-only\\n'\n"
+                    " assert not (place / '.ssh/id_fixture').exists()\n"
+                    "assert subprocess.check_output(['ak-fixture-later']) == b'check-only'\n"
+                    f"Path({str(self.root / name)!r}).write_text('workspace')")
+                if name == "proof":
+                    result = self.proof(command)
+                    self.assertEqual(result["returncode"], 0, result)
+                else:
+                    ok, text = self.check(command + (" # AK_SHARD" if name == "sharded" else ""))
+                    self.assertTrue(ok, text)
+                for place in (home, account):
+                    self.assertFalse((place / "bin/ak-fixture-later").exists())
+                    self.assertFalse((place / "owner-yes").exists())
+                    self.assertEqual((place / ".bashrc").read_text(), "# original\n")
+                    self.assertEqual((place / ".ssh/id_fixture").read_text(), "fixture-key")
+                self.assertEqual((self.root / name).read_text(), "workspace")
+
+    def test_a_check_cannot_write_elsewhere(self):
+        outside = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-readonly-", dir=REPO)
+        self.addCleanup(outside.cleanup)
+        path = Path(outside.name, "host-file")
+        for name in ("proof", "check"):
+            with self.subTest(command=name):
+                command = self.command(f"from pathlib import Path; Path({str(path)!r}).touch()")
+                if name == "proof":
+                    result = self.proof(command)
+                    self.assertNotEqual(result["returncode"], 0, result)
+                    text = result["output"]
+                else:
+                    ok, text = self.check(command)
+                    self.assertFalse(ok, text)
+                self.assertIn("Read-only file system", text)
+                self.assertFalse(path.exists())
+
+    def test_missing_home_overlay_support_refuses_before_the_check_starts(self):
+        bindir = self.root / "bin"
+        bindir.mkdir()
+        wrapper = bindir / "bwrap"
+        wrapper.write_text("#!/bin/sh\nprintf 'bwrap: overlayfs unavailable\\n' >&2\nexit 1\n")
+        wrapper.chmod(0o755)
+        with patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}"}):
+            result = self.proof("touch started")
+            self.assertEqual(result["returncode"], 126, result)
+            self.assertFalse(hand_in.proof_failed(result), result)
+            ok, text = self.check("touch started")
+            self.assertFalse(ok, text)
+            for output in (result["output"], text):
+                self.assertIn("overlayfs unavailable", output)
+                self.assertIn("install bubblewrap with --tmp-overlay support", output)
+                self.assertIn("kernel that allows overlayfs in unprivileged user namespaces", output)
+        self.assertFalse((self.root / "started").exists())
 
     def test_a_box_that_cannot_start_proves_nothing(self):
         # bwrap exits 1 on a mount it cannot make, before its supervisor runs the command.
