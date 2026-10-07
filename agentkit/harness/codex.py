@@ -93,12 +93,15 @@ def conversation(record, cwd=None):
 
 
 def transcript(record, cwd, conversation):
-    """The rollout file the new orchestrator reads the last exchange from."""
+    """The rollout file the new orchestrator reads the last exchange from.
+
+    Codex names it through the seat's home, whose `sessions` is a link the seat's removal takes
+    away; where the link leads stays (tools/codex-seat.py `seat_home`), so that is the path."""
     if not conversation:
         return None
     event = read(record).get("event") or {}
     path = event.get("transcript_path")
-    return path if isinstance(path, str) and path else None
+    return str(Path(path).resolve()) if isinstance(path, str) and path else None
 
 
 def prompt(entry):

@@ -168,6 +168,26 @@ class SlowStart(unittest.TestCase):
         kept = list(self.source.rglob('rollout-acme-seat.jsonl'))
         self.assertEqual([path.read_text() for path in kept], ['{"type":"session_meta"}\n'])
 
+    def test_a_seats_conversations_stay_under_its_logins_codex_home(self):
+        # a seat opened on any subscription keeps them in that login's own Codex home
+        rollout = self.home / 'sessions' / '2026' / 'rollout-acme-seat.jsonl'
+        rollout.parent.mkdir(parents=True)
+        rollout.write_text('{"type":"session_meta"}\n')
+        self.assertEqual(rollout.resolve(), self.source / 'agentkit-seats' / 'acme-seat' /
+                         'sessions' / '2026' / 'rollout-acme-seat.jsonl')
+
+    def test_the_handover_reads_a_removed_seats_last_exchange(self):
+        from agentkit.harness import codex
+        rollout = self.home / 'sessions' / '2026' / 'rollout-acme-seat.jsonl'
+        rollout.parent.mkdir(parents=True)
+        rollout.write_text('{"type":"session_meta"}\n')
+        record = {'codex_launch': 'a' * 32}
+        codex.path_for(record).write_text(json.dumps(
+            {'launch': 'a' * 32, 'event': {'transcript_path': str(rollout)}}))
+        handed = codex.transcript(record, None, 'acme-thread')   # read as a switch reads it
+        self.api['remove_home'](self.home)                       # then the old seat goes
+        self.assertEqual(Path(handed).read_text(), '{"type":"session_meta"}\n')
+
     def test_seat_from_before_keeps_its_conversations_in_the_shared_sessions(self):
         rollout = self.source / 'sessions' / 'rollout-acme-older.jsonl'
         rollout.parent.mkdir(exist_ok=True)
