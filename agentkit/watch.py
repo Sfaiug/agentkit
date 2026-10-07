@@ -45,7 +45,7 @@ from urllib.parse import urlsplit
 from . import (browser, command_help, config, gc, host, notify, orch, statusbar, update, usage,
                worker)
 from . import record as run_record
-from .harness import LIMITED, SPENT, entries, says
+from .harness import LIMITED, SPENT, says
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
@@ -110,10 +110,11 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
     stuck = composer_draft(harness, pane_text(session)) == ours
 
     def veto(held):
-        # Under the seat lock the other senders type under, with their owner-question veto --
-        # except for an earlier PR's merge question, which is ours.  The screen is read once,
-        # before typing: text already in the composer, or a dialog, would go out with the
-        # question as one garbled prompt, and after typing the composer holds the question.
+        # Under the seat lock the other senders type under, held back by an owner question as
+        # recovery nudges are -- except for an earlier PR's merge question, which is ours.  The
+        # screen is read once, before typing: text already in the composer, or a dialog, would
+        # go out with the question as one garbled prompt, and after typing the composer holds
+        # the question.
         notice = notify.last(held)
         if owner_question(notice) and not str(notice.get("source") or "").startswith("inbox:"):
             return True
@@ -1945,7 +1946,10 @@ def hook_look(launched, heard=None, answered_at=None, said=""):
             "display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}",
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
-    if answered_at is not None and not _typed_since_question(name, said):
+    asked = (notify.last(name) or {}).get("time")
+    if answered_at is not None and not (
+            isinstance(asked, (int, float)) and said
+            and any(sent.get("text") == said for sent in notify.typed_since(name, asked))):
         notify.answered(name, answered_at)
     cfg = config.load()
     answer = announce_state(session, cfg=cfg, look=True, number=number)
@@ -1955,17 +1959,6 @@ def hook_look(launched, heard=None, answered_at=None, said=""):
             return announce_state(session, cfg=cfg, look=True, number=number)
         time.sleep(0.1)
     return answer
-
-
-def _typed_since_question(name, said):
-    """Is `said` a line ak typed into that seat, by its typing receipts, since its open question
-    was asked?  The owner's own words ak relays (`source` owner) are theirs."""
-    asked = (notify.last(name) or {}).get("time")
-    said = re.sub(r"\s+", "", said or "")
-    return bool(said) and isinstance(asked, (int, float)) and any(
-        sent.get("source") != "owner" and isinstance(sent.get("at"), (int, float))
-        and sent["at"] >= asked and re.sub(r"\s+", "", str(sent.get("text") or "")) == said
-        for sent in entries(config.seat_file("input", name)))
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,

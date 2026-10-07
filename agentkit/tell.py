@@ -3,8 +3,9 @@
 The sender only queues it, in the receiving seat's own file, under that seat's lock.  The tick
 types it there, once, at the seat's next quiet prompt -- or mid-turn, where its harness holds a
 typed line for its model's next step -- through the confirmed send a run's ending takes
-(`watch.type_at_prompt`): under the seat's typing lock, never onto a draft or a dialog,
-and never while the owner's question stands, so it answers none.  ak writes the header that
+(`watch.type_at_prompt`): under the seat's typing lock, never onto a draft or a dialog.  An
+open owner question holds it back no more than a hand-back, and it answers none: only the
+owner's own prompt does (`notify.typed_since`).  ak writes the header that
 says who it is from, and the typing receipt names that seat as its source, so the line is never
 the owner's words.  Only the tick types, one tick at a time, and a message leaves the queue
 only once its line was seen leaving the composer: it goes in at least once and is never lost.
