@@ -459,6 +459,37 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertEqual(len(self.checks), 1)
         self.assertEqual(self.merges, [])
 
+    def test_a_head_pushed_while_waiting_for_the_lander_is_reviewed_before_any_check(self):
+        directory, url = self.own_pr("first", 1)
+        self.review(directory, url)
+        self.advance()
+        self.push_fix(url)
+        newest = self.prs[url]["head"]
+        land.check_line(self.turn)
+        self.assertEqual(self.checks, [], "the line checked a head nobody will land")
+        self.assertIn(newest[:12], self.wait(directory)["fix"]["line"])
+        state = self.review(directory, url)
+        self.assertEqual(state["head_sha"], newest)
+        self.assertEqual(len(self.reviews), 2)
+        land.check_line(self.turn)
+        self.assertTrue(self.review(directory, url)["merged"])
+        self.assertEqual(len(self.checks), 1)
+
+    def test_a_wording_pr_rejoining_after_a_target_move_is_not_a_moved_head(self):
+        # its delivery rebased it locally; GitHub still holds the head it was reviewed at
+        directory, url = self.own_pr("README", 1)
+        state = self.review(directory, url)
+        self.assertTrue(state["review"]["skipped"])
+        land.check_line(self.turn)
+        self.advance(**{"later.txt": "later\n"})
+        state = self.review(directory, url)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(self.prs[url]["head"], state["head_sha"], "nobody pushed")
+        land.check_line(self.turn)
+        with patch.object(run, "wait_for_own_pr", return_value=False):
+            state = self.review(directory, url)
+        self.assertTrue(state.get("merged"), (state.get("final_check") or {}).get("line"))
+
     def test_a_seat_push_racing_the_tested_push_is_protected_by_the_lease(self):
         directory, url = self.own_pr("first", 1)
         self.review(directory, url)

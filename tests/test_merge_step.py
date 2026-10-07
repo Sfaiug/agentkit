@@ -921,7 +921,7 @@ class MergeStep(unittest.TestCase):
                              landing(lp, deliver=deliver)), \
                 patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
                 patch.object(run.time, "sleep") as slept:
-            self.assertTrue(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
+            self.assertTrue(run.merge_own_pr(lp, URL))
         self.assertEqual(len(merges), 2)
         self.assertTrue(record.read_state(run_dir)["merged"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
@@ -1030,7 +1030,7 @@ class MergeStep(unittest.TestCase):
                              landing(lp, deliver=deliver)), \
                 patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
                 patch.object(run.time, "sleep"):
-            self.assertFalse(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
+            self.assertFalse(run.merge_own_pr(lp, URL))
         self.assertFalse(record.read_state(run_dir).get("merged"))
 
     def test_an_own_pr_merge_stops_when_its_recheck_stops(self):
@@ -1060,7 +1060,7 @@ class MergeStep(unittest.TestCase):
                         patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
                         patch.object(run.time, "sleep"):
                     with self.assertRaises(run.Stopped):
-                        run.merge_own_pr(lp, URL, lp.state["delivery_sha"])
+                        run.merge_own_pr(lp, URL)
                 self.assertEqual(len(merges), 1)
                 state = record.read_state(run_dir)
                 self.assertFalse(state["merged"])

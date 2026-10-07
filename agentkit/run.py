@@ -10244,7 +10244,12 @@ def fail_pr_landing(lp, failure):
     return False
 
 
-def merge_own_pr(lp, url, head):
+def own_pr_heads(state):
+    """The PR heads that are this run's own: the head it reviewed and the one it pushed."""
+    return state.get("head_sha"), state.get("delivery_sha")
+
+
+def merge_own_pr(lp, url):
     """Join the same line as task runs; deliver only the lander's tested PR tree."""
     if lp.state.get("own_pr") and not lp.state.get("own_orchestrator"):
         return note(lp, "no recorded writer for this PR; refusing the automatic merge",
@@ -10257,7 +10262,7 @@ def merge_own_pr(lp, url, head):
         if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
             raise config.Error(f"cannot verify the PR before delivery: {why}")
         remote = current["head"]
-        expected = (head, lp.state.get("delivery_sha"))
+        expected = own_pr_heads(lp.state)
         ours = (remote["sha"] in expected
                 and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
         if current.get("merged") and ours:
@@ -10371,7 +10376,7 @@ def review_pr(cfg, run_dir, url, opts, log):
             state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)
             run_record.save_state(run_dir, state)
             lp = pr_loop(cfg, run_dir, state, opts, log)
-            merge_own_pr(lp, url, state["head_sha"])
+            merge_own_pr(lp, url)
             if state.get("state") != "waiting":
                 state.pop("own_pr_round_pending", None)
             if state.get("state") != "waiting" and not state.get("own_pr_wait"):
@@ -10646,7 +10651,7 @@ def settle_pr_round(lp, url, info):
         if is_own:
             # the verdict owes its delivery until it lands, fails or goes back to its writer:
             # a delivery that errors keeps the mark, and with it the checkout a retry needs
-            merge_own_pr(lp, url, head)
+            merge_own_pr(lp, url)
             if state.get("state") != "waiting":
                 state.pop("own_pr_round_pending", None)
             if state.get("state") != "waiting" and not state.get("own_pr_wait"):

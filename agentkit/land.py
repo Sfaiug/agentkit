@@ -362,6 +362,26 @@ def _member_commit(repo, state, head):
     return run.git_out(repo, "fetch", "--no-tags", "--no-write-fetch-head", "--", str(source), head)
 
 
+def _pr_moved(state, heads):
+    """Why a PR in the line no longer holds the head that passed its review, or "": its seat
+    pushed since.  `heads` keeps each PR's head for the pass; an unreadable one is not moved."""
+    from . import run
+    url = state.get("review_pr")
+    if not url:
+        return ""
+    if url not in heads:
+        try:
+            heads[url] = run.pr_view(url).get("headRefOid")
+        except config.Error:
+            heads[url] = None
+    head = heads[url]
+    if not head or head in run.own_pr_heads(state):
+        return ""
+    return (f"its PR's head moved to {head[:12]} after review of "
+            f"{(state.get('head_sha') or '?')[:12]}: the new commits are reviewed before "
+            "the line checks them")
+
+
 def _stack_member(repo, state, top, upstream, opened):
     """Integrate a reviewed head in scratch; no scratch means setup failed."""
     from . import run
@@ -417,6 +437,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
     upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
     config.WT.mkdir(parents=True, exist_ok=True)
     pending, verdicts = list(members), {}
+    heads = {}      # each PR's head on GitHub, read once a pass
     limit = None
     while pending:
         with ExitStack() as opened:
@@ -429,6 +450,14 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 if run.git(scratch, "rev-parse", "HEAD^{tree}") != saved["waiting_on"]["land"]:
                     return verdicts
             for member, saved in pending:
+                moved = _pr_moved(saved, heads)
+                if moved:
+                    # The seat pushed past the head that passed review: checking that head
+                    # tests code nobody will land, so the PR goes back to be reviewed.
+                    log_path = member / "lander.log"
+                    log_path.write_text(moved + "\n")
+                    verdicts[member] = {"fix": {"line": moved, "log": str(log_path)}}
+                    continue
                 # Earlier changes can hide a target conflict, so try the bare tip first.
                 scratch, text = _stack_member(repo, saved, tip, upstream, opened)
                 if text:

@@ -152,7 +152,7 @@ class MergeTrailer(unittest.TestCase):
                     patch.object(run, "checks", return_value=(True, "")), \
                     patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
                                  landing(lp, deliver=deliver)):
-                self.assertTrue(run.merge_own_pr(lp, url, lp.state["delivery_sha"]))
+                self.assertTrue(run.merge_own_pr(lp, url))
         else:
             self.assertTrue(run.do_merge(lp, url, "origin/main"))
         return self.git("log", "-1", "--format=%B")
