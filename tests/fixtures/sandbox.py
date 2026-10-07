@@ -13,7 +13,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -26,7 +25,9 @@ from fixtures.hand_in import records
 
 def account_home(home):
     """Give boxes a temporary passwd home too, never the caller's home and its mounts."""
-    return patch.object(box.pwd, "getpwuid", return_value=SimpleNamespace(pw_dir=str(home)))
+    account = box.pwd.getpwuid(os.getuid())
+    return patch.object(box.pwd, "getpwuid", return_value=box.pwd.struct_passwd(
+        (*account[:5], str(home), account.pw_shell)))
 
 
 def in_account_home(argv, home, **kwargs):
