@@ -55,6 +55,22 @@ class LandingFixer(unittest.TestCase):
         self.assertIn(LATE.rstrip(), fix)
         self.assertLess(fix.index(EARLY.splitlines()[0]), fix.index(LATE.splitlines()[0]))
 
+    def test_every_other_landing_fixer_gets_the_lines_failure_the_same_way(self):
+        log = Path(self.enterContext(__import__("tempfile").TemporaryDirectory())) / "red.log"
+        log.write_text("--- AK_SHARD=2/5 ---\n" + EARLY + PASSES + LATE)
+        lp = FakeRun()
+        lp.state = {"waiting_on": {"line": ".merge-acme.lock", "fix": {"log": str(log)}}}
+        seen = []
+
+        def execute(_lp, _role, text, _name):
+            seen.append(text)
+            raise Handed
+
+        with patch.object(run, "execute", side_effect=execute), self.assertRaises(Handed):
+            run.landing_fixer(lp, "## Resolve the rebase conflict.", "rebase-fixer")
+        self.assertIn(EARLY.rstrip(), seen[0])
+        self.assertIn(LATE.rstrip(), seen[0])
+
     def test_short_output_and_output_naming_no_failure_read_as_before(self):
         short = "PASS  tests/test_widget.py\n" + LATE
         self.assertIn(short, self.fixer_reads(short))

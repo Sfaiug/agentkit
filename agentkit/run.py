@@ -4470,7 +4470,7 @@ def landing_fixer(lp, text, name):
         # An unrelated conflict or light check must not hide the lander's failure.
         output = Path(failure["log"]).read_text(errors="replace")
         text += (f"\n\n## The final check failed. Fix the root cause as well.\n```\n"
-                 f"{output[-OUT_CAP:]}\n```")
+                 f"{failing_blocks(output)}\n```")
     summary = execute(lp, "fixer", text, name)
     if failure:
         # Save the actual fixer with its summary before a check or review can stop.
@@ -4779,7 +4779,7 @@ def integrate(lp, upstream):
                             lp.log(f"--- merge: re-run round {attempt + 1}/{CONFLICT_ROUNDS}: "
                                    f"fixer {lp.executor} (done-when after the {how})")
                             fix = (f"{lp.context}\n\n## The done-when commands failed. "
-                                   f"Fix the root cause.\n```\n{dw_log[-OUT_CAP:]}\n```")
+                                   f"Fix the root cause.\n```\n{failing_blocks(dw_log)}\n```")
                             with released_gate_turn():
                                 summary = landing_fixer(lp, fix, "rerun-fixer")
                                 lp.state["review_pending"]["summary"] = summary
@@ -5624,7 +5624,7 @@ def target_fails(lp, upstream, dw_log):
             lp.log(f"--- merge: `{cmd}` fails on {old_base[:12]} too: needs this branch")
             return ""
     # indented, so nothing the command printed reads as a heading or a fence of the task
-    printed = "\n".join("    " + line for line in output[-OUT_CAP:].splitlines())
+    printed = "\n".join("    " + line for line in failing_blocks(output).splitlines())
     try:
         lp.repair = start_followups(lp.state, lp.run_dir, lp.log, lp.cfg, repair={
             "command": cmd, "check": f"{cmd}  # once" if heavy_probe else cmd, "sha": tip,
