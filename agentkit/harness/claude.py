@@ -476,14 +476,18 @@ def _pin(settings):
 
     Bypass permissions, and Claude Code's own messages from other sessions refused:
     seats talk through `ak tell`, which reaches every harness and account, says who sent
-    it, and is never taken for the owner's words.  Claude Code reads its user settings
-    again when the file changes, so a seat opened before this launch refuses them too.
+    it, and is never taken for the owner's words.  A message its safeguards flag switches
+    the conversation to another model by itself instead of pausing the seat on a dialog
+    until the owner answers; an answer there writes this same setting, which an account
+    login's copy of the usual login's settings carried over.  Claude Code reads its user
+    settings again when the file changes, so a seat opened before this launch takes them too.
     """
     permissions = settings.setdefault("permissions", {})
     if not isinstance(permissions, dict):
         permissions = settings["permissions"] = {}
     permissions["defaultMode"] = "bypassPermissions"
     settings["crossSessionInbound"] = "refuse"
+    settings["switchModelsOnFlag"] = True
 
 
 def account_config(check=False):
