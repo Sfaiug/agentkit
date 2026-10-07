@@ -5,14 +5,14 @@ default branch and refuses one that already passes there: a check that passes be
 proves nothing, and one that never finishes there could never tick.  `--eye` is an outcome only
 the owner can judge; `ak plan tick <n>` ticks it on their word.  `ak plan check <n> '<cmd>'`
 puts another check in a line's place -- the seat's own test where a review follow-up came
-checked by the reviewer's probe -- when it failed on the default branch as that was when the
-line was written.  `ak plan` ticks each check line whose check now passes on its project's
-default branch, then lists the lines, numbered, and `ak notify done` runs every check again and
-waits for every line.  The plan is the seat's `plan-<seat>.md`, the
+checked by the reviewer's probe -- when it fails on the commit the line's check was proven
+failing on, which the line names.  `ak plan` ticks each check line whose check now passes on
+its project's default branch, then lists the lines, numbered, and `ak notify done` runs every
+check again and waits for every line.  The plan is the seat's `plan-<seat>.md`, the
 file the menu's bar counts, and a line names its outcome, its check (or `your eye`), the
-project and when it was written:
+project, when it was written and, for a check, the commit it failed on then:
 
-    - [ ] each session sees its project · check: `python3 tests/test_x.py` · agentkit · written 2026-10-02 12:40
+    - [ ] each session sees its project · check: `python3 tests/test_x.py` · agentkit · written 2026-10-02 12:40 on 0123456789ab
 """
 
 import fcntl
@@ -33,7 +33,7 @@ CHECK_LIMIT = 600    # an unfinished check proves nothing
 EYE = "your eye"
 LINE = re.compile(r"^- \[(?P<mark>[ x])\] (?P<what>.+?) · (?:check: `(?P<check>[^`]+)`|"
                   + EYE + r") · (?P<project>.+?) · written (?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
-                  r"(?: · done (?P<done>.+))?$")
+                  r"(?: on (?P<base>[0-9a-f]{7,40}))?(?: · done (?P<done>.+))?$")
 
 
 def seat():
@@ -238,20 +238,15 @@ def verifying(name):
 
 
 @contextmanager
-def default_branch(repo, written=None):
+def default_branch(repo, at=None):
     """(its commit as `<sha12> <subject>`, the environment a check runs in, `checkout`): the
-    project's current default branch, fetched first -- or, with `written` (a line's
-    `%Y-%m-%d %H:%M`), its last commit by the end of that minute in ak's own zone, the one
-    `add` stamped it in: no zone a check's env carries moves it.  `checkout()` is a clean
-    checkout of that commit made for one check and removed after it, so nothing one check writes or
-    moves -- files, HEAD, a submodule -- is there for the next.  A check gets the project's
-    env file (`config.repo_env`), as a run's checks do: what git does not hold, such as the
-    project's interpreter, it names there (ATLAS's `ATLAS_PYTHON`)."""
+    project's current default branch, fetched first -- or, with `at`, that commit, the one a
+    line's check was proven failing on.  `checkout()` is a clean checkout of that commit made
+    for one check and removed after it, so nothing one check writes or moves -- files, HEAD, a
+    submodule -- is there for the next.  A check gets the project's env file
+    (`config.repo_env`), as a run's checks do: what git does not hold, such as the project's
+    interpreter, it names there (ATLAS's `ATLAS_PYTHON`)."""
     env = {**git_env(), **config.repo_env(repo)}
-    try:
-        until = written and int(time.mktime(time.strptime(written, "%Y-%m-%d %H:%M"))) + 59
-    except (ValueError, OverflowError):
-        raise config.Error(f"{written} is no time a line was written at") from None
 
     def git(*args, cwd=repo):
         try:
@@ -267,11 +262,7 @@ def default_branch(repo, written=None):
     git("fetch", "-q", "origin")
     git("remote", "set-head", "origin", "--auto")
     base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-    sha = git("rev-parse", "--verify", "--quiet", f"{base}^{{commit}}")
-    if written:
-        sha = git("rev-list", "-1", "--first-parent", f"--before=@{until}", sha)
-        if not sha:
-            raise config.Error(f"{repo.name}'s default branch has no commit from {written}")
+    sha = git("rev-parse", "--verify", f"{at or base}^{{commit}}")
     commit = git("log", "-1", "--format=%h %s", "--abbrev=12", sha)
     config.TMP.mkdir(parents=True, exist_ok=True)
 
@@ -323,12 +314,12 @@ def fails(tree, cmd, env):
     return proc.returncode != 0
 
 
-def fails_on_main(repo, cmd, written=None):
-    """(Whether `cmd` fails on a clean checkout of the project's default branch, now or as it
-    was when a line was `written`, that checkout's root commit): the repository a line names
-    is the one its check ran in."""
-    with default_branch(repo, written) as (_commit, env, checkout), checkout() as tree:
-        return fails(tree, cmd, env), root(tree)
+def fails_on_main(repo, cmd, at=None):
+    """(Whether `cmd` fails on a clean checkout of the project's default branch, or of commit
+    `at`, that checkout's root commit, its commit): the repository a line names is the one
+    its check ran in, and the commit the one it failed on."""
+    with default_branch(repo, at) as (commit, env, checkout), checkout() as tree:
+        return fails(tree, cmd, env), root(tree), commit.split()[0]
 
 
 # a list line with a box, however it is spelled: `- [ ]`, `* [X]`, `1.  [done]` -- any
@@ -461,16 +452,16 @@ def add(name, what, check=None, repo=None, proven=None):
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")
     repo = Path(repo) if repo else project_of(name)
-    found = None
+    found = base = None
     if check is not None:
         check = one_command(check)
         if proven:
-            found = root(repo, proven)
+            found, base = root(repo, proven), proven[:12]
             if not found:
                 raise config.Error(f"{repo.name} does not hold {proven[:12]}, the commit this "
                                    "check failed on")
         else:
-            failing, found = fails_on_main(repo, check)
+            failing, found, base = fails_on_main(repo, check)
             if not failing:
                 raise config.Error(f"this check already passes on {repo.name}'s default "
                                    "branch, so it proves nothing; write one that fails until "
@@ -480,7 +471,7 @@ def add(name, what, check=None, repo=None, proven=None):
         raise config.Error(f"{where}: a project a line names holds no `·`")
     stamp = time.strftime("%Y-%m-%d %H:%M")
     proof = f"check: `{check}`" if check is not None else EYE
-    line = f"- [ ] {what} · {proof} · {where} · written {stamp}"
+    line = f"- [ ] {what} · {proof} · {where} · written {stamp}" + (f" on {base}" if base else "")
     with held(name) as current:
         text = lines(current)
         for old in text:
@@ -509,9 +500,9 @@ def numbered(text, number):
 
 def recheck(name, number, check):
     """Put `check` in place of plan line `number`'s check, the line open again until it
-    passes.  It must have failed where the line's check had to: on the line's project as its
-    default branch was when the line was written -- the code before the work, however long ago
-    the work landed."""
+    passes.  It must fail where the line's check did: on the commit the line names -- the code
+    before the work, however long ago the work landed -- or, on a line from before lines named
+    one, on its project's default branch."""
     check = one_command(check)
     with held(name) as current:
         text = lines(current)
@@ -522,15 +513,11 @@ def recheck(name, number, check):
     repo = place(name, found["project"])
     if not repo:
         raise config.Error(f"this host has no checkout of {found['project']}")
-    written = found["project"].rpartition("#")[2] if "#" in found["project"] else None
-    failing, at = fails_on_main(repo, check, found["when"])
-    if written and at != written:
-        raise config.Error(f"{repo.name}'s default branch is no longer the repository line "
-                           f"{number} was written in; its new check proves nothing there")
-    if not failing:
-        raise config.Error(f"this check already passed on {repo.name}'s default branch when "
-                           "the line was written, so it proves nothing; write one that failed "
-                           "until the work was done")
+    if not fails_on_main(repo, check, found["base"])[0]:
+        where = f"{found['base']}, the commit line {number} names" if found["base"] else \
+            f"{repo.name}'s default branch"
+        raise config.Error(f"this check already passes on {where}, so it proves nothing; write "
+                           "one that fails until the work is done")
     # the line as it reads, open and with only its check changed
     new = "- [ ] " + line[6:found.start("check")] + check + undone(line, found)[found.end("check"):]
     with held(name) as current:

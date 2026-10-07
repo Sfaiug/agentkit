@@ -142,7 +142,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
              "add runs the check on the project's default branch and refuses one that passes\n"
              "or does not finish; --eye is the owner's to judge, tick N marks it on their word.\n"
              "check N puts your own test in place of line N's check, such as a review\n"
-             "follow-up's probe; it must have failed on the default branch the line was written on.\n"
+             "follow-up's probe; it must fail on the commit the line names, where its check failed.\n"
              "Listing ticks each check line that now passes on its project's default branch;\n"
              "ak notify done runs every check again and waits for all.",
              "ak plan add \"each session sees its project\" --check 'python3 tests/test_x.py'"),

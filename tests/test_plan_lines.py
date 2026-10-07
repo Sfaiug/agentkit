@@ -80,7 +80,8 @@ class PlanLines(Sandbox):
     def test_a_check_failing_on_main_is_written_and_listed(self):
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
         self.assertRegex(line, r"^- \[ \] the feature exists · check: `test -f feature.txt` · "
-                               + re.escape(self.project) + r" · written \d{4}-\d\d-\d\d \d\d:\d\d$")
+                               + re.escape(self.project) + r" · written \d{4}-\d\d-\d\d \d\d:\d\d on "
+                               + self.git("rev-parse", "--short=12", "main") + "$")
         self.assertEqual(self.plan_lines(), [line])
         with patch.object(terminal, "width", return_value=len(line) + 10):
             self.assertEqual(self.ak().strip(), f"1  {line}")
@@ -304,42 +305,40 @@ class PlanLines(Sandbox):
             plan.require_done("fix-api")
 
     def test_a_probe_the_fix_outgrew_gives_way_to_the_seat_s_own_test(self):
-        def land(files, message, day):
-            """Work landing on main long after the line was written."""
+        def land(files, message):
             self.git("checkout", "-q", "main")
             for name, text in files.items():
                 (self.repo / name).write_text(text)
-            self.git("add", ".")
-            with patch.dict(os.environ, {"GIT_COMMITTER_DATE": f"2099-01-0{day} 12:00:00"}):
-                self.git("commit", "-q", "-m", message)
+            self.commit(message)
             self.git("push", "-q", "origin", "main")
             self.git("checkout", "-q", "work")
 
         # a review follow-up's probe: it fakes the exact call the code makes
         self.ak("add", "the feature exists", "--check", "grep -q old-call feature.txt")
-        land({"feature.txt": "old-call\n"}, "the fix", 1)
+        land({"feature.txt": "old-call\n"}, "the fix")
         self.assertIn("1  - [x] the feature exists", self.listed())
         # a later change calls it another way, rightly, with its own test
         land({"feature.txt": "new-call\n", "feature_test.sh": "test -s feature.txt\n"},
-             "the call changes", 2)
+             "the call changes")
         with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open, first: "
                                                   r"- \[ \] the feature exists.+`ak plan check N`"):
             plan.require_done("fix-api")
-        # the test passes on main now; it failed on main as it was when the line was written
+        # the test passes on main now; it fails on the commit the probe failed on
         line = self.ak("check", "1", "sh feature_test.sh").strip()
         self.assertRegex(line, r"^- \[ \] the feature exists · check: `sh feature_test.sh` · "
-                               + re.escape(self.project) + r" · written \d{4}-\d\d-\d\d \d\d:\d\d$")
+                               + re.escape(self.project) + r" · written \d{4}-\d\d-\d\d \d\d:\d\d "
+                               + "on " + self.git("rev-parse", "--short=12", "main~2") + "$")
         self.assertEqual(self.plan_lines(), [line])
         self.assertEqual(plan.require_done("fix-api"), {line[6:]})
         # a done line takes one too, its done gone until the new check passes
         self.assertEqual(self.ak("check", "1", "test -f feature_test.sh").strip(),
                          line.replace("sh feature_test.sh", "test -f feature_test.sh"))
 
-    def test_a_new_check_passing_when_its_line_was_written_is_refused(self):
+    def test_a_new_check_passing_where_its_line_failed_is_refused(self):
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
         self.ak("add", "the hero looks calm", "--eye")
-        with self.assertRaisesRegex(config.Error, "already passed on acme's default branch when "
-                                                  "the line was written"):
+        with self.assertRaisesRegex(config.Error, "already passes on [0-9a-f]{12}, the commit "
+                                                  "line 1 names"):
             plan.main(["check", "1", "test -f base.txt"])
         with self.assertRaisesRegex(config.Error, "only a check line takes another check"):
             plan.main(["check", "2", "test -f feature.txt"])
@@ -348,31 +347,16 @@ class PlanLines(Sandbox):
         with self.assertRaisesRegex(config.Error, "without backticks"):
             plan.main(["check", "1", "test `true`"])
         self.assertEqual(self.plan_lines()[0], line)
-        config.plan_path("fix-api").write_text(re.sub(r"written \S+ \S+", "written 2026-13-45 99:99",
-                                                      line) + "\n")
-        with self.assertRaisesRegex(config.Error, "2026-13-45 99:99 is no time a line was written at"):
-            plan.main(["check", "1", "sh feature_test.sh"])
 
-    def test_the_written_minute_is_read_in_the_zone_ak_wrote_it_in(self):
-        # ak stamps the line in its own zone (UTC-12); the project's env file, which every
-        # check gets, gives its tests another (UTC+14)
-        with patch.dict(os.environ, {"TZ": "Etc/GMT+12"}):
-            time.tzset()
-            self.addCleanup(time.tzset)
-            config.ENV.mkdir(parents=True, exist_ok=True)
-            (config.ENV / "acme.env").write_text("TZ=Etc/GMT-14\n")
-            self.git("checkout", "-q", "main")
-            (self.repo / "ready.txt").write_text("x\n")
-            self.git("add", ".")
-            an_hour_ago = int(time.mktime(time.localtime())) - 3600
-            with patch.dict(os.environ, {"GIT_COMMITTER_DATE": f"@{an_hour_ago} +0000"}):
-                self.git("commit", "-q", "-m", "ready lands")
-            self.git("push", "-q", "origin", "main")
-            self.git("checkout", "-q", "work")
-            self.ak("add", "the feature exists", "--check", "test -f feature.txt")
-            # ready.txt was on main an hour before the line was written: it proves nothing
-            with self.assertRaisesRegex(config.Error, "already passed"):
-                plan.main(["check", "1", "test -f ready.txt"])
+    def test_a_line_naming_no_commit_takes_a_check_failing_on_the_default_branch(self):
+        path = config.plan_path("fix-api")
+        path.write_text(f"- [ ] the feature exists · check: `false` · {self.project} · "
+                        "written 2026-10-01 09:00\n")
+        with self.assertRaisesRegex(config.Error, "already passes on acme's default branch"):
+            plan.main(["check", "1", "test -f base.txt"])
+        self.assertEqual(self.ak("check", "1", "test -f feature.txt").strip(),
+                         f"- [ ] the feature exists · check: `test -f feature.txt` · "
+                         f"{self.project} · written 2026-10-01 09:00")
 
     def test_a_line_changed_while_its_new_check_ran_is_left_as_it_is(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
@@ -955,11 +939,12 @@ class PlanLines(Sandbox):
         self.assertTrue(self.plan_lines()[0].startswith("- [ ]"))
 
     def test_a_new_check_is_proven_only_in_its_line_s_own_repository(self):
-        self.other_acme(has_feature=False)          # its main is older than the line
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
+        self.other_acme(has_feature=False)
         self.git("remote", "set-url", "origin", str(self.root / "other-origin.git"))
-        # base.txt was on acme's main when the line was written; the other has none
-        with self.assertRaisesRegex(config.Error, "no longer the repository line 1 was written in"):
+        # base.txt is on the commit the line names, though the other repository has none
+        with self.assertRaisesRegex(config.Error, "already passes on [0-9a-f]{12}, the commit "
+                                                  "line 1 names"):
             plan.main(["check", "1", "test -f base.txt"])
         self.assertEqual(self.plan_lines(), [line])
 
