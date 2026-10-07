@@ -76,7 +76,7 @@
 - `told.py`: the heading of an `ak tell` line, the one home its words have: tell.py writes it,
   hooks/seat-state.sh knows a prompt by it. Imports nothing of agentkit, for the hook's speed.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
-  launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
+  launch (tmux alone; the pane's `boot` sets the seat's options and bars) and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`,

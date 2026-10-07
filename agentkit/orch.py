@@ -1758,7 +1758,8 @@ def seat_command(name, cmd, socket=None):
 
 
 def start(name, cwd, cmd, orchestrator):
-    """Create the seat detached with AGENTKIT_SESSION in its environment, and mark it as ours.
+    """Create the seat detached with AGENTKIT_SESSION in its environment; its pane marks it as
+    ours, binds itself and dresses the bars as the harness starts (`boot`).
 
     `remain-on-exit` is what makes the seat outlive the orchestrator process: a harness that
     exits, crashes or is quit leaves the session, its scrollback and its name where they were,
@@ -1777,19 +1778,65 @@ def start(name, cwd, cmd, orchestrator):
     # Its answer is also what says whether this command is the one starting the server: only
     # that one can put the server in agentkit's slice.  The harness goes in either way.
     running = tmux_out("source-file", str(conf))[0] == 0
+    boot = booting(name, orchestrator, cmd, socket_name(), f"={name}:")
     rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
-                       *env, seat_command(name, cmd), path_shim=True,
+                       *env, seat_command(name, boot), path_shim=True,
                        unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
         config.seat_file("launch", name).unlink(missing_ok=True)
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
-    tmux_out("set-option", "-t", f"={name}:", MARK, "1")
-    # A server started as a systemd service writes its stdout to the journal, so tmux
-    # itself expands the launched pane rather than handing its id back to this caller.
-    tmux_out("set-option", "-F", "-t", f"={name}:", PANE_OPTION, "#{pane_id}")
-    tmux_out("set-option", "-t", f"={name}:", "remain-on-exit", "on")
+
+
+def booting(name, model, cmd, socket, pane):
+    """The pane's command: `ak orch boot`, on what it needs to finish the seat around `cmd`."""
+    return [sys.executable, str(config.REPO / "bin" / "ak"), "orch", "boot", json.dumps(
+        {"name": name, "model": model, "socket": socket, "pane": pane, "cmd": cmd})]
+
+
+def boot(argv):
+    """`ak orch boot <request>`: the seat's pane, between tmux starting it and its harness.
+
+    What the owner waited on before the seat showed is tmux alone: the seat's own options and
+    its bar -- every other seat's bar is told too, many tmux calls -- are set here, the bars
+    beside the harness's start.  A harness that cannot be run says so in the pane, which stays
+    with the words (remain-on-exit) and reads as exited, as a harness that exits at once does.
+    """
+    request = json.loads(argv[0])
+    print(f"Opening {request['name']} on {request['model']} ...", flush=True)
+    cmd = booted(request, _dress_behind)
+    try:
+        os.execvp(cmd[0], cmd)
+    except OSError as exc:
+        print(f"ak: {request['name']} did not start: cannot run {cmd[0]}: {exc}",
+              file=sys.stderr, flush=True)
+        return 1
+
+
+def booted(request, dress):
+    """The seat's tmux options and its bar (`dress`); the command the pane then execs.
+
+    The seat is ours, outlives its harness, and this pane is the one its launch made whichever
+    window is active.  A server started as a systemd service writes its stdout to the journal,
+    so tmux itself expands the launched pane rather than handing its id back to the launcher.
+    """
+    name, socket = request["name"], request["socket"]
+    tmux_out("set-option", "-t", f"={name}:", MARK, "1", socket=socket)
+    tmux_out("set-option", "-t", f"={name}:", "remain-on-exit", "on", socket=socket)
+    tmux_out("set-option", "-F", "-t", request["pane"], PANE_OPTION, "#{pane_id}", socket=socket)
+    if socket == socket_name():
+        dress(name, request["model"])
+    return request["cmd"]
+
+
+def _dress_behind(name, model):
+    """The bars dressed beside the harness's start rather than before it: a child of a child,
+    so nothing waits on it."""
     from . import statusbar   # here, not at the top: the bar's module imports this one
-    statusbar.dress(name, orchestrator)
+    if os.fork() == 0:
+        if os.fork() == 0:
+            statusbar.dress(name, model)
+        os._exit(0)
+    os.wait()
 
 
 def unknown_term():
@@ -1863,15 +1910,16 @@ def seen_by_user(name):
         print(f"WARN could not record opening {name}: {exc}", file=sys.stderr)
 
 
-def attach(name, log=print, wait=False):
+def attach(name, log=print, wait=False, session=None):
     """Hand this terminal over to that session.  Never returns when it succeeds, unless `wait`.
 
     With no terminal to hand over -- a pipe, a script, the smoke suite -- there is nothing to
     attach to it: the session is running, and saying where it is is the whole answer.  `wait`
     is the menu's way in: it comes back when the user detaches, and the menu is drawn again.
+    `session` is the seat as its caller has it listed, which spares asking tmux for it again.
     """
     name = config.resolve_session(name)
-    session = find(name)
+    session = find(name) if session is None else session
     socket = seat_socket(session)
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         log(f"session {name} is running; attach it with "
@@ -1928,7 +1976,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         if not resumable(record):
             raise config.Error(f"{name}: conversation ownership is no longer verified")
     if session and not session.get("exited") and account is None:
-        return attach(name, log=log, wait=wait) if hand_over else False
+        return attach(name, log=log, wait=wait, session=session) if hand_over else False
     if not session and not record:
         raise config.Error(f"no session {name!r} to resume and no record of one")
     selection = config.load_session(cfg, name, required=False)
@@ -1979,7 +2027,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if detached:
         return 0           # restarting is neither attaching nor reading the seat
     config.update_session(name, seen=int(time.time()))
-    return attach(name, log=log, wait=wait)
+    return attach(name, log=log, wait=wait, session=session or {"name": name})
 
 
 # --- the conversation a seat holds ------------------------------------------
@@ -2115,14 +2163,11 @@ def _start_harness(name, model, cwd, cmd, session):
             if rc or owner != name:
                 target = f"={name}:"
         rc, out = tmux_out("respawn-pane", "-k", "-t", target,
-                           seat_command(name, cmd, server), socket=server, path_shim=True)
+                           seat_command(name, booting(name, model, cmd, server, target), server),
+                           socket=server, path_shim=True)
         if rc != 0:
             config.seat_file("launch", name).unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
-        tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
-        if on_own_server(session):
-            from . import statusbar   # here, not at the top: the bar's module imports this one
-            statusbar.dress(name, model)
     else:
         start(name, cwd, cmd, model)
 
@@ -3763,12 +3808,14 @@ def opening_account(cfg, model, providers, prompting):
 
 
 def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry_run=False,
-           selection=None, repo=None, unnamed=False):
-    """Select the models, record them, start the seat detached.  The TUI command it runs."""
+           selection=None, repo=None, unnamed=False, taken=None):
+    """Select the models, record them, start the seat detached.  The TUI command it runs.
+    `taken` is the names its caller listed for the name question (`taken_names`), which spares
+    listing them again; tmux is still asked whether it holds the name now."""
     name = session_name(name)
     if not name:
         raise config.Error("a session needs a name")
-    if name in alias_names():
+    if name in alias_names(taken):
         raise config.Error(f"{name!r} is what the session {config.resolve_session(name)!r} used "
                            f"to be called, and the orchestrator in it still answers to it; "
                            f"pick another name")
@@ -3901,6 +3948,8 @@ def main(argv):
         return cmd_project(argv[1:])
     if argv[:1] == ["rules"]:
         return cmd_rules(argv[1:])
+    if argv[:1] == ["boot"]:
+        return boot(argv[1:])
     name, forced, forced_workers, dry_run = parse(argv)
     if not dry_run:
         maintenance()
@@ -3933,17 +3982,18 @@ def main(argv):
         worker_names(cfg, forced_workers)
     cwd = Path.cwd()
     repo = cwd_project(cwd)
-    unnamed = False
+    unnamed, taken = False, None
     if not name:
-        name = ask_name(taken_names(), auto=True)
+        taken = taken_names()
+        name = ask_name(taken, auto=True)
         if name is BACK:
             return 0
         unnamed = name is None
-        name = name or unique_name("new", taken_names())
+        name = name or unique_name("new", taken)
     # A direct shell invocation keeps its working directory when no project is chosen.
     # The menu's n deliberately starts unassigned seats in ~/code instead.
     result = create(cfg, name, repo or cwd, forced, forced_workers, True, dry_run,
-                    repo=repo, unnamed=unnamed)
+                    repo=repo, unnamed=unnamed, taken=taken)
     if result is None:
         return 0
     return 0 if dry_run else attach(name)

@@ -25,6 +25,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from fixtures import pane
 from fixtures.sandbox import Sandbox
 from agentkit import config, notify, orch, statusbar, terminal, watch
 
@@ -334,7 +335,12 @@ class OnTmux(Sandbox):
             self.assertEqual(self.tmux("kill-session", "-t", "=renamed-web:")[0], 0)
             statusbar._write("fix-api", "fable", "working", cfg=self.cfg)
             self.assertEqual(named(), "")
-            orch.start("renamed-web", self.root, ["sleep", "600"], "fable")
+            # its pane boots (here, as the pane does: tmux runs a plain sleep) and dresses the bars
+            boots, launch = [], orch.seat_command
+            with patch.object(orch, "seat_command", side_effect=lambda name, cmd, socket=None: (
+                    boots.append(cmd), launch(name, ["sleep", "600"], socket))[1]):
+                orch.start("renamed-web", self.root, ["sleep", "600"], "fable")
+            pane.harness(boots[-1])
             self.assertIn("! renamed-web needs you", named())
 
 
