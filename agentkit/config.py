@@ -1203,6 +1203,19 @@ def seat_env_names():
     return names
 
 
+def state_env_names():
+    """State roots declared by any adapter follow the caller into a seat and its menu."""
+    names = set()
+    for _, data in manifests():
+        block = data.get("worker") or {}
+        for field in ("state", "logins"):
+            for path in block.get(field) or []:
+                found = re.match(r"^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))", path)
+                if found:
+                    names.add(found[1] or found[2])
+    return names
+
+
 def manifests():
     """Every adapter manifest, as (harness, manifest), from the same places `manifest` reads."""
     override = os.environ.get(ADAPTER_DIR_ENV)
