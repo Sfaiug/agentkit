@@ -15,5 +15,3 @@
 [39m  5. Chat about this
 
 [38;5;246mEnter to select · ↑/↓ to navigate · Esc to cancel[39m
-
-[38;5;246m› Message from @build-check[3m: The search tests passed.[0m[38;5;246m (ctrl+o to expand)[39m

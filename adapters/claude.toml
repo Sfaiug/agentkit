@@ -87,8 +87,6 @@ kinds = ["idle_prompt"]
 # and goes to the model at its next tool step, as a queued prompt (2.1.289): another seat's
 # `ak tell` is typed then, not held for the turn's end.
 queues_typing = true
-# Queued session messages sit below dialogs and composers; they are neither controls nor drafts.
-inbound = '› Message from @[^:]+: .* \(ctrl\+o to expand\)'
 # fullmatch against a bottom line: the input box, which is chrome and not anything Claude said;
 # a renamed session's name sits in the box's top rule
 composer = '(?:(?:│\s*)?[>❯](?:\s+Try ["“].*["”])?\s*(?:│)?|⏵⏵ bypass permissions on(?: \(shift\+tab to cycle\))?(?: · \d+ \w+)? · ← for agents|● \w+ · /effort|[✻✽✶✳✢] \w+ for .+ · done .+|─{3,} \S.* ─+)$'
@@ -124,7 +122,7 @@ lines = 6
 all = ["❯ ", "enter to confirm", "esc to cancel"]
 newest = '(?i)enter to confirm'
 
-# AskUserQuestion's controls remain newest after queued messages are removed. One
+# AskUserQuestion's controls are the newest rows on its screen. One
 # question navigates with ↑/↓, two or more with Tab/Arrow keys; hints follow before the
 # cancel: a focused "Type something" or an open note adds `ctrl+g to edit in <editor>`,
 # options with previews add `n to add notes` (2.1.289).  So the line's start decides: a

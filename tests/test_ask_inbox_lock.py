@@ -54,8 +54,6 @@ HELD = {
 # an empty composer, whatever is drawn under its rule
 EMPTY = {
     "status": above_footer(fixture("prompt"), "❯ acme main*"),
-    "inbound": fixture("prompt") + "\n" + next(
-        row for row in fixture("question-with-message").splitlines() if "Message from" in row),
 }
 
 

@@ -182,7 +182,7 @@ class Tell(Seats):
 
     def test_mid_turn_it_waits_out_a_question_the_owners_draft_and_a_harness_that_drops_it(self):
         self.tell(SEAT, "Parser merged.")
-        for pane in ("claude-question-with-message-pane.txt", "claude-draft-pane.txt"):
+        for pane in ("claude-question-pane.txt", "claude-draft-pane.txt"):
             with self.subTest(pane=pane):
                 self.turn_running((FIX / pane).read_text(encoding="utf-8"))
                 self.tick()
@@ -488,7 +488,7 @@ class TyperDied(Typing):
     def test_what_changes_before_an_enter_is_never_sent(self):
         """Read again under the typing lock right before each Enter: an owner's edit or a dialog
         that came after the first read, or the owner typing in the gap after a fresh line."""
-        question = (REPO / "tests/fixtures/claude-question-with-message-pane.txt").read_text(
+        question = (REPO / "tests/fixtures/claude-question-pane.txt").read_text(
             encoding="utf-8")
         for case in ("edit", "dialog", "typed in the gap"):
             with self.subTest(case=case):

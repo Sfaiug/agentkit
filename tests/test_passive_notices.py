@@ -19,7 +19,7 @@ from agentkit import config, watch
 SEAT = "fix-api"
 FIX = REPO / "tests/fixtures"
 PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8")
-QUESTION = (FIX / "claude-question-with-message-pane.txt").read_text(encoding="utf-8")
+QUESTION = (FIX / "claude-question-pane.txt").read_text(encoding="utf-8")
 PASSIVE = ("agent_completed", "push_notification", "elicitation_complete",
            "elicitation_response", "auth_success", "computer_use_exit")
 
