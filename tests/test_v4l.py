@@ -380,7 +380,9 @@ class Babysitter(unittest.TestCase):
         self.typed.assert_not_called()
         self.notified.assert_not_called()
         # v4x: opening via the alias records a baseline; reading an owner question
-        # does not answer it. Only fresh output after the open clears the live latch.
+        # does not answer it. Where the harness reports no prompts, only fresh output after
+        # the open clears the live latch (where it does, his prompt is the answer).
+        self.harness = "muse"
         orch.seen_by_user("old")
         self.data = watch.load_state()
         self.assertGreater(self.data["seen_at"]["seat"], saved["seen_at"]["seat"])

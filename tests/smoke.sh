@@ -786,18 +786,25 @@ class SessionState(unittest.TestCase):
         self.assertEqual(self.saved(), before)
         self.edits.assert_not_called()
 
-    def test_b_open_then_fresh_progress_clears_the_notice_and_edits_discord_once(self):
+    def test_b_open_then_his_prompt_clears_the_notice_and_edits_discord_once(self):
         self.now += 1
         self.open()
         self.now += 1
         self.pane = "Merging the approved patch\n›"
+        self.tick()
+        # this seat's harness reports his prompts, so its screen moving answers nothing: a seat
+        # that asked works on, whether he answered or only looked
+        self.assertEqual(notify.last("seat")["text"], "May I merge?")
+        self.edits.assert_not_called()
+        self.now += 1
+        notify.answered("seat", self.now)
         self.tick()
         # the question is answered, and the row says what the seat is now: his again,
         # at its prompt with nothing to say why
         self.assertEqual(menu.state(self.seat), "needs you")
         facts = notify.last("seat", include_seen=True)
         self.assertLessEqual(facts["time"], facts["opened_at"])
-        self.assertLess(facts["opened_at"], facts["last_progress_at"])
+        self.assertLess(facts["opened_at"], facts["answered_at"])
         self.assertNotIn("seen", facts)
         self.edits.assert_called_once()
         self.assertEqual(self.edits.call_args.args[1], "Answered")
@@ -1050,7 +1057,7 @@ class SessionState(unittest.TestCase):
             posting.set()
             self.notice("done", "All verified")
         with ThreadPoolExecutor(max_workers=2) as pool:
-            progress = pool.submit(notify.progress, "seat", capture)
+            progress = pool.submit(notify.progress, "seat", capture, None)
             try:
                 self.assertTrue(captured.wait(5))
                 finished = pool.submit(done)
@@ -1107,6 +1114,9 @@ class SessionState(unittest.TestCase):
             self.tick()
             request.assert_not_called()
             self.pane = "Merging now"
+            self.tick()
+            request.assert_not_called()     # its screen moving is no answer: his prompt is
+            notify.answered("seat", self.now + 1)
             self.tick()
             self.tick()
             request.assert_called_once()
@@ -1211,7 +1221,7 @@ class Notifications(test_notify.Notifications):
         self.assertEqual(menu.state({"name": "seat"}), before)
         self.assertEqual(len(self.requests), messages)
         between()
-        notify.progress("seat", lambda: "Fresh output after the answer")
+        notify.progress("seat", lambda: "Fresh output after the answer", None)
 
     def test_lifecycle_and_approved_payload(self):
         self.cli("needs", "Merge PR #7? yes/no")

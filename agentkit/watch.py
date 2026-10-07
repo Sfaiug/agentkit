@@ -3539,7 +3539,8 @@ def health(cfg, state, dry_run, log):
                                    (parked_for.get(name) or [(None, None, "")])[0])
             evidence = "verb" if out else "run"
             if not blank and not dry_run and not session.get("exited"):
-                if notify.progress(name, lambda: progress_output(harness, pane_text(session))):
+                if notify.progress(name, lambda: progress_output(harness, pane_text(session)),
+                                   harness):
                     forget(name, acknowledge=False)
                     sync_seen(state, load_state())
             entry = stalls.get(name, {})

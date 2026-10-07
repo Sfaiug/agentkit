@@ -85,7 +85,7 @@ class DoneStaysDone(Sandbox):
         """The owner opens the seat, and its pane changes under him: a redraw, a scroll."""
         notify.opened(SEAT, lambda: self.pane)
         self.pane = PROMPT + "\n  scrolled back through the summary"
-        return notify.progress(SEAT, lambda: self.pane)
+        return notify.progress(SEAT, lambda: self.pane, watch.seat_model(self.cfg, SEAT)[0])
 
     def tick(self, later=0):
         """The watch tick's part in it, a moment after what came before: a look at the seat,
@@ -115,7 +115,8 @@ class DoneStaysDone(Sandbox):
         # and more redraws, ticks later, answer nothing either
         for tail in ("  a redraw", "  another one"):
             self.pane = PROMPT + "\n" + tail
-            self.assertFalse(notify.progress(SEAT, lambda: self.pane))
+            self.assertFalse(notify.progress(SEAT, lambda: self.pane,
+                                             watch.seat_model(self.cfg, SEAT)[0]))
         self.assertEqual(self.decide()[0], "done")
 
     def test_the_record_the_owner_found_reads_done_on_the_next_draw(self):
@@ -257,14 +258,15 @@ class DoneStaysDone(Sandbox):
         self.assertEqual(notify.shaped("done", JOB[0], session=SEAT, event_id=JOB[1]), 0)
         self.assertEqual(self.posts, [])
 
-    def test_a_needs_still_resolves_on_open_and_fresh_output(self):
+    def test_a_needs_stands_through_open_and_output_until_his_prompt(self):
         notify.record(SEAT, "needs", "Merge PR #7? yes/no")
         self.fact("Stop")
         self.assertEqual(self.decide(), ("needs you", "Merge PR #7? yes/no"))
         notify.opened(SEAT, lambda: self.pane)
-        self.assertFalse(notify.progress(SEAT, lambda: self.pane))   # the open alone: no answer
+        self.assertFalse(notify.progress(SEAT, lambda: "Merging the approved patch",
+                                         watch.seat_model(self.cfg, SEAT)[0]))
         self.assertEqual(self.decide(), ("needs you", "Merge PR #7? yes/no"))
-        self.assertTrue(notify.progress(SEAT, lambda: "Merging the approved patch"))
+        notify.answered(SEAT, NOW)
         self.assertIsNone(notify.last(SEAT))
         self.assertEqual(self.decide(), ("needs you", "waiting for you"))
 
