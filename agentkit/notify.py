@@ -1114,16 +1114,20 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                     record(name, "done", declared["text"], **extra, seen=True)
                     log(f"dropping done declaration for {name}: {', '.join(failed)} failed; not sent")
                     answer = None
-            if answer is None:
-                previous = watch.seat_read(name)
-                # A screen may have observed an intervening episode since our last tick, but
-                # not while a job's done stands: the screens read no notice there, and their
-                # `needs you` is not the card's.
-                if card and ((previous.get("word_since") or 0) <= card.get("since", 0)
-                             or job_done(declared)):
-                    previous = {"word": card["word"], "word_since": card["since"]}
-                answer = watch.session_state(name, now=at, session=seat, records=records,
-                                             previous=previous, jobs=True)
+            previous = watch.seat_read(name)
+            # A screen may have observed an intervening episode since our last tick, but
+            # not while a job's done stands: the screens read no notice there, and their
+            # `needs you` is not the card's.
+            if card and ((previous.get("word_since") or 0) <= card.get("since", 0)
+                         or job_done(declared)):
+                previous = {"word": card["word"], "word_since": card["since"]}
+            current = watch.session_state(name, now=at, session=seat, records=records,
+                                          previous=previous, jobs=True)
+            # A newer declaration or run can outrank the answer shaped read before this
+            # lock. An unchanged word keeps its observed beginning, including the explicit
+            # question's clock before shaped advances the hold.
+            if answer is None or answer["word"] != current["word"]:
+                answer = current
             since = answer.get("since")
             since = since if isinstance(since, (int, float)) and math.isfinite(since) else at
             word = answer["word"]

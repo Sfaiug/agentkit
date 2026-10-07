@@ -177,7 +177,7 @@ itself has an open circle (`○ waiting for claude login`), which is not a fourt
 
 Discord hears two things and nothing else. A `needs you` word held for 60 seconds with no attached client input since it began sends one
 amber `Needs you · <session>` card. A `done` word sends one green `Done · <session>` card, red when the summary starts
-with `FAIL`; an unfinished run delays it and a failed run drops the declaration with one log line. One card per episode
+with `FAIL`; an unfinished run delays it and a failed run drops the declaration with one log line. Publication rechecks the latest declaration, question and runs under the seat lock, so a delayed decision cannot announce newer unfinished work or page for work already completed. One card per episode
 and declaration: input from an attached client since the episode began, or answering its question, edits open needs cards to `Answered`, except that a card already sent for the seat's own `ak notify needs` question waits for your answer; an untouched attached terminal does not suppress or close a card. A done edits them to `Done`, and edits never
 ping; an edit Discord did not take stays on the card and is tried again at the next one. No card or retry goes out for
 a seat you closed (`x`, `ak orch stop`, a pause script), whose row keeps its number, or an episode begun before this
