@@ -2208,6 +2208,14 @@ def fetch_project(repo):
     run.git(repo, "remote", "set-head", "origin", "--auto", env=env)
 
 
+def fetched(repo):
+    """Whether `repo` has the `origin/HEAD` its seats' rules are read from: `fetch_project` made
+    it, or a clone did."""
+    from . import run
+    return bool(run.git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD",
+                        check=False, env=run.project_env(repo)).strip())
+
+
 def fetch_projects():
     """The tick's pass: `fetch_project` for each project a seat is filed under.
 
