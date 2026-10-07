@@ -10,7 +10,7 @@ model = "gemini-3.8-flash"
 effort = "low"
 
 [worker]
-state = ["~/.gemini/antigravity-cli", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT"]
+state = ["~/.gemini/antigravity-cli", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT", "~/.gemini/config"]
 logins = ["~/.gemini/antigravity-cli/antigravity-oauth-token", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT/antigravity-oauth-token"]
 
 # How `ak update` moves this harness: `agy update` takes the latest release and no version,

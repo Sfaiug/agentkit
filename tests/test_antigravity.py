@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, menu, run, usage, watch, worker  # noqa: E402
+from agentkit import box, config, history, menu, run, usage, watch, worker  # noqa: E402
 
 ADAPTER = str(REPO / "adapters/antigravity.sh")
 FIXTURES = REPO / "tests/fixtures"
@@ -135,6 +135,25 @@ class Antigravity(unittest.TestCase):
                               None, {}, time.time())
 
     # --- run ---------------------------------------------------------------
+    def test_a_turn_may_make_agy_s_project_store(self):
+        # agy 1.3.1 opens a conversation only once it has made ~/.gemini/config/projects, and a
+        # turn's box keeps every write but those its manifest declares: in a home that has none
+        # yet (a fresh login, the live suite's) it refused "mkdir ~/.gemini/config: read-only
+        # file system" and the turn exited 1 having done nothing
+        workspace, out = self.root / "workspace", self.root / "out"
+        workspace.mkdir()
+        out.mkdir()
+        make = [sys.executable, "-c", "import os, pathlib; pathlib.Path("
+                "os.path.expanduser('~/.gemini/config/projects')).mkdir(parents=True)"]
+        paths = config.manifest("antigravity")["worker"]
+        with box.command(make, {**os.environ, **self.env}, out, cwd=workspace,
+                         state=paths["state"], logins=paths["logins"]) as (cmd, env, spawn):
+            spawn.pop("stop", None)
+            done = subprocess.run(cmd, env=env, cwd=workspace, capture_output=True, text=True,
+                                  timeout=60, **spawn)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue((self.home / ".gemini/config/projects").is_dir())
+
     def test_run_writes_final_session_and_this_turn_s_tokens(self):
         stdin = self.root / "stdin.log"
         proc, out = self.turn((FIXTURES / "antigravity-events.jsonl").read_text(),
