@@ -984,21 +984,29 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
+def tmux_literal(word):
+    """`word` as tmux takes it whole: it reads a ; ending any argument as the end of a command,
+    unless a backslash stands before it."""
+    return word[:-1] + "\\;" if word.endswith(";") else word
+
+
 def tmux_lists(lists, socket=None):
     """Run those command lists in as few tmux calls as its message takes: one, unless they are
     long.  tmux stops a call at the first command that fails, so the lists sent with one that
-    did are then run one by one: each sets what it can, as when each had a call of its own."""
-    calls = []
+    did are then run one by one: each sets what it can, as when each had a call of its own.  The
+    answer is (0, "") when every list ran, else the first failure's."""
+    calls, failed = [], (0, "")
     for words in lists:
         if not calls or sum(len(word.encode()) + 1 for sent in (*calls[-1], words)
                             for word in (";", *sent)) > TMUX_MESSAGE:
             calls.append([])
         calls[-1].append(words)
     for sent in calls:
-        rc, _ = tmux_out(*[word for words in sent for word in (";", *words)][1:], socket=socket)
-        if rc != 0 and len(sent) > 1:
-            for words in sent:
-                tmux_out(*words, socket=socket)
+        answers = [tmux_out(*[word for words in sent for word in (";", *words)][1:], socket=socket)]
+        if answers[0][0] != 0 and len(sent) > 1:
+            answers = [tmux_out(*words, socket=socket) for words in sent]
+        failed = next((answer for answer in (failed, *answers) if answer[0] != 0), failed)
+    return failed
 
 
 def dead(socket):
@@ -1792,13 +1800,20 @@ def seat_env(name, server):
     return values
 
 
-def seat_environment(name, server, values):
-    """Keep future panes and Ctrl-b m in the same boundary as the harness."""
-    for key, value in values.items():
-        args = ["-r", key] if value is None else [key, value]
-        rc, out = tmux_out("set-environment", "-t", f"={name}:", *args, socket=server)
-        if rc:
-            raise config.Error(f"cannot set the environment of session {name}: {out}")
+def pane_env(values):
+    """Those values as the `-e` words a pane's command is started with, each taken whole."""
+    return [arg for key, value in values.items()
+            for arg in ("-e", tmux_literal(f"{key}={value or ''}"))]
+
+
+def seat_environment(name, server, values, then=()):
+    """Keep future panes and Ctrl-b m in the same boundary as the harness: one tmux call, with
+    `then`, the commands the caller has for the session besides."""
+    rc, out = tmux_lists([*(["set-environment", "-t", f"={name}:",
+                             *(["-r", key] if value is None else [key, tmux_literal(value)])]
+                            for key, value in values.items()), *then], socket=server)
+    if rc:
+        raise config.Error(f"cannot set up the session {name}: {out}")
 
 
 def start(name, cwd, cmd, orchestrator):
@@ -1812,7 +1827,6 @@ def start(name, cwd, cmd, orchestrator):
     conf = tmux_conf()
     server = socket_name()
     values = seat_env(name, server)
-    env = [arg for key, value in values.items() for arg in ("-e", f"{key}={value or ''}")]
     # First, into whatever server is already up: `-f` is read only by the command that starts
     # one, and `remain-on-exit` has to be in force before the seat exists, not a moment after --
     # a harness that exits as it starts would otherwise take the session with it.  On a server
@@ -1821,17 +1835,17 @@ def start(name, cwd, cmd, orchestrator):
     # that one can put the server in agentkit's slice.  The harness goes in either way.
     running = tmux_out("source-file", str(conf))[0] == 0
     rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
-                       *env, seat_command(name, cmd), path_shim=True,
+                       *pane_env(values), seat_command(name, cmd), path_shim=True,
                        unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
         config.seat_file("launch", name).unlink(missing_ok=True)
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
-    seat_environment(name, server, values)
-    tmux_out("set-option", "-t", f"={name}:", MARK, "1")
     # A server started as a systemd service writes its stdout to the journal, so tmux
     # itself expands the launched pane rather than handing its id back to this caller.
-    tmux_out("set-option", "-F", "-t", f"={name}:", PANE_OPTION, "#{pane_id}")
-    tmux_out("set-option", "-t", f"={name}:", "remain-on-exit", "on")
+    seat_environment(name, server, values, then=[
+        ["set-option", "-t", f"={name}:", MARK, "1"],
+        ["set-option", "-F", "-t", f"={name}:", PANE_OPTION, "#{pane_id}"],
+        ["set-option", "-t", f"={name}:", "remain-on-exit", "on"]])
     from . import statusbar   # here, not at the top: the bar's module imports this one
     statusbar.dress(name, orchestrator)
 
@@ -2162,15 +2176,14 @@ def _start_harness(name, model, cwd, cmd, session):
             if rc or owner != name:
                 target = f"={name}:"
         values = seat_env(name, server)
-        env = [arg for key, value in values.items() for arg in ("-e", f"{key}={value or ''}")]
-        rc, out = tmux_out("respawn-pane", "-k", "-t", target,
-                           *env, seat_command(name, cmd, server), socket=server, path_shim=True)
+        rc, out = tmux_out("respawn-pane", "-k", "-t", target, *pane_env(values),
+                           seat_command(name, cmd, server), socket=server, path_shim=True)
         if rc != 0:
             config.seat_file("launch", name).unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
         # A refused respawn leaves the old harness up: its menu keeps that same home too.
-        seat_environment(name, server, values)
-        tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
+        seat_environment(name, server, values, then=[
+            ["set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}"]])
         if on_own_server(session):
             from . import statusbar   # here, not at the top: the bar's module imports this one
             statusbar.dress(name, model)
