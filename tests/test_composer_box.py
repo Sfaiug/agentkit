@@ -118,6 +118,16 @@ class ComposerBox(Sandbox):
                                      said.replace(" ", ""))
                     self.assertEqual(self.looked(pane), ("needs you", False, []))
 
+    def test_a_prompt_mark_on_a_continuation_of_groks_box_is_the_owners(self):
+        """A real Grok Build 1.0.46 box (review 20261007-0136): the owner's draft, a new line,
+        and a prompt mark at its head.  The box's prompt row is the leftmost mark, and the
+        draft runs from it down to the box's closing chrome."""
+        pane = (FIX / "grok-draft-with-a-prompt-mark-pane.txt").read_text(encoding="utf-8")
+        said = "Fix the login ❯ then the docs"
+        self.assertEqual(watch.screen_state("grokbuild", watch.pane_tail(pane)),
+                         ("draft", "prompt.draft", said))
+        self.assertEqual(watch.composer_draft("grokbuild", pane), said.replace(" ", ""))
+
     def test_an_empty_row_in_a_box_with_corners_is_no_draft(self):
         """Its edges are chrome on every row: both readers agree the composer is empty."""
         for top, closing in (("╭╮", "╰╯"), ("┌┐", "└┘")):

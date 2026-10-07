@@ -1470,8 +1470,9 @@ def screen_state(harness, tail):
                                    for mark in rule["none"]):
                 continue
             prompt = r"(?:│\s*)?[❯›⟩]"
-            marked = [index for index in range(len(region) - 1, -1, -1)
-                      if re.match(prompt, region[index])]
+            # the leftmost marks only: a draft's later rows are indented past its prompt mark,
+            # inside a box's edge too, so a mark the owner typed at the head of one is text
+            marked = prompt_rows(raws)
             end = None
             if rule["chrome"] and chrome["ruled"]:
                 # Its composer is the box `ruled_composer` finds in the rule's own rows, every
@@ -1489,10 +1490,14 @@ def screen_state(harness, tail):
                 # even where it starts with a prompt mark, over a line that reads like chrome:
                 # a line without a rule under it, a composer drawn right on the footer, counts
                 # only under no composer with its own rule, and never where the manifest says
-                # its composer always has one.
+                # its composer always has one.  A draft's own rows run from its prompt row
+                # down to that chrome, as `composer_draft` reads them.
+                def under(index):
+                    return next((row for row in range(index + 1, len(region))
+                                 if chrome_line(chrome, region[row])), len(region))
                 marked = [index for index in marked if index + 1 == len(region)
-                          or (chrome_line(chrome, region[index + 1])
-                              and chrome_line(chrome, region[-1]))]
+                          or (under(index) < len(region) and chrome_line(chrome, region[-1]))]
+                end = under(marked[0]) if marked else None
                 marked = [index for index in marked if index + 1 < len(region)
                           and re.fullmatch(RULE, region[index + 1])] or [
                               index for index in marked

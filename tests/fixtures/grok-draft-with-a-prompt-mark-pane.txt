@@ -1,0 +1,30 @@
+
+  ~/code/fix-api                                               1.4K / 256K │ [Dashboard]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   Run /doctor for details and fixes.
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ Fix the login                                                                              │
+  │   ❯ then the docs                                                                            │
+  ╰────────────────────────────────────────────────────────── Grok 4.7 (xhigh) · always-approve ─╯
+
+  Enter:send  │  Alt+Enter:newline  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
