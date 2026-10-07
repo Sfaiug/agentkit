@@ -246,6 +246,17 @@ class PlanLines(Sandbox):
         self.git("push", "-q", "origin", "main")
         self.git("checkout", "-q", "work")
 
+    def test_a_check_runs_with_the_project_s_env_file(self):
+        # git holds none of it: the project's interpreter, say, is named in its env file
+        tool = self.root / "interpreter"
+        tool.write_text('#!/bin/sh\ntest -f feature.txt\n')
+        tool.chmod(0o755)
+        config.ENV.mkdir(parents=True, exist_ok=True)
+        (config.ENV / "acme.env").write_text(f"ACME_PYTHON={tool}\n")
+        self.ak("add", "the feature exists", "--check", '"$ACME_PYTHON"')
+        self.land_the_work()
+        self.assertIn("1  - [x] the feature exists", self.listed())
+
     def test_a_check_line_ticks_itself_once_its_check_passes_on_the_default_branch(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
         self.assertIn("1  - [ ] the feature exists", self.listed())     # main lacks it still

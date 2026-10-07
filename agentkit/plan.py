@@ -239,8 +239,10 @@ def default_branch(repo):
     """(its commit as `<sha12> <subject>`, the environment a check runs in, `checkout`): the
     project's current default branch, fetched first.  `checkout()` is a clean checkout of
     that commit made for one check and removed after it, so nothing one check writes or
-    moves -- files, HEAD, a submodule -- is there for the next."""
-    env = git_env()
+    moves -- files, HEAD, a submodule -- is there for the next.  A check gets the project's
+    env file (`config.repo_env`), as a run's checks do: what git does not hold, such as the
+    project's interpreter, it names there (ATLAS's `ATLAS_PYTHON`)."""
+    env = {**git_env(), **config.repo_env(repo)}
 
     def git(*args, cwd=repo):
         try:
