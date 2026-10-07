@@ -6,12 +6,14 @@ import json
 import os
 import re
 from pathlib import Path
+import select
 import shutil
 import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -1152,6 +1154,51 @@ class WorkerBox(unittest.TestCase):
             code, _, session, killed, _ = self.turn(limit=2)
         self.assertEqual((code, session, killed), (worker.TIMEOUT, "fixture-session", True))
         self.assertFalse(self.alive())
+
+    def test_a_box_stopped_while_it_is_still_being_built_leaves_nothing_running(self):
+        forever = "import time\nwhile True:\n print('on', flush=True)\n time.sleep(.05)"
+        self.out.mkdir()
+        with box.command([sys.executable, "-c", forever], dict(os.environ), self.out,
+                         cwd=self.root, drain=True) as (cmd, env, spawn):
+            stop = spawn.pop("stop")
+            proc = subprocess.Popen(cmd, env=env, cwd=self.root, stdout=subprocess.PIPE,
+                                    start_new_session=True, **spawn)
+            self.addCleanup(proc.stdout.close)
+            # No grace left, as when the ceiling is already past: the stop falls on a bwrap
+            # that has named the box's first process and not yet started the command in it.
+            stop(proc, 0)
+            ended = threading.Thread(target=proc.stdout.read, daemon=True)
+            ended.start()
+            ended.join(30)
+            self.assertFalse(ended.is_alive(), "the command outlived its box's stop")
+
+    def test_a_box_whose_launcher_is_already_gone_is_ended_by_its_stop(self):
+        self.out.mkdir()
+        held, hold = os.pipe()
+        named, name = os.pipe()
+        self.addCleanup(os.close, hold)
+        self.addCleanup(os.close, named)
+        with box.command(["sleep", "600"], dict(os.environ), self.out,
+                         cwd=self.root, drain=True) as (cmd, env, spawn):
+            stop = spawn.pop("stop")
+            # Bwrap holds the box's first process before the command, as a slow build does,
+            # and says on a pipe of the test's own when it has named that process.
+            at = cmd.index("--info-fd")
+            cmd[at:at] = ["--block-fd", str(held), "--json-status-fd", str(name)]
+            spawn["pass_fds"] += (held, name)
+            proc = subprocess.Popen(cmd, env=env, cwd=self.root, stdout=subprocess.PIPE,
+                                    start_new_session=True, **spawn)
+            self.addCleanup(proc.stdout.close)
+            os.close(held)
+            os.close(name)
+            self.assertTrue(select.select([named], [], [], 30)[0], "bwrap named no process")
+            proc.kill()
+            proc.wait()
+            stop(proc, 0)
+            ended = threading.Thread(target=proc.stdout.read, daemon=True)
+            ended.start()
+            ended.join(30)
+            self.assertFalse(ended.is_alive(), "the box outlived its stop")
 
     def test_launch_refuses_before_allocating_without_box_tools(self):
         which = shutil.which
