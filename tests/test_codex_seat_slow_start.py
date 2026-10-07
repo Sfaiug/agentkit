@@ -50,9 +50,8 @@ with sqlite3.connect(home / 'state_5.sqlite') as db:
     db.execute("INSERT OR IGNORE INTO threads VALUES ('acme-thread')")
 if status != 'complete':
     (home / 'backfill-started').touch()
-    sessions = home / 'sessions'
-    (home / 'imported').write_text(str(sum(1 for _ in sessions.rglob('*.jsonl'))
-                                       if sessions.exists() else 0))
+    (home / 'imported').write_text(str(sum(1 for name in ('sessions', 'archived_sessions')
+                                           for _ in (home / name).rglob('*.jsonl'))))
     time.sleep(float(os.environ.get('FAKE_DELAY', '0')))
     with sqlite3.connect(home / 'state_5.sqlite') as db:
         db.execute("UPDATE backfill_state SET status = 'complete'")
@@ -148,19 +147,32 @@ class SlowStart(unittest.TestCase):
         self.assertEqual((self.source / 'installation_id').read_text(), 'acme-owner-installation')
 
     def test_new_seat_imports_none_of_the_owners_conversations(self):
-        rollout = self.source / 'sessions' / '2026' / 'rollout-acme.jsonl'
-        rollout.parent.mkdir(parents=True, exist_ok=True)
-        rollout.write_text('{"type":"session_meta"}\n')
+        owners = [self.source / name / '2026' / 'rollout-acme.jsonl'
+                  for name in ('sessions', 'archived_sessions')]
+        for rollout in owners:
+            rollout.parent.mkdir(parents=True, exist_ok=True)
+            rollout.write_text('{"type":"session_meta"}\n')
         self.home = self.api['seat_home'](self.root / 'receipt.json')
         self.assertEqual(self.start(), 0)
         self.assertTrue((self.home / 'tui-started').exists())
         self.assertEqual((self.home / 'imported').read_text(), '0')
-        self.assertEqual(rollout.read_text(), '{"type":"session_meta"}\n')
+        for rollout in owners:
+            self.assertEqual(rollout.read_text(), '{"type":"session_meta"}\n')
+
+    def test_a_seats_conversations_outlive_its_home(self):
+        rollout = self.home / 'sessions' / '2026' / 'rollout-acme-seat.jsonl'
+        rollout.parent.mkdir(parents=True)
+        rollout.write_text('{"type":"session_meta"}\n')
+        self.api['remove_home'](self.home)
+        self.assertFalse(self.home.exists())
+        kept = list(self.source.rglob('rollout-acme-seat.jsonl'))
+        self.assertEqual([path.read_text() for path in kept], ['{"type":"session_meta"}\n'])
 
     def test_seat_from_before_keeps_its_conversations_in_the_shared_sessions(self):
         rollout = self.source / 'sessions' / 'rollout-acme-older.jsonl'
         rollout.parent.mkdir(exist_ok=True)
         rollout.write_text('{"type":"session_meta"}\n')
+        (self.home / 'sessions').unlink()       # as a seat home made before linked it
         (self.home / 'sessions').symlink_to(self.source / 'sessions', target_is_directory=True)
         self.home = self.api['seat_home'](self.root / 'receipt.json')
         self.assertEqual((self.home / 'sessions' / rollout.name).read_text(),
