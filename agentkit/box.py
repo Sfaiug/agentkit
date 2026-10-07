@@ -502,7 +502,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             proc.kill()
 
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch, \
-            tempfile.NamedTemporaryFile(mode="r+", prefix=".box-pid-") as info:
+            tempfile.NamedTemporaryFile(mode="r+", prefix=".box-pid-", dir="/tmp") as info:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
