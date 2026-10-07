@@ -5645,6 +5645,7 @@ def rejoin_line(lp, upstream, reason):
     """A rejoining run keeps its place, repaired work included: checked again soon, it meets
     the target it was fixed against, not one moved by every landing a lap at the back takes."""
     wait = lp.state["waiting_on"]
+    lp.log(f"rejoins the line: {reason}")
     lp.state.update(state="waiting", error=reason, merge_failed=False, merge_note=reason,
                     waiting_on={"line": turn_path(lp, upstream).name, "joined": wait["joined"]})
     lp.state.pop("recovery_pending", None)
@@ -5671,7 +5672,9 @@ def land_from_line(lp, upstream, deliver):
                     raise
                 if code:
                     abort_integration(lp, how)
-                    return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
+                    reason = (f"its {how} onto {upstream} at {tip[:12]} stopped on a conflict; "
+                              "the lander checks it again")
+                    return rejoin_line(lp, upstream, reason)
                 set_base(lp, tip)
                 identity = commit_identity(lp.wt)
                 lp.state["review"] = {**saved, **identity,
@@ -5679,7 +5682,12 @@ def land_from_line(lp, upstream, deliver):
                                       "rebased_from": saved["head_sha"]}
                 lp.write()
                 if identity["tree_sha"] != wait["land"]:
-                    return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
+                    # Its tree alone on the tip is not the stack the lander passed: a change
+                    # stacked ahead of it has not landed yet, or the target moved.
+                    reason = (f"on {upstream} at {tip[:12]} its tree is {identity['tree_sha'][:12]}, "
+                              f"not the {wait['land'][:12]} the lander checked: a change stacked "
+                              f"ahead of it has not landed yet, or {upstream} moved")
+                    return rejoin_line(lp, upstream, reason)
                 if git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
                     lp.state.update(on_target=True)
                     lp.state.pop("waiting_on", None)

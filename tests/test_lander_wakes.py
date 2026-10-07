@@ -220,12 +220,34 @@ class LanderWakes(Sandbox):
         self.assertIsNone(state["pid"])
         self.assertEqual(log.read_text().count("MARKER"), 1)
         self.assertEqual(state["waiting_on"], {"line": self.turn.name, "joined": wait["joined"]})
+        # it says why, with both trees: the one it has on the tip and the one the lander passed
+        self.assertIn(wait["land"][:12], state["error"])
+        self.assertIn(state["review"]["tree_sha"][:12], state["error"])
+        self.assertIn("rejoins the line: ", log.read_text())
         self.assertEqual(self.commands, commands)
         self.assertEqual(self.events, [])
         self.assertEqual(self.merges, [])
         self.assert_rounds(state)
         land.check_line(self.turn)
         self.assertEqual(run.cmd_resume([self.directory.name]), 0)
+
+    def test_a_conflict_on_the_tip_rejoins_at_the_same_place_and_says_so(self):
+        wait = self.park()
+        (self.owner / "work.txt").write_text("the target's own work\n")
+        self.commit(self.owner, "a conflicting target move")
+        run.git(self.owner, "push", "origin", "main")
+        log = self.directory / "log.txt"
+        with patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run", "resume", self.directory.name]), \
+                patch.object(run, "spawn_bg", side_effect=AssertionError("second worker")), \
+                patch.object(run, "follow_run", side_effect=AssertionError("follower")), \
+                log.open("a") as output, redirect_stdout(output):
+            self.assertEqual(run.cmd_resume([self.directory.name]), 0)
+        state = record.read_state(self.directory)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["waiting_on"], {"line": self.turn.name, "joined": wait["joined"]})
+        self.assertIn("stopped on a conflict", state["error"])
+        self.assertIn("rejoins the line: ", log.read_text())
+        self.assertEqual(self.merges, [])
 
     def test_foreground_follow_keeps_a_landing_fixers_quota_or_login_failure(self):
         self.park(broken=True)
