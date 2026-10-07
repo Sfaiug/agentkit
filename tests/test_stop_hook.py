@@ -178,6 +178,46 @@ class StopHook(unittest.TestCase):
         self.notified("done", self.turn - 600)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
+    def test_completion_changed_while_reading_work_is_read_before_the_native_stop(self):
+        for action in ("publish", "retire"):
+            with self.subTest(action=action):
+                self.setUp()
+                if action == "retire":
+                    self.notified("done", self.turn - 1)
+                    self.run_json("failed-run", state="fail", started_at=self.turn - 3600,
+                                  finished_at=self.turn - 0.5)
+                    latch = self.state / f"stop-{SEAT}.json"
+                    saved = json.loads(latch.read_text())
+                    latch.write_text(json.dumps({**saved, "peer": True}) + "\n")
+                # A concurrent writer changes the notice while the hook reads its runs.
+                (self.home / "sitecustomize.py").write_text(f'''import json, os, time
+from pathlib import Path
+root = Path(os.environ["HOME"]) / ".agentkit"
+original = Path.iterdir
+changed = False
+def during_census(path):
+    global changed
+    if path == root / "runs" and not changed:
+        changed = True
+        notice = root / "state" / "notify-{SEAT}.json"
+        if {action!r} == "publish":
+            data = {{"session": {SEAT!r}, "kind": "done", "text": "Shipped the parser",
+                    "time": time.time()}}
+        else:
+            data = json.loads(notice.read_text())
+            data["seen"] = True
+        temporary = notice.with_suffix(".tmp")
+        temporary.write_text(json.dumps(data) + "\\n")
+        temporary.replace(notice)
+    return original(path)
+Path.iterdir = during_census
+''')
+                output = self.stop(env={"PYTHONDONTWRITEBYTECODE": "1"})
+                if action == "retire":
+                    self.assertEqual(self.blocked(output)["reason"], REASON)
+                else:
+                    self.assertEqual(output, "")
+
     def test_a_seen_current_done_keeps_the_native_stop_policy(self):
         self.notified("done", self.turn + 1)
         path = self.state / f"notify-{SEAT}.json"

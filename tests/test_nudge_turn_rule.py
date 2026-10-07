@@ -215,6 +215,18 @@ class NudgeTurnRule(Sandbox):
                 self.stopped()
                 self.assertEqual(self.tick(), ["continue"])
 
+    def test_a_live_wait_leaves_the_ticks_completion_binding_untouched(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                notify.record(SEAT, "done", "Shipped the parser")
+                self.receipt(THEIRS, OTHER, "running")
+                self.wait()
+                self.stopped()
+                self.assertEqual(self.tick(), [])
+                self.assertIsNone(watch.seat_read(SEAT).get("stop_done"))
+
     def test_d_the_same_parked_run_is_nudged_twice_and_the_third_stop_stands(self):
         """Each `continue` is a turn, so a seat that never decides was nudged forever."""
         for harness in HARNESSES:
