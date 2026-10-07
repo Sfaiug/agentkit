@@ -174,17 +174,45 @@ class AnswerClosesQuestion(Sandbox):
         notice = notify.last(name)
         self.assertTrue(watch.owner_question(notice))
         self.assertFalse(notify.resolved(notice))
-        self.assertFalse(self.handback())
-        self.assertEqual(self.typed, [])
         self.assertEqual(notify.transition(name, seat=self.seat), 0)
         self.assertEqual(self.edits, [])
         self.assertNotIn("closed", notify._card_read(name))
         self.assertEqual(watch.session_state(name, session=self.seat, cfg=self.cfg)["reason"],
                          QUESTION)
 
-    def test_owner_prompt_releases_a_handback_without_opening_through_ak(self):
+    def test_a_hand_back_typed_while_a_question_is_open_answers_nothing(self):
+        """review 20261007-0116: the harness's prompt hook reports a line ak typed as it
+        reports the owner's words; its typing receipt says whose it is."""
         self.notice()
-        self.assertFalse(self.handback())
+        self.assertTrue(self.handback())
+        self.prompt(prompt=HANDBACK)
+        self.typed = []
+        self.assert_open()
+        self.prompt()                   # the owner's own words still answer it
+        self.assert_answered()
+
+    def test_a_turn_a_hand_back_opened_ends_on_the_standing_question(self):
+        """review 20261007-0336: the seat's question to the owner still stands, unanswered, so
+        the turn the hand-back opened may end on it -- as `watch.stop_nudge` lets it -- and is
+        never sent back to ask again."""
+        self.notice()
+        self.assertTrue(self.handback())
+        self.prompt(prompt=HANDBACK)
+        self.assertEqual(self.hook("Stop", script="orchestrator-stop.sh",
+                                   last_assistant_message="Parser merged; the schema waits."), "")
+        self.typed = []
+        self.assert_open()
+
+    def test_an_answer_longer_than_one_command_argument_still_answers(self):
+        """review 20261007-0336: a pasted log past Linux's 128 KiB argument limit reaches the
+        look on its stdin, not its command line."""
+        self.notice()
+        self.prompt(prompt="Use the second schema; the failing log follows.\n"
+                    + "acme log line\n" * 11000)
+        self.assert_answered()
+
+    def test_owner_prompt_answers_without_opening_through_ak(self):
+        self.notice()
         self.prompt()
         self.assert_answered()
 

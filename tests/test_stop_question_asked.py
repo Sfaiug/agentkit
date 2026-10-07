@@ -69,9 +69,9 @@ class StopQuestionAsked(unittest.TestCase):
         return {"type": "response_item", "payload": {"type": "function_call_output",
                                                      "call_id": "question", "output": output}}
 
-    def notice(self, when):
+    def notice(self, when, **extra):
         (self.state / f"notify-{SEAT}.json").write_text(json.dumps({
-            "session": SEAT, "kind": "needs", "time": when, "text": QUESTION}))
+            "session": SEAT, "kind": "needs", "time": when, "text": QUESTION, **extra}))
 
     def test_a_question_only_in_prose_ends_nothing(self):
         """A question mark is no ending: the block names the two ways that alert the owner."""
@@ -220,9 +220,14 @@ class StopQuestionAsked(unittest.TestCase):
                     self.setUp()
                     self.assertIsNone(self.stop(entries=[*question, frame]))
 
-    def test_only_a_needs_notice_recorded_this_turn_ends_the_question(self):
-        self.notice(self.turn - 1)
+    def test_a_needs_notice_ends_the_turn_while_its_question_stands(self):
+        """Asked during this turn, or before it and still unanswered: a hand-back or a told line
+        opens turns on a seat while its question stands, and those end on it as watch.stop_nudge
+        lets them (review 20261007-0336).  One the owner has answered ends nothing."""
+        self.notice(self.turn - 1, answered_at=self.turn - 0.5)
         self.assertEqual(self.stop()["decision"], "block")
+        self.notice(self.turn - 1)
+        self.assertIsNone(self.stop())
         self.notice(self.turn + 1)
         self.assertIsNone(self.stop())
 

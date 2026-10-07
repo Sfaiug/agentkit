@@ -35,9 +35,10 @@ set -u
 # pane, which is where every seat's harness runs; watch.hook_look checks the pane is the seat's,
 # on the seat's own server.  `heard`, on Claude's Stop only, is when this hook heard it.
 look() {
-  local seat=$1 heard=${2:-} answered=${3:-}
+  local seat=$1 heard=${2:-} answered=${3:-} said=${4:-}
   [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 0
-  ( /usr/bin/env python3 -c '
+  # the prompt's words go on its stdin: on its command line, a long one would never run it
+  ( printf '%s' "$said" | /usr/bin/env python3 -c '
 import os, sys
 from pathlib import Path
 try:
@@ -47,8 +48,8 @@ except OSError:
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import watch
 watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None,
-                float(sys.argv[4]) if sys.argv[4] else None)
-' "${BASH_SOURCE[0]}" "$seat" "$heard" "$answered" </dev/null >/dev/null 2>&1 & )
+                float(sys.argv[4]) if sys.argv[4] else None, sys.stdin.read())
+' "${BASH_SOURCE[0]}" "$seat" "$heard" "$answered" >/dev/null 2>&1 & )
 }
 
 seat_state() {
@@ -182,7 +183,8 @@ sys.exit(0 if any(told(payload.get(key)) for key in ("prompt", "message")) else 
     owner=false
   fi
   if [[ $owner = true ]]; then
-    look "$seat" "" "$ts"
+    look "$seat" "" "$ts" "$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
+                                       | first // ""' <<<"$payload" 2>/dev/null)"
   else
     look "$seat"
   fi

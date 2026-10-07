@@ -110,10 +110,11 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
     stuck = composer_draft(harness, pane_text(session)) == ours
 
     def veto(held):
-        # Under the seat lock the other senders type under, with their owner-question veto --
-        # except for an earlier PR's merge question, which is ours.  The screen is read once,
-        # before typing: text already in the composer, or a dialog, would go out with the
-        # question as one garbled prompt, and after typing the composer holds the question.
+        # Under the seat lock the other senders type under, held back by an owner question as
+        # recovery nudges are -- except for an earlier PR's merge question, which is ours.  The
+        # screen is read once, before typing: text already in the composer, or a dialog, would
+        # go out with the question as one garbled prompt, and after typing the composer holds
+        # the question.
         notice = notify.last(held)
         if owner_question(notice) and not str(notice.get("source") or "").startswith("inbox:"):
             return True
@@ -1916,7 +1917,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     return answer
 
 
-def hook_look(launched, heard=None, answered_at=None):
+def hook_look(launched, heard=None, answered_at=None, said=""):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
     hooks/seat-state.sh starts this in the background on every event it writes down -- a turn
@@ -1932,7 +1933,9 @@ def hook_look(launched, heard=None, answered_at=None):
     some other tmux, or a test's sandbox with a seat's name in its environment, never paints a
     real seat's bar with facts that are not that seat's. The owner's prompt timestamp travels
     through the same check before answering a question; waiting for its notice lock happens
-    here, off the harness's path.
+    here, off the harness's path.  A prompt `said` that is a line ak typed into the seat since
+    the question -- a hand-back, a wait notice -- is the seat's own news, never the owner's
+    answer: the harness's hook reports it as it reports the owner's words.
     """
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
@@ -1943,7 +1946,10 @@ def hook_look(launched, heard=None, answered_at=None):
             "display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}",
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
-    if answered_at is not None:
+    asked = (notify.last(name) or {}).get("time")
+    if answered_at is not None and not (
+            isinstance(asked, (int, float)) and said
+            and any(sent.get("text") == said for sent in notify.typed_since(name, asked))):
         notify.answered(name, answered_at)
     cfg = config.load()
     answer = announce_state(session, cfg=cfg, look=True, number=number)
@@ -2845,12 +2851,14 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     goes only while the composer holds the line alone (`composer_holds`): what the owner typed
     in the gap before it is never sent.  The line is delivered only once its composer reads
     empty, the first pass's as a mark's: one the owner edited while its Enter was confirmed
-    no longer reads whole there, and is still theirs to send.
+    no longer reads whole there, and is still theirs to send.  A question the seat asked with
+    `ak notify needs` holds none of this back: the seat works on what does not wait on the
+    answer, which only the owner's own prompt gives (`notify.progress`).
     """
     mark = {"line": text, "seat": session.get("created")}
     if typed == mark:
         with seat_held(session["name"]) as held:
-            if owner_question(notify.last(held)) or stale(held):
+            if stale(held):
                 return False    # the screen is somebody else's: next pass
             holds = composer_holds(held, session, text, cfg)
             if holds == "empty":
@@ -2863,7 +2871,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     composed = []
 
     def veto(held):
-        if owner_question(notify.last(held)) or stale(held):
+        if stale(held):
             return True
         if composed:
             return False        # the text is typed; what is left is the Enter that sends it

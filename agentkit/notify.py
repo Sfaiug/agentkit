@@ -480,6 +480,15 @@ def opened(session, capture):
                opened_at=max(time.time(), previous["time"]), opened_pane=pane)
 
 
+def typed_since(session, since):
+    """The lines ak typed into that seat at `since` or after, by its typing receipts
+    (`watch._send_line` writes one before each line): ak's own, never the owner's words it
+    relays (`source` owner).  A question's answer is never one of them."""
+    return [sent for sent in harness.entries(config.seat_file("input", session))
+            if sent.get("source") != "owner" and isinstance(sent.get("at"), (int, float))
+            and not isinstance(sent.get("at"), bool) and sent["at"] >= since]
+
+
 def progress(session, capture):
     """Persist new output after an open; Discord and the row use the same resolved fact.
 
@@ -494,11 +503,9 @@ def progress(session, capture):
         previous = last(session)
         if not previous or previous.get("opened_at") is None or previous["kind"] == "done":
             return                 # output after an open answers a question, never a done
-        opened = previous["opened_at"]
-        if any(sent.get("source") != "owner" and isinstance(sent.get("at"), (int, float))
-               and sent["at"] > opened and isinstance(sent.get("harness"), str)
+        if any(isinstance(sent.get("harness"), str)
                and harness.load(sent["harness"]).prompt_hook is not None
-               for sent in harness.entries(config.seat_file("input", session))):
+               for sent in typed_since(session, previous["opened_at"])):
             return
         pane = capture()
         baseline = previous.get("opened_pane", "")

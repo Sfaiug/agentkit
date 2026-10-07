@@ -165,15 +165,6 @@ class Tell(Seats):
         self.tick()
         self.assertEqual(self.typed, [self.header() + "First.", self.header() + "Second."])
 
-    def test_an_open_owner_question_holds_it_until_answered(self):
-        notify.record(SEAT, "needs", "Which schema should acme use?")
-        code, out, _ = self.tell(SEAT, "Parser merged.")
-        self.assertEqual((code, out),
-                         (0, f"{SEAT}: queued; ak types it after the owner answers its question"))
-        self.tick()
-        self.assertEqual(self.typed, [])
-        self.assertEqual(len(self.waiting()), 1)
-
     def turn_running(self, pane=MIDTURN, empty=HELD):
         """The seat mid-turn by its own hooks, `pane` on its screen with `empty` its composer."""
         config.hook_facts_path(SEAT).write_text(json.dumps(

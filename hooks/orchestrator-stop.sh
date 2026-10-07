@@ -63,11 +63,11 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
-from agentkit import config, harness
+from agentkit import config, harness, notify
 from agentkit.run import going, handback_reason, unfinished
 from agentkit.stop import ways_out
 from agentkit.job import job_waiting
-from agentkit.watch import waiting_on
+from agentkit.watch import owner_question, waiting_on
 
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
@@ -336,7 +336,9 @@ def held(launched, payload):
     seat = resolve(launched)
     if last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
-    if questioned(payload) or told(seat, turn, "needs"):
+    # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
+    # a hand-back or a told line opens turns on a seat while it stands (`watch.stop_nudge`)
+    if questioned(payload) or told(seat, turn, "needs") or owner_question(notify.last(seat)):
         return ""
     undecided = parked(seat)
     if not undecided and (told(seat, turn, "done", peer) or waiting(seat, turn)
