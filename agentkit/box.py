@@ -63,12 +63,16 @@ def _contents(root):
     return found
 
 
+def _host_binary(name):
+    return shutil.which(name, path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
+
+
 def _git(args, env, cwd, **kwargs):
     """Ask ak's own Git: the first in a directory ak's own PATH names in full.
 
     Its answers decide what a box hides and what it opens for writing. The command's PATH, a
     relative entry and the current directory may each name the project's own `git`."""
-    git = shutil.which("git", path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
+    git = _host_binary("git")
     if git is None:
         from . import config
         raise config.Error("worker box needs git in a directory PATH names in full")
@@ -335,11 +339,15 @@ def _network(cmd, env, out_dir=None, info=None):
     if not (routes or routes6):
         yield [*cmd, "--unshare-net"]
         return
+    unshare, pasta, setpriv = map(_host_binary, ("unshare", "pasta", "setpriv"))
+    if not all((unshare, pasta, setpriv)):
+        yield [*cmd, "--unshare-net"]
+        return
     # Keep the account's numbers in pasta's user namespace. Its default maps the
     # account to root; bwrap must also receive no ambient capabilities.
     # A different address inside keeps host listeners on its LAN address reachable.
     # Loopback supplies both IP families, including a resolver's only family.
-    prefix = ["unshare", "--user", "--map-current-user", "--keep-caps", "pasta",
+    prefix = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
               "--address", "10.0.2.15", "--netmask", "24", "--gateway", "10.0.2.2",
@@ -363,7 +371,7 @@ def _network(cmd, env, out_dir=None, info=None):
     for version, address in hosts.items():
         prefix.extend(["--dns-forward", "10.0.2.3" if version == 4 else "fd00::3",
                        "--dns-host", address])
-    prefix.extend(["setpriv", "--inh-caps=-all", "--ambient-caps=-all"])
+    prefix.extend([setpriv, "--inh-caps=-all", "--ambient-caps=-all"])
     # In an enclosing box, the host's pasta may be unable to start a command
     # (for example an AppArmor exec transition under no_new_privs).
     with subprocess.Popen([*prefix, "/usr/bin/true"], env=env,
