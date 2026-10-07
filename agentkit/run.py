@@ -5637,10 +5637,37 @@ def target_fails(lp, upstream, dw_log):
     return first_failure(f"$ {cmd}\n[exit {code}]\n{output}")
 
 
+def failing_blocks(text, cap=OUT_CAP):
+    """What a fixer reads of a failed check: every block that says what failed, in order, then
+    as much of the output's end as `cap` leaves.
+
+    A suite run in pieces prints each piece's failures where that piece ends, so the end alone
+    can hold none of them: a landing fixer handed the last 20 KB never saw the red file 32 KB
+    before it.  A block is a line that names a failure (`FAILURE_LINE`) and the indented lines
+    under it; output with none, or short enough whole, is its end as before.
+    """
+    if len(text) <= cap:
+        return text
+    blocks, block = [], None
+    for line in text.splitlines():
+        if FAILURE_LINE.match(line):
+            block = [line]
+            blocks.append(block)
+        elif block is not None and (not line or line[:1].isspace()):
+            block.append(line)
+        else:
+            block = None
+    named = "\n".join("\n".join(block).rstrip() for block in blocks)
+    room = cap - len(named)
+    if not named:
+        return text[-cap:]
+    return named if room <= 0 else f"{named}\n\n... the end of the output:\n{text[-room:]}"
+
+
 def fix_final_check(lp, upstream, text):
     """Repair failing landing output and re-review, without recording a task round."""
     fix = (f"{lp.context}\n\n## The final check failed. Fix the root cause.\n```\n"
-           f"{text[-OUT_CAP:]}\n```")
+           f"{failing_blocks(text)}\n```")
     lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
                                   "reason": "Re-review after the final check.",
                                   "passed_head_sha": passed_review_head(lp.state),
