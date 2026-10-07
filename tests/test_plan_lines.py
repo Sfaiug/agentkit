@@ -303,6 +303,63 @@ class PlanLines(Sandbox):
                                                   r"- \[ \] the feature exists"):
             plan.require_done("fix-api")
 
+    def test_a_probe_the_fix_outgrew_gives_way_to_the_seat_s_own_test(self):
+        def land(files, message, day):
+            """Work landing on main long after the line was written."""
+            self.git("checkout", "-q", "main")
+            for name, text in files.items():
+                (self.repo / name).write_text(text)
+            self.git("add", ".")
+            with patch.dict(os.environ, {"GIT_COMMITTER_DATE": f"2099-01-0{day} 12:00:00"}):
+                self.git("commit", "-q", "-m", message)
+            self.git("push", "-q", "origin", "main")
+            self.git("checkout", "-q", "work")
+
+        # a review follow-up's probe: it fakes the exact call the code makes
+        self.ak("add", "the feature exists", "--check", "grep -q old-call feature.txt")
+        land({"feature.txt": "old-call\n"}, "the fix", 1)
+        self.assertIn("1  - [x] the feature exists", self.listed())
+        # a later change calls it another way, rightly, with its own test
+        land({"feature.txt": "new-call\n", "feature_test.sh": "test -s feature.txt\n"},
+             "the call changes", 2)
+        with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open, first: "
+                                                  r"- \[ \] the feature exists.+`ak plan check N`"):
+            plan.require_done("fix-api")
+        # the test passes on main now; it failed on main as it was when the line was written
+        line = self.ak("check", "1", "sh feature_test.sh").strip()
+        self.assertRegex(line, r"^- \[ \] the feature exists · check: `sh feature_test.sh` · "
+                               + re.escape(self.project) + r" · written \d{4}-\d\d-\d\d \d\d:\d\d$")
+        self.assertEqual(self.plan_lines(), [line])
+        self.assertEqual(plan.require_done("fix-api"), {line[6:]})
+
+    def test_a_new_check_passing_when_its_line_was_written_is_refused(self):
+        line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
+        self.ak("add", "the hero looks calm", "--eye")
+        with self.assertRaisesRegex(config.Error, "already passed on acme's default branch when "
+                                                  "the line was written"):
+            plan.main(["check", "1", "test -f base.txt"])
+        with self.assertRaisesRegex(config.Error, "only a check line takes another check"):
+            plan.main(["check", "2", "test -f feature.txt"])
+        with self.assertRaisesRegex(config.Error, "no plan line 3"):
+            plan.main(["check", "3", "false"])
+        with self.assertRaisesRegex(config.Error, "without backticks"):
+            plan.main(["check", "1", "test `true`"])
+        self.assertEqual(self.plan_lines()[0], line)
+
+    def test_a_line_changed_while_its_new_check_ran_is_left_as_it_is(self):
+        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
+        path = config.plan_path("fix-api")
+        changed = path.read_text().replace("the feature", "the whole feature")
+        fails = plan.fails
+
+        def meanwhile(*args):
+            path.write_text(changed)
+            return fails(*args)
+        with patch.object(plan, "fails", side_effect=meanwhile), \
+                self.assertRaisesRegex(config.Error, "plan line 1 changed while its new check ran"):
+            plan.main(["check", "1", "sh feature_test.sh"])
+        self.assertEqual(path.read_text(), changed)
+
     def test_each_check_starts_from_the_default_branch_never_from_anothers_files(self):
         self.ak("add", "the feature exists", "--check", "touch generated.txt; test -f feature.txt")
         self.ak("add", "something generated", "--check", "test -f generated.txt")

@@ -3,9 +3,12 @@
 `ak plan add "<outcome>" --check '<cmd>'` runs the check on a clean checkout of the project's
 default branch and refuses one that already passes there: a check that passes before the work
 proves nothing, and one that never finishes there could never tick.  `--eye` is an outcome only
-the owner can judge; `ak plan tick <n>` ticks it on their word.  `ak plan` ticks each check line
-whose check now passes on its project's default branch, then lists the lines, numbered, and
-`ak notify done` runs every check again and waits for every line.  The plan is the seat's `plan-<seat>.md`, the
+the owner can judge; `ak plan tick <n>` ticks it on their word.  `ak plan check <n> '<cmd>'`
+puts another check in a line's place -- the seat's own test where a review follow-up came
+checked by the reviewer's probe -- when it failed on the default branch as that was when the
+line was written.  `ak plan` ticks each check line whose check now passes on its project's
+default branch, then lists the lines, numbered, and `ak notify done` runs every check again and
+waits for every line.  The plan is the seat's `plan-<seat>.md`, the
 file the menu's bar counts, and a line names its outcome, its check (or `your eye`), the
 project and when it was written:
 
@@ -235,10 +238,11 @@ def verifying(name):
 
 
 @contextmanager
-def default_branch(repo):
+def default_branch(repo, written=None):
     """(its commit as `<sha12> <subject>`, the environment a check runs in, `checkout`): the
-    project's current default branch, fetched first.  `checkout()` is a clean checkout of
-    that commit made for one check and removed after it, so nothing one check writes or
+    project's current default branch, fetched first -- or, with `written` (a line's
+    `%Y-%m-%d %H:%M`), its last commit by the end of that minute.  `checkout()` is a clean
+    checkout of that commit made for one check and removed after it, so nothing one check writes or
     moves -- files, HEAD, a submodule -- is there for the next.  A check gets the project's
     env file (`config.repo_env`), as a run's checks do: what git does not hold, such as the
     project's interpreter, it names there (ATLAS's `ATLAS_PYTHON`)."""
@@ -259,6 +263,10 @@ def default_branch(repo):
     git("remote", "set-head", "origin", "--auto")
     base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
     sha = git("rev-parse", "--verify", "--quiet", f"{base}^{{commit}}")
+    if written:
+        sha = git("rev-list", "-1", "--first-parent", f"--before={written}:59", sha)
+        if not sha:
+            raise config.Error(f"{repo.name}'s default branch has no commit from {written}")
     commit = git("log", "-1", "--format=%h %s", "--abbrev=12", sha)
     config.TMP.mkdir(parents=True, exist_ok=True)
 
@@ -310,10 +318,11 @@ def fails(tree, cmd, env):
     return proc.returncode != 0
 
 
-def fails_on_main(repo, cmd):
-    """(Whether `cmd` fails on a clean checkout of the project's current default branch, that
-    checkout's root commit): the repository a line names is the one its check ran in."""
-    with default_branch(repo) as (_commit, env, checkout), checkout() as tree:
+def fails_on_main(repo, cmd, written=None):
+    """(Whether `cmd` fails on a clean checkout of the project's default branch, now or as it
+    was when a line was `written`, that checkout's root commit): the repository a line names
+    is the one its check ran in."""
+    with default_branch(repo, written) as (_commit, env, checkout), checkout() as tree:
         return fails(tree, cmd, env), root(tree)
 
 
@@ -421,8 +430,9 @@ def require_done(name):
     left, results = _verify(name, every=True)
     if left:
         raise config.Error(f"{len(left)} plan line(s) still open, first: {left[0]}; "
-                           "a check line is done when its check passes on the default branch, "
-                           "an eye line on the user's word (`ak plan tick N`)")
+                           "a check line is done when its check passes on the default branch "
+                           "(one that no longer tests the outcome takes your own test: "
+                           "`ak plan check N`), an eye line on the user's word (`ak plan tick N`)")
     return {bare for bare, line in results.items() if line.startswith("- [x]")}
 
 
@@ -448,9 +458,7 @@ def add(name, what, check=None, repo=None, proven=None):
     repo = Path(repo) if repo else project_of(name)
     found = None
     if check is not None:
-        check = check.strip()
-        if len(check.splitlines()) != 1 or "`" in check:
-            raise config.Error("a check is one shell command without backticks or line breaks")
+        check = one_command(check)
         if proven:
             found = root(repo, proven)
             if not found:
@@ -479,6 +487,52 @@ def add(name, what, check=None, repo=None, proven=None):
     return line
 
 
+def one_command(check):
+    check = check.strip()
+    if len(check.splitlines()) != 1 or "`" in check:
+        raise config.Error("a check is one shell command without backticks or line breaks")
+    return check
+
+
+def numbered(text, number):
+    """Where plan line `number`, as `ak plan` lists them, is in the plan's `text`."""
+    listed = [at for at, line in enumerate(text) if line.lstrip().startswith("- [")]
+    if not 1 <= number <= len(listed):
+        raise config.Error(f"no plan line {number}; `ak plan` lists them")
+    return listed[number - 1]
+
+
+def recheck(name, number, check):
+    """Put `check` in place of plan line `number`'s check, the line open again until it
+    passes.  It must have failed where the line's check had to: on the line's project as its
+    default branch was when the line was written -- the code before the work, however long ago
+    the work landed."""
+    check = one_command(check)
+    with held(name) as current:
+        text = lines(current)
+        line = text[numbered(text, number)].strip()
+    found = LINE.match(line)
+    if not (found and found["check"]):
+        raise config.Error("only a check line takes another check")
+    repo = place(name, found["project"])
+    if not repo:
+        raise config.Error(f"this host has no checkout of {found['project']}")
+    if not fails_on_main(repo, check, found["when"])[0]:
+        raise config.Error(f"this check already passed on {repo.name}'s default branch when "
+                           "the line was written, so it proves nothing; write one that failed "
+                           "until the work was done")
+    new = f"- [ ] {found['what']} · check: `{check}` · {found['project']} · written {found['when']}"
+    with held(name) as current:
+        text = lines(current)
+        same = [at for at, old in enumerate(text) if old.strip() == line]
+        if not same:
+            raise config.Error(f"plan line {number} changed while its new check ran; "
+                               "run `ak plan check` again")
+        text[same[0]] = text[same[0]][:len(text[same[0]]) - len(text[same[0]].lstrip())] + new
+        write(current, text)
+    return new
+
+
 def tick(name, number):
     with held(name) as current:
         return _tick(current, number)
@@ -486,10 +540,7 @@ def tick(name, number):
 
 def _tick(name, number):
     text = lines(name)
-    open_lines = [at for at, line in enumerate(text) if line.lstrip().startswith("- [")]
-    if not 1 <= number <= len(open_lines):
-        raise config.Error(f"no plan line {number}; `ak plan` lists them")
-    at = open_lines[number - 1]
+    at = numbered(text, number)
     found = LINE.match(text[at].strip())
     if not found or found["check"]:
         raise config.Error("only a --eye line can be ticked on the owner's word")
@@ -529,5 +580,8 @@ def main(argv):
         return 0
     if argv[0] == "tick" and len(argv) == 2 and argv[1].isdigit():
         print(tick(name, int(argv[1])))
+        return 0
+    if argv[0] == "check" and len(argv) == 3 and argv[1].isdigit():
+        print(recheck(name, int(argv[1]), argv[2]))
         return 0
     raise config.Error(command_help.COMMANDS["plan"][0])
