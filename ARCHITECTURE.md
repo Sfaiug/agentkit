@@ -146,6 +146,9 @@
   `interrupted`: when the owner ended a turn no hook reported (Claude's Esc); `unanswered`: a
   last prompt nothing answered yet. For orch, usage, update, run, gc, menu, watch, browser,
   retention.
+  Codex's `remote_home` owns the private home's address for launch and removal;
+  `pairing_home` resolves requested app access by seat name or explicit home path.
+  `tools/codex-seat.py` uses those addresses and owns the live socket transport.
   Leak: orch imports `harness.claude`.
 
 ## hooks/, tools/, tests/

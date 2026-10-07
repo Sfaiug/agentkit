@@ -71,6 +71,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 
 ## Owner rules
 
+- Codex pairing is optional and requested when the owner wants app access; opening or resuming a seat sends no setup alert. Optional access does not need the owner or block terminal work. [7 Oct 2026]
 - Adding a model or harness is an adapter, its toml and a `models.toml` entry, never a name hard-coded in code; `n` keeps the orchestrator question so the owner can switch freely. [18 Sep]
 - ak picks models only on live facts (quota, host, errors); past-run numbers may be shown but never pick, and ak never labels a model good or bad at a role: the owner marks who executes and who reviews. [28 Sep, 29 Sep]
 - ak is measured by what it delivers in every project: `ak run status --history` shows quality, speed, cost and size week by week, work on ak itself counts as cost, and these numbers never pick a model. [2 Oct]
