@@ -157,11 +157,28 @@ class Tell(Seats):
         self.assertEqual(self.typed, [self.header() + " ".join(line.split())])
         self.assertEqual(self.waiting(), [])
 
-    def test_messages_go_in_oldest_first_one_per_quiet_prompt(self):
+    def test_every_waiting_message_goes_in_one_pass_oldest_first(self):
+        for line in ("First.", "Second.", "Third."):
+            self.tell(SEAT, line)
+        self.tick()
+        self.assertEqual(self.typed, [self.header() + line for line in ("First.", "Second.", "Third.")])
+        self.assertEqual(self.waiting(), [])
+
+    def test_a_seat_that_stops_taking_lines_keeps_the_rest_for_the_next_pass(self):
         self.tell(SEAT, "First.")
         self.tell(SEAT, "Second.")
-        self.tick()
+        drafted = self.base.replace(self.empty, "❯ the owner's draft\n")
+
+        def log(line):
+            if "typed a message" in line:
+                self.pane = drafted      # the owner starts typing once the first line went in
+
+        tell.deliver(self.cfg, log)
         self.assertEqual(self.typed, [self.header() + "First."])
+        self.assertEqual([message["line"] for message in self.waiting()], [self.header() + "Second."])
+        self.tick()                      # the draft is still there: nothing is typed onto it
+        self.assertEqual(self.typed, [self.header() + "First."])
+        self.pane = self.base
         self.tick()
         self.assertEqual(self.typed, [self.header() + "First.", self.header() + "Second."])
 

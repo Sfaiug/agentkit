@@ -218,14 +218,19 @@ def deliver_to(session, log, cfg=None):
 
 
 def deliver(cfg, log):
-    """The tick's pass: each open seat with messages waiting gets its oldest one."""
-    waiting = {seat for seat, _ in config.seat_files("tell")}
+    """The tick's pass: each open seat with messages waiting gets them, oldest first, for as long
+    as it takes each line.  One a pass held a burst of lines three minutes apart each: the
+    seventh of a burst arrived twenty minutes after it was sent.  The pass ends at the lines
+    waiting when it began, so a sender that keeps sending never keeps it going."""
+    waiting = dict(config.seat_files("tell"))
     if not waiting:
         return
     for session in orch.sessions():
         if session["name"] in waiting and not any(session.get(key) for key in orch.CLOSED):
             try:
-                deliver_to(session, log, cfg)
+                for _ in read(waiting[session["name"]]):
+                    if not deliver_to(session, log, cfg):
+                        break
             except (OSError, ValueError) as exc:
                 log(f"WARN {session['name']}: its messages wait, their queue unread: {exc}")
 
