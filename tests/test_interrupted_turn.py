@@ -4,8 +4,9 @@ Claude Code 2.1.291 sends no Stop and no idle_prompt after an Esc.  The conversa
 says so: it ends in `[Request interrupted by user]`, and the next prompt is written there before
 its hook runs.  An Esc before any answer records nothing a turn not yet answered lacks (2.1.292:
 the prompt, its attachments, `last-prompt`, then nothing) and runs no hook, but puts the prompt
-back in the composer word for word: that is the owner's draft again.  A composer they then
-empty still reads `working` until their next prompt.  hooks/seat-state.sh runs as
+back in the composer word for word: that is the owner's draft again.  Once they edit or
+empty it, the seat reads `working` until their next prompt: only the prompt put back whole
+tells an Esc from a turn still thinking while the owner types.  hooks/seat-state.sh runs as
 the harness runs it; the records follow the shape of real ones, with invented names.
 """
 
@@ -191,6 +192,10 @@ class InterruptedTurn(Sandbox):
         fact = self.prompt("Run the acme tests.")
         self.assertEqual(self.looked(CANCELLED), ("needs you", False))   # its draft again
         self.assertEqual(self.handed_back(lambda: CANCELLED), [])         # and never typed onto
+        # edited by a word, it is what a turn still thinking with the owner typing shows
+        edited = CANCELLED.replace("Run the acme tests.\n", "Run the acme tests twice.\n")
+        self.assertNotEqual(edited, CANCELLED)
+        self.assertEqual(self.looked(edited), ("working", False))
         self.said("assistant", fact["at"] + 2, "Running them now.")      # once answered: no cancel
         self.assertEqual(self.looked(CANCELLED), ("working", False))
 
