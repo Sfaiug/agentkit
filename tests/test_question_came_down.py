@@ -81,7 +81,9 @@ class QuestionCameDown(Sandbox):
         self.assertEqual(self.looked(PROMPT, fact)[0], "working")
         result = subprocess.run([sys.executable, str(REPO / "bin/ak"), "notify", "needs",
                                  "--session", SEAT, "Which schema should acme use?"],
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, timeout=30,
+                                env={**os.environ, "AK_NOTIFY_SINK": "dry-run",
+                                     "AGENTKIT_DISCORD_WEBHOOK": ""})
         self.assertEqual(result.returncode, 0, result.stderr)
         fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
                          last_assistant_message="Which schema should acme use?")
