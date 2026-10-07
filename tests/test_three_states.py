@@ -18,6 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
+from fixtures.tmux import commands
 from agentkit import config, menu, notify, orch, run, terminal, usage, watch, worker
 from agentkit import record
 
@@ -56,8 +57,9 @@ class ThreeStates(Sandbox):
             side_effect=lambda h, seat=False: (self.token_ok, f"{h}: stub")))
 
     def tmux(self, *args, **kwargs):
-        if args[0] == "set-option":
-            self.options[args[3]] = args[4]     # set-option -t <seat> <option> <value>
+        for command in commands(args):
+            if command[0] == "set-option":
+                self.options[command[3]] = command[4]   # set-option -t <seat> <option> <value>
         return 0, ""
 
     def fact(self, event, kind="", text="", at=None):

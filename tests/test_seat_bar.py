@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
+from fixtures.tmux import commands
 from agentkit import config, menu, orch, run, statusbar, terminal, watch
 from agentkit import record
 
@@ -33,8 +34,9 @@ class SeatBar(Sandbox):
         self.stack.enter_context(patch.object(menu.time, "time", return_value=NOW))
 
     def tmux(self, *args, **kwargs):
-        if args[0] == "set-option" and "-u" not in args:
-            self.options[args[args.index("-t") + 2]] = args[-1]
+        for command in commands(args):
+            if command[0] == "set-option" and "-u" not in command:
+                self.options[command[command.index("-t") + 2]] = command[-1]
         return 0, ""
 
     def seat(self, name, was=None):

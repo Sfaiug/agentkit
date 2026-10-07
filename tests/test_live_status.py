@@ -28,6 +28,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from agentkit import config, menu, orch, record, run, statusbar, terminal, watch  # noqa: E402
+from fixtures.tmux import commands  # noqa: E402
 
 # The hook's own process asks tmux through PATH, so this stands in for the server: one marked
 # seat on the suite's socket, which lives at /fake/agentkit-test, whose pane is %7, a capture as
@@ -41,7 +42,11 @@ case $1 in
   list-panes) printf 'herdr\t0\n' ;;
   display-message) [[ $4 = %7 ]] && printf '/fake/agentkit-test\therdr\n' ;;
   capture-pane) sleep "${FAKE_TMUX_SLOW:-0}"; printf '$ \n' ;;
-  set-option) [[ $2 = -u ]] || printf '%s\t%s\n' "$4" "$5" >>"$FAKE_TMUX_LOG" ;;
+  set-option) while (( $# )); do   # each command of a list, as tmux runs them
+                [[ $1 = set-option && $2 != -u ]] && printf '%s\t%s\n' "$4" "$5" >>"$FAKE_TMUX_LOG"
+                while (( $# )) && [[ $1 != ";" ]]; do shift; done
+                (( $# )) && shift
+              done ;;
 esac
 exit 0
 """
@@ -122,8 +127,9 @@ class LiveStatus(unittest.TestCase):
         if args[0] == "display-message":
             return ((0, f"/fake/agentkit-test\t{self.seat['name']}")
                     if args[args.index("-t") + 1] == "%7" else (1, "no such pane"))
-        if args[0] == "set-option" and "-u" not in args:
-            self.options[args[args.index("-t") + 2]] = args[-1]
+        for command in commands(args):
+            if command[0] == "set-option" and "-u" not in command:
+                self.options[command[command.index("-t") + 2]] = command[-1]
         return 0, ""
 
     def hook(self, event, kind=""):
