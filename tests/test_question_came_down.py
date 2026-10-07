@@ -21,7 +21,7 @@ NOW = 1_800_000_000
 SEAT = "fix-api"
 FIX = REPO / "tests/fixtures"
 AFTER_QUESTION = (FIX / "claude-working-after-question-pane.txt").read_text(encoding="utf-8")
-QUESTION = (FIX / "claude-question-with-message-pane.txt").read_text(encoding="utf-8")
+QUESTION = (FIX / "claude-question-pane.txt").read_text(encoding="utf-8")
 PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8")
 PERMISSION = (FIX / "claude-dialog-pane.txt").read_text(encoding="utf-8")
 
@@ -67,7 +67,7 @@ class QuestionCameDown(Sandbox):
         self.hook("UserPromptSubmit", prompt="Build the parser.")
         fact = self.hook("Notification", notification_type="permission_prompt",
                          message="Claude needs your permission")
-        unread = "\n".join(QUESTION.rstrip().splitlines()[:-1]) + "\n Some control nobody knows\n"
+        unread = QUESTION.rstrip() + "\n Some control nobody knows\n"
         self.assertEqual(watch.screen_state("claude", watch.pane_tail(unread))[0], None)
         self.assertEqual(self.looked(unread, fact), ("needs you", False))
 

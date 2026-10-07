@@ -130,18 +130,6 @@ class ComposerBox(Sandbox):
                 self.assertEqual(watch.composer_draft("claude", pane), "")
                 self.assertEqual(self.looked(pane)[1], True)
 
-    def test_a_typed_row_that_reads_like_a_queued_message_is_the_draft(self):
-        """Queued messages sit under the composer; inside its box a row like one was typed."""
-        typed = "› Message from @build-check: Ready. (ctrl+o to expand)"
-        pane = drafted("\n  " + typed)
-        self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane)),
-                         ("draft", "prompt.draft", typed))
-        self.assertEqual(watch.composer_draft("claude", pane), typed.replace(" ", ""))
-        self.assertEqual(self.looked(pane), ("needs you", False, []))
-        under = PROMPT.replace("\n  ⏵⏵", "\n" + typed + "\n  ⏵⏵", 1)
-        self.assertNotEqual(under, PROMPT)
-        self.assertEqual(watch.composer_draft("claude", under), "")
-
     def test_a_faint_suggestion_wrapped_over_rows_is_no_draft(self):
         """tmux writes SGR 2 once, on the first row; the second row carries it unwritten."""
         rows = drafted("\x1b[0;2mTry fixing the acme login redirect and running all of its"

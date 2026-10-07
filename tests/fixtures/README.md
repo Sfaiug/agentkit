@@ -236,13 +236,9 @@ carries neither, and is unedited. Its Gemini window, 0.917436 left, is the panel
 
 ## Seat-state captures (v5n)
 
-`claude-question-with-message-pane.txt` derives from the 2026-09-28 ANSI capture of an
-AskUserQuestion dialog with a queued session message below it. Only the dialog and message
-remain; the question, choices and message use invented text and the sender is `build-check`.
-Rules were shortened to 100 columns; control text and ANSI attributes are preserved. The
-message is grey and italic, not SGR 2 (faint). `test_question_with_message_under.py` also
-replays the dialog without that last message line and appends it to the existing empty
-composer and typed-draft captures below.
+`claude-question-pane.txt` derives from the 2026-09-28 ANSI capture of an AskUserQuestion
+dialog. Only the dialog remains; the question and choices use invented text. Rules were
+shortened to 100 columns; control text and ANSI attributes are preserved.
 
 `claude-draft-pane.txt`, `codex-draft-pane.txt`, `muse-draft-pane.txt` and the matching
 `*-suggestion-pane.txt` are actual 100×30 `capture-pane -p -e` outputs from **Claude Code 2.1.263**,

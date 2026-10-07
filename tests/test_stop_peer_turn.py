@@ -3,9 +3,9 @@
 Offline and deterministic: hooks/seat-state.sh opens the turn and
 hooks/orchestrator-stop.sh judges its end, both run as their harness runs them --
 the hook's own JSON on stdin -- against fake notify records and a throwaway HOME,
-never a real seat or ~/.agentkit.  Claude Code wraps such a message in
-<cross-session-message>; the seat only acknowledges it, so a done declared before
-the turn still tells -- unless `ak notify` dropped it, or a run sits parked.
+never a real seat or ~/.agentkit.  `ak tell` heads such a message (agentkit/told.py);
+the seat only acknowledges it, so a done declared before the turn still tells --
+unless `ak notify` dropped it, or a run sits parked.
 """
 
 import json
@@ -31,10 +31,9 @@ REASON = ("You stopped without asking the user through the question prompt or ak
           "declaring done with ak notify done, "
           "or waiting on a run. Continue: decide the next step and do it.")
 ACK = "Noted -- nothing new on my side."      # the seat acknowledges the message and stops
-PEER_PROMPT = ('<cross-session-message from="acme-fix-api" to="peer-seat">'
-               "Finished the parser; over to you.</cross-session-message>")
 SPENT = "three rounds spent: split or re-scope the task"
 NEWS = "Finished the parser; over to you."
+PEER_PROMPT = heading("acme-fix-api", time.time()) + NEWS
 
 
 class StopPeerTurn(unittest.TestCase):
