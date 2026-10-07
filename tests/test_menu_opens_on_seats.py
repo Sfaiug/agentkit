@@ -24,6 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from agentkit import gate, host, config, gc, menu, notify, orch, run, status, terminal, usage, watch
 from agentkit import record
@@ -71,6 +72,7 @@ class Sandbox(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         # the same layout the subprocesses derive from $HOME, so a nested run lands in the
         # very ~/.agentkit/runs this process reads
         home = self.root / ".agentkit"
@@ -86,8 +88,8 @@ class Sandbox(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "NO_COLOR": "1", "LANG": "C.UTF-8",
             config.SESSION_ENV: SEAT, config.RUN_DIR_ENV: "", config.UNATTENDED_ENV: "",
-            "AK_RUN_ROLE": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_PARENT_RUN": "",
+            "AK_RUN_ROLE": "", "AK_RUN_LOG": "", "AGENTKIT_RUN": "",
+            "AK_RUN_DEPTH": "0", "AK_PARENT_RUN": "", "AK_MAX_RUNS": "0",
             "IDLE_COMPACT_STATE": "", "AGENTKIT_DISCORD_WEBHOOK": "off",
             "AGENTKIT_DISCORD_USER_ID": "", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "PYTHONDONTWRITEBYTECODE": "1",
@@ -260,11 +262,11 @@ class NothingBelowTheLoopHasASeat(Sandbox):
             self.assertEqual(call["run_role"], "worker", call)
 
     def test_v5m_done_when_commands_run_without_the_seat_the_loop_keeps(self):
-        seen = self.root / "donewhen.txt"
-        code, _, state = self.launch(self.task(
+        code, directory, state = self.launch(self.task(
             "Seatless done-when",
-            ['printf \'%s\\n\' "${AGENTKIT_SESSION:-none}" >>"$V5M_FIXTURE/donewhen.txt"']))
+            ['printf \'%s\\n\' "${AGENTKIT_SESSION:-none}" >>donewhen.txt']))
         self.assertEqual(code, 0, state)
+        seen = Path(state["worktree"]) / "donewhen.txt"
         self.assertEqual(seen.read_text().split(), ["none"])
         # ... while the loop itself still knows whose run this is
         self.assertEqual(config.current_session(), SEAT)

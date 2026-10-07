@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home, in_account_home
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
 from agentkit import config, orch, run, usage, watch
@@ -40,6 +41,7 @@ class Correctness(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         self.stack.enter_context(patch.object(run, "join_line", side_effect=fork_turn))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
@@ -620,7 +622,8 @@ esac
         for flags in ([], ["--no-worktree"]):
             cmd = [sys.executable, str(REPO / "bin" / "ak"), "run", str(task), "--no-merge",
                    "--exec", "opus", "--review", "astra", *flags]
-            result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+            result = in_account_home(cmd, home, env=env, capture_output=True,
+                                     text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("preflight", result.stdout)
             self.assertIn("done-when:", result.stdout)

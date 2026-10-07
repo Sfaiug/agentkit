@@ -1,6 +1,7 @@
-"""Proofs and checks have the worker's credential masks and process teardown."""
+"""Proofs and checks have worker walls, throwaway HOME writes and process teardown."""
 
 from contextlib import ExitStack
+import errno
 import fcntl
 import json
 import os
@@ -18,7 +19,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, hand_in, run, worker
+from fixtures.sandbox import account_home, in_account_home
+from agentkit import box, config, gate, hand_in, run, worker
 
 
 class ChecksBoxed(unittest.TestCase):
@@ -28,6 +30,7 @@ class ChecksBoxed(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "GH_TOKEN": "fixture-token",
             "GH_CONFIG_DIR": str(self.root / ".config/gh"),
@@ -181,26 +184,190 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertIn(f"[exit {code}]\npartial", text)
 
     def test_a_check_writes_where_its_project_says(self):
-        # A suite may fill a cache outside its checkout, in HOME say; only worker turns are
-        # walled. What it leaves in /tmp stays in the box's own.
+        # Caches and a suite's own services still work, but only workspace writes persist.
         home = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-home-", dir=REPO)
         self.addCleanup(home.cleanup)
         outside = Path("/tmp", self.root.name)
-        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
-        for name in ("proof", "check"):
-            with self.subTest(command=name):
+        for name in ("proof", "check", "sharded"):
+            with self.subTest(command=name), patch.dict(os.environ, {"HOME": home.name}):
                 cache, scratch = Path(home.name, ".cache", name), outside / name
-                command = " && ".join(f"mkdir -p {shlex.quote(str(path.parent))} && "
-                                      f"echo written > {shlex.quote(str(path))}"
-                                      for path in (cache, scratch))
+                command = self.command(
+                    "import os, socket, tempfile; from pathlib import Path; "
+                    f"paths = [Path({str(cache)!r}), Path({str(scratch)!r})]\n"
+                    "for path in paths:\n"
+                    " path.parent.mkdir(parents=True, exist_ok=True)\n"
+                    " path.write_text('written')\n"
+                    " assert path.read_text() == 'written'\n"
+                    "with tempfile.TemporaryDirectory() as tmp:\n"
+                    " assert str(Path(tmp).parent) == os.environ['TMPDIR']\n"
+                    " with socket.socket(socket.AF_UNIX) as server, socket.socket(socket.AF_UNIX) as client:\n"
+                    "  server.bind(tmp + '/server')\n"
+                    "  server.listen(1)\n"
+                    "  client.connect(tmp + '/server')\n"
+                    "  connection, _ = server.accept()\n"
+                    "  connection.close()\n"
+                    f"Path({str(self.root / name)!r}).write_text('workspace')")
                 if name == "proof":
                     result = self.proof(command)
                     self.assertEqual(result["returncode"], 0, result)
                 else:
-                    ok, text = self.check(command)
+                    ok, text = self.check(command + (" # AK_SHARD" if name == "sharded" else ""))
                     self.assertTrue(ok, text)
-                self.assertEqual(cache.read_text(), "written\n")
+                self.assertFalse(cache.exists())
                 self.assertFalse(scratch.exists())
+                self.assertEqual((self.root / name).read_text(), "workspace")
+
+    def test_a_check_leaves_no_program_ak_runs_later(self):
+        homes = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-homes-", dir=REPO)
+        self.addCleanup(homes.cleanup)
+        home, account = (Path(homes.name, name) for name in ("home", "account"))
+        for place in (home, account):
+            (place / "bin").mkdir(parents=True)
+            (place / ".bashrc").write_text("# original\n")
+            (place / ".ssh").mkdir()
+            (place / ".ssh/id_fixture").write_text("fixture-key")
+        for name in ("proof", "check", "sharded"):
+            with self.subTest(command=name), account_home(account), \
+                    patch.dict(os.environ, {"HOME": str(home),
+                                            "PATH": f"{home / 'bin'}:{os.environ['PATH']}"}):
+                command = self.command(
+                    "import os, pwd, subprocess; from pathlib import Path\n"
+                    f"assert pwd.getpwuid(os.getuid()).pw_dir == {str(account)!r}\n"
+                    f"for place in map(Path, {[str(home), str(account)]!r}):\n"
+                    " program = place / 'bin/ak-fixture-later'\n"
+                    " program.write_text('#!/bin/sh\\nprintf check-only\\n')\n"
+                    " program.chmod(0o755)\n"
+                    " (place / 'owner-yes').write_text('check-only')\n"
+                    " assert (place / 'owner-yes').read_text() == 'check-only'\n"
+                    " with (place / '.bashrc').open('a') as shell:\n"
+                    "  shell.write('# check-only\\n')\n"
+                    " assert (place / '.bashrc').read_text() == '# original\\n# check-only\\n'\n"
+                    " assert not (place / '.ssh/id_fixture').exists()\n"
+                    "assert subprocess.check_output(['ak-fixture-later']) == b'check-only'\n"
+                    f"Path({str(self.root / name)!r}).write_text('workspace')")
+                if name == "proof":
+                    result = self.proof(command)
+                    self.assertEqual(result["returncode"], 0, result)
+                else:
+                    ok, text = self.check(command + (" # AK_SHARD" if name == "sharded" else ""))
+                    self.assertTrue(ok, text)
+                for place in (home, account):
+                    self.assertFalse((place / "bin/ak-fixture-later").exists())
+                    self.assertFalse((place / "owner-yes").exists())
+                    self.assertEqual((place / ".bashrc").read_text(), "# original\n")
+                    self.assertEqual((place / ".ssh/id_fixture").read_text(), "fixture-key")
+                self.assertEqual((self.root / name).read_text(), "workspace")
+
+    def test_a_check_cannot_write_elsewhere(self):
+        outside = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-readonly-", dir=REPO)
+        self.addCleanup(outside.cleanup)
+        path = Path(outside.name, "host-file")
+        for name in ("proof", "check"):
+            with self.subTest(command=name):
+                command = self.command(f"from pathlib import Path; Path({str(path)!r}).touch()")
+                if name == "proof":
+                    result = self.proof(command)
+                    self.assertNotEqual(result["returncode"], 0, result)
+                    text = result["output"]
+                else:
+                    ok, text = self.check(command)
+                    self.assertFalse(ok, text)
+                self.assertIn("Read-only file system", text)
+                self.assertFalse(path.exists())
+
+    def test_a_nested_check_starts_beside_a_crowded_folder(self):
+        home = self.root / "home with space"
+        crowded = home / "crowded"
+        mounted = crowded / "mounted"
+        mounted.mkdir(parents=True)
+        workspace, out = (self.root / name for name in ("workspace", "out"))
+        workspace.mkdir()
+        out.mkdir()
+        (home / ".bashrc").write_text("original")
+        probe = ("import json\nfrom pathlib import Path\nerrors = []\n"
+                 "for path in (Path.home() / 'new-file', Path.home() / '.bashrc'):\n"
+                 " try:\n  path.write_text('check-only')\n"
+                 " except OSError as exc:\n  errors.append(exc.errno)\n"
+                 " else:\n  errors.append(None)\n"
+                 "Path.cwd().joinpath('ran').touch()\nprint(json.dumps(errors))\n")
+        script = self.root / "nested.py"
+        script.write_text(
+            "import json, os, subprocess, sys\nfrom pathlib import Path\n"
+            f"home, crowded, mounted, workspace, out = map(Path, "
+            f"{list(map(str, (home, crowded, mounted, workspace, out)))!r})\n"
+            "if sys.argv[1] == 'mount':\n"
+            " subprocess.run(['mount', '--make-rprivate', '/'], check=True)\n"
+            " subprocess.run(['mount', '-t', 'tmpfs', 'tmpfs', str(mounted)], check=True)\n"
+            " os.execvp('setpriv', ['setpriv', '--inh-caps=-all', '--ambient-caps=-all', "
+            "sys.executable, __file__, 'check'])\n"
+            f"sys.path.insert(0, {str(REPO)!r})\n"
+            f"sys.path.insert(0, {str(REPO / 'tests')!r})\n"
+            "from agentkit import box\nfrom fixtures.sandbox import account_home\n"
+            "os.environ['HOME'] = str(home)\ncounts, writes = [], []\n"
+            "with account_home(home):\n"
+            " for entries in (0, 2500):\n"
+            "  for number in range(entries):\n"
+            "   (crowded / str(number)).touch()\n"
+            f"  with box.command([sys.executable, '-c', {probe!r}], dict(os.environ), out, "
+            "cwd=workspace, home_overlay=True) as (cmd, env, spawn):\n"
+            "   counts.append(len(cmd[:cmd.index('--')]))\n"
+            "   spawn.pop('stop')\n"
+            "   result = subprocess.run(cmd, env=env, cwd=workspace, capture_output=True, "
+            "text=True, timeout=30, **spawn)\n"
+            "  assert result.returncode == 0, result.stderr\n"
+            "  writes.append(json.loads(result.stdout))\n"
+            "print(json.dumps({'counts': counts, 'writes': writes}))\n")
+        result = subprocess.run(
+            ["unshare", "--user", "--map-current-user", "--mount", "--keep-caps",
+             sys.executable, str(script), "mount"], capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        seen = json.loads(result.stdout)
+        self.assertEqual(seen["counts"][0], seen["counts"][1])
+        self.assertEqual(seen["writes"], [[errno.EROFS, errno.EROFS]] * 2)
+        self.assertTrue((workspace / "ran").exists())
+        self.assertFalse((home / "new-file").exists())
+        self.assertEqual((home / ".bashrc").read_text(), "original")
+
+    def test_declared_writes_inside_home_still_persist(self):
+        home = self.root / "home"
+        workspace, out, state = (home / name for name in ("workspace", "out", "state"))
+        workspace.mkdir(parents=True)
+        out.mkdir()
+        source = ("from pathlib import Path\n"
+                  f"for place in map(Path, {[str(workspace), str(out), str(state)]!r}):\n"
+                  " (place / 'kept').write_text('declared')\n"
+                  f"Path({str(home / 'cache')!r}).write_text('temporary')")
+        with patch.dict(os.environ, {"HOME": str(home)}), \
+                box.command([sys.executable, "-c", source], dict(os.environ), out,
+                            cwd=workspace, state=("$HOME/state",),
+                            home_overlay=True) as (cmd, env, spawn):
+            spawn.pop("stop")
+            result = subprocess.run(cmd, env=env, cwd=workspace, capture_output=True,
+                                    text=True, timeout=10, **spawn)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for place in (workspace, out, state):
+            self.assertEqual((place / "kept").read_text(), "declared")
+        self.assertFalse((home / "cache").exists())
+
+    def test_missing_home_overlay_support_refuses_before_the_check_starts(self):
+        bindir = self.root / "bin"
+        bindir.mkdir()
+        wrapper = bindir / "bwrap"
+        wrapper.write_text("#!/bin/sh\ncase \" $* \" in\n"
+                           " *' --tmp-overlay '*) printf 'bwrap: overlayfs unavailable\\n' >&2; exit 1;;\n"
+                           "esac\nexec " + shlex.quote(shutil.which("bwrap")) + ' "$@"\n')
+        wrapper.chmod(0o755)
+        with patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}"}):
+            result = self.proof("touch started")
+            self.assertEqual(result["returncode"], 126, result)
+            self.assertFalse(hand_in.proof_failed(result), result)
+            ok, text = self.check("touch started")
+            self.assertFalse(ok, text)
+            for output in (result["output"], text):
+                self.assertIn("overlayfs unavailable", output)
+                self.assertIn("install bubblewrap with --tmp-overlay support", output)
+                self.assertIn("kernel that allows overlayfs in unprivileged user namespaces", output)
+        self.assertFalse((self.root / "started").exists())
 
     def test_a_box_that_cannot_start_proves_nothing(self):
         # bwrap exits 1 on a mount it cannot make, before its supervisor runs the command.
@@ -219,6 +386,21 @@ class ChecksBoxed(unittest.TestCase):
             ok, text = self.check("true")
             self.assertFalse(ok, text)
             self.assertIn("[exit 126]", text)
+            for output in (result["output"], text):
+                self.assertIn("missing-mount-source", output)
+                self.assertNotIn(box.OVERLAY_REMEDY, output)
+
+    def test_a_missing_home_is_not_missing_overlay_support(self):
+        home = self.root / "absent-home"
+        with patch.dict(os.environ, {"HOME": str(home)}):
+            result = self.proof("touch started")
+            self.assertEqual(result["returncode"], 126, result)
+            ok, text = self.check("touch started")
+            self.assertFalse(ok, text)
+            for output in (result["output"], text):
+                self.assertIn("absent-home", output)
+                self.assertNotIn(box.OVERLAY_REMEDY, output)
+        self.assertFalse((self.root / "started").exists())
 
     def test_orphans_are_reaped_while_the_output_drains(self):
         # The shell is gone at once; its background child holds the output and leaves
@@ -259,7 +441,8 @@ class ChecksBoxed(unittest.TestCase):
             "print(run.proof_on(lp, 'printf started; exit 7', root / 'proof.log'))\n"
             "print(gate.run_done_when(['printf started; exit 7'], root, root / 'check.log', set(),\n"
             "                         limit=10, silence=5)[1])\n")
-        result = subprocess.run([sys.executable, "-c", driver, str(copy), str(self.root)],
+        result = in_account_home([sys.executable, "-c", driver, str(copy), str(self.root)],
+                                 self.root,
                                 capture_output=True, text=True, timeout=120)
         self.assertIn("{'returncode': 7, 'output': 'started', 'killed': False}", result.stdout,
                       result)

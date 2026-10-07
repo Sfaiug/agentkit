@@ -9,6 +9,7 @@ from contextlib import ExitStack, contextmanager
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
@@ -17,9 +18,46 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, gc, menu, orch, terminal
+from agentkit import box, host, config, gc, menu, orch, terminal
 from agentkit import record as run_record
 from fixtures.hand_in import records
+
+
+@contextmanager
+def _passwd(home):
+    with tempfile.NamedTemporaryFile(dir=home, prefix="passwd-", mode="w") as passwd:
+        passwd.write(f"acme:x:{os.getuid()}:{os.getgid()}:Fixture:{home}:/bin/sh\n")
+        passwd.flush()
+        yield passwd.name
+
+
+@contextmanager
+def account_home(home, *, places=()):
+    """Give boxes a temporary passwd home and declared writable fixture state."""
+    account, command = box.pwd.getpwuid(os.getuid()), box.command
+
+    @contextmanager
+    def boxed(*args, **kwargs):
+        kwargs["places"] = (*kwargs.get("places", ()), *places)
+        with command(*args, **kwargs) as (argv, env, spawn):
+            at = argv.index("--")
+            argv[at:at] = ["--ro-bind", passwd, "/etc/passwd"]
+            yield argv, env, spawn
+
+    with _passwd(home) as passwd, \
+            patch.object(box.pwd, "getpwuid", return_value=box.pwd.struct_passwd(
+                (*account[:5], str(home), account.pw_shell))), \
+            patch.object(box, "command", boxed):
+        yield
+
+
+def in_account_home(argv, home, **kwargs):
+    """Subprocesses need the same temporary account home, through their own passwd file."""
+    with _passwd(home) as passwd:
+        return subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/",
+                               "--dev", "/dev", "--proc", "/proc",
+                               "--bind", str(REPO), str(REPO),
+                               "--ro-bind", passwd, "/etc/passwd", "--", *argv], **kwargs)
 
 
 @contextmanager
@@ -42,6 +80,7 @@ class Sandbox(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         # a menu leaves its reads, looks and maintenance going: they end before this HOME goes
         threads = set(threading.enumerate())
 

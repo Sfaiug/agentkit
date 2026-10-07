@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home
 from agentkit import config, hand_in, run, stop, worker
 from fixtures.hand_in import findings_section, scripted, stateful
 
@@ -30,6 +31,7 @@ class ProofWeighed(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": "",

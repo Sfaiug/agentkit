@@ -33,6 +33,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
+from fixtures.sandbox import account_home
 from agentkit import gate as suite_gate, config, orch, run, stop, watch, worker
 
 
@@ -68,6 +69,7 @@ class RunTree(unittest.TestCase):
         self.root = Path(tmp.name)
         stack = ExitStack()
         self.addCleanup(stack.close)
+        stack.enter_context(account_home(self.root))
         stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
         stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), worker.RUN_MARKER: "", "AK_PARENT_RUN": "",

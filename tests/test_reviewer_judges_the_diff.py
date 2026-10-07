@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from agentkit import gate, host, config, gc, notify, run, stop, usage, worker
 from agentkit import record
@@ -65,6 +66,7 @@ class ReviewerJudgesTheDiff(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         sockets = self.root / "sockets"

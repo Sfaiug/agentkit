@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home
 from agentkit import gate, config, notify, orch, run, watch
 
 # What a suite running inside a seat hands to the `ak run` it starts: the seat lookup
@@ -45,9 +46,13 @@ def stdin_from(path):
 
 class RunIsolation(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix="run-isolation-")
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-isolation-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
+        self.enterContext(account_home(self.root))
+        self.enterContext(patch.dict(os.environ, {
+            "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         self.sentinel = self.root / "sentinel.txt"
         self.sentinel.write_text("this keyboard must not leak\n")
         self.log_path = self.root / "donewhen.log"

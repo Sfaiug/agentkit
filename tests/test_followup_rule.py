@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home
 from fixtures.hand_in import records, submitting
 from agentkit import gate, config, hand_in, run, worker
 from agentkit import record as run_record
@@ -28,6 +29,7 @@ class FollowupRule(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",

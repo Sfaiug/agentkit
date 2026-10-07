@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home
 from agentkit import gate, host, config, orch, run, worker
 from agentkit import record
 
@@ -31,11 +32,12 @@ HIT = "memory cap 4 GB hit: the process that grew was ended"
 
 class Sandbox(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="ak-grower-")
+        self.tmp = tempfile.TemporaryDirectory(prefix=".ak-test-grower-", dir=REPO)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_TMUX_SOCKET": "agentkit-test"}))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):

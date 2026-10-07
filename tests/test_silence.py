@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home
 from agentkit import gate, host, config, run, status, watch, worker
 from agentkit import record
 from agentkit import task as taskfile
@@ -46,6 +47,7 @@ class Silence(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.addCleanup(patch.stopall)
+        self.enterContext(account_home(self.root))
         # ak's state is the sandbox's: a run parked below tells its seat, and run from a seat
         # that was the real seat, held with a stray "needs you" that blocked its hand-backs
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):

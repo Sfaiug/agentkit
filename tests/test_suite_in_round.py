@@ -12,6 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
+from fixtures.sandbox import account_home
 from agentkit import gate as suite_gate, config, gc, run, status, worker
 from agentkit import record as run_record
 
@@ -25,6 +26,7 @@ class SuiteInRound(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root, places=(self.root,)))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         self.stack.enter_context(patch.dict(os.environ, {

@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home
 from agentkit import box, config, run, worker
 
 
@@ -108,6 +109,13 @@ SOCKETS = r'''import json, os, socket, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
+from fixtures.sandbox import account_home
+import atexit
+if sys.argv[1] == "host":
+    homes = account_home(os.environ["HOME"])
+    homes.__enter__()
+    atexit.register(homes.__exit__, None, None, None)
 work, role, places = Path(os.environ["BOX_WORK"]), sys.argv[1], [Path(path) for path in sys.argv[2:]]
 
 
@@ -132,10 +140,10 @@ def reach(path):
         return False
 
 
-def boxed(role, walls):
+def boxed(role, home_overlay):
     out = Path(tempfile.mkdtemp(dir=work))
     argv = [sys.executable, __file__, role, *map(str, places)]
-    with box.command(argv, dict(os.environ), out, cwd=work, walls=walls,
+    with box.command(argv, dict(os.environ), out, cwd=work, home_overlay=home_overlay,
                      state=("/tmp/state", "/var/tmp/state")) as (cmd, env, spawn):
         spawn.pop("stop")
         result = subprocess.run(cmd, env=env, cwd=work, capture_output=True, text=True,
@@ -163,35 +171,41 @@ elif role == "host":
         place.mkdir()
         (place / "kept").write_text("kept")
     seen = {}
-    for name, walls in (("walls", True), ("no walls", False)):
-        seen[name] = boxed("probe", walls)
-        seen[f"{name} inside a box"] = boxed(name, walls)
+    for name, home_overlay in (("worker", False), ("check", True)):
+        seen[name] = boxed("probe", home_overlay)
+        seen[f"{name} inside a box"] = boxed(name, home_overlay)
     seen["unboxed"] = json.loads(subprocess.run([sys.executable, __file__, "probe", *sys.argv[2:]],
                                                 capture_output=True, text=True).stdout or "null")
     print(json.dumps(seen))
 else:
-    # A box inside a box, its parent's walls named by its role: what the parent keeps in its own
-    # /tmp is the parent's alone.
+    # What a parent box keeps in its own /tmp is the parent's alone.
     places.append(Path("/tmp/parent/s"))
     with listen(places[-1]):
-        print(json.dumps(boxed("probe", role == "walls")))
+        print(json.dumps(boxed("probe", role == "check")))
 '''
 
 SHM = r'''import json, os, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
+from fixtures.sandbox import account_home
+import atexit
+if True:
+    homes = account_home(os.environ["HOME"])
+    homes.__enter__()
+    atexit.register(homes.__exit__, None, None, None)
 root = Path(sys.argv[1])
 write = "from pathlib import Path; p = Path('/dev/shm/acme'); p.write_text('own'); print(p.read_text())"
 seen = {}
-for walls in (True, False):
+for home_overlay in (False, True):
     out = Path(tempfile.mkdtemp(dir=root))
     with box.command([sys.executable, "-c", write], dict(os.environ), out, cwd=root,
-                     walls=walls) as (cmd, env, spawn):
+                     home_overlay=home_overlay) as (cmd, env, spawn):
         spawn.pop("stop")
         result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
                                 timeout=60, **spawn)
-    seen["walls" if walls else "no walls"] = result.stdout.strip() or result.stderr
+    seen["check" if home_overlay else "worker"] = result.stdout.strip() or result.stderr
 seen["host"] = os.path.exists("/run/shm/acme")
 print(json.dumps(seen))
 '''
@@ -224,6 +238,13 @@ if sys.argv[1] == "mount":
                          sys.executable, __file__, "host", str(root)])
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
+from fixtures.sandbox import account_home
+import atexit
+if sys.argv[1] == "host":
+    homes = account_home(os.environ["HOME"])
+    homes.__enter__()
+    atexit.register(homes.__exit__, None, None, None)
 paths = ["/etc/resolv.conf", "/run/acme/first", "/run/acme/linked/resolver",
          "/run/acme/real/deep/../resolver", "/run/acme/outside/resolver"]
 runtime = Path("/run/user", str(os.getuid()))
@@ -279,7 +300,7 @@ else:
     with socket.socket(socket.AF_UNIX) as server:
         server.bind(str(run / "socket"))
         server.listen(1)
-        for walls in (True, False):
+        for home_overlay in (False, True):
             for host_runtime in ("/run/runtime", str(runtime), str(root / "missing"), None):
                 env = dict(os.environ)
                 env.pop("XDG_RUNTIME_DIR", None)
@@ -288,7 +309,8 @@ else:
                 env["BOX_EXTERNAL_RUNTIME"] = "1" if host_runtime == "/run/runtime" else ""
                 out = Path(tempfile.mkdtemp(dir=run if host_runtime is None else root))
                 argv = [sys.executable, __file__, "probe", str(root)]
-                with box.command(argv, env, out, cwd=root, walls=walls) as (cmd, env, spawn):
+                with box.command(argv, env, out, cwd=root,
+                                 home_overlay=home_overlay) as (cmd, env, spawn):
                     # Mounts and later writes must not bypass the snapshot or expose services.
                     (run / "real/resolver").write_text("nameserver 192.0.2.2\n")
                     with socket.socket(socket.AF_UNIX) as late:
@@ -299,7 +321,7 @@ else:
                                                 text=True, timeout=60, **spawn)
                     (run / "late").unlink()
                     (run / "real/resolver").write_text("nameserver 192.0.2.1\n")
-                assert result.returncode == 0, (walls, host_runtime, result.stderr)
+                assert result.returncode == 0, (home_overlay, host_runtime, result.stderr)
                 assert result.stdout.strip() == "ok", result.stdout
                 assert (root / "runtime/host").read_text() == "host"
                 assert (runtime / "host").read_text() == "host"
@@ -331,6 +353,13 @@ if sys.argv[1] == "mount":
                          sys.executable, __file__, "host", str(root)])
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
+from fixtures.sandbox import account_home
+import atexit
+if sys.argv[1] == "host":
+    homes = account_home(os.environ["HOME"])
+    homes.__enter__()
+    atexit.register(homes.__exit__, None, None, None)
 secrets = ("fixture-key", "fixture-folder-key", "fixture-git-store", "fixture-gh-login",
            "fixture-local-key", "fixture-cache-key")
 
@@ -369,11 +398,12 @@ else:
                           (root / ".config/gh/hosts.yml", run / "hosts.yml")):
         login.unlink()
         login.symlink_to(target)
-    for walls in (True, False):
+    for home_overlay in (False, True):
         a, b = (Path(tempfile.mkdtemp(dir=root)) for _ in "ab")
-        with box.command(["true"], dict(os.environ), a, cwd=root, walls=walls):
+        with box.command(["true"], dict(os.environ), a, cwd=root, home_overlay=home_overlay):
             argv = [sys.executable, __file__, "probe", str(root), str(a)]
-            with box.command(argv, dict(os.environ), b, cwd=root, walls=walls) as (cmd, env, spawn):
+            with box.command(argv, dict(os.environ), b, cwd=root,
+                             home_overlay=home_overlay) as (cmd, env, spawn):
                 spawn.pop("stop")
                 result = subprocess.run(cmd, env=env, cwd=root, capture_output=True,
                                         text=True, timeout=60, **spawn)
@@ -391,6 +421,7 @@ class WorkerBox(unittest.TestCase):
         self.out = self.root / "out"
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "BOX_FIXTURE": str(self.root), "GH_TOKEN": "fixture-token",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
@@ -576,9 +607,9 @@ class WorkerBox(unittest.TestCase):
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in
         # /tmp, the user's service manager in its runtime directory, the system bus in /run.
-        # With walls and without, and in a box inside a box, the box reaches none of them and
-        # keeps /run's readable file beside its socket; the socket it makes in its own /tmp
-        # it reaches. The host runtime directory is linked from /run to a directory outside
+        # Worker and check boxes, even nested, reach none of them and keep /run's readable
+        # file beside its socket; they reach sockets made in their own /tmp.
+        # The host runtime directory is linked from /run to a directory outside
         # the box's temporary places, or is in a workspace in /tmp, which stays writable.
         script = self.root / "sockets.py"
         script.write_text(SOCKETS)
@@ -604,12 +635,12 @@ class WorkerBox(unittest.TestCase):
                 self.assertEqual(json.loads(result.stdout), {
                     "unboxed": {**dict.fromkeys(places, [True, True]), "own": True,
                                 "state": ["kept", "kept"]},
-                    "walls": hidden, "walls inside a box": nested,
-                    "no walls": hidden, "no walls inside a box": nested})
+                    "worker": hidden, "worker inside a box": nested,
+                    "check": hidden, "check inside a box": nested})
 
     def test_shared_memory_is_the_boxs_own_where_the_host_links_it_into_run(self):
-        # Older hosts link /dev/shm to /run/shm. A walled box's /dev is bubblewrap's, with a
-        # directory there; either way the box writes its own shared memory, not the host's.
+        # Older hosts link /dev/shm to /run/shm. Bubblewrap's /dev has a directory there;
+        # every box writes its own shared memory.
         devices = [arg for name in ("null", "zero", "full", "random", "urandom", "tty")
                    for arg in ("--dev-bind", f"/dev/{name}", f"/dev/{name}")]
         host = ["bwrap", "--unshare-user", "--unshare-pid", "--die-with-parent", "--bind", "/", "/",
@@ -620,7 +651,7 @@ class WorkerBox(unittest.TestCase):
                                 text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout),
-                         {"walls": "own", "no walls": "own", "host": False})
+                         {"worker": "own", "check": "own", "host": False})
 
     def test_a_box_resolves_names_through_any_run_links(self):
         script = self.root / "run-links.py"
@@ -677,23 +708,24 @@ class WorkerBox(unittest.TestCase):
         # The box keeps its runtime directory empty and writes through to its workspace: one
         # directory cannot be both.
         self.out.mkdir()
-        for walls in (True, False):
-            with self.subTest(walls=walls), \
+        for home_overlay in (False, True):
+            with self.subTest(home_overlay=home_overlay), \
                     patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(self.root)}), \
                     self.assertRaisesRegex(config.Error, "keeps empty and one it writes"):
-                with box.command(["true"], dict(os.environ), self.out, cwd=self.root, walls=walls):
+                with box.command(["true"], dict(os.environ), self.out, cwd=self.root,
+                                 home_overlay=home_overlay):
                     pass
 
     def test_a_missing_temporary_place_refuses_before_creating_any_host_directory(self):
         is_dir = Path.is_dir
         for missing in map(Path, ("/tmp", "/var/tmp", "/dev/shm", "/run")):
-            for walls in (True, False):
-                with self.subTest(missing=str(missing), walls=walls), \
+            for home_overlay in (False, True):
+                with self.subTest(missing=str(missing), home_overlay=home_overlay), \
                         patch.object(Path, "is_dir", lambda path: path != missing and is_dir(path)), \
                         patch.object(box, "_writable", side_effect=AssertionError("host write")), \
                         self.assertRaisesRegex(config.Error, f"{missing}:.*missing"):
                     with box.command(["true"], dict(os.environ), self.out, cwd=self.root,
-                                     state=(str(missing / "state"),), walls=walls):
+                                     state=(str(missing / "state"),), home_overlay=home_overlay):
                         pass
 
     def test_a_relative_home_hides_the_keys_where_the_turn_reads_them(self):
@@ -703,10 +735,10 @@ class WorkerBox(unittest.TestCase):
         key.write_text("fixture-key")
         read = ("from pathlib import Path; key = Path.home() / '.ssh/id_fixture'; "
                 "print(key.read_text() if key.exists() else '')")
-        for walls in (True, False):
-            with self.subTest(walls=walls), patch.dict(os.environ, {"HOME": "home"}):
+        for home_overlay in (False, True):
+            with self.subTest(home_overlay=home_overlay), patch.dict(os.environ, {"HOME": "home"}):
                 with box.command([sys.executable, "-c", read], dict(os.environ), cwd=self.root,
-                                 walls=walls) as (cmd, env, _):
+                                 home_overlay=home_overlay) as (cmd, env, _):
                     result = subprocess.run(cmd, env=env, cwd=self.root, capture_output=True,
                                             text=True, timeout=10)
                 self.assertEqual((result.returncode, result.stdout.strip()), (0, ""), result.stderr)
@@ -748,11 +780,11 @@ class WorkerBox(unittest.TestCase):
             env, closed, mode = make(case)
             closed.chmod(mode)
             self.addCleanup(closed.chmod, 0o700)
-            for walls in (True, False):
-                with self.subTest(case=make.__name__, walls=walls), patch.dict(os.environ, env), \
+            for home_overlay in (False, True):
+                with self.subTest(case=make.__name__, home_overlay=home_overlay), patch.dict(os.environ, env), \
                         self.assertRaisesRegex(config.Error, f"{re.escape(str(closed))}.* is closed to "
                                                f"you.*chmod u\\+rx"):
-                    with box.command(["true"], dict(os.environ), cwd=self.root, walls=walls):
+                    with box.command(["true"], dict(os.environ), cwd=self.root, home_overlay=home_overlay):
                         pass
 
     def test_the_credential_query_sees_no_token(self):
@@ -792,11 +824,11 @@ class WorkerBox(unittest.TestCase):
         read = f"print(open({str(store)!r}).read())"
         relative = f"bin{os.pathsep}{os.pathsep}"
         with patch.dict(os.environ, {"PATH": relative + os.environ["PATH"]}):
-            # Both questions with walls, the credential one without.
-            for walls in (True, False):
-                with self.subTest(walls=walls):
+            # Both box modes ask only ak's own Git.
+            for home_overlay in (False, True):
+                with self.subTest(home_overlay=home_overlay):
                     with box.command([sys.executable, "-c", read], dict(os.environ), cwd=self.root,
-                                     walls=walls) as (cmd, env, _):
+                                     home_overlay=home_overlay) as (cmd, env, _):
                         result = subprocess.run(cmd, env=env, cwd=self.root, capture_output=True,
                                                 text=True, timeout=10)
                     self.assertEqual((result.returncode, result.stdout.strip()), (0, ""),
