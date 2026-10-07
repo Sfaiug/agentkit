@@ -203,10 +203,20 @@ class Tell(Seats):
             with self.subTest(pane=pane):
                 self.turn_running((FIX / pane).read_text(encoding="utf-8"))
                 self.tick()
+        # a harness whose manifest does not say it holds a typed line: every shipped one does
+        # (tests/test_every_harness_queues_a_told_line.py), so the seat's Codex is told it does not
+        adapters = self.root / "adapters"
+        adapters.mkdir()
+        for path in (REPO / "adapters").iterdir():
+            (adapters / path.name).symlink_to(path)
+        (adapters / "codex.toml").unlink()
+        (adapters / "codex.toml").write_text(
+            (REPO / "adapters/codex.toml").read_text().replace("queues_typing = true\n", ""))
         config.save_session(self.cfg, SEAT, "astra", ["opus"], {
             "cwd": str(self.root / SEAT), "conversation": "thread", "id_source": harness.LAUNCHER})
         self.turn_running()
-        self.tick()
+        with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}):
+            self.tick()
         self.assertEqual(self.typed, [])
         self.assertEqual(len(self.waiting()), 1)
 
