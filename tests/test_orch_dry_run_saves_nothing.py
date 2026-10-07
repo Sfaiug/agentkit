@@ -215,6 +215,35 @@ class DryRun(unittest.TestCase):
             RESUME(cfg, "acme-fix", hand_over=False)
             handed("Acme release policy three.")
 
+    def test_a_partial_clone_s_launch_still_fetches_its_rules(self):
+        def git(cwd, *args):
+            subprocess.run(["git", "-C", str(cwd), "-c", "user.name=Acme", "-c",
+                            "user.email=acme@example.com", *args], check=True, capture_output=True)
+
+        upstream, checkout = config.CODE / "acme-origin.git", config.CODE / "acme"
+        other = config.CODE.parent / "acme-elsewhere"
+        git(config.CODE.parent, "init", "-q", "--bare", "-b", "main", str(upstream))
+        git(upstream, "config", "uploadpack.allowFilter", "true")
+        git(config.CODE.parent, "clone", "-q", str(upstream), str(other))
+        (other / "AGENTS.md").write_text("# Acme\n\nAcme release policy one.\n")
+        git(other, "add", "AGENTS.md")
+        git(other, "commit", "-qm", "rules")
+        git(other, "push", "-q", "origin", "HEAD:main")
+        # a clone whose files stay at origin until something reads them: its origin/HEAD is
+        # there, and that says nothing of whether the rules it names are on disk
+        git(config.CODE.parent, "clone", "-q", "--filter=blob:none", upstream.as_uri(),
+            str(checkout))
+        (other / "AGENTS.md").write_text("# Acme\n\nAcme release policy two.\n")
+        git(other, "commit", "-qam", "rule two")
+        git(other, "push", "-q", "origin", "HEAD:main")
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(checkout)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.main(["acme-fix"]), 0)
+        rules = config.rulebook_path("acme-fix").read_text()
+        self.assertIn("Acme release policy two.", rules)
+        self.assertNotIn("Acme release policy one.", rules)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

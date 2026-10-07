@@ -28,10 +28,11 @@ text = config.rulebook_text
 def write(session):
     """That text, under the name of the session it is for.  Its path.
 
-    A launch waits on no network for rules its project has: it reads them as last fetched,
-    which is what every open seat has, and the tick's fetch brings a later merge to both, named
-    by the seat's next prompt.  Only a project nothing has fetched yet is fetched first, so its
-    first seat opens with its rules.  A dry run fetches nothing.
+    A launch waits on no network for rules its project has on disk: it reads them as last
+    fetched, which is what every open seat has, and the tick's fetch brings a later merge to
+    both, named by the seat's next prompt.  A project nothing has fetched yet is fetched first,
+    so its first seat opens with its rules, and so is a partial clone, whose rules may still be
+    at origin (`orch.rules_on_disk`).  A dry run fetches nothing.
     """
     repo = os.environ.get(config.SEAT_REPO_ENV)
     if repo is None:
@@ -39,7 +40,7 @@ def write(session):
     path = config.rulebook_path(session)
     if os.environ.get(config.RULEBOOK_DIR_ENV):
         path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
-    elif repo and not orch.fetched(Path(repo)):
+    elif repo and not orch.rules_on_disk(Path(repo)):
         try:
             orch.fetch_project(Path(repo))
         except config.Error:

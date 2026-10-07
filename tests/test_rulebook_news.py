@@ -686,28 +686,6 @@ class RulebookNews(Sandbox):
                 self.assertNotIn("Acme policy one.", book)
                 self.assertNotIn("Acme draft policy.", book)
 
-    def test_the_tick_brings_a_partial_clone_s_rules_so_nothing_waits_on_origin_for_them(self):
-        git = self.git
-        upstream, checkout = self.root / "acme-origin.git", self.root / "acme"
-        other = self.root / "acme-elsewhere"
-        git(self.root, "init", "-q", "--bare", "-b", "main", str(upstream))
-        git(upstream, "config", "uploadpack.allowFilter", "true")
-        git(self.root, "clone", "-q", str(upstream), str(other))
-        (other / "AGENTS.md").write_text("# Acme\n\nAcme policy one.\n")
-        git(other, "add", "AGENTS.md")
-        git(other, "commit", "-qm", "rules")
-        git(other, "push", "-q", "origin", "HEAD:main")
-        # a clone whose files stay at origin until something reads them
-        git(self.root, "clone", "-q", "--filter=blob:none", upstream.as_uri(), str(checkout))
-        (other / "AGENTS.md").write_text("# Acme\n\nAcme policy two.\n")
-        git(other, "commit", "-qam", "rule two")
-        git(other, "push", "-q", "origin", "HEAD:main")
-        config.update_session(SEAT, repo=str(checkout))
-        orch.fetch_projects()
-        # origin out of reach: what the tick brought is all a launch or a prompt can read
-        upstream.rename(upstream.with_name("acme-gone.git"))
-        self.assertIn("Acme policy two.", config.seat_rulebook(SEAT))
-
     def test_a_project_the_tick_cannot_fetch_is_named_after_every_other_is_fetched(self):
         git = self.git
         upstream, checkout = self.root / "acme-origin", self.root / "z-acme"

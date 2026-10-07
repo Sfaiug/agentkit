@@ -2172,22 +2172,26 @@ def fetch_project(repo):
     the clone's own refspec follows, then `origin/HEAD` pointed again at the branch origin calls
     default, created where the checkout has none and moved where origin changed it.  Only
     `repo`'s own repository (`run.project_env`): a path whose `.git` is gone or is none
-    fails.  The rules are read once here: a partial clone's fetch leaves their file at origin
-    until something reads it, and neither a launch nor a prompt is to wait on origin for it."""
+    fails."""
     from . import run
     env = run.project_env(repo)
     run.fetch(repo, "--quiet", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*",
               check=True, env=env)
     run.git(repo, "remote", "set-head", "origin", "--auto", env=env)
-    run.agents_body(repo, "refs/remotes/origin/HEAD")
 
 
-def fetched(repo):
-    """Whether `repo` has the `origin/HEAD` its seats' rules are read from: `fetch_project` made
-    it, or a clone did."""
+def rules_on_disk(repo):
+    """Whether `repo`'s rules can be read as last fetched with no word from origin: it has the
+    `origin/HEAD` they are read from (`fetch_project` made it, or a clone did), and it is no
+    partial clone, whose fetches leave a file at origin until something reads it."""
     from . import run
-    return bool(run.git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD",
-                        check=False, env=run.project_env(repo)).strip())
+    env = run.project_env(repo)
+    return bool(
+        run.git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD",
+                check=False, env=env)
+        and not run.git(repo, "config", "--get-regexp",
+                        r"^(extensions\.partialclone|remote\..*\.promisor)$",
+                        check=False, env=env))
 
 
 def fetch_projects():
