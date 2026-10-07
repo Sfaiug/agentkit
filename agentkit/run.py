@@ -5635,18 +5635,19 @@ def target_fails(lp, upstream, dw_log):
 
 
 def failing_blocks(text, cap=OUT_CAP):
-    """What a fixer reads of a failed check: every block that says what failed, in order, then
-    as much of the output's end as `cap` leaves.
+    """What a fixer reads of a failed check: its last `cap` bytes, as before, and ahead of them
+    every block above that end which says what failed.
 
     A suite run in pieces prints each piece's failures where that piece ends, so the end alone
-    can hold none of them: a landing fixer handed the last 20 KB never saw the red file 32 KB
-    before it.  A block is a line that names a failure (`FAILURE_LINE`) and the indented lines
-    under it; output with none, or short enough whole, is its end as before.
+    can hold none of a red piece printed earlier: a landing fixer handed the last 20 KB never
+    saw the red file 32 KB before it.  A block is a line that names a failure
+    (`FAILURE_LINE`, at the start of the line) and the indented lines under it.  The end is
+    kept whole, so nothing the end alone showed is ever traded for a block.
     """
     if len(text) <= cap:
         return text
     blocks, block = [], None
-    for line in text.splitlines():
+    for line in text[:-cap].splitlines():
         if FAILURE_LINE.match(line):
             block = [line]
             blocks.append(block)
@@ -5655,10 +5656,7 @@ def failing_blocks(text, cap=OUT_CAP):
         else:
             block = None
     named = "\n".join("\n".join(block).rstrip() for block in blocks)
-    room = cap - len(named)
-    if not named:
-        return text[-cap:]
-    return named if room <= 0 else f"{named}\n\n... the end of the output:\n{text[-room:]}"
+    return f"{named}\n\n... the end of the output:\n{text[-cap:]}" if named else text[-cap:]
 
 
 def red_target_text(cmd, upstream, tip, output):

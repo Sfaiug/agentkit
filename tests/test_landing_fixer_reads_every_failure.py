@@ -80,6 +80,17 @@ class LandingFixer(unittest.TestCase):
             for line in block.splitlines():
                 self.assertIn("    " + line, text)
 
+    def test_the_end_is_kept_whole_beside_the_blocks_above_it(self):
+        """An indented failure near the end -- a nested TAP `not ok` -- stays as the end alone
+        kept it, however many blocks come before."""
+        nested = "  not ok 7 - acme widget answers\n"
+        end = nested + "x" * (run.OUT_CAP - 2048) + "\n"
+        text = EARLY + "y" * (run.OUT_CAP // 2) + "\n" + LATE * 3 + end
+        read = run.failing_blocks(text)
+        self.assertTrue(read.endswith(text[-run.OUT_CAP:]))
+        self.assertIn(nested.rstrip(), read)
+        self.assertIn(EARLY.rstrip(), read)
+
     def test_short_output_and_output_naming_no_failure_read_as_before(self):
         short = "PASS  tests/test_widget.py\n" + LATE
         self.assertIn(short, self.fixer_reads(short))
