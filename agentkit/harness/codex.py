@@ -65,6 +65,23 @@ def read(record):
     return {}
 
 
+def remote_home(remote):
+    """The private home of a seat's remote identity, shared by launch, access and removal."""
+    return config.STATE / ("codex-remote-" + remote)
+
+
+def pairing_home(target):
+    """Bare arguments name seats; explicit paths name their already-created homes."""
+    home = Path(target)
+    if home.name != target:
+        return home
+    name = config.resolve_session(target)
+    remote = read(config.session_records().get(name, {})).get("remote")
+    if not remote:
+        raise config.Error(f"{name} has no Codex remote connection; open its Codex seat first")
+    return remote_home(remote)
+
+
 def conversation(record, cwd=None):
     """Verify the launch receipt against the exact transcript the harness reported.
 
@@ -171,7 +188,7 @@ def forget(record):
     homes = []
     remote = read(record).get("remote")
     if isinstance(remote, str) and re.fullmatch(r"[0-9a-f]{32}", remote):
-        homes.append(config.STATE / f"codex-remote-{remote}")
+        homes.append(remote_home(remote))
     for marker in sorted(config.STATE.glob("codex-remote-*.forgotten")):
         if (home := marker.with_suffix("")) not in homes:
             homes.append(home)
