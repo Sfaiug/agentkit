@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, menu, notify, orch, run, statusbar, terminal, watch
+from agentkit.guard import commands  # noqa: E402
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -47,8 +48,9 @@ class TwoLines(Sandbox):
 
     def tmux(self, *args, socket=None, **_kw):
         self.calls.append((args, socket))
-        if args[0] == "set-option":
-            self.options[args[args.index("-t") + 2]] = args[-1]
+        for command in commands(args):
+            if command[0] == "set-option":
+                self.options[command[command.index("-t") + 2]] = command[-1]
         return 0, ""
 
     def plan(self, done, total):

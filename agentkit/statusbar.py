@@ -361,7 +361,18 @@ def _write(name, model, word=None, lasts=None, cfg=None, versions=()):
              + "#[default]"
              for version in versions])
     _tell(name)
-    # the title last, so whoever sees it has the whole bar to read
+    # Command lists, which tmux runs whole: one call where a call per option made a seat's start
+    # wait seconds on a busy host, and another only where a long question's reason, drawn in
+    # every width, would take a list past what tmux takes in one call.  The title last, so
+    # whoever sees it has the whole bar to read.  Every command is this seat's, so a seat gone
+    # mid-draw fails them all alike.
+    calls = [[]]
     for option, value in (*LAYOUT, *zip(TOPS, tops), *zip(WHYS, whys), (KEY, key),
                           ("set-titles-string", title)):
-        orch.tmux_out("set-option", "-t", f"={name}:", option, value, socket=orch.socket_name())
+        command = ["set-option", "-t", f"={name}:", option, value]
+        if calls[-1] and sum(len(word.encode()) + 1 for word in [*calls[-1], ";", *command]) \
+                > orch.TMUX_MESSAGE:
+            calls.append([])
+        calls[-1] += [";"] * bool(calls[-1]) + command
+    for words in calls:
+        orch.tmux_out(*words, socket=orch.socket_name())
