@@ -136,6 +136,7 @@ class StopPeerTurn(unittest.TestCase):
             with self.subTest(said=said):
                 self.setUp()
                 self.notified("done", self.done_at)
+                self.prompt(said)
                 self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_a_peer_opened_turn_whose_last_done_was_dropped_is_held(self):
