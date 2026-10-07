@@ -167,7 +167,7 @@ class Seat(unittest.TestCase):
         terminal, so a resize on it is a resize of the seat.
         """
         self.seats += 1
-        record = self.root / f"typed-{self.seats}.jsonl"
+        record = self.record = self.root / f"typed-{self.seats}.jsonl"
         record.write_text("")
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
@@ -289,6 +289,11 @@ class Seat(unittest.TestCase):
                 sent = []
 
                 def owner(test, proc, master, data=data):
+                    # The owner reaches the seat after its turn ended: wait for the harness's
+                    # own record of that, so a slow start under load never puts the input first.
+                    deadline = time.monotonic() + 10
+                    while '"turn_end"' not in test.record.read_text() and time.monotonic() < deadline:
+                        time.sleep(0.02)
                     os.write(master, data)
                     sent.append(time.time())
 
