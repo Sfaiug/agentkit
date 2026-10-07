@@ -460,13 +460,13 @@ def _wait(fd):
 
 
 def check():
-    """Refuse before a run is allocated if nested boxes or check HOME overlays cannot start."""
+    """Refuse before a run is allocated, including hosts that cannot nest a box."""
     from . import config
     remedy = "sudo apt-get install -y bubblewrap"
     if not shutil.which("bwrap"):
         raise config.Error(f"worker box needs bubblewrap; run `{remedy}`")
     try:
-        with command(["true"], os.environ, home_overlay=True) as (inner, env, _):
+        with command(["true"], os.environ) as (inner, env, _):
             with command(inner, env) as (outer, env, _):
                 result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
@@ -490,8 +490,7 @@ def check():
             remedy = f"sudo sysctl -w {setting}"
             break
     raise config.Error(f"worker box cannot start: {why}; run `{remedy}`; "
-                       "the host must allow nested unprivileged user and PID namespaces; "
-                       f"for check HOME overlays, {OVERLAY_REMEDY}")
+                       "the host must allow nested unprivileged user and PID namespaces")
 
 
 def _report(out_dir):

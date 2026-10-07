@@ -9,17 +9,34 @@ from contextlib import ExitStack, contextmanager
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, gc, menu, orch, terminal
+from agentkit import box, host, config, gc, menu, orch, terminal
 from agentkit import record as run_record
 from fixtures.hand_in import records
+
+
+def account_home(home):
+    """Give boxes a temporary passwd home too, never the caller's home and its mounts."""
+    return patch.object(box.pwd, "getpwuid", return_value=SimpleNamespace(pw_dir=str(home)))
+
+
+def in_account_home(argv, home, **kwargs):
+    """Subprocesses need the same temporary account home, through their own passwd file."""
+    with tempfile.NamedTemporaryFile(dir=home, prefix="passwd-", mode="w") as passwd:
+        passwd.write(f"acme:x:{os.getuid()}:{os.getgid()}:Fixture:{home}:/bin/sh\n")
+        passwd.flush()
+        return subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/",
+                               "--bind", str(REPO), str(REPO),
+                               "--ro-bind", passwd.name, "/etc/passwd", "--", *argv], **kwargs)
 
 
 @contextmanager
@@ -42,6 +59,7 @@ class Sandbox(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         # a menu leaves its reads, looks and maintenance going: they end before this HOME goes
         threads = set(threading.enumerate())
 

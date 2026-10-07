@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home
 from agentkit import box, config, run, worker
 
 
@@ -108,6 +109,8 @@ SOCKETS = r'''import json, os, socket, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+from fixtures.sandbox import account_home
+account_home(os.environ["HOME"]).start()
 work, role, places = Path(os.environ["BOX_WORK"]), sys.argv[1], [Path(path) for path in sys.argv[2:]]
 
 
@@ -173,13 +176,15 @@ else:
     # What a parent box keeps in its own /tmp is the parent's alone.
     places.append(Path("/tmp/parent/s"))
     with listen(places[-1]):
-        print(json.dumps(boxed("probe", role == "check")))
+        print(json.dumps(boxed("probe", False)))
 '''
 
 SHM = r'''import json, os, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+from fixtures.sandbox import account_home
+account_home(os.environ["HOME"]).start()
 root = Path(sys.argv[1])
 write = "from pathlib import Path; p = Path('/dev/shm/acme'); p.write_text('own'); print(p.read_text())"
 seen = {}
@@ -223,6 +228,8 @@ if sys.argv[1] == "mount":
                          sys.executable, __file__, "host", str(root)])
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+from fixtures.sandbox import account_home
+account_home(os.environ["HOME"]).start()
 paths = ["/etc/resolv.conf", "/run/acme/first", "/run/acme/linked/resolver",
          "/run/acme/real/deep/../resolver", "/run/acme/outside/resolver"]
 runtime = Path("/run/user", str(os.getuid()))
@@ -331,6 +338,8 @@ if sys.argv[1] == "mount":
                          sys.executable, __file__, "host", str(root)])
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
+from fixtures.sandbox import account_home
+account_home(os.environ["HOME"]).start()
 secrets = ("fixture-key", "fixture-folder-key", "fixture-git-store", "fixture-gh-login",
            "fixture-local-key", "fixture-cache-key")
 
@@ -392,6 +401,7 @@ class WorkerBox(unittest.TestCase):
         self.out = self.root / "out"
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "BOX_FIXTURE": str(self.root), "GH_TOKEN": "fixture-token",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))

@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home, in_account_home
 from agentkit import box, config, gate, hand_in, run, worker
 
 
@@ -28,6 +29,7 @@ class ChecksBoxed(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "GH_TOKEN": "fixture-token",
             "GH_CONFIG_DIR": str(self.root / ".config/gh"),
@@ -347,7 +349,8 @@ class ChecksBoxed(unittest.TestCase):
             "print(run.proof_on(lp, 'printf started; exit 7', root / 'proof.log'))\n"
             "print(gate.run_done_when(['printf started; exit 7'], root, root / 'check.log', set(),\n"
             "                         limit=10, silence=5)[1])\n")
-        result = subprocess.run([sys.executable, "-c", driver, str(copy), str(self.root)],
+        result = in_account_home([sys.executable, "-c", driver, str(copy), str(self.root)],
+                                 self.root,
                                 capture_output=True, text=True, timeout=120)
         self.assertIn("{'returncode': 7, 'output': 'started', 'killed': False}", result.stdout,
                       result)
