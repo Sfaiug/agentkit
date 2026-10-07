@@ -349,8 +349,9 @@ sys.exit(p.returncode)
                                      stop_corrections={"notice": notice["time"],
                                                        "stops": 2, "runs": {}})
                     pane = (REPO / "tests/fixtures/muse-prompt-pane.txt").read_text()
-                    watch.stop_nudge({"name": "seat"}, "muse", pane, None, [], False,
-                                     lambda _line: None)
+                    with patch.object(watch, "pane_text", return_value=pane):
+                        watch.stop_nudge({"name": "seat"}, "muse", pane, None, [], False,
+                                         lambda _line: None)
                 notify.transition("seat", now=time.time() + 2 * notify.CARD_WAIT)
                 self.assertEqual(sum(r[0] == "POST" for r in self.requests), 2)
                 self.assertEqual(notify.last("seat")["text"], notify.STOP_FAILED)
