@@ -1769,9 +1769,7 @@ def seat_env(name, server):
     """A seat gets the caller's state and delivery boundary, not its server's old one."""
     from . import notify
     values = {"HOME": str(Path.home()), config.SESSION_ENV: name, SOCKET_ENV: server}
-    for key in sorted(config.state_env_names() | {
-            notify.SINK_ENV, notify.SINK_LOG_ENV,
-            "AGENTKIT_DISCORD_WEBHOOK", "AGENTKIT_DISCORD_USER_ID"}):
+    for key in sorted(config.state_env_names() | set(notify.ENV_NAMES)):
         if key not in values:
             values[key] = os.environ.get(key)
     return values
