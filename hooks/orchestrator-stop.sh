@@ -13,7 +13,7 @@
 # parked reason and the commands its state takes, and the seat looks at it, resumes it,
 # relaunches it split or on another model, stops it, or asks the owner.  A question, `ak notify
 # needs`, background work and the third stop stand past it, as they always did.  A turn another
-# session's message opened -- the harness's own, or a line sent with `ak tell` -- keeps a done
+# session's message opened -- a line sent with `ak tell`, under its heading -- keeps a done
 # declared before it: the seat only acknowledged the message, so that standing done ends the
 # turn -- unless `ak notify` dropped it, or a run sits parked.  A peer's message is not the
 # owner asking, so it answers nothing.
