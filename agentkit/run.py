@@ -4470,7 +4470,7 @@ def landing_fixer(lp, text, name):
         # An unrelated conflict or light check must not hide the lander's failure.
         output = Path(failure["log"]).read_text(errors="replace")
         text += (f"\n\n## The final check failed. Fix the root cause as well.\n```\n"
-                 f"{output[-OUT_CAP:]}\n```")
+                 f"{failing_blocks(output)}\n```")
     summary = execute(lp, "fixer", text, name)
     if failure:
         # Save the actual fixer with its summary before a check or review can stop.
@@ -4779,7 +4779,7 @@ def integrate(lp, upstream):
                             lp.log(f"--- merge: re-run round {attempt + 1}/{CONFLICT_ROUNDS}: "
                                    f"fixer {lp.executor} (done-when after the {how})")
                             fix = (f"{lp.context}\n\n## The done-when commands failed. "
-                                   f"Fix the root cause.\n```\n{dw_log[-OUT_CAP:]}\n```")
+                                   f"Fix the root cause.\n```\n{failing_blocks(dw_log)}\n```")
                             with released_gate_turn():
                                 summary = landing_fixer(lp, fix, "rerun-fixer")
                                 lp.state["review_pending"]["summary"] = summary
@@ -5623,13 +5623,10 @@ def target_fails(lp, upstream, dw_log):
         if previous[2] or previous[0] != 0:
             lp.log(f"--- merge: `{cmd}` fails on {old_base[:12]} too: needs this branch")
             return ""
-    # indented, so nothing the command printed reads as a heading or a fence of the task
-    printed = "\n".join("    " + line for line in output[-OUT_CAP:].splitlines())
     try:
         lp.repair = start_followups(lp.state, lp.run_dir, lp.log, lp.cfg, repair={
             "command": cmd, "check": f"{cmd}  # once" if heavy_probe else cmd, "sha": tip,
-            "text": f"`{cmd}` fails on {upstream} at {tip}, the target's own tip, whichever "
-                    f"branch runs it. What it printed there:\n\n{printed}"})
+            "text": red_target_text(cmd, upstream, tip, output)})
     except run_record.StopRequested:
         raise
     except Exception as exc:  # noqa: BLE001 - the park matters, not its repair
@@ -5637,10 +5634,51 @@ def target_fails(lp, upstream, dw_log):
     return first_failure(f"$ {cmd}\n[exit {code}]\n{output}")
 
 
+def failing_blocks(text, cap=OUT_CAP):
+    """What a fixer reads of a failed check: its last `cap` characters, as before, and ahead of
+    them every block that begins above that end and says what failed.
+
+    A suite run in pieces prints each piece's failures where that piece ends, so the end alone
+    can hold none of a red piece printed earlier: a landing fixer handed the last 20 KB never
+    saw the red file 32 KB before it.  A block is a line that names a failure
+    (`FAILURE_LINE`, at the start of the line) and the indented lines under it, taken whole
+    even where the end begins inside it.  The end is kept whole too, so nothing the end alone
+    showed is ever traded for a block.
+    """
+    if len(text) <= cap:
+        return text
+    above, blocks, block, at = len(text) - cap, [], None, 0
+    for line in text.splitlines(keepends=True):
+        began, at = at, at + len(line)
+        line = line.rstrip("\r\n")
+        if FAILURE_LINE.match(line):
+            if began >= above:
+                break       # this block and every later one lie whole in the end
+            block = [line]
+            blocks.append(block)
+        elif block is not None and (not line or line[:1].isspace()):
+            block.append(line)
+        elif began >= above:
+            break
+        else:
+            block = None
+    named = "\n".join("\n".join(block).rstrip() for block in blocks)
+    return f"{named}\n\n... the end of the output:\n{text[-cap:]}" if named else text[-cap:]
+
+
+def red_target_text(cmd, upstream, tip, output):
+    """What a red target's repair is told: the command, where it fails, and what it printed
+    there, read as a fixer reads a failed check -- indented, so nothing it printed reads as a
+    heading or a fence of the task."""
+    printed = "\n".join("    " + line for line in failing_blocks(output).splitlines())
+    return (f"`{cmd}` fails on {upstream} at {tip}, the target's own tip, whichever branch runs "
+            f"it. What it printed there:\n\n{printed}")
+
+
 def fix_final_check(lp, upstream, text):
     """Repair failing landing output and re-review, without recording a task round."""
     fix = (f"{lp.context}\n\n## The final check failed. Fix the root cause.\n```\n"
-           f"{text[-OUT_CAP:]}\n```")
+           f"{failing_blocks(text)}\n```")
     lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
                                   "reason": "Re-review after the final check.",
                                   "passed_head_sha": passed_review_head(lp.state),
