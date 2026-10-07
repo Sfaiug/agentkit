@@ -433,11 +433,12 @@ class ClosedSeat(Sandbox):
         for kind in kinds:
             config.seat_file(kind, "atoll").write_text("{}\n")
         config.rename_session("atoll", "beta")
-        for kind in kinds - {"rulebook", "stop"}:
+        for kind in kinds - {"rulebook", "stop", "launch"}:
             self.assertFalse(config.seat_file(kind, "atoll").exists(), kind)
             self.assertTrue(config.seat_file(kind, "beta").exists(), kind)
         self.assertTrue(config.rulebook_path("atoll").exists())   # its orchestrator still reads it
         self.assertTrue(config.stop_path("atoll").exists())       # its hooks still write it
+        self.assertTrue(orch.launch_file("atoll").exists())       # a pane starting still reads it
 
     def test_idle_compact_names_its_stamp_for_its_seat(self):
         told = self.root / "told"

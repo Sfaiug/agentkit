@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import orch
+from agentkit import config, orch
 
 
 class LongCommand(Sandbox):
@@ -50,6 +50,18 @@ class LongCommand(Sandbox):
             time.sleep(.05)
         self.assertEqual(said.read_text(), str(len(rules)))
         self.assertEqual(list(self.root.joinpath("state").glob("launch-*")), [])
+
+    def test_a_launch_cut_short_leaves_nothing_a_stop_misses(self):
+        def interrupted(*args, **_kw):
+            if "new-session" in args:
+                raise KeyboardInterrupt       # the owner's Ctrl+C while tmux starts the seat
+            return 0, ""
+        with patch.object(orch, "tmux_out", side_effect=interrupted), \
+                self.assertRaises(KeyboardInterrupt):
+            orch.start("acme", self.root, ["grok", "--rules", "the rulebook"], "grok")
+        left = [path for path in config.STATE.iterdir() if "acme" in path.name]
+        self.assertTrue(left)
+        self.assertEqual(set(left) - set(orch.session_owned_files("acme")), set())
 
 
 if __name__ == "__main__":

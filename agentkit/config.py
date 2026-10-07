@@ -750,6 +750,7 @@ SEAT_FILES = {
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
     "rules": "md",       # the rulebook its prompt names once that one is out of date
+    "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
 }
 
 
@@ -1073,12 +1074,13 @@ def rename_session(old, new):
                 continue
             if isinstance(pointer, dict) and normalize_session(pointer.get("renamed")) == leads:
                 _write_json(session_path(name), {"renamed": new}, prepare=False)
-    # The running orchestrator keeps reading the rulebook it was started on, and its hooks keep
-    # the turn's latch under the name it was started with.  Back to a name it had, what the
+    # The running orchestrator keeps reading the rulebook it was started on, its hooks keep the
+    # turn's latch under the name it was started with, and a pane still starting reads the
+    # launch file it was given.  Back to a name it had, what the
     # seat wrote under it since is kept rather than moved over: a seat renamed still writes its
     # plan under the name it was launched with, and `plan.path` reads the plan under every name
     # the seat had, the newest one winning.
-    for kind in SEAT_FILES.keys() - {"session", "rulebook", "stop"}:
+    for kind in SEAT_FILES.keys() - {"session", "rulebook", "stop", "launch"}:
         was, now = seat_file(kind, old), seat_file(kind, new)
         if was.exists() and not (target == old and now.exists()):
             was.replace(now)

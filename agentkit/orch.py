@@ -1758,8 +1758,9 @@ def seat_command(name, cmd, socket=None):
 
 
 def launch_file(name):
-    """The file `seat_command` has the seat's pane run; a launch tmux refused removes it."""
-    return config.STATE / f"launch-{name}.sh"
+    """The file `seat_command` has the seat's pane run; a launch tmux refused removes it, and one
+    cut short goes with the seat's other files (`config.SEAT_FILES`)."""
+    return config.seat_file("launch", name)
 
 
 def start(name, cwd, cmd, orchestrator):
