@@ -545,13 +545,14 @@ def launch_error(out_dir, env):
     """Name missing overlay support only when a plain box starts and an isolated overlay fails."""
     message = "check box cannot start"
     probe = ["bwrap", "--unshare-user", "--unshare-pid", "--ro-bind", "/", "/"]
+    noop = ["--", sys.executable, "-I", "-c", "pass"]
     try:
-        plain = subprocess.run([*probe, "--", "true"], env=env, capture_output=True,
+        plain = subprocess.run([*probe, *noop], env=env, capture_output=True,
                                text=True, timeout=10)
         if plain.returncode == 0:
             with tempfile.TemporaryDirectory(dir=out_dir) as home:
                 overlay = subprocess.run([*probe, "--overlay-src", home, "--tmp-overlay", home,
-                                          "--", "true"], env=env, capture_output=True,
+                                          *noop], env=env, capture_output=True,
                                          text=True, timeout=10)
             if overlay.returncode != 0:
                 message += f": HOME overlays unavailable: {overlay.stderr.strip()}; {OVERLAY_REMEDY}"

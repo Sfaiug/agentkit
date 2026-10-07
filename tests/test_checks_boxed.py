@@ -274,6 +274,46 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertIn("Read-only file system", text)
                 self.assertFalse(path.exists())
 
+    def test_nested_checks_keep_their_home_writes_private(self):
+        home = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-nested-", dir=REPO)
+        self.addCleanup(home.cleanup)
+        home = Path(home.name)
+        (home / ".bashrc").write_text("original")
+        (home / ".ssh").mkdir()
+        (home / ".ssh/id_fixture").write_text("fixture-key")
+        inner = ("from pathlib import Path\n"
+                 "home = Path.home()\n"
+                 "assert (home / '.bashrc').read_text() == 'outer'\n"
+                 "assert (home / 'cache/kept').read_text() == 'outer'\n"
+                 "assert not (home / '.ssh/id_fixture').exists()\n"
+                 "(home / '.bashrc').write_text('inner')\n"
+                 "(home / 'cache/kept').write_text('inner')\n"
+                 "(home / 'inner-only').touch()\n"
+                 "assert (home / '.bashrc').read_text() == 'inner'\n")
+        outer = ("import os, subprocess, sys; from pathlib import Path\n"
+                 f"sys.path.insert(0, {str(REPO)!r})\n"
+                 "from agentkit import worker\n"
+                 "home = Path.home()\n"
+                 "(home / '.bashrc').write_text('outer')\n"
+                 "(home / 'cache').mkdir()\n"
+                 "(home / 'cache/kept').write_text('outer')\n"
+                 f"activity = Path({str(self.root / 'nested.log')!r})\n"
+                 "activity.touch()\n"
+                 f"code, text, killed = worker.boxed([sys.executable, '-c', {inner!r}], 10, "
+                 f"env=dict(os.environ), cwd={str(self.root)!r}, activity=activity, "
+                 "stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)\n"
+                 "assert (code, killed) == (0, False), (code, text, killed)\n"
+                 "assert (home / '.bashrc').read_text() == 'outer'\n"
+                 "assert (home / 'cache/kept').read_text() == 'outer'\n"
+                 "assert not (home / 'inner-only').exists()\n")
+        with patch.dict(os.environ, {"HOME": str(home)}):
+            result = self.proof(self.command(outer))
+        self.assertEqual(result["returncode"], 0, result)
+        self.assertEqual((home / ".bashrc").read_text(), "original")
+        self.assertFalse((home / "cache").exists())
+        self.assertFalse((home / "inner-only").exists())
+        self.assertEqual((home / ".ssh/id_fixture").read_text(), "fixture-key")
+
     def test_declared_writes_inside_home_still_persist(self):
         home = self.root / "home"
         workspace, out, state = (home / name for name in ("workspace", "out", "state"))
