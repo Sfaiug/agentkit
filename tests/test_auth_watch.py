@@ -401,7 +401,7 @@ class AuthWatch(unittest.TestCase):
         self.assertIn("check this session", notify.last("auth-seat")["text"])
         self.typed.assert_called_once()
 
-    def test_idle_prompts_completed_answers_and_run_waits_never_alert(self):
+    def test_idle_prompts_completed_answers_and_run_waits_never_raise_auth_alerts(self):
         for harness in ("claude", "codex", "muse"):
             template = (REPO / f"tests/fixtures/{harness}-stall-pane.txt").read_text()
             line = next(line for line in template.splitlines() if line.startswith(("● ", "■ ", "◆ ")))
@@ -417,11 +417,12 @@ class AuthWatch(unittest.TestCase):
                     self.tick()
                     self.tick(watch.GIVE_UP * 2)
                     self.assertNotIn("auth-seat", self.data["stalls"])
-                    self.sent.assert_not_called()
+                    # Unrecorded stops may need help to continue, never a login alert.
+                    self.assertTrue(all(call.args[:2] == ("needs", notify.STOP_FAILED)
+                                        for call in self.sent.call_args_list))
                     if watch.stop_enforced(harness):
-                        # neither a stall nor an alert: a harness with no blocking end-of-turn
-                        # hook has the three-way rule typed at it instead, once for each new
-                        # thing it is seen to have stopped on
+                        # A harness with no blocking hook gets one continuation for
+                        # each new stop, until it asks for help.
                         self.assertLessEqual(self.typed.call_count, 1)
                         self.assertTrue(all(call.args[1] == "continue"
                                             for call in self.typed.call_args_list))
