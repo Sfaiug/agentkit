@@ -148,11 +148,12 @@ def _paths(names, env, cwd):
 
 
 def _walls(cmd):
-    """Make the whole filesystem read-only, keeping devices usable."""
+    """Make the whole filesystem read-only, keeping the devices the account can open."""
     cmd.extend(["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"])
-    # A read-only bind disables devices too. Restore the nodes, leaving their
-    # directories read-only so ordinary files cannot fill the host's /dev tmpfs.
-    for device in Path("/dev").rglob("*"):
+    # A read-only bind disables devices too. Restore each node the account can open: one it
+    # cannot was no use outside either, and every bind is a mount that each box started in
+    # this one copies again. Bubblewrap's own /dev keeps ordinary files out of the host's.
+    for device in sorted(Path("/dev").rglob("*")):
         # The box gets disk-backed shm; do not bind the host's transient files.
         if device.is_relative_to("/dev/shm"):
             continue
@@ -160,11 +161,10 @@ def _walls(cmd):
         # Bubblewrap supplies that pair, whose terminals end with their descriptors.
         if device == Path("/dev/ptmx") or device.is_relative_to("/dev/pts"):
             continue
-        if device.is_symlink():
-            cmd.extend(["--symlink", os.readlink(device), str(device)])
-        else:
-            option = "--dev-bind" if device.is_char_device() or device.is_block_device() else "--ro-bind"
-            cmd.extend([option, str(device), str(device)])
+        if device.is_symlink() or not (device.is_char_device() or device.is_block_device()):
+            continue
+        if os.access(device, os.R_OK) or os.access(device, os.W_OK):
+            cmd.extend(["--dev-bind", str(device), str(device)])
     cmd.extend(["--remount-ro", "/dev"])
 
 
