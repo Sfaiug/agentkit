@@ -42,6 +42,10 @@ class Cards(unittest.TestCase):
     def answer(self, word, since, reason="question"):
         return {"word": word, "since": since, "reason": reason}
 
+    def transition(self, session, answer, **kwargs):
+        with patch.object(watch, "session_state", return_value=answer):
+            return notify.transition(session, answer, **kwargs)
+
     def run_fixture(self, name, state, **extra):
         directory = config.RUNS / name
         directory.mkdir(parents=True)
@@ -51,29 +55,29 @@ class Cards(unittest.TestCase):
 
     def test_needs_card_after_sixty_seconds_held(self):
         notify.record("seat", "needs", "Which branch?", time=100)
-        notify.transition("seat", self.answer("needs you", 100), now=159)
+        self.transition("seat", self.answer("needs you", 100), now=159)
         self.assertEqual(self.posts, [])
-        notify.transition("seat", self.answer("needs you", 100), now=160)
+        self.transition("seat", self.answer("needs you", 100), now=160)
         self.assertEqual(self.posts[0]["embeds"][0]["title"], "Needs you · seat")
 
     def test_no_card_while_an_attached_client_has_input_during_the_episode(self):
         notify.record("seat", "needs", "Which branch?", time=100)
         with patch.object(orch, "tmux_out", return_value=(0, "seat\t150")):
-            notify.transition("seat", self.answer("needs you", 100), now=200)
+            self.transition("seat", self.answer("needs you", 100), now=200)
         self.assertEqual(self.posts, [])
 
     def test_needs_card_is_one_per_episode(self):
         notify.record("seat", "needs", "Which branch?", time=100)
-        notify.transition("seat", self.answer("needs you", 100), now=200)
-        notify.transition("seat", self.answer("needs you", 300), now=300)
+        self.transition("seat", self.answer("needs you", 100), now=200)
+        self.transition("seat", self.answer("needs you", 300), now=300)
         self.assertEqual(len(self.posts), 1)
 
     def test_new_needs_episode_sends_again(self):
         notify.record("seat", "needs", "First", time=100)
-        notify.transition("seat", self.answer("needs you", 100), now=200)
-        notify.transition("seat", self.answer("working", 250), now=250)
+        self.transition("seat", self.answer("needs you", 100), now=200)
+        self.transition("seat", self.answer("working", 250), now=250)
         notify.record("seat", "needs", "Second", time=300)
-        notify.transition("seat", self.answer("needs you", 300), now=360)
+        self.transition("seat", self.answer("needs you", 300), now=360)
         self.assertEqual(len(self.posts), 2)
 
     def test_done_card_waits_until_no_run_is_unfinished(self):
@@ -132,15 +136,15 @@ class Cards(unittest.TestCase):
     def test_episode_with_client_input_is_retired_without_a_card(self):
         notify.record("seat", "needs", "Which branch?", time=100)
         with patch.object(orch, "tmux_out", return_value=(0, "seat\t150")):
-            notify.transition("seat", self.answer("needs you", 100), now=200)
+            self.transition("seat", self.answer("needs you", 100), now=200)
         self.assertEqual(self.posts, [])
         self.assertEqual(json.loads(config.card_path("seat").read_text())["closed"], "Answered")
-        notify.transition("seat", self.answer("needs you", 100), now=400)   # detached, still held
+        self.transition("seat", self.answer("needs you", 100), now=400)   # detached, still held
         self.assertEqual(self.posts, [])   # the seen episode stays quiet
 
     def test_done_fail_summary_is_red(self):
         notify.record("seat", "done", "FAIL: tests", time=100)
-        notify.transition("seat", self.answer("done", 100, "FAIL: tests"), now=100)
+        self.transition("seat", self.answer("done", 100, "FAIL: tests"), now=100)
         self.assertEqual(self.posts[0]["embeds"][0]["color"], notify.COLORS["fail"])
 
     def test_legacy_seat_never_cards(self):
@@ -165,7 +169,7 @@ class Cards(unittest.TestCase):
         with patch.object(orch, "find", return_value=seat), \
                 patch.object(orch, "tmux_out", side_effect=fake_tmux), \
                 patch.object(notify, "terminal_notice"):
-            notify.transition("my-editor", self.answer("needs you", 100), now=200)
+            self.transition("my-editor", self.answer("needs you", 100), now=200)
         self.assertEqual(sockets, [orch.seat_socket(seat)])
         self.assertEqual(len(self.posts), 1)   # an explicit command still names its subject
 
@@ -215,14 +219,14 @@ class Cards(unittest.TestCase):
         with patch.object(notify, "installed_at", return_value=now - 600):
             # a question standing since before the install, first read by this version
             notify.record("seat", "needs", "Which branch?", time=now - 3600)
-            notify.transition("seat", self.answer("needs you", now - 3600), now=now)
+            self.transition("seat", self.answer("needs you", now - 3600), now=now)
             # ... a pane that died before it, whichever tick first reads it gone, and a
             # seat tmux lost long before it
             config.save_session(cfg, "gone", "fable", ["opus"], {"exited_since": now - 7200})
             config.save_session(cfg, "lost", "fable", ["opus"], {"seen": now - 3 * 86400})
             # ... and a done declared before it
             notify.record("finished", "done", "Shipped", time=now - 3600)
-            notify.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
+            self.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
             # A seat last seen alive shortly before the install may have gone after it: its
             # record is renewed only every few minutes, so it is still news.
             config.save_session(cfg, "vanished", "fable", ["opus"], {"seen": now - 700})
@@ -239,8 +243,8 @@ class Cards(unittest.TestCase):
             self.assertEqual(json.loads(config.card_path("gone").read_text())["began"],
                              now - 7200)
             # A word that begins after the install is news as ever.
-            notify.transition("seat", self.answer("working", now), now=now)
-            notify.transition("seat", self.answer("needs you", now), now=now + notify.CARD_WAIT)
+            self.transition("seat", self.answer("working", now), now=now)
+            self.transition("seat", self.answer("needs you", now), now=now + notify.CARD_WAIT)
         self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
                          ["Needs you · vanished", "Needs you · seat"])
 
@@ -248,9 +252,9 @@ class Cards(unittest.TestCase):
         # opened by the version before, still inside its minute when the install landed
         now = time.time()
         notify.record("seat", "needs", "Which branch?", time=now - 100)
-        notify.transition("seat", self.answer("needs you", now - 100), now=now - 90)
+        self.transition("seat", self.answer("needs you", now - 100), now=now - 90)
         with patch.object(notify, "installed_at", return_value=now - 50):
-            notify.transition("seat", self.answer("needs you", now - 100), now=now)
+            self.transition("seat", self.answer("needs you", now - 100), now=now)
         self.assertEqual(self.posts, [])
 
     def test_a_queued_card_is_not_sent_late_against_the_rules(self):
@@ -286,9 +290,9 @@ class Cards(unittest.TestCase):
         watch.seat_write("seat", word="needs you", reason="waiting for you",
                          word_since=now - 3600)
         with patch.object(notify, "installed_at", return_value=now - 600):
-            notify.transition("seat", self.answer("needs you", now - 3600), now=now)
+            self.transition("seat", self.answer("needs you", now - 3600), now=now)
             notify.record("finished", "done", "Shipped", time=now - 3600)
-            notify.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
+            self.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
             self.assertEqual(self.posts, [])
             self.assertEqual(notify.main(["needs", "Which branch?"]), 0)
             self.assertEqual(notify.main(["done", "Shipped again", "--session", "finished"]), 0)
@@ -300,15 +304,15 @@ class Cards(unittest.TestCase):
 
     def test_a_done_is_carded_once_however_often_its_word_comes_back(self):
         notify.record("seat", "done", "Finished", time=100)
-        notify.transition("seat", self.answer("done", 100, "Finished"), now=100)
+        self.transition("seat", self.answer("done", 100, "Finished"), now=100)
         # a run of its own awaits recovery and is acknowledged: the same ending again
-        notify.transition("seat", self.answer("working", 200), now=200)
-        notify.transition("seat", self.answer("done", 300, "Finished"), now=300)
+        self.transition("seat", self.answer("working", 200), now=200)
+        self.transition("seat", self.answer("done", 300, "Finished"), now=300)
         self.assertEqual(len(self.posts), 1)
         # A new declaration is a new ending.
-        notify.transition("seat", self.answer("working", 400), now=400)
+        self.transition("seat", self.answer("working", 400), now=400)
         notify.record("seat", "done", "Finished again", time=500)
-        notify.transition("seat", self.answer("done", 500, "Finished again"), now=500)
+        self.transition("seat", self.answer("done", 500, "Finished again"), now=500)
         self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
                          ["Done · seat", "Done · seat"])
 
@@ -322,22 +326,22 @@ class Cards(unittest.TestCase):
              "created_at": 101, "status": "delivered"}))
         config.card_path("seat").write_text(json.dumps(
             {"word": "working", "since": 150, "episode": "e", "sent": False, "open_needs": []}))
-        notify.transition("seat", self.answer("done", 300, "Finished"), now=300)
+        self.transition("seat", self.answer("done", 300, "Finished"), now=300)
         self.assertEqual(self.posts, [])
         # An explicit done over a done episode that is history is sent, and once.
         now = time.time()
         with patch.object(notify, "installed_at", return_value=now - 600):
             notify.record("finished", "done", "Shipped", time=now - 3600)
-            notify.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
+            self.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
             self.assertEqual(notify.main(["done", "Shipped again", "--session", "finished"]), 0)
-            notify.transition("finished", self.answer("working", now), now=now)
-            notify.transition("finished", self.answer("done", now, "Shipped again"), now=now)
+            self.transition("finished", self.answer("working", now), now=now)
+            self.transition("finished", self.answer("done", now, "Shipped again"), now=now)
         # ... and one sent under the old name is the same ending under the new one.
         notify.record("other", "done", "Shipped", time=400)
-        notify.transition("other", self.answer("done", 400, "Shipped"), now=400)
+        self.transition("other", self.answer("done", 400, "Shipped"), now=400)
         config.rename_session("other", "renamed")
-        notify.transition("renamed", self.answer("working", 500), now=500)
-        notify.transition("renamed", self.answer("done", 600, "Shipped"), now=600)
+        self.transition("renamed", self.answer("working", 500), now=500)
+        self.transition("renamed", self.answer("done", 600, "Shipped"), now=600)
         self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
                          ["Done · finished", "Done · other"])
 

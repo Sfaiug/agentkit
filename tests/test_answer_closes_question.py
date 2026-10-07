@@ -365,8 +365,9 @@ class AnswerClosesQuestion(Sandbox):
         card = notify._card_read(SEAT)
         card.update(since=turn + 1, episode="acme-permission")
         notify._card_write(SEAT, card)
-        notify.transition(SEAT, answer={"word": "needs you", "since": turn + 1,
-                                       "reason": "Allow the command?"}, seat=self.seat)
+        permission = {"word": "needs you", "since": turn + 1, "reason": "Allow the command?"}
+        with patch.object(watch, "session_state", return_value=permission):
+            notify.transition(SEAT, answer=permission, seat=self.seat)
         self.assertEqual(self.edits, [])
         self.assertNotIn("closed", notify._card_read(SEAT))
 

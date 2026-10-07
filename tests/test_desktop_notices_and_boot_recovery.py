@@ -67,6 +67,10 @@ class DesktopAndBoot(Sandbox):
     def output(self, fd):
         return os.read(fd, 8192) if select.select([fd], [], [], 0)[0] else b""
 
+    def transition(self, answer, now):
+        with patch.object(watch, "session_state", return_value=answer):
+            return notify.transition("source", answer, now=now)
+
     def state(self, live):
         """Put the seat in that live state and read what every screen then says about it."""
         classified = {"state": live, "since": 10000, "began": 10000, "authority": "hook",
@@ -121,7 +125,7 @@ class DesktopAndBoot(Sandbox):
         # The notice goes where the card goes: the other client hears it while
         # the seat's own client stays quiet, which is the suppression above.
         with patch.object(notify, "_attached", return_value=False):
-            notify.transition("source", {"word": "needs you", "since": 10000,
+            self.transition({"word": "needs you", "since": 10000,
                                          "reason": "Which branch?"}, now=10060)
         self.assertEqual(self.output(other),
                          "\033]9;Needs you · source: Which branch?\007".encode())
@@ -147,13 +151,13 @@ class DesktopAndBoot(Sandbox):
                 with patch.object(watch, "session_state", return_value=working):
                     self.assertEqual(notify.shaped(kind, text, session="source"), 0)
                 self.assertEqual(notify.last("source", include_seen=True)["text"], text)
-                notify.transition("source", answer, now=answer["since"] + 60)
+                self.transition(answer, now=answer["since"] + 60)
                 self.assertEqual(self.posts[-1], json.dumps({"username": "agentkit",
                                                              "embeds": [body],
                                                              "content": "<@42>"}).encode())
                 self.assertEqual(self.output(other), f"\033]9;{title} · source: {text}\007".encode())
                 self.assertEqual(self.output(active), b"")
-                notify.transition("source", answer, now=answer["since"] + 120)
+                self.transition(answer, now=answer["since"] + 120)
                 self.assertEqual(self.output(other), b"")
         self.assertEqual(len(self.posts), 2)
         before = self.snapshot()
@@ -180,10 +184,10 @@ class DesktopAndBoot(Sandbox):
         held = {"word": "needs you", "since": 10000, "reason": "Which branch?"}
         resting = {"word": "working", "since": 10100, "reason": ""}
         with patch.object(notify, "_attached", return_value=False):
-            notify.transition("source", held, now=10060)      # tells
-            notify.transition("source", held, now=10120)      # same episode: quiet
-            notify.transition("source", resting, now=10120)
-            notify.transition("source", held, now=10180)      # new episode: tells again
+            self.transition(held, now=10060)      # tells
+            self.transition(held, now=10120)      # same episode: quiet
+            self.transition(resting, now=10120)
+            self.transition(held, now=10180)      # new episode: tells again
         self.assertEqual(self.output(other).count(b"\033]9;"), 2)
 
     def test_e_changed_boot_resumes_only_proven_records_once(self):
@@ -298,7 +302,7 @@ class DesktopAndBoot(Sandbox):
                                 f"{ttys[2]}\tother\t@1\t{ttys[3]}\t1\n")
         self.assertEqual(notify.terminal_targets("source"), [(ttys[1], False), (ttys[2], False)])
         with patch.object(notify, "_attached", return_value=False):
-            notify.transition("source", {"word": "needs you", "since": 10000,
+            self.transition({"word": "needs you", "since": 10000,
                                          "reason": "Which branch?"}, now=10060)
         for client in (first, second):
             self.assertEqual(self.output(client),

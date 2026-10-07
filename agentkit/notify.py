@@ -1095,9 +1095,9 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
     if seat is not None and seat.get("legacy"):
         return 0
     from . import watch, menu, orch, run
-    at = time.time() if now is None else now
     try:
         with session_lock(session) as name:
+            at = time.time() if now is None else now
             card = _card_read(name)
             records = menu.run_records()
             mine = [(directory, state) for directory, state in records
@@ -1121,17 +1121,27 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             if card and ((previous.get("word_since") or 0) <= card.get("since", 0)
                          or job_done(declared)):
                 previous = {"word": card["word"], "word_since": card["since"]}
-            current = watch.session_state(name, now=at, session=seat, records=records,
+            current = watch.session_state(name, now=time.time() if answer is not None else at,
+                                          session=seat, records=records,
                                           previous=previous, jobs=True)
             # A newer declaration or run can outrank the answer shaped read before this
             # lock. An unchanged word keeps its observed beginning, including the explicit
             # question's clock before shaped advances the hold.
             if answer is not None and answer["word"] == current["word"]:
                 current["since"] = answer.get("since")
+            elif answer is not None:
+                began = None
             answer = current
             since = answer.get("since")
             since = since if isinstance(since, (int, float)) and math.isfinite(since) else at
             word = answer["word"]
+            # An older command's clock cannot make input before the current question its
+            # answer, or make that question history across an install.
+            asked = declared.get("time") if watch.owner_question(declared) else None
+            if word == "needs you" and isinstance(asked, (int, float)) and math.isfinite(asked):
+                since = max(since, asked)
+                if began is not None:
+                    began = max(began, asked)
             if card.get("word") != word:
                 pending = card.get("open_needs", (last(name, include_seen=True) or {}).get("open_needs", []))
                 card = {"word": word, "since": since, "began": since,

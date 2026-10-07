@@ -6,7 +6,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, notify, orch
+from agentkit import config, notify, orch, watch
 
 NOW = 1_800_000_000.5
 SEAT = "fix-api"
@@ -49,8 +49,9 @@ class IdleTerminalGetsCard(Sandbox):
 
     def tick(self, elapsed=0, since=NOW, word="needs you"):
         answer = {"word": word, "since": since, "reason": "Choose a branch?"}
-        self.assertEqual(notify.transition(SEAT, answer, now=NOW + elapsed,
-                                           seat=self.seat), 0)
+        with patch.object(watch, "session_state", return_value=answer):
+            self.assertEqual(notify.transition(SEAT, answer, now=NOW + elapsed,
+                                               seat=self.seat), 0)
 
     def card(self):
         return json.loads(config.card_path(SEAT).read_text())
