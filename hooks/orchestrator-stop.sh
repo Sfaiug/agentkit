@@ -198,7 +198,7 @@ def background(payload):
 
 def told(seat, turn, kind):
     """`ak notify <kind>` recorded for this seat during the turn."""
-    note = read(STATE / f"notify-{seat}.json")
+    note = notify.last(seat) or {}
     if note.get("kind") != kind:
         return False
     when = moment(note.get("time"))

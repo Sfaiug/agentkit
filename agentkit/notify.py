@@ -1300,6 +1300,13 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                         text = previous["text"]
                         extra = {k: v for k, v in previous.items()
                                  if k not in ("session", "kind", "text", "time")}
+                        # Keep the original failure coverage as its time advances. Stamp
+                        # before reading runs so a racing failure stays covered too.
+                        extra["time"] = time.time()
+                        mine = [(directory, state) for directory, state in menu.run_records()
+                                if run.launched_session(state) == name]
+                        extra["runs"] = list(dict.fromkeys([
+                            *previous.get("runs", []), *failed_declaration(previous, mine)]))
                     else:
                         if quiet:
                             extra["quiet"] = True

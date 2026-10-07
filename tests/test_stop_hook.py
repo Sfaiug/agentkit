@@ -177,6 +177,12 @@ class StopHook(unittest.TestCase):
                 self.notified(kind, self.turn + 1)
                 self.assertEqual(self.stop(), "")
 
+    def test_a_retired_completion_does_not_allow_the_stop(self):
+        self.notified("done", time.time())
+        path = self.state / f"notify-{SEAT}.json"
+        path.write_text(json.dumps({**json.loads(path.read_text()), "seen": True}))
+        self.assertEqual(self.blocked(self.stop())["decision"], "block")
+
     def test_a_notification_from_an_earlier_turn_does_not_allow_it(self):
         self.notified("done", self.turn - 600)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)

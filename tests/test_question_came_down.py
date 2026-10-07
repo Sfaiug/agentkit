@@ -83,6 +83,7 @@ class QuestionCameDown(Sandbox):
                                  "--session", SEAT, "Which schema should acme use?"],
                                 capture_output=True, text=True, timeout=30,
                                 env={**os.environ, "AK_NOTIFY_SINK": "dry-run",
+                                     "AK_RUN_ROLE": "orchestrator",
                                      "AGENTKIT_DISCORD_WEBHOOK": ""})
         self.assertEqual(result.returncode, 0, result.stderr)
         fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
