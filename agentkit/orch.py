@@ -1849,12 +1849,13 @@ def inside(session):
     return Path(tmux.split(",")[0]).name == (seat_socket(session) or "default")
 
 
-def seen_by_user(name):
-    """An interactive open records a baseline; reading a question does not answer it."""
+def seen_by_user(name, session=None):
+    """An interactive open records a baseline; reading a question does not answer it.
+    `session` is the seat as the opener has it, which spares listing every seat again."""
     from . import notify, watch   # here, not at the top: watch imports this module
     try:
         name = config.resolve_session(name)
-        session = find(name)
+        session = find(name) if session is None else session
         if session and not session.get("exited"):
             # Cancel a tick already considering a nudge. An unanswered notice retains
             # its stop latch and row state; the generation alone is not acknowledgement.
@@ -1886,14 +1887,14 @@ def attach(name, log=print, wait=False, session=None):
         rc, out = tmux_out("switch-client", "-t", f"={name}", socket=socket, client=True)
         if rc != 0:
             raise config.Error(f"cannot switch to the session {name}: {out}")
-        seen_by_user(name)
+        seen_by_user(name, session)
         return 0
     note = fix_term()
     if note:
         log(note)
     cmd = tmux_argv(socket, "attach-session", "-t", f"={name}")
     env = tmux_env()      # $TMUX gone: from a client on another server this one nests on purpose
-    seen_by_user(name)    # before the exec below, which never comes back here
+    seen_by_user(name, session)   # before the exec below, which never comes back here
     try:
         if wait:
             return subprocess.run(cmd, env=env).returncode
@@ -1983,7 +1984,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if detached:
         return 0           # restarting is neither attaching nor reading the seat
     config.update_session(name, seen=int(time.time()))
-    return attach(name, log=log, wait=wait, session=session or {"name": name})
+    # the seat it just put a harness in: live now, whatever its row said before
+    return attach(name, log=log, wait=wait, session={**(session or {"name": name}), "exited": False})
 
 
 # --- the conversation a seat holds ------------------------------------------
@@ -3946,7 +3948,9 @@ def main(argv):
         if name is BACK:
             return 0
         unnamed = name is None
-        name = name or unique_name("new", taken)
+        if unnamed:
+            taken = taken_names()       # its name is chosen now: the question may have waited
+            name = unique_name("new", taken)
     # A direct shell invocation keeps its working directory when no project is chosen.
     # The menu's n deliberately starts unassigned seats in ~/code instead.
     result = create(cfg, name, repo or cwd, forced, forced_workers, True, dry_run,

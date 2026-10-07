@@ -1687,7 +1687,9 @@ def new_session(cfg, dry_run, keyboard=None):
         return None
     if keyboard is not None:
         keyboard.give()
-    name = name or orch.unique_name("new", orch.taken_names())
+    if unnamed:
+        taken = orch.taken_names()        # its name is chosen now: the picker may have waited
+        name = orch.unique_name("new", taken)
     if dry_run:
         reviewers = selected[3] if len(selected) == 4 else cfg["defaults"].get("reviewers")
         print(f"would start {name}: {selected[0]}, workers {' '.join(selected[2])}"

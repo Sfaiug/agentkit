@@ -37,11 +37,24 @@ class OpenWhatWasListed(Sandbox):
                   "exited": False, "legacy": False}
         with patch.dict(os.environ, {"TMUX": f"/tmp/tmux-1/{orch.socket_name()},1,0"}), \
                 patch.object(orch.sys.stdin, "isatty", return_value=True), \
-                patch.object(orch.sys.stdout, "isatty", return_value=True), \
-                patch.object(orch, "seen_by_user"):
+                patch.object(orch.sys.stdout, "isatty", return_value=True):
             self.assertEqual(orch.attach("acme", wait=True, session=listed), 0)
+        # the switch, then only that seat's own screen, read for the opening's baseline
         self.listed.assert_not_called()
-        self.assertEqual(self.calls, [("switch-client", "-t", "=acme")])
+        self.assertEqual(self.calls[0], ("switch-client", "-t", "=acme"))
+        self.assertEqual({args[0] for args in self.calls[1:]} - {"capture-pane"}, set())
+
+    def test_an_unnamed_seat_is_named_from_what_tmux_holds_once_the_question_is_answered(self):
+        # a seat called `new` opens while the name question waits
+        held = iter(({"other"}, {"other", "new"}))
+        with patch.object(orch, "taken_names", side_effect=lambda: next(held)), \
+                patch.object(orch, "ask_name", return_value=None), \
+                patch.object(orch, "typed_here", return_value=True), \
+                patch.object(orch, "maintenance"), \
+                patch.object(orch, "create", return_value=None) as create:
+            self.assertEqual(orch.main([]), 0)
+        self.assertEqual(create.call_args.args[1], "new-2")
+        self.assertIn("new", create.call_args.kwargs["taken"])
 
 
 if __name__ == "__main__":
