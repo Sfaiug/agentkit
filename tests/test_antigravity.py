@@ -533,6 +533,13 @@ class Antigravity(unittest.TestCase):
         # while agy's own words for a spent quota still hand the round over
         self.assertEqual(run.ran_dry(1, "RESOURCE_EXHAUSTED (code 429): quota", "antigravity"),
                          "RESOURCE_EXHAUSTED")
+        # a spent Starter quota too, on the screen and headless (agy 1.3.1)
+        spent = ("Individual quota reached. Please upgrade your subscription to increase your "
+                 "limits. Resets in 51m38s.")
+        pane = self.pane("stall").replace("You have exhausted your quota on this model.", spent)
+        mark = watch.stalled_on("antigravity", watch.pane_tail(pane), "seat", lambda _: None)
+        self.assertIn(mark, watch.quotas("antigravity"))
+        self.assertEqual(run.ran_dry(1, f"error: {spent}", "antigravity"), "quota reached")
         # signed out, a headless turn says so on stderr at once and then waits for a code
         out = self.root / "signed-out"
         out.mkdir()
