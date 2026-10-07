@@ -1258,6 +1258,22 @@ def interrupted_at(harness, name):
         return None
 
 
+def cancelled(harness, name, pane):
+    """Did the owner cancel that seat's turn before any answer?  Its harness records nothing
+    then and sends no hook, so its record is that of a turn not yet answered; but it puts the
+    prompt back in the composer, word for word, where a turn that runs leaves none."""
+    record = config.session_records().get(name) if name else None
+    if not record or not pane:
+        return False
+    plugin = orch.harness_plugin(harness)
+    cwd = record.get("cwd")
+    try:
+        asked = plugin.unanswered(record, cwd, plugin.conversation(record, cwd))
+    except OSError:
+        return False
+    return bool(asked) and composer_draft(harness, pane) == re.sub(r"\s+", "", asked["text"])
+
+
 def auth_expired_on(harness, tail, name=None):
     """Match a harness's terminal auth message, including wrapped lines, never quoted prose.
 
@@ -1555,7 +1571,7 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
     seen, rule, line = screen_state(harness, tail)
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
-    if hooked == "working" and interrupted is not None and interrupted > when:
+    if hooked == "working" and interrupted is not None and interrupted >= when:
         hooked, spoken = "at_prompt", "the owner interrupted its turn"
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
@@ -1683,8 +1699,12 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         # only a turn its hooks say runs, or asked in, can have ended unreported; and a prompt
         # whose hook lands while the record is read is a newer turn, which the record may not
         # show yet
-        ended = (interrupted_at(harness, name)
-                 if hook_state(harness, fact)[0] in ("working", "asking") else None)
+        ended = None
+        if hook_state(harness, fact)[0] in ("working", "asking"):
+            ended = interrupted_at(harness, name)
+            if ended is None and cancelled(harness, name, pane):
+                # seen now, and never before the turn it ends
+                ended = max(at, _stamp(fact.get("at")) or at)
         if ended is not None and hook_facts(name) != fact:
             ended = None
         found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,

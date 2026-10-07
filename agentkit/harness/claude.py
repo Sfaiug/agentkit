@@ -121,6 +121,17 @@ def interrupted(record, cwd, conversation):
     return kept["at"] if kept else None
 
 
+def unanswered(record, cwd, conversation):
+    """The owner's prompt that is that conversation's last message, as {at, text}, or None: one
+    nothing has answered or interrupted yet.  An Esc before any answer leaves it so (2.1.292),
+    and puts it back in the composer."""
+    from . import last_entry, user_message
+    path = transcript(record, cwd, conversation)
+    entry = path and last_entry(path, lambda entry: entry.get("type") in ("user", "assistant"))
+    said = entry and entry.get("type") == "user" and prompt(entry)
+    return user_message(entry.get("timestamp"), said) if said else None
+
+
 def resumable(record, cwd, conversation):
     from . import LAUNCHER
     return bool(conversation) and record.get("id_source") in (LAUNCHER, SOURCE)

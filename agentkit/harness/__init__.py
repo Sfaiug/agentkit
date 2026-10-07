@@ -471,6 +471,13 @@ class Harness:
         hook = self._hook("interrupted")
         return hook(record, cwd, conversation) if hook else None
 
+    def unanswered(self, record, cwd, conversation):
+        """The owner's prompt that is that conversation's last message, as {at, text}, or None:
+        one nothing has answered or interrupted yet.  OSError where a record exists and cannot
+        be read."""
+        hook = self._hook("unanswered")
+        return hook(record, cwd, conversation) if hook else None
+
     @property
     def keeps_errors(self):
         """Whether `error` reads anything: a transcript alone may hold no error a reader knows."""
