@@ -266,14 +266,14 @@ sys.exit(p.returncode)
         self.cli("done", "Finished")
         count = len(self.requests)
         # Old records without a timestamp can still be displayed and replaced safely.
-        config.notify_path("seat").write_text('{"kind":"needs","text":"Legacy"}')
-        self.cli("needs", "Legacy")
+        config.notify_path("seat").write_text('{"kind":"needs","text":"Legacy?"}')
+        self.cli("needs", "Legacy?")
         self.assertEqual(len(self.requests), count + 1)
 
     def test_concurrent_cli_repeats_post_once(self):
         for kind in ("needs", "done"):
             with ThreadPoolExecutor(max_workers=5) as pool:
-                list(pool.map(lambda _: self.cli(kind, "Same message"), range(5)))
+                list(pool.map(lambda _: self.cli(kind, "Same message?"), range(5)))
         self.assertEqual([r[0] for r in self.requests], ["POST", "PATCH", "POST"])
 
     def test_edit_failures_are_silent_and_do_not_block_completion(self):

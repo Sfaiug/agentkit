@@ -49,6 +49,9 @@ FILE_CAP = 8 * 1024 * 1024
 UA = "agentkit/1 (+https://github.com)"
 COLORS = {"needs": 0xF5A623, "done": 0x2ECC71, "fail": 0xE74C3C}   # amber, green, red
 SUBJECT_CAP = 60   # a title the phone shows whole, when the task has to stand in for a session
+# Where a seat's question must have asked: a seat's bar and its menu row show a question from its
+# start and cut the rest, so context written before the ask hides it.  One classic terminal line.
+ASK_CAP = 80
 TITLES = {"needs": "Needs you", "done": "Done"}
 CARD_WAIT = 60
 SINK_ENV = "AK_NOTIFY_SINK"   # the suites' destination; it outranks the owner's webhook
@@ -1351,6 +1354,12 @@ def main(argv):
         raise config.Error(USAGE)
     if kind and worker_blocked(kind, dry_run):
         return 0                          # before the plan's checks: a worker runs none of them
+    if kind == "needs":
+        asked, mark, _ = " ".join(rest[0].split()).partition("?")
+        if not mark or len(asked) >= ASK_CAP:
+            raise config.Error(f'put the question first, its "?" within {ASK_CAP} characters: '
+                               "the status bar and the menu show a question's start; context "
+                               "goes after it")
     if kind:
         return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run)
     raise config.Error(USAGE)

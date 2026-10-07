@@ -50,20 +50,20 @@ class Cards(unittest.TestCase):
         return directory
 
     def test_needs_card_after_sixty_seconds_held(self):
-        notify.record("seat", "needs", "Choose a branch", time=100)
+        notify.record("seat", "needs", "Which branch?", time=100)
         notify.transition("seat", self.answer("needs you", 100), now=159)
         self.assertEqual(self.posts, [])
         notify.transition("seat", self.answer("needs you", 100), now=160)
         self.assertEqual(self.posts[0]["embeds"][0]["title"], "Needs you · seat")
 
     def test_no_card_while_an_attached_client_has_input_during_the_episode(self):
-        notify.record("seat", "needs", "Choose a branch", time=100)
+        notify.record("seat", "needs", "Which branch?", time=100)
         with patch.object(orch, "tmux_out", return_value=(0, "seat\t150")):
             notify.transition("seat", self.answer("needs you", 100), now=200)
         self.assertEqual(self.posts, [])
 
     def test_needs_card_is_one_per_episode(self):
-        notify.record("seat", "needs", "Choose a branch", time=100)
+        notify.record("seat", "needs", "Which branch?", time=100)
         notify.transition("seat", self.answer("needs you", 100), now=200)
         notify.transition("seat", self.answer("needs you", 300), now=300)
         self.assertEqual(len(self.posts), 1)
@@ -105,8 +105,8 @@ class Cards(unittest.TestCase):
     def test_notify_needs_records_and_sends_in_the_same_call(self):
         with patch.object(watch, "session_state", return_value=self.answer("needs you", 100)), \
                 patch.object(notify.time, "time", return_value=200):
-            self.assertEqual(notify.main(["needs", "Choose a branch"]), 0)
-        self.assertEqual(notify.last("seat", include_seen=True)["text"], "Choose a branch")
+            self.assertEqual(notify.main(["needs", "Which branch?"]), 0)
+        self.assertEqual(notify.last("seat", include_seen=True)["text"], "Which branch?")
         self.assertEqual(len(self.posts), 1)
 
     def test_tick_sends_a_word_that_changed_between_ticks(self):
@@ -120,17 +120,17 @@ class Cards(unittest.TestCase):
 
     def test_worker_is_refused(self):
         with patch.dict(os.environ, {"AK_RUN_ROLE": "worker"}):
-            self.assertEqual(notify.main(["needs", "Choose a branch"]), 0)
+            self.assertEqual(notify.main(["needs", "Which branch?"]), 0)
         self.assertFalse(config.notify_path("seat").exists())
 
     def test_notify_needs_sends_through_the_real_session_state(self):
         watch.seat_write("seat", word="working", reason="", word_since=100)
-        self.assertEqual(notify.main(["needs", "Choose a branch"]), 0)
+        self.assertEqual(notify.main(["needs", "Which branch?"]), 0)
         self.assertEqual(len(self.posts), 1)
         self.assertTrue(json.loads(config.card_path("seat").read_text())["sent"])
 
     def test_episode_with_client_input_is_retired_without_a_card(self):
-        notify.record("seat", "needs", "Choose a branch", time=100)
+        notify.record("seat", "needs", "Which branch?", time=100)
         with patch.object(orch, "tmux_out", return_value=(0, "seat\t150")):
             notify.transition("seat", self.answer("needs you", 100), now=200)
         self.assertEqual(self.posts, [])
@@ -214,7 +214,7 @@ class Cards(unittest.TestCase):
         cfg = config.load()
         with patch.object(notify, "installed_at", return_value=now - 600):
             # a question standing since before the install, first read by this version
-            notify.record("seat", "needs", "Choose a branch", time=now - 3600)
+            notify.record("seat", "needs", "Which branch?", time=now - 3600)
             notify.transition("seat", self.answer("needs you", now - 3600), now=now)
             # ... a pane that died before it, whichever tick first reads it gone, and a
             # seat tmux lost long before it
@@ -247,7 +247,7 @@ class Cards(unittest.TestCase):
     def test_an_episode_opened_before_the_install_is_not_sent_after_it(self):
         # opened by the version before, still inside its minute when the install landed
         now = time.time()
-        notify.record("seat", "needs", "Choose a branch", time=now - 100)
+        notify.record("seat", "needs", "Which branch?", time=now - 100)
         notify.transition("seat", self.answer("needs you", now - 100), now=now - 90)
         with patch.object(notify, "installed_at", return_value=now - 50):
             notify.transition("seat", self.answer("needs you", now - 100), now=now)
@@ -259,10 +259,10 @@ class Cards(unittest.TestCase):
             receipt.update(status="pending", error="down")
             return 0
         with patch.object(notify, "post", side_effect=down):
-            self.assertEqual(notify.main(["needs", "Choose a branch"]), 0)
+            self.assertEqual(notify.main(["needs", "Which branch?"]), 0)
             installed = time.time()
             for name in ("other", "third"):
-                self.assertEqual(notify.main(["needs", "Pick one", "--session", name]), 0)
+                self.assertEqual(notify.main(["needs", "Which one?", "--session", name]), 0)
             self.assertEqual(notify.main(["done", "Shipped", "--session", "paused"]), 0)
         orch.mark_owner_closed("other")
         orch.mark_owner_closed("paused")
@@ -290,7 +290,7 @@ class Cards(unittest.TestCase):
             notify.record("finished", "done", "Shipped", time=now - 3600)
             notify.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
             self.assertEqual(self.posts, [])
-            self.assertEqual(notify.main(["needs", "Choose a branch"]), 0)
+            self.assertEqual(notify.main(["needs", "Which branch?"]), 0)
             self.assertEqual(notify.main(["done", "Shipped again", "--session", "finished"]), 0)
             # ... and on a seat with no episode yet
             watch.seat_write("fresh", word="needs you", word_since=now - 3600)

@@ -129,7 +129,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                "--session and --dry-run apply to needs/done; --check checks without posting.",
                'ak notify done "Parser fixed" --session parser-fix --dry-run'),
     "notify needs": (f"usage: {NOTIFY_NEEDS}",
-                     "Ask for a blocking decision; --dry-run prints the payload without posting.",
+                     "Ask for a blocking decision: the question first, context after it.\n"
+                     "--dry-run prints the payload without posting.",
                      'ak notify needs "Which branch?" --session parser-fix --dry-run'),
     "notify done": (f"usage: {NOTIFY_DONE}",
                     "Report the finished job; --dry-run prints the payload without posting.",

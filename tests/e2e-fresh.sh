@@ -766,10 +766,10 @@ fi
 # closes it below. The cards are two words and the seat; the text stays in the preview.
 if doing g; then
   UID_WANT=$(cat "$UH/.agentkit/secrets/discord_user_id" 2>/dev/null)
-  as "AGENTKIT_SESSION=${SEAT:-atoll} ak notify needs 'test' --dry-run" >"$WORK/needs.json" 2>"$WORK/needs.err"
+  as "AGENTKIT_SESSION=${SEAT:-atoll} ak notify needs 'test?' --dry-run" >"$WORK/needs.json" 2>"$WORK/needs.err"
   as "AGENTKIT_SESSION=${SEAT:-atoll} ak notify done 'test' --dry-run" >"$WORK/done.json" 2>"$WORK/done.err"
   must "the needs terminal preview is missing" \
-    grep -qxF "terminal notice: Needs you · ${SEAT:-atoll}: test" "$WORK/needs.err"
+    grep -qxF "terminal notice: Needs you · ${SEAT:-atoll}: test?" "$WORK/needs.err"
   must "the done terminal preview is missing" \
     grep -qxF "terminal notice: Done · ${SEAT:-atoll}: test" "$WORK/done.err"
   must "the needs payload is not JSON" jq -e . "$WORK/needs.json"
