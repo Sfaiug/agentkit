@@ -129,7 +129,10 @@ interactive)
   # made fresh under its rulebook's name: one every seat shared had each launch rewrite the
   # rules the seats before it were opened with.  A directory goes at a later launch once its
   # rulebook is gone, as nothing else removes it; a relaunch never reuses it, so the removal
-  # takes nothing a launch made after its check.
+  # takes nothing a launch made after its check.  `tools` names the shell: agy 1.3.1 offers it
+  # to a custom agent either way, but one whose front matter names no tools never ran a command
+  # in six tries ("I do not have access to a bash/shell execution tool"), and an orchestrator
+  # that cannot run `ak` orchestrates nothing; naming it, every try did.
   rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
     echo "antigravity.sh interactive: no rulebook for this seat" >&2; exit 2; }
   state=$(dirname -- "$rb")
@@ -140,7 +143,7 @@ interactive)
   agents=$(mkdir -p -- "$state/antigravity" &&
     mktemp -d "$state/antigravity/$(basename -- "$rb" .md).XXXXXX") &&
     def="$agents/.agents/agents/agentkit" && mkdir -p -- "$def" &&
-    { printf -- '---\nname: agentkit\ndescription: the agentkit orchestrator seat\nsubagent: false\n---\n'
+    { printf -- '---\nname: agentkit\ndescription: the agentkit orchestrator seat\nsubagent: false\ntools:\n  - run_command\n---\n'
       cat -- "$rb"; } >"$def/agent.md" || {
     rm -rf -- ${agents:+"$agents"}
     echo "antigravity.sh interactive: no rulebook for this seat" >&2; exit 2; }
