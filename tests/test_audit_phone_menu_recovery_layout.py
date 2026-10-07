@@ -39,6 +39,10 @@ REAL_TMUX = shutil.which("tmux")
 SOCKET = "agentkit-test"
 LONG_NAME = "zz-very-long-session-name-for-a-narrow-p"    # NAME_CAP characters; sorts last
 STAND_IN = "stand-in harness: no model call"
+# How long a wait for a real tmux screen may last: a guard against a hang, never a claim
+# about speed.  A wait ends the moment its screen is there; at 30 s a loaded landing host
+# missed it three times in two days and sent a passed change back each time.
+HANG = 180
 LONG_REASON = ("reviewer astra died on API/transport errors 3 times and no eligible reviewer is "
                "left on another provider; waiting for review. See {}/round-1-reviewer*/stderr.log "
                "and the round summaries in result.md before deciding whether to resume")
@@ -419,7 +423,7 @@ class Terminal:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("\n".join(screen).rstrip() + "\n")
 
-    def wait(self, ready, what, timeout=30):
+    def wait(self, ready, what, timeout=HANG):
         deadline = time.monotonic() + timeout
         while True:
             screen = self.screen()
@@ -437,7 +441,7 @@ class Terminal:
         boxed = [line.split("│")[1].rstrip() for line in screen if line.count("│") == 2]
         return boxed or screen
 
-    def until(self, *texts, absent=(), prompt=None, timeout=30):
+    def until(self, *texts, absent=(), prompt=None, timeout=HANG):
         """The screen once every text is on it, none of `absent` is, and `prompt` ends it."""
         def ready(screen):
             joined = "\n".join(screen)
@@ -484,7 +488,7 @@ class Terminal:
             last = AssertionError("drawn at the old size:\n" + "\n".join(screen))
         raise last
 
-    def settled(self, timeout=30):
+    def settled(self, timeout=HANG):
         """Wait until no popup of this fixture's is still on its way out after a switch.
 
         `switch-client` shows the seat before the popup's own process has finished and the
@@ -829,7 +833,7 @@ class Phone(Sandbox):
         self.assertFalse(self.has_seat(LONG_NAME))
         self.assertTrue(self.has_seat("phone-audit"))
         phone.keys("Escape")
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + HANG
         while not phone.dead():
             self.assertLess(time.monotonic(), deadline, "\n".join(phone.screen()))
             time.sleep(0.1)
