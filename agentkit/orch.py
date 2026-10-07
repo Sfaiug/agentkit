@@ -1752,15 +1752,9 @@ def seat_command(name, cmd, socket=None):
         cmd = ["env", f"XDG_RUNTIME_DIR={bus_env()['XDG_RUNTIME_DIR']}",
                run, "--user", f"--slice={seat_slice_name(socket)}", "--scope",
                "--quiet", f"--unit={unit}", *literal, "--", *cmd]
-    path = launch_file(name)
+    path = config.seat_file("launch", name)
     path.write_text('rm -f -- "$0"\nexec ' + shlex.join(cmd) + "\n")
     return shlex.join(["sh", str(path)])
-
-
-def launch_file(name):
-    """The file `seat_command` has the seat's pane run; a launch tmux refused removes it, and one
-    cut short goes with the seat's other files (`config.SEAT_FILES`)."""
-    return config.seat_file("launch", name)
 
 
 def start(name, cwd, cmd, orchestrator):
@@ -1787,7 +1781,7 @@ def start(name, cwd, cmd, orchestrator):
                        *env, seat_command(name, cmd), path_shim=True,
                        unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
-        launch_file(name).unlink(missing_ok=True)
+        config.seat_file("launch", name).unlink(missing_ok=True)
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
     tmux_out("set-option", "-t", f"={name}:", MARK, "1")
     # A server started as a systemd service writes its stdout to the journal, so tmux
@@ -2123,7 +2117,7 @@ def _start_harness(name, model, cwd, cmd, session):
         rc, out = tmux_out("respawn-pane", "-k", "-t", target,
                            seat_command(name, cmd, server), socket=server, path_shim=True)
         if rc != 0:
-            launch_file(name).unlink(missing_ok=True)
+            config.seat_file("launch", name).unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
         tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
         if on_own_server(session):
