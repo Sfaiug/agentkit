@@ -1277,7 +1277,7 @@ def _running_commands(pid):
 
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
-                  run_dir=None, heavy=False):
+                  run_dir=None, heavy=False, marks=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -1310,6 +1310,10 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     counts from the turn, not the wait.  Otherwise it runs without one.  A heavy
     command that exits `SUITE_BUSY` never ran: it is no failure and no re-run, it gives
     its turn back for a poll (`busy_turn`) and runs again.
+
+    `marks`, a list, gets each command's exit as the runner saw it, in order -- None for one
+    killed at the limit or never run, and none for those after a kill: what decides a proof,
+    never the text, which a command can print anything into.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -1371,8 +1375,12 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 # the list is out of time: starting this command would give it a limit of its own
                 spent, killed, kept = cmd, False, ""
                 chunks.append(f"$ {cmd}\n[not run: the done-when limit was already spent]")
+                if marks is not None:
+                    marks.append(None)
                 break
             ok &= code == 0
+            if marks is not None:
+                marks.append(None if killed else code)
             chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
                           f"{out if names_shard(cmd) else out[-run.OUT_CAP:]}".rstrip())
             if first is not None and code == 0:
