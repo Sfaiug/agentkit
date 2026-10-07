@@ -15,7 +15,9 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "tests"))
 from agentkit import config, notify, orch, statusbar, usage, watch
+from fixtures import pane
 from agentkit.harness import codex
 from agentkit.usage import replenish
 from agentkit.worker import auth_ok
@@ -98,7 +100,7 @@ class SeatAccount(unittest.TestCase):
 
     def tmux(self, *args, **kwargs):
         if args[0] == "respawn-pane":
-            self.commands.append(shlex.split(args[-1]))
+            self.commands.append(shlex.split(pane.resolved(args)[-1]))
             self.pane = "❯"
         return 0, ""
 

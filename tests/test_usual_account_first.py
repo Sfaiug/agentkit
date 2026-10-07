@@ -18,7 +18,9 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "tests"))
 from agentkit import config, orch, statusbar, usage, watch  # noqa: E402
+from fixtures import pane  # noqa: E402
 
 NAME = "fix-api"
 CONVERSATION = "d6fae368-678c-444e-8032-9c5c5338c84e"
@@ -92,7 +94,7 @@ class UsualAccountFirst(unittest.TestCase):
 
     def tmux(self, *args, **kwargs):
         if args[0] == "respawn-pane":
-            self.commands.append(shlex.split(args[-1]))
+            self.commands.append(shlex.split(pane.resolved(args)[-1]))
             self.pane = "❯"
         return 0, ""
 

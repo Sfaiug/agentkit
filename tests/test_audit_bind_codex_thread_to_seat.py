@@ -15,8 +15,10 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "tests"))
 from agentkit import config, menu, orch, statusbar, terminal, usage
 from agentkit.harness import codex as codex_plugin
+from fixtures import pane
 
 
 class Ownership(unittest.TestCase):
@@ -214,7 +216,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
             args, _ = self.resume("renamed")
             respawn = next(c for c in tmux.call_args_list if c.args[0] == "respawn-pane")
             self.assertEqual(respawn.kwargs["socket"], "agentkit-test")
-            self.assertIn("resume owned", respawn.args[-1])
+            self.assertIn("resume owned", pane.resolved(respawn.args)[-1])
         self.seats = []
         args, _ = self.resume("renamed")
         self.assertEqual(args[args.index("resume") + 1], "owned")
