@@ -226,12 +226,12 @@ class ChecksBoxed(unittest.TestCase):
             (place / ".ssh").mkdir()
             (place / ".ssh/id_fixture").write_text("fixture-key")
         for name in ("proof", "check", "sharded"):
-            with self.subTest(command=name), \
-                    patch.object(box.pwd, "getpwuid", return_value=SimpleNamespace(pw_dir=str(account))), \
+            with self.subTest(command=name), account_home(account), \
                     patch.dict(os.environ, {"HOME": str(home),
                                             "PATH": f"{home / 'bin'}:{os.environ['PATH']}"}):
                 command = self.command(
-                    "import subprocess; from pathlib import Path\n"
+                    "import os, pwd, subprocess; from pathlib import Path\n"
+                    f"assert pwd.getpwuid(os.getuid()).pw_dir == {str(account)!r}\n"
                     f"for place in map(Path, {[str(home), str(account)]!r}):\n"
                     " program = place / 'bin/ak-fixture-later'\n"
                     " program.write_text('#!/bin/sh\\nprintf check-only\\n')\n"
