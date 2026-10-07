@@ -5635,24 +5635,31 @@ def target_fails(lp, upstream, dw_log):
 
 
 def failing_blocks(text, cap=OUT_CAP):
-    """What a fixer reads of a failed check: its last `cap` bytes, as before, and ahead of them
-    every block above that end which says what failed.
+    """What a fixer reads of a failed check: its last `cap` characters, as before, and ahead of
+    them every block that begins above that end and says what failed.
 
     A suite run in pieces prints each piece's failures where that piece ends, so the end alone
     can hold none of a red piece printed earlier: a landing fixer handed the last 20 KB never
     saw the red file 32 KB before it.  A block is a line that names a failure
-    (`FAILURE_LINE`, at the start of the line) and the indented lines under it.  The end is
-    kept whole, so nothing the end alone showed is ever traded for a block.
+    (`FAILURE_LINE`, at the start of the line) and the indented lines under it, taken whole
+    even where the end begins inside it.  The end is kept whole too, so nothing the end alone
+    showed is ever traded for a block.
     """
     if len(text) <= cap:
         return text
-    blocks, block = [], None
-    for line in text[:-cap].splitlines():
+    above, blocks, block, at = len(text) - cap, [], None, 0
+    for line in text.splitlines(keepends=True):
+        began, at = at, at + len(line)
+        line = line.rstrip("\r\n")
         if FAILURE_LINE.match(line):
+            if began >= above:
+                break       # this block and every later one lie whole in the end
             block = [line]
             blocks.append(block)
         elif block is not None and (not line or line[:1].isspace()):
             block.append(line)
+        elif began >= above:
+            break
         else:
             block = None
     named = "\n".join("\n".join(block).rstrip() for block in blocks)

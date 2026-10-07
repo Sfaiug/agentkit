@@ -91,6 +91,19 @@ class LandingFixer(unittest.TestCase):
         self.assertIn(nested.rstrip(), read)
         self.assertIn(EARLY.rstrip(), read)
 
+    def test_a_block_the_end_begins_inside_is_read_whole(self):
+        """The end may begin mid-line, inside a failure's own header or under it: the block is
+        taken whole, never its first half above a heading and its second half below."""
+        header, under = EARLY.splitlines()
+        for inside in (len("FAIL  tests/test_acme_"), len(header) + 1 + 10):
+            with self.subTest(inside=inside):
+                tail = EARLY[inside:] + "z" * run.OUT_CAP
+                text = "PASS  tests/test_widget.py (0s)\n" + EARLY[:inside] + tail[:run.OUT_CAP]
+                self.assertEqual(text[-run.OUT_CAP:][:len(EARLY) - inside], EARLY[inside:])
+                read = run.failing_blocks(text)
+                self.assertIn(header + "\n" + under, read)
+                self.assertTrue(read.endswith(text[-run.OUT_CAP:]))
+
     def test_short_output_and_output_naming_no_failure_read_as_before(self):
         short = "PASS  tests/test_widget.py\n" + LATE
         self.assertIn(short, self.fixer_reads(short))
