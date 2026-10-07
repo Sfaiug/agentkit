@@ -13,7 +13,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -193,12 +192,12 @@ root, role = Path(sys.argv[1]), sys.argv[2]
 if role == "mount":
     subprocess.run(["mount", "--make-rprivate", "/"], check=True)
     subprocess.run(["ip", "link", "set", "lo", "up"], check=True)
-    subprocess.run(["ip", "link", "add", "internet", "type", "dummy"], check=True)
-    subprocess.run(["ip", "addr", "add", "192.0.2.1/24", "dev", "internet"], check=True)
-    subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
-    subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
+    if sys.argv[4] == "online":
+        subprocess.run(["ip", "link", "add", "internet", "type", "dummy"], check=True)
+        subprocess.run(["ip", "addr", "add", "192.0.2.1/24", "dev", "internet"], check=True)
+        subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
+        subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
     Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
-    Path("/proc/sys/net/ipv4/ping_group_range").write_text(f"{os.getgid()} {os.getgid()}")
     if sys.argv[3].startswith("dns"):
         resolver = root / "resolv.conf"
         address = "::1" if sys.argv[3] == "dns6" else "127.0.0.53"
@@ -215,11 +214,22 @@ if role == "mount":
             (bindir / binary.name).chmod(0o755)
     os.environ["PATH"] = str(bindir) + os.pathsep + os.environ["PATH"]
     os.execvp("setpriv", ["setpriv", "--inh-caps=-all", "--ambient-caps=-all",
-                         sys.executable, __file__, str(root), "host", sys.argv[3]])
+                         sys.executable, __file__, str(root), "host", *sys.argv[3:]])
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
 sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
 from fixtures.sandbox import account_home
+
+
+if role == "host" and sys.argv[3].startswith("stop-"):
+    from test_worker_box import stop_box
+    with socket.socket() as internet:
+        if sys.argv[4] == "online":
+            internet.bind(("192.0.2.1", 12345))
+            internet.listen()
+        stop_box(root, already_gone=sys.argv[3] == "stop-gone", online=sys.argv[4] == "online")
+    print(json.dumps("ok"))
+    sys.exit(0)
 
 
 def boxed(source, overlay=False):
@@ -271,7 +281,7 @@ def serve(server, stop, dns=False):
             break
 
 
-probe = r'''import json, os, socket, struct
+probe = r'''import json, os, socket
 from pathlib import Path
 assert [os.getuid(), os.getgid()] == json.loads(os.environ["IDENTITY"])
 Path("written").write_text("own")
@@ -287,10 +297,6 @@ seen = [reaches(socket.AF_INET, (host, int(os.environ["PORT"])))
         for host in ("192.0.2.1", "127.0.0.1", "10.0.2.2")]
 seen.append(reaches(socket.AF_UNIX, "\0acme"))
 seen.append(reaches(socket.AF_INET6, ("::1", int(os.environ["PORT"]))))
-with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP) as client:
-    client.settimeout(2)
-    client.sendto(struct.pack("!BBHHH", 8, 0, 0, 0, 1) + b"acme", ("192.0.2.1", 0))
-    seen.append(client.recv(100)[8:] == b"acme")
 print(json.dumps(seen))
 '''
 stop, threads = threading.Event(), []
@@ -327,10 +333,10 @@ try:
             os.environ["IDENTITY"] = json.dumps([os.getuid(), os.getgid()])
             seen = json.loads(subprocess.check_output([sys.executable, "-c", probe],
                                                      cwd=root, text=True, timeout=10))
-            assert seen == [True, True, False, True, True, True], seen
+            assert seen == [True, True, False, True, True], seen
             for overlay in (False, True):
                 seen = boxed(probe, overlay)
-                assert seen == [True, False, False, False, False, True], seen
+                assert seen == [True, False, False, False, False], seen
                 assert (root / "written").stat().st_uid == os.getuid()
                 assert (root / "written").stat().st_gid == os.getgid()
             # Stop the supervisor across pasta's PID namespace and let the command
@@ -603,6 +609,42 @@ else:
 '''
 
 
+def stop_box(root, *, already_gone, online):
+    for named in ((True,) if already_gone else (False, True)):
+        out = Path(tempfile.mkdtemp(dir=root))
+        with account_home(root), box.command(["sleep", "600"], dict(os.environ), out,
+                                            cwd=root, drain=True) as (cmd, env, spawn):
+            stop = spawn.pop("stop")
+            assert ("--unshare-net" not in cmd) == online, cmd
+            if named:
+                # Standard descriptors survive pasta: stdin holds bwrap mid-build,
+                # and its status on stderr says it has named the box's first process.
+                at = cmd.index("--info-fd")
+                cmd[at:at] = ["--block-fd", "0", "--json-status-fd", "2"]
+            proc = subprocess.Popen(cmd, env=env, cwd=root, stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    start_new_session=True, **spawn)
+            try:
+                if named:
+                    assert select.select([proc.stderr], [], [], 30)[0], "bwrap named no process"
+                    status = os.read(proc.stderr.fileno(), 4096)
+                    assert b'"child-pid"' in status, status
+                if already_gone:
+                    proc.kill()
+                    proc.wait()
+                stop(proc, 0)
+                proc.communicate(timeout=30)
+            finally:
+                # A failing proof must also end its own fixtures.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait(timeout=30)
+                for pipe in (proc.stdin, proc.stdout, proc.stderr):
+                    pipe.close()
+
+
 class WorkerBox(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-worker-box-", dir=REPO)
@@ -794,14 +836,14 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual(json.loads(text)["paths"], [""] * len(paths))
         self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * len(paths))
 
-    def network_fixture(self, mode):
-        work = self.root / mode
+    def network_fixture(self, mode, *, online=True):
+        work = self.root / (mode if online else mode + "-offline")
         work.mkdir()
         script = work / "network.py"
         script.write_text(NETWORK)
         result = subprocess.run(
             ["unshare", "--user", "--map-current-user", "--net", "--mount", "--keep-caps",
-             sys.executable, str(script), str(work), "mount", mode],
+             sys.executable, str(script), str(work), "mount", mode, "online" if online else "offline"],
             env={**os.environ, "BOX_REPO": str(REPO), "HOME": str(work)}, capture_output=True, text=True,
             timeout=120)
         self.assertEqual((result.returncode, result.stdout.strip()), (0, '"ok"'), result.stderr)
@@ -1156,49 +1198,14 @@ class WorkerBox(unittest.TestCase):
         self.assertFalse(self.alive())
 
     def test_a_box_stopped_while_it_is_still_being_built_leaves_nothing_running(self):
-        forever = "import time\nwhile True:\n print('on', flush=True)\n time.sleep(.05)"
-        self.out.mkdir()
-        with box.command([sys.executable, "-c", forever], dict(os.environ), self.out,
-                         cwd=self.root, drain=True) as (cmd, env, spawn):
-            stop = spawn.pop("stop")
-            proc = subprocess.Popen(cmd, env=env, cwd=self.root, stdout=subprocess.PIPE,
-                                    start_new_session=True, **spawn)
-            self.addCleanup(proc.stdout.close)
-            # No grace left, as when the ceiling is already past: the stop falls on a bwrap
-            # that has named the box's first process and not yet started the command in it.
-            stop(proc, 0)
-            ended = threading.Thread(target=proc.stdout.read, daemon=True)
-            ended.start()
-            ended.join(30)
-            self.assertFalse(ended.is_alive(), "the command outlived its box's stop")
+        for online in (False, True):
+            with self.subTest(online=online):
+                self.network_fixture("stop-building", online=online)
 
     def test_a_box_whose_launcher_is_already_gone_is_ended_by_its_stop(self):
-        self.out.mkdir()
-        held, hold = os.pipe()
-        named, name = os.pipe()
-        self.addCleanup(os.close, hold)
-        self.addCleanup(os.close, named)
-        with box.command(["sleep", "600"], dict(os.environ), self.out,
-                         cwd=self.root, drain=True) as (cmd, env, spawn):
-            stop = spawn.pop("stop")
-            # Bwrap holds the box's first process before the command, as a slow build does,
-            # and says on a pipe of the test's own when it has named that process.
-            at = cmd.index("--info-fd")
-            cmd[at:at] = ["--block-fd", str(held), "--json-status-fd", str(name)]
-            spawn["pass_fds"] += (held, name)
-            proc = subprocess.Popen(cmd, env=env, cwd=self.root, stdout=subprocess.PIPE,
-                                    start_new_session=True, **spawn)
-            self.addCleanup(proc.stdout.close)
-            os.close(held)
-            os.close(name)
-            self.assertTrue(select.select([named], [], [], 30)[0], "bwrap named no process")
-            proc.kill()
-            proc.wait()
-            stop(proc, 0)
-            ended = threading.Thread(target=proc.stdout.read, daemon=True)
-            ended.start()
-            ended.join(30)
-            self.assertFalse(ended.is_alive(), "the box outlived its stop")
+        for online in (False, True):
+            with self.subTest(online=online):
+                self.network_fixture("stop-gone", online=online)
 
     def test_launch_refuses_before_allocating_without_box_tools(self):
         which = shutil.which

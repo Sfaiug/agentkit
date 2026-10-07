@@ -372,12 +372,7 @@ def _network(cmd, env, out_dir=None, info=None):
     for version, address in hosts.items():
         prefix.extend(["--dns-forward", "10.0.2.3" if version == 4 else "fd00::3",
                        "--dns-host", address])
-    # Pasta's default ping group is root. Allow the account's gid before
-    # dropping capabilities, so ICMP echo works with the preserved identity.
-    prefix.extend([_host_binary("sh"), "-c",
-                   'printf "%s %s" "$1" "$1" > /proc/sys/net/ipv4/ping_group_range; '
-                   'shift; exec "$@"', "box", str(os.getgid()),
-                   setpriv, "--inh-caps=-all", "--ambient-caps=-all"])
+    prefix.extend([setpriv, "--inh-caps=-all", "--ambient-caps=-all"])
     # In an enclosing box, the host's pasta may be unable to start a command
     # (for example an AppArmor exec transition under no_new_privs).
     with subprocess.Popen([*prefix, "/usr/bin/true"], env=env,
@@ -493,16 +488,18 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                 except (FileNotFoundError, ProcessLookupError):
                     break
                 time.sleep(.01)
-        elif proc.poll() is None:
-            # Before bwrap publishes its witness, pasta's TERM handler destroys
-            # its nascent namespace. KILL would leave that child waiting for it.
-            proc.terminate()
         try:
             proc.wait(timeout=max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
-            proc.kill()
+            pass
         finally:
-            # However bwrap ended, by this stop or killed before it, PID 1 ends too.
+            # End pasta, bwrap and any unnamed box first. PID 1 leaves this group
+            # only after bwrap names it, so no unnamed box can appear after the kill.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            target = namespace()
             if target is not None:
                 _kill(target[0])
 
