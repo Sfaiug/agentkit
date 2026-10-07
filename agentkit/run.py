@@ -2900,6 +2900,131 @@ def unknown_front_lines(text):
             and line.partition(":")[0].strip() not in FRONT_KEYS]
 
 
+def needs_base_proof(lp):
+    """A run launched under the rule owes one until a check fails on base, as its record
+    says; one launched before it owes none -- a process change applies to the next launch.
+    A fix run's receipt says it proves its regression.sh instead (`regression_fails_before`),
+    a repair's that it is proven at landing, and a scratch run's record that it has no base."""
+    return lp.state.get("base_proof") == "owed"
+
+
+def own_checks(lp):
+    """What judges this change each round: the task's per-round checks as the gate runs them
+    -- `with_suite` has already moved any line that is the declared suite to landing -- less
+    a suite split into shards (`AK_SHARD`), which is the repository's, not the change's."""
+    return [cmd for cmd in lp.every if not gate.names_shard(cmd)]
+
+
+def fails_on_base(lp):
+    """Why no check of the task's own was shown to fail on the old code, or "" once one was:
+    a check that finishes failing on base with the branch's tests laid over, and passes on base
+    with every file the branch changed laid over, proves it (`base_proof` turns `proven`).
+
+    It never fails a round, by the owner's rule (7 Oct): ak proves the failing test wherever
+    it can and records why when it cannot, as no path tells every project's tests from its
+    code -- Go's testdata, Django's tests.py, Rust's tests inside a code file.  Each replay
+    runs alike -- one runner, the gate's environment, one order, the suite left out -- in a
+    checkout of its own made from git alone (`replay_checkout`), so only the branch's files
+    between them can turn a check: whatever else sets a replay apart, from the round's own
+    gate or from a real commit, sets both apart, and what one replay's checks write reaches
+    neither the other nor the run's checkout.  What goes over base is the branch's
+    test-shaped paths, never a file a check merely names, or a check reading the changed file
+    would pass on base too.  The replay with every change runs only once a check did not pass
+    on base, and a check finishes failing as a reviewer's proof does.  A proof is kept across
+    rounds and resumes.  Scratch runs have no base, and a PR review owes none: its own checks
+    are its plan's lines, which fail on the default branch when written.
+    """
+    cmds = own_checks(lp)
+    if not cmds:
+        return "the task has no check of its own that runs each round"
+    head = git(lp.wt, "rev-parse", "HEAD")
+    base = lp.base_sha
+    changed = [p for p in git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
+                              f"{base}...{head}").split("\0") if p]
+    tests = changed_test_paths(lp, head, named=False)
+    if len(tests) == len(changed):
+        return "the branch changes nothing but tests"
+
+    def replay(paths, log_name):
+        """Each check's exit as the gate's runner saw it, in order."""
+        log_path = lp.run_dir / log_name
+        with replay_checkout(lp, head, paths) as checkout:
+            marks = []
+            _, text = gate.run_done_when(cmds, checkout, log_path, set(), lp.done_when_limit,
+                                         lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
+                                         marks=marks)
+        laid = f", with {len(paths)} files of {head} laid over" if paths else ""
+        log_path.write_text(f"Commit: {base}{laid}\n\n{text}")
+        return marks + [None] * (len(cmds) - len(marks))      # none past a kill ran
+
+    lp.log(f"--- base proof: the task's own checks on {base[:12]}")
+    on_base = replay(tests, "base.log")
+    if all(code == 0 for code in on_base):
+        return (f"every check passes on base {base[:12]} with the branch's tests laid over: none "
+                "shows the change, or its test lives where ak does not look for one")
+    # the control: the same replay with the branch's changes, so only they turn a check
+    lp.log(f"--- base proof: the same checks with {head[:12]}'s changes")
+    on_head = replay(changed, "head.log")
+    # a check finishes failing as a reviewer's proof does (`hand_in.proof_failed`)
+    if any(after == 0 and before is not None and hand_in.proof_failed({"returncode": before})
+           for before, after in zip(on_base, on_head)):
+        lp.state["base_proof"] = "proven"
+        lp.save()
+        return ""
+    if any(after != 0 for after in on_head):
+        return ("a check fails in a checkout made from git alone even with the branch's changes: "
+                "it needs what git does not hold, such as an installed dependency")
+    unfinished = [command for command, code in zip(cmds, on_base) if code != 0]
+    return f"`{unfinished[0]}` did not finish on base {base[:12]}"
+
+
+def base_proof_line(state):
+    """What a run's result and PR say of its proof, or "" for a run that owes none."""
+    if state.get("base_proof") == "proven":
+        return "base proof: a check fails on the old code and passes with this change"
+    if state.get("base_proof") == "owed":
+        return f"base proof: none shown ({state.get('base_proof_note') or 'not tried yet'})"
+    return ""
+
+
+@contextmanager
+def replay_checkout(lp, head, paths):
+    """A checkout of its own for one replay of the base proof, made from git alone and removed
+    after with whatever its checks started: a clone sharing the run's objects, at base with
+    `paths` of `head` laid over, committed the same way for every replay (one author, base's
+    date, one message, no hooks or signature, no git author of the host's needed).  It has
+    its own config and refs, nothing the run's checkout holds outside git reaches it, and
+    nothing its checks write there reaches another replay or the run's checkout."""
+    with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
+        checkout = Path(tmp) / "checkout"
+        git(lp.wt, "clone", "--quiet", "--shared", "--no-checkout", str(lp.wt), str(checkout))
+        try:
+            git(checkout, "checkout", "--quiet", "--detach", lp.base_sha)
+            # what the branch deleted goes first, so a file or submodule it put where a
+            # folder was takes that place; the paths come from a file, as a branch can change
+            # more of them than one command line holds
+            deleted = set(git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
+                              "--diff-filter=D", f"{lp.base_sha}...{head}").split("\0"))
+            for part, command in (([p for p in paths if p in deleted],
+                                   ("rm", "--quiet", "-r", "--ignore-unmatch")),
+                                  ([p for p in paths if p not in deleted],
+                                   ("restore", f"--source={head}", "--staged", "--worktree"))):
+                if part:
+                    listed = Path(tmp) / "paths"
+                    listed.write_bytes(b"\0".join(os.fsencode(p) for p in part))
+                    git(checkout, *command, f"--pathspec-from-file={listed}",
+                        "--pathspec-file-nul", env={"GIT_LITERAL_PATHSPECS": "1"})
+            when = git(checkout, "show", "-s", "--format=%cI", "HEAD")
+            git(checkout, "-c", f"core.hooksPath={os.devnull}", "commit", "--quiet",
+                "--no-gpg-sign", "--allow-empty", "-m", f"files of {head} over {lp.base_sha}",
+                env={f"GIT_{who}_{what}": value for who in ("AUTHOR", "COMMITTER")
+                     for what, value in (("NAME", "agentkit"), ("EMAIL", "agentkit@localhost"),
+                                         ("DATE", when))})
+            yield checkout
+        finally:
+            worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=lp.log)
+
+
 def regression_fails_before(lp):
     """Require the run's regression to fail on base with only its changed checks overlaid.
 
@@ -2960,6 +3085,11 @@ def verify_work(lp, cmds=None):
         if failure:
             ok = False
             text += f"\n\n$ regression.sh must fail on base\n[exit 1]\n{failure}"
+    if ok and needs_base_proof(lp):
+        # recorded, never a failure: the owner's rule (7 Oct)
+        lp.state["base_proof_note"] = fails_on_base(lp) or None
+        lp.save()
+        text += "\n\n" + base_proof_line(lp.state)
     if lp.validation:
         text = (f"Commit: {lp.validation['head_sha']}\nTree: {lp.validation['tree_sha']}\n\n"
                 + text)
@@ -3352,8 +3482,15 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                     lists = state
                 receipt = {"followup": {"run": run_dir.name, "text": item,
                                         "place": followup_place(item)},
-                           **({"repair": key, "repair_tip": repair["sha"]} if repair else {}),
+                           # a repair's only check is the target's own, run at landing: its
+                           # before is the lander's run of it on the target tip, where it did
+                           # not pass, and no round has a check of its own to replay on base
+                           **({"repair": key, "repair_tip": repair["sha"],
+                               "base_proof": "at landing"} if repair else {}),
                            **({"split_suite": split["command"]} if split else {}),
+                           # a fix run is proven by its own regression.sh
+                           # (`regression_fails_before`), not by its checks on base
+                           **({} if repair or split else {"base_proof": "regression.sh"}),
                            "launched_session": session, "repo": str(repo),
                            **{role: list(lists[role]) for role in ("workers", "reviewers")
                               if isinstance(lists.get(role), list) and lists[role]},
@@ -3564,14 +3701,27 @@ def same_failure(lp, ok, dw_log, gate="every", compare=True):
                                 f"The checks that failed identically twice:\n\n{listed}")
 
 
-def changed_test_paths(lp, head="HEAD"):
+def changed_test_paths(lp, head="HEAD", named=True):
+    """The branch's changed tests: test-shaped paths, and with `named` every file a
+    done-when command names."""
     # Include removed paths too: renaming a test out of discovery must remain visible.
     changed = git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
                   f"{lp.base_sha}...{head}").split("\0")
     return [p for p in changed if p and (
-        any(part in ("tests", "test") for part in Path(p).parts[:-1])
-        or Path(p).name.startswith("test_") or Path(p).match("*_test.*")
-        or any(p in cmd for cmd in getattr(lp, "cmds", [])))]
+        any(part in TEST_DIRS for part in Path(p).parts[:-1]) or test_named(p)
+        or (named and any(p in cmd for cmd in getattr(lp, "cmds", []))))]
+
+
+def test_named(path):
+    return Path(path).name.startswith("test_") or any(Path(path).match(shape)
+                                                       for shape in TEST_NAMES)
+
+
+# Where tests live and what they are called, in the common languages' own conventions:
+# Python's tests/ and test_*.py, Go's *_test.go, Ruby's spec/ and *_spec.rb, JavaScript's
+# __tests__/, *.test.js and *.spec.js.
+TEST_DIRS = ("tests", "test", "spec", "specs", "__tests__")
+TEST_NAMES = ("*_test.*", "*_spec.*", "*.test.*", "*.spec.*")
 
 
 def changed_line(lp, row, head):
@@ -4727,6 +4877,8 @@ def pr_body(state):
              f"- rounds: {len(state['round_summaries'])} of {state['rounds']}",
              f"- executor: {state['executor']}, reviewer: {state['reviewer']}",
              f"- run: {state['run_id']}"]
+    if base_proof_line(state):
+        lines.append(f"- {base_proof_line(state)}")
     if state.get("followups"):
         lines += ["", "## Follow-ups", "",
                   *("- " + item.replace("\n", "\n  ") for item in state["followups"])]
@@ -6080,6 +6232,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                  "finished_at": None, "round_summaries": [], "findings": "",
                  "merge_method": method, "no_merge": bool(opts["--no-merge"]) or scratch,
                  "pr": None, "merged": False, "merge_note": None, "reported": False,
+                 # a scratch run has no base to prove anything on
+                 **({"base_proof": None} if scratch else {}),
                  "task_words": sized_words, "task_points": sized_points,
                  "task_checks": sized_checks})
         if from_branch:
@@ -6810,6 +6964,8 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
         parts += ["", state["blocked"], ""]
     parts += ["", "## Done-when", "```", "\n".join(result_done_when(cmds, state)), "```", ""]
     parts += [final_check_line(state, cmds), ""]
+    if base_proof_line(state):
+        parts += [base_proof_line(state), ""]
     # A model's summary need not repeat a stop; a fix started from this result
     # still needs the diagnostic the gate recorded before ending the children.
     try:
@@ -9069,7 +9225,12 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
                          "unattended": not session_at_launch and config.unattended(),
                          **run_record.process_owner(), "launch_opts": opts or {},
                          **groups,
-                         "review_pr": (opts or {}).get("--review-pr"), "reported": False})
+                         "review_pr": (opts or {}).get("--review-pr"), "reported": False,
+                         # launched under the rule: one of its checks must fail on base
+                         # (`fails_on_base`), unless its receipt holds the proof -- a repair's,
+                         # from the lander; a PR review's proof is its plan's lines
+                         "base_proof": None if (opts or {}).get("--review-pr")
+                                       else receipt.get("base_proof") or "owed"})
         if job_id is not None:
             state["job_id"] = job_id
         if task_file is not None:

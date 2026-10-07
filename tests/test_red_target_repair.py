@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_red_target as red
-from agentkit import config, run, watch
+from agentkit import config, run, task, watch, worker
 from agentkit import record
 from fixtures.landing import landing
 
@@ -64,6 +64,41 @@ class RedTargetRepair(unittest.TestCase):
         lp.state["launched_session"] = seat
         self.assertFalse(run.final_check(lp, "origin/main"))
         return record.read_state(run_dir)
+
+    def test_a_repair_is_proven_at_landing_and_passes_its_rounds_once_its_check_does(self):
+        # its only check runs at landing, where the lander saw it not pass on the target --
+        # failed, killed or never started -- so no round asks it for a check to replay on base
+        for kind, command in (("failed", "test -f repaired"),
+                              ("killed", "test -f repaired || kill -TERM $$"),
+                              ("never started", "test -f repaired || exit 127")):
+            with self.subTest(kind=kind):
+                root = self.root / kind.replace(" ", "-")
+                root.mkdir()
+                _, owner, self.wt = red.make_repos(root)
+                with patch.object(worker, "kill_marked"):
+                    self.red_run(f"waiting-{kind}", "seat", cmds=(command + "  # once",))
+                    name, opts = self.prepared[-1]
+                    directory = config.RUNS / name
+                    run.capture_launch(directory, opts, cfg=config.load())
+                    self.assertEqual(record.read_state(directory)["base_proof"], "at landing")
+                    _, body, _ = task.parse_task(directory / "task.md")
+                    checks = run.with_suite(task.done_when(body, directory / "task.md"),
+                                            self.wt, "main")
+                    base = run.git(self.wt, "rev-parse", "origin/main")
+                    (self.wt / "repaired").write_text("fixed\n")
+                    run.git(self.wt, "add", "repaired")
+                    run.git(self.wt, "commit", "-qm", "Repair target")
+                    state = record.read_state(directory)
+                    state.update(state="running", base="origin/main", base_sha=base,
+                                 branch="ak/fix-api", worktree=str(self.wt), scratch=False,
+                                 rounds=3, executor="opus", reviewer="astra", round_summaries=[])
+                    record.save_state(directory, state)
+                    (directory / "round-1").mkdir(exist_ok=True)
+                    lp = run.Loop(config.load(), directory, state, opts, self.logs.append,
+                                  self.wt, body, checks, body, [])
+                    lp.rnd = 1
+                    ok, text = run.verify_work(lp)
+                self.assertTrue(ok, text)
 
     def test_the_first_run_on_a_red_target_starts_one_repair_and_the_rest_wait_on_it(self):
         _, owner, self.wt = red.make_repos(self.root)

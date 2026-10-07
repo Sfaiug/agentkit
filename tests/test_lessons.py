@@ -98,6 +98,19 @@ class Lessons(unittest.TestCase):
             self.assertIn(FACT, body, role)
             self.assertNotIn(LESSON, body, role)
 
+    def test_a_run_queued_before_the_base_proof_rule_owes_none(self):
+        # a receipt written before the rule, started after it: its checks (`true`) stand
+        directory = config.RUNS / "queued-run"
+        directory.mkdir()
+        task = directory / "task.md"
+        task.write_text(f"---\nrepo: {self.repo}\nbase: main\nrounds: 1\n---\n{TASK}")
+        record.save_state(directory, {"run_id": directory.name, "state": "queued",
+                                      "slot_waiting": True, "repo": str(self.repo),
+                                      "scratch": False, "started_at": 1,
+                                      "launched_session": None, "task": str(task)})
+        state = run.loop(self.cfg, directory, task, self.opts, self.logs.append, None)
+        self.assertEqual((state["state"], state.get("base_proof")), ("pass", None), self.logs)
+
     def test_executor_reviewer_and_fixer_prompts_carry_agents_md_not_lessons(self):
         self.review_failures = 1
         self.launch()

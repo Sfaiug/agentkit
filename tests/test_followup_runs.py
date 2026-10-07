@@ -204,6 +204,7 @@ class FollowupRuns(unittest.TestCase):
             self.assertIn(item, (child / "task.md").read_text())
             self.assertIn("base: origin/main", (child / "task.md").read_text())
             self.assertEqual(receipt["followup"]["run"], directory.name)
+            self.assertEqual(receipt["base_proof"], "regression.sh")   # its own probe proves it
             self.assertIn(child.name, run.handback_line(state, directory, self.cfg))
         self.assertFalse((config.HOME / "followups").exists())
         self.start(directory, record.read_state(directory))

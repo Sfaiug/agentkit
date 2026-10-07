@@ -417,6 +417,8 @@ class ScratchRun(Fixture):
         self.assertTrue(run.review_pass(state, self.cfg))
         self.assertEqual(state["review"]["executor_provider"], "test")
         self.assertTrue(state["scratch"])
+        self.assertIsNone(state.get("base_proof"))     # no base: nothing to prove on
+        self.assertNotIn("base proof", (directory / "result.md").read_text())
         # the executor's own words came back through the adapter, and nothing else did
         asked = (directory / "round-1/executor/prompt.md").read_text()
         self.assertEqual((directory / "round-1/executor/final.md").read_text().strip(),
