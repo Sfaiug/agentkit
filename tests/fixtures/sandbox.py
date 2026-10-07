@@ -35,7 +35,7 @@ def in_account_home(argv, home, **kwargs):
         passwd.write(f"acme:x:{os.getuid()}:{os.getgid()}:Fixture:{home}:/bin/sh\n")
         passwd.flush()
         return subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/",
-                               "--dev", "/dev",
+                               "--dev", "/dev", "--proc", "/proc",
                                "--bind", str(REPO), str(REPO),
                                "--ro-bind", passwd.name, "/etc/passwd", "--", *argv], **kwargs)
 

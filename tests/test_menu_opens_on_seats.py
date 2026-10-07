@@ -24,6 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from agentkit import gate, host, config, gc, menu, notify, orch, run, status, terminal, usage, watch
 from agentkit import record
@@ -71,6 +72,7 @@ class Sandbox(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(account_home(self.root))
         # the same layout the subprocesses derive from $HOME, so a nested run lands in the
         # very ~/.agentkit/runs this process reads
         home = self.root / ".agentkit"
