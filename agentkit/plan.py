@@ -6,7 +6,7 @@ proves nothing, and one that never finishes there could never tick.  `--eye` is 
 the owner can judge; `ak plan tick <n>` ticks it on their word.  `ak plan check <n> '<cmd>'`
 puts another check in a line's place -- the seat's own test where a review follow-up came
 checked by the reviewer's probe -- when it fails on the commit the line's check was proven
-failing on, which the line names.  `ak plan` ticks each check line whose check now passes on
+failing on, which the line names (a line from before lines named one takes it unproven).  `ak plan` ticks each check line whose check now passes on
 its project's default branch, then lists the lines, numbered, and `ak notify done` runs every
 check again and waits for every line.  The plan is the seat's `plan-<seat>.md`, the
 file the menu's bar counts, and a line names its outcome, its check (or `your eye`), the
@@ -501,8 +501,9 @@ def numbered(text, number):
 def recheck(name, number, check):
     """Put `check` in place of plan line `number`'s check, the line open again until it
     passes.  It must fail where the line's check did: on the commit the line names -- the code
-    before the work, however long ago the work landed -- or, on a line from before lines named
-    one, on its project's default branch."""
+    before the work, however long ago the work landed.  A line from before lines named one
+    takes it unproven, as it reads: nothing recorded where its check failed, and a missing
+    proof never blocks (the owner, 7 Oct)."""
     check = one_command(check)
     with held(name) as current:
         text = lines(current)
@@ -510,14 +511,14 @@ def recheck(name, number, check):
     found = LINE.match(line)
     if not (found and found["check"]):
         raise config.Error("only a check line takes another check")
-    repo = place(name, found["project"])
-    if not repo:
-        raise config.Error(f"this host has no checkout of {found['project']}")
-    if not fails_on_main(repo, check, found["base"])[0]:
-        where = f"{found['base']}, the commit line {number} names" if found["base"] else \
-            f"{repo.name}'s default branch"
-        raise config.Error(f"this check already passes on {where}, so it proves nothing; write "
-                           "one that fails until the work is done")
+    if found["base"]:
+        repo = place(name, found["project"])
+        if not repo:
+            raise config.Error(f"this host has no checkout of {found['project']}")
+        if not fails_on_main(repo, check, found["base"])[0]:
+            raise config.Error(f"this check already passes on {found['base']}, the commit line "
+                               f"{number} names, so it proves nothing; write one that fails "
+                               "until the work is done")
     # the line as it reads, open and with only its check changed
     new = "- [ ] " + line[6:found.start("check")] + check + undone(line, found)[found.end("check"):]
     with held(name) as current:

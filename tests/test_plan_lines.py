@@ -348,15 +348,16 @@ class PlanLines(Sandbox):
             plan.main(["check", "1", "test `true`"])
         self.assertEqual(self.plan_lines()[0], line)
 
-    def test_a_line_naming_no_commit_takes_a_check_failing_on_the_default_branch(self):
+    def test_a_line_naming_no_commit_takes_its_new_check_unproven(self):
+        # written before lines named one: nothing says where its check failed, and the fix's
+        # own test already passes on main
         path = config.plan_path("fix-api")
-        path.write_text(f"- [ ] the feature exists · check: `false` · {self.project} · "
-                        "written 2026-10-01 09:00\n")
-        with self.assertRaisesRegex(config.Error, "already passes on acme's default branch"):
-            plan.main(["check", "1", "test -f base.txt"])
-        self.assertEqual(self.ak("check", "1", "test -f feature.txt").strip(),
-                         f"- [ ] the feature exists · check: `test -f feature.txt` · "
-                         f"{self.project} · written 2026-10-01 09:00")
+        path.write_text(f"- [x] the base exists · check: `false` · {self.project} · "
+                        "written 2026-10-01 09:00 · done 0123456789ab claimed\n")
+        self.assertEqual(self.ak("check", "1", "test -f base.txt").strip(),
+                         f"- [ ] the base exists · check: `test -f base.txt` · {self.project} · "
+                         "written 2026-10-01 09:00")
+        self.assertIn("1  - [x] the base exists", self.listed())
 
     def test_a_line_changed_while_its_new_check_ran_is_left_as_it_is(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
