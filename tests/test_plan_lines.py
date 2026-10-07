@@ -348,6 +348,31 @@ class PlanLines(Sandbox):
         with self.assertRaisesRegex(config.Error, "without backticks"):
             plan.main(["check", "1", "test `true`"])
         self.assertEqual(self.plan_lines()[0], line)
+        config.plan_path("fix-api").write_text(re.sub(r"written \S+ \S+", "written 2026-13-45 99:99",
+                                                      line) + "\n")
+        with self.assertRaisesRegex(config.Error, "2026-13-45 99:99 is no time a line was written at"):
+            plan.main(["check", "1", "sh feature_test.sh"])
+
+    def test_the_written_minute_is_read_in_the_zone_ak_wrote_it_in(self):
+        # ak stamps the line in its own zone (UTC-12); the project's env file, which every
+        # check gets, gives its tests another (UTC+14)
+        with patch.dict(os.environ, {"TZ": "Etc/GMT+12"}):
+            time.tzset()
+            self.addCleanup(time.tzset)
+            config.ENV.mkdir(parents=True, exist_ok=True)
+            (config.ENV / "acme.env").write_text("TZ=Etc/GMT-14\n")
+            self.git("checkout", "-q", "main")
+            (self.repo / "ready.txt").write_text("x\n")
+            self.git("add", ".")
+            an_hour_ago = int(time.mktime(time.localtime())) - 3600
+            with patch.dict(os.environ, {"GIT_COMMITTER_DATE": f"@{an_hour_ago} +0000"}):
+                self.git("commit", "-q", "-m", "ready lands")
+            self.git("push", "-q", "origin", "main")
+            self.git("checkout", "-q", "work")
+            self.ak("add", "the feature exists", "--check", "test -f feature.txt")
+            # ready.txt was on main an hour before the line was written: it proves nothing
+            with self.assertRaisesRegex(config.Error, "already passed"):
+                plan.main(["check", "1", "test -f ready.txt"])
 
     def test_a_line_changed_while_its_new_check_ran_is_left_as_it_is(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")

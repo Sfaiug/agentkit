@@ -241,12 +241,17 @@ def verifying(name):
 def default_branch(repo, written=None):
     """(its commit as `<sha12> <subject>`, the environment a check runs in, `checkout`): the
     project's current default branch, fetched first -- or, with `written` (a line's
-    `%Y-%m-%d %H:%M`), its last commit by the end of that minute.  `checkout()` is a clean
+    `%Y-%m-%d %H:%M`), its last commit by the end of that minute in ak's own zone, the one
+    `add` stamped it in: no zone a check's env carries moves it.  `checkout()` is a clean
     checkout of that commit made for one check and removed after it, so nothing one check writes or
     moves -- files, HEAD, a submodule -- is there for the next.  A check gets the project's
     env file (`config.repo_env`), as a run's checks do: what git does not hold, such as the
     project's interpreter, it names there (ATLAS's `ATLAS_PYTHON`)."""
     env = {**git_env(), **config.repo_env(repo)}
+    try:
+        until = written and int(time.mktime(time.strptime(written, "%Y-%m-%d %H:%M"))) + 59
+    except (ValueError, OverflowError):
+        raise config.Error(f"{written} is no time a line was written at") from None
 
     def git(*args, cwd=repo):
         try:
@@ -264,7 +269,7 @@ def default_branch(repo, written=None):
     base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
     sha = git("rev-parse", "--verify", "--quiet", f"{base}^{{commit}}")
     if written:
-        sha = git("rev-list", "-1", "--first-parent", f"--before={written}:59", sha)
+        sha = git("rev-list", "-1", "--first-parent", f"--before=@{until}", sha)
         if not sha:
             raise config.Error(f"{repo.name}'s default branch has no commit from {written}")
     commit = git("log", "-1", "--format=%h %s", "--abbrev=12", sha)
