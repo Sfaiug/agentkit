@@ -17,6 +17,7 @@ from unittest.mock import Mock, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, history, orch, record, run, watch
+from agentkit.told import NOTICE
 
 NOW = 2000000
 PR = "https://github.com/acme/widget/pull/7"
@@ -122,7 +123,7 @@ class HealthAfterMerge(unittest.TestCase):
         st = record.read_state(directory)
         self.assertEqual((st["live_at"], st["finished_at"]), (NOW, NOW - 600))
         self.assertEqual(history.get("run-a")["live_at"], NOW)
-        self.assertEqual(self.lines, [(SEAT, f"run run-a is live: {PR}.")])
+        self.assertEqual(self.lines, [(SEAT, f"{NOTICE}run run-a is live: {PR}.")])
         self.tick(now=NOW + 60)
         self.assertEqual((self.probes.call_count, len(self.lines)), (1, 1))
         self.assertEqual(record.read_state(directory)["live_at"], NOW)
@@ -141,7 +142,7 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual((self.repo / "live-proof").read_text().strip(), sha)
         self.assertEqual(record.read_state(directory)["live_at"], NOW)
         self.assertEqual(history.get("run-a")["live_at"], NOW)
-        self.assertEqual(self.lines, [(SEAT, f"run run-a is live: {PR}.")])
+        self.assertEqual(self.lines, [(SEAT, f"{NOTICE}run run-a is live: {PR}.")])
         self.assertEqual(self.git("rev-parse", "HEAD"), head)
         self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
         self.assertIn(f"repos/acme/widget/contents/AGENTS.md?ref={sha}", self.api.call_args.args)

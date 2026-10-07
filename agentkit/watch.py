@@ -46,6 +46,7 @@ from . import (browser, command_help, config, gc, host, notify, orch, statusbar,
                worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
+from .told import NOTICE
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
@@ -5478,7 +5479,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
     if not dry_run:
         history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
     if not st.get("live_notified"):
-        line = f"run {run_dir.name} is live: {pr_url}."
+        line = f"{NOTICE}run {run_dir.name} is live: {pr_url}."
         if dry_run:
             log(f"would tell its launching seat: {line}")
             return "passed", None, None

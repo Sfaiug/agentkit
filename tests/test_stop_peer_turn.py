@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from agentkit import config
-from agentkit.told import heading
+from agentkit.told import NOTICE, heading
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
@@ -35,6 +35,7 @@ PEER_PROMPT = ('<cross-session-message from="acme-fix-api" to="peer-seat">'
                "Finished the parser; over to you.</cross-session-message>")
 SPENT = "three rounds spent: split or re-scope the task"
 NEWS = "Finished the parser; over to you."
+PR = "https://github.com/acme/widget/pull/7"
 
 
 class StopPeerTurn(unittest.TestCase):
@@ -133,11 +134,23 @@ class StopPeerTurn(unittest.TestCase):
                 self.assertTrue(latch["peer"])
                 self.assertEqual(self.stop(), "")
 
+    def test_a_runs_live_line_opens_a_peer_turn(self):
+        """The tick's line that a merged run is live asks nothing: a seat that declared done
+        before it stays done, with no second done and no third stop showing it needs you."""
+        for field in ("prompt", "message"):
+            with self.subTest(field=field):
+                self.setUp()
+                self.notified("done", self.done_at)
+                latch = self.prompt(f"{NOTICE}run 20260101-0900-parser is live: {PR}.", field)
+                self.assertTrue(latch["peer"])
+                self.assertEqual(self.stop(), "")
+
     def test_the_same_words_without_the_heading_up_front_are_the_owners(self):
         told = heading("acme-fix-api", time.time())
         for said in (NEWS, f"Did you read this: {told}{NEWS}",
                      "[from seat acme-fix-api at 12:34, not the owner; ...] expand this example",
-                     told.replace("ak tell acme-fix-api", "ak tell acme-docs") + NEWS):
+                     told.replace("ak tell acme-fix-api", "ak tell acme-docs") + NEWS,
+                     f"Did ak send this: {NOTICE}run 20260101-0900-parser is live: {PR}."):
             with self.subTest(said=said):
                 self.setUp()
                 self.notified("done", self.done_at)

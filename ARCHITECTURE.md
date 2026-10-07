@@ -73,8 +73,9 @@
   receiver's `tell` seat file under the seat's own lock, typed only by the tick through
   `watch.type_at_prompt`, its receipt naming `seat:<sender>`, or `ak` for ak's own line
   (`queue`), ak's own never waiting twice. For bin/ak, retire and the tick.
-- `told.py`: the heading of an `ak tell` line, the one home its words have: tell.py writes it,
-  hooks/seat-state.sh knows a prompt by it. Imports nothing of agentkit, for the hook's speed.
+- `told.py`: the heading of an `ak tell` line and of ak's notice that asks nothing, the one home
+  their words have: tell.py and the tick's live line write them, hooks/seat-state.sh knows a
+  prompt by them. Imports nothing of agentkit, for the hook's speed.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
