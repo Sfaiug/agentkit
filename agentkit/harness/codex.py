@@ -37,6 +37,13 @@ BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---
 END = "# --- end agentkit browser bridge ---"
 
 
+def seat_conversations(remote):
+    """Where the seat of that remote id keeps its conversations: under the usual ~/.codex, where
+    adapters/codex.sh keeps every login's, so the place is the same whichever login the seat
+    runs on, and stays after the seat's home is removed."""
+    return Path.home() / ".codex" / "agentkit-seats" / remote
+
+
 def path_for(record):
     token = record.get("codex_launch")
     if isinstance(token, str) and re.fullmatch(r"[0-9a-f]{32}", token):

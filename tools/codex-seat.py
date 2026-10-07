@@ -24,10 +24,9 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config, notify
-from agentkit.harness.codex import main
+from agentkit.harness.codex import main, seat_conversations
 
 
-SEATS = "agentkit-seats"         # under ~/.codex: each seat's conversations, by its remote id
 CONVERSATIONS = ("sessions", "archived_sessions")
 
 
@@ -43,11 +42,11 @@ def seat_home(receipt):
     # lets a second seat take the first seat's remote connection. A new database
     # imports every conversation under its home's sessions and archived_sessions
     # before the server listens (3,500 kept a seat blank for a minute), so those are
-    # the seat's own, in a directory that outlives its home: under the usual ~/.codex,
-    # where every login's conversations are (adapters/codex.sh `home`), whichever login
-    # it runs on. A home keeps the links it has, made before or on another login. The
-    # login, config, extensions and thread names stay shared.
-    own = Path.home() / ".codex" / SEATS / data["remote"]
+    # the seat's own, in a directory that outlives its home and is the same whichever
+    # login it runs on (`seat_conversations`). A home keeps the links it has, made
+    # before or on another login. The login, config, extensions and thread names stay
+    # shared.
+    own = seat_conversations(data["remote"])
     for name in CONVERSATIONS:
         if not (home / name).is_symlink() and not (home / name).exists():
             (own / name).mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -55,7 +54,8 @@ def seat_home(receipt):
     names = {p.name for p in source.iterdir()} if source.exists() else set()
     names.update(("auth.json", "config.toml", "session_index.jsonl"))
     for name in names:
-        if (name in ("installation_id", "app-server-control", "tmp", SEATS, *CONVERSATIONS)
+        if (name in ("installation_id", "app-server-control", "tmp", own.parent.name,
+                     *CONVERSATIONS)
                 or ".sqlite" in name):
             continue
         target = home / name
