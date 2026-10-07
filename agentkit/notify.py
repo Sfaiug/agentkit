@@ -394,6 +394,11 @@ def name_lock(name):
 def record(session, kind, text, **extra):
     """Remember the last thing a session said, so the menu can show it as the session's state."""
     config.ensure_dirs()
+    # A question changes the turn's word, not the work a pending completion covers.
+    if kind == "needs" and "completion" not in extra:
+        previous = last(session, include_seen=True) or {}
+        if previous.get("completion"):
+            extra["completion"] = previous["completion"]
     path = config.notify_path(session)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"session": session, "kind": kind, "text": text,
@@ -1006,30 +1011,13 @@ def _done_events(session):
             continue
 
 
-def _adopt_completion(session, card, completion):
-    """An already sent legacy episode keeps its latch when work gains an identity.
-
-    Persist the identity on its old receipt too, so losing the episode file cannot
-    reannounce it. A receipt written before an interrupted card write wins on retry.
-    """
-    with outbox_lock():
-        events = [event for event in _done_events(session)
-                  if event.get("episode") == card.get("episode")]
-        completed = next((event["completion"] for event in events if event.get("completion")),
-                         completion)
-        for event in events:
-            if not event.get("completion") and event.get("id"):
-                _write_event({**event, "completion": completed})
-        card["completed"] = completed
-        _card_write(session, card)
-
-
 def _carded(session, declared):
     """Was a done card already made for that declaration, by this version or one before it?
 
     A completion belongs to its checked work, not the text of a later handback or
-    the screen episode. Older declarations without that identity keep their text/time
-    comparison. Rename pointers let the outbox keep the name each event was made under.
+    the screen episode. Receipts from before identities keep their text/time comparison;
+    their original work cannot be reconstructed from a plan that has since changed.
+    Rename pointers let the outbox keep the name each event was made under.
     """
     stamp = declared.get("time")
     if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
@@ -1037,7 +1025,7 @@ def _carded(session, declared):
     for event in _done_events(session):
         try:
             same = (event.get("completion") == declared["completion"]
-                    if declared.get("completion") else
+                    if event.get("completion") and declared.get("completion") else
                     event.get("text") == declared["text"] and event.get("created_at", 0) >= stamp)
             if same:
                 return True
@@ -1162,11 +1150,8 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             since = since if isinstance(since, (int, float)) and math.isfinite(since) else at
             word = answer["word"]
             completion = declared.get("completion") if declared and declared["kind"] == "done" else None
-            if (word == "done" and completion and card.get("word") == "done"
-                    and card.get("sent") and not card.get("completed")):
-                _adopt_completion(name, card, completion)
             if card.get("word") != word or (
-                    word == "done" and completion and card.get("sent")
+                    word == "done" and completion and card.get("completed") and card.get("sent")
                     and card.get("completed") != completion):
                 pending = card.get("open_needs", (last(name, include_seen=True) or {}).get("open_needs", []))
                 card = {"word": word, "since": since, "began": since,

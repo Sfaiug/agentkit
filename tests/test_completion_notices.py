@@ -256,25 +256,62 @@ class CompletionNotices(Sandbox):
         self.declare('Internal handback while the transcript is unavailable')
         self.assertEqual(len(self.posted()), 1)
 
-    def test_a_legacy_sent_completion_adopts_identity_without_another_card(self):
+    def test_a_legacy_sent_completion_keeps_its_existing_latch(self):
         self.checked('API shipped')
         self.declare()
-        paths = [config.card_path(self.name), config.notify_path(self.name),
-                 *notify.outbox().glob('*.json')]
-        for path in paths:
+        self.legacy()
+        self.now += 100
+        self.declare('The API remains shipped after upgrade')
+        self.assertEqual(len(self.posted()), 1)
+
+    def legacy(self):
+        for path in [config.card_path(self.name), config.notify_path(self.name),
+                     *notify.outbox().glob('*.json')]:
             old = json.loads(path.read_text())
             old.pop('completion', None)
             old.pop('completed', None)
             path.write_text(json.dumps(old))
+
+    def test_legacy_turns_keep_the_old_rule_until_a_new_receipt_has_an_identity(self):
+        self.checked('API shipped')
+        self.declare()
+        self.legacy()
+        self.internal_turn()
+        self.declare('Late run handback after upgrade')
+        self.assertEqual(len(self.posted()), 2)  # the legacy receipt keeps main's rule
+        self.internal_turn()
+        self.declare('Another handback after the new identified receipt')
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_new_checked_work_never_relabels_the_legacy_jobs_receipt(self):
+        self.checked('API shipped')
+        self.declare()
+        self.legacy()
         self.now += 100
-        self.declare('The API remains shipped after upgrade')
+        self.checked('API shipped', 'Export shipped')
+        self.declare('Export shipped')
+        self.assertEqual(len(self.posted()), 1)  # the standing legacy card keeps main's latch
+        self.internal_turn()
+        self.declare('Export shipped after the next working episode')
+        self.assertEqual(len(self.posted()), 2)
+        self.internal_turn()
+        self.declare('Late handback confirms the export')
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_a_new_owner_request_never_relabels_the_legacy_jobs_receipt(self):
+        path = self.owner_transcript()
+        self.append_owner(path, self.now - 1, 'Build the API')
+        self.declare()
+        self.legacy()
+        self.now += 100
+        self.append_owner(path, self.now - 1, 'Build the export')
+        self.declare('Export shipped')
         self.assertEqual(len(self.posted()), 1)
         self.internal_turn()
-        config.card_path(self.name).unlink()
-        self.declare('Another handback after losing the episode file')
-        self.assertEqual(len(self.posted()), 1)
-        self.checked('API shipped', 'Export shipped')
-        self.declare('A new job after the legacy card adopted its identity')
+        self.declare('Export shipped after the next working episode')
+        self.assertEqual(len(self.posted()), 2)
+        self.internal_turn()
+        self.declare('Late handback confirms the export')
         self.assertEqual(len(self.posted()), 2)
 
     def test_a_missing_owner_source_preserves_a_newer_pending_completion(self):
@@ -293,6 +330,30 @@ class CompletionNotices(Sandbox):
         path.unlink()
         self.now += 100
         self.declare('Internal handback while the transcript is unavailable')
+        state.update(state='pass', verdict='PASS', reported=True, finished_at=self.now + 1)
+        (pending / 'run.json').write_text(json.dumps(state))
+        self.now += 100
+        self.assertEqual(notify.transition(self.name), 0)
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_a_question_preserves_new_pending_work_when_owner_input_disappears(self):
+        path = self.owner_transcript()
+        self.append_owner(path, 20, 'Build the API')
+        self.declare()
+        self.now += 100
+        self.append_owner(path, 30, 'Build the export')
+        pending = config.RUNS / 'acme-run'
+        pending.mkdir()
+        state = {'run_id': pending.name, 'state': 'running', 'launched_session': self.name,
+                 'started_at': self.now, 'pid': 0}
+        (pending / 'run.json').write_text(json.dumps(state))
+        self.declare('Export ready pending its run')
+        self.assertEqual(len(self.posted()), 1)
+        self.now += 100
+        self.assertEqual(notify.shaped('needs', 'Which export format?', session=self.name), 0)
+        path.unlink()
+        self.now += 100
+        self.declare('Question settled, export ready')
         state.update(state='pass', verdict='PASS', reported=True, finished_at=self.now + 1)
         (pending / 'run.json').write_text(json.dumps(state))
         self.now += 100
