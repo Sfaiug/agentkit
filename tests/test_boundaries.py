@@ -124,6 +124,14 @@ RULES = [
      "names": r"session\.renamed",
      "home": ("agentkit/config.py",),
      "max": 1},
+    # The recorded ending of a turn has one decider. The native hook and the tick
+    # currently repeat the parked-work and wait precedence; each copy moves to stop.py.
+    {"name": "recorded turn ending",
+     "flags": (),
+     "pattern": r"^def recorded_ending\(|^def (waiting|parked)\(seat|"
+                r"if not (parked|undecided) and",
+     "home": ("agentkit/stop.py",),
+     "max": 6},
     # A task file's format is read in one module: a pattern for its front-matter fence
     # (`^---\n`) or its `## Done when` heading is a second reader to keep in step.  A task
     # written out (`## Done when\n```bash`) is no reader, and `FRONT` reads AGENTS.md's front

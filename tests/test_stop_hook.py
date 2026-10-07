@@ -178,6 +178,21 @@ class StopHook(unittest.TestCase):
         self.notified("done", self.turn - 600)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
+    def test_a_seen_current_done_keeps_the_native_stop_policy(self):
+        self.notified("done", self.turn + 1)
+        path = self.state / f"notify-{SEAT}.json"
+        note = json.loads(path.read_text())
+        path.write_text(json.dumps({**note, "seen": True}) + "\n")
+        self.assertEqual(self.stop(), "")
+
+    def test_a_boolean_run_stamp_is_not_a_new_launch(self):
+        for stamp in (True, False, "later", None):
+            with self.subTest(stamp=stamp):
+                self.setUp()
+                self.run_json("finished", state="done", started_at=stamp, queued_at=stamp,
+                              finished_at=self.turn - 1)
+                self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
     def test_a_run_launched_during_the_turn_allows_the_stop(self):
         self.run_json("finished", state="done", started_at=self.turn + 5,
                       finished_at=self.turn + 6)
