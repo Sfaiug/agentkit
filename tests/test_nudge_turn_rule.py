@@ -235,6 +235,7 @@ class NudgeTurnRule(Sandbox):
                         self.stopped()
                         self.assertEqual(self.tick(), [])
                     notice = notify.last(SEAT)
+                    self.assertIsNotNone(notice, "the stop has no recorded question")
                     self.assertEqual(notice["kind"], "needs")
                     self.assertIn("cannot continue", notice["text"])
                     self.stopped()
