@@ -66,6 +66,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A screen-reading change reads only the rows the code it replaces read: every reach further up (a whole-pane read, a tail extended to a box) met an older composer, echo or box a reviewer could place there (#507, nine rounds).
 - When each review round finds one more state, race or recovery path, stop patching paths: delete the state or change the design so fewer paths must be right (switch retirement, #547 to #586).
 - A screen-reading fix is proven on a pane captured from a real, renamed seat, not only a hand-drawn fixture: Claude draws the seat's name into the rule under a question's footer, which #591's fixture lacked (#609).
+- Try a seat end to end only with HOME and AGENTKIT_TMUX_SOCKET both sandboxed: a seat record in the real ~/.agentkit is revived by the tick onto ak's own server and reads needs you to the owner.
 - A replay that compares two revisions runs each in a clone made from git alone, and compares only the checks the second one reproduces: a shared checkout passed one replay's files to the next, a staged overlay or a commit message set one side apart, and copying the checkout's untracked files brought sockets, links back into it and a copy of the copy (#506, over twenty rounds).
 
 ## Owner rules
