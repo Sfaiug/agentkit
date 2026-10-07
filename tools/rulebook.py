@@ -10,11 +10,12 @@ launch asked for them, at launch, and no other session anybody ever runs.
 
 Usage: rulebook.py <session>
 
-Writes ~/.agentkit/state/rulebook-<session>.md -- under $AGENTKIT_RULEBOOK_DIR instead, for a
-dry run -- and prints its path; the adapter's `interactive` command line hands that path to its
-harness by whatever means that harness has.
+Prints the path of ~/.agentkit/state/rulebook-<session>.md -- under $AGENTKIT_RULEBOOK_DIR
+instead, for a dry run -- which the adapter's `interactive` command line hands to its harness by
+whatever means that harness has.  A launch has written the file before it asks its adapter
+(`orch.command`) and names it in $AGENTKIT_RULEBOOK, which the adapter takes instead of running
+this; an adapter run on its own has no such file, and this writes it.
 """
-import os
 from pathlib import Path
 import sys
 
@@ -23,30 +24,7 @@ from agentkit import config, orch
 
 
 text = config.rulebook_text
-
-
-def write(session):
-    """That text, under the name of the session it is for.  Its path.
-
-    A launch fetches no project that has been fetched: it reads the rules as last fetched,
-    which is what every open seat has, and the tick's fetch brings a later merge to both, named
-    by the seat's next prompt.  Only a project nothing has fetched yet is fetched first, so its
-    first seat opens with its rules.  A dry run fetches nothing.
-    """
-    repo = os.environ.get(config.SEAT_REPO_ENV)
-    if repo is None:
-        repo = config.session_records().get(session, {}).get("repo") or ""
-    path = config.rulebook_path(session)
-    if os.environ.get(config.RULEBOOK_DIR_ENV):
-        path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
-    elif repo and not orch.fetched(Path(repo)):
-        try:
-            orch.fetch_project(Path(repo))
-        except config.Error:
-            pass
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(config.seat_rulebook(session, repo))
-    return path
+write = orch.write_rulebook
 
 
 def main(argv):
@@ -60,7 +38,7 @@ def main(argv):
 if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:]))
-    except OSError as exc:
+    except config.Error as exc:
         # the adapter that asked for it refuses the launch on this: a session is opened with
         # its rules or not at all
         sys.exit(f"rulebook: {exc}")

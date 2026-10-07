@@ -320,7 +320,7 @@ ask again, and a renewed grok key still refused is `no login` until grok holds a
 Claude's `auth` and `usage` first have Claude Code renew a lapsed seat login that holds a refresh token, one login at a
 time, with its cheapest turn (`haiku`, one word, no tools, no saved conversation); only a failed renewal says `run /login`.
 
-`interactive` is where the rulebook goes: `python3 tools/rulebook.py "$AGENTKIT_SESSION"` writes it and prints its path,
+`interactive` is where the rulebook goes: a launch has written the file already, in its own process, and names it in `$AGENTKIT_RULEBOOK`; without one, `python3 tools/rulebook.py "$AGENTKIT_SESSION"` writes it and prints its path (`rb=${AGENTKIT_RULEBOOK:-$(python3 …)}`),
 and the command line hands it to the harness, adding no instructions of its own, so an orchestrator behaves one way
 whatever runs it. Anything else the launch writes goes beside that path, so a dry run's is thrown away with it. A
 variable the seat's launch sets goes under `[launch] seat_env`, and the core drops it from child environments. What the

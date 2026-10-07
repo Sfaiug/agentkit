@@ -133,7 +133,7 @@ interactive)
   # to a custom agent either way, but one whose front matter names no tools never ran a command
   # in six tries ("I do not have access to a bash/shell execution tool"), and an orchestrator
   # that cannot run `ak` orchestrates nothing; naming it, every try did.
-  rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
+  rb=${AGENTKIT_RULEBOOK:-$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}")} || {
     echo "antigravity.sh interactive: no rulebook for this seat" >&2; exit 2; }
   state=$(dirname -- "$rb")
   for old in "$state"/antigravity/rulebook-*/; do
