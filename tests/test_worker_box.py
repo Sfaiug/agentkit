@@ -221,7 +221,7 @@ from fixtures.sandbox import account_home
 
 def boxed(source, overlay=False):
     out = Path(tempfile.mkdtemp(dir=root))
-    if sys.argv[3].startswith("dns"):
+    if role == "host" and sys.argv[3].startswith("dns"):
         source = ("import os; assert os.readlink('/proc/self/ns/net') != "
                   + repr(os.readlink("/proc/self/ns/net")) + "; " + source)
     with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
