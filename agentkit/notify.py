@@ -397,6 +397,11 @@ def name_lock(name):
 def record(session, kind, text, **extra):
     """Remember the last thing a session said, so the menu can show it as the session's state."""
     config.ensure_dirs()
+    # A question changes the turn's word, not the work a pending completion covers.
+    if kind == "needs" and "completion" not in extra:
+        previous = last(session, include_seen=True) or {}
+        if previous.get("completion"):
+            extra["completion"] = previous["completion"]
     path = config.notify_path(session)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"session": session, "kind": kind, "text": text,
@@ -957,8 +962,12 @@ def _send_card(session, kind, card, answer):
                      "payload": payload, "message": f"{TITLES[kind]} · {session}: {text}",
                      "created_at": time.time(), "sink": sink() is not None,
                      "status": "pending", "attempts": 0, "next_attempt": 0}
+            if kind == "done" and previous and previous.get("completion"):
+                event["completion"] = previous["completion"]
             _write_event(event)
         card["sent"] = True
+        if kind == "done" and event.get("completion"):
+            card["completed"] = event["completion"]
         _card_write(session, card)
         if fresh:
             terminal_notice(session, f"{TITLES[kind]} · {session}: {text}")
@@ -993,28 +1002,38 @@ def _went_at(name):
     return math.inf
 
 
-def _carded(session, declared):
-    """Was a done card already made for that declaration, by this version or one before it?
-
-    The outbox keeps every card it was handed, keyed however the version that queued it
-    keyed them, and each carries its seat, the declaration's text and when it was made: one
-    for this seat -- or the name it had -- with the same text, made no earlier than the
-    declaration, is this ending's.  So a word coming back to done is not a second ending,
-    whichever episodes it went through and whichever version saw them.
-    """
-    stamp = declared.get("time")
-    if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
-        return False
+def _done_events(session):
+    """Recorded completions of this seat, including its earlier names."""
     for path in outbox().glob("*.json"):
         try:
             event = json.loads(path.read_text())
-            if (event.get("kind") == "done" and event.get("text") == declared["text"]
-                    and event.get("created_at", 0) >= stamp and event.get("session")
+            if (event.get("kind") == "done" and event.get("session")
                     and config.resolve_session(event["session"]) == session):
-                return True
+                yield event
         except (OSError, ValueError, AttributeError, TypeError, config.Error):
             continue
-    return False
+
+
+def _carded(session, declared):
+    """The existing done receipt covering this declaration, if any.
+
+    Recorded identities compare the checked work through later handbacks and renames.
+    Identity-free receipts keep their text/time comparison: their original work cannot
+    be reconstructed from a plan that has since changed.
+    """
+    stamp = declared.get("time")
+    if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
+        return None
+    for event in _done_events(session):
+        try:
+            same = (event.get("completion") == declared["completion"]
+                    if event.get("completion") and declared.get("completion") else
+                    event.get("text") == declared["text"] and event.get("created_at", 0) >= stamp)
+            if same:
+                return event
+        except (TypeError, KeyError):
+            continue
+    return None
 
 
 def needs_transition(session, card, answer, now, seat=None):
@@ -1052,7 +1071,8 @@ def needs_transition(session, card, answer, now, seat=None):
                 card = {"word": "needs you", "since": max(
                             now, declared.get("time", 0) if asked else 0), "began": max(
                             answered_at, 0 if declared.get("source") else declared.get("time", 0)),
-                        "episode": secrets.token_hex(16), "sent": False, "open_needs": []}
+                        "episode": secrets.token_hex(16), "sent": False, "open_needs": [],
+                        **({"completed": card["completed"]} if card.get("completed") else {})}
             _card_write(session, card)
         return 0
     if card.get("sent") or card.get("closed") or now - card["since"] < CARD_WAIT:
@@ -1076,8 +1096,12 @@ def done_transition(session, card, answer, now):
     # carded before or not.
     _close_card(session, card, "Done")
     declared = last(session, include_seen=True)
-    if declared and declared["kind"] == "done" and _carded(session, declared):
+    completion = declared.get("completion") if declared else None
+    receipt = _carded(session, declared) if declared and declared["kind"] == "done" else None
+    if (completion and card.get("completed") == completion) or receipt:
         card["sent"] = True
+        if receipt and receipt.get("completion"):
+            card["completed"] = receipt["completion"]
         _card_write(session, card)
         return 0
     return _send_card(session, "done", card, answer)
@@ -1145,10 +1169,14 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 since = max(since, asked)
                 if began is not None:
                     began = max(began, asked)
-            if card.get("word") != word:
+            completion = declared.get("completion") if declared and declared["kind"] == "done" else None
+            if card.get("word") != word or (
+                    word == "done" and completion and card.get("completed") and card.get("sent")
+                    and card.get("completed") != completion):
                 pending = card.get("open_needs", (last(name, include_seen=True) or {}).get("open_needs", []))
                 card = {"word": word, "since": since, "began": since,
-                        "episode": secrets.token_hex(16), "sent": False, "open_needs": pending}
+                        "episode": secrets.token_hex(16), "sent": False, "open_needs": pending,
+                        **({"completed": card["completed"]} if card.get("completed") else {})}
                 if word != "done" and pending:
                     # The old episode left questions standing; a new episode with nothing
                     # to close closes nothing, not even an empty edit.
@@ -1209,6 +1237,8 @@ def forget_card(name, log=lambda _: None):
                 return        # an old name that leads to a renamed seat: its card is not this
             card = _card_read(name)
             if _close_card(name, card, "Answered"):
+                # Only the failed question edits outlive this seat, not its completed work.
+                card.pop("completed", None)
                 _card_write(name, {**card, "word": ""})
                 log(f"WARN the card of {name} was not closed: Discord did not take the edit; "
                     "retry required")
@@ -1249,6 +1279,32 @@ def embed(kind, session, text):
 
 class Refused(config.Error):
     """A `shaped` gate said no: nothing was recorded, and the caller hears why."""
+
+
+def _completion(session):
+    """Verified plan work, retaining unsent work before older sent coverage.
+
+    A receipt remembers its distinct outcomes after plan cleanup. Unknown older receipts
+    keep their original gates; a completion without verified outcomes does too.
+    """
+    from . import plan
+    created = (config.session_records().get(session) or {}).get("created")
+    if created is None:
+        return None
+
+    def outcomes(value):
+        if not isinstance(value, dict) or value.get("created") != created:
+            return set()
+        return {tuple(outcome) for outcome in value["outcomes"]}
+
+    covered = outcomes(_card_read(session).get("completed"))
+    for event in _done_events(session):
+        covered.update(outcomes(event.get("completion")))
+    pending = outcomes((last(session, include_seen=True) or {}).get("completion")) - covered
+    work = set(plan.outcomes(session))
+    if not work and not pending:
+        return None
+    return {"created": created, "outcomes": [list(outcome) for outcome in sorted(work | pending | covered)]}
 
 
 def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
@@ -1299,6 +1355,9 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     # carries it there, in a field of its own: it answered only the one replaced.
                     extra["earlier_answer_at"] = earlier
                 if kind == "done":
+                    completion = _completion(name)
+                    if completion:
+                        extra["completion"] = completion
                     extra["runs"] = [directory.name for directory, state in menu.run_records()
                                      if run.launched_session(state) == name and
                                      (run.going(state) or run.unfinished(state))]
