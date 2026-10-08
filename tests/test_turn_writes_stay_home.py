@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, worker
+from agentkit import box, config, worker
 
 
 ADAPTER = r'''import fcntl, json, multiprocessing, os, pty, socket, subprocess, sys, tempfile
@@ -198,8 +198,10 @@ class TurnWritesStayHome(unittest.TestCase):
         self.assertEqual(seen, {"manager": {"a": 1}, "socket": True})
 
     def test_shared_memory_and_host_devices_still_work(self):
-        devices = [path for path in ("/dev/fuse", "/dev/kvm", "/dev/dri", "/dev/net/tun")
-                   if Path(path).exists()]
+        # A turn really holds each of these that the box binds; tests/test_worker_box.py
+        # proves which nodes those are.
+        devices = [str(device) for device in box._devices()
+                   if str(device).startswith(("/dev/fuse", "/dev/kvm", "/dev/net/tun", "/dev/dri/"))]
         seen, _, _ = self.turn(self.wt, "devices", DEVICES=json.dumps(devices))
         self.assertEqual(seen, {"pool": 8, "executor": 8, "devices": devices})
 
