@@ -35,9 +35,11 @@ import math
 import os
 import re
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -2425,8 +2427,33 @@ def seat_held(name):
         yield held
 
 
+def pane_unread(session):
+    """Unread input on the pane's own tty; False when that terminal cannot be asked.
+
+    A frozen bridge can keep painting an empty composer while its tty holds every send.
+    Ask the kernel without reading those bytes, on the same pane and server we type into.
+    """
+    try:
+        rc, path = orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:",
+                                 "#{pane_tty}", socket=orch.seat_socket(session), timeout=5)
+        if rc != 0 or not path:
+            return False
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
+        try:
+            if not os.isatty(fd):
+                return False
+            count = fcntl.ioctl(fd, termios.FIONREAD, struct.pack("i", 0))
+            return struct.unpack("i", count)[0] > 0
+        finally:
+            os.close(fd)
+    except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
+        return False
+
+
 def _send_enter(session, log):
-    """One Enter into a seat; False where the send failed."""
+    """One Enter into a seat; False while its tty holds input or the send fails."""
+    if pane_unread(session):
+        return False
     name = session["name"]
     rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", "Enter",
                             socket=orch.seat_socket(session))
@@ -2443,6 +2470,8 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
     A pty sender supplies `send(text)`; both transports share the same typing receipt.
     """
+    if pane_unread(session):
+        return False
     name = session["name"]
     record = config.session_records().get(name, {})
     plugin = orch.seat_plugin(record)
