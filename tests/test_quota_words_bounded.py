@@ -24,6 +24,7 @@ from unittest.mock import MagicMock, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, harness, orch, run, usage, watch  # noqa: E402
+from fixtures.clock import Clock
 from fixtures.hand_in import scripted, stateful
 
 # Every harness's adapter: `auth` answers yes, and `run` plays the next row of plan.json, the
@@ -49,16 +50,6 @@ sys.exit(row.get("code", 0))
 DONE = {"code": 0, "final.md": "## Summary\nDone.\n"}
 BILLING = ("run ended with Failed: API error 402 [request_id=req_acme]: "
            "Billing verification failed. Please check your payment method. (billing_error)")
-
-
-class Clock:
-    """`time` as run.py sees it, with only run.py's own sleeps going to `sleep`."""
-
-    def __init__(self, sleep):
-        self.sleep = sleep
-
-    def __getattr__(self, name):
-        return getattr(time, name)
 
 
 def stall(harness):
