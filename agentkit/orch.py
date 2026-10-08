@@ -1000,6 +1000,34 @@ def tmux_literal(word):
     return word[:-1] + "\\;" if word.endswith(";") else word
 
 
+def tmux_option(target, option, text, socket=None):
+    """Set that option to that text: in one call, and where tmux refuses that and the text is
+    longer than a call carries, in pieces, each after the first appended (`set-option -a`).
+    The answer is the last call's: (0, "") once the option holds the text.  Between its pieces
+    the option holds the start of the text, so whoever else writes that option is kept out
+    until this returns (the bar's lock, `statusbar._tell`)."""
+    head = ("-t", target, option)
+    answer = tmux_out("set-option", *head, tmux_literal(text), socket=socket)
+    if answer[0] == 0:
+        return answer
+    # what a piece has of a call: less the words beside it and the escape `tmux_literal` may add
+    room = TMUX_MESSAGE - sum(len(word.encode()) + 1 for word in ("set-option", "-a", *head)) - 2
+    pieces, size = [""], 0
+    for char in text:   # cut between characters, never inside one
+        wide = len(os.fsencode(char))
+        if size + wide > room:
+            pieces.append("")
+            size = 0
+        pieces[-1] += char
+        size += wide
+    for at, piece in enumerate(pieces if len(pieces) > 1 else ()):
+        answer = tmux_out("set-option", *(["-a"] if at else []), *head, tmux_literal(piece),
+                          socket=socket)
+        if answer[0] != 0:
+            break
+    return answer
+
+
 def tmux_lists(lists, socket=None):
     """Run those command lists in as few tmux calls as its message takes: one, unless they are
     long.  tmux stops a call at the first command that fails, so the lists sent with one that
