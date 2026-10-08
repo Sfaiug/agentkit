@@ -44,6 +44,8 @@ class ComposerBox(Sandbox):
         keys, screen = [], [pane]
 
         def typed(*args, **_kw):
+            if args[0] != "send-keys":
+                return 1, "no tty in this screen fixture"
             keys.append(args)
             if args[-2] == "-l":    # the text lands in the composer, and its Enter takes it
                 screen[0] = drafted(args[-1], screen[0])

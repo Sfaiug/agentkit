@@ -74,8 +74,10 @@ class Seats(unittest.TestCase):
         stack.enter_context(patch.object(watch.time, "time", return_value=NOW))
 
     def tmux(self, *args, **_kw):
-        self.assertEqual(args[0], "send-keys")
         self.assertEqual(args[args.index("-t") + 1], f"={self.seat['name']}:")
+        if args[0] == "display-message" and args[-1] == "#{pane_tty}":
+            return 1, "no tty in this screen fixture"
+        self.assertEqual(args[0], "send-keys")
         if "-l" in args:
             self.typed.append(args[-1])
             self.pane = self.base.replace(self.empty, "❯ " + args[-1] + "\n")
@@ -414,6 +416,8 @@ class Typing(Seats):
         return self.idle
 
     def render(self, *args, **kwargs):
+        if args[0] != "send-keys":
+            return self.tmux(*args, **kwargs)
         self.keys.append(args)
         if "-l" in args and self.killed_before_text:
             self.killed_before_text = False
