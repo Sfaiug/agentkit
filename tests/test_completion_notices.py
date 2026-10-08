@@ -168,6 +168,61 @@ class CompletionNotices(Sandbox):
                 self.declare('The repeated outcome remains shipped', name=name)
                 self.assertEqual(len(self.posted(name)), 1)
 
+    def test_archiving_and_restoring_completed_outcomes_does_not_finish_another_job(self):
+        self.checked('API shipped', 'Export shipped')
+        self.declare()
+        self.now += 100
+        self.checked('API shipped')
+        self.declare('The completed export line was archived')
+        self.assertEqual(len(self.posted()), 1)
+        self.checked('API shipped', 'Report shipped')
+        self.now += 100
+        self.declare('The new report is shipped')
+        self.assertEqual(len(self.posted()), 2)
+        self.internal_turn()
+        config.card_path(self.name).unlink()
+        self.checked('API shipped', 'Export shipped', 'Report shipped')
+        self.declare('The completed export line was restored')
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_removing_the_plan_does_not_complete_its_owner_request_again(self):
+        for card_lost in (False, True):
+            with self.subTest(card_lost=card_lost):
+                self.name = f'archived-{int(card_lost)}'
+                path = self.owner_transcript()
+                self.append_owner(path, 20, 'Build the API')
+                self.checked('API shipped')
+                self.declare()
+                self.now += 100
+                plan.forget(self.name)
+                if card_lost:
+                    self.internal_turn()
+                    config.card_path(self.name).unlink()
+                    config.notify_path(self.name).unlink()
+                self.declare('The completed plan was archived; the same API remains live')
+                self.assertEqual(len(self.posted()), 1)
+                self.now += 100
+                self.append_owner(path, self.now - 1, 'Build the export')
+                self.declare('The next owner job is shipped')
+                self.assertEqual(len(self.posted()), 2)
+
+    def test_recovering_old_owner_input_after_plan_removal_does_not_complete_again(self):
+        path = self.owner_transcript()
+        self.append_owner(path, 20, 'Build the API')
+        source = path.read_text()
+        path.unlink()
+        self.checked('API shipped')
+        self.declare()
+        plan.forget(self.name)
+        path.write_text(source)
+        self.now += 100
+        self.declare('The old request is readable again; its API remains shipped')
+        self.assertEqual(len(self.posted()), 1)
+        self.now += 100
+        self.append_owner(path, self.now - 1, 'Build the export')
+        self.declare('The next owner job is shipped')
+        self.assertEqual(len(self.posted()), 2)
+
     def test_check_proofs_refresh_on_main_without_reannouncing_the_work(self):
         repo = config.CODE / 'acme'
         repo.mkdir(parents=True)
