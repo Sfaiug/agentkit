@@ -415,7 +415,7 @@ def _network(cmd, env, out_dir=None):
         # it the rest back.
         # A pasta that fails leaves the process it had made for the command waiting: the probe
         # writes to a file, never a pipe that process would hold open, and its group ends with it.
-        with tempfile.TemporaryFile() as said, \
+        with tempfile.TemporaryFile(dir=out_dir) as said, \
                 subprocess.Popen([*prefix, "bwrap", "--unshare-user", "--unshare-pid",
                                   "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
                                   "--", "/usr/bin/env", "-0"], env=env, stdout=said,
@@ -517,11 +517,13 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         return target
 
     def stop(proc, grace):
+        # The grace starts once bwrap's own info pipe has answered, as it always has: PID 1
+        # ignores TERM until the supervisor installs its handler, so an early interruption
+        # must wait for it. Behind pasta there is no pipe, and PID 1 is looked for meanwhile.
+        target = namespace(proc.pid)
         deadline = time.monotonic() + grace
-        # PID 1 ignores TERM until the supervisor installs its handler, so an early
-        # interruption must wait for the box's first process, and then for that.
         while proc.poll() is None and time.monotonic() < deadline:
-            target = namespace(proc.pid)
+            target = target or namespace(proc.pid)
             if target is not None:
                 fd, pid = target
                 try:
