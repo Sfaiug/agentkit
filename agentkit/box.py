@@ -39,8 +39,6 @@ SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 # shell in /bin, because the packaged pasta may start no program outside /bin and /usr/bin
 # (its AppArmor profile), and the Python ak runs under is often one.
 HOLDER = ("/bin/sh", "-c", "echo ready; read _")
-# The box's own IPv4 address in the network pasta gives it.
-OWN = "10.0.2.15"
 # An address of the internet's in each family, both kept for documentation: no host has a
 # route of its own for either, so the host's way out is what leads there.
 INTERNET = {4: "203.0.113.1", 6: "2001:db8:9::1"}
@@ -495,13 +493,13 @@ def _network(cmd, nested=False):
     # them: a provider may serve an account over the one and turn it away on the other.
     # Libc orders them by this host's ways out, the addresses it would send from and
     # gai.conf, pairing each destination with the address. So a box has a family where the
-    # host has a way out in it, and its IPv6 address is the host's own: the box reads the
+    # host has a way out in it, and its address there is the host's own: the box reads the
     # same gai.conf, and every pairing is the host's. What can still differ is the same
     # for every name (whether the kernel has an address past its preferred life), and one
     # question to libc, here and then in the box's network, settles it.
     four, six = _source(4), _source(6)
     wanted = _order()
-    own = {address for address in (four and ipaddress.ip_address(OWN), six) if address}
+    own = {address for address in (four, six) if address}
     # A family in which the host reaches a neighbouring network and not the internet can
     # be given to a box neither way.
     if routes and not four or routes6 and not six or not wanted or not _plain(resolver, own):
@@ -509,14 +507,14 @@ def _network(cmd, nested=False):
         return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
     # so bwrap maps nothing back and starts the same inside an enclosing box.
-    # An IPv4 address of the box's own keeps host listeners on the host's reachable; at
-    # the one IPv6 address it shares with the host nothing of the host's answers in it.
-    # Loopback as the interface to copy from leaves each family to the lines below.
+    # At the two addresses it shares with the host nothing of the host's answers in it.
+    # Loopback as the interface to copy from leaves each family to the lines below; the
+    # IPv4 gateway is the address next to the box's, which pasta answers for like any other.
     beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
-              *(("--address", OWN, "--netmask", "24", "--gateway", "10.0.2.2") if four
-                else ("--ipv6-only",)),
+              *(("--address", str(four), "--netmask", "24", "--gateway",
+                 str(ipaddress.ip_address(int(four) ^ 1))) if four else ("--ipv6-only",)),
               *(("--address", str(six), "--gateway", "fe80::1") if six else ("--ipv4-only",)),
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
     with ExitStack() as held:

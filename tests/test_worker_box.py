@@ -201,6 +201,12 @@ if role == "mount":
         # One case has no IPv4 way out, only the network next to it.
         if sys.argv[3] != "familyno4":
             subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
+        # The host's own address toward the internet is a box's own there, so what the
+        # stand-in internet serves is at an address on a second network.
+        for command in (("link", "add", "beyond", "type", "dummy"),
+                        ("addr", "add", "198.51.100.1/24", "dev", "beyond"),
+                        ("link", "set", "beyond", "up")):
+            subprocess.run(["ip", *command], check=True)
         if Path("/proc/sys/net/ipv6").exists():
             # The stand-in internet has IPv6 as well, with an address of the global kind
             # or, case by case, a private, a 6to4 or a Teredo one, and a network beyond
@@ -212,17 +218,18 @@ if role == "mount":
             # and libc asks it; another has a gai.conf of its own, which pairs the host's
             # address with one destination of the internet's and with no other.
             past = ("preferred_lft", "0") if sys.argv[3] == "familydeprecated" else ()
-            if sys.argv[3] == "familygai" and Path("/etc/gai.conf").exists():
+            if sys.argv[3].startswith("familygai") and Path("/etc/gai.conf").exists():
+                # A third pairs the host's IPv4 address with one IPv4 destination alone.
                 (root / "gai.conf").write_text(
                     "label ::1/128 0\nlabel ::/0 1\nlabel 2002::/16 2\nlabel ::/96 3\n"
                     "label ::ffff:0:0/96 4\nlabel fec0::/10 5\nlabel fc00::/7 6\n"
-                    "label 2001:0::/32 7\nlabel 2001:db8::/64 99\nlabel 2001:db8:77::/48 99\n")
+                    "label 2001:0::/32 7\nlabel 2001:db8::/64 99\nlabel 2001:db8:77::/48 99\n"
+                    + ("label ::ffff:192.0.2.1/128 98\nlabel ::ffff:203.0.113.7/128 98\n"
+                       if sys.argv[3] == "familygai4" else ""))
                 subprocess.run(["mount", "--bind", str(root / "gai.conf"), "/etc/gai.conf"], check=True)
             for command in (("addr", "add", first, "dev", "internet", "nodad", *past),
                             ("-6", "route", "add", "default", "dev", "internet"),
-                            ("link", "add", "beyond", "type", "dummy"),
-                            *([] if past else [("addr", "add", "fd42:1::1/64", "dev", "beyond", "nodad")]),
-                            ("link", "set", "beyond", "up")):
+                            *([] if past else [("addr", "add", "fd42:1::1/64", "dev", "beyond", "nodad")])):
                 subprocess.run(["ip", *command], check=True)
     Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
     # The fixture's own resolver, so the host's decides nothing here: one on the stand-in
@@ -231,7 +238,7 @@ if role == "mount":
     # none to libc, and with no nameserver named it asks 127.0.0.1.
     resolver = root / "resolv.conf"
     address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53", "dnscrlf": "192.0.2.1\r",
-               "dnsnone": None}.get(sys.argv[3], "192.0.2.1")
+               "dnsnone": None}.get(sys.argv[3], "198.51.100.1")
     resolver.write_bytes(((f"nameserver {address}\n" if address else "")
                           + "search acme.test\noptions timeout:1 attempts:1\n").encode())
     subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
@@ -326,7 +333,8 @@ def serve(server, stop, dns=False):
                 # The second name's IPv6 address is one the case's own address pairs with.
                 kind = struct.unpack("!H", query[at + 1:at + 3])[0]
                 paired = {"family6to4": "2002:c633:6401::9", "familyteredo": "2001:0:c633:6401::9",
-                          "familygai": "2001:db8:77::9"}.get(sys.argv[3], "2001:db8:9::9")
+                          "familygai": "2001:db8:77::9", "familygai4": "2001:db8:77::9"}.get(
+                              sys.argv[3], "2001:db8:9::9")
                 found = ".".join(labels) in ("fixture.acme.test", "paired.acme.test")
                 given = {1: socket.inet_aton("203.0.113.7"), 28: socket.inet_pton(
                     socket.AF_INET6, paired if labels[0] == "paired" else "2001:db8:9::9")}.get(kind)
@@ -358,7 +366,7 @@ def reaches(family, address):
         except OSError:
             return False
 seen = [reaches(socket.AF_INET, (host, int(os.environ["PORT"])))
-        for host in ("192.0.2.1", "127.0.0.1", "10.0.2.2")]
+        for host in ("198.51.100.1", "192.0.2.1", "127.0.0.1", "192.0.2.0")]
 seen.append(reaches(socket.AF_UNIX, "\0acme"))
 seen.append(reaches(socket.AF_INET6, ("::1", int(os.environ["PORT"]))))
 for host in filter(None, os.environ["IPV6"].split()):
@@ -387,9 +395,9 @@ try:
                              'socket.gethostbyname("fixture")]))', overlay) == [here, "203.0.113.7"]
         elif sys.argv[3].startswith("family"):
             if Path("/proc/sys/net/ipv6").exists() and (
-                    sys.argv[3] != "familygai" or Path("/etc/gai.conf").exists()):
+                    not sys.argv[3].startswith("familygai") or Path("/etc/gai.conf").exists()):
                 server = stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
-                server.bind(("192.0.2.1", 53))
+                server.bind(("198.51.100.1", 53))
                 thread = threading.Thread(target=serve, args=(server, stop, True))
                 thread.start()
                 threads.append(thread)
@@ -406,7 +414,7 @@ try:
                     [sys.executable, "-c", order], text=True, timeout=30))
                 first = socket.AF_INET6 if sys.argv[3] in ("family", "familyno4") else socket.AF_INET
                 assert here[0] == first and sorted(here) == [socket.AF_INET, socket.AF_INET6], here
-                if sys.argv[3] in ("family6to4", "familyteredo", "familygai"):
+                if sys.argv[3] in ("family6to4", "familyteredo", "familygai", "familygai4"):
                     assert paired[0] == socket.AF_INET6, paired
                 for overlay in (False, True):
                     own, *there = boxed(order, overlay)
@@ -418,7 +426,8 @@ try:
             # box's own there, and nothing of the host's answers at it.
             ipv6 = ["2001:db8::1", "fd42:1::1"] if Path("/proc/sys/net/ipv6").exists() else []
             os.environ["IPV6"] = " ".join(ipv6)
-            for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
+            for family, address in ((socket.AF_INET, ("198.51.100.1", 12345)),
+                                    (socket.AF_INET, ("192.0.2.1", None)),
                                     (socket.AF_INET, ("127.0.0.1", None)),
                                     (socket.AF_INET6, ("::1", None)),
                                     (socket.AF_UNIX, "\0acme"),
@@ -437,10 +446,13 @@ try:
             os.environ["IDENTITY"] = json.dumps([os.getuid(), os.getgid()])
             seen = json.loads(subprocess.check_output([sys.executable, "-c", probe],
                                                      cwd=root, text=True, timeout=10))
-            assert seen == [True, True, False, True, True, *[True for _ in ipv6]], seen
+            assert seen == [True, True, True, False, True, True, *[True for _ in ipv6]], seen
             for overlay in (False, True):
                 seen = boxed(probe, overlay)
-                assert seen == [True, False, False, False, False, *([False, True] if ipv6 else [])], seen
+                # The internet answers; the host's own address there, its loopback, the
+                # gateway's address and its abstract sockets do not.
+                assert seen == [True, False, False, False, False, False,
+                                *([False, True] if ipv6 else [])], seen
                 assert (root / "written").stat().st_uid == os.getuid()
                 assert (root / "written").stat().st_gid == os.getgid()
             # The command's variables arrive whole, one a shell cannot name among them.
@@ -991,7 +1003,7 @@ class WorkerBox(unittest.TestCase):
 
     def test_a_box_puts_the_families_of_a_name_in_the_order_its_host_does(self):
         for mode in ("family", "familyprivate", "familyno4", "family6to4", "familyteredo",
-                     "familydeprecated", "familygai"):
+                     "familydeprecated", "familygai", "familygai4"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
 
@@ -1009,15 +1021,15 @@ class WorkerBox(unittest.TestCase):
         other = (b"", b"search acme.test\n", b"nameserver 127.0.0.53\n", b"nameserver ::1\n",
                  b"nameserver 0.0.0.0\n", b"nameserver ::\n", b"nameserver fe80::1\n",
                  b"nameserver ::ffff:192.0.2.1\n", b"nameserver 224.0.0.251\n",
-                 b"nameserver 10.0.2.15\n",
                  b"nameserver 192.0.2.1\nnameserver 127.0.0.1\n",
                  b"nameserver 127.53\n", b"nameserver 192.0.2.01\n", b"nameserver fe80::1%eth0\n",
                  b"nameserver 192.0.2.1\r\n", b" nameserver 192.0.2.1\n", b"nameserver 192.0.2.1;\n",
                  b"nameserver #192.0.2.1\n", b"nameserver 192.0.2.1 # acme\n",
                  b"nameserver 192.0.2.1\x00\n", b"nameserver \xff\xfe\n")
-        # The box's own addresses there: its IPv4 one, and the IPv6 one it shares with the host.
-        own = set(map(ipaddress.ip_address, (box.OWN, "2001:db8::15")))
+        # The box's own addresses there: the two it shares with the host.
+        own = set(map(ipaddress.ip_address, ("192.0.2.15", "2001:db8::15")))
         for resolver, is_plain in (*((text, True) for text in plain), *((text, False) for text in other),
+                                   (b"nameserver 192.0.2.15\n", False),
                                    (b"nameserver 2001:db8::15\n", False)):
             with self.subTest(resolver=resolver):
                 self.assertIs(box._plain(resolver, own), is_plain)
