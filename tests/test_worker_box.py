@@ -200,15 +200,37 @@ if role == "mount":
         subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
     Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
     # The fixture's own resolver, so the host's decides nothing here: one on the stand-in
-    # internet, or for the resolver cases one that only this namespace's own network
-    # reaches. 127.53 is 127.0.0.53 to libc; an address with a carriage return after it is
-    # none to libc, and with no nameserver named it asks 127.0.0.1.
+    # internet, or for the resolver cases one on this namespace's loopback. 127.53 is
+    # 127.0.0.53 to libc; an address with a carriage return after it is none to libc, and
+    # with no nameserver named it asks 127.0.0.1.
     resolver = root / "resolv.conf"
-    address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53", "dnscrlf": "192.0.2.1\r",
-               "dnsnone": None}.get(sys.argv[3], "192.0.2.1")
+    address = {"dns": "127.0.0.53", "dns6": "::1", "dnsrun": "127.0.0.53", "dnsmasked": "127.0.0.53",
+               "dnsclosed": "127.0.0.53",
+               "dnsshort": "127.53", "dnscrlf": "192.0.2.1\r", "dnsnone": None}.get(sys.argv[3], "192.0.2.1")
     resolver.write_bytes(((f"nameserver {address}\n" if address else "")
                           + "search acme.test\noptions timeout:1 attempts:1\n").encode())
-    subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
+    if sys.argv[3] in ("dnsrun", "dnsclosed"):
+        # Only this namespace sees the stand-in /etc, /run and /dev/shm; no host file is
+        # changed.
+        etc = root / "etc"
+        etc.mkdir()
+        for name in ("passwd", "group", "nsswitch.conf", "hosts"):
+            shutil.copyfile(Path("/etc", name), etc / name)
+        if sys.argv[3] == "dnsrun":
+            # /etc/resolv.conf as a link into /run, where the box keeps a copy of its own,
+            # as hosts with a local resolver have it.
+            (etc / "resolv.conf").symlink_to("/run/acme/resolver")
+            for place in ("/run", "/dev/shm"):
+                subprocess.run(["mount", "-t", "tmpfs", "tmpfs", place], check=True)
+                Path(place, "acme").mkdir()
+                shutil.copyfile(resolver, Path(place, "acme/resolver"))
+        else:
+            # An /etc that may be passed through but not listed, which is all libc asks.
+            shutil.copyfile(resolver, etc / "resolv.conf")
+            etc.chmod(0o111)
+        subprocess.run(["mount", "--bind", str(etc), "/etc"], check=True)
+    else:
+        subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
     # The package's AppArmor profile uses an unconfined exec transition, forbidden
     # by an enclosing box's no_new_privs. This private copy tests pasta itself.
     bindir = root / "bin"
@@ -239,10 +261,11 @@ if role == "host" and sys.argv[3].startswith("stop-"):
     sys.exit(0)
 
 
-def boxed(source, overlay=False):
+def boxed(source, overlay=False, places=()):
     out = Path(tempfile.mkdtemp(dir=root))
     with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
-                                        out, cwd=root, home_overlay=overlay) as (cmd, env, spawn):
+                                        out, cwd=root, home_overlay=overlay,
+                                        places=places) as (cmd, env, spawn):
         spawn.pop("stop")
         result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
                                 timeout=30, **spawn)
@@ -325,12 +348,99 @@ try:
             thread.start()
             threads.append(thread)
             assert socket.gethostbyname("fixture.acme.test") == "203.0.113.7"
-            # The resolver file does not name this host's resolver plainly: the box is in
-            # the host's network, as before, and resolves the name as the host does.
-            here = os.readlink("/proc/self/ns/net")
-            for overlay in (False, True):
-                assert boxed('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
-                             'socket.gethostbyname("fixture")]))', overlay) == [here, "203.0.113.7"]
+            here, before = os.readlink("/proc/self/ns/net"), Path("/etc/resolv.conf").read_text()
+            asked = '''import json, os, socket
+try:
+    found = socket.gethostbyname("fixture")
+except socket.gaierror:
+    found = None
+print(json.dumps([os.readlink("/proc/self/ns/net"),
+                  os.path.exists("/etc/resolv.conf") and open("/etc/resolv.conf").read(), found]))
+'''
+
+            def own_network(found="203.0.113.7", **given):
+                # In a network of its own, the box resolves the name the loopback resolver
+                # serves, or none; what it reads at the resolver's path comes back.
+                net, resolver, got = boxed(asked, **given)
+                assert net != here and got == found, (net, here, got)
+                return resolver
+
+            if sys.argv[3] in ("dnsshort", "dnscrlf", "dnsnone"):
+                # The host's resolv.conf does not name resolvers plainly: the box is in this
+                # namespace's network, as before, reads the same file and resolves the name.
+                for overlay in (False, True):
+                    assert boxed(asked, overlay=overlay) == [here, before, "203.0.113.7"]
+            elif sys.argv[3] == "dnsmasked":
+                # A resolver file whose own path the box masks as a credential stays masked:
+                # no file with the forwarder's address takes the mask's place. The box
+                # keeps its own network all the same: what is hidden from a box never gives
+                # it the host's.
+                (root / ".ssh").mkdir()
+                (root / ".ssh/id_acme").symlink_to("/etc/resolv.conf")
+                assert own_network(None) == ""
+            else:
+                for overlay in (False, True):
+                    shown = own_network(overlay=overlay)
+                    assert "nameserver 10.0.2.3\n" in shown or "nameserver fd00::3\n" in shown, shown
+            if sys.argv[3] == "dns":
+                # A launch with no out dir has nowhere to keep a resolver file of its own:
+                # with the resolver on loopback it keeps this namespace's network.
+                with account_home(root), box.command(
+                        [sys.executable, "-c", 'import os; print(os.readlink("/proc/self/ns/net"))'],
+                        dict(os.environ), cwd=root) as (cmd, env, spawn):
+                    result = subprocess.run(cmd, env=env, cwd=root, capture_output=True,
+                                            text=True, timeout=30, **spawn)
+                assert (result.returncode, result.stdout.strip()) == (0, here), result.stderr
+            if sys.argv[3] == "dnsrun":
+                # A place the command may write, laid over the box's own /run where the
+                # resolver lies, shows the host's file there again: names still resolve.
+                own_network(places=("/run/acme",))
+                # The same in /dev/shm, beneath the box's own /dev.
+                (root / "etc/resolv.conf").unlink()
+                (root / "etc/resolv.conf").symlink_to("/dev/shm/acme/resolver")
+                own_network(places=("/dev/shm/acme",))
+                (root / "etc/resolv.conf").unlink()
+                (root / "etc/resolv.conf").symlink_to("/run/acme/resolver")
+                # The box's own /run leaves a hidden credential out under every name it has.
+                # The resolver is read from that copy, so one the copy left out is not
+                # brought back: not even when the credential is replaced once the copy is
+                # made.
+                from unittest.mock import patch
+                os.link("/run/acme/resolver", "/run/acme/key")
+                (root / ".ssh").mkdir()
+                (root / ".ssh/id_acme").symlink_to("/run/acme/key")
+                made = box._own
+
+                def replaced(*args, **kwargs):
+                    own = made(*args, **kwargs)
+                    Path("/run/acme/fresh").write_text("another key\n")
+                    os.replace("/run/acme/fresh", "/run/acme/key")
+                    return own
+
+                with patch.object(box, "_own", replaced):
+                    assert own_network(None) is False
+                # A link in /run that led to a directory of the host's when the box made
+                # its copy, and is a directory itself by the time the resolver is read:
+                # what the copied link leads to is left as it was.
+                (root / ".ssh/id_acme").unlink()
+                settings = root / "settings"
+                settings.mkdir()
+                given = Path("/run/acme/resolver").read_text()
+                (settings / "resolver").write_text(given)
+                os.rename("/run/acme", "/run/kept")
+                os.symlink(settings, "/run/acme")
+
+                def relinked(*args, **kwargs):
+                    own = made(*args, **kwargs)
+                    os.unlink("/run/acme")
+                    os.rename("/run/kept", "/run/acme")
+                    return own
+
+                with patch.object(box, "_own", relinked):
+                    assert own_network(None) == given
+                assert (settings / "resolver").read_text() == given
+            # The host's own resolver file is as it was.
+            assert Path("/etc/resolv.conf").read_text() == before
         else:
             for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
                                     (socket.AF_INET, ("127.0.0.1", None)),
@@ -400,6 +510,8 @@ finally:
     stop.set()
     for thread in threads:
         thread.join()
+    if sys.argv[3] == "dnsclosed":
+        (root / "etc").chmod(0o755)
 print(json.dumps("ok"))
 """
 
@@ -902,29 +1014,87 @@ class WorkerBox(unittest.TestCase):
     def test_a_box_reaches_no_host_port(self):
         self.network_fixture("ports")
 
-    def test_a_box_keeps_the_hosts_network_where_resolv_conf_is_not_plain(self):
-        for mode in ("dns", "dns6", "dnsshort", "dnscrlf", "dnsnone"):
+    def test_a_box_resolves_names_through_a_loopback_resolver(self):
+        for mode in ("dns", "dns6", "dnsrun", "dnsclosed"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
 
+    def test_what_a_box_finds_at_a_path_is_read_from_its_arguments(self):
+        host, copy = self.root / "host", self.root / "copy"
+        for folder in (host / "run/acme", host / "closed", copy / "acme"):
+            folder.mkdir(parents=True)
+        path = host / "run/acme/resolver"
+        path.write_bytes(b"the host's\n")
+        (copy / "acme/resolver").write_bytes(b"the box's own\n")
+        (host / "closed/resolver").write_bytes(b"passed through\n")
+        (host / "closed").chmod(0o111)
+        self.addCleanup((host / "closed").chmod, 0o755)
+        (host / "link").symlink_to("run")
+        walls = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"]
+        own = ["--bind", str(copy), str(host / "run")]
+        for name, cmd, seen in (
+                ("the host's file", walls, b"the host's\n"),
+                ("the box's copy of the place", [*walls, *own], b"the box's own\n"),
+                ("a place the command writes, laid over the copy",
+                 [*walls, *own, "--bind", str(path.parent), str(path.parent)], b"the host's\n"),
+                ("a home's overlay", [*walls, *own, "--overlay-src", str(host), "--tmp-overlay", str(host)],
+                 b"the host's\n"),
+                ("the file bound by itself", [*walls, *own, "--ro-bind", str(copy / "acme/resolver"), str(path)],
+                 b"the box's own\n"),
+                ("a masked file", [*walls, *own, "--dev-bind", "/dev/null", str(path)], None),
+                ("a masked folder above it",
+                 [*walls, *own, "--tmpfs", str(host / "run"), "--remount-ro", str(host / "run")], None),
+                ("the last mount, whatever came before", [*walls, "--tmpfs", str(host / "run"), *own],
+                 b"the box's own\n"),
+                ("no mount at all", ["bwrap"], None)):
+            with self.subTest(name):
+                self.assertEqual(box._seen(path, cmd), seen)
+        for name, other, seen in (
+                ("a directory that may be passed through but not listed", host / "closed/resolver",
+                 b"passed through\n"),
+                ("a link on the way", host / "link/acme/resolver", None),
+                ("a directory", host / "run/acme", None),
+                ("nothing there", host / "run/acme/missing", None),
+                ("the box's own /proc", Path("/proc/self/status"), None)):
+            with self.subTest(name):
+                self.assertEqual(box._seen(other, walls), seen)
+
+    def test_a_box_keeps_the_hosts_network_where_resolv_conf_is_not_plain(self):
+        for mode in ("dnsshort", "dnscrlf", "dnsnone"):
+            with self.subTest(mode=mode):
+                self.network_fixture(mode)
+
+    def test_a_box_shown_no_resolver_keeps_its_own_network(self):
+        self.network_fixture("dnsmasked")
+
     def test_only_plainly_named_resolvers_give_a_box_a_network_of_its_own(self):
-        plain = (b"nameserver 192.0.2.1\n", b"nameserver 192.0.2.1", b"nameserver\t192.0.2.1\n",
-                 b"# nameserver 127.0.0.1\n; nameserver ::1\nnameserver 192.0.2.1\n"
-                 b"nameserver 2001:db8::1\nsearch acme.test\n")
-        # No nameserver; one only the host's own network reaches as written; a line that is
-        # not the word, blanks and one address, whatever a libc makes of it.
-        other = (b"", b"search acme.test\n", b"nameserver 127.0.0.53\n", b"nameserver ::1\n",
-                 b"nameserver 0.0.0.0\n", b"nameserver ::\n", b"nameserver fe80::1\n",
-                 b"nameserver ::ffff:192.0.2.1\n", b"nameserver 224.0.0.251\n",
-                 b"nameserver 10.0.2.15\n", b"nameserver fd00::15\n",
-                 b"nameserver 192.0.2.1\nnameserver 127.0.0.1\n",
+        same = (b"nameserver 192.0.2.1\n", b"nameserver 192.0.2.1", b"nameserver\t192.0.2.1\n",
+                b"# nameserver 127.0.0.1\n; nameserver ::1\nnameserver 192.0.2.1\n"
+                b"nameserver 2001:db8::1\nsearch acme.test\n")
+        # A nameserver on loopback, or the unspecified address libc takes for it, is asked
+        # through the forwarder, which goes on to the first of each IP family.
+        forwarded = ((b"nameserver 127.0.0.53\nsearch acme.test\n",
+                      b"nameserver 10.0.2.3\nsearch acme.test\n", {4: "127.0.0.53"}),
+                     (b"nameserver ::1\nnameserver 127.0.0.2\nnameserver 127.0.0.1\nnameserver 192.0.2.1",
+                      b"nameserver fd00::3\nnameserver 10.0.2.3\nnameserver 10.0.2.3\nnameserver 192.0.2.1",
+                      {6: "::1", 4: "127.0.0.2"}),
+                     (b"nameserver 0.0.0.0\n", b"nameserver 10.0.2.3\n", {4: "127.0.0.1"}),
+                     (b"nameserver ::\n", b"nameserver fd00::3\n", {6: "::1"}))
+        # No nameserver; one neither the forwarder nor the box's network reaches as written;
+        # a line that is not the word, blanks and one address, whatever a libc makes of it.
+        other = (b"", b"search acme.test\n", b"nameserver fe80::1\n", b"nameserver ::ffff:127.0.0.1\n",
+                 b"nameserver 224.0.0.251\n", b"nameserver 10.0.2.15\n", b"nameserver fd00::15\n",
+                 b"nameserver 10.0.2.3\n", b"nameserver fd00::3\n",
+                 b"nameserver 127.0.0.53\nnameserver fe80::1\n",
                  b"nameserver 127.53\n", b"nameserver 192.0.2.01\n", b"nameserver fe80::1%eth0\n",
-                 b"nameserver 192.0.2.1\r\n", b" nameserver 192.0.2.1\n", b"nameserver 192.0.2.1;\n",
+                 b"nameserver 127.0.0.53\r\n", b" nameserver 127.0.0.53\n", b"nameserver 192.0.2.1;\n",
                  b"nameserver #192.0.2.1\n", b"nameserver 192.0.2.1 # acme\n",
                  b"nameserver 192.0.2.1\x00\n", b"nameserver \xff\xfe\n")
-        for resolver, own in (*((text, True) for text in plain), *((text, False) for text in other)):
+        for resolver, asked in (*((text, (text, {})) for text in same),
+                                *((text, (given, hosts)) for text, given, hosts in forwarded),
+                                *((text, None) for text in other)):
             with self.subTest(resolver=resolver):
-                self.assertIs(box._plain(resolver), own)
+                self.assertEqual(box._asked(resolver), asked)
 
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in
