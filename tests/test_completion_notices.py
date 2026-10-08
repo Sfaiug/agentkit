@@ -186,10 +186,6 @@ class CompletionNotices(Sandbox):
         self.declare('The completed export line was restored')
         self.assertEqual(len(self.posted()), 2)
 
-
-
-
-
     def test_check_proofs_refresh_on_main_without_reannouncing_the_work(self):
         repo = config.CODE / 'acme'
         repo.mkdir(parents=True)
@@ -261,8 +257,6 @@ class CompletionNotices(Sandbox):
                 'timestamp': datetime.fromtimestamp(at, timezone.utc).isoformat(),
                 'message': {'role': 'user', 'content': text}}) + '\n')
 
-
-
     def test_a_plan_takes_precedence_over_a_later_information_question(self):
         path = self.owner_transcript()
         self.append_owner(path, 20, 'Build the API')
@@ -272,7 +266,6 @@ class CompletionNotices(Sandbox):
         self.internal_turn()
         self.declare('Earlier failure explained; API remains shipped')
         self.assertEqual(len(self.posted()), 1)
-
 
     def test_a_replacement_seat_sends_its_first_completion_after_a_failed_old_edit(self):
         for tick_first in (False, True):
@@ -358,9 +351,6 @@ class CompletionNotices(Sandbox):
         self.declare('Late handback confirms the export')
         self.assertEqual(len(self.posted()), 2)
 
-
-
-
     def test_a_later_question_keeps_its_alert_without_reannouncing_the_job(self):
         self.checked('API shipped')
         self.declare()
@@ -422,7 +412,6 @@ class CompletionNotices(Sandbox):
         self.internal_turn()
         self.declare('Retry succeeded, nothing new to announce')
         self.assertEqual(len(self.posted()), 2)
-
 
     def test_pending_plan_work_survives_archiving_questions_and_card_loss(self):
         for index, (whole_plan, asked, card_lost) in enumerate(product((False, True), repeat=3)):
