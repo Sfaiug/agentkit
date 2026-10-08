@@ -205,22 +205,29 @@ if role == "mount":
     # with no nameserver named it asks 127.0.0.1.
     resolver = root / "resolv.conf"
     address = {"dns": "127.0.0.53", "dns6": "::1", "dnsrun": "127.0.0.53", "dnsmasked": "127.0.0.53",
+               "dnsclosed": "127.0.0.53",
                "dnsshort": "127.53", "dnscrlf": "192.0.2.1\r", "dnsnone": None}.get(sys.argv[3], "192.0.2.1")
     resolver.write_bytes(((f"nameserver {address}\n" if address else "")
                           + "search acme.test\noptions timeout:1 attempts:1\n").encode())
-    if sys.argv[3] == "dnsrun":
-        # /etc/resolv.conf as a link into /run, where the box keeps a copy of its own, as
-        # hosts with a local resolver have it. Only this namespace sees the stand-in /etc,
-        # /run and /dev/shm; no host file is changed.
+    if sys.argv[3] in ("dnsrun", "dnsclosed"):
+        # Only this namespace sees the stand-in /etc, /run and /dev/shm; no host file is
+        # changed.
         etc = root / "etc"
         etc.mkdir()
         for name in ("passwd", "group", "nsswitch.conf", "hosts"):
             shutil.copyfile(Path("/etc", name), etc / name)
-        (etc / "resolv.conf").symlink_to("/run/acme/resolver")
-        for place in ("/run", "/dev/shm"):
-            subprocess.run(["mount", "-t", "tmpfs", "tmpfs", place], check=True)
-            Path(place, "acme").mkdir()
-            shutil.copyfile(resolver, Path(place, "acme/resolver"))
+        if sys.argv[3] == "dnsrun":
+            # /etc/resolv.conf as a link into /run, where the box keeps a copy of its own,
+            # as hosts with a local resolver have it.
+            (etc / "resolv.conf").symlink_to("/run/acme/resolver")
+            for place in ("/run", "/dev/shm"):
+                subprocess.run(["mount", "-t", "tmpfs", "tmpfs", place], check=True)
+                Path(place, "acme").mkdir()
+                shutil.copyfile(resolver, Path(place, "acme/resolver"))
+        else:
+            # An /etc that may be passed through but not listed, which is all libc asks.
+            shutil.copyfile(resolver, etc / "resolv.conf")
+            etc.chmod(0o111)
         subprocess.run(["mount", "--bind", str(etc), "/etc"], check=True)
     else:
         subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
@@ -503,6 +510,8 @@ finally:
     stop.set()
     for thread in threads:
         thread.join()
+    if sys.argv[3] == "dnsclosed":
+        (root / "etc").chmod(0o755)
 print(json.dumps("ok"))
 """
 
@@ -1006,9 +1015,49 @@ class WorkerBox(unittest.TestCase):
         self.network_fixture("ports")
 
     def test_a_box_resolves_names_through_a_loopback_resolver(self):
-        for mode in ("dns", "dns6", "dnsrun"):
+        for mode in ("dns", "dns6", "dnsrun", "dnsclosed"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
+
+    def test_what_a_box_finds_at_a_path_is_read_from_its_arguments(self):
+        host, copy = self.root / "host", self.root / "copy"
+        for folder in (host / "run/acme", host / "closed", copy / "acme"):
+            folder.mkdir(parents=True)
+        path = host / "run/acme/resolver"
+        path.write_bytes(b"the host's\n")
+        (copy / "acme/resolver").write_bytes(b"the box's own\n")
+        (host / "closed/resolver").write_bytes(b"passed through\n")
+        (host / "closed").chmod(0o111)
+        self.addCleanup((host / "closed").chmod, 0o755)
+        (host / "link").symlink_to("run")
+        walls = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"]
+        own = ["--bind", str(copy), str(host / "run")]
+        for name, cmd, seen in (
+                ("the host's file", walls, b"the host's\n"),
+                ("the box's copy of the place", [*walls, *own], b"the box's own\n"),
+                ("a place the command writes, laid over the copy",
+                 [*walls, *own, "--bind", str(path.parent), str(path.parent)], b"the host's\n"),
+                ("a home's overlay", [*walls, *own, "--overlay-src", str(host), "--tmp-overlay", str(host)],
+                 b"the host's\n"),
+                ("the file bound by itself", [*walls, *own, "--ro-bind", str(copy / "acme/resolver"), str(path)],
+                 b"the box's own\n"),
+                ("a masked file", [*walls, *own, "--dev-bind", "/dev/null", str(path)], None),
+                ("a masked folder above it",
+                 [*walls, *own, "--tmpfs", str(host / "run"), "--remount-ro", str(host / "run")], None),
+                ("the last mount, whatever came before", [*walls, "--tmpfs", str(host / "run"), *own],
+                 b"the box's own\n"),
+                ("no mount at all", ["bwrap"], None)):
+            with self.subTest(name):
+                self.assertEqual(box._seen(path, cmd), seen)
+        for name, other, seen in (
+                ("a directory that may be passed through but not listed", host / "closed/resolver",
+                 b"passed through\n"),
+                ("a link on the way", host / "link/acme/resolver", None),
+                ("a directory", host / "run/acme", None),
+                ("nothing there", host / "run/acme/missing", None),
+                ("the box's own /proc", Path("/proc/self/status"), None)):
+            with self.subTest(name):
+                self.assertEqual(box._seen(other, walls), seen)
 
     def test_a_box_keeps_the_hosts_network_where_resolv_conf_is_not_plain(self):
         for mode in ("dnsshort", "dnscrlf", "dnsnone"):

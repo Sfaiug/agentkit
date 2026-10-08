@@ -344,7 +344,8 @@ def _seen(path, cmd):
     their order: the last one at or above the path decides. A bind shows what its source
     holds there, a home's overlay what the home holds, and a new /dev, /proc or empty mask
     nothing. The file is opened one name at a time and no link below the mount is followed,
-    so nothing is read that those names do not lead to themselves."""
+    so nothing is read that those names do not lead to themselves; a directory on the way
+    is only passed through, which asks no more of it than libc's own walk does."""
     source, names = None, ()
     for at, option in enumerate(cmd):
         if option in ("--bind", "--ro-bind", "--dev-bind"):
@@ -360,13 +361,15 @@ def _seen(path, cmd):
     if source is None:
         return None
     try:
-        # Never a wait on something else that lies there.
-        fd = os.open(source, os.O_RDONLY | os.O_NONBLOCK)
-        for name in names:
+        fd = None
+        for at, name in enumerate((source, *names)):
+            # Never a wait on something else that lies where the file should.
+            flags = os.O_PATH | os.O_DIRECTORY if at < len(names) else os.O_RDONLY | os.O_NONBLOCK
             try:
-                step = os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=fd)
+                step = os.open(name, flags | (os.O_NOFOLLOW if at else 0), dir_fd=fd)
             finally:
-                os.close(fd)
+                if fd is not None:
+                    os.close(fd)
             fd = step
         try:
             if stat.S_ISREG(os.fstat(fd).st_mode):
