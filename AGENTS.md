@@ -72,6 +72,9 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A PID namespace's number names another namespace the moment it ends: never find a process by it. Hold a pidfd, or go through a process you hold: its group, its children (#699: each box that ended could kill another box's first process on the same host).
 - A box change is tried twice before it is pushed: inside one of ak's own boxes, as the lander runs every test, and on a host with a route out, where the offline suite never goes. Either run shows at once what three review rounds found (#699).
 - A test fakes one module's sleep (`tests/fixtures/clock.py`), never `time.sleep` itself: every other wait in the process then spins, and a recording fake keeps every spin (#700: 3.7 GB in a landing check).
+- Whether a box has a wall is decided from what nothing in a box can change (the host's own `resolv.conf`), never from what the box is shown: a box hides what Git's credential settings name, the repository's own among them, and a worker writes those.
+- What a box will find at a path is read from the arguments bwrap is given, in their order, never from a second table of its mounts: every difference between the two was a review round (#705, three rounds).
+- A file another program reads is taken only in the one form every reader reads alike (`nameserver`, blanks, one plain address), never the way one reader takes an odd line: libc alone reads seven such forms its own way (#705).
 
 ## Owner rules
 
