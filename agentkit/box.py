@@ -1,10 +1,11 @@
-"""The worker's filesystem and process walls, built in one place.
+"""The worker's filesystem, network and process walls, built in one place.
 
 Offline worker fixtures may patch command to yield (argv, env, {}), keeping
 their process audit active outside the turn. The real walls are exercised by
 tests/test_worker_box.py.
 """
 
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -14,13 +15,15 @@ import select
 import shlex
 import shutil
 import signal
+import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from string import Template
 
 # What a box never passes on: GitHub tokens, and the SSH agent's address.
@@ -32,6 +35,14 @@ OVERLAY_REMEDY = ("install bubblewrap with --tmp-overlay support and use a kerne
 # The supervisor runs from the text this module was loaded from: the file on disk can change
 # under a running launcher, when a probe checks out another revision of ak's own checkout.
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
+# What pasta keeps running in the box's network namespace: it says when it is there, which is
+# when pasta has set the namespace up, and lives while its stdin, held by ak, stays open. The
+# shell in /bin, because the packaged pasta may start no program outside /bin and /usr/bin
+# (its AppArmor profile), and the Python ak runs under is often one.
+HOLDER = ("/bin/sh", "-c", "echo ready; read _")
+# An address of the internet's in each family, both kept for documentation: no host has a
+# route of its own for either, so the host's way out is what leads there.
+INTERNET = {4: "203.0.113.1", 6: "2001:db8:9::1"}
 
 
 def _contents(root):
@@ -62,12 +73,16 @@ def _contents(root):
     return found
 
 
+def _host_binary(name):
+    return shutil.which(name, path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
+
+
 def _git(args, env, cwd, **kwargs):
     """Ask ak's own Git: the first in a directory ak's own PATH names in full.
 
     Its answers decide what a box hides and what it opens for writing. The command's PATH, a
     relative entry and the current directory may each name the project's own `git`."""
-    git = shutil.which("git", path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
+    git = _host_binary("git")
     if git is None:
         from . import config
         raise config.Error("worker box needs git in a directory PATH names in full")
@@ -325,9 +340,282 @@ def _bind(own, writable, homes=()):
     return args
 
 
+def _source(family):
+    """The address this host would send from to the internet in an IP family (4 or 6), as
+    the kernel says with no packet sent; None where it has no way out in that family."""
+    try:
+        with socket.socket(socket.AF_INET if family == 4 else socket.AF_INET6,
+                           socket.SOCK_DGRAM) as asked:
+            asked.connect((INTERNET[family], 9))
+            source = ipaddress.ip_address(asked.getsockname()[0].partition("%")[0])
+    except OSError:
+        return None
+    # A link-local address is an interface's, not the host's toward the internet.
+    return None if source.is_link_local else source
+
+
+def _kernel(request, family=0):
+    """The kernel's answers to one question over netlink, as libc asks it: every address
+    of a family (RTM_GETADDR, 22) or every interface (RTM_GETLINK, 18), each without its
+    netlink header. OSError where it cannot be asked."""
+    with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE) as link:
+        link.send(struct.pack("=IHHIIB7x", 24, request, 0x301, 1, 0, family))
+        while True:
+            answers = link.recv(65536)
+            while answers:
+                size, kind = struct.unpack_from("=IH", answers)
+                if kind == 3:
+                    return
+                if kind == 2 or size < 16:
+                    raise OSError("netlink refused")
+                yield answers[16:size]
+                answers = answers[size + 3 & ~3:]
+
+
+def _wired(address):
+    """The interface this address of the host's is on, by its index, where libc weighs the
+    address there as it would weigh a box's; None where it would not.
+
+    Beside the address itself, libc reads the kernel's word on it: it avoids one past its
+    preferred life, not yet confirmed or a home address, and it finds that word by the
+    address alone, so with the address on two interfaces it may read either. The address
+    a box is given is fresh and on one interface."""
+    found = []
+    try:
+        for answer in _kernel(22, socket.AF_INET if address.version == 4 else socket.AF_INET6):
+            flags, index, local, at = answer[2], struct.unpack_from("=I", answer, 4)[0], None, 8
+            while at + 4 <= len(answer):
+                length, attribute = struct.unpack_from("=HH", answer, at)
+                if attribute == 2 or attribute == 1 and local is None:
+                    local = answer[at + 4:at + length]
+                elif attribute == 8:
+                    flags = struct.unpack_from("=I", answer, at + 4)[0]
+                at += max(length, 4) + 3 & ~3
+            if local == address.packed:
+                found.append((flags, index))
+    except (OSError, struct.error):
+        return None
+    # Deprecated, optimistic, home address.
+    return found[0][1] if len(found) == 1 and not found[0][0] & 0x34 else None
+
+
+def _alike(own):
+    """Whether libc weighs these addresses of the host's, one per family, as it would weigh
+    the same two in a box: each on one interface with nothing against it, and no tunnel
+    under one of them alone, which libc puts behind native transport where two addresses
+    are on different interfaces. A box's two are on one."""
+    wired = {_wired(address) for address in own}
+    try:
+        # ARPHRD_TUNNEL, _TUNNEL6 and _SIT: what libc takes for no native transport.
+        tunnels = {struct.unpack_from("=I", link, 4)[0] for link in _kernel(18)
+                   if struct.unpack_from("=H", link, 2)[0] in (768, 769, 776)}
+    except (OSError, struct.error):
+        return False
+    return None not in wired and not (len(wired) == 2 and len(wired & tunnels) == 1)
+
+
+def _order(entered=()):
+    """The order in which libc lists the two families of a name with an address of the
+    internet's in each: here, or in the network that the `entered` launch enters.
+
+    Asked of libc itself, by one short-lived process that is shown a hosts file of ak's
+    own, so no resolver is asked and nothing here says how libc sorts: which addresses the
+    kernel would send from, which of them it has deprecated and what `gai.conf` holds are
+    all libc's to weigh. Empty where it cannot be asked."""
+    read, write = os.pipe()
+    try:
+        os.write(write, "".join(f"{address} family.agentkit.invalid\n"
+                                for address in INTERNET.values()).encode())
+        os.close(write)
+        asked = subprocess.run(
+            [*entered, "bwrap", "--unshare-user", "--die-with-parent", "--ro-bind", "/", "/",
+             "--ro-bind-data", str(read), "/etc/hosts", "--", sys.executable, "-I", "-S", "-c",
+             "import socket\nprint(*(found[0].value for found in socket.getaddrinfo("
+             "'family.agentkit.invalid', 80, type=socket.SOCK_STREAM)))"],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, pass_fds=(read,))
+    except (OSError, subprocess.SubprocessError):
+        return []
+    finally:
+        os.close(read)
+    return asked.stdout.split() if asked.returncode == 0 else []
+
+
+def _plain(resolver, own):
+    """Whether resolv.conf, given as bytes, names this host's resolvers so plainly that a
+    box in a network of its own asks the very same ones; `own` are the box's addresses there.
+
+    Every line with the word in it, comments apart, is `nameserver`, blanks and one address
+    and nothing else, and no address is one only this host's own network reaches as
+    written: loopback, the unspecified address libc takes for it, link-local, multicast, an
+    IPv4 address inside an IPv6 one, the box's own, or one in a family the box has no
+    address in, the host having no way out there. A line written any other way is read
+    differently from one libc to the next, and with no nameserver left libc asks
+    127.0.0.1: none of that is decided here, so none of it counts as plain."""
+    named = False
+    for line in resolver.split(b"\n"):
+        if line[:1] in (b"#", b";") or b"nameserver" not in line:
+            continue
+        match = re.fullmatch(rb"nameserver[ \t]+([0-9A-Fa-f:.]+)", line)
+        try:
+            address = ipaddress.ip_address(match[1].decode())
+        except (TypeError, ValueError):
+            return False
+        if (address.is_loopback or address.is_unspecified or address.is_link_local
+                or address.is_multicast or getattr(address, "ipv4_mapped", None)
+                or address in own or address.version not in {mine.version for mine in own}):
+            return False
+        named = True
+    return named
+
+
+def _alive(fd):
+    """Whether the process this pidfd names still holds its number: running or unreaped."""
+    try:
+        signal.pidfd_send_signal(fd, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _spaces(helper):
+    """Descriptors for the user and network namespaces of the holder pasta started, once
+    it says it runs there; None where pasta did not get that far."""
+    from . import host
+    # A pasta that fails may leave a process holding this pipe open, after part of a line
+    # or none: the whole read ends with its deadline, or with the helper's own end.
+    said, deadline, ended = b"", time.monotonic() + 10, os.pidfd_open(helper.pid)
+    try:
+        # A poll, which takes descriptors of any number: the caller may hold many.
+        either = select.poll()
+        for fd in (helper.stdout.fileno(), ended):
+            either.register(fd, select.POLLIN)
+        while said != b"ready\n":
+            left = max(0, deadline - time.monotonic())
+            if helper.stdout.fileno() not in dict(either.poll(left * 1000)):
+                return None
+            more = os.read(helper.stdout.fileno(), 64)
+            said += more
+            if not more or not b"ready\n".startswith(said):
+                return None
+    finally:
+        os.close(ended)
+    opened = []
+    try:
+        # The helper is this process's own child, unreaped, so its number is its own. Pasta
+        # stays in the user namespace it was started in; the holder is a child of it.
+        opened.append(os.open(f"/proc/{helper.pid}/ns/user", os.O_RDONLY))
+        for task in Path(f"/proc/{helper.pid}/task").iterdir():
+            for child in (task / "children").read_text().split():
+                holder = os.pidfd_open(int(child))
+                try:
+                    net = os.open(f"/proc/{child}/ns/net", os.O_RDONLY)
+                    seen = host.proc_stat(child)
+                    # The number named pasta's child for as long as the opened process kept
+                    # it, and the child is the holder only in a network namespace of its own.
+                    if seen is not None and seen.ppid == helper.pid and _alive(holder) \
+                            and os.fstat(net).st_ino != Path("/proc/self/ns/net").stat().st_ino:
+                        return opened.pop(), net
+                    os.close(net)
+                finally:
+                    os.close(holder)
+    except OSError:
+        pass
+    for fd in opened:
+        os.close(fd)
+    return None
+
+
+@contextmanager
+def _network(cmd, nested=False):
+    """The launch with a network of its own.
+
+    Pasta runs beside the box, never in front of it. A helper this context owns makes the
+    network namespace and keeps a holder in it; `nsenter` puts bwrap into the holder's
+    namespaces and becomes it. So bwrap stays the process its caller started, with every
+    descriptor and variable it was given, and nothing of pasta's is in a command's way.
+    With no way out (no route, no pasta, a launch that says it will start inside another
+    box) bwrap makes a network namespace of its own, with loopback only. Where resolv.conf
+    does not name the host's resolvers plainly, the box keeps the host's network, as before:
+    in one of its own it might resolve no name.
+    """
+    # With no way out, pasta has no outside to connect to. The kernel says whether there is
+    # one, by the address it would send from: routing tables and the rules that choose
+    # among them are its to read.
+    four, six = _source(4), _source(6)
+    unshare, pasta, nsenter = map(_host_binary, ("unshare", "pasta", "nsenter"))
+    if nested or not (four or six) or not all((unshare, pasta, nsenter)):
+        yield [*cmd, "--unshare-net"]
+        return
+    try:
+        resolver = Path("/etc/resolv.conf").read_bytes()
+    except OSError:
+        resolver = b""
+    # A program in a box must list the families of a name in the order the host lists
+    # them: a provider may serve an account over the one and turn it away on the other.
+    # Libc orders them by this host's ways out, the addresses it would send from and
+    # gai.conf, pairing each destination with the address. So a box has a family where the
+    # host has a way out in it, and its address there is the host's own: the box reads the
+    # same gai.conf, and every pairing is the host's. Libc reads three more things from
+    # the kernel for each address: its word on the address, the interface it is on, and
+    # whether that is a tunnel, which it puts behind a native one where the two addresses
+    # are on different interfaces. A box's two are fresh and on one interface, so a host
+    # where any of that would count keeps its boxes on its network. Last, libc itself is
+    # asked, here and then in the box's network, and the two answers must agree.
+    wanted = _order()
+    own = {address for address in (four, six) if address}
+    if not wanted or not _plain(resolver, own) or not _alike(own):
+        yield cmd
+        return
+    # Pasta's own user namespace would map the account to root; this one keeps its numbers,
+    # so bwrap maps nothing back and starts the same inside an enclosing box.
+    # At the two addresses it shares with the host nothing of the host's answers in it.
+    # Loopback as the interface to copy from leaves each family to the lines below. IPv4 is
+    # a link of two addresses, the box's and the one next to it as its gateway, which pasta
+    # answers for like any other: on such a link none is a network's or a broadcast address.
+    beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
+              "--netns-only", "--config-net", "--no-map-gw", "--quiet",
+              "--interface", "lo", "--ns-ifname", "tap0",
+              *(("--address", str(four), "--netmask", "31", "--gateway",
+                 str(ipaddress.ip_address(int(four) ^ 1))) if four else ("--ipv6-only",)),
+              *(("--address", str(six), "--gateway", "fe80::1") if six else ("--ipv4-only",)),
+              "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
+    with ExitStack() as held:
+        helper = subprocess.Popen([*beside, *HOLDER], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                  start_new_session=True)
+
+        def end():
+            # The whole group, a process pasta left waiting too, and only while its leader is
+            # this process's own unreaped child: no other time is its number safe to signal.
+            try:
+                os.killpg(helper.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            helper.stdin.close()
+            helper.stdout.close()
+            helper.wait()
+
+        held.callback(end)
+        spaces = _spaces(helper)
+        if spaces is None:
+            held.close()
+            yield [*cmd, "--unshare-net"]
+            return
+        for fd in spaces:
+            held.callback(os.close, fd)
+        own = f"/proc/{os.getpid()}/fd"
+        entered = [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
+                   "--preserve-credentials"]
+        if _order(entered) != wanted:
+            held.close()
+            yield cmd
+            return
+        yield [*entered, *cmd]
+
+
 @contextmanager
 def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(),
-            home_overlay=False, drain=False):
+            home_overlay=False, drain=False, nested=False):
     """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
@@ -335,6 +623,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     or /run/user, and temporary and runtime directories are the box's own, empty. Everything
     else is read-only; `home_overlay` gives checks throwaway writes in the account's home and
     HOME without child mounts, beneath the writable places and credential masks.
+    `nested` says the launch will be started inside another box, which cannot be asked from
+    here whether pasta starts there: it gets loopback only.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
@@ -376,7 +666,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
         cmd[at:at] = _bind({}, writable, homes)
-        yield [*cmd, "--", *argv], clean, {}
+        with _network(cmd, nested) as launch:
+            yield [*launch, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
     report.unlink(missing_ok=True)
@@ -430,8 +721,9 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
-                "pass_fds": (write,), "stop": stop}
+            with _network(cmd, nested) as launch:
+                yield [*launch, "--info-fd", str(write), "--", *argv], clean, {
+                    "pass_fds": (write,), "stop": stop}
         finally:
             target = namespace()
             if target is not None:
@@ -488,8 +780,10 @@ def check():
     remedy = "sudo apt-get install -y bubblewrap"
     if not shutil.which("bwrap"):
         raise config.Error(f"worker box needs bubblewrap; run `{remedy}`")
+    if not shutil.which("pasta"):
+        raise config.Error("worker box needs pasta; run `sudo apt-get install -y passt`")
     try:
-        with command(["true"], os.environ) as (inner, env, _):
+        with command(["true"], os.environ, nested=True) as (inner, env, _):
             with command(inner, env) as (outer, env, _):
                 result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
@@ -513,7 +807,7 @@ def check():
             remedy = f"sudo sysctl -w {setting}"
             break
     raise config.Error(f"worker box cannot start: {why}; run `{remedy}`; "
-                       "the host must allow nested unprivileged user and PID namespaces")
+                       "the host must allow nested unprivileged user, network and PID namespaces")
 
 
 def _report(out_dir):

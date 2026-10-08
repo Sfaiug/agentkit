@@ -2,6 +2,7 @@
 
 from contextlib import ExitStack
 import fcntl
+import ipaddress
 import json
 import os
 import re
@@ -10,6 +11,7 @@ import select
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -185,6 +187,371 @@ else:
     with listen(places[-1]):
         print(json.dumps(boxed("probe", role == "check")))
 '''
+
+NETWORK = r"""import json, os, shutil, socket, struct, subprocess, sys, tempfile, threading
+from contextlib import ExitStack
+from pathlib import Path
+root, role = Path(sys.argv[1]), sys.argv[2]
+if role == "mount":
+    subprocess.run(["mount", "--make-rprivate", "/"], check=True)
+    subprocess.run(["ip", "link", "set", "lo", "up"], check=True)
+    if sys.argv[4] == "online":
+        subprocess.run(["ip", "link", "add", "internet", "type", "dummy"], check=True)
+        # The host's own address is the last of its network in one case, and past its
+        # preferred life in another.
+        subprocess.run(["ip", "addr", "add", {"family254": "192.0.2.254/24", "familyrule": "192.0.2.1/32"}.get(
+                            sys.argv[3], "192.0.2.1/24"), "dev", "internet",
+                        *(("preferred_lft", "0") if sys.argv[3] == "familypast4" else ())], check=True)
+        subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
+        # One case has no IPv4 way out, only the network next to it; another has its only
+        # way out in a routing table of its own that a rule chooses, and IPv4 alone.
+        if sys.argv[3] == "familyrule":
+            subprocess.run(["ip", "route", "add", "default", "dev", "internet", "table", "100"], check=True)
+            subprocess.run(["ip", "rule", "add", "lookup", "100", "priority", "100"], check=True)
+        elif sys.argv[3] != "familyno4":
+            subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
+        # The host's own address toward the internet is a box's own there, so what the
+        # stand-in internet serves is at an address on a second network.
+        for command in (("link", "add", "beyond", "type", "dummy"),
+                        ("addr", "add", "198.51.100.1/32" if sys.argv[3] == "familyrule" else
+                         "198.51.100.1/24", "dev", "beyond"),
+                        ("link", "set", "beyond", "up")):
+            subprocess.run(["ip", *command], check=True)
+        if Path("/proc/sys/net/ipv6").exists() and sys.argv[3] != "familyrule":
+            # The stand-in internet has IPv6 as well, with an address of the global kind
+            # or, case by case, a private, a 6to4 or a Teredo one, and a network beyond
+            # its first one.
+            first = {"familyprivate": "fd42::1/64", "familyno4": "fd42::1/64",
+                     "family6to4": "2002:c000:201::1/64",
+                     "familyteredo": "2001:0:c000:201::1/64"}.get(sys.argv[3], "2001:db8::1/64")
+            # One case's only address is past its preferred life, which the kernel knows
+            # and libc asks it; another has a gai.conf of its own, which pairs the host's
+            # address with one destination of the internet's and with no other.
+            past = ("preferred_lft", "0") if sys.argv[3] in ("familydeprecated", "familygaipast") else ()
+            if sys.argv[3].startswith("familygai") and Path("/etc/gai.conf").exists():
+                # A third pairs the host's IPv4 address with one IPv4 destination alone.
+                (root / "gai.conf").write_text(
+                    "label ::1/128 0\nlabel ::/0 1\nlabel 2002::/16 2\nlabel ::/96 3\n"
+                    "label ::ffff:0:0/96 4\nlabel fec0::/10 5\nlabel fc00::/7 6\n"
+                    "label 2001:0::/32 7\nlabel 2001:db8::/64 99\nlabel 2001:db8:77::/48 99\n"
+                    + ("label ::ffff:192.0.2.1/128 98\nlabel ::ffff:203.0.113.7/128 98\n"
+                       if sys.argv[3] == "familygai4" else ""))
+                subprocess.run(["mount", "--bind", str(root / "gai.conf"), "/etc/gai.conf"], check=True)
+            # In one more the address is on a second interface as well, past its life there.
+            if sys.argv[3] == "familytwice":
+                subprocess.run(["ip", "link", "add", "twice", "type", "dummy"], check=True)
+                subprocess.run(["ip", "addr", "add", "2001:db8::1/128", "dev", "twice", "nodad",
+                                "preferred_lft", "0"], check=True)
+            for command in (("addr", "add", first, "dev", "internet", "nodad", *past),
+                            ("-6", "route", "add", "default", "dev", "internet"),
+                            *([] if past else [("addr", "add", "fd42:1::1/64", "dev", "beyond", "nodad")])):
+                subprocess.run(["ip", *command], check=True)
+    Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
+    # The fixture's own resolver, so the host's decides nothing here: one on the stand-in
+    # internet, or for the resolver cases one that only this namespace's own network
+    # reaches. 127.53 is 127.0.0.53 to libc; an address with a carriage return after it is
+    # none to libc, and with no nameserver named it asks 127.0.0.1.
+    resolver = root / "resolv.conf"
+    address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53", "dnscrlf": "192.0.2.1\r",
+               "dnsnone": None}.get(sys.argv[3], "198.51.100.1")
+    resolver.write_bytes(((f"nameserver {address}\n" if address else "")
+                          + "search acme.test\noptions timeout:1 attempts:1\n").encode())
+    subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
+    # The package's AppArmor profile uses an unconfined exec transition, forbidden
+    # by an enclosing box's no_new_privs. This private copy tests pasta itself.
+    bindir = root / "bin"
+    (bindir / "real").mkdir(parents=True)
+    pasta = Path(shutil.which("pasta"))
+    for binary in (pasta, pasta.with_name("pasta.avx2")):
+        if binary.exists():
+            shutil.copyfile(binary, bindir / "real" / binary.name)
+            (bindir / "real" / binary.name).chmod(0o755)
+    # That profile also lets pasta start no program outside /bin and /usr/bin. The copy
+    # keeps the rule, and ak runs here under a Python outside both, as from /usr/local/bin
+    # or a virtual environment.
+    (bindir / "pasta").write_text('''#!/bin/sh
+for word in "$@"; do
+    case "$word" in
+    /bin/*|/usr/bin/*) ;;
+    /*) if [ -f "$word" ] && [ -x "$word" ]; then
+            echo "Failed to start command or shell: Permission denied" >&2
+            exit 1
+        fi ;;
+    esac
+done
+exec "$(dirname "$0")/real/pasta" "$@"
+''')
+    (bindir / "pasta").chmod(0o755)
+    os.environ["PATH"] = str(bindir) + os.pathsep + os.environ["PATH"]
+    (root / "venv").mkdir()
+    (root / "venv/python3").symlink_to(sys.executable)
+    os.execvp("setpriv", ["setpriv", "--inh-caps=-all", "--ambient-caps=-all",
+                         str(root / "venv/python3"), __file__, str(root), "host", *sys.argv[3:]])
+sys.path.insert(0, os.environ["BOX_REPO"])
+from agentkit import box
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
+from fixtures.sandbox import account_home
+
+
+from test_worker_box import beside
+if role == "host" and sys.argv[3].startswith("stop-"):
+    from test_worker_box import stop_box
+    with socket.socket() as internet:
+        if sys.argv[4] == "online":
+            internet.bind(("192.0.2.1", 12345))
+            internet.listen()
+        stop_box(root, already_gone=sys.argv[3] == "stop-gone", online=sys.argv[4] == "online")
+    print(json.dumps("ok"))
+    sys.exit(0)
+
+
+# Loopback answers and there is no way out, whatever idle devices the kernel puts in a
+# new network.
+LOOPBACK_ONLY = '''import json, socket
+def way(family, address):
+    try:
+        with socket.socket(family, socket.SOCK_DGRAM) as asked:
+            asked.connect((address, 9))
+        return True
+    except OSError:
+        return False
+print(json.dumps([way(socket.AF_INET, "127.0.0.1"), way(socket.AF_INET, "203.0.113.1"), way(socket.AF_INET6, "2001:db8:9::1")]))
+'''
+
+
+def boxed(source, overlay=False):
+    out = Path(tempfile.mkdtemp(dir=root))
+    with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
+                                        out, cwd=root, home_overlay=overlay) as (cmd, env, spawn):
+        spawn.pop("stop")
+        result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
+                                timeout=30, **spawn)
+    assert result.returncode == 0, result.stderr
+    # The walls print nothing of their own into what a command prints, and the pasta that
+    # ran beside the box is gone with it.
+    assert result.stderr == "", result.stderr
+    assert not beside(root), beside(root)
+    return json.loads(result.stdout)
+
+
+if role == "offline":
+    assert boxed(LOOPBACK_ONLY) == [True, False, False]
+    # The shell that brought this role here cannot carry such a name itself.
+    os.environ["BASH_FUNC_acme%%"] = "() {  echo kept\n}"
+    assert boxed('import json, os; print(json.dumps(os.environ.get("BASH_FUNC_acme%%")))') \
+        == "() {  echo kept\n}"
+    assert boxed('import json, socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); '
+                 's.listen(); c = socket.create_connection(s.getsockname()); '
+                 'print(json.dumps(True))') is True
+    print(json.dumps("ok"))
+    sys.exit(0)
+
+
+def serve(server, stop, dns=False):
+    server.settimeout(.1)
+    while not stop.is_set():
+        try:
+            if dns:
+                query, peer = server.recvfrom(4096)
+                labels, at = [], 12
+                while query[at]:
+                    size = query[at]
+                    labels.append(query[at + 1:at + 1 + size].decode())
+                    at += size + 1
+                # Each name has an address in each family: asked for one, that one is given.
+                # The second name's IPv6 address is one the case's own address pairs with.
+                kind = struct.unpack("!H", query[at + 1:at + 3])[0]
+                paired = {"family6to4": "2002:c633:6401::9", "familyteredo": "2001:0:c633:6401::9",
+                          "familygai": "2001:db8:77::9", "familygai4": "2001:db8:77::9",
+                          "familygaipast": "2001:db8:77::9"}.get(
+                              sys.argv[3], "2001:db8:9::9")
+                found = ".".join(labels) in ("fixture.acme.test", "paired.acme.test")
+                given = {1: socket.inet_aton("203.0.113.7"), 28: socket.inet_pton(
+                    socket.AF_INET6, paired if labels[0] == "paired" else "2001:db8:9::9")}.get(kind)
+                answer = b"" if given is None or not found else (
+                    b"\xc0\x0c" + struct.pack("!HHIH", kind, 1, 60, len(given)) + given)
+                server.sendto(query[:2] + struct.pack("!HHHHH", 0x8180 if found else 0x8183,
+                                                    1, int(bool(answer)), 0, 0)
+                              + query[12:] + answer, peer)
+            else:
+                client, _ = server.accept()
+                with client:
+                    client.sendall(b"acme")
+        except socket.timeout:
+            pass
+        except OSError:
+            break
+
+
+probe = r'''import json, os, socket
+from pathlib import Path
+assert [os.getuid(), os.getgid()] == json.loads(os.environ["IDENTITY"])
+Path("written").write_text("own")
+def reaches(family, address):
+    with socket.socket(family) as client:
+        client.settimeout(2)
+        try:
+            client.connect(address)
+            return client.recv(4) == b"acme"
+        except OSError:
+            return False
+seen = [reaches(socket.AF_INET, (host, int(os.environ["PORT"])))
+        for host in ("198.51.100.1", "192.0.2.1", "127.0.0.1", "192.0.2.0")]
+seen.append(reaches(socket.AF_UNIX, "\0acme"))
+seen.append(reaches(socket.AF_INET6, ("::1", int(os.environ["PORT"]))))
+for host in filter(None, os.environ["IPV6"].split()):
+    seen.append(reaches(socket.AF_INET6, (host, int(os.environ["PORT"]))))
+print(json.dumps(seen))
+'''
+stop, threads = threading.Event(), []
+try:
+    with ExitStack() as stack:
+        if sys.argv[3].startswith("dns"):
+            family, address = {"dns6": (socket.AF_INET6, "::1"),
+                               "dnscrlf": (socket.AF_INET, "127.0.0.1"),
+                               "dnsnone": (socket.AF_INET, "127.0.0.1")}.get(
+                                   sys.argv[3], (socket.AF_INET, "127.0.0.53"))
+            server = stack.enter_context(socket.socket(family, socket.SOCK_DGRAM))
+            server.bind((address, 53))
+            thread = threading.Thread(target=serve, args=(server, stop, True))
+            thread.start()
+            threads.append(thread)
+            assert socket.gethostbyname("fixture.acme.test") == "203.0.113.7"
+            # The resolver file does not name this host's resolver plainly: the box is in
+            # the host's network, as before, and resolves the name as the host does.
+            here = os.readlink("/proc/self/ns/net")
+            for overlay in (False, True):
+                assert boxed('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
+                             'socket.gethostbyname("fixture")]))', overlay) == [here, "203.0.113.7"]
+        elif sys.argv[3].startswith("family"):
+            if Path("/proc/sys/net/ipv6").exists() and (
+                    not sys.argv[3].startswith("familygai") or Path("/etc/gai.conf").exists()):
+                server = stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+                server.bind(("198.51.100.1", 53))
+                thread = threading.Thread(target=serve, args=(server, stop, True))
+                thread.start()
+                threads.append(thread)
+                # Two names with an address in each family, served by a resolver this time.
+                # Libc weighs for this host its ways out, the addresses the kernel would
+                # send from and gai.conf, and a box in a network of its own lists each
+                # name's two in the order the host lists them: its IPv6 address is the
+                # host's, so every pairing is. Where libc would still list otherwise, or
+                # the host has no way out in a family, the box is given the host's network.
+                order = ('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
+                         '*([found[0] for found in socket.getaddrinfo(name + ".acme.test", 80, '
+                         'type=socket.SOCK_STREAM)] for name in ("fixture", "paired"))]))')
+                net, here, paired = json.loads(subprocess.check_output(
+                    [sys.executable, "-c", order], text=True, timeout=30))
+                first = socket.AF_INET6 if sys.argv[3] in (
+                    "family", "familyno4", "family254", "familypast4", "familytwice") else socket.AF_INET
+                # With no IPv6 at all libc still lists the name's IPv6 address, last.
+                assert here[0] == first and sorted(here) == [socket.AF_INET, socket.AF_INET6], here
+                if sys.argv[3] in ("family6to4", "familyteredo", "familygai", "familygai4"):
+                    assert paired[0] == socket.AF_INET6, paired
+                if sys.argv[3] == "familygaipast":
+                    # The labels pair this name's addresses, yet the address is past its life.
+                    assert paired[0] == socket.AF_INET, paired
+                for overlay in (False, True):
+                    own, *there = boxed(order, overlay)
+                    assert there == [here, paired], (there, here, paired)
+                    assert (own == net) == (sys.argv[3] in (
+                        "familyno4", "familydeprecated", "familygaipast", "familypast4",
+                        "familytwice")), (own, net)
+        else:
+            # Where this host has IPv6, the stand-in internet answers over it too, at an
+            # address on its second network; its own address toward the internet is the
+            # box's own there, and nothing of the host's answers at it.
+            ipv6 = ["2001:db8::1", "fd42:1::1"] if Path("/proc/sys/net/ipv6").exists() else []
+            os.environ["IPV6"] = " ".join(ipv6)
+            for family, address in ((socket.AF_INET, ("198.51.100.1", 12345)),
+                                    (socket.AF_INET, ("192.0.2.1", None)),
+                                    (socket.AF_INET, ("127.0.0.1", None)),
+                                    (socket.AF_INET6, ("::1", None)),
+                                    (socket.AF_UNIX, "\0acme"),
+                                    *((socket.AF_INET6, (host, None)) for host in ipv6)):
+                server = stack.enter_context(socket.socket(family))
+                if family in (socket.AF_INET, socket.AF_INET6):
+                    server.bind((address[0], address[1] if address[1] is not None else port))
+                    port = server.getsockname()[1]
+                else:
+                    server.bind(address)
+                server.listen(8)
+                thread = threading.Thread(target=serve, args=(server, stop))
+                thread.start()
+                threads.append(thread)
+            os.environ["PORT"] = str(port)
+            os.environ["IDENTITY"] = json.dumps([os.getuid(), os.getgid()])
+            seen = json.loads(subprocess.check_output([sys.executable, "-c", probe],
+                                                     cwd=root, text=True, timeout=10))
+            assert seen == [True, True, True, False, True, True, *[True for _ in ipv6]], seen
+            for overlay in (False, True):
+                seen = boxed(probe, overlay)
+                # The internet answers; the host's own address there, its loopback, the
+                # gateway's address and its abstract sockets do not.
+                assert seen == [True, False, False, False, False, False,
+                                *([False, True] if ipv6 else [])], seen
+                assert (root / "written").stat().st_uid == os.getuid()
+                assert (root / "written").stat().st_gid == os.getgid()
+            # A caller that already holds more descriptors than select can name starts a
+            # box in its own network all the same, where the host lets it hold that many.
+            import resource
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            if hard == resource.RLIM_INFINITY or hard >= 2048:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (2048, hard))
+                held = [os.open(os.devnull, os.O_RDONLY) for _ in range(1100)]
+                try:
+                    assert boxed(probe)[0] is True
+                finally:
+                    for descriptor in held:
+                        os.close(descriptor)
+                    resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+            # The command's variables arrive whole, one a shell cannot name among them.
+            os.environ["BASH_FUNC_acme%%"] = "() {  echo kept\n}"
+            assert boxed('import json, os; print(json.dumps(os.environ.get("BASH_FUNC_acme%%")))') \
+                == "() {  echo kept\n}"
+            # A stop reaches the command's own handler, which saves its cleanup first.
+            from agentkit import worker
+            out = Path(tempfile.mkdtemp(dir=root))
+            source = ('import signal, sys, time; from pathlib import Path; '
+                      'signal.signal(signal.SIGTERM, lambda *_: '
+                      '(Path("closed").touch(), sys.exit(0))); '
+                      'Path("ready").touch(); time.sleep(300)')
+            with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
+                                                out, cwd=root) as (cmd, env, spawn):
+                _, _, killed = worker.limited(cmd, None, env=env, cwd=root,
+                                               abort=lambda: (root / "ready").exists(), **spawn)
+            assert killed and (root / "closed").exists()
+            assert box.leftovers(out) == []
+            result = subprocess.run(
+                ["unshare", "--user", "--map-current-user", "--net", "--keep-caps",
+                 "sh", "-c", 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"',
+                 "-", sys.executable, __file__, str(root), "offline"],
+                capture_output=True, text=True, timeout=30)
+            assert result.returncode == 0, result.stderr
+            assert json.loads(result.stdout) == "ok"
+            unavailable = root / "unavailable"
+            unavailable.mkdir()
+            # A pasta that fails has already made a process for its command, and leaves it,
+            # with nothing said or with part of the holder's line: the box starts with
+            # loopback only, at once, and that process is ended.
+            os.environ["PATH"] = str(unavailable) + os.pathsep + os.environ["PATH"]
+            for said in ("", "printf rea\n"):
+                (unavailable / "pasta").write_text(
+                    f'#!/bin/sh\n{said}sleep 300 &\necho $! > {unavailable}/left\nexit 1\n')
+                (unavailable / "pasta").chmod(0o755)
+                assert boxed(LOOPBACK_ONLY) == [True, False, False]
+                left = Path("/proc", (unavailable / "left").read_text().strip(), "stat")
+                assert not left.exists() or left.read_text().rsplit(")", 1)[1].split()[0] == "Z"
+        stop.set()
+        for thread in threads:
+            thread.join()
+finally:
+    stop.set()
+    for thread in threads:
+        thread.join()
+print(json.dumps("ok"))
+"""
+
 
 SHM = r'''import json, os, subprocess, sys, tempfile
 from pathlib import Path
@@ -415,19 +782,22 @@ else:
 '''
 
 
-STOPS = r'''import json, os, sys
-from pathlib import Path
-sys.path.insert(0, os.environ["BOX_REPO"])
-sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
-from test_worker_box import stop_box
-stop_box(Path(sys.argv[1]), already_gone=sys.argv[2] == "gone")
-print(json.dumps("ok"))
-'''
+def beside(root):
+    """The pasta a network fixture copied into `root`, wherever it still runs."""
+    found = []
+    for entry in Path("/proc").iterdir():
+        try:
+            if entry.name.isdigit() and str(root / "bin").encode() in (entry / "cmdline").read_bytes():
+                found.append(entry.name)
+        except OSError:
+            pass
+    return found
 
 
-def stop_box(root, *, already_gone):
+def stop_box(root, *, already_gone, online):
     # Stdin holds bwrap mid-build and its status on stderr says it has named the box's
-    # first process. Last, no stop at all: the context ends its own box as it closes.
+    # first process, the same with pasta beside the box as without: bwrap is the launcher
+    # either way. Last, no stop at all: the context ends its own box as it closes.
     moments = ("named",) if already_gone else ("early", "named")
     up = "import time; print('up', flush=True); time.sleep(600)"
     for moment in moments if already_gone else (*moments, "unstopped"):
@@ -437,6 +807,7 @@ def stop_box(root, *, already_gone):
             with account_home(root), box.command([sys.executable, "-c", up], dict(os.environ), out,
                                                 cwd=root, drain=True) as (cmd, env, spawn):
                 stop = spawn.pop("stop")
+                assert ("--unshare-net" not in cmd) == online, cmd
                 if moment == "named":
                     at = cmd.index("--info-fd")
                     cmd[at:at] = ["--block-fd", "0", "--json-status-fd", "2"]
@@ -458,8 +829,9 @@ def stop_box(root, *, already_gone):
                     proc.wait()
                 if moment != "unstopped":
                     stop(proc, 0)
-            # Whatever still ran would hold these open.
+            # Whatever still ran would hold these open; the pasta beside the box is gone too.
             proc.communicate(timeout=30)
+            assert not beside(root), beside(root)
         finally:
             # What a failing proof leaves ends with this fixture's PID namespace.
             if proc is not None:
@@ -659,6 +1031,96 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual((code, killed), (0, False))
         self.assertEqual(json.loads(text)["paths"], [""] * len(paths))
         self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * len(paths))
+
+    def network_fixture(self, mode, *, online=True):
+        work = self.root / (mode if online else mode + "-offline")
+        work.mkdir()
+        script = work / "network.py"
+        script.write_text(NETWORK)
+        result = subprocess.run(
+            # A PID namespace of the fixture's own: whatever a failing proof leaves running
+            # ends with it, also when this launcher is ended for its time limit, and no
+            # number of another process's is ever signalled.
+            ["unshare", "--user", "--map-current-user", "--net", "--mount", "--pid", "--fork",
+             "--kill-child", "--mount-proc", "--keep-caps",
+             sys.executable, str(script), str(work), "mount", mode, "online" if online else "offline"],
+            env={**os.environ, "BOX_REPO": str(REPO), "HOME": str(work)}, capture_output=True, text=True,
+            timeout=120)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, '"ok"'), result.stderr)
+
+    def test_a_box_reaches_no_host_port(self):
+        self.network_fixture("ports")
+
+    def test_a_box_puts_the_families_of_a_name_in_the_order_its_host_does(self):
+        for mode in ("family", "familyprivate", "familyno4", "family6to4", "familyteredo",
+                     "familydeprecated", "familygai", "familygai4", "familygaipast",
+                     "familypast4", "family254", "familytwice", "familyrule"):
+            with self.subTest(mode=mode):
+                self.network_fixture(mode)
+
+    def test_a_box_keeps_the_hosts_network_where_resolv_conf_is_not_plain(self):
+        for mode in ("dns", "dns6", "dnsshort", "dnscrlf", "dnsnone"):
+            with self.subTest(mode=mode):
+                self.network_fixture(mode)
+
+    def test_a_hosts_addresses_must_be_weighed_as_a_boxs_would(self):
+        four, six = ipaddress.ip_address("192.0.2.1"), ipaddress.ip_address("2001:db8::1")
+
+        def address(local, index, flags=0x80):
+            return struct.pack("=BBBBI", 0, 64, flags, 0, index) + struct.pack(
+                "=HH", 4 + len(local.packed), 1) + local.packed
+
+        def kernel(addresses, links=((2, 1), (3, 1))):
+            # What the kernel answers: the addresses of the family asked for, or every
+            # interface with its type.
+            def answers(request, family=0):
+                if request == 18:
+                    return [struct.pack("=BBHI", 0, 0, kind, index) for index, kind in links]
+                return [entry for version, entry in addresses if (version == 4) == (family == socket.AF_INET)]
+            return patch.object(box, "_kernel", answers)
+
+        plain = [(4, address(four, 2)), (6, address(six, 2))]
+        for name, answers, alike in (
+                ("both on one interface", kernel(plain), True),
+                ("on two native interfaces", kernel([plain[0], (6, address(six, 3))]), True),
+                ("one of the two under a tunnel", kernel([plain[0], (6, address(six, 3))],
+                                                         links=((2, 768), (3, 1))), False),
+                ("both under tunnels", kernel([plain[0], (6, address(six, 3))],
+                                              links=((2, 768), (3, 776))), True),
+                ("past its preferred life", kernel([plain[0], (6, address(six, 2, 0x20))]), False),
+                ("not yet confirmed", kernel([(4, address(four, 2, 0x04)), plain[1]]), False),
+                ("on a second interface as well", kernel([*plain, (6, address(six, 3, 0x20))]), False),
+                ("unknown to the kernel", kernel([plain[0]]), False)):
+            with self.subTest(name), answers:
+                self.assertIs(box._alike({four, six}), alike)
+        with patch.object(box, "_kernel", side_effect=OSError("refused")):
+            self.assertIs(box._alike({four, six}), False)
+
+    def test_only_plainly_named_resolvers_give_a_box_a_network_of_its_own(self):
+        plain = (b"nameserver 192.0.2.1\n", b"nameserver 192.0.2.1", b"nameserver\t192.0.2.1\n",
+                 b"# nameserver 127.0.0.1\n; nameserver ::1\nnameserver 192.0.2.1\n"
+                 b"nameserver 2001:db8::1\nsearch acme.test\n")
+        # No nameserver; one only the host's own network reaches as written; a line that is
+        # not the word, blanks and one address, whatever a libc makes of it.
+        other = (b"", b"search acme.test\n", b"nameserver 127.0.0.53\n", b"nameserver ::1\n",
+                 b"nameserver 0.0.0.0\n", b"nameserver ::\n", b"nameserver fe80::1\n",
+                 b"nameserver ::ffff:192.0.2.1\n", b"nameserver 224.0.0.251\n",
+                 b"nameserver 192.0.2.1\nnameserver 127.0.0.1\n",
+                 b"nameserver 127.53\n", b"nameserver 192.0.2.01\n", b"nameserver fe80::1%eth0\n",
+                 b"nameserver 192.0.2.1\r\n", b" nameserver 192.0.2.1\n", b"nameserver 192.0.2.1;\n",
+                 b"nameserver #192.0.2.1\n", b"nameserver 192.0.2.1 # acme\n",
+                 b"nameserver 192.0.2.1\x00\n", b"nameserver \xff\xfe\n")
+        # The box's own addresses there: the two it shares with the host.
+        own = set(map(ipaddress.ip_address, ("192.0.2.15", "2001:db8::15")))
+        for resolver, is_plain in (*((text, True) for text in plain), *((text, False) for text in other),
+                                   (b"nameserver 192.0.2.15\n", False),
+                                   (b"nameserver 2001:db8::15\n", False)):
+            with self.subTest(resolver=resolver):
+                self.assertIs(box._plain(resolver, own), is_plain)
+        # A resolver in a family the box has no address in is out of its reach.
+        four = {ipaddress.ip_address("192.0.2.15")}
+        self.assertIs(box._plain(b"nameserver 192.0.2.1\n", four), True)
+        self.assertIs(box._plain(b"nameserver 192.0.2.1\nnameserver 2001:db8::1\n", four), False)
 
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in
@@ -994,7 +1456,9 @@ class WorkerBox(unittest.TestCase):
 
             def interrupt(proc, *args, **kwargs):
                 nonlocal interrupted
-                if proc.args[0] == "bwrap" and not interrupted:
+                # The turn's own box is the one whose first process bwrap is to name: ak
+                # also starts short ones of its own, to ask libc a question.
+                if "--info-fd" in proc.args and not interrupted:
                     deadline = time.monotonic() + 5
                     while not (self.out / "events.jsonl").exists():
                         if time.monotonic() > deadline:
@@ -1017,32 +1481,25 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual((code, session, killed), (worker.TIMEOUT, "fixture-session", True))
         self.assertFalse(self.alive())
 
-    def stops(self, moment):
-        work = self.root / moment
-        work.mkdir()
-        script = work / "stops.py"
-        script.write_text(STOPS)
-        result = subprocess.run(
-            # A PID namespace of the fixture's own: whatever a failing proof leaves running
-            # ends with it, also when this launcher is ended for its time limit, and no
-            # number of another process's is ever signalled.
-            ["unshare", "--user", "--map-current-user", "--pid", "--fork", "--kill-child",
-             "--mount-proc", sys.executable, str(script), str(work), moment],
-            env={**os.environ, "BOX_REPO": str(REPO), "HOME": str(work)}, capture_output=True,
-            text=True, timeout=120)
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, '"ok"'), result.stderr)
-
     def test_a_box_stopped_while_it_is_still_being_built_leaves_nothing_running(self):
-        self.stops("building")
+        for online in (False, True):
+            with self.subTest(online=online):
+                self.network_fixture("stop-building", online=online)
 
     def test_a_box_whose_launcher_is_already_gone_is_ended_by_its_stop(self):
-        self.stops("gone")
+        for online in (False, True):
+            with self.subTest(online=online):
+                self.network_fixture("stop-gone", online=online)
 
-    def test_launch_refuses_before_allocating_without_bubblewrap(self):
-        with patch.object(box.shutil, "which", return_value=None), \
-                patch.object(config, "ensure_dirs", side_effect=AssertionError("allocated run")), \
-                self.assertRaisesRegex(config.Error, "sudo apt-get install -y bubblewrap"):
-            run.main([str(self.root / "task.md")])
+    def test_launch_refuses_before_allocating_without_box_tools(self):
+        which = shutil.which
+        for binary, package in (("bwrap", "bubblewrap"), ("pasta", "passt")):
+            with self.subTest(binary=binary), \
+                    patch.object(box.shutil, "which", side_effect=lambda name, **kw:
+                                 None if name == binary else which(name, **kw)), \
+                    patch.object(config, "ensure_dirs", side_effect=AssertionError("allocated run")), \
+                    self.assertRaisesRegex(config.Error, f"sudo apt-get install -y {package}"):
+                run.main([str(self.root / "task.md")])
 
     def test_job_resume_refuses_before_starting_without_bubblewrap(self):
         receipt = self.root / "jobs" / "job-acme"
