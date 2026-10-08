@@ -340,16 +340,19 @@ def _network(cmd, env, out_dir=None, info=None):
     if not (routes or routes6):
         yield [*cmd, "--unshare-net"]
         return
-    pasta = _host_binary("pasta")
-    if pasta is None:
+    sh, unshare, pasta, setpriv = map(_host_binary, ("sh", "unshare", "pasta", "setpriv"))
+    if not all((sh, unshare, pasta, setpriv)):
         yield [*cmd, "--unshare-net"]
         return
-    # Pasta's own user namespace maps the account to root, and bwrap maps it back for the
-    # command: asked to keep the account's numbers itself, pasta prints its failed attempts
-    # into the command's stderr.
+    # Keep the account's numbers in pasta's user namespace: its own maps the account to root,
+    # and behind an enclosing box's no_new_privs bwrap cannot map root back. Kept out of
+    # mapping, pasta prints its failed attempts on stderr, and it passes only descriptors 0,
+    # 1 and 2 on: the real stderr crosses it parked on 0, and comes back behind it.
     # A different address inside keeps host listeners on its LAN address reachable.
     # Loopback supplies both IP families, including a resolver's only family.
-    prefix = [pasta, "--config-net", "--no-map-gw", "--quiet",
+    prefix = [sh, "-c", 'exec 0>&2 2>/dev/null; exec "$@"', "box",
+              unshare, "--user", "--map-current-user", "--keep-caps", pasta,
+              "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
               "--address", "10.0.2.15", "--netmask", "24", "--gateway", "10.0.2.2",
               "--address", "fd00::15", "--gateway", "fe80::1",
@@ -372,9 +375,12 @@ def _network(cmd, env, out_dir=None, info=None):
     for version, address in hosts.items():
         prefix.extend(["--dns-forward", "10.0.2.3" if version == 4 else "fd00::3",
                        "--dns-host", address])
+    # Behind pasta the command reads nothing: its stdin carried the stderr across. Bwrap must
+    # also receive no ambient capabilities.
+    prefix.extend([sh, "-c", 'exec 2>&0 0</dev/null; exec "$@"', "box",
+                   setpriv, "--inh-caps=-all", "--ambient-caps=-all"])
     with ExitStack() as held:
-        account = ["--uid", str(os.getuid()), "--gid", str(os.getgid())]
-        launch = [*prefix, *cmd, *account]
+        launch = [*prefix, *cmd]
         if hosts:
             dns = held.enter_context(
                 tempfile.NamedTemporaryFile(mode="w", prefix=".box-dns-", dir=out_dir))
@@ -383,14 +389,14 @@ def _network(cmd, env, out_dir=None, info=None):
             launch.extend(["--ro-bind", dns.name, str(resolver.resolve())])
         # The probe starts bwrap behind pasta as the launch will, with a command that only
         # lists its environment: in an enclosing box pasta may be unable to start a command
-        # (an AppArmor exec transition under no_new_privs), or may start one behind which
-        # bwrap cannot map the account. Where both start, that transition may clear variables
-        # the loader distrusts (TMPDIR, LD_LIBRARY_PATH): the list says which reach the
-        # command, and bwrap gives it the rest back.
+        # (an AppArmor exec transition under no_new_privs), or bwrap unable to start behind
+        # it. Where both start, that transition may clear variables the loader distrusts
+        # (TMPDIR, LD_LIBRARY_PATH): the list says which reach the command, and bwrap gives
+        # it the rest back.
         # A pasta that fails leaves the process it had made for the command waiting: the probe
         # writes to a file, never a pipe that process would hold open, and its group ends with it.
         with tempfile.TemporaryFile() as said, \
-                subprocess.Popen([*prefix, "bwrap", "--unshare-user", "--unshare-pid", *account,
+                subprocess.Popen([*prefix, "bwrap", "--unshare-user", "--unshare-pid",
                                   "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
                                   "--", "/usr/bin/env", "-0"], env=env, stdout=said,
                                  stderr=subprocess.DEVNULL, start_new_session=True) as probe:
