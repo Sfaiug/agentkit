@@ -30,7 +30,7 @@ esc     leave
 
 From a seat, `ak run stop` and `ak orch stop` refuse another seat's work and say to message its owner. Your own runs and runs launched outside a seat still stop; the owner's menu and plain terminal can stop any work.
 
-Seats keep terminal input and redraws flowing independently, even when both buffers fill; the shared transport applies to every wrapped harness.
+Seats keep terminal input and redraws flowing independently, even when both buffers fill; the shared transport applies to every wrapped harness. Each relay poll writes newly read input as far as the harness terminal accepts it, without waiting for another poll.
 
 Starting or resuming a seat keeps the caller's home, harness state locations and notification destination, even on a tmux server started by another shell. Its menu uses the same environment. A failed resume keeps the old harness and its menu together. A sandboxed probe stays in its sandbox.
 
