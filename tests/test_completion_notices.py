@@ -292,6 +292,27 @@ class CompletionNotices(Sandbox):
                 self.declare('The replacement seat has shipped its own job')
                 self.assertEqual(len(self.posted()), 2)
 
+    def test_seats_without_a_creation_stamp_keep_main_gates(self):
+        for saved in (False, True):
+            with self.subTest(saved=saved):
+                self.name = f'manual-{int(saved)}'
+                if saved:
+                    self.seat(self.name, created=None)
+                self.checked('API shipped')
+                self.declare('The first seat shipped')
+                self.assertEqual(len(self.posted()), 1)
+                notify.forget_card(self.name)
+                config.notify_path(self.name).unlink()
+                plan.forget(self.name)
+                self.checked('API shipped')
+                self.now += 100
+                self.declare('The replacement seat shipped')
+                self.assertEqual(len(self.posted()), 2,
+                                 'unknown creation cannot identify the replacement as old work')
+                self.internal_turn()
+                self.declare('A later declaration retains the original episode rule')
+                self.assertEqual(len(self.posted()), 3)
+
     def test_a_legacy_sent_completion_keeps_its_existing_latch(self):
         self.checked('API shipped')
         self.declare()
