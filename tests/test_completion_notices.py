@@ -155,6 +155,32 @@ class CompletionNotices(Sandbox):
         self.declare('The new export is live')
         self.assertEqual(len(self.posted()), 1)
 
+    def test_a_quiet_answer_after_an_unkeyed_card_keeps_the_verified_completion(self):
+        for index, direct in enumerate((False, True)):
+            with self.subTest(direct=direct):
+                self.name = f'quiet-legacy-{index}'
+                self.seat(self.name, created=index + 20)
+                self.declare('The first job shipped without a plan')
+                self.now += 100
+                self.checked('Export shipped')
+                receipt = notify._completion(self.name)
+                if direct:
+                    notify.record(self.name, 'done', 'Explained the export', quiet=True,
+                                  completion=receipt, declared_at=self.now, runs=[])
+                    self.assertEqual(notify.transition(self.name), 0)
+                else:
+                    self.assertEqual(notify.shaped('done', 'Explained the export',
+                                                  session=self.name, quiet=True), 0)
+                self.assertEqual(notify._card_read(self.name).get('completed'), receipt)
+                self.assertEqual(len(self.posted()), 1)
+                self.internal_turn()
+                self.declare('The late handback confirms the same export')
+                self.assertEqual(len(self.posted()), 1)
+                self.now += 100
+                self.checked('Export shipped', 'Report shipped')
+                self.declare('The new report is shipped')
+                self.assertEqual(len(self.posted()), 2)
+
     def test_a_quiet_answer_retains_the_whole_pending_job_declaration(self):
         self.checked('API shipped')
         self.declare()
@@ -264,6 +290,62 @@ class CompletionNotices(Sandbox):
                                       session=self.name, quiet=True), 0)
         self.assertIsNone(notify.last(self.name))
         self.assertEqual(len(self.posted()), 0)
+
+    def test_a_quiet_answer_after_failure_retirement_keeps_the_repaired_job_alert(self):
+        for index, (direct, questioned) in enumerate(product((False, True), repeat=2)):
+            with self.subTest(direct=direct, questioned=questioned):
+                self.name = f'quiet-failure-{index}'
+                self.seat(self.name, created=index + 20)
+                self.checked('Export shipped')
+                directory = config.RUNS / f'acme-export-{index}'
+                directory.mkdir()
+                state = {'run_id': directory.name, 'state': 'running',
+                         'launched_session': self.name, 'started_at': self.now - 10, 'pid': 0}
+                path = directory / 'run.json'
+                path.write_text(json.dumps(state))
+                self.declare('The export is live')
+                promised = notify.last(self.name)
+                self.now += 10
+                state.update(state='fail', verdict='FAIL', reported=True,
+                             handed_back=self.now, finished_at=self.now)
+                path.write_text(json.dumps(state))
+                self.now += 10
+                self.assertEqual(notify.transition(self.name), 0)
+                self.assertTrue(notify.last(self.name, include_seen=True)['seen'])
+                if questioned:
+                    self.now += 10
+                    self.assertEqual(notify.shaped('needs', 'Which export format?',
+                                                  session=self.name), 0)
+                    self.now += 10
+                    notify.answered(self.name, self.now)
+                self.now += 10
+                if direct:
+                    notify.record(self.name, 'done', 'Explained the export failure', quiet=True,
+                                  completion=notify._completion(self.name),
+                                  declared_at=self.now, runs=[])
+                    self.assertEqual(notify.transition(self.name), 0)
+                else:
+                    self.assertEqual(notify.shaped('done', 'Explained the export failure',
+                                                  session=self.name, quiet=True), 0)
+                retired = notify.last(self.name, include_seen=True)
+                self.assertTrue(retired.get('seen'))
+                self.assertFalse(retired.get('quiet'))
+                for key in ('text', 'runs', 'completion', 'declared_at'):
+                    self.assertEqual(retired.get(key), promised.get(key), key)
+                self.assertEqual(len(self.posted()), 0)
+                self.now += 10
+                state.update(state='running', reported=False, handed_back=None, finished_at=None)
+                path.write_text(json.dumps(state))
+                self.assertEqual(notify.transition(self.name), 0)
+                self.now += 10
+                state.update(state='pass', verdict='PASS', reported=True,
+                             handed_back=self.now, finished_at=self.now)
+                path.write_text(json.dumps(state))
+                self.declare('The repaired export is live')
+                self.assertEqual(len(self.posted()), 1)
+                self.internal_turn()
+                self.declare('The late handback confirms the repaired export')
+                self.assertEqual(len(self.posted()), 1)
 
     def test_proof_refresh_and_reordering_do_not_create_another_completion(self):
         lines = [f'- [x] {outcome} · your eye · acme · written 2026-01-01 12:00'

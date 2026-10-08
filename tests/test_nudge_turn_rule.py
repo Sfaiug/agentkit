@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, host, job as jobs, menu, notify, orch, run, watch
+from agentkit import config, host, job as jobs, menu, notify, orch, plan, run, watch
 from agentkit import record
 
 SEAT, OTHER = "acme-api", "fix-api"
@@ -303,6 +303,20 @@ class NudgeTurnRule(Sandbox):
                 config.plan_path(SEAT).write_text(
                     '- [ ] The API repair is live · your eye · acme · written 2026-01-01 12:00\n')
                 self.assertEqual(self.judged(), (True, ["continue"]))
+
+    def test_a_hand_kept_plan_holds_completion_on_every_harness(self):
+        for harness in HARNESSES:
+            for line in ('- [ ] The API repair is live', '  - [ ] The API repair is live'):
+                with self.subTest(harness=harness, line=line):
+                    self.setUp()
+                    self.harness = harness
+                    notify.record(SEAT, "done", "Explained the API", quiet=True)
+                    config.plan_path(SEAT).write_text(line + '\n')
+                    with self.assertRaises(config.Error):
+                        plan.require_done(SEAT)
+                    self.assertEqual(self.judged(), (True, ["continue"]))
+                    config.plan_path(SEAT).write_text(line.replace('[ ]', '[x]') + '\n')
+                    self.assertEqual(self.judged(), (False, []))
 
     def test_g_a_current_question_stands_past_parked_work(self):
         for harness in HARNESSES:
