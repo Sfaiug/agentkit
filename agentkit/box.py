@@ -336,7 +336,7 @@ def _bind(own, writable, homes=(), readonly=()):
     # A mount containing an excluded subtree grants writes only to its sibling branches.
     # Its ancestors stay on the original read-only filesystem: there is no writable mount
     # to restore over the store, and no writable parent from which to rename it away.
-    pending, binds = list(binds.items()), {}
+    declared, pending, binds = binds, list(binds.items()), {}
     while pending:
         path, source = pending.pop()
         if any(place == path or place in path.parents for place in readonly):
@@ -348,6 +348,8 @@ def _bind(own, writable, homes=(), readonly=()):
                 if child.is_symlink():
                     continue                 # a sibling link never grants writes to its target
                 target = path / child.name
+                if target in declared:
+                    continue                 # explicit private or writable mounts keep precedence
                 if path in overlays:
                     if not child.is_dir():
                         continue             # a file cannot have a throwaway directory overlay
