@@ -149,7 +149,7 @@ interactive)
   # carries rules of their own.
   # No rulebook, no command line: a seat opened without the rules it was asked for is worse
   # than one that does not open, and `ak orch` prints what was said here.
-  rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
+  rb=${AGENTKIT_RULEBOOK:-$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}")} || {
     echo "grokbuild.sh interactive: no rulebook for this seat" >&2; exit 2; }
   # The text is wrapped in single quotes with '\'' for every quote, not %q: %q renders
   # quotes and newlines as $'...', which the shlex.split `ak orch` parses this line with

@@ -273,7 +273,7 @@ class V5s(Sandbox):
                                               side_effect=lambda *args: launched.append(args)))
         self.stack.enter_context(patch.object(
             orch, "command", side_effect=lambda cfg, model, conversation=None, fresh=False,
-            account=None: [
+            account=None, **_kw: [
                 model, "--session-id" if fresh else "--resume", conversation]))
         # tmux lost the seat: the record brings it back, fresh until its harness has opened
         # the conversation it was given, and then on that conversation

@@ -184,23 +184,18 @@ interactive)
   # seat_env` and the top of this file drops an inherited one, so nothing a seat starts is
   # told it is the orchestrator.  No rulebook, no command line: a seat opened without the
   # rules it was asked for is worse than one that does not open.
-  rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
+  rb=${AGENTKIT_RULEBOOK:-$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}")} || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
   tagged="$1#$2"   # as `run` hands it, and with MiMo's variants beside it
   case $1:$2 in *#*) tagged=$1;; mimo/*) ;; *:none) tagged=$1;; esac
-  content=$(python3 - "$rb" "$tagged" "$REPO/hooks/opencode-seat" "$(mimo_variants "$1")" <<'PYEOF'
-import json, sys
-rulebook, tagged, plugin, variants = sys.argv[1:5]
-try:
-    with open(rulebook, encoding="utf-8") as fh:
-        system = fh.read()
-except OSError as exc:
-    sys.exit(f"cannot read this seat's rulebook {rulebook}: {exc}")
-print(json.dumps({"model": tagged,
-                  "agents": {"build": {"system": system}},
-                  "plugins": [plugin], **json.loads(variants or "{}")}))
-PYEOF
-) || { echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
+  # jq writes the document, the rulebook read as one string: a Python started for it was more
+  # than half of what a launch waited on this adapter.  ASCII out, as that Python wrote it, so
+  # the command line stays plain whatever the rulebook says.
+  variants=$(mimo_variants "$1")
+  content=$(jq -acRs --arg model "$tagged" --arg plugin "$REPO/hooks/opencode-seat" \
+      --argjson more "${variants:-{\}}" \
+      '{model: $model, agents: {build: {system: .}}, plugins: [$plugin]} + $more' <"$rb") || {
+    echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q ' "$content")
   printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %sopencode %s--standalone --auto\n' \
       "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "$resume" ;;

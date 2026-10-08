@@ -156,7 +156,7 @@ interactive)
   # launch carries is added, which keeps the rulebook's text off the command line, and nothing
   # is written into the user's own ~/.codex.  No rulebook, no command line: a seat opened
   # without the rules it was asked for is worse than one that does not open.
-  rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
+  rb=${AGENTKIT_RULEBOOK:-$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}")} || {
     echo "codex.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf -- '--rulebook %q ' "$rb")
   # idle-compact.py wraps the TUI so a seat left open all day compacts itself instead of filling

@@ -177,7 +177,7 @@ itself has an open circle (`○ waiting for claude login`), which is not a fourt
 
 Discord hears two things and nothing else. A `needs you` word held for 60 seconds with no attached client input since it began sends one
 amber `Needs you · <session>` card. A `done` word sends one green `Done · <session>` card, red when the summary starts
-with `FAIL`; an unfinished run delays it and a failed run drops the declaration with one log line. Publication rechecks the latest declaration, question and runs under the seat lock, so a delayed decision cannot announce newer unfinished work or page for work already completed. Only a still-unanswered question contributes its beginning; a resolved notice cannot renew a prompt past its input or install-history gate. One card per episode
+with `FAIL`; an unfinished run delays it and a failed run drops the declaration with one log line. Publication rechecks the latest declaration, question and runs under the seat lock, so a delayed decision cannot announce newer unfinished work or page for work already completed. Only a still-unanswered question contributes its beginning; a resolved notice cannot renew a prompt past its input or install-history gate. If an answered card reopens for a newer question, its minute starts no earlier than that question, so earlier terminal input cannot suppress it. One card per episode
 and declaration: input from an attached client since the episode began, or answering its question, edits open needs cards to `Answered`, except that a card already sent for the seat's own `ak notify needs` question waits for your answer; an untouched attached terminal does not suppress or close a card. A done edits them to `Done`, and edits never
 ping; an edit Discord did not take stays on the card and is tried again at the next one. No card or retry goes out for
 a seat you closed (`x`, `ak orch stop`, a pause script), whose row keeps its number, or an episode begun before this
@@ -320,7 +320,7 @@ ask again, and a renewed grok key still refused is `no login` until grok holds a
 Claude's `auth` and `usage` first have Claude Code renew a lapsed seat login that holds a refresh token, one login at a
 time, with its cheapest turn (`haiku`, one word, no tools, no saved conversation); only a failed renewal says `run /login`.
 
-`interactive` is where the rulebook goes: `python3 tools/rulebook.py "$AGENTKIT_SESSION"` writes it and prints its path,
+`interactive` is where the rulebook goes: a launch has written the file already, in its own process, and names it in `$AGENTKIT_RULEBOOK`; without one, `python3 tools/rulebook.py "$AGENTKIT_SESSION"` writes it and prints its path (`rb=${AGENTKIT_RULEBOOK:-$(python3 …)}`),
 and the command line hands it to the harness, adding no instructions of its own, so an orchestrator behaves one way
 whatever runs it. Anything else the launch writes goes beside that path, so a dry run's is thrown away with it. A
 variable the seat's launch sets goes under `[launch] seat_env`, and the core drops it from child environments. What the

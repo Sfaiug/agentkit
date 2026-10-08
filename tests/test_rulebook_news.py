@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, statusbar, watch
+from agentkit.guard import commands
 from agentkit.harness import codex
 
 SEAT = "acme-fix"
@@ -544,8 +545,8 @@ class RulebookNews(Sandbox):
             if args[0] == "display-message":
                 return 0, SEAT
             if args[0] == "set-environment":
-                self.assertEqual(args[1:3], ("-t", f"={SEAT}:"))
-                self.assertEqual(len(args), 5)
+                self.assertTrue(all(command[:3] == ["set-environment", "-t", f"={SEAT}:"]
+                                    for command in commands(args)))
                 return 0, ""
             if args[0] == "respawn-pane":
                 return 1, "tmux refused; the old pane is still running"
@@ -576,8 +577,8 @@ class RulebookNews(Sandbox):
             if args[0] == "display-message":
                 return 0, SEAT
             if args[0] == "set-environment":
-                self.assertEqual(args[1:3], ("-t", f"={SEAT}:"))
-                self.assertEqual(len(args), 5)
+                self.assertTrue(all(command[:3] == ["set-environment", "-t", f"={SEAT}:"]
+                                    for command in commands(args)))
                 return 0, ""
             if args[0] == "respawn-pane":
                 return 1, "tmux refused; the old pane is still running"
