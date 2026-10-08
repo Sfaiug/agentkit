@@ -366,8 +366,9 @@ def _write(name, model, word=None, lasts=None, cfg=None, versions=(), every=Fals
     # With line one's right end, in one call, where a call per option made a seat's start wait
     # seconds on a busy host; another only where a long question's reason, drawn in every
     # width, would take it past what tmux takes in one.  The title last, so whoever sees it
-    # has the whole bar to read.
+    # has the whole bar to read.  Each value whole: a question may end in the `;` tmux would
+    # take for the end of its command.
     _tell(None if every else name,
-          [["set-option", "-t", f"={name}:", option, value]
+          [["set-option", "-t", f"={name}:", option, orch.tmux_literal(value)]
            for option, value in (*LAYOUT, *zip(TOPS, tops), *zip(WHYS, whys), (KEY, key),
                                  ("set-titles-string", title))])
