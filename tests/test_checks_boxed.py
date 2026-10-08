@@ -437,7 +437,7 @@ class ChecksBoxed(unittest.TestCase):
                 result = self.proof(self.command(source))
                 self.assertEqual(result["returncode"], 0, result)
                 state = {"run_id": directory.name, "state": "running", "verdict": "PASS",
-                         "delivery_sha": head, "target": "main", "merge_method": "squash",
+                         "delivery_sha": head, "target": "main", "merge_method": "rebase",
                          "review": {"head_sha": head}, "waiting_on": {"line": True},
                          "session": "seat-acme", "worktree": str(self.root), "repo": str(self.root)}
                 lp = SimpleNamespace(wt=self.root, run_dir=directory, state=state, cfg={},
@@ -445,6 +445,7 @@ class ChecksBoxed(unittest.TestCase):
                 with patch.object(run, "require_review_pass"), \
                         patch.object(run, "gh_json", return_value=({"object": {"type": "commit", "sha": target}}, "")), \
                         patch.object(run.notify, "shaped", return_value=0), \
+                        patch.object(run, "merged", return_value=True), \
                         patch.object(run, "gh", return_value=(0, "")) as merge:
                     self.assertFalse(run.do_merge(lp, "https://github.com/acme/widget/pull/1", "origin/main"))
                 merge.assert_not_called()
