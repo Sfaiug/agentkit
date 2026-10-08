@@ -198,11 +198,16 @@ if role == "mount":
         subprocess.run(["ip", "link", "add", "internet", "type", "dummy"], check=True)
         subprocess.run(["ip", "addr", "add", "192.0.2.1/24", "dev", "internet"], check=True)
         subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
-        subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
+        # One case has no IPv4 way out, only the network next to it.
+        if sys.argv[3] != "familyno4":
+            subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
         if Path("/proc/sys/net/ipv6").exists():
             # The stand-in internet has IPv6 as well, with an address of the global kind
-            # or, in one case, of the private kind, and a network beyond its first one.
-            first = "fd42::1/64" if sys.argv[3] == "familyprivate" else "2001:db8::1/64"
+            # or, case by case, a private, a 6to4 or a Teredo one, and a network beyond
+            # its first one.
+            first = {"familyprivate": "fd42::1/64", "familyno4": "fd42::1/64",
+                     "family6to4": "2002:c000:201::1/64",
+                     "familyteredo": "2001:0:c000:201::1/64"}.get(sys.argv[3], "2001:db8::1/64")
             for command in (("addr", "add", first, "dev", "internet", "nodad"),
                             ("-6", "route", "add", "default", "dev", "internet"),
                             ("link", "add", "beyond", "type", "dummy"),
@@ -374,12 +379,13 @@ try:
                 thread = threading.Thread(target=serve, args=(server, stop, True))
                 thread.start()
                 threads.append(thread)
-                # A name with an address in each family. This host puts first the family
-                # its own address matches in kind, and a box puts them in the same order.
+                # A name with an address in each family. This host lists first the family
+                # it has a way out for and whose own address the rules pair with the
+                # destination, and a box lists them in the same order.
                 order = ('import json, socket; print(json.dumps([found[0] for found in '
                          'socket.getaddrinfo("fixture.acme.test", 80, type=socket.SOCK_STREAM)]))')
                 here = json.loads(subprocess.check_output([sys.executable, "-c", order], text=True, timeout=30))
-                first = socket.AF_INET if sys.argv[3] == "familyprivate" else socket.AF_INET6
+                first = socket.AF_INET6 if sys.argv[3] in ("family", "familyno4") else socket.AF_INET
                 assert here[0] == first and sorted(here) == [socket.AF_INET, socket.AF_INET6], here
                 for overlay in (False, True):
                     assert boxed(order, overlay) == here, here
@@ -960,7 +966,7 @@ class WorkerBox(unittest.TestCase):
         self.network_fixture("ports")
 
     def test_a_box_puts_the_families_of_a_name_in_the_order_its_host_does(self):
-        for mode in ("family", "familyprivate"):
+        for mode in ("family", "familyprivate", "familyno4", "family6to4", "familyteredo"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
 

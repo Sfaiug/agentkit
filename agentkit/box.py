@@ -341,23 +341,37 @@ def _bind(own, writable, homes=()):
 
 
 def _family():
-    """The box's IPv6 address: of the kind this host reaches the internet from.
+    """The box's IPv6 address: the one of the two with which a program in the box lists the
+    families of a name in the order the host lists them.
 
-    For a name with both families, a program puts first the one whose address it would
-    send from matches the destination in kind: from a global IPv6 address it prefers IPv6,
-    from a private one IPv4. So a box given a private address on a host with a global one
-    preferred IPv4 where the host prefers IPv6, and a provider that serves an account over
-    the host's family turned it away. The kernel says which address the host would send
-    from, with no packet sent; where it has none, or a private or link-local one, the
-    box's is private."""
-    try:
-        with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as asked:
-            asked.connect(("2000::1", 9))
-            source = ipaddress.ip_address(asked.getsockname()[0].partition("%")[0])
-    except OSError:
+    For a name with an address of the internet's in each family, libc lists first (RFC 6724,
+    in this order) the family this host has a way out for; then the one whose own address
+    is of the destination's scope; then the one whose own address the policy table pairs
+    with the destination, which it does for neither a private IPv6 address nor a 6to4 or
+    Teredo one; then IPv6. A box has a way out for both families and an IPv4 address that
+    matches, so its IPv6 address alone decides: the global one leaves the order to that
+    last rule, the private one puts IPv4 first. (#705's box always had the private one: on
+    a host with a global address it listed IPv4 first where the host lists IPv6, and a
+    provider that serves an account over the host's family turned it away.) The kernel
+    says which addresses the host would send from, with no packet sent."""
+    def source(family, destination):
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as asked:
+                asked.connect((destination, 9))
+                return ipaddress.ip_address(asked.getsockname()[0].partition("%")[0])
+        except OSError:
+            return None
+
+    # Addresses kept for documentation: no host has a route of their own for them.
+    four, six = source(socket.AF_INET, "203.0.113.1"), source(socket.AF_INET6, "2001:db8:9::1")
+    if six is None:
         return PRIVATE
-    return PRIVATE if any(source in ipaddress.ip_network(kind) for kind in (
-        "fc00::/7", "fec0::/10", "fe80::/10")) else GLOBAL
+    paired = not any(six in ipaddress.ip_network(other) for other in (
+        "fe80::/10", "fec0::/10", "fc00::/7", "2002::/16", "2001::/32", "::/96", "::ffff:0:0/96"))
+    # IPv4 comes first on the host only where it has a way out with an address of the
+    # internet's scope and the IPv6 address is not one the first rules let stand beside it.
+    ahead = four is not None and not (four.is_link_local or four.is_loopback) and not paired
+    return PRIVATE if ahead else GLOBAL
 
 
 def _plain(resolver, own):
