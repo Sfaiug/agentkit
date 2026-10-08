@@ -369,6 +369,20 @@ class Seat(unittest.TestCase):
                                           FAKE_LIFE=9, AGENTKIT_SESSION="seat")
                 self.assertEqual(self.typed(events), "", events)
 
+    def test_a_held_typing_lock_does_not_freeze_owner_input(self):
+        self.said("seat", "Stop")
+        held = open(self.root / ".agentkit/state/notify-seat.lock", "a")
+        self.addCleanup(held.close)
+        fcntl.flock(held, fcntl.LOCK_EX)
+
+        def type_after_idle(test, proc, master):
+            os.write(master, b"owner line\n")
+
+        _, events = self.run_seat(script=[(IDLE + 2, type_after_idle)], limit=10,
+                                  FAKE_TOKENS=40000, FAKE_STOP_ON="owner line",
+                                  FAKE_LIFE=8, AGENTKIT_SESSION="seat")
+        self.assertEqual(self.typed(events), "owner line\n", events)
+
     def test_a_seat_whose_hooks_say_its_turn_ended_still_compacts(self):
         self.said("seat", "Stop")
         _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_STOP_ON="/compact", FAKE_LIFE=15,

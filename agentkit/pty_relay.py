@@ -126,6 +126,8 @@ class Relay:
         A descendant may still hold the slave, so its EOF is not required after
         our own child exits. Only data already available belongs to this drain.
         """
+        self.writable = False
+        self.to_child.clear()
         while self.to_owner or self.poll(0, input=False):
             if self.to_owner:
                 self.poll(0.1, input=False)

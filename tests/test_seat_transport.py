@@ -115,14 +115,22 @@ class RelayIO(unittest.TestCase):
         self.source, self.owner = os.pipe()
         self.screen, self.sink = os.pipe()
         self.fds = [self.master, self.slave, self.source, self.owner, self.screen, self.sink]
-        for fd in self.fds:
-            self.addCleanup(os.close, fd)
+        self.addCleanup(self.close)
         tty.setraw(self.slave)
         os.set_blocking(self.slave, False)
         os.set_blocking(self.screen, False)
         self.seen = bytearray()
         self.relay = Relay(self.master, self.source, self.sink, self.seen.extend)
-        self.addCleanup(self.relay.close)
+
+    def close(self):
+        if self.relay is not None:
+            self.relay.close()
+        for fd in self.fds:
+            os.close(fd)
+
+    def close_fd(self, fd):
+        os.close(fd)
+        self.fds.remove(fd)
 
     def read(self, fd):
         try:
@@ -192,14 +200,7 @@ class RelayIO(unittest.TestCase):
 
     def test_stdin_eof_is_ordered_after_the_last_input(self):
         os.write(self.owner, b'last input')
-        os.close(self.owner)
-        self.fds.remove(self.owner)
-        # Its cleanup has already been registered: replace the descriptor with
-        # a harmless owned one so cleanup never closes a reused descriptor.
-        new = os.open(os.devnull, os.O_RDONLY)
-        if new != self.owner:
-            os.dup2(new, self.owner)
-            os.close(new)
+        self.close_fd(self.owner)
         received = bytearray()
         for _ in range(20):
             self.relay.poll(0)
@@ -207,13 +208,13 @@ class RelayIO(unittest.TestCase):
         self.assertEqual(received, b'last input\x04')
         self.assertFalse(self.relay.input_open)
 
-    def test_injected_keys_drain_redraws_and_keep_their_gap(self):
+    def test_injected_keys_drain_redraws(self):
         from agentkit.pty_relay import Relay
         # A fake child writes more than the transport's buffer before it reads
         # the injected command, exactly the cycle normal typing used to hit.
-        code = """import os, tty
+        code = """import os, termios, tty
 from pathlib import Path
-tty.setraw(0)
+tty.setraw(0, termios.TCSANOW)
 view = memoryview(b'R' * 262144)
 while view:
  view = view[os.write(1, view):]
@@ -224,9 +225,14 @@ Path(os.environ['RECEIPT']).write_bytes(received)
 """
         with tempfile.TemporaryDirectory(prefix='.ak-test-inject-', dir=REPO) as root:
             receipt = Path(root) / 'received'
+            os.set_blocking(self.slave, True)
             child = subprocess.Popen([sys.executable, '-c', code], stdin=self.slave,
                                      stdout=self.slave, env={**os.environ, 'RECEIPT': str(receipt)})
-            self.addCleanup(lambda: child.kill() if child.poll() is None else None)
+            def reap():
+                if child.poll() is None:
+                    child.kill()
+                child.wait(timeout=10)
+            self.addCleanup(reap)
             # A regular file is an unblocked terminal sink, without a second
             # thread or another reader in this test's process.
             with (Path(root) / 'screen').open('wb') as screen:
@@ -239,16 +245,13 @@ Path(os.environ['RECEIPT']).write_bytes(received)
                     self.relay.finish()
                 finally:
                     self.relay.close()
+                    self.relay = None
             self.assertEqual(receipt.read_bytes(), b'K' * 131072 + b'\r')
             self.assertEqual((Path(root) / 'screen').read_bytes(), b'R' * 262144)
 
     def test_closing_the_child_retains_its_final_output(self):
         os.write(self.slave, b'last screen')
-        os.close(self.slave)
-        new = os.open(os.devnull, os.O_RDONLY)
-        if new != self.slave:
-            os.dup2(new, self.slave)
-            os.close(new)
+        self.close_fd(self.slave)
         for _ in range(20):
             self.relay.poll(0)
         self.assertFalse(self.relay.active)
