@@ -68,6 +68,10 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A screen-reading fix is proven on a pane captured from a real, renamed seat, not only a hand-drawn fixture: Claude draws the seat's name into the rule under a question's footer, which #591's fixture lacked (#609).
 - Try a seat end to end only with HOME and AGENTKIT_TMUX_SOCKET both sandboxed: a seat record in the real ~/.agentkit is revived by the tick onto ak's own server and reads needs you to the owner.
 - A replay that compares two revisions runs each in a clone made from git alone, and compares only the checks the second one reproduces: a shared checkout passed one replay's files to the next, a staged overlay or a commit message set one side apart, and copying the checkout's untracked files brought sockets, links back into it and a copy of the copy (#506, over twenty rounds).
+- A task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"; "the internet answers", not "as the host does"): a reviewer measures every word, and wider ones cost five findings and a relay nobody asked for (#697, #699).
+- A PID namespace's number names another namespace the moment it ends: never find a process by it. Hold a pidfd, or go through a process you hold: its group, its children (#699: each box that ended could kill another box's first process on the same host).
+- A box change is tried twice before it is pushed: inside one of ak's own boxes, as the lander runs every test, and on a host with a route out, where the offline suite never goes. Either run shows at once what three review rounds found (#699).
+- A test fakes one module's sleep (`tests/fixtures/clock.py`), never `time.sleep` itself: every other wait in the process then spins, and a recording fake keeps every spin (#700: 3.7 GB in a landing check).
 
 ## Owner rules
 
