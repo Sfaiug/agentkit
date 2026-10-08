@@ -9,5 +9,5 @@ def resolved(args):
     if "new-session" not in args and "respawn-pane" not in args:
         return args
     _, path = shlex.split(args[-1])
-    _, line = Path(path).read_text().splitlines()
+    line = Path(path).read_text().splitlines()[-1]
     return (*args[:-1], line.removeprefix("exec "))

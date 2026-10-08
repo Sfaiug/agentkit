@@ -1756,8 +1756,32 @@ def seat_command(name, cmd, socket=None):
                run, "--user", f"--slice={seat_slice_name(socket)}", "--scope",
                "--quiet", f"--unit={unit}", *literal, "--", *cmd]
     path = config.seat_file("launch", name)
-    path.write_text('rm -f -- "$0"\nexec ' + shlex.join(cmd) + "\n")
+    # new-session -e can set a variable, but cannot remove one inherited from its server.
+    # Clear absent overrides before the harness starts; the session is refreshed below too.
+    absent = [key for key, value in seat_env(name, socket_name() if socket is None else socket).items()
+              if value is None]
+    unset = "unset " + " ".join(absent) + "\n" if absent else ""
+    path.write_text('rm -f -- "$0"\n' + unset + 'exec ' + shlex.join(cmd) + "\n")
     return shlex.join(["sh", str(path)])
+
+
+def seat_env(name, server):
+    """A seat gets the caller's state and delivery boundary, not its server's old one."""
+    from . import notify
+    values = {"HOME": str(Path.home()), config.SESSION_ENV: name, SOCKET_ENV: server}
+    for key in sorted(config.state_env_names() | set(notify.ENV_NAMES)):
+        if key not in values:
+            values[key] = os.environ.get(key)
+    return values
+
+
+def seat_environment(name, server, values):
+    """Keep future panes and Ctrl-b m in the same boundary as the harness."""
+    for key, value in values.items():
+        args = ["-r", key] if value is None else [key, value]
+        rc, out = tmux_out("set-environment", "-t", f"={name}:", *args, socket=server)
+        if rc:
+            raise config.Error(f"cannot set the environment of session {name}: {out}")
 
 
 def start(name, cwd, cmd, orchestrator):
@@ -1769,10 +1793,9 @@ def start(name, cwd, cmd, orchestrator):
     or, for a seat that was never given one, fresh.  Only `ak orch stop` ends a seat.
     """
     conf = tmux_conf()
-    env = ["-e", f"{config.SESSION_ENV}={name}"]
-    if os.environ.get(SOCKET_ENV):
-        # the seat's own `ak` -- and the menu its Ctrl-b m opens -- has to reach this server
-        env += ["-e", f"{SOCKET_ENV}={os.environ[SOCKET_ENV]}"]
+    server = socket_name()
+    values = seat_env(name, server)
+    env = [arg for key, value in values.items() for arg in ("-e", f"{key}={value or ''}")]
     # First, into whatever server is already up: `-f` is read only by the command that starts
     # one, and `remain-on-exit` has to be in force before the seat exists, not a moment after --
     # a harness that exits as it starts would otherwise take the session with it.  On a server
@@ -1786,6 +1809,7 @@ def start(name, cwd, cmd, orchestrator):
     if rc != 0:
         config.seat_file("launch", name).unlink(missing_ok=True)
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
+    seat_environment(name, server, values)
     tmux_out("set-option", "-t", f"={name}:", MARK, "1")
     # A server started as a systemd service writes its stdout to the journal, so tmux
     # itself expands the launched pane rather than handing its id back to this caller.
@@ -2120,11 +2144,15 @@ def _start_harness(name, model, cwd, cmd, session):
                                  socket=server)
             if rc or owner != name:
                 target = f"={name}:"
+        values = seat_env(name, server)
+        env = [arg for key, value in values.items() for arg in ("-e", f"{key}={value or ''}")]
         rc, out = tmux_out("respawn-pane", "-k", "-t", target,
-                           seat_command(name, cmd, server), socket=server, path_shim=True)
+                           *env, seat_command(name, cmd, server), socket=server, path_shim=True)
         if rc != 0:
             config.seat_file("launch", name).unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
+        # A refused respawn leaves the old harness up: its menu keeps that same home too.
+        seat_environment(name, server, values)
         tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
         if on_own_server(session):
             from . import statusbar   # here, not at the top: the bar's module imports this one

@@ -12,6 +12,8 @@ and the orchestrator's process too. A bare `ak` is the menu on the server, on a 
 and that runs no interactive agent in its panes, such as a watcher loop, is not a session: no row, no card, no count.
 Ak workers (`AK_RUN_ROLE=worker`) and their descendants do not count; any old card closes on the next tick.
 
+New seats and respawned panes receive the caller's `HOME`, harness state-root overrides declared by adapter manifests, notification sink and sink log, webhook override and owner mention. The session's environment is refreshed too, so its menu and future panes use the same state and delivery. A failed respawn keeps the old harness's environment for its menu and future panes. Absent overrides are removed: a sandbox probe keeps its state and delivery destination, and a normal seat clears an inherited test sink.
+
 The key line explains what the pointer rests on, and the keys return when it leaves. A usage row glints once
 and shows a tick at the share that would remain if usage kept pace with time; the `i` page is gone.
 

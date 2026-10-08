@@ -56,6 +56,9 @@ TITLES = {"needs": "Needs you", "done": "Done"}
 CARD_WAIT = 60
 SINK_ENV = "AK_NOTIFY_SINK"   # the suites' destination; it outranks the owner's webhook
 SINK_LOG_ENV = "AK_NOTIFY_SINK_LOG"   # where a diversion is written, for the suite to fail on
+WEBHOOK_ENV = "AGENTKIT_DISCORD_WEBHOOK"
+USER_ID_ENV = "AGENTKIT_DISCORD_USER_ID"
+ENV_NAMES = (SINK_ENV, SINK_LOG_ENV, WEBHOOK_ENV, USER_ID_ENV)
 RETRY_BACKOFF = (60, 180, 600, 1800, 3600)
 USAGE = command_help.NOTIFY_USAGE
 
@@ -177,11 +180,11 @@ def webhook(report=False):
     """
     marker = sink()
     if marker is None:
-        return _secret("AGENTKIT_DISCORD_WEBHOOK", "discord_webhook")
+        return _secret(WEBHOOK_ENV, "discord_webhook")
     target = marker if marker.startswith(("https://", "http://")) else "off"
     if report:
         try:
-            configured = _secret("AGENTKIT_DISCORD_WEBHOOK", "discord_webhook")
+            configured = _secret(WEBHOOK_ENV, "discord_webhook")
         except config.Error:
             configured = None
         if configured and configured != target:
@@ -219,7 +222,7 @@ def _read(paths):
 
 def mention():
     """The `<@id>` that makes Discord push-notify the user, or "" when no id is configured."""
-    user_id = _secret("AGENTKIT_DISCORD_USER_ID", "discord_user_id")
+    user_id = _secret(USER_ID_ENV, "discord_user_id")
     return f"<@{user_id}>" if user_id else ""
 
 
@@ -1316,10 +1319,10 @@ def check():
 
     0 on 200, 1 on anything else, and 2 -- via config.Error -- only when none is configured.
     """
-    url = _secret("AGENTKIT_DISCORD_WEBHOOK", "discord_webhook")
+    url = _secret(WEBHOOK_ENV, "discord_webhook")
     if not url:
         raise config.Error("--check: no webhook configured; put one in "
-                           f"{config.SECRETS / 'discord_webhook'} or $AGENTKIT_DISCORD_WEBHOOK")
+                           f"{config.SECRETS / 'discord_webhook'} or ${WEBHOOK_ENV}")
     if not url.startswith(("https://", "http://")):
         # exit 2 means "nothing configured"; a webhook that is configured but unusable is a
         # failed check like any other, and the caller has to tell those two apart

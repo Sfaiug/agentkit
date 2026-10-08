@@ -543,6 +543,10 @@ class RulebookNews(Sandbox):
                 return 0, "%7"
             if args[0] == "display-message":
                 return 0, SEAT
+            if args[0] == "set-environment":
+                self.assertEqual(args[1:3], ("-t", f"={SEAT}:"))
+                self.assertEqual(len(args), 5)
+                return 0, ""
             if args[0] == "respawn-pane":
                 return 1, "tmux refused; the old pane is still running"
             self.fail(f"unexpected tmux command: {args}")
@@ -571,6 +575,10 @@ class RulebookNews(Sandbox):
                 return 0, "%7"
             if args[0] == "display-message":
                 return 0, SEAT
+            if args[0] == "set-environment":
+                self.assertEqual(args[1:3], ("-t", f"={SEAT}:"))
+                self.assertEqual(len(args), 5)
+                return 0, ""
             if args[0] == "respawn-pane":
                 return 1, "tmux refused; the old pane is still running"
             self.fail(f"unexpected tmux command: {args}")
