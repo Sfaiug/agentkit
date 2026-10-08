@@ -21,6 +21,10 @@ COMPOSERS = {
     "opencode": ("mimo", '┃  Ask anything… "What is the tech stack of this project?"', "┃  {}"),
     "antigravity": ("gemini", "\n>\n", "\n> {}\n"),
 }
+SUFFIX_DRAFTS = (
+    (watch.ACCOUNT_LINE, "usage available.\n  Continue where you stopped."),
+    (watch.MIDTURN_LINE, "Continue that turn and finish it;\n  do not start over."),
+)
 
 
 class OwnLineGetsItsEnter(Sandbox):
@@ -120,6 +124,46 @@ class OwnLineGetsItsEnter(Sandbox):
                 self.tick()
                 self.assertEqual(self.keys, [])
                 self.assertEqual(self.pane, before)
+
+    def test_partial_multiline_recovery_lines_are_owner_drafts(self):
+        for harness in COMPOSERS:
+            for _line, draft in SUFFIX_DRAFTS:
+                with self.subTest(harness=harness, draft=draft):
+                    self.compose(draft, harness)
+                    self.tick()
+                    self.assertEqual(self.keys, [])
+
+    def test_a_line_edited_to_a_multiline_suffix_before_enter_stays_unsent(self):
+        for harness in ("claude", "codex"):
+            for line, draft in SUFFIX_DRAFTS:
+                with self.subTest(harness=harness, draft=draft):
+                    self.compose(line, harness)
+                    with patch.object(orch, "rulebook_prepare", side_effect=lambda _name:
+                                      self.compose(draft, harness)):
+                        self.tick()
+                    self.assertEqual(self.keys, [])
+
+    def test_a_multiline_suffix_typed_before_the_retry_gets_no_second_enter(self):
+        for harness in ("claude", "codex"):
+            for line, draft in SUFFIX_DRAFTS:
+                with self.subTest(harness=harness, draft=draft):
+                    self.keys.clear()
+                    self.compose(line, harness)
+                    pending = self.pane
+
+                    def held_enter(*args, **kwargs):
+                        result = self.tmux(*args, **kwargs)
+                        self.pane = pending
+                        return result
+
+                    def prepare(_name):
+                        if self.keys:
+                            self.compose(draft, harness)
+
+                    with patch.object(orch, "tmux_out", side_effect=held_enter), \
+                            patch.object(orch, "rulebook_prepare", side_effect=prepare):
+                        self.tick()
+                    self.assertEqual(self.keys, ["Enter"])
 
     def test_an_empty_composer_with_an_old_echo_and_an_unreadable_screen_get_no_enter(self):
         for pane in (watch.ACCOUNT_LINE + "\n" + self.base, "", "harness starting"):
