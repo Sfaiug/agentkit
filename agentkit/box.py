@@ -35,18 +35,14 @@ OVERLAY_REMEDY = ("install bubblewrap with --tmp-overlay support and use a kerne
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 # Pasta passes only descriptors 0, 1 and 2 on, and prints its own diagnostics on 2: the
 # command's stderr crosses it parked on 0, and behind it the command reads nothing.
-PARK = ("import os, sys\n"
-        "os.dup2(2, 0)\n"
-        "null = os.open(os.devnull, os.O_WRONLY)\n"
-        "os.dup2(null, 2)\n"
+# argv: FROM TO command...: TO becomes what FROM was, and FROM becomes /dev/null.
+MOVE = ("import os, sys\n"
+        "source, target = int(sys.argv[1]), int(sys.argv[2])\n"
+        "os.dup2(source, target)\n"
+        "null = os.open(os.devnull, os.O_RDWR)\n"
+        "os.dup2(null, source)\n"
         "os.close(null)\n"
-        "os.execvp(sys.argv[1], sys.argv[1:])\n")
-UNPARK = ("import os, sys\n"
-          "os.dup2(0, 2)\n"
-          "null = os.open(os.devnull, os.O_RDONLY)\n"
-          "os.dup2(null, 0)\n"
-          "os.close(null)\n"
-          "os.execvp(sys.argv[1], sys.argv[1:])\n")
+        "os.execvp(sys.argv[3], sys.argv[3:])\n")
 
 
 def _contents(root):
@@ -373,7 +369,7 @@ def _network(cmd, env, out_dir=None, nested=False):
     # the variables it cannot name.
     # A different address inside keeps host listeners on its LAN address reachable.
     # Loopback supplies both IP families, including a resolver's only family.
-    prefix = [sys.executable, "-I", "-S", "-c", PARK,
+    prefix = [sys.executable, "-I", "-S", "-c", MOVE, "2", "0",
               unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
@@ -399,7 +395,7 @@ def _network(cmd, env, out_dir=None, nested=False):
         prefix.extend(["--dns-forward", forwarder[version], "--dns-host", address])
     # Behind pasta the command reads nothing: its stdin carried the stderr across. Bwrap must
     # also receive no ambient capabilities.
-    prefix.extend([sys.executable, "-I", "-S", "-c", UNPARK,
+    prefix.extend([sys.executable, "-I", "-S", "-c", MOVE, "0", "2",
                    setpriv, "--inh-caps=-all", "--ambient-caps=-all"])
     with ExitStack() as held:
         launch = [*prefix, *cmd]
