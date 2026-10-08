@@ -308,7 +308,10 @@ def _own(scratch, clean, cwd, writable, hidden):
 
 
 def _bind(own, writable, homes=()):
-    """Mount HOME overlays, private and writable places, parents first so deeper mounts win."""
+    """Mount HOME overlays, private and writable places, parents first so deeper mounts win.
+
+    Returns the arguments, and for each place mounted the directory on this host that the
+    box is shown there."""
     clash = sorted(own.keys() & writable)
     if clash:
         from . import config
@@ -331,7 +334,7 @@ def _bind(own, writable, homes=()):
         elif (parent is None or parent in overlays
               or binds[parent] / path.relative_to(parent) != binds[path]):
             args.extend(["--bind", str(binds[path]), str(path)])
-    return args
+    return args, binds
 
 
 def _loopback(name):
@@ -354,15 +357,16 @@ def _loopback(name):
     return address if address.is_loopback else None
 
 
-def _seen(path, own, hidden):
+def _seen(path, shown, hidden):
     """Where on this host the file is that the box will find at `path`, or None where the
-    box is shown none: in a place the box keeps a copy of its own, the copy; a path the
-    box masks, nothing; elsewhere the path itself."""
-    for place in sorted(own, key=lambda place: len(place.parts), reverse=True):
-        if place == path or place in path.parents:
-            return own[place] / path.relative_to(place)
+    box is shown none: a path the box masks, nothing; under a place the box mounts, what
+    `_bind` shows there, the deepest place winning as it does among the mounts (a copy of
+    the box's own, or the host's directory again); elsewhere the path itself."""
     if path in hidden or any(up in hidden for up in path.parents):
         return None
+    for place in (path, *path.parents):
+        if place in shown:
+            return shown[place] / path.relative_to(place)
     return path
 
 
@@ -414,9 +418,9 @@ def _spaces(helper):
 
 
 @contextmanager
-def _network(cmd, out_dir=None, nested=False, hidden=(), own=None):
-    """The launch with a network of its own; `hidden` are the paths the box masks and `own`
-    the places it keeps copies of its own.
+def _network(cmd, out_dir=None, nested=False, hidden=(), shown=None):
+    """The launch with a network of its own; `hidden` are the paths the box masks and
+    `shown` what `_bind` shows at each place it mounts.
 
     Pasta runs beside the box, never in front of it. A helper this context owns makes the
     network namespace and keeps a holder in it; `nsenter` puts bwrap into the holder's
@@ -447,14 +451,17 @@ def _network(cmd, out_dir=None, nested=False, hidden=(), own=None):
               "--address", "fd00::15", "--gateway", "fe80::1",
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
     # The resolver is read as the box will find it, so a rewritten one shows the box nothing
-    # it was not given: what the box hides or leaves out of its own /run stays out.
+    # it was not given: what the box hides or leaves out of its own /run stays out. Where
+    # that is the host's own file, a rewritten copy is bound over it; where it is the box's
+    # own copy, that copy is rewritten.
     target = Path("/etc/resolv.conf").resolve()
-    seen = _seen(target, own or {}, hidden)
+    seen = _seen(target, shown or {}, hidden)
     content = ""
     try:
         if seen is not None:
-            # Only a regular file lying there itself, never one a link there leads to.
-            with os.fdopen(os.open(seen, os.O_RDONLY | os.O_NOFOLLOW),
+            # Only a regular file lying there itself: never one a link there leads to, and
+            # never a wait on anything else that lies there.
+            with os.fdopen(os.open(seen, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK),
                            errors="surrogateescape") as readable:
                 if stat.S_ISREG(os.fstat(readable.fileno()).st_mode):
                     content = readable.read()
@@ -499,13 +506,15 @@ def _network(cmd, out_dir=None, nested=False, hidden=(), own=None):
         own = f"/proc/{os.getpid()}/fd"
         launch = [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
                   "--preserve-credentials", *cmd]
-        if hosts and seen == target:
+        if hosts and seen == target and out_dir is not None:
+            # A launch with no out dir, the preflight's, writes nothing anywhere, as ever,
+            # and needs no names.
             dns = held.enter_context(tempfile.NamedTemporaryFile(
                 mode="w", errors="surrogateescape", prefix=".box-dns-", dir=out_dir))
             dns.write(content)
             dns.flush()
             launch.extend(["--ro-bind", dns.name, str(target)])
-        elif hosts:
+        elif hosts and seen != target:
             # The box's own copy is rewritten where it lies.
             with os.fdopen(os.open(seen, os.O_WRONLY | os.O_NOFOLLOW | os.O_TRUNC), "w",
                            errors="surrogateescape") as written:
@@ -565,8 +574,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
-        cmd[at:at] = _bind({}, writable, homes)
-        with _network(cmd, nested=nested, hidden=targets) as launch:
+        cmd[at:at], shown = _bind({}, writable, homes)
+        with _network(cmd, nested=nested, hidden=targets, shown=shown) as launch:
             yield [*launch, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
@@ -619,10 +628,10 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            own = _own(scratch, clean, cwd, writable, targets)
-            cmd[at:at] = _bind(own, writable, homes)
+            cmd[at:at], shown = _bind(
+                _own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            with _network(cmd, out_dir, nested, targets, own) as launch:
+            with _network(cmd, out_dir, nested, targets, shown) as launch:
                 yield [*launch, "--info-fd", str(write), "--", *argv], clean, {
                     "pass_fds": (write,), "stop": stop}
         finally:

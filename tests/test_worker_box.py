@@ -248,13 +248,14 @@ if role == "host" and sys.argv[3].startswith("stop-"):
     sys.exit(0)
 
 
-def boxed(source, overlay=False):
+def boxed(source, overlay=False, places=()):
     out = Path(tempfile.mkdtemp(dir=root))
     if role == "host" and sys.argv[3].startswith("dns"):
         source = ("import os; assert os.readlink('/proc/self/ns/net') != "
                   + repr(os.readlink("/proc/self/ns/net")) + "; " + source)
     with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
-                                        out, cwd=root, home_overlay=overlay) as (cmd, env, spawn):
+                                        out, cwd=root, home_overlay=overlay,
+                                        places=places) as (cmd, env, spawn):
         spawn.pop("stop")
         result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
                                 timeout=30, **spawn)
@@ -345,6 +346,11 @@ try:
                 (root / ".ssh/id_acme").symlink_to("/etc/resolv.conf")
                 assert boxed('import json; print(json.dumps(open("/etc/resolv.conf").read()))') == ""
             if sys.argv[3] == "dnsrun":
+                # A place the command may write, laid over the box's own /run where the
+                # resolver lies: the command is shown the host's file there again, and
+                # names still resolve.
+                assert boxed('import json, socket; print(json.dumps(socket.gethostbyname("fixture")))',
+                             places=("/run/acme",)) == "203.0.113.7"
                 # In /run the box keeps a copy of its own, which leaves a hidden credential
                 # out under every name it has. The resolver is rewritten in that copy, so
                 # one the copy left out is not brought back: not even when the credential
