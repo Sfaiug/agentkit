@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, watch
+from agentkit import config, stop, watch
 from agentkit.told import heading
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
@@ -116,6 +116,30 @@ class StopAnswer(unittest.TestCase):
                 self.assertEqual(self.stop(), "")
                 self.prompt(opened)
                 self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
+    def test_a_renamed_seats_next_prompt_invalidates_the_quiet_answer_everywhere(self):
+        self.prompt("Explain the parser")
+        done = self.quiet()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        renamed = "acme-schema"
+        (self.state / f"seat-{SEAT}.json").rename(self.state / f"seat-{renamed}.json")
+        (self.state / f"stop-{SEAT}.json").rename(self.state / f"stop-{renamed}.json")
+        (self.state / f"session-{SEAT}.json").write_text(json.dumps({"renamed": renamed}))
+        self.prompt("Fix the export")
+        with patch.object(config, "STATE", self.state), patch.object(config, "RUNS", self.runs):
+            word = watch.session_state(renamed, session={"name": renamed}, cfg={}, records=[],
+                                       harness="claude", live={"state": "at_prompt"},
+                                       auth_out={}, gh_out={}, token_out={})
+        self.assertEqual(word["word"], "needs you")
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
+    def test_a_quiet_command_cannot_finish_a_prompt_arriving_while_plan_checks_run(self):
+        self.prompt("Explain the parser")
+        with patch.object(config, "STATE", self.state), patch.object(config, "RUNS", self.runs), \
+                patch.object(stop.plan, "require_done", side_effect=lambda _name:
+                             (self.prompt("Fix the export"), set())[1]):
+            stop.quiet_done(SEAT, ANSWER)
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_a_quiet_answer_cannot_complete_an_open_plan(self):
         self.prompt("What caused the schema failure? Fix it and ship the API.")
