@@ -13,7 +13,7 @@ change git cannot read as the same object or the same section text is a change.
 
 import hashlib
 
-FRONT = "---"               # the heading that names a file's front matter
+FRONT = "\x00front"         # names a file's front matter; a NUL so no real `## ` heading collides
 FENCES = ("```", "~~~")     # either opens a fenced block a `## ` inside does not close
 
 
@@ -74,14 +74,11 @@ def piece(blob, heading):
     if len(heads) > 1:
         # a heading the file repeats reads as one protected section; keep all of it, to the end
         return "".join(lines[heads[0]:])
-    end, fence = len(lines), None            # `fence` is the marker that opened the current block
+    end, saw_fence = len(lines), False       # a section holding either fence marker runs to the end
     for i in range(heads[0] + 1, len(lines)):
-        opener = next((f for f in FENCES if lines[i].lstrip().startswith(f)), None)
-        if fence is None and opener:
-            fence = opener
-        elif fence is not None and opener == fence:
-            fence = None
-        elif fence is None and lines[i].startswith("## "):
+        if any(lines[i].lstrip().startswith(f) for f in FENCES):
+            saw_fence = True
+        elif not saw_fence and lines[i].startswith("## "):
             end = i
             break
     return "".join(lines[heads[0]:end])

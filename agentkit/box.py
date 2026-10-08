@@ -99,9 +99,6 @@ def _credentials(env, cwd, agent=None):
     places.update(home / ".git-credentials" for home in homes)
     places.update(root / "git/credentials" for root in configs)
     places.update(root / "hosts.yml" for root in gh)
-    # The owner's yes to a change lands only outside a box: a boxed turn or check sees its store
-    # empty and read-only, so a check the branch supplies cannot write a yes for its own change.
-    places.update(home / ".agentkit/state/owner-yes" for home in homes)
     # A worker reaches no server: only the orchestrator's own shell holds SSH keys and agent.
     places.update(home / ".ssh" for home in homes)
     if agent:
@@ -377,6 +374,20 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             continue
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
+    # The owner's yes to a change lands only outside a box.  The state directory that holds its
+    # store is a read-only mount point here -- deeper than the writable workspace or home overlay
+    # above, so it wins over both: its content stays readable, but a branch-supplied check can
+    # neither write it nor rename it away.  An existing store also reads empty over a tmpfs.  So no
+    # check can read a yes, write one for its own change, or recreate the store where none was.
+    from . import config
+    states = {config.STATE, *(Path(path) / ".agentkit" / "state" for path in _homes(clean, cwd))}
+    for state in sorted(states):
+        if not state.is_dir():
+            continue
+        cmd.extend(["--ro-bind", str(state), str(state)])
+        store = state / "owner-yes"
+        if store.is_dir():
+            cmd.extend(["--tmpfs", str(store), "--remount-ro", str(store)])
     if out_dir is None:
         cmd[at:at] = _bind({}, writable, homes)
         yield [*cmd, "--", *argv], clean, {}

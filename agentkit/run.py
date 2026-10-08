@@ -136,7 +136,7 @@ NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
 # The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
-FRONT_KEYS = ("tests", "health", "cleanup", "users", "features")
+FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "owner")
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
 NOTES = re.compile(r"^(#+)[ \t]*Notes\b[^\n]*$", re.M | re.I)
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
@@ -5287,9 +5287,19 @@ def front_has_key(text, key):
 
 def owner_declaration(wt, upstream):
     """The target's `owner:` value as written (a trailing `# comment` removed), from the
-    remote-tracking ref, or None when there is no owner key; a read that stops raises."""
-    text = git(wt, "show", f"{qualified(upstream)}:AGENTS.md", check=False, env=owner_env())
-    if not text or not front_has_key(text, "owner"):
+    remote-tracking ref, or None when the target has no AGENTS.md or names no owner key.
+
+    An AGENTS.md whose entry is in the tree but whose content git cannot read stops delivery
+    rather than quietly dropping the guard: its owner parts are unknown, not absent.  A read that
+    stops raises on its own."""
+    rev = qualified(upstream)
+    present, _ = git_out(wt, "rev-parse", "--verify", "--quiet", f"{rev}:AGENTS.md", env=owner_env())
+    if present != 0:
+        return None                      # the target has no AGENTS.md entry: it names no owner
+    code, text = git_out(wt, "show", f"{rev}:AGENTS.md", env=owner_env())
+    if code != 0:
+        raise config.Error("the target's AGENTS.md could not be read to check its owner parts")
+    if not front_has_key(text, "owner"):
         return None
     return re.sub(r"\s#.*$", "", front_value(text, "owner") or "").strip()
 
@@ -5304,20 +5314,42 @@ def owner_target_parts(wt, upstream):
     return owner.parts(declaration) or [("AGENTS.md", owner.FRONT)]
 
 
+def owner_entry(wt, rev, path):
+    """(entry mode, object id) for `path` in `rev`'s tree, or None when it is absent.
+
+    Read from the parent tree with `git ls-tree`, so the entry mode is part of the identity: a
+    file turned into a symlink, or an executable bit flipped, is a change even when the blob is
+    byte-identical.  Replacement objects and grafts are off, so a planted ref cannot make a
+    currently-named path read as absent on both revisions and slip past unseen."""
+    parent, _, base = path.rpartition("/")
+    tree = f"{rev}:{parent}" if parent else rev
+    code, listing = git_out(wt, "ls-tree", tree, env=owner_env())
+    if code != 0:
+        return None                      # the parent tree is absent, so the path is too
+    for line in listing.splitlines():
+        meta, _, name = line.partition("\t")
+        if name == base:
+            mode, _type, oid = meta.split()
+            return mode, oid
+    return None
+
+
 def owner_contents(wt, rev, parts):
     """[(path, heading, text|None)] for each owner part at `rev`; None where the path is absent.
-    A whole file or folder is its git object id (byte-exact); a section is its own text."""
+    A whole file or folder is its entry mode and object id (byte-exact, mode included); a section
+    is its entry mode and its own section text, kept byte-lossless (surrogateescape)."""
     out = []
     for path, heading in parts:
-        code, _ = git_out(wt, "rev-parse", "--verify", "--quiet", f"{rev}:{path}")
-        if code != 0:
+        entry = owner_entry(wt, rev, path)
+        if entry is None:
             out.append((path, heading, None))
-        elif heading is None:   # a whole file or folder: its object id is its byte-exact identity
-            out.append((path, heading, git(wt, "rev-parse", "--verify", f"{rev}:{path}",
-                                           env=owner_env())))
-        else:                   # a section: its own text, kept byte-lossless (surrogateescape)
-            out.append((path, heading,
-                        owner.piece(git_bytes(wt, "show", f"{rev}:{path}", env=owner_env()), heading)))
+            continue
+        mode, oid = entry
+        if heading is None:              # a whole file or folder: mode and object id are its identity
+            out.append((path, heading, f"{mode} {oid}"))
+        else:                            # a section: its mode and its own text
+            text = owner.piece(git_bytes(wt, "show", f"{rev}:{path}", env=owner_env()), heading)
+            out.append((path, heading, None if text is None else f"{mode}\0{text}"))
     return out
 
 
@@ -5373,7 +5405,7 @@ def owner_block(lp, upstream):
     lp.state.pop("recovery_pending", None)
     lp.write()
     # the owner is asked, never the seat that wrote the change; a run with no seat asks the inbox
-    session = launch_session(lp.run_dir) or lp.state.get("session") or watch.inbox()
+    session = launch_session(lp.run_dir) or lp.state.get("session") or config.inbox()
     line = (f"Run {run_id} changes {', '.join(hit)}, which land only on your yes. "
             f"Review it, then `{yes}` to land or `{no}` to keep it unmerged.")
     with speaking_for(lp.state):
@@ -5398,8 +5430,6 @@ def do_merge(lp, url, upstream):
     that passed review is never thrown away over one lost race or one bad answer.
     """
     method = lp.state["merge_method"]
-    if owner_block(lp, upstream):     # a change to the owner's parts delivers only on their yes
-        return False
     why, raced = "", 0
     for attempt in (1, 2):
         ready, lost = True, False
@@ -5412,6 +5442,10 @@ def do_merge(lp, url, upstream):
                     fetch(lp.wt, "origin", "--prune", check=True)
                     if not integrated(lp.wt, upstream):
                         return rejoin_line(lp, upstream, "the PR's target moved")
+                # The owner's yes is checked for THIS delivered head, each attempt: an integration
+                # that changed owner content under the run parks for a fresh yes rather than merging.
+                if owner_block(lp, upstream):
+                    return False
                 body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
                              "--match-head-commit", lp.state["delivery_sha"], *body)
@@ -9887,6 +9921,18 @@ def owner_waiting(argv, verb):
     return run_dir, wt, upstream, head
 
 
+def owner_answered(run_dir):
+    """Retire the owner question `owner_block` raised for this run, on the session it asked, so a
+    decision the owner has made stops showing as still open.  `ak run yes`/`no` answer from the
+    CLI, outside the seat, where its prompt hook never acknowledges them."""
+    state = run_record.read_state(run_dir) or {}
+    raw = launch_session(run_dir) or state.get("session") or config.inbox()
+    session = config.resolve_session(raw) if raw else raw
+    notice = notify.last(session, include_seen=True) if session else None
+    if notice and str(notice.get("source") or "").startswith(f"owner:{run_dir.name}:"):
+        watch.forget(session, resolve=False, notice=notice.get("text"))
+
+
 def cmd_yes(argv):
     """`ak run yes ID`: the owner's yes to the content a run changes in their parts, then its
     delivery once more.  A later change to those parts asks again."""
@@ -9895,6 +9941,7 @@ def cmd_yes(argv):
     if not hit:
         raise config.Error(f"{argv[0]} changes none of the owner's parts; nothing waits for a yes")
     owner_say(run_dir.name, owner_digest(wt, head, parts))
+    owner_answered(run_dir)
     print(f"the owner's yes to {', '.join(hit)} at {head[:12]} is kept; delivering {argv[0]} again")
     return cmd_resume([argv[0], "--bg"])
 
@@ -9907,6 +9954,7 @@ def cmd_no(argv):
                      error="the owner said no to the change to their parts; the branch is kept")
         state.pop("waiting_on", None)
         state.pop("recovery_pending", None)
+    owner_answered(run_dir)
     print(f"{argv[0]} is left unmerged and its branch kept; the owner said no")
     return 0
 
