@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -372,6 +371,34 @@ class OwnerParts(Sandbox):
             for verb, fn in (("yes", run.cmd_yes), ("no", run.cmd_no)):
                 with self.subTest(verb=verb), self.assertRaisesRegex(config.Error, "a run cannot"):
                     fn(["run-1"])
+
+    def test_yes_and_no_refuse_other_seats(self):
+        lp, head = self.parked()
+        run_record.save_state(lp.run_dir, {**lp.state, "state": "waiting",
+                                           "waiting_on": {"owner": head}})
+        with patch.dict(os.environ, {config.SESSION_ENV: "seat-x",
+                                     config.INBOX_ENV: "inbox"}), \
+                patch.object(run, "cmd_resume", return_value=0) as resume:
+            for verb, fn, args in (("yes", run.cmd_yes, ["run-1", head[:12]]),
+                                   ("no", run.cmd_no, ["run-1"])):
+                with self.subTest(verb=verb), self.assertRaisesRegex(config.Error, "only the inbox"):
+                    fn(args)
+            resume.assert_not_called()
+        self.assertIsNone(run.owner_said("run-1"))
+        self.assertEqual(run_record.read_state(lp.run_dir)["waiting_on"], {"owner": head})
+
+    def test_a_renamed_inbox_can_relay_yes_and_no(self):
+        lp, head = self.parked()
+        config.session_path("inbox").write_text('{"renamed":"owner-seat"}')
+        with patch.dict(os.environ, {config.SESSION_ENV: "owner-seat",
+                                     config.INBOX_ENV: "inbox"}), \
+                patch.object(run, "cmd_resume", return_value=0):
+            for verb, fn, args in (("yes", run.cmd_yes, ["run-1", head[:12]]),
+                                   ("no", run.cmd_no, ["run-1"])):
+                with self.subTest(verb=verb):
+                    run_record.save_state(lp.run_dir, {**lp.state, "state": "waiting",
+                                                       "waiting_on": {"owner": head}})
+                    self.assertEqual(fn(args), 0)
 
     def test_a_nul_cannot_move_part_metadata_and_reuse_an_owner_yes(self):
         sh(self.wt, "checkout", "-q", "-B", "change", self.base)

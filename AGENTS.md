@@ -1,6 +1,5 @@
 ---
 users: none
-owner: AGENTS.md#What ak is for, tests/landing.py, tests/gate_contract.py, agentkit/scoreboard.py
 tests: export AK_SHARD AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --user --map-current-user --net --keep-caps sh -c 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"; }; offline true 2>/dev/null || offline() { "$@"; }; offline bash -c 'python3 tests/landing.py'
 ---
 # agentkit, for an agent working on it

@@ -9967,6 +9967,9 @@ def owner_waiting(argv, verb):
         raise config.Error(f"usage: ak run {verb} <runid>{' <key>' if want_key else ''}")
     if os.environ.get(worker.RUN_MARKER):
         raise config.Error(f"`ak run {verb}` is the owner's word; a run cannot give it")
+    caller = config.current_session()
+    if caller and caller != config.resolve_session(config.inbox()):
+        raise config.Error(f"`ak run {verb}` is the owner's word; only the inbox seat may relay it")
     run_dir = config.RUNS / argv[0]
     state = (run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None) or {}
     head = (state.get("waiting_on") or {}).get("owner")
