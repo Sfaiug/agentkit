@@ -186,25 +186,28 @@ class CompletionNotices(Sandbox):
         self.assertEqual(len(self.posted()), 2)
 
     def test_removing_the_plan_does_not_complete_its_owner_request_again(self):
-        for card_lost in (False, True):
-            with self.subTest(card_lost=card_lost):
-                self.name = f'archived-{int(card_lost)}'
-                path = self.owner_transcript()
-                self.append_owner(path, 20, 'Build the API')
-                self.checked('API shipped')
-                self.declare()
-                self.now += 100
-                plan.forget(self.name)
-                if card_lost:
-                    self.internal_turn()
-                    config.card_path(self.name).unlink()
-                    config.notify_path(self.name).unlink()
-                self.declare('The completed plan was archived; the same API remains live')
-                self.assertEqual(len(self.posted()), 1)
-                self.now += 100
-                self.append_owner(path, self.now - 1, 'Build the export')
-                self.declare('The next owner job is shipped')
-                self.assertEqual(len(self.posted()), 2)
+        self.archived_plan()
+
+    def test_a_removed_plan_stays_complete_after_card_and_notice_loss(self):
+        self.archived_plan(card_lost=True)
+
+    def archived_plan(self, card_lost=False):
+        path = self.owner_transcript()
+        self.append_owner(path, 20, 'Build the API')
+        self.checked('API shipped')
+        self.declare()
+        self.now += 100
+        plan.forget(self.name)
+        if card_lost:
+            self.internal_turn()
+            config.card_path(self.name).unlink()
+            config.notify_path(self.name).unlink()
+        self.declare('The completed plan was archived; the same API remains live')
+        self.assertEqual(len(self.posted()), 1)
+        self.now += 100
+        self.append_owner(path, self.now - 1, 'Build the export')
+        self.declare('The next owner job is shipped')
+        self.assertEqual(len(self.posted()), 2)
 
     def test_recovering_old_owner_input_after_plan_removal_does_not_complete_again(self):
         path = self.owner_transcript()
