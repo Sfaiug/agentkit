@@ -35,14 +35,22 @@ OVERLAY_REMEDY = ("install bubblewrap with --tmp-overlay support and use a kerne
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 # Pasta passes only descriptors 0, 1 and 2 on, and prints its own diagnostics on 2: the
 # command's stderr crosses it parked on 0, and behind it the command reads nothing.
-# argv: FROM TO command...: TO becomes what FROM was, and FROM becomes /dev/null.
+# argv: FROM TO REPORT command...: TO becomes what FROM was, and FROM becomes /dev/null.
+# REPORT, where it is a descriptor and not "-", is first told this process's number: in front
+# of pasta that is the launch's own, and its process group's. A probe is not handed one.
 MOVE = ("import os, sys\n"
-        "source, target = int(sys.argv[1]), int(sys.argv[2])\n"
-        "os.dup2(source, target)\n"
+        "source, target, report = sys.argv[1:4]\n"
+        "if report != '-':\n"
+        "    try:\n"
+        "        os.write(int(report), b'{\"launcher\": %d}' % os.getpid())\n"
+        "        os.close(int(report))\n"
+        "    except OSError:\n"
+        "        pass\n"
+        "os.dup2(int(source), int(target))\n"
         "null = os.open(os.devnull, os.O_RDWR)\n"
-        "os.dup2(null, source)\n"
+        "os.dup2(null, int(source))\n"
         "os.close(null)\n"
-        "os.execvp(sys.argv[3], sys.argv[3:])\n")
+        "os.execvp(sys.argv[4], sys.argv[4:])\n")
 
 
 def _contents(root):
@@ -341,8 +349,10 @@ def _bind(own, writable, homes=()):
 
 
 @contextmanager
-def _network(cmd, env, out_dir=None, nested=False):
-    """The launch with its network, and whether pasta is in front of bwrap in it."""
+def _network(cmd, env, out_dir=None, nested=False, report=None):
+    """The launch with its network, and whether pasta is in front of bwrap in it.
+
+    In front of pasta the launch writes its own number to the descriptor `report`."""
     if nested:
         yield [*cmd, "--unshare-net"], False
         return
@@ -370,6 +380,7 @@ def _network(cmd, env, out_dir=None, nested=False):
     # A different address inside keeps host listeners on its LAN address reachable.
     # Loopback supplies both IP families, including a resolver's only family.
     prefix = [sys.executable, "-I", "-S", "-c", MOVE, "2", "0",
+              "-" if report is None else str(report),
               unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
@@ -395,7 +406,7 @@ def _network(cmd, env, out_dir=None, nested=False):
         prefix.extend(["--dns-forward", forwarder[version], "--dns-host", address])
     # Behind pasta the command reads nothing: its stdin carried the stderr across. Bwrap must
     # also receive no ambient capabilities.
-    prefix.extend([sys.executable, "-I", "-S", "-c", MOVE, "0", "2",
+    prefix.extend([sys.executable, "-I", "-S", "-c", MOVE, "0", "2", "-",
                    setpriv, "--inh-caps=-all", "--ambient-caps=-all"])
     with ExitStack() as held:
         launch = [*prefix, *cmd]
@@ -500,29 +511,38 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     argv = [sys.executable, "-I", "-c", SUPERVISOR, str(report),
             *(["--drain"] if drain else []), *argv]
     read, write = os.pipe()
-    target, behind = None, False
+    target = launcher = leader = None
     lock = threading.Lock()
 
-    def namespace(launcher=None):
-        nonlocal write, target
+    def namespace():
+        nonlocal write, target, launcher, leader
         with lock:
             if write is not None:
                 os.close(write)
                 write = None
                 with os.fdopen(read) as info:
-                    target = _pidfd(info.read())
-            if target is None and behind and launcher is not None:
+                    said = info.read()
+                target = _pidfd(said)
+                try:
+                    launcher = json.loads(said).get("launcher")
+                except (ValueError, AttributeError):
+                    pass
+                if launcher is not None:
+                    leader = _child(launcher)
+            # Behind pasta the pipe names the launcher, not PID 1. Its number stands for it
+            # only while it is this process's own unreaped child.
+            if target is None and leader is not None and _alive(leader):
                 target = _first(launcher)
         return target
 
     def stop(proc, grace):
-        # The grace starts once bwrap's own info pipe has answered, as it always has: PID 1
-        # ignores TERM until the supervisor installs its handler, so an early interruption
-        # must wait for it. Behind pasta there is no pipe, and PID 1 is looked for meanwhile.
-        target = namespace(proc.pid)
+        # The grace starts once the pipe has answered, as it always has: PID 1 ignores TERM
+        # until the supervisor installs its handler, so an early interruption must wait for
+        # it. Behind pasta PID 1 is looked for meanwhile.
+        target = namespace()
         deadline = time.monotonic() + grace
         while proc.poll() is None and time.monotonic() < deadline:
-            target = target or namespace(proc.pid)
+            target = target or namespace()
             if target is not None:
                 fd, pid = target
                 try:
@@ -544,7 +564,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             # group: pasta, bwrap and a box still being built are in it, and behind pasta
             # bwrap is the first process of pasta's PID namespace, whose end ends the box.
             # Then PID 1 itself: it has left the group once bwrap has named it.
-            target = namespace(proc.pid)
+            target = namespace()
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
@@ -558,16 +578,22 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            with _network(cmd, clean, out_dir, nested) as (connected, behind):
-                if behind:
-                    # No descriptor of ours crosses pasta: a stop finds PID 1 through
-                    # the launcher it is given.
-                    yield [*connected, "--", *argv], clean, {"stop": stop}
-                else:
-                    yield [*connected, "--info-fd", str(write), "--", *argv], clean, {
-                        "pass_fds": (write,), "stop": stop}
+            with _network(cmd, clean, out_dir, nested, write) as (connected, behind):
+                # The pipe names the box to this context either way: bwrap writes its first
+                # process, or, where pasta would close the pipe, the launch writes itself.
+                named = [] if behind else ["--info-fd", str(write)]
+                yield [*connected, *named, "--", *argv], clean, {
+                    "pass_fds": (write,), "stop": stop}
         finally:
+            # The context ends its box even when no stop ran.
             target = namespace()
+            if leader is not None:
+                if _alive(leader):
+                    try:
+                        os.killpg(launcher, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                _wait(leader)
             if target is not None:
                 _wait(target[0])
 
@@ -597,6 +623,31 @@ def _pidfd(info):
     return fd, pid
 
 
+def _alive(fd):
+    """Whether the process this pidfd names still holds its number: running or unreaped."""
+    try:
+        signal.pidfd_send_signal(fd, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _child(pid):
+    """A pidfd for this process's own child `pid`, or None: only a child's number cannot
+    pass to another process before this one reaps it."""
+    from . import host
+    try:
+        fd = os.pidfd_open(pid)
+    except OSError:
+        # Gone; or, refused as no process while its group's members still hold the number.
+        return None
+    seen = host.proc_stat(pid)
+    if seen is not None and seen.ppid == os.getpid() and _alive(fd):
+        return fd
+    os.close(fd)
+    return None
+
+
 def _first(launcher):
     """Behind pasta, the box's first process: PID 1 of a PID namespace two below this one
     (pasta's, then bwrap's) whose parent, bwrap, is in the launcher's process group.
@@ -614,20 +665,29 @@ def _first(launcher):
         except (OSError, StopIteration):
             return []
 
+    def first(pid):
+        seen = depths(pid)
+        if len(seen) != below or seen[-1] != "1":
+            return False
+        parent = host.proc_stat(pid)
+        try:
+            return parent is not None and os.getpgid(parent.ppid) == launcher
+        except ProcessLookupError:
+            return False
+
     below = len(depths(os.getpid())) + 2
     for entry in Path("/proc").iterdir():
-        if not entry.name.isdigit():
+        if not entry.name.isdigit() or not first(entry.name):
             continue
-        seen = depths(entry.name)
-        if len(seen) != below or seen[-1] != "1":
-            continue
-        parent = host.proc_stat(entry.name)
         try:
-            if parent is None or os.getpgid(parent.ppid) != launcher:
-                continue
-            return os.pidfd_open(int(entry.name)), int(entry.name)
+            fd = os.pidfd_open(int(entry.name))
         except ProcessLookupError:
             continue
+        # The number may have passed to another process since it was read: what was read
+        # counts only if it still reads so while the opened process holds the number.
+        if first(entry.name) and _alive(fd):
+            return fd, int(entry.name)
+        os.close(fd)
 
 
 def _kill(fd):

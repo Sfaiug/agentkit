@@ -553,6 +553,56 @@ else:
 '''
 
 
+REUSED = r'''import os, signal, subprocess, sys, time
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, os.environ["BOX_REPO"])
+from agentkit import box
+
+# A launcher of the shape pasta gives: its box's first process is two PID namespaces below.
+quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+inner = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--ro-bind", "/", "/",
+         "--proc", "/proc", "--", "sleep", "600"]
+launcher = subprocess.Popen(["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1",
+                             "--ro-bind", "/", "/", "--proc", "/proc", "--", *inner],
+                            start_new_session=True, **quiet)
+others = []
+try:
+    while True:
+        found = box._first(launcher.pid)
+        if found is not None:
+            break
+        assert launcher.poll() is None, "the launcher ended before its box started"
+        time.sleep(.01)
+    os.close(found[0])
+    opened = os.pidfd_open
+
+    def passed(number):
+        # Between the lookup's reading and its opening, the box ends and this PID
+        # namespace, the test's own, hands its first process's number to another process.
+        if number == found[1] and not others:
+            os.killpg(launcher.pid, signal.SIGKILL)
+            launcher.wait()
+            while Path("/proc", str(number)).exists():
+                time.sleep(.01)
+            Path("/proc/sys/kernel/ns_last_pid").write_text(str(number - 1))
+            others.append(subprocess.Popen(["sleep", "600"], **quiet))
+            assert others[0].pid == number, (others[0].pid, number)
+        return opened(number)
+
+    with patch.object(box.os, "pidfd_open", passed):
+        assert box._first(launcher.pid) is None
+    assert others and others[0].poll() is None
+finally:
+    for proc in (launcher, *others):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            proc.kill()
+        proc.wait()
+print("ok")
+'''
+
 RUN_CREDENTIALS = r'''import os, subprocess, sys, tempfile
 from pathlib import Path
 root = Path(sys.argv[2])
@@ -639,23 +689,26 @@ else:
 def stop_box(root, *, already_gone, online):
     # Where bwrap is the launcher, stdin holds it mid-build and its status on stderr says
     # it has named the box's first process. Pasta passes neither on: behind it the stop
-    # falls as early as it can, and again once the command runs.
+    # falls as early as it can, and again once the command runs. Last, no stop at all:
+    # the context ends its own box as it closes.
     moments = ("early", "running") if online else ("named",) if already_gone else ("early", "named")
     up = "import time; print('up', flush=True); time.sleep(600)"
-    for moment in moments:
+    for moment in moments if already_gone else (*moments, "unstopped"):
         out = Path(tempfile.mkdtemp(dir=root))
-        with account_home(root), box.command([sys.executable, "-c", up], dict(os.environ), out,
-                                            cwd=root, drain=True) as (cmd, env, spawn):
-            stop = spawn.pop("stop")
-            assert ("--unshare-net" not in cmd) == online, cmd
-            if moment == "named":
-                at = cmd.index("--info-fd")
-                cmd[at:at] = ["--block-fd", "0", "--json-status-fd", "2"]
-            proc = subprocess.Popen(cmd, env=env, cwd=root, stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    start_new_session=True, **spawn)
-            try:
-                said = {"named": (proc.stderr, b'"child-pid"'), "running": (proc.stdout, b"up")}
+        proc = None
+        try:
+            with account_home(root), box.command([sys.executable, "-c", up], dict(os.environ), out,
+                                                cwd=root, drain=True) as (cmd, env, spawn):
+                stop = spawn.pop("stop")
+                assert ("--unshare-net" not in cmd) == online, cmd
+                if moment == "named":
+                    at = cmd.index("--info-fd")
+                    cmd[at:at] = ["--block-fd", "0", "--json-status-fd", "2"]
+                proc = subprocess.Popen(cmd, env=env, cwd=root, stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        start_new_session=True, **spawn)
+                said = {"named": (proc.stderr, b'"child-pid"'), "running": (proc.stdout, b"up"),
+                        "unstopped": (proc.stdout, b"up")}
                 if moment in said:
                     pipe, word = said[moment]
                     seen, deadline = b"", time.monotonic() + 30
@@ -668,11 +721,13 @@ def stop_box(root, *, already_gone, online):
                 if already_gone:
                     proc.kill()
                     proc.wait()
-                stop(proc, 0)
-                # Whatever still ran would hold these open.
-                proc.communicate(timeout=30)
-            finally:
-                # A failing proof must also end its own fixtures.
+                if moment != "unstopped":
+                    stop(proc, 0)
+            # Whatever still ran would hold these open.
+            proc.communicate(timeout=30)
+        finally:
+            # A failing proof must also end its own fixtures.
+            if proc is not None:
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
@@ -1291,6 +1346,16 @@ class WorkerBox(unittest.TestCase):
             parent = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
             self.assertEqual(os.getpgid(parent), proc.pid)
         self.assertIsNone(box._first(beside.pid))
+
+    def test_a_stop_takes_no_process_whose_number_passed_to_it_meanwhile(self):
+        # In a PID namespace of the test's own, where it can say which number comes next.
+        script = self.root / "reused.py"
+        script.write_text(REUSED)
+        result = subprocess.run(
+            ["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc",
+             sys.executable, str(script)], env={**os.environ, "BOX_REPO": str(REPO)},
+            capture_output=True, text=True, timeout=120)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "ok"), result.stderr)
 
     @staticmethod
     def end_group(group):
