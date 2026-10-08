@@ -141,8 +141,7 @@ class OwnLineGetsItsEnter(Sandbox):
 
     def test_a_dialog_or_an_unanswered_owner_question_holds_the_enter(self):
         pending = self.pane
-        self.pane = ((REPO / "tests/fixtures/claude-dialog-pane.txt").read_text()
-                     + "\n".join(pending.splitlines()[-4:]))
+        self.pane = (REPO / "tests/fixtures/claude-dialog-pane.txt").read_text()
         self.tick()
         self.assertEqual(self.keys, [])
         self.pane = pending
