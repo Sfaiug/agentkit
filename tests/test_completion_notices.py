@@ -227,6 +227,49 @@ class CompletionNotices(Sandbox):
                 self.declare('The new report is shipped')
                 self.assertEqual(len(self.posted()), alerts + 1)
 
+    def test_a_new_pending_job_survives_an_older_duplicates_publication(self):
+        self.checked('API shipped')
+        self.assertEqual(notify.shaped('done', 'Explained the API',
+                                      session=self.name, quiet=True), 0)
+        directory = config.RUNS / 'acme-export'
+        directory.mkdir()
+        state = {'run_id': directory.name, 'state': 'running',
+                 'launched_session': self.name, 'started_at': self.now, 'pid': 0}
+        path = directory / 'run.json'
+        write = notify._card_write
+        switched = False
+
+        def publish(name, card):
+            nonlocal switched
+            write(name, card)
+            if not switched and name == self.name and card.get('word') == 'done' and card.get('sent'):
+                switched = True
+                path.write_text(json.dumps(state))
+                self.checked('API shipped', 'Export shipped')
+                notify.record(self.name, 'done', 'The export is live',
+                              completion=notify._completion(self.name),
+                              declared_at=self.now, runs=[directory.name])
+
+        with patch.object(notify, '_card_write', side_effect=publish):
+            self.declare('The late handback confirms the API')
+        self.assertTrue(switched)
+        promised = notify.last(self.name)
+        self.now += 100
+        self.assertEqual(notify.shaped('done', 'Explained the export',
+                                      session=self.name, quiet=True), 0)
+        refreshed = notify.last(self.name)
+        for key in ('text', 'runs', 'completion', 'declared_at'):
+            self.assertEqual(refreshed.get(key), promised.get(key), key)
+        self.assertEqual(len(self.posted()), 0)
+        state.update(state='pass', verdict='PASS', reported=True, handed_back=self.now,
+                     finished_at=self.now)
+        path.write_text(json.dumps(state))
+        self.now += 100
+        self.assertEqual(notify.transition(self.name), 0)
+        self.assertEqual(len(self.posted()), 1)
+        self.assertEqual(notify._carded(self.name, notify.last(self.name))['text'],
+                         promised['text'])
+
     def test_a_quiet_answer_retains_the_whole_pending_job_declaration(self):
         self.checked('API shipped')
         self.declare()
