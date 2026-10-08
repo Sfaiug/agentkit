@@ -311,11 +311,21 @@ def _owner_store(writable, homes):
     from . import config
     store = (config.STATE / config.OWNER_YES).absolute()
     areas = {*writable, *homes}
-    for path in (*reversed(store.parents), store):
-        parent = path.parent.resolve()
-        if path.is_symlink() and any(area == parent or area in parent.parents for area in areas):
-            raise config.Error(f"worker box cannot protect the owner's yes: {path} is a symlink "
-                               "inside a writable place; use a directory there")
+    pending, seen = [store], set()
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        for path in (*reversed(name.parents), name):
+            if not path.is_symlink():
+                continue
+            parent = path.parent.resolve()
+            if any(area == parent or area in parent.parents for area in areas):
+                raise config.Error(f"worker box cannot protect the owner's yes: {path} is a symlink "
+                                   "inside a writable place; use a directory there")
+            # A read-only alias may itself lead through a writable symlink name.
+            pending.append(path.parent / path.readlink() / name.relative_to(path))
     return {store, store.resolve()}
 
 

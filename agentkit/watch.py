@@ -1999,6 +1999,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             owner = None
         if owner == name:
             mine.append((run_dir, state))
+    approval = run_mod.owner_question(name, records)
+    if approval:
+        return approval
     # 1. a login expired: the seat cannot move and only he can move it.  What decides it for
     # this seat is its harness's own `auth seat` verb, as the last tick asked it -- never the
     # pane, which a queued input redraws between ticks, and which is how `needs login` and
@@ -2057,9 +2060,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
     # and a watcher's own alert about the seat waits for its prompt (rung 6).
     last = notify.last(name)
-    approval = run_mod.owner_question(name, records)
-    if approval:
-        return approval
     if not gone and owner_question(last):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time"), "question": True}

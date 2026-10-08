@@ -585,6 +585,19 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(yes.read_text(), '{"digest":"real-yes"}')
 
+    def test_a_read_only_alias_cannot_hide_a_swappable_symlink_ancestor(self):
+        state = config.STATE
+        (state / config.OWNER_YES).mkdir(parents=True)
+        swappable = self.root / "state-swap"
+        swappable.symlink_to(state, target_is_directory=True)
+        alias = state.parent / "state-alias"
+        alias.symlink_to(swappable, target_is_directory=True)
+        self.out.mkdir()
+        with patch.object(config, "STATE", alias), \
+                self.assertRaisesRegex(config.Error, "owner's yes:.*state-swap.*symlink"):
+            with box.command(["true"], dict(os.environ), self.out, cwd=self.root):
+                self.fail("a check can swap the symlink reached through the read-only alias")
+
     def test_paths_symlinks_and_all_token_variables(self):
         login, store = self.root / "login", self.root / "store"
         login.write_text("fixture-login")
