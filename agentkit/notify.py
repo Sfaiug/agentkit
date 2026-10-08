@@ -397,6 +397,11 @@ def name_lock(name):
 def record(session, kind, text, **extra):
     """Remember the last thing a session said, so the menu can show it as the session's state."""
     config.ensure_dirs()
+    # A question changes the turn's word, not the work a pending completion covers.
+    if kind == "needs" and "completion" not in extra:
+        previous = last(session, include_seen=True) or {}
+        if previous.get("completion"):
+            extra["completion"] = previous["completion"]
     path = config.notify_path(session)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"session": session, "kind": kind, "text": text,
@@ -957,8 +962,12 @@ def _send_card(session, kind, card, answer):
                      "payload": payload, "message": f"{TITLES[kind]} · {session}: {text}",
                      "created_at": time.time(), "sink": sink() is not None,
                      "status": "pending", "attempts": 0, "next_attempt": 0}
+            if kind == "done" and previous and previous.get("completion"):
+                event["completion"] = previous["completion"]
             _write_event(event)
         card["sent"] = True
+        if kind == "done" and event.get("completion"):
+            card["completed"] = event["completion"]
         _card_write(session, card)
         if fresh:
             terminal_notice(session, f"{TITLES[kind]} · {session}: {text}")
@@ -994,27 +1003,27 @@ def _went_at(name):
 
 
 def _carded(session, declared):
-    """Was a done card already made for that declaration, by this version or one before it?
+    """The existing done receipt covering this declaration, if any.
 
-    The outbox keeps every card it was handed, keyed however the version that queued it
-    keyed them, and each carries its seat, the declaration's text and when it was made: one
-    for this seat -- or the name it had -- with the same text, made no earlier than the
-    declaration, is this ending's.  So a word coming back to done is not a second ending,
-    whichever episodes it went through and whichever version saw them.
+    Recorded identities compare the checked work through later handbacks and renames.
+    Identity-free receipts keep their text/time comparison: their original work cannot
+    be reconstructed from a plan that has since changed.
     """
     stamp = declared.get("time")
     if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
-        return False
+        return None
     for path in outbox().glob("*.json"):
         try:
             event = json.loads(path.read_text())
-            if (event.get("kind") == "done" and event.get("text") == declared["text"]
-                    and event.get("created_at", 0) >= stamp and event.get("session")
+            same = (event.get("completion") == declared["completion"]
+                    if event.get("completion") and declared.get("completion") else
+                    event.get("text") == declared["text"] and event.get("created_at", 0) >= stamp)
+            if (event.get("kind") == "done" and same and event.get("session")
                     and config.resolve_session(event["session"]) == session):
-                return True
+                return event
         except (OSError, ValueError, AttributeError, TypeError, config.Error):
             continue
-    return False
+    return None
 
 
 def needs_transition(session, card, answer, now, seat=None):
@@ -1052,7 +1061,8 @@ def needs_transition(session, card, answer, now, seat=None):
                 card = {"word": "needs you", "since": max(
                             now, declared.get("time", 0) if asked else 0), "began": max(
                             answered_at, 0 if declared.get("source") else declared.get("time", 0)),
-                        "episode": secrets.token_hex(16), "sent": False, "open_needs": []}
+                        "episode": secrets.token_hex(16), "sent": False, "open_needs": [],
+                        **({"completed": card["completed"]} if card.get("completed") else {})}
             _card_write(session, card)
         return 0
     if card.get("sent") or card.get("closed") or now - card["since"] < CARD_WAIT:
@@ -1076,8 +1086,12 @@ def done_transition(session, card, answer, now):
     # carded before or not.
     _close_card(session, card, "Done")
     declared = last(session, include_seen=True)
-    if declared and declared["kind"] == "done" and _carded(session, declared):
+    completion = declared.get("completion") if declared else None
+    receipt = _carded(session, declared) if declared and declared["kind"] == "done" else None
+    if (completion and card.get("completed") == completion) or receipt:
         card["sent"] = True
+        if receipt and receipt.get("completion"):
+            card["completed"] = receipt["completion"]
         _card_write(session, card)
         return 0
     return _send_card(session, "done", card, answer)
@@ -1145,10 +1159,14 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 since = max(since, asked)
                 if began is not None:
                     began = max(began, asked)
-            if card.get("word") != word:
+            completion = declared.get("completion") if declared and declared["kind"] == "done" else None
+            if card.get("word") != word or (
+                    word == "done" and completion and card.get("completed") and card.get("sent")
+                    and card.get("completed") != completion):
                 pending = card.get("open_needs", (last(name, include_seen=True) or {}).get("open_needs", []))
                 card = {"word": word, "since": since, "began": since,
-                        "episode": secrets.token_hex(16), "sent": False, "open_needs": pending}
+                        "episode": secrets.token_hex(16), "sent": False, "open_needs": pending,
+                        **({"completed": card["completed"]} if card.get("completed") else {})}
                 if word != "done" and pending:
                     # The old episode left questions standing; a new episode with nothing
                     # to close closes nothing, not even an empty edit.
@@ -1251,6 +1269,32 @@ class Refused(config.Error):
     """A `shaped` gate said no: nothing was recorded, and the caller hears why."""
 
 
+def _completion(session):
+    """The checked owner work, read under the declaration's existing seat lock.
+
+    A plan outranks later information questions. Without a plan, the harness's existing
+    owner-input contract excludes run handbacks and peer typing receipts. Seats with no
+    tracked work keep the legacy card rule; an unreadable source refuses publication.
+    """
+    from . import orch, plan
+    record = config.session_records().get(session) or {}
+    outcomes = plan.outcomes(session)
+    if outcomes:
+        work = ["plan", outcomes]
+    else:
+        plugin = orch.seat_plugin(record)
+        cwd = record.get("cwd")
+        messages = plugin.user_messages(record, cwd, plugin.conversation(record, cwd), seat=session)
+        if not messages:
+            # A disappearing transcript or a switch to a harness without that reader
+            # cannot make an already completed job new work.
+            return ((last(session, include_seen=True) or {}).get("completion") or
+                    _card_read(session).get("completed"))
+        work = ["owner", messages[-1]]
+    body = json.dumps([record.get("created"), work], sort_keys=True)
+    return hashlib.sha256(body.encode()).hexdigest()
+
+
 def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
     """Record the question or declaration, then evaluate the same transition latch.
 
@@ -1299,6 +1343,9 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     # carries it there, in a field of its own: it answered only the one replaced.
                     extra["earlier_answer_at"] = earlier
                 if kind == "done":
+                    completion = _completion(name)
+                    if completion:
+                        extra["completion"] = completion
                     extra["runs"] = [directory.name for directory, state in menu.run_records()
                                      if run.launched_session(state) == name and
                                      (run.going(state) or run.unfinished(state))]
