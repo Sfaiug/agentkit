@@ -30,7 +30,7 @@ esc     leave
 
 From a seat, `ak run stop` and `ak orch stop` refuse another seat's work and say to message its owner. Your own runs and runs launched outside a seat still stop; the owner's menu and plain terminal can stop any work.
 
-Seats keep terminal input and redraws flowing independently, even when both buffers fill; the shared transport applies to every wrapped harness.
+Seats keep terminal input and redraws flowing independently, even when both buffers fill; the shared transport applies to every wrapped harness. Each relay poll writes newly read input as far as the harness terminal accepts it, without waiting for another poll.
 
 Starting or resuming a seat keeps the caller's home, harness state locations and notification destination, even on a tmux server started by another shell. Its menu uses the same environment. A failed resume keeps the old harness and its menu together. A sandboxed probe stays in its sandbox.
 
@@ -81,7 +81,7 @@ A turn can end waiting on its job while the launcher is alive and any task is un
 
 Sessions talk to each other with `ak tell <session> "<text>"`, the same way for every harness: ak types the message into that session at its next quiet prompt, or mid-turn where its harness holds a typed line for its next step, headed with who sent it. It never counts as your words and never answers your question.
 
-When a session's pane terminal or its wrapper's inner terminal reports unread input, ak holds further lines until those bytes are read, even if the screen shows an empty composer. The wrapper names its inner terminal on its tmux pane before starting the harness; each successful respawn clears the old name before a new wrapper can publish, so switching to a harness without a wrapper keeps the pane-only check. Messages and notices stay queued, and waiting spends none of the recovery-notice retries. The check gates new lines, while the usual composer checks still decide their Enter. A terminal that cannot be checked keeps its previous typing behavior. Delivery stays at least once: a crash between Enter and recording delivery can repeat a line.
+When a session's pane terminal or its wrapper's inner terminal reports unread input, ak holds further lines until those bytes are read, even if the screen shows an empty composer. The wrapper names its inner terminal on its tmux pane before starting the harness; each successful respawn clears the old name before a new wrapper can publish, so switching to a harness without a wrapper keeps the pane-only check. Messages and notices stay queued, and waiting spends none of the recovery-notice retries. The check also holds confirmation of a typed notice while input is unread; the usual composer checks still decide its Enter. A terminal that cannot be checked keeps its previous typing behavior. Delivery stays at least once: a crash between Enter and recording delivery can repeat a line.
 
 A run recorded in the line to land holds no process and stays working however long it waits. Status and the menu show `waiting · 3rd in line to land on main`; only the lander moves it. Its job follows it to its ending.
 

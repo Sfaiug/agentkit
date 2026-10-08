@@ -154,9 +154,10 @@ class Seat(unittest.TestCase):
     def env(self, record, **extra):
         env = {key: value for key, value in os.environ.items()
                if key not in ("IDLE_COMPACT_STATE", "AGENTKIT_SESSION", "AGENTKIT_ADAPTER_DIR",
-                              "XDG_DATA_HOME", "AK_RUN_ROLE")}
+                              "XDG_DATA_HOME", "AK_RUN_ROLE", "TMUX", "TMUX_PANE")}
         env.update(HOME=str(self.root), FAKE_RECORD=str(record),
-                   XDG_DATA_HOME=str(self.root / "share"))
+                   XDG_DATA_HOME=str(self.root / "share"),
+                   AGENTKIT_TMUX_SOCKET="agentkit-test", TMUX_TMPDIR=str(self.root))
         env.update({key: str(value) for key, value in extra.items()})
         return env
 
@@ -232,6 +233,30 @@ class Seat(unittest.TestCase):
         return elapsed
 
     # --- (a) the seat every other one is modelled on ------------------------
+
+    def test_compaction_fixture_keeps_tmux_in_its_sandbox(self):
+        caller_bin = self.root / "caller-bin"
+        caller_bin.mkdir()
+        calls = self.root / "tmux-calls.jsonl"
+        client = caller_bin / "tmux"
+        client.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
+                          f"with open({str(calls)!r}, 'a') as log:\n"
+                          " log.write(json.dumps({'args': sys.argv[1:], "
+                          "'tmpdir': os.environ.get('TMUX_TMPDIR')}) + '\\n')\n"
+                          "raise SystemExit(1)\n")
+        client.chmod(0o755)
+        with patch.dict(os.environ, {
+            "PATH": str(caller_bin) + os.pathsep + os.environ["PATH"],
+            "TMUX": f"{self.root / 'caller-server'},123,0", "TMUX_PANE": "%7",
+            "AGENTKIT_TMUX_SOCKET": "acme-inherited", "TMUX_TMPDIR": str(caller_bin),
+        }):
+            self.said("seat", "Stop")
+            _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_STOP_ON="/compact",
+                                      FAKE_LIFE=15, AGENTKIT_SESSION="seat")
+        for call in (map(json.loads, calls.read_text().splitlines()) if calls.exists() else []):
+            self.assertEqual(call["args"][:2], ["-L", "agentkit-test"], call)
+            self.assertEqual(call["tmpdir"], str(self.root), call)
+        self.assert_compacted(events, manifest_command("claude"))
 
     def test_v5e_a_claude_like_seat_compacts_itself_at_a_quiet_prompt(self):
         command = manifest_command("claude")
@@ -357,30 +382,28 @@ class Seat(unittest.TestCase):
             with self.subTest(event=event, state=state):
                 self.said("seat", "Stop")
                 (self.root / ".agentkit/state/seat-seat.json").unlink(missing_ok=True)
-                held = open(self.root / ".agentkit/state/notify-seat.lock", "a")
-                self.addCleanup(held.close)       # released even where the step never ran
-                fcntl.flock(held, fcntl.LOCK_EX)
+                with open(self.root / ".agentkit/state/notify-seat.lock", "a") as held:
+                    fcntl.flock(held, fcntl.LOCK_EX)
 
-                def change(test, proc, master, held=held, event=event, kind=kind, state=state):
-                    test.said("seat", event, kind, state)
-                    held.close()
+                    def change(test, proc, master, held=held, event=event, kind=kind, state=state):
+                        test.said("seat", event, kind, state)
+                        held.close()
 
-                _, events = self.run_seat(script=[(4.5, change)], FAKE_TOKENS=40000,
-                                          FAKE_LIFE=9, AGENTKIT_SESSION="seat")
+                    _, events = self.run_seat(script=[(4.5, change)], FAKE_TOKENS=40000,
+                                              FAKE_LIFE=9, AGENTKIT_SESSION="seat")
                 self.assertEqual(self.typed(events), "", events)
 
     def test_a_held_typing_lock_does_not_freeze_owner_input(self):
         self.said("seat", "Stop")
-        held = open(self.root / ".agentkit/state/notify-seat.lock", "a")
-        self.addCleanup(held.close)
-        fcntl.flock(held, fcntl.LOCK_EX)
+        with open(self.root / ".agentkit/state/notify-seat.lock", "a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
 
-        def type_after_idle(test, proc, master):
-            os.write(master, b"owner line\n")
+            def type_after_idle(test, proc, master):
+                os.write(master, b"owner line\n")
 
-        _, events = self.run_seat(script=[(IDLE + 2, type_after_idle)], limit=10,
-                                  FAKE_TOKENS=40000, FAKE_STOP_ON="owner line",
-                                  FAKE_LIFE=8, AGENTKIT_SESSION="seat")
+            _, events = self.run_seat(script=[(IDLE + 2, type_after_idle)], limit=10,
+                                      FAKE_TOKENS=40000, FAKE_STOP_ON="owner line",
+                                      FAKE_LIFE=8, AGENTKIT_SESSION="seat")
         self.assertEqual(self.typed(events), "owner line\n", events)
 
     def test_a_seat_whose_hooks_say_its_turn_ended_still_compacts(self):

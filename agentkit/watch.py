@@ -2893,16 +2893,18 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     or still waits for its Enter.  `receipt` is handed a mark the moment the text is in, for the
     ending's own record to keep until its delivery is recorded; given that mark back as `typed`,
     this only presses Enter, and only while the composer still holds the line alone -- read under
-    the send lock, past any dialog -- and once that composer, read whole, is empty, the seat has
-    it.  A composer holding anything else, or one that cannot be read, says nothing yet: a line
-    wrapped past the bottom rows still sits there.  A reopened seat is a new one, with an empty
+    the send lock, past any dialog -- and once that composer, read whole, is empty and the
+    terminal reports no unread input, the seat has it.  A composer holding anything else, or
+    one that cannot be read, says nothing yet: a line wrapped past the bottom rows still sits
+    there.  A reopened seat is a new one, with an empty
     composer, and matches no mark.  `stale` is asked under the send lock
     too, with the name the seat goes by then, before each key: a line that has stopped being
     this seat's to have is typed no further.  Every Enter, the first, its retry and a mark's,
     goes only while the composer holds the line alone (`composer_holds`): what the owner typed
     in the gap before it is never sent.  The line is delivered only once its composer reads
-    empty, the first pass's as a mark's: one the owner edited while its Enter was confirmed
-    no longer reads whole there, and is still theirs to send.  A question the seat asked with
+    empty with no unread terminal input, the first pass's as a mark's: one the owner edited
+    while its Enter was confirmed no longer reads whole there, and is still theirs to send.
+    A question the seat asked with
     `ak notify needs` holds none of this back: the seat works on what does not wait on the
     answer, which only the owner's own prompt gives (`notify.progress`).
     """
@@ -2913,7 +2915,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                 return False    # the screen is somebody else's: next pass
             holds = composer_holds(held, session, text, cfg)
             if holds == "empty":
-                return True
+                return not pane_unread(session)
             if holds == "line":
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
@@ -2942,7 +2944,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                          guard=lambda: seat_held(session["name"]), veto=veto,
                          typed=lambda: receipt(mark), source=source,
                          ready=lambda held: composer_holds(held, session, text, cfg) == "line")
-            and composer_holds(session["name"], session, text, cfg) == "empty")
+            and composer_holds(session["name"], session, text, cfg) == "empty"
+            and not pane_unread(session))
 
 
 # --- a seat whose process died under its runs ------------------------------
