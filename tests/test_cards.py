@@ -251,6 +251,59 @@ class Cards(unittest.TestCase):
                                 began=100.0 if cached else None), 0)
                             self.assertEqual(self.posts, [])
 
+    def test_a_new_question_after_an_answer_keeps_its_own_beginning(self):
+        for publication in ("command", "tick"):
+            for activity in (280, 350):
+                with self.subTest(publication=publication, activity=activity):
+                    config.card_path("seat").unlink(missing_ok=True)
+                    config.notify_path("seat").unlink(missing_ok=True)
+                    self.posts.clear()
+                    clock = [100.0]
+                    with patch.object(notify.time, "time", side_effect=lambda: clock[0]), \
+                            patch.object(notify, "terminal_notice"):
+                        watch.seat_write("seat", word="working", word_since=50)
+                        notify.record("seat", "needs", "Which API route?")
+                        self.assertEqual(notify.transition("seat", now=100), 0)
+                        clock[0] = 150
+                        notify.answered("seat", 150)
+                        watch.seat_write("seat", word="working", word_since=150)
+                        publish, queued = notify.transition, []
+                        clock[0] = 200
+                        with patch.object(notify, "transition", side_effect=(
+                                lambda *a, **kw: queued.append((a, kw)) or 0)):
+                            self.assertEqual(notify.shaped(
+                                "needs", "Which schema?", session="seat"), 0)
+                            clock[0] = 300
+                            self.assertEqual(notify.shaped(
+                                "needs", "Which export format?", session="seat"), 0)
+
+                        def tmux(*args, **kwargs):
+                            if args[:1] == ("list-clients",):
+                                return (0, f"seat\t{activity}")
+                            return (1, "")
+
+                        with patch.object(orch, "tmux_out", side_effect=tmux), \
+                                patch.object(notify, "installed_at", return_value=275):
+                            # The older callback's hold clock is 260, before this question.
+                            args, kwargs = queued[0]
+                            self.assertEqual(publish(*args, **kwargs), 0)
+                            clock[0] = 359
+                            self.assertEqual(publish("seat"), 0)
+                            self.assertEqual(self.posts, [])
+                            clock[0] = 360
+                            if publication == "command":
+                                args, kwargs = queued[1]
+                                self.assertEqual(publish(*args, **kwargs), 0)
+                            else:
+                                self.assertEqual(publish("seat"), 0)
+                            clock[0] = 500
+                            self.assertEqual(publish("seat"), 0)
+                        self.assertEqual(len(self.posts), 1 if activity < 300 else 0)
+                        if self.posts:
+                            card = self.posts[0]["embeds"][0]
+                            self.assertEqual(card["title"], "Needs you · seat")
+                        self.assertEqual(notify.last("seat")["text"], "Which export format?")
+
     def test_no_card_for_an_episode_older_than_the_install(self):
         now = time.time()
         self.assertEqual(notify.installed_at(), 0)          # no install stamped this home
