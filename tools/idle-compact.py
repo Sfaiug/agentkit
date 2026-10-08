@@ -60,7 +60,7 @@ import tty
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agentkit import config, notify, watch
+from agentkit import config, notify, orch, watch
 from agentkit.pty_relay import Relay
 
 DEFAULT_HARNESS = "claude"
@@ -430,6 +430,19 @@ def exit_code(wait_status):
     return 128 - code if code < 0 else code
 
 
+def name_input_tty(path):
+    """The pane owns this fact across renames; respawning its harness forgets it."""
+    pane = os.environ.get("TMUX_PANE")
+    server = os.environ.get("TMUX", "").partition(",")[0]
+    if not os.environ.get(config.SESSION_ENV) or not pane or not server:
+        return
+    rc, out = orch.tmux_out("-S", server, "set-option", "-p",
+                            "-t", pane, orch.INPUT_TTY_OPTION, path,
+                            socket="", timeout=5)
+    if rc:
+        raise OSError(errno.EIO, f"cannot name the harness terminal: {out}")
+
+
 def run(options, command):
     wrapper_pid = os.getpid()
     built, refusal = plan(options.harness)
@@ -449,6 +462,8 @@ def run(options, command):
     child_pid, master_fd = os.forkpty()
     if child_pid == 0:
         try:
+            # Only the forkpty child has the slave fd. Publish before the harness starts.
+            name_input_tty(os.ttyname(0))
             os.execvpe(command[0], command, child_env)
         except OSError as exc:
             message = f"idle-compact.py: {command[0]}: {exc.strerror}\n".encode()

@@ -130,6 +130,7 @@ class HarnessUpdatePins(PinnedHome):
         assert conversation is None
         # This checkout's absolute path exceeds Unix's socket length limit. A relative -S
         # keeps the real socket in this repository, as in the existing retention tests.
+        # The pane must share the server's cwd so its inherited $TMUX names that socket.
         self.addCleanup(os.chdir, Path.cwd())
         os.chdir(root / "sockets")
         def tmux_argv(socket, *args):
@@ -137,7 +138,7 @@ class HarnessUpdatePins(PinnedHome):
             return ["tmux", "-L", "agentkit-test", "-S", "./agentkit-test", *args]
         self.enterContext(patch.object(orch, "tmux_argv", tmux_argv))
         try:
-            orch.start("pin-fixture", root, cmd, "fixture")
+            orch.start("pin-fixture", Path.cwd(), cmd, "fixture")
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline and not (root / "launches.jsonl").exists():
                 time.sleep(.02)

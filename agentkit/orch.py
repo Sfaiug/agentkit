@@ -53,6 +53,7 @@ from .harness import LAUNCHER, load as harness_plugin
 TMUX_MESSAGE = 15 * 1024
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
 PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of the active window
+INPUT_TTY_OPTION = "@ak_input_tty"   # the current harness wrapper's inner tty, reset on respawn
 SOCKET_ENV = "AGENTKIT_TMUX_SOCKET"   # the test suite's way to a server of its own
 SOCKET = "agentkit"        # the toolkit's own tmux server, never the user's default one
 JOBS = "-jobs"             # appended to it: the server the background jobs run on
@@ -2246,8 +2247,12 @@ def _start_harness(name, model, cwd, cmd, session):
             if rc or owner != name:
                 target = f"={name}:"
         values = seat_env(name, server)
+        # One command list: a failed respawn keeps the old tty, and a new wrapper's
+        # publishing client cannot run before the old name is removed.
         rc, out = tmux_out("respawn-pane", "-k", "-t", target, *pane_env(values),
-                           seat_command(name, cmd, server), socket=server, path_shim=True)
+                           seat_command(name, cmd, server), ";", "set-option", "-pu",
+                           "-t", target, INPUT_TTY_OPTION, socket=server, path_shim=True,
+                           timeout=5)
         if rc != 0:
             config.seat_file("launch", name).unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
