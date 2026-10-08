@@ -746,6 +746,7 @@ class Parked(unittest.TestCase):
                         ("needs you", {}, None)):
                     with self.subTest(extra=extra, indexed=index is not None, word=word), \
                             patch.object(watch.notify, "last", return_value=notice), \
+                            patch.object(watch, "seat_read", return_value=live), \
                             patch.object(watch.notify, "_send_card", return_value=0) as send, \
                             patch.object(orch, "tmux_out", return_value=(0, "")):
                         facts = dict(session={"name": "seat"}, cfg=self.cfg, live=live,
