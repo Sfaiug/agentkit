@@ -23,6 +23,14 @@ REPO = Path(__file__).resolve().parents[1]
 SCOPE = ("--", ".", ":!tests/", ":!*.md")
 
 RULES = [
+    # The old wrapper owned four blocking transfer/drain sites. One relay now
+    # owns both directions, so another injector cannot reintroduce their cycle.
+    {"name": "terminal relay",
+     "flags": (),
+     "pattern": r"\b(to_child|to_owner)\b|write_all\((master_fd|stdout_fd)|"
+                r"select\.select\(\[master_fd",
+     "home": ("agentkit/pty_relay.py",),
+     "max": 0},
     # Scoreboard formulas and display words stay together so a change has one home.
     {"name": "scoreboard",
      "flags": (),

@@ -43,6 +43,11 @@ starts one, `c` opens this one's models as `c` does on the menu, `x` stops it --
 two lines, the same values as its menu row: line one is the state as a chip, the name, `<orchestrator> orchestrates` in its company's colour and, while working, the tasks bar as its row draws it, in 36 cells, with your other seats at its right end: each that needs you by name (`! fix-api needs you`; a click switches to it), then `● 3 working` and `✓ 1 done`; where they do not fit, the bar narrows to 24 and then 12 cells, then the names fold to `! 2 need you`, then only that stays, and only then is the rest cut; line two is why it needs you or is done, or a working seat's live line: each run by its task id (a PR review by its number, `#2157`), a cell per step, the model doing it, what it is doing (building, checking, reviewing, the seat fixing what its own PR's review found, landing), its round past the first and its time on the step (`lg1 ■■■□ astra reviewing · round 2 of 3 · 11m`), more than two runs doing one thing and those queued for a slot as counts (`landing 8 · longest 2h`, `waiting 2`), whole groups folding into counts where a client is short of room, with `Ctrl-b m  menu` at its right end (`Ctrl-b m  x close` once it is done). Each line is cut with one `…` where it would run off any client, a phone included, and the
 window title is `<name> · <state>`. Agentkit's tmux config is `~/.agentkit/state/tmux.conf`; `~/.tmux.conf` is never read or written.
 
+Terminal input and screen output flow independently for every wrapped harness. A burst of typing,
+pointer events or redraws cannot make the bridge wait on itself; slow readers apply bounded
+backpressure without dropping bytes. Compaction keys use the same transport. Existing seats take
+a transport update on their next natural restart, keeping their conversation.
+
 Every seat compacts alike, whatever its harness: 55 minutes after the last turn on Claude Code (its prompt cache lasts an
 hour), 30 on the others, with the context at or above 40,000 tokens, the harness's own compact command is typed once at a
 quiet prompt: never while the seat's own hooks say a turn is running or a question is up, or its record reads a question, however old the last turn's end. Only a new turn resets that clock, never a key, click, pointer motion, focus, attach or resize. Claude's draft

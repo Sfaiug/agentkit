@@ -52,7 +52,6 @@ import json
 import math
 import os
 import re
-import select
 import signal
 import sys
 import termios
@@ -62,6 +61,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config, notify, watch
+from agentkit.pty_relay import Relay
 
 DEFAULT_HARNESS = "claude"
 QUIET_BEFORE_INJECT = 5.0   # output has to have stopped this long before anything is typed
@@ -406,7 +406,7 @@ def record_compaction(harness, context_tokens, when):
         tmp.unlink(missing_ok=True)
 
 
-def type_compaction(master_fd, built, log, ready=lambda seat: True):
+def type_compaction(relay, built, log, ready=lambda seat: True):
     """Keep pty-injected commands under the same lock and receipt as tmux typing.
 
     `ready` is asked again under that lock, with the name the seat goes by now: a question
@@ -415,18 +415,14 @@ def type_compaction(master_fd, built, log, ready=lambda seat: True):
     def send(_text):
         # A draft set aside first comes back once the command is sent.
         stash = [built["stash"]] if built["stash"] else []
-        for index, keys in enumerate(stash + built["command"]):
-            if index:
-                time.sleep(KEY_GAP)
-            write_all(master_fd, keys)
-        return 0, ""
+        return (0, "") if relay.send(stash + built["command"], KEY_GAP) else (1, "terminal closed")
 
     seat = config.current_session()
     if not seat:
         return send("") == (0, "")
     line = b"".join(built["command"]).decode("utf-8").rstrip("\r\n")
-    with notify.session_lock(seat) as name:
-        return ready(name) and watch._send_line({"name": name}, line, log, send=send)
+    with notify.session_lock(seat, wait=False) as name:
+        return bool(name) and ready(name) and watch._send_line({"name": name}, line, log, send=send)
 
 
 def exit_code(wait_status):
@@ -465,8 +461,7 @@ def run(options, command):
     stdout_fd = sys.stdout.fileno()
     terminal_attrs = None
     child_status = None
-    master_open = True
-    stdin_open = True
+    relay = None
     resize_pending = True
     last_resize_mono = float("-inf")
     forwarded_signals = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGQUIT)
@@ -520,62 +515,41 @@ def run(options, command):
         def free_to_type(seat):
             """Nothing of the owner's under the composer: no draft it cannot set aside, no turn
             running, no question up -- asked before the typing lock and again under it."""
-            return (bool(built["stash"]) or not drafted(seat)) and at_rest(seat, options.harness)
+            return (relay.caught_up(output=built["signal"] == "screen")
+                    and (bool(built["stash"]) or not drafted(seat))
+                    and at_rest(seat, options.harness))
 
-        while master_open:
-            now_mono = time.monotonic()
-            timeout = max(0.0, next_poll_mono - now_mono)
-            read_fds = [master_fd]
-            if stdin_open:
-                read_fds.append(stdin_fd)
+        def output(data):
+            nonlocal last_output_mono, tail_fresh
+            output_mono = time.monotonic()
+            if output_mono - last_resize_mono > RESIZE_GRACE:
+                last_output_mono = output_mono
+            if built is not None and built["signal"] == "screen":
+                tail.extend(data)
+                del tail[:-SCREEN_TAIL]
+                tail_fresh = True
 
-            try:
-                ready, _, _ = select.select(read_fds, [], [], timeout)
-            except InterruptedError:
-                ready = []
-
-            if stdin_open and stdin_fd in ready:
-                try:
-                    data = os.read(stdin_fd, 65536)
-                except InterruptedError:
-                    data = None
-                if data:
-                    write_all(master_fd, data)
-                elif data == b"":
-                    stdin_open = False
-                    write_all(master_fd, b"\x04")
-
-            if master_fd in ready:
-                try:
-                    data = os.read(master_fd, 65536)
-                except OSError as exc:
-                    if exc.errno == errno.EIO:
-                        data = b""
-                    else:
-                        raise
-                if data:
-                    write_all(stdout_fd, data)
-                    output_mono = time.monotonic()
-                    # a repaint the wrapper itself asked for by resizing the pty is not the
-                    # harness doing anything, and must not push the quiet window along
-                    if output_mono - last_resize_mono > RESIZE_GRACE:
-                        last_output_mono = output_mono
-                    if built is not None and built["signal"] == "screen":
-                        tail.extend(data)
-                        del tail[:-SCREEN_TAIL]
-                        tail_fresh = True
-                else:
-                    master_open = False
-
+        def alive():
+            nonlocal resize_pending, child_status
             if resize_pending:
                 if terminal_fd is not None:
                     copy_winsize(terminal_fd, master_fd)
                 resize_pending = False
+            if child_status is None:
+                waited_pid, wait_status = os.waitpid(child_pid, os.WNOHANG)
+                if waited_pid:
+                    child_status = wait_status
+            return child_status is None
+
+        relay = Relay(master_fd, stdin_fd, stdout_fd, output, alive)
+        while relay.active and alive():
+            now_mono = time.monotonic()
+            relay.poll(max(0.0, next_poll_mono - now_mono))
 
             polling = now_mono >= next_poll_mono
             if polling:
                 next_poll_mono = now_mono + options.poll
-            if polling and master_open and built is not None:
+            if polling and relay.master_open and built is not None:
                 now_wall = time.time()
                 turn = None
                 if built["signal"] == "hook":
@@ -619,7 +593,7 @@ def run(options, command):
                                 # a size nobody could read is not a size: the seat carries on
                                 context_tokens = None
                         if context_tokens is not None and context_tokens >= options.min_context:
-                            if not type_compaction(master_fd, built, lambda message: append_log(
+                            if not type_compaction(relay, built, lambda message: append_log(
                                     log_path, wrapper_pid, message), free_to_type):
                                 continue
                             last_injected_ts = ts
@@ -628,30 +602,14 @@ def run(options, command):
                                        f"context_tokens={context_tokens}")
                             record_compaction(options.harness, context_tokens, now_wall)
 
-            waited_pid, wait_status = os.waitpid(child_pid, os.WNOHANG)
-            if waited_pid:
-                child_status = wait_status
-                while master_open:
-                    readable, _, _ = select.select([master_fd], [], [], 0)
-                    if not readable:
-                        break
-                    try:
-                        data = os.read(master_fd, 65536)
-                    except OSError as exc:
-                        if exc.errno == errno.EIO:
-                            master_open = False
-                            break
-                        raise
-                    if not data:
-                        master_open = False
-                        break
-                    write_all(stdout_fd, data)
-                break
+        relay.finish()
 
         if child_status is None:
             _, child_status = os.waitpid(child_pid, 0)
         return exit_code(child_status)
     finally:
+        if relay is not None:
+            relay.close()
         if terminal_attrs is not None:
             termios.tcsetattr(stdin_fd, termios.TCSANOW, terminal_attrs)
         for signum, handler in old_handlers.items():
