@@ -17,7 +17,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -29,7 +29,17 @@ from agentkit import record as run_record
 from agentkit import task as taskfile
 
 URL = "https://github.com/fixture/repo/pull/7"
-SLEEP = time.sleep                  # the real one, kept for the waits the fixture itself needs
+
+
+class Clock:
+    """`time` as run.py sees it, with only run.py's own sleeps going to `sleep`."""
+
+    def __init__(self, sleep):
+        self.sleep = sleep
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
 
 # a git that stops on whatever `slow-git` names, and is the real git for everything else
 GIT_SHIM = '''import os, pathlib, sys, time
@@ -159,8 +169,11 @@ class Limits(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(gc, "schedule_gc"))
-        # the retry backoff is minutes long and has nothing to do with what is under test here
-        self.sleep = self.stack.enter_context(patch.object(run.time, "sleep"))
+        # the retry backoff is minutes long and has nothing to do with what is under test here.
+        # Only run.py's own waits are faked: with every sleep in the process gone, the waits
+        # that stop a box spin, and a mock keeps a record of each turn of the spin.
+        self.sleep = MagicMock()
+        self.stack.enter_context(patch.object(run, "time", Clock(self.sleep)))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -248,7 +261,7 @@ class Limits(unittest.TestCase):
                 return True
             except PermissionError:
                 return False
-            SLEEP(0.05)
+            time.sleep(0.05)
         return False
 
     # --- 1: done-when runs under a limit -------------------------------------
@@ -293,6 +306,13 @@ class Limits(unittest.TestCase):
         self.assertEqual(state["step"], "reviewer")
 
     # --- 2: a model turn runs under a limit ----------------------------------
+
+    def test_v5f_only_run_s_own_waits_are_faked(self):
+        # A wait that stops a box polls with the process's own sleep: faked for everyone, it
+        # spins, and the fake keeps a record of every turn (a runaway of several gigabytes).
+        self.assertNotIsInstance(time.sleep, MagicMock)
+        run.time.sleep(60)
+        self.sleep.assert_called_once_with(60)
 
     def test_v5f_model_turn_past_its_limit_is_a_dead_attempt_that_keeps_the_session(self):
         self.repo()
@@ -454,7 +474,7 @@ class Limits(unittest.TestCase):
                                        "step_at": now - age, "reported": False,
                                        **run_record.process_owner()})
         out = io.StringIO()
-        with patch.object(run.time, "time", return_value=now), redirect_stdout(out):
+        with patch.object(time, "time", return_value=now), redirect_stdout(out):
             self.assertEqual(status.cmd_status([]), 0)
         printed = out.getvalue()
         for name in ("20260914-1000-a", "20260914-1001-b", "20260914-1002-c", "20260914-1003-d"):
@@ -462,7 +482,7 @@ class Limits(unittest.TestCase):
                                       rf"round 1/1 +1h$")
         # --plain keeps today's words: each live run names its step and its age
         plain_out = io.StringIO()
-        with patch.object(run.time, "time", return_value=now), redirect_stdout(plain_out):
+        with patch.object(time, "time", return_value=now), redirect_stdout(plain_out):
             self.assertEqual(status.cmd_status(["--plain"]), 0)
         plain = plain_out.getvalue()
         for name, step, age in (("20260914-1000-a", "executor", "41m"),
@@ -602,7 +622,7 @@ class Limits(unittest.TestCase):
             clock[0] = 600.0
             return result
 
-        with patch.object(run.time, "monotonic", side_effect=lambda: clock[0]), \
+        with patch.object(time, "monotonic", side_effect=lambda: clock[0]), \
                 patch.object(worker, "limited", side_effect=finish_first):
             ok, text = gate.run_done_when(["true", "echo never"], self.work, spent, set(), 60)
         self.assertFalse(ok)
@@ -621,7 +641,7 @@ class Limits(unittest.TestCase):
                 return real(proc, *args, **kwargs)
             interrupted.append(proc.pid)
             while not child.exists():           # let the command get its own child started
-                SLEEP(0.02)
+                time.sleep(0.02)
             raise KeyboardInterrupt
 
         with patch.object(subprocess.Popen, "communicate", interrupt), \
