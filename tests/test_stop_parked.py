@@ -25,7 +25,7 @@ SEAT, OTHER = "park-seat", "other-seat"
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 SPENT = "three rounds spent: split or re-scope the task"
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
-          "declaring done with ak notify done, "
+          "declaring done with ak notify done (--quiet for an information answer), "
           "or waiting on a run. Continue: decide the next step and do it.")
 
 
