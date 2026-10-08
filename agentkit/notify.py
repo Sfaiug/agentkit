@@ -1137,7 +1137,8 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             word = answer["word"]
             # An older command's clock cannot make input before the current question its
             # answer, or make that question history across an install.
-            asked = declared.get("time") if watch.owner_question(declared) else None
+            asked = (declared.get("time") if watch.owner_question(declared)
+                     and not resolved(declared) else None)
             if word == "needs you" and isinstance(asked, (int, float)) and math.isfinite(asked):
                 since = max(since, asked)
                 if began is not None:
