@@ -442,7 +442,8 @@ class ClosedSeat(Sandbox):
 
     def test_idle_compact_names_its_stamp_for_its_seat(self):
         told = self.root / "told"
-        env = {key: value for key, value in os.environ.items() if key != "IDLE_COMPACT_STATE"}
+        env = {key: value for key, value in os.environ.items()
+               if key not in ("IDLE_COMPACT_STATE", "TMUX", "TMUX_PANE")}
         env.update({"HOME": str(self.root), "AGENTKIT_SESSION": "atoll", "TOLD": str(told)})
         subprocess.run([sys.executable, str(REPO / "tools/idle-compact.py"), "--",
                         "sh", "-c", 'printf %s "$IDLE_COMPACT_STATE" >"$TOLD"'],

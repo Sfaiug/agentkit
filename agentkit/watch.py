@@ -2432,26 +2432,32 @@ def seat_held(name):
 
 
 def pane_unread(session):
-    """Unread input on the pane's own tty; False when that terminal cannot be asked.
+    """Unread input on either tty; a terminal that cannot be asked keeps the old behavior.
 
-    A frozen bridge can keep painting an empty composer while its tty holds every send.
-    Ask the kernel without reading those bytes, on the same pane and server we type into.
+    A wrapper can drain the pane's tty while its harness reads nothing from the inner one.
+    Ask the kernel without taking those bytes, on the same pane and server we type into.
     """
     try:
-        rc, path = orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:",
-                                 "#{pane_tty}", socket=orch.seat_socket(session), timeout=5)
-        if rc != 0 or not path:
-            return False
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
-        try:
-            if not os.isatty(fd):
-                return False
-            count = fcntl.ioctl(fd, termios.FIONREAD, struct.pack("i", 0))
-            return struct.unpack("i", count)[0] > 0
-        finally:
-            os.close(fd)
+        rc, paths = orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:",
+                                  "#{pane_tty}\t#{" + orch.INPUT_TTY_OPTION + "}",
+                                  socket=orch.seat_socket(session), timeout=5)
     except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
         return False
+    if rc != 0:
+        return False
+    for path in paths.split("\t"):
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
+            try:
+                if os.isatty(fd):
+                    count = fcntl.ioctl(fd, termios.FIONREAD, struct.pack("i", 0))
+                    if struct.unpack("i", count)[0] > 0:
+                        return True
+            finally:
+                os.close(fd)
+        except (OSError, ValueError):
+            pass
+    return False
 
 
 def _send_enter(session, log):
