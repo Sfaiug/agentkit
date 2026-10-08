@@ -1000,6 +1000,65 @@ def tmux_literal(word):
     return word[:-1] + "\\;" if word.endswith(";") else word
 
 
+def tmux_size(lists):
+    """What those command lists take of one tmux call's message, in bytes."""
+    return sum(len(word.encode()) + 1 for words in lists for word in (";", *words))
+
+
+def tmux_set(target, option, text, more=False):
+    """The command that sets that option to that text, or with `more` adds the text to it."""
+    return ["set-option", *(["-a"] if more else []), "-t", target, option, tmux_literal(text)]
+
+
+def tmux_option(target, option, text, socket=None):
+    """Set that option to that text: in one call, and where tmux refuses that and the text is
+    longer than a call carries, in pieces, each after the first added to it (`set-option -a`).
+    The answer is the last call's: (0, "") once the option holds the text.  Between its pieces
+    the option holds the start of the text, so whoever else writes that option is kept out
+    until this returns (the bar's lock, `statusbar._tell`)."""
+    answer = tmux_out(*tmux_set(target, option, text), socket=socket)
+    if answer[0] == 0:
+        return answer
+    # what a call has left for a piece beside its other words and the escape `tmux_literal` adds
+    room = TMUX_MESSAGE - tmux_size([tmux_set(target, option, "\\", more=True)])
+    pieces, size = [""], 0
+    for char in text:   # cut between characters, never inside one
+        wide = len(char.encode())
+        if size + wide > room:
+            pieces.append("")
+            size = 0
+        pieces[-1] += char
+        size += wide
+    for at, piece in enumerate(pieces if len(pieces) > 1 else ()):
+        answer = tmux_out(*tmux_set(target, option, piece, more=at > 0), socket=socket)
+        if answer[0] != 0:
+            break
+    return answer
+
+
+def tmux_options(told, then=(), socket=None):
+    """Set options on tmux, then run the command lists `then`, in as few calls as its message
+    takes (`tmux_lists`).  `told` is what to set in the order it is said, each (first,
+    options) of (target, option, text): the options are one command list, which tmux runs
+    whole.  A list longer than a message is asked by itself where it stands, and where tmux
+    refuses it `first` and then its options are told alone, to the first tmux refuses, a long
+    text in pieces (`tmux_option`): what tmux would refuse only for its length is set all the
+    same.  The answer is `tmux_lists`' for what went with `then`."""
+    fitting = []
+    for first, options in told:
+        words = [word for option in options for word in (";", *tmux_set(*option))][1:]
+        if tmux_size([words]) <= TMUX_MESSAGE:
+            fitting.append(words)
+            continue
+        tmux_lists(fitting, socket=socket)
+        fitting = []
+        if tmux_out(*words, socket=socket)[0] != 0:
+            for option in (*first, *options):
+                if tmux_option(*option, socket=socket)[0] != 0:
+                    break
+    return tmux_lists([*fitting, *then], socket=socket)
+
+
 def tmux_lists(lists, socket=None):
     """Run those command lists in as few tmux calls as its message takes: one, unless they are
     long.  tmux stops a call at the first command that fails, so the lists sent with one that
@@ -1007,8 +1066,7 @@ def tmux_lists(lists, socket=None):
     answer is (0, "") when every list ran, else the first failure's."""
     calls, failed = [], (0, "")
     for words in lists:
-        if not calls or sum(len(word.encode()) + 1 for sent in (*calls[-1], words)
-                            for word in (";", *sent)) > TMUX_MESSAGE:
+        if not calls or tmux_size((*calls[-1], words)) > TMUX_MESSAGE:
             calls.append([])
         calls[-1].append(words)
     for sent in calls:
