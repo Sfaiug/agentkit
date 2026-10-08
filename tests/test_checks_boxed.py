@@ -366,6 +366,41 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertFalse((actual / "state/owner-yes/acme.json").exists())
                 link.unlink()
 
+    def test_a_home_overlay_beside_consent_keeps_its_throwaway_and_declared_writes(self):
+        home = self.root / "home"
+        state = home / ".agentkit/state"
+        store = state / config.OWNER_YES
+        workspace, out, cache = (home / name for name in
+                                 (".agentkit/wt/change", ".agentkit/runs/check", ".cache"))
+        for path in (store, workspace, out, cache):
+            path.mkdir(parents=True)
+        yes = store / "acme.json"
+        yes.write_text('{"digest":"real-yes"}')
+        (cache / "old").write_text("original")
+        source = ("from pathlib import Path\n"
+                  f"cache = Path({str(cache)!r})\n"
+                  "(cache / 'new').write_text('temporary')\n"
+                  "(cache / 'old').write_text('temporary')\n"
+                  f"for path in map(Path, {[str(workspace), str(out)]!r}):\n"
+                  " (path / 'kept').write_text('declared')\n"
+                  f"p = Path({str(yes)!r})\n"
+                  "assert not p.exists()\n"
+                  "try:\n p.write_text('forged')\n"
+                  "except OSError:\n pass\nelse:\n raise AssertionError('forged yes')\n")
+        with account_home(home), patch.dict(os.environ, {"HOME": str(home)}), \
+                patch.object(config, "STATE", state), box.command(
+                    [sys.executable, "-c", source], dict(os.environ), out,
+                    cwd=workspace, state=("$HOME/.agentkit",), home_overlay=True) as (argv, env, spawn):
+            spawn.pop("stop")
+            result = subprocess.run(argv, env=env, cwd=workspace, capture_output=True,
+                                    text=True, timeout=60, **spawn)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for path in (workspace, out):
+            self.assertEqual((path / "kept").read_text(), "declared")
+        self.assertEqual((cache / "old").read_text(), "original")
+        self.assertFalse((cache / "new").exists())
+        self.assertEqual(yes.read_text(), '{"digest":"real-yes"}')
+
     def test_a_box_cannot_hide_owner_parts_by_rewriting_git_refs_or_remote_config(self):
         for path, text in (("AGENTS.md", "---\n---\n# acme\n"), ("policy.txt", "locked")):
             (self.root / path).write_text(text)
