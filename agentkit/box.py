@@ -374,7 +374,8 @@ def _alive(fd):
 
 def _spaces(helper):
     """Descriptors for the user and network namespaces of the holder pasta started, once
-    it says it runs there; None where pasta did not get that far."""
+    it says it runs there, and the IPv6 addresses that network has; None where pasta did
+    not get that far."""
     from . import host
     # A pasta that fails may leave a process holding this pipe open, after part of a line
     # or none: the whole read ends with its deadline, or with the helper's own end.
@@ -399,13 +400,18 @@ def _spaces(helper):
             for child in (task / "children").read_text().split():
                 holder = os.pidfd_open(int(child))
                 try:
+                    try:
+                        has = Path(f"/proc/{child}/net/if_inet6").read_text().splitlines()
+                    except FileNotFoundError:
+                        has = []  # a host without IPv6
                     net = os.open(f"/proc/{child}/ns/net", os.O_RDONLY)
                     seen = host.proc_stat(child)
                     # The number named pasta's child for as long as the opened process kept
                     # it, and the child is the holder only in a network namespace of its own.
                     if seen is not None and seen.ppid == helper.pid and _alive(holder) \
                             and os.fstat(net).st_ino != Path("/proc/self/ns/net").stat().st_ino:
-                        return opened.pop(), net
+                        return opened.pop(), net, {
+                            ipaddress.IPv6Address(int(line.split()[0], 16)) for line in has}
                     os.close(net)
                 finally:
                     os.close(holder)
@@ -440,17 +446,7 @@ def _network(cmd, nested=False):
     if nested or not (routes or routes6) or not all((unshare, pasta, nsenter)):
         yield [*cmd, "--unshare-net"]
         return
-    # The box's IPv6 address is the host's own, as pasta gives it where the host has a way
-    # out over IPv6: programs in the box then choose between the two families as they do
-    # on the host. (An address of the box's own, a private one, made each prefer IPv4, and
-    # a provider that serves an account over IPv6 turned it away.) So every IPv6 address
-    # of this host may be the box's own there, and none reaches the host from inside.
     own = {ipaddress.ip_address(OWN)}
-    try:
-        own.update(ipaddress.IPv6Address(int(line.split()[0], 16))
-                   for line in Path("/proc/net/if_inet6").read_text().splitlines())
-    except OSError:
-        pass  # a host without IPv6 has no such addresses
     try:
         resolver = Path("/etc/resolv.conf").read_bytes()
     except OSError:
@@ -460,7 +456,12 @@ def _network(cmd, nested=False):
         return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
     # so bwrap maps nothing back and starts the same inside an enclosing box.
-    # An IPv4 address of the box's own keeps host listeners on the host's reachable.
+    # An IPv4 address of the box's own keeps host listeners on the host's reachable. The
+    # IPv6 address is left to pasta, which gives the box the host's own on the interface
+    # its IPv6 route out leaves by: for a name with both families, programs in the box then
+    # prefer the family the host prefers on that route. (An IPv6 address of the box's own,
+    # a private one, made each prefer IPv4, and a provider that serves an account over
+    # IPv6 turned it away.)
     beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet", "--ns-ifname", "tap0",
               "--address", OWN, "--netmask", "24", "--gateway", "10.0.2.2",
@@ -487,10 +488,17 @@ def _network(cmd, nested=False):
             held.close()
             yield [*cmd, "--unshare-net"]
             return
-        for fd in spaces:
+        user, net, taken = spaces
+        for fd in (user, net):
             held.callback(os.close, fd)
-        own = f"/proc/{os.getpid()}/fd"
-        yield [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
+        # An IPv6 address the box has taken reaches nothing of the host's from inside: a
+        # resolver named at one keeps the host's network, like one at the box's IPv4 address.
+        if not _plain(resolver, own | taken):
+            held.close()
+            yield cmd
+            return
+        fds = f"/proc/{os.getpid()}/fd"
+        yield [nsenter, f"--user={fds}/{user}", f"--net={fds}/{net}",
                "--preserve-credentials", *cmd]
 
 

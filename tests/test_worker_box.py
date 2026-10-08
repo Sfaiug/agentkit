@@ -214,6 +214,7 @@ if role == "mount":
     # none to libc, and with no nameserver named it asks 127.0.0.1.
     resolver = root / "resolv.conf"
     address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53", "dnscrlf": "192.0.2.1\r",
+               "dns6own": "2001:db8::1", "dns6beyond": "2001:db8:1::1",
                "dnsnone": None}.get(sys.argv[3], "192.0.2.1")
     resolver.write_bytes(((f"nameserver {address}\n" if address else "")
                           + "search acme.test\noptions timeout:1 attempts:1\n").encode())
@@ -328,8 +329,12 @@ print(json.dumps(seen))
 stop, threads = threading.Event(), []
 try:
     with ExitStack() as stack:
-        if sys.argv[3].startswith("dns"):
+        if sys.argv[3].startswith("dns6") and not Path("/proc/sys/net/ipv6").exists():
+            pass  # a host without IPv6 has none of these resolvers
+        elif sys.argv[3].startswith("dns"):
             family, address = {"dns6": (socket.AF_INET6, "::1"),
+                               "dns6own": (socket.AF_INET6, "2001:db8::1"),
+                               "dns6beyond": (socket.AF_INET6, "2001:db8:1::1"),
                                "dnscrlf": (socket.AF_INET, "127.0.0.1"),
                                "dnsnone": (socket.AF_INET, "127.0.0.1")}.get(
                                    sys.argv[3], (socket.AF_INET, "127.0.0.53"))
@@ -339,16 +344,19 @@ try:
             thread.start()
             threads.append(thread)
             assert socket.gethostbyname("fixture.acme.test") == "203.0.113.7"
-            # The resolver file does not name this host's resolver plainly: the box is in
-            # the host's network, as before, and resolves the name as the host does.
+            # The resolver file does not name this host's resolver plainly, or names it at
+            # the one IPv6 address the box takes from the host: the box is in the host's
+            # network, as before, and resolves the name as the host does. A resolver at
+            # another IPv6 address of the host's is asked from a network of the box's own.
             here = os.readlink("/proc/self/ns/net")
             for overlay in (False, True):
-                assert boxed('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
-                             'socket.gethostbyname("fixture")]))', overlay) == [here, "203.0.113.7"]
+                net, found = boxed('import json, os, socket; print(json.dumps([os.readlink('
+                                   '"/proc/self/ns/net"), socket.gethostbyname("fixture")]))', overlay)
+                assert found == "203.0.113.7", found
+                assert (net != here) == (sys.argv[3] == "dns6beyond"), (net, here)
         else:
             # Where this host has IPv6, the stand-in internet answers over it too, and the
-            # box's own IPv6 address is the host's: programs in it then choose between
-            # the two families as they do on the host.
+            # box's own IPv6 address is the host's on the interface its route out leaves by.
             beyond = "2001:db8:1::1" if Path("/proc/sys/net/ipv6").exists() else ""
             os.environ["BEYOND"] = beyond
             for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
@@ -924,9 +932,12 @@ class WorkerBox(unittest.TestCase):
         self.network_fixture("ports")
 
     def test_a_box_keeps_the_hosts_network_where_resolv_conf_is_not_plain(self):
-        for mode in ("dns", "dns6", "dnsshort", "dnscrlf", "dnsnone"):
+        for mode in ("dns", "dns6", "dns6own", "dnsshort", "dnscrlf", "dnsnone"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
+
+    def test_a_resolver_at_another_ipv6_address_of_the_host_is_asked_from_the_boxs_own_network(self):
+        self.network_fixture("dns6beyond")
 
     def test_only_plainly_named_resolvers_give_a_box_a_network_of_its_own(self):
         plain = (b"nameserver 192.0.2.1\n", b"nameserver 192.0.2.1", b"nameserver\t192.0.2.1\n",
