@@ -485,9 +485,13 @@ def _spaces(helper):
     # or none: the whole read ends with its deadline, or with the helper's own end.
     said, deadline, ended = b"", time.monotonic() + 10, os.pidfd_open(helper.pid)
     try:
+        # A poll, which takes descriptors of any number: the caller may hold many.
+        either = select.poll()
+        for fd in (helper.stdout.fileno(), ended):
+            either.register(fd, select.POLLIN)
         while said != b"ready\n":
             left = max(0, deadline - time.monotonic())
-            if helper.stdout not in select.select([helper.stdout, ended], [], [], left)[0]:
+            if helper.stdout.fileno() not in dict(either.poll(left * 1000)):
                 return None
             more = os.read(helper.stdout.fileno(), 64)
             said += more

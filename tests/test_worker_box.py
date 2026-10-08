@@ -492,6 +492,19 @@ try:
                                 *([False, True] if ipv6 else [])], seen
                 assert (root / "written").stat().st_uid == os.getuid()
                 assert (root / "written").stat().st_gid == os.getgid()
+            # A caller that already holds more descriptors than select can name starts a
+            # box in its own network all the same, where the host lets it hold that many.
+            import resource
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            if hard == resource.RLIM_INFINITY or hard >= 2048:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (2048, hard))
+                held = [os.open(os.devnull, os.O_RDONLY) for _ in range(1100)]
+                try:
+                    assert boxed(probe)[0] is True
+                finally:
+                    for descriptor in held:
+                        os.close(descriptor)
+                    resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
             # The command's variables arrive whole, one a shell cannot name among them.
             os.environ["BASH_FUNC_acme%%"] = "() {  echo kept\n}"
             assert boxed('import json, os; print(json.dumps(os.environ.get("BASH_FUNC_acme%%")))') \
