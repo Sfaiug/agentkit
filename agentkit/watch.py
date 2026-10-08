@@ -2705,7 +2705,7 @@ def _composer_rows(harness, pane, *, exact=False):
     marked = prompt_rows(raws)
     if exact:
         marked = [row for row in marked
-                  if re.match(r"(?:│\s?)?[❯›⟩]", strip_sgr(raws[row]))]
+                  if re.match(r"(?:\s*│\s?)?[❯›⟩]", strip_sgr(raws[row]))]
     at = next(iter(marked), None)
     stop = None if at is None else end(at)
     if exact and at is not None:

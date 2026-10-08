@@ -22,6 +22,7 @@ COMPOSERS = {
     "muse": ("spark", "\n❯\n", "\n❯ {}\n"),
     "opencode": ("mimo", '┃  Ask anything… "What is the tech stack of this project?"', "┃  {}"),
     "antigravity": ("gemini", "\n>\n", "\n> {}\n"),
+    "grokbuild": ("grok", "│ ❯", "│ ❯ {}"),
 }
 SUFFIX_DRAFTS = (
     (watch.ACCOUNT_LINE, "usage available.\n  Continue where you stopped."),
@@ -62,10 +63,14 @@ class OwnLineGetsItsEnter(Sandbox):
     def compose(self, line, harness="claude"):
         model, empty, row = COMPOSERS[harness]
         config.save_session(self.cfg, SEAT, model, ["astra"], {"cwd": str(self.root)})
-        self.base = (REPO / f"tests/fixtures/{harness}-prompt-pane.txt").read_text()
+        self.base = (REPO / f"tests/fixtures/{harness.removesuffix('build')}-prompt-pane.txt").read_text()
         self.assertIn(empty, self.base)
         if harness == "opencode":
-            line = line.replace("\n", "\n┃  ")
+            inset = re.search(r"^( *)┃", self.base, re.M)[1]
+            line = line.replace("\n", "\n" + inset + "┃  ")
+        if harness == "grokbuild":
+            inset = re.search(r"^( *)│ ❯", self.base, re.M)[1]
+            line = line.replace("\n", " │\n" + inset + "│   ")
         self.pane = self.base.replace(empty, row.format(line)) if line else self.base
 
     def tmux(self, *args, **kwargs):
@@ -201,11 +206,30 @@ class OwnLineGetsItsEnter(Sandbox):
             capture = (original[:start] + "\n".join(prefix + ["  " + part for part in pieces])
                        + original[stop:])
             yield "codex", line, "opening above read", capture
+            capture = capture.replace("  " + pieces[0], "  › " + pieces[0])
+            yield "codex", line, "continuation mark above read", capture
         original = (REPO / "tests/fixtures/codex-prompt-pane.txt").read_text()
         for line in fixed:
             capture = original.replace("› Ask Codex to do anything\n",
                                        "› " + line + "\n  ? for shortcuts\n")
             yield "codex", line, "footer-like text", capture
+            capture = original.replace("› Ask Codex to do anything\n",
+                                       "› Ask Codex to do anything\n  " + line + "\n")
+            yield "codex", line, "placeholder-like owner text", capture
+        for line in fixed:
+            for label, prefix in (("placeholder-like owner text", 'Ask anything… "My draft"\n'),
+                                  ("internal padding", "My unfinished draft\n\n"),
+                                  ("opening above read", "My unfinished draft\n" * 20)):
+                self.compose(prefix + line, "opencode")
+                yield "opencode", line, label, self.pane
+        original = (REPO / "tests/fixtures/grok-tall-line-pane.txt").read_text()
+        for line in fixed:
+            rows = textwrap.wrap(line, width=27)
+            payload = ["  │ ❯ " + rows[0] + " │"] + ["  │   " + row + " │" for row in rows[1:]]
+            payload[-1] = payload[-1].replace(" │", " ▄ │")
+            capture = re.sub(r"(?:^  │.*\n)+", lambda _match: "\n".join(payload) + "\n",
+                             original, flags=re.M)
+            yield "grokbuild", line, "scrollbar", capture
 
     def test_incomplete_composers_never_get_the_recovery_enter(self):
         for harness, line, case, capture in self.incomplete_composers():
