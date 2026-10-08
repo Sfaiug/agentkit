@@ -1227,6 +1227,8 @@ def forget_card(name, log=lambda _: None):
                 return        # an old name that leads to a renamed seat: its card is not this
             card = _card_read(name)
             if _close_card(name, card, "Answered"):
+                # Only the failed question edits outlive this seat, not its completed work.
+                card.pop("completed", None)
                 _card_write(name, {**card, "word": ""})
                 log(f"WARN the card of {name} was not closed: Discord did not take the edit; "
                     "retry required")

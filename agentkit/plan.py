@@ -363,7 +363,7 @@ def identity(line):
 
 
 def outcomes(name):
-    """The plan's work, independent of order, checks and renewed proof stamps.
+    """The plan's work, independent of order, repetition, checks and renewed proof stamps.
 
     A done caller has already proved these lines under the seat's lock. Keep format
     knowledge here: eye lines and hand-kept outcomes count as work too.
@@ -376,7 +376,7 @@ def outcomes(name):
             result.append((found["project"], found["what"]))
         elif line.startswith("- [x] ") and not is_open(line):
             result.append(("", line[6:]))
-    return sorted(result)
+    return sorted(set(result))
 
 
 def verify(name, every=False):
