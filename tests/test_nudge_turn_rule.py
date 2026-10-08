@@ -271,15 +271,38 @@ class NudgeTurnRule(Sandbox):
                 self.assertEqual(self.judged(), (False, []))
 
 
-    def test_f_a_run_that_just_finished_remains_a_native_wait_only(self):
-        """The prompt hook knows the launch turn; the tick requires work still live."""
+    def test_f_finished_work_requires_completion_on_every_harness(self):
+        """A completed run is neither a live wait nor a completion declaration."""
         for harness in HARNESSES:
             with self.subTest(harness=harness):
                 self.setUp()
                 self.harness = harness
                 self.receipt(THEIRS, SEAT, "pass", started_at=time.time() - 3600,
                              finished_at=time.time() - 60)
-                self.assertEqual(self.judged(), (False, ["continue"]))
+                self.assertEqual(self.judged(), (True, ["continue"]))
+
+    def test_failed_and_retired_completions_require_correction_on_every_harness(self):
+        for harness in HARNESSES:
+            for retired in (False, True):
+                with self.subTest(harness=harness, retired=retired):
+                    self.setUp()
+                    self.harness = harness
+                    now = time.time()
+                    notify.record(SEAT, "done", "The API is live", time=now - 60, seen=retired)
+                    self.receipt(THEIRS, SEAT, "fail", finished_at=now - 30,
+                                 reported=True, handed_back=now - 20)
+                    self.assertEqual(self.judged(), (True, ["continue"]))
+                    self.assertIsNone(watch.seat_read(SEAT).get("stop_done"))
+
+    def test_an_open_plan_holds_completion_on_every_harness(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                notify.record(SEAT, "done", "The API is live")
+                config.plan_path(SEAT).write_text(
+                    '- [ ] The API repair is live · your eye · acme · written 2026-01-01 12:00\n')
+                self.assertEqual(self.judged(), (True, ["continue"]))
 
     def test_g_a_current_question_stands_past_parked_work(self):
         for harness in HARNESSES:
