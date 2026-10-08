@@ -515,7 +515,8 @@ def run(options, command):
         def free_to_type(seat):
             """Nothing of the owner's under the composer: no draft it cannot set aside, no turn
             running, no question up -- asked before the typing lock and again under it."""
-            return (relay.caught_up and (bool(built["stash"]) or not drafted(seat))
+            return (relay.caught_up(output=built["signal"] == "screen")
+                    and (bool(built["stash"]) or not drafted(seat))
                     and at_rest(seat, options.harness))
 
         def output(data):

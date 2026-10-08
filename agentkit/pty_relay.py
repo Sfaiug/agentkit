@@ -33,11 +33,17 @@ class Relay:
     def active(self):
         return self.master_open or bool(self.to_owner)
 
-    @property
-    def caught_up(self):
-        """Only a drained terminal can make a cached prompt safe to type into."""
-        return (self.master_open and not self.to_owner and not self.to_child
-                and not select.select([self.master, self.stdin], [], [], 0)[0])
+    def caught_up(self, *, output=True):
+        """Input has reached the child; optionally require a current screen too.
+
+        A caller with authoritative lifecycle hooks need not wait for repaints,
+        but a caller deciding from screen bytes must observe pending output first.
+        """
+        reads = [self.stdin] if self.input_open else []
+        if output:
+            reads.append(self.master)
+        return (self.master_open and not self.to_child and (not output or not self.to_owner)
+                and not select.select(reads, [], [], 0)[0])
 
     def poll(self, timeout, *, input=True):
         """Move ready bytes in both directions; return whether anything moved.
