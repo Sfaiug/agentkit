@@ -463,6 +463,21 @@ class Terminal:
     def keys(self, *keys):
         self.tmux("send-keys", "-t", "phone", *keys)
 
+    def menu(self, *texts, tries=4):
+        """Ctrl-b m, then the menu's screen with `texts` on it; the keys again while no menu came
+        up.  tmux drops a prefix sent while it is still switching the client to a seat: the
+        walk then waited its whole limit on the seat's own screen, at landing and alone."""
+        for attempt in range(tries):
+            self.keys("C-b", "m")
+            try:
+                return self.until("esc leave", *texts, prompt="esc leave",
+                                  timeout=HANG if attempt == tries - 1 else 20)
+            except AssertionError:
+                if attempt == tries - 1 or any("esc leave" in line for line in self.screen()):
+                    # out of tries, or a menu is up -- late, or not the one expected: the full
+                    # wait says which
+                    return self.until("esc leave", *texts, prompt="esc leave")
+
     def resize(self, width, height):
         self.width, self.height = width, height
         self.tmux("resize-window", "-t", "phone", "-x", str(width), "-y", str(height))
@@ -676,8 +691,7 @@ class Phone(Sandbox):
         # number switches back; x stops this session, and the client falls back to the other
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.main(["rename", "new", "Phone Audit"]), 0)
-        phone.keys("C-b", "m")
-        phone.until("esc leave", "1  phone-au", prompt="esc leave")
+        phone.menu("1  phone-au")
         phone.press("c")
         screen = phone.until("config · phone-audit", "esc back", prompt="esc back")
         self.fits(screen, width, height)
@@ -690,28 +704,26 @@ class Phone(Sandbox):
         phone.keys("Escape")
         phone.until(STAND_IN, absent=["esc leave"])
         phone.settled()                      # its screen goes before its process does
-        phone.keys("C-b", "m")
-        phone.until("esc leave", prompt="esc leave")
+        phone.menu()
         phone.press("n")                     # the old placeholder is held by the rename alias
         phone.until("Name: auto", prompt="esc back")
         phone.keys("Enter")
-        phone.until("agentkit · new session", prompt="esc back")
+        # the name prompt carries the title and `esc back` too: only the picker has the marks,
+        # and an Enter sent before it is drawn is lost in its loading
+        phone.until("agentkit · new session", "orch", "exec", "review", prompt="esc back")
         phone.keys("Enter")                  # what the last creation was given: astra
         phone.until("new-2  a", "Ctrl-b m  menu", absent=["esc leave"])
         phone.settled()
         self.assertTrue(self.has_seat("new-2"))
-        phone.keys("C-b", "m")
-        phone.until("esc leave", "1  new-2", "2  phone-au", prompt="esc leave")
+        phone.menu("1  new-2", "2  phone-au")
         phone.press("2")
         phone.until("▌  phone-au", absent=["esc leave"])   # its bar: line one cut on a phone
         phone.settled()
-        phone.keys("C-b", "m")
-        phone.until("esc leave", "1  new-2", prompt="esc leave")
+        phone.menu("1  new-2")
         phone.press("1")
         phone.until("new-2  a", absent=["esc leave"])
         phone.settled()
-        phone.keys("C-b", "m")
-        phone.until("esc leave", prompt="esc leave")
+        phone.menu()
         phone.press("x")                     # this session's, asked under its own row
         phone.until("Stop new-2 and everything it runs?", "Keep", prompt="esc back")
         self.stop_answered(phone)
@@ -771,8 +783,7 @@ class Phone(Sandbox):
         # the popup over a seat holds fewer rows still, and pages them the same way
         phone.press("11")                    # phone-audit, eleventh by name
         phone.until(STAND_IN, "▌  phone-au")
-        phone.keys("C-b", "m")
-        screen = phone.until("esc leave", "your projects", " 1/", prompt="esc leave")
+        screen = phone.menu("your projects", " 1/")
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")
         phone.until(STAND_IN, absent=["esc leave"])
@@ -802,8 +813,7 @@ class Phone(Sandbox):
         # the popup over a seat on that short screen fills it, and still pages rows
         phone.press("11")
         phone.until(STAND_IN, "▌  phone-au")
-        phone.keys("C-b", "m")
-        screen = phone.until("esc leave", "1/", prompt="esc leave")
+        screen = phone.menu("1/")
         self.assertIn("no project", "\n".join(Terminal.inside(screen)))
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")
