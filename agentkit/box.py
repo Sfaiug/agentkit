@@ -15,7 +15,6 @@ import select
 import shlex
 import shutil
 import signal
-import socket
 import stat
 import subprocess
 import sys
@@ -37,6 +36,8 @@ SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 # What pasta keeps running in the box's network namespace: it says when it is there, which is
 # when pasta has set the namespace up, and lives while its stdin, held by ak, stays open.
 HOLDER = "import sys\nprint('ready', flush=True)\nsys.stdin.read()\n"
+# The box's own addresses in the network pasta gives it.
+OWN = ("10.0.2.15", "fd00::15")
 
 
 def _contents(root):
@@ -334,35 +335,31 @@ def _bind(own, writable, homes=()):
     return args
 
 
-def _loopback(name):
-    """The loopback address a resolv.conf nameserver names, as libc reads it, or None.
+def _plain(resolver):
+    """Whether resolv.conf, given as bytes, names this host's resolvers so plainly that a
+    box in a network of its own asks the very same ones.
 
-    Libc reads an IPv4 address in its short and numeric spellings too (`127.53`), follows
-    an IPv4 address written inside an IPv6 one, and takes the unspecified address for this
-    host itself."""
-    name = name.partition("%")[0]
-    try:
-        address = ipaddress.ip_address(socket.inet_aton(name))
-    except OSError:
+    Every line with the word in it, comments apart, is `nameserver`, blanks and one address
+    and nothing else, and no address is one only this host's own network reaches as
+    written: loopback, the unspecified address libc takes for it, link-local, multicast, an
+    IPv4 address inside an IPv6 one, or the box's own. A line written any other way is read
+    differently from one libc to the next, and with no nameserver left libc asks
+    127.0.0.1: none of that is decided here, so none of it counts as plain."""
+    named = False
+    for line in resolver.split(b"\n"):
+        if line[:1] in (b"#", b";") or b"nameserver" not in line:
+            continue
+        match = re.fullmatch(rb"nameserver[ \t]+([0-9A-Fa-f:.]+)", line)
         try:
-            address = ipaddress.ip_address(socket.inet_pton(socket.AF_INET6, name))
-        except OSError:
-            return None
-        address = address.ipv4_mapped or address
-    if address.is_unspecified:
-        return ipaddress.ip_address("127.0.0.1" if address.version == 4 else "::1")
-    return address if address.is_loopback else None
-
-
-def _local_resolver():
-    """Whether this host's resolver is one only the host's own network reaches: resolv.conf
-    names a loopback nameserver, or none, which libc takes for this host's loopback."""
-    try:
-        text = Path("/etc/resolv.conf").read_text(errors="surrogateescape")
-    except OSError:
-        text = ""
-    named = re.findall(r"(?m)^[^\S\n]*nameserver[ \t]+(\S+)", text)
-    return not named or any(_loopback(name) is not None for name in named)
+            address = ipaddress.ip_address(match[1].decode())
+        except (TypeError, ValueError):
+            return False
+        if (address.is_loopback or address.is_unspecified or address.is_link_local
+                or address.is_multicast or getattr(address, "ipv4_mapped", None)
+                or str(address) in OWN):
+            return False
+        named = True
+    return named
 
 
 def _alive(fd):
@@ -427,9 +424,9 @@ def _network(cmd, nested=False):
     namespaces and becomes it. So bwrap stays the process its caller started, with every
     descriptor and variable it was given, and nothing of pasta's is in a command's way.
     With no way out (no route, no pasta, a launch that says it will start inside another
-    box) bwrap makes a network namespace of its own, with loopback only. Where the host's
-    resolver answers only on the host's own network, the box keeps that network, as before:
-    in one of its own no name would resolve.
+    box) bwrap makes a network namespace of its own, with loopback only. Where resolv.conf
+    does not name the host's resolvers plainly, the box keeps the host's network, as before:
+    in one of its own it might resolve no name.
     """
     # With no usable route, pasta has no outside to connect to.
     routes = any(line.split()[0] != "lo" and int(line.split()[3], 16) & 0x201 == 1
@@ -442,7 +439,11 @@ def _network(cmd, nested=False):
     if nested or not (routes or routes6) or not all((unshare, pasta, nsenter)):
         yield [*cmd, "--unshare-net"]
         return
-    if _local_resolver():
+    try:
+        resolver = Path("/etc/resolv.conf").read_bytes()
+    except OSError:
+        resolver = b""
+    if not _plain(resolver):
         yield cmd
         return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
@@ -452,8 +453,8 @@ def _network(cmd, nested=False):
     beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
-              "--address", "10.0.2.15", "--netmask", "24", "--gateway", "10.0.2.2",
-              "--address", "fd00::15", "--gateway", "fe80::1",
+              "--address", OWN[0], "--netmask", "24", "--gateway", "10.0.2.2",
+              "--address", OWN[1], "--gateway", "fe80::1",
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
     with ExitStack() as held:
         helper = subprocess.Popen([*beside, sys.executable, "-I", "-S", "-c", HOLDER],

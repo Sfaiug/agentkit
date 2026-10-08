@@ -201,12 +201,13 @@ if role == "mount":
     Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
     # The fixture's own resolver, so the host's decides nothing here: one on the stand-in
     # internet, or for the resolver cases one that only this namespace's own network
-    # reaches. 127.53 is 127.0.0.53 to libc, and with no nameserver named it asks 127.0.0.1.
+    # reaches. 127.53 is 127.0.0.53 to libc; an address with a carriage return after it is
+    # none to libc, and with no nameserver named it asks 127.0.0.1.
     resolver = root / "resolv.conf"
-    address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53",
+    address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53", "dnscrlf": "192.0.2.1\r",
                "dnsnone": None}.get(sys.argv[3], "192.0.2.1")
-    resolver.write_text((f"nameserver {address}\n" if address else "")
-                        + "search acme.test\noptions timeout:1 attempts:1\n")
+    resolver.write_bytes(((f"nameserver {address}\n" if address else "")
+                          + "search acme.test\noptions timeout:1 attempts:1\n").encode())
     subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
     # The package's AppArmor profile uses an unconfined exec transition, forbidden
     # by an enclosing box's no_new_privs. This private copy tests pasta itself.
@@ -315,6 +316,7 @@ try:
     with ExitStack() as stack:
         if sys.argv[3].startswith("dns"):
             family, address = {"dns6": (socket.AF_INET6, "::1"),
+                               "dnscrlf": (socket.AF_INET, "127.0.0.1"),
                                "dnsnone": (socket.AF_INET, "127.0.0.1")}.get(
                                    sys.argv[3], (socket.AF_INET, "127.0.0.53"))
             server = stack.enter_context(socket.socket(family, socket.SOCK_DGRAM))
@@ -323,8 +325,8 @@ try:
             thread.start()
             threads.append(thread)
             assert socket.gethostbyname("fixture.acme.test") == "203.0.113.7"
-            # Only this host's own network reaches such a resolver: the box is in it, as
-            # before, and resolves the name.
+            # The resolver file does not name this host's resolver plainly: the box is in
+            # the host's network, as before, and resolves the name as the host does.
             here = os.readlink("/proc/self/ns/net")
             for overlay in (False, True):
                 assert boxed('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
@@ -900,10 +902,29 @@ class WorkerBox(unittest.TestCase):
     def test_a_box_reaches_no_host_port(self):
         self.network_fixture("ports")
 
-    def test_a_box_keeps_the_hosts_network_where_only_that_reaches_its_resolver(self):
-        for mode in ("dns", "dns6", "dnsshort", "dnsnone"):
+    def test_a_box_keeps_the_hosts_network_where_resolv_conf_is_not_plain(self):
+        for mode in ("dns", "dns6", "dnsshort", "dnscrlf", "dnsnone"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
+
+    def test_only_plainly_named_resolvers_give_a_box_a_network_of_its_own(self):
+        plain = (b"nameserver 192.0.2.1\n", b"nameserver 192.0.2.1", b"nameserver\t192.0.2.1\n",
+                 b"# nameserver 127.0.0.1\n; nameserver ::1\nnameserver 192.0.2.1\n"
+                 b"nameserver 2001:db8::1\nsearch acme.test\n")
+        # No nameserver; one only the host's own network reaches as written; a line that is
+        # not the word, blanks and one address, whatever a libc makes of it.
+        other = (b"", b"search acme.test\n", b"nameserver 127.0.0.53\n", b"nameserver ::1\n",
+                 b"nameserver 0.0.0.0\n", b"nameserver ::\n", b"nameserver fe80::1\n",
+                 b"nameserver ::ffff:192.0.2.1\n", b"nameserver 224.0.0.251\n",
+                 b"nameserver 10.0.2.15\n", b"nameserver fd00::15\n",
+                 b"nameserver 192.0.2.1\nnameserver 127.0.0.1\n",
+                 b"nameserver 127.53\n", b"nameserver 192.0.2.01\n", b"nameserver fe80::1%eth0\n",
+                 b"nameserver 192.0.2.1\r\n", b" nameserver 192.0.2.1\n", b"nameserver 192.0.2.1;\n",
+                 b"nameserver #192.0.2.1\n", b"nameserver 192.0.2.1 # acme\n",
+                 b"nameserver 192.0.2.1\x00\n", b"nameserver \xff\xfe\n")
+        for resolver, own in (*((text, True) for text in plain), *((text, False) for text in other)):
+            with self.subTest(resolver=resolver):
+                self.assertIs(box._plain(resolver), own)
 
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in
