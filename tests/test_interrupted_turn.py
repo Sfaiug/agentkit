@@ -89,6 +89,8 @@ class InterruptedTurn(Sandbox):
             return screen.replace("\u276f\u00a0\n", f"\u276f\u00a0{typed[-1]}\n")
 
         def keys(*args, **_kw):
+            if args[0] != "send-keys":
+                return 1, "no tty in this screen fixture"
             self.keys.append(args)
             if args[-2] == "-l":
                 typed.append(args[-1])

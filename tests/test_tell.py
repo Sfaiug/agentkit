@@ -416,6 +416,8 @@ class Typing(Seats):
         return self.idle
 
     def render(self, *args, **kwargs):
+        if args[0] != "send-keys":
+            return self.tmux(*args, **kwargs)
         self.keys.append(args)
         if "-l" in args and self.killed_before_text:
             self.killed_before_text = False
