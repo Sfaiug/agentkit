@@ -196,7 +196,11 @@ if role == "mount":
     subprocess.run(["ip", "link", "set", "lo", "up"], check=True)
     if sys.argv[4] == "online":
         subprocess.run(["ip", "link", "add", "internet", "type", "dummy"], check=True)
-        subprocess.run(["ip", "addr", "add", "192.0.2.1/24", "dev", "internet"], check=True)
+        # The host's own address is the last of its network in one case, and past its
+        # preferred life in another.
+        subprocess.run(["ip", "addr", "add", "192.0.2.254/24" if sys.argv[3] == "family254" else
+                        "192.0.2.1/24", "dev", "internet",
+                        *(("preferred_lft", "0") if sys.argv[3] == "familypast4" else ())], check=True)
         subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
         # One case has no IPv4 way out, only the network next to it.
         if sys.argv[3] != "familyno4":
@@ -217,7 +221,7 @@ if role == "mount":
             # One case's only address is past its preferred life, which the kernel knows
             # and libc asks it; another has a gai.conf of its own, which pairs the host's
             # address with one destination of the internet's and with no other.
-            past = ("preferred_lft", "0") if sys.argv[3] == "familydeprecated" else ()
+            past = ("preferred_lft", "0") if sys.argv[3] in ("familydeprecated", "familygaipast") else ()
             if sys.argv[3].startswith("familygai") and Path("/etc/gai.conf").exists():
                 # A third pairs the host's IPv4 address with one IPv4 destination alone.
                 (root / "gai.conf").write_text(
@@ -333,7 +337,8 @@ def serve(server, stop, dns=False):
                 # The second name's IPv6 address is one the case's own address pairs with.
                 kind = struct.unpack("!H", query[at + 1:at + 3])[0]
                 paired = {"family6to4": "2002:c633:6401::9", "familyteredo": "2001:0:c633:6401::9",
-                          "familygai": "2001:db8:77::9", "familygai4": "2001:db8:77::9"}.get(
+                          "familygai": "2001:db8:77::9", "familygai4": "2001:db8:77::9",
+                          "familygaipast": "2001:db8:77::9"}.get(
                               sys.argv[3], "2001:db8:9::9")
                 found = ".".join(labels) in ("fixture.acme.test", "paired.acme.test")
                 given = {1: socket.inet_aton("203.0.113.7"), 28: socket.inet_pton(
@@ -412,14 +417,19 @@ try:
                          'type=socket.SOCK_STREAM)] for name in ("fixture", "paired"))]))')
                 net, here, paired = json.loads(subprocess.check_output(
                     [sys.executable, "-c", order], text=True, timeout=30))
-                first = socket.AF_INET6 if sys.argv[3] in ("family", "familyno4") else socket.AF_INET
+                first = socket.AF_INET6 if sys.argv[3] in (
+                    "family", "familyno4", "family254", "familypast4") else socket.AF_INET
                 assert here[0] == first and sorted(here) == [socket.AF_INET, socket.AF_INET6], here
                 if sys.argv[3] in ("family6to4", "familyteredo", "familygai", "familygai4"):
                     assert paired[0] == socket.AF_INET6, paired
+                if sys.argv[3] == "familygaipast":
+                    # The labels pair this name's addresses, yet the address is past its life.
+                    assert paired[0] == socket.AF_INET, paired
                 for overlay in (False, True):
                     own, *there = boxed(order, overlay)
                     assert there == [here, paired], (there, here, paired)
-                    assert (own == net) == (sys.argv[3] in ("familyno4", "familydeprecated")), (own, net)
+                    assert (own == net) == (sys.argv[3] in (
+                        "familyno4", "familydeprecated", "familygaipast", "familypast4")), (own, net)
         else:
             # Where this host has IPv6, the stand-in internet answers over it too, at an
             # address on its second network; its own address toward the internet is the
@@ -1003,7 +1013,8 @@ class WorkerBox(unittest.TestCase):
 
     def test_a_box_puts_the_families_of_a_name_in_the_order_its_host_does(self):
         for mode in ("family", "familyprivate", "familyno4", "family6to4", "familyteredo",
-                     "familydeprecated", "familygai", "familygai4"):
+                     "familydeprecated", "familygai", "familygai4", "familygaipast",
+                     "familypast4", "family254"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
 

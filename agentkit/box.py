@@ -17,6 +17,7 @@ import shutil
 import signal
 import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -353,6 +354,39 @@ def _source(family):
     return None if source.is_link_local else source
 
 
+def _avoided(address):
+    """Whether libc avoids sending from this address of the host's: the kernel holds it
+    past its preferred life, not yet confirmed, or a home address. The address a box is
+    given is none of these, so libc there would weigh it otherwise; only the kernel knows,
+    and it is asked as libc asks it. True as well where it cannot be asked."""
+    try:
+        with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE) as link:
+            # Every address of the family (RTM_GETADDR, a dump); each answer is one address
+            # with its attributes (RTM_NEWADDR), and anything else ends the list.
+            link.send(struct.pack("=IHHIIB7x", 24, 22, 0x301, 1, 0, socket.AF_INET if
+                                  address.version == 4 else socket.AF_INET6))
+            while True:
+                answers = link.recv(65536)
+                while answers:
+                    size, kind = struct.unpack_from("=IH", answers)
+                    if kind != 20:
+                        return True
+                    flags, local, at = answers[18], None, 24
+                    while at + 4 <= size:
+                        length, attribute = struct.unpack_from("=HH", answers, at)
+                        if attribute == 2 or attribute == 1 and local is None:
+                            local = answers[at + 4:at + length]
+                        elif attribute == 8:
+                            flags = struct.unpack_from("=I", answers, at + 4)[0]
+                        at += length + 3 & ~3
+                    if local == address.packed:
+                        # Deprecated, optimistic, home address.
+                        return bool(flags & 0x34)
+                    answers = answers[size + 3 & ~3:]
+    except (OSError, struct.error):
+        return True
+
+
 def _order(entered=()):
     """The order in which libc lists the two families of a name with an address of the
     internet's in each: here, or in the network that the `entered` launch enters.
@@ -494,26 +528,29 @@ def _network(cmd, nested=False):
     # Libc orders them by this host's ways out, the addresses it would send from and
     # gai.conf, pairing each destination with the address. So a box has a family where the
     # host has a way out in it, and its address there is the host's own: the box reads the
-    # same gai.conf, and every pairing is the host's. What can still differ is the same
-    # for every name (whether the kernel has an address past its preferred life), and one
-    # question to libc, here and then in the box's network, settles it.
+    # same gai.conf, and every pairing is the host's. An address libc avoids on the host
+    # (the kernel has it past its preferred life) cannot be given as such, so that host's
+    # boxes keep its network. Last, libc itself is asked, here and then in the box's
+    # network, and the two answers must agree.
     four, six = _source(4), _source(6)
     wanted = _order()
     own = {address for address in (four, six) if address}
     # A family in which the host reaches a neighbouring network and not the internet can
     # be given to a box neither way.
-    if routes and not four or routes6 and not six or not wanted or not _plain(resolver, own):
+    if (routes and not four or routes6 and not six or not wanted
+            or not _plain(resolver, own) or any(map(_avoided, own))):
         yield cmd
         return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
     # so bwrap maps nothing back and starts the same inside an enclosing box.
     # At the two addresses it shares with the host nothing of the host's answers in it.
-    # Loopback as the interface to copy from leaves each family to the lines below; the
-    # IPv4 gateway is the address next to the box's, which pasta answers for like any other.
+    # Loopback as the interface to copy from leaves each family to the lines below. IPv4 is
+    # a link of two addresses, the box's and the one next to it as its gateway, which pasta
+    # answers for like any other: on such a link none is a network's or a broadcast address.
     beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
-              *(("--address", str(four), "--netmask", "24", "--gateway",
+              *(("--address", str(four), "--netmask", "31", "--gateway",
                  str(ipaddress.ip_address(int(four) ^ 1))) if four else ("--ipv6-only",)),
               *(("--address", str(six), "--gateway", "fe80::1") if six else ("--ipv4-only",)),
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
