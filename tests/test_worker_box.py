@@ -202,9 +202,22 @@ if role == "mount":
     if sys.argv[3].startswith("dns"):
         resolver = root / "resolv.conf"
         # 127.53 is 127.0.0.53 to libc.
-        address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53"}[sys.argv[3]]
+        address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53", "dnsrun": "127.0.0.53"}[sys.argv[3]]
         resolver.write_text(f"nameserver {address}\nsearch acme.test\noptions timeout:1 attempts:1\n")
-        subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
+        if sys.argv[3] == "dnsrun":
+            # /etc/resolv.conf as a link into /run, where the box keeps a copy of its own.
+            # Only this namespace sees the stand-in /run and /etc; no host file is changed.
+            etc = root / "etc"
+            etc.mkdir()
+            for name in ("passwd", "group", "nsswitch.conf", "hosts"):
+                shutil.copyfile(Path("/etc", name), etc / name)
+            (etc / "resolv.conf").symlink_to("/run/acme/resolver")
+            subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/run"], check=True)
+            Path("/run/acme").mkdir()
+            shutil.copyfile(resolver, "/run/acme/resolver")
+            subprocess.run(["mount", "--bind", str(etc), "/etc"], check=True)
+        else:
+            subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
     # The package's AppArmor profile uses an unconfined exec transition, forbidden
     # by an enclosing box's no_new_privs. This private copy tests pasta itself.
     bindir = root / "bin"
@@ -326,16 +339,31 @@ try:
                              overlay) == "203.0.113.7"
             assert Path("/etc/resolv.conf").read_text().startswith("nameserver ")
             if sys.argv[3] == "dns":
-                # A resolver file the box hides as a credential gets no copy with the
-                # forwarder's address: not under another name of the same file,
+                # A resolver file whose own path the box masks as a credential stays masked:
+                # no copy with the forwarder's address takes the mask's place.
                 (root / ".ssh").mkdir()
-                os.link(root / "resolv.conf", root / "key")
-                (root / ".ssh/id_acme").symlink_to(root / "key")
-                read = 'import json; print(json.dumps(open("/etc/resolv.conf").read()))'
-                assert "10.0.2.3" not in boxed(read)
-                # and not in place of the mask over its own path.
-                (root / ".ssh/id_other").symlink_to("/etc/resolv.conf")
-                assert boxed(read) == ""
+                (root / ".ssh/id_acme").symlink_to("/etc/resolv.conf")
+                assert boxed('import json; print(json.dumps(open("/etc/resolv.conf").read()))') == ""
+            if sys.argv[3] == "dnsrun":
+                # In /run the box keeps a copy of its own, which leaves a hidden credential
+                # out under every name it has. The resolver is rewritten in that copy, so
+                # one the copy left out is not brought back: not even when the credential
+                # is replaced once the copy is made.
+                from unittest.mock import patch
+                os.link("/run/acme/resolver", "/run/acme/key")
+                (root / ".ssh").mkdir()
+                (root / ".ssh/id_acme").symlink_to("/run/acme/key")
+                made = box._own
+
+                def replaced(*args, **kwargs):
+                    own = made(*args, **kwargs)
+                    Path("/run/acme/fresh").write_text("another key\n")
+                    os.replace("/run/acme/fresh", "/run/acme/key")
+                    return own
+
+                there = 'import json, os; print(json.dumps(os.path.exists("/etc/resolv.conf")))'
+                with patch.object(box, "_own", replaced):
+                    assert boxed(there) is False
         else:
             for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
                                     (socket.AF_INET, ("127.0.0.1", None)),
@@ -906,7 +934,7 @@ class WorkerBox(unittest.TestCase):
         self.network_fixture("ports")
 
     def test_a_box_resolves_names_through_a_loopback_resolver(self):
-        for mode in ("dns", "dns6", "dnsshort"):
+        for mode in ("dns", "dns6", "dnsshort", "dnsrun"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
 

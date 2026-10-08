@@ -217,24 +217,18 @@ def _writable(clean, cwd, out_dir, state, places, logins):
     return writable
 
 
-def _hidden_ids(hidden):
-    """Bind mounts and hard links can give the same credential another path: what it is
-    names it under each."""
-    ids = set()
+def _copy_run(source, destination, hidden):
+    """Keep readable directories, links and files; let the kernel resolve their paths."""
+    if source in hidden or any(parent in hidden for parent in source.parents):
+        return
+    # Bind mounts and hard links can give the same credential another path.
+    hidden_ids = set()
     for path in hidden:
         try:
             info = path.stat()
         except OSError:
             continue
-        ids.add((info.st_dev, info.st_ino))
-    return ids
-
-
-def _copy_run(source, destination, hidden):
-    """Keep readable directories, links and files; let the kernel resolve their paths."""
-    if source in hidden or any(parent in hidden for parent in source.parents):
-        return
-    hidden_ids = _hidden_ids(hidden)
+        hidden_ids.add((info.st_dev, info.st_ino))
     for directory, dirs, files, fd in os.fwalk(source):
         info = os.fstat(fd)
         if (info.st_dev, info.st_ino) in hidden_ids:
@@ -360,6 +354,18 @@ def _loopback(name):
     return address if address.is_loopback else None
 
 
+def _seen(path, own, hidden):
+    """Where on this host the file is that the box will find at `path`, or None where the
+    box is shown none: in a place the box keeps a copy of its own, the copy; a path the
+    box masks, nothing; elsewhere the path itself."""
+    for place in sorted(own, key=lambda place: len(place.parts), reverse=True):
+        if place == path or place in path.parents:
+            return own[place] / path.relative_to(place)
+    if path in hidden or any(up in hidden for up in path.parents):
+        return None
+    return path
+
+
 def _alive(fd):
     """Whether the process this pidfd names still holds its number: running or unreaped."""
     try:
@@ -408,8 +414,9 @@ def _spaces(helper):
 
 
 @contextmanager
-def _network(cmd, out_dir=None, nested=False, hidden=()):
-    """The launch with a network of its own; `hidden` are the paths the box masks.
+def _network(cmd, out_dir=None, nested=False, hidden=(), own=None):
+    """The launch with a network of its own; `hidden` are the paths the box masks and `own`
+    the places it keeps copies of its own.
 
     Pasta runs beside the box, never in front of it. A helper this context owns makes the
     network namespace and keeps a holder in it; `nsenter` puts bwrap into the holder's
@@ -439,12 +446,18 @@ def _network(cmd, out_dir=None, nested=False, hidden=()):
               "--address", "10.0.2.15", "--netmask", "24", "--gateway", "10.0.2.2",
               "--address", "fd00::15", "--gateway", "fe80::1",
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
-    resolver = Path("/etc/resolv.conf")
-    content, named = "", None
+    # The resolver is read as the box will find it, so a rewritten one shows the box nothing
+    # it was not given: what the box hides or leaves out of its own /run stays out.
+    target = Path("/etc/resolv.conf").resolve()
+    seen = _seen(target, own or {}, hidden)
+    content = ""
     try:
-        with resolver.open(errors="surrogateescape") as readable:
-            named = os.fstat(readable.fileno())
-            content = readable.read()
+        if seen is not None:
+            # Only a regular file lying there itself, never one a link there leads to.
+            with os.fdopen(os.open(seen, os.O_RDONLY | os.O_NOFOLLOW),
+                           errors="surrogateescape") as readable:
+                if stat.S_ISREG(os.fstat(readable.fileno()).st_mode):
+                    content = readable.read()
     except OSError:
         pass
     hosts, forwarder = {}, {4: "10.0.2.3", 6: "fd00::3"}
@@ -486,21 +499,17 @@ def _network(cmd, out_dir=None, nested=False, hidden=()):
         own = f"/proc/{os.getpid()}/fd"
         launch = [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
                   "--preserve-credentials", *cmd]
-        # A resolver the box hides as a credential, under whatever path, gets no copy.
-        target, ids = resolver.resolve(), _hidden_ids(hidden)
-        masked = (named.st_dev, named.st_ino) in ids if named else True
-        for place in (target, *target.parents):
-            try:
-                info = place.stat()
-                masked = masked or place in hidden or (info.st_dev, info.st_ino) in ids
-            except OSError:
-                masked = True
-        if hosts and not masked:
+        if hosts and seen == target:
             dns = held.enter_context(tempfile.NamedTemporaryFile(
                 mode="w", errors="surrogateescape", prefix=".box-dns-", dir=out_dir))
             dns.write(content)
             dns.flush()
             launch.extend(["--ro-bind", dns.name, str(target)])
+        elif hosts:
+            # The box's own copy is rewritten where it lies.
+            with os.fdopen(os.open(seen, os.O_WRONLY | os.O_NOFOLLOW | os.O_TRUNC), "w",
+                           errors="surrogateescape") as written:
+                written.write(content)
         yield launch
 
 
@@ -610,9 +619,10 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
+            own = _own(scratch, clean, cwd, writable, targets)
+            cmd[at:at] = _bind(own, writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            with _network(cmd, out_dir, nested, targets) as launch:
+            with _network(cmd, out_dir, nested, targets, own) as launch:
                 yield [*launch, "--info-fd", str(write), "--", *argv], clean, {
                     "pass_fds": (write,), "stop": stop}
         finally:
