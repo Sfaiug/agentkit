@@ -5,6 +5,8 @@ recovery mark is needed to recognize a line; delivery remains at least once.
 """
 
 from contextlib import contextmanager
+import re
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -178,6 +180,57 @@ class OwnLineGetsItsEnter(Sandbox):
                             patch.object(orch, "rulebook_prepare", side_effect=prepare):
                         self.tick()
                     self.assertEqual(self.keys, ["Enter"])
+
+    def incomplete_composers(self):
+        fixed = (watch.ACCOUNT_LINE, watch.MIDTURN_LINE, watch.CONTINUE_LINE)
+        original = (REPO / "tests/fixtures/antigravity-short-tall-line-pane.txt").read_text()
+        for line in fixed:
+            rows = textwrap.wrap(line, width=34)
+            payload = "\n".join(["  "] * (9 - len(rows)) + ["  " + row for row in rows])
+            capture = re.sub(r"(?<=> ↑ 13 more lines\n)[\s\S]*?(?=\n─)",
+                             lambda _match: payload, original)
+            yield "antigravity", line, "scrolled", capture
+        original = (REPO / "tests/fixtures/codex-tall-line-pane.txt").read_text()
+        start = original.index("› run ")
+        stop = original.index("\n\n  GPT-", start)
+        prefix = ["› My unfinished draft item 0."] + [
+            f"  My unfinished draft item {index}." for index in range(1, 7)]
+        for line in fixed[:2]:
+            pieces = [line[len(line) * index // 14:len(line) * (index + 1) // 14]
+                      for index in range(14)]
+            capture = (original[:start] + "\n".join(prefix + ["  " + part for part in pieces])
+                       + original[stop:])
+            yield "codex", line, "opening above read", capture
+        original = (REPO / "tests/fixtures/codex-prompt-pane.txt").read_text()
+        for line in fixed:
+            capture = original.replace("› Ask Codex to do anything\n",
+                                       "› " + line + "\n  ? for shortcuts\n")
+            yield "codex", line, "footer-like text", capture
+
+    def test_incomplete_composers_never_get_the_recovery_enter(self):
+        for harness, line, case, capture in self.incomplete_composers():
+            for when in ("initial read", "locked read", "retry"):
+                with self.subTest(harness=harness, line=line, case=case, when=when):
+                    self.keys.clear()
+                    self.compose(line, harness)
+                    pending = self.pane
+
+                    def held_enter(*args, **kwargs):
+                        result = self.tmux(*args, **kwargs)
+                        self.pane = pending
+                        return result
+
+                    def prepare(_name):
+                        if when == "locked read" or when == "retry" and self.keys:
+                            self.pane = capture
+
+                    if when == "initial read":
+                        self.pane = capture
+                    with patch.object(orch, "tmux_out", side_effect=held_enter), \
+                            patch.object(orch, "rulebook_prepare", side_effect=prepare):
+                        self.tick()
+                    self.assertEqual(self.keys, ["Enter"] if when == "retry" else [])
+                    self.assertEqual(self.pane, capture)
 
     def test_an_empty_composer_with_an_old_echo_and_an_unreadable_screen_get_no_enter(self):
         for pane in (watch.ACCOUNT_LINE + "\n" + self.base, "", "harness starting"):
