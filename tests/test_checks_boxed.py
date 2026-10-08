@@ -339,16 +339,16 @@ class ChecksBoxed(unittest.TestCase):
                         [sys.executable, "-c", source], dict(os.environ), out, cwd=self.root,
                         state=("$CODEX_HOME",), places=(state, store, store / "nested"),
                         home_overlay=overlay) as (argv, env, spawn):
+                    spawn.pop("stop")
+                    result = subprocess.run(argv, env=env, cwd=self.root, capture_output=True,
+                                            text=True, timeout=60, **spawn)
+                    self.assertEqual(result.returncode, 0, result.stderr)
                     mounts = argv[:argv.index("--")]
                     for i, arg in enumerate(mounts):
                         if arg in ("--bind", "--dev-bind", "--tmp-overlay"):
                             destination = Path(mounts[i + (1 if arg == "--tmp-overlay" else 2)])
                             self.assertFalse(destination == store or destination in store.parents,
                                              (arg, destination, store))
-                    spawn.pop("stop")
-                    result = subprocess.run(argv, env=env, cwd=self.root, capture_output=True,
-                                            text=True, timeout=60, **spawn)
-                    self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(run.owner_said("acme"), "real-yes")
                     self.assertEqual((sibling / "renamed").read_text(), "kept")
 
@@ -360,9 +360,16 @@ class ChecksBoxed(unittest.TestCase):
                 link = self.root / name
                 link.parent.mkdir(parents=True, exist_ok=True)
                 link.symlink_to(actual / Path(name).relative_to(".agentkit"), target_is_directory=True)
+                store = self.root / ".agentkit/state/owner-yes"
+                source = self.command("from pathlib import Path\n"
+                    f"link = Path({str(link)!r})\n"
+                    "link.rename(link.with_name(link.name + '-before'))\n"
+                    f"store = Path({str(store)!r})\n"
+                    "store.mkdir(parents=True, exist_ok=True)\n"
+                    "(store / 'acme.json').write_text('{\"digest\":\"forged\"}')\n")
                 with patch.object(config, "STATE", self.root / ".agentkit/state"), \
                         self.assertRaisesRegex(config.Error, "owner's yes:.*symlink"):
-                    self.proof(self.command("raise AssertionError('the check started')"))
+                    self.proof(source)
                 self.assertFalse((actual / "state/owner-yes/acme.json").exists())
                 link.unlink()
 
