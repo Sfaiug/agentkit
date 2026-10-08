@@ -39,13 +39,11 @@ SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 # shell in /bin, because the packaged pasta may start no program outside /bin and /usr/bin
 # (its AppArmor profile), and the Python ak runs under is often one.
 HOLDER = ("/bin/sh", "-c", "echo ready; read _")
-# The box's own addresses in the network pasta gives it: one for IPv4, and for IPv6 one of
-# the global kind or one of the private kind. Each is nobody's: the second lies in the
-# prefix kept for discarding, so nothing of the host's becomes the box's.
-OWN, GLOBAL, PRIVATE = "10.0.2.15", "100::15", "fd00::15"
-# A name with an address in each family, both kept for documentation: no resolver knows the
-# name and no host has a route of its own for either address.
-FAMILIES = b"203.0.113.1 family.agentkit.invalid\n2001:db8:9::1 family.agentkit.invalid\n"
+# The box's own IPv4 address in the network pasta gives it.
+OWN = "10.0.2.15"
+# An address of the internet's in each family, both kept for documentation: no host has a
+# route of its own for either, so the host's way out is what leads there.
+INTERNET = {4: "203.0.113.1", 6: "2001:db8:9::1"}
 
 
 def _contents(root):
@@ -343,6 +341,20 @@ def _bind(own, writable, homes=()):
     return args
 
 
+def _source(family):
+    """The address this host would send from to the internet in an IP family (4 or 6), as
+    the kernel says with no packet sent; None where it has no way out in that family."""
+    try:
+        with socket.socket(socket.AF_INET if family == 4 else socket.AF_INET6,
+                           socket.SOCK_DGRAM) as asked:
+            asked.connect((INTERNET[family], 9))
+            source = ipaddress.ip_address(asked.getsockname()[0].partition("%")[0])
+    except OSError:
+        return None
+    # A link-local address is an interface's, not the host's toward the internet.
+    return None if source.is_link_local else source
+
+
 def _order(entered=()):
     """The order in which libc lists the two families of a name with an address of the
     internet's in each: here, or in the network that the `entered` launch enters.
@@ -353,7 +365,8 @@ def _order(entered=()):
     all libc's to weigh. Empty where it cannot be asked."""
     read, write = os.pipe()
     try:
-        os.write(write, FAMILIES)
+        os.write(write, "".join(f"{address} family.agentkit.invalid\n"
+                                for address in INTERNET.values()).encode())
         os.close(write)
         asked = subprocess.run(
             [*entered, "bwrap", "--unshare-user", "--die-with-parent", "--ro-bind", "/", "/",
@@ -461,12 +474,14 @@ def _network(cmd, nested=False):
     does not name the host's resolvers plainly, the box keeps the host's network, as before:
     in one of its own it might resolve no name.
     """
-    # With no usable route, pasta has no outside to connect to.
+    # With no usable route, pasta has no outside to connect to. Every interface has routes
+    # for its own link and for multicast, which lead no further.
     routes = any(line.split()[0] != "lo" and int(line.split()[3], 16) & 0x201 == 1
                  for line in Path("/proc/net/route").read_text().splitlines()[1:])
     ipv6 = Path("/proc/net/ipv6_route")
     routes6 = ipv6.exists() and any(
         line.split()[-1] != "lo" and int(line.split()[8], 16) & 0x201 == 1
+        and not line.startswith(("fe8", "fe9", "fea", "feb", "ff"))
         for line in ipv6.read_text().splitlines())
     unshare, pasta, nsenter = map(_host_binary, ("unshare", "pasta", "nsenter"))
     if nested or not (routes or routes6) or not all((unshare, pasta, nsenter)):
@@ -478,23 +493,31 @@ def _network(cmd, nested=False):
         resolver = b""
     # A program in a box must list the families of a name in the order the host lists
     # them: a provider may serve an account over the one and turn it away on the other.
-    # From a private IPv6 address libc lists IPv4 first and from a global one it weighs
-    # the rest, so the box is given the one that goes with what the host lists first, and
-    # keeps its own network only if libc then lists there what it lists here.
+    # Libc orders them by this host's ways out, the addresses it would send from and
+    # gai.conf, pairing each destination with the address. So a box has a family where the
+    # host has a way out in it, and its IPv6 address is the host's own: the box reads the
+    # same gai.conf, and every pairing is the host's. What can still differ is the same
+    # for every name (whether the kernel has an address past its preferred life), and one
+    # question to libc, here and then in the box's network, settles it.
+    four, six = _source(4), _source(6)
     wanted = _order()
-    family = PRIVATE if wanted[:1] == [str(socket.AF_INET.value)] else GLOBAL
-    if not wanted or not _plain(resolver, set(map(ipaddress.ip_address, (OWN, family)))):
+    own = {address for address in (four and ipaddress.ip_address(OWN), six) if address}
+    # A family in which the host reaches a neighbouring network and not the internet can
+    # be given to a box neither way.
+    if routes and not four or routes6 and not six or not wanted or not _plain(resolver, own):
         yield cmd
         return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
     # so bwrap maps nothing back and starts the same inside an enclosing box.
-    # A different address inside keeps host listeners on its LAN address reachable.
-    # Loopback supplies both IP families.
+    # An IPv4 address of the box's own keeps host listeners on the host's reachable; at
+    # the one IPv6 address it shares with the host nothing of the host's answers in it.
+    # Loopback as the interface to copy from leaves each family to the lines below.
     beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
-              "--address", OWN, "--netmask", "24", "--gateway", "10.0.2.2",
-              "--address", family, "--gateway", "fe80::1",
+              *(("--address", OWN, "--netmask", "24", "--gateway", "10.0.2.2") if four
+                else ("--ipv6-only",)),
+              *(("--address", str(six), "--gateway", "fe80::1") if six else ("--ipv4-only",)),
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
     with ExitStack() as held:
         helper = subprocess.Popen([*beside, *HOLDER], stdin=subprocess.PIPE,
