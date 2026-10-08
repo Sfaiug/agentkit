@@ -263,6 +263,18 @@ class OwnLineGetsItsEnter(Sandbox):
                          "other")
         self.assertEqual(watch.composer_holds(SEAT, self.seat, watch.ACCOUNT_LINE, self.cfg,
                                              exact=True), "other")
+
+    def test_an_old_opencode_prompt_above_its_empty_composer_is_not_a_draft(self):
+        captured = (REPO / "tests/fixtures/opencode-working-pane.txt").read_text()
+        for line in (watch.ACCOUNT_LINE, watch.MIDTURN_LINE, watch.CONTINUE_LINE):
+            with self.subTest(line=line):
+                self.keys.clear()
+                self.compose("", "opencode")
+                self.pane = captured.replace("Write a long story about a river, at least 500 words.",
+                                             line)
+                self.assertEqual(watch.composer_draft("opencode", self.pane), "")
+                self.tick()
+                self.assertEqual(self.keys, [])
         self.compose("\n".join(watch.ACCOUNT_LINE[at:at + 10]
                                for at in range(0, len(watch.ACCOUNT_LINE), 10)), "opencode")
         self.assertEqual(watch.composer_holds(SEAT, self.seat, watch.ACCOUNT_LINE, self.cfg),
