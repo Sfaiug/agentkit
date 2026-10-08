@@ -155,6 +155,66 @@ class CompletionNotices(Sandbox):
         self.declare('The new export is live')
         self.assertEqual(len(self.posted()), 1)
 
+    def test_a_handback_before_the_first_card_tick_keeps_a_quiet_answer_quiet(self):
+        decide = watch.session_state
+        for index, model in enumerate(self.cfg['models']):
+            with self.subTest(model=model, harness=config.model(self.cfg, model)['harness']):
+                self.name = f'quiet-active-{index}'
+                self.seat(self.name, model, created=index + 20)
+                self.checked('API shipped')
+                live = {'state': 'working', 'began': self.now - 10}
+
+                def state(name, **facts):
+                    return decide(name, **{**facts, 'live': live})
+
+                with patch.object(watch, 'session_state', side_effect=state):
+                    notify.terminal_notice.reset_mock()
+                    self.assertEqual(notify.shaped('done', 'Explained the API',
+                                                  session=self.name, quiet=True), 0)
+                    receipt = notify.last(self.name)['completion']
+                    self.assertEqual(notify._card_read(self.name)['word'], 'working')
+                    self.now += 10
+                    live = {'state': 'at_prompt', 'began': self.now}
+                    self.assertEqual(watch.session_state(self.name)['word'], 'done')
+                    # The hook has ended the turn, but the card tick has not run.
+                    self.now += 10
+                    live = {'state': 'working', 'began': self.now}
+                    self.internal_turn()
+                    self.declare('A late internal handback confirms the API')
+                    self.assertEqual(notify.last(self.name)['completion'], receipt)
+                    self.now += 10
+                    live = {'state': 'at_prompt', 'began': self.now}
+                    self.assertEqual(notify.transition(self.name), 0)
+                    self.assertEqual(self.posted(), [])
+                    notify.terminal_notice.assert_not_called()
+                    self.now += 10
+                    self.checked('API shipped', 'Export shipped')
+                    self.declare('The new export is shipped')
+                    self.assertEqual(len(self.posted()), 1)
+                    notify.terminal_notice.assert_called_once()
+
+    def test_a_quiet_record_survives_a_handback_before_any_publication(self):
+        for index, previous_card in enumerate((False, True)):
+            with self.subTest(previous_card=previous_card):
+                self.name = f'quiet-record-{index}'
+                self.seat(self.name, created=index + 20)
+                if previous_card:
+                    self.declare('The first job shipped without a plan')
+                alerts = len(self.posted())
+                self.now += 10
+                self.checked('API shipped')
+                notify.record(self.name, 'done', 'Explained the API', quiet=True,
+                              completion=notify._completion(self.name),
+                              declared_at=self.now, runs=[])
+                # Another turn replaces the declaration before its first transition.
+                self.internal_turn()
+                self.declare('A late internal handback confirms the API')
+                self.assertEqual(len(self.posted()), alerts)
+                self.now += 10
+                self.checked('API shipped', 'Export shipped')
+                self.declare('The new export is shipped')
+                self.assertEqual(len(self.posted()), alerts + 1)
+
     def test_a_quiet_answer_after_an_unkeyed_card_keeps_the_verified_completion(self):
         for index, direct in enumerate((False, True)):
             with self.subTest(direct=direct):
