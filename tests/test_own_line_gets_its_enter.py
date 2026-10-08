@@ -62,6 +62,8 @@ class OwnLineGetsItsEnter(Sandbox):
         config.save_session(self.cfg, SEAT, model, ["astra"], {"cwd": str(self.root)})
         self.base = (REPO / f"tests/fixtures/{harness}-prompt-pane.txt").read_text()
         self.assertIn(empty, self.base)
+        if harness == "opencode":
+            line = line.replace("\n", "\n┃  ")
         self.pane = self.base.replace(empty, row.format(line)) if line else self.base
 
     def tmux(self, *args, **kwargs):
