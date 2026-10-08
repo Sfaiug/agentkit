@@ -217,7 +217,7 @@ def account_order(cfg, model, readings, first=None):
     return ordered
 
 
-def command(cfg, name, conversation=None, fresh=False, account=None):
+def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=None):
     """The TUI command line for this model, straight from its harness's adapter.
 
     Every harness can hold the seat: the adapter owns the flags, exactly as it does for a
@@ -228,14 +228,21 @@ def command(cfg, name, conversation=None, fresh=False, account=None):
     next one under -- Claude Code's `--session-id <uuid>` -- which is what lets a seat's
     conversation be written down before the seat exists.  A TUI that cannot be told one answers
     CANNOT_PIN, and then the answer here is None: that seat gets no launcher-issued id.
+
+    The seat's rulebook is written before the adapter is asked, in this process, and named to
+    it in $AGENTKIT_RULEBOOK: the adapter takes that file, where running `tools/rulebook.py` for
+    it started a second Python with all of agentkit to import on every launch.  `rulebook` is
+    that file where the caller wrote it for more than one asking.
     """
     entry = config.model(cfg, name)
     adapter = config.adapter(entry["harness"])
+    rulebook = rulebook or write_rulebook(os.environ.get(config.SESSION_ENV, ""))
     proc = subprocess.run([str(adapter), "interactive", entry["model"], entry["effort"],
                            *([conversation] if conversation else []),
                            *(["new"] if conversation and fresh else [])],
                           capture_output=True, encoding="utf-8", errors="replace",
-                          env={**os.environ, **config.account_env(account)})
+                          env={**os.environ, **config.account_env(account),
+                               config.RULEBOOK_ENV: str(rulebook)})
     if fresh and proc.returncode == CANNOT_PIN:
         return None
     line = proc.stdout.strip()
@@ -263,10 +270,11 @@ def fresh_command(cfg, name, seat=None, account=None):
     """
     conversation = str(uuid.uuid4())
     with for_seat(seat):
-        cmd = command(cfg, name, conversation, fresh=True, account=account)
+        rulebook = write_rulebook(seat or "")
+        cmd = command(cfg, name, conversation, fresh=True, account=account, rulebook=rulebook)
         if cmd:
             return cmd, conversation
-        return command(cfg, name, account=account), None
+        return command(cfg, name, account=account, rulebook=rulebook), None
 
 
 # --- tmux sessions ----------------------------------------------------------
@@ -2105,11 +2113,13 @@ def resume_command(cfg, model, conversation, cwd, seat=None, account=None):
     """
     harness = config.model(cfg, model)["harness"]
     with for_seat(seat):
+        rulebook = write_rulebook(seat or "")
         if not opened(harness, cwd, conversation):
-            fresh = command(cfg, model, conversation, fresh=True, account=account)
+            fresh = command(cfg, model, conversation, fresh=True, account=account,
+                            rulebook=rulebook)
             if fresh:
                 return fresh
-        return command(cfg, model, conversation, account=account)
+        return command(cfg, model, conversation, account=account, rulebook=rulebook)
 
 
 def launch(name, model, cwd, cmd, conversation, session=None):
@@ -2244,6 +2254,36 @@ def fetched(repo):
     from . import run
     return bool(run.git(repo, "rev-parse", "--verify", "--quiet", config.RULES_REF,
                         check=False, env=run.project_env(repo)))
+
+
+def write_rulebook(session):
+    """Write the rulebook `session` is launched with (`config.seat_rulebook`) under its name and
+    return its path: ~/.agentkit/state/rulebook-<session>.md, under $AGENTKIT_RULEBOOK_DIR
+    instead for a dry run.
+
+    A launch fetches no project that has been fetched: it reads the rules as last fetched,
+    which is what every open seat has, and the tick's fetch brings a later merge to both, named
+    by the seat's next prompt.  Only a project nothing has fetched yet is fetched first, so its
+    first seat opens with its rules.  A dry run fetches nothing.  A file that cannot be written
+    refuses the launch: a session is opened with its rules or not at all.
+    """
+    repo = os.environ.get(config.SEAT_REPO_ENV)
+    if repo is None:
+        repo = config.session_records().get(session, {}).get("repo") or ""
+    path = config.rulebook_path(session)
+    if os.environ.get(config.RULEBOOK_DIR_ENV):
+        path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
+    elif repo and not fetched(Path(repo)):
+        try:
+            fetch_project(Path(repo))
+        except config.Error:
+            pass
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(config.seat_rulebook(session, repo))
+    except OSError as exc:
+        raise config.Error(f"no rulebook for {session or 'this seat'}: {exc}") from exc
+    return path
 
 
 def fetch_projects():

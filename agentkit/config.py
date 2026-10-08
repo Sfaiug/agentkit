@@ -40,6 +40,7 @@ HARNESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # a harness name is one pa
 RUN_DIR_ENV = "AGENTKIT_RUN_DIR"
 ADAPTER_DIR_ENV = "AGENTKIT_ADAPTER_DIR"   # adapters/ elsewhere: the offline smoke checks
 SESSION_ENV = "AGENTKIT_SESSION"
+RULEBOOK_ENV = "AGENTKIT_RULEBOOK"          # the rulebook a launch has written, for its adapter to take
 RULEBOOK_DIR_ENV = "AGENTKIT_RULEBOOK_DIR"  # a dry run's: where rulebook.py writes instead of STATE
 SEAT_REPO_ENV = "AGENTKIT_SEAT_REPO"      # a new seat's project, for rulebook.py: no record yet
 # where a seat's project rules are read: the full name, since a branch or tag called

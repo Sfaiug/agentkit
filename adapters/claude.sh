@@ -144,7 +144,7 @@ interactive)
   # ~/.claude.  The flag is claude 2.1.263's own (named under `--bare` in `claude --help`).
   # No rulebook, no command line: a seat opened without the rules it was asked for is worse
   # than one that does not open, and `ak orch` prints what was said here.
-  rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
+  rb=${AGENTKIT_RULEBOOK:-$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}")} || {
     echo "claude.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf -- '--append-system-prompt-file %q ' "$rb")
   # CLAUDE_CODE_DISABLE_AGENT_VIEW keeps the conversation in this seat: with Claude's

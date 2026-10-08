@@ -184,7 +184,7 @@ interactive)
   # seat_env` and the top of this file drops an inherited one, so nothing a seat starts is
   # told it is the orchestrator.  No rulebook, no command line: a seat opened without the
   # rules it was asked for is worse than one that does not open.
-  rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
+  rb=${AGENTKIT_RULEBOOK:-$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}")} || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
   tagged="$1#$2"   # as `run` hands it, and with MiMo's variants beside it
   case $1:$2 in *#*) tagged=$1;; mimo/*) ;; *:none) tagged=$1;; esac
