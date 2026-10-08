@@ -401,7 +401,7 @@ def record(session, kind, text, **extra):
         previous = last(session, include_seen=True) or {}
         pending = previous.get("pending_done")
         if previous.get("kind") == "done":
-            pending = (previous if not previous.get("quiet")
+            pending = (previous if not previous.get("quiet") and not previous.get("handled")
                        and not _carded(session, previous) else None)
         if kind == "needs":
             # A question changes the word, not a job's still-promised completion.
@@ -1103,6 +1103,21 @@ def needs_transition(session, card, answer, now, seat=None):
     return _send_card(session, "needs", card, answer)
 
 
+def _remember_done(session, declared):
+    """A duplicate handled by the card latch is complete without another outbox event."""
+    if (not declared or declared["kind"] != "done" or declared.get("quiet")
+            or declared.get("seen") or declared.get("handled")):
+        return
+    current = last(session, include_seen=True)
+    # Closing a question edits delivery receipts; a newer declaration remains its own.
+    if ({k: v for k, v in (current or {}).items() if k != "open_needs"}
+            != {k: v for k, v in declared.items() if k != "open_needs"}):
+        return
+    extra = {k: v for k, v in current.items() if k not in ("session", "kind", "text")}
+    extra["handled"] = True
+    record(session, "done", current["text"], **extra)
+
+
 def done_transition(session, card, answer, now):
     """A quiet receipt or one completion alert when the state function says done.
 
@@ -1116,7 +1131,10 @@ def done_transition(session, card, answer, now):
         # A quiet declaration records its own work even behind an older sent/history card.
         card["completed"] = declared["completion"]
         _card_write(session, card)
-    if card.get("sent") or _history(card) or watch.seat_closed_by_owner(session):
+    if card.get("sent"):
+        _remember_done(session, declared)
+        return 0
+    if _history(card) or watch.seat_closed_by_owner(session):
         return 0
     # A question a standing done was outranked by is finished when the word comes back to it,
     # carded before or not.
@@ -1131,6 +1149,7 @@ def done_transition(session, card, answer, now):
         if receipt and receipt.get("completion"):
             card["completed"] = receipt["completion"]
         _card_write(session, card)
+        _remember_done(session, declared)
         return 0
     return _send_card(session, "done", card, answer)
 
