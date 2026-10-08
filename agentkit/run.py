@@ -6957,6 +6957,29 @@ def result_done_when(cmds, state=None):
     return marked
 
 
+def save_result(run_dir, text=None, *, notices=()):
+    """Publish a report or save its full notices without a rebuild losing them.
+
+    Build the report before taking the delivery lock: while git reads its diff, the tick
+    can deliver a notice. Read its saved section only at publication, under the same lock.
+    """
+    with delivery_lock(run_dir):
+        result = run_dir / "result.md"
+        try:
+            saved = result.read_text()
+        except FileNotFoundError:
+            saved = ""
+        heading = "\n## Seat notice\n\n"
+        _, boundary, kept = saved.partition(heading)
+        if text is None:
+            missing = [part for part in notices if part and part not in kept]
+            if missing:
+                with result.open("a") as output:
+                    output.write(heading + "\n\n".join(missing) + "\n")
+        else:
+            result.write_text(text + boundary + kept)
+
+
 def write_result(run_dir, state, cmds, log=None, cfg=None):
     """The full result.md.  `log` carries a stop observed while reporting, if any.
 
@@ -7034,7 +7057,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     onward = continue_line(state, run_dir)
     if onward:
         parts += [onward, ""]
-    (run_dir / "result.md").write_text("\n".join(parts))
+    save_result(run_dir, "\n".join(parts))
 
 
 def run_for_pr(url):
@@ -7064,11 +7087,13 @@ def record_decision(run_dir, state, reason, merged=False):
         if state.get("worktree") and Path(state["worktree"]).is_dir():
             _, body, _ = taskfile.parse_task(run_dir / "task.md")
             write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"))
-        elif note not in result.read_text():
+        else:
             # The worktree is gone, so the diff stat cannot be produced again: keep the result
             # as it was written and add what has happened to it since.
-            with result.open("a") as fh:
-                fh.write(f"\n## The maintainer decided\n\n{note}\n")
+            with delivery_lock(run_dir):
+                if note not in result.read_text():
+                    with result.open("a") as fh:
+                        fh.write(f"\n## The maintainer decided\n\n{note}\n")
     except (config.Error, OSError, KeyError):
         pass          # the note is on the run; a result we cannot rewrite from here is not news
     return state
@@ -7562,15 +7587,7 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     refusal = tell.too_long(compact)
     if refusal:
         raise config.Error(refusal)
-    with delivery_lock(run_dir):
-        try:
-            saved = result.read_text()
-        except FileNotFoundError:
-            saved = ""
-        missing = [part for part in (line, followup_report(state)) if part and part not in saved]
-        if missing:
-            with result.open("a") as output:
-                output.write("\n## Seat notice\n\n" + "\n\n".join(missing) + "\n")
+    save_result(run_dir, notices=(line, followup_report(state)))
     return compact
 
 
@@ -7765,7 +7782,6 @@ def hand_back(state, run_dir, log, cfg=None):
     """
     session = launched_session(state)
     seat = orch.find(session) or {"name": session}
-    line = handback_line(state, run_dir, cfg)
     with delivery_lock(run_dir):
         said = run_record.read_state(run_dir) or state
         if not same_attempt(state, said):
@@ -7786,6 +7802,7 @@ def hand_back(state, run_dir, log, cfg=None):
             # The seat is not going to read the tree: the ending is history.
             worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
+        line = handback_line(state, run_dir, cfg)
         if watch.type_at_prompt(seat, line, log, cfg=cfg, typed=said.get("handback_typed"),
                                 receipt=lambda mark: mark_delivery(run_dir, state,
                                                                    handback_typed=mark)):
@@ -10112,7 +10129,7 @@ def record_result(run_dir, state, log=None, cfg=None):
     else:
         suffix = ""
     try:
-        (run_dir / "result.md").write_text(
+        save_result(run_dir,
             f"# {delivery(state, report_config(cfg))} — {state.get('title') or run_dir.name}\n\n"
             f"VERDICT: {state.get('verdict') or 'none'}\n\n## Why this run stopped\n\n"
             f"{state.get('error') or 'no reason was recorded'}\n\n"

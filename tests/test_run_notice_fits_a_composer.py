@@ -233,6 +233,82 @@ class RunNotice(Sandbox):
         self.assertEqual(episodes["after_merge"], {})
         self.assertIn(evidence, (directory / "result.md").read_text())
 
+    def test_a_report_finishing_after_failure_delivery_keeps_the_whole_notice(self):
+        directory, state = self.result(repo=str(self.root), finished_at=9999,
+                                       merge_sha="a" * 40, target="origin/main")
+        details = "https://ci.acme.example/build?diagnostic=" + "deployment-error-" * 80
+        episodes = {}
+
+        def during_diff(*_args, **_kw):
+            # The loop publishes its merged record before waiting on the report's diff.
+            watch.after_merge_checks(episodes, False, self.logs.append, now=10000)
+            return "(fixture diff)"
+
+        with patch.object(run, "git", side_effect=during_diff), \
+                patch.object(watch, "after_merge_sha", return_value="a" * 40), \
+                patch.object(watch, "after_merge_health", return_value=None), \
+                patch.object(watch, "gh_json", return_value=([{"check_runs": [{
+                    "name": "release-gate", "status": "completed", "conclusion": "failure",
+                    "details_url": details}]}], "")):
+            run.write_result(directory, state, [], cfg=self.cfg)
+        self.assertEqual(len(self.sent), 1)
+        self.assertIsNone(tell.too_long(self.sent[0]))
+        self.assertNotIn(details, self.sent[0])
+        episode = episodes["after_merge"][watch.after_merge_repo(state["pr"])[3]]
+        self.assertIn("notified", episode)
+        self.assertNotIn("pending", episode)
+        self.assertIn(details, (directory / "result.md").read_text())
+
+    def test_all_report_rebuilds_keep_saved_notice_details(self):
+        directory, state = self.followups(2)
+        with patch.object(tell, "longest", return_value=1000000):
+            full = run.handback_line(state, directory, self.cfg)
+        self.assertTrue(run.hand_back(state, directory, self.logs.append, self.cfg))
+        result = directory / "result.md"
+        saved = result.read_text()
+        (directory / "task.md").write_text("# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
+        # A later report no longer has these fields to reconstruct the delivered notice.
+        latest = {**state, "followups": [], "followup_plan": [], "followup_runs": []}
+        rebuilds = (
+            ("full result", lambda: run.write_result(directory, latest, [], cfg=self.cfg)),
+            ("stopped full result", lambda: run.record_result(directory, latest, cfg=self.cfg)),
+            ("stopped short result", lambda: run.record_result(
+                directory, {**latest, "worktree": None}, cfg=self.cfg)),
+            ("maintainer result", lambda: run.record_decision(
+                directory, latest, "The maintainer kept the merged change")))
+        with patch.object(run, "git", return_value="(fixture diff)"):
+            for name, rebuild in rebuilds:
+                with self.subTest(writer=name):
+                    result.write_text(saved)
+                    rebuild()
+                    self.assertIn(full, result.read_text())
+                    for item in state["followups"]:
+                        self.assertIn(item, result.read_text())
+        gone = {**latest, "worktree": None}
+        note = "The maintainer confirmed the live fix"
+        run.record_decision(directory, gone, note)
+        run.record_result(directory, gone, cfg=self.cfg)
+        self.assertIn(note, result.read_text())
+        self.assertIn(full, result.read_text())
+
+    def test_a_superseded_handback_leaves_the_current_report_untouched(self):
+        directory, previous = self.result(
+            state="fail", verdict="FAIL", merged=False, pid=10001, finished_at=1000,
+            rounds=1, round_summaries=[{"round": 1, "verdict": "FAIL", "done_when": True,
+                                        "summary": "Final check failed."}],
+            final_check={"outcome": "failed", "where": "landing",
+                         "line": "previous attempt's check " + "failure evidence " * 100})
+        self.assertTrue(run.failed_at_budget(previous))
+        current = {**previous, "pid": 10002, "state": "running", "verdict": None,
+                   "finished_at": None, "round_summaries": []}
+        record.save_state(directory, current)
+        result = directory / "result.md"
+        original = "# Current attempt\n\nThe resumed attempt has not finished.\n"
+        result.write_text(original)
+        self.assertFalse(run.hand_back(previous, directory, self.logs.append, self.cfg))
+        self.assertEqual(result.read_text(), original)
+        self.assertEqual((self.keys, self.sent), ([], []))
+
     def test_a_notice_is_not_typed_when_its_omitted_details_cannot_be_saved(self):
         directory, state = self.followups(2)
         result = directory / "result.md"
