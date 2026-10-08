@@ -263,6 +263,12 @@ class OwnLineGetsItsEnter(Sandbox):
                          "other")
         self.assertEqual(watch.composer_holds(SEAT, self.seat, watch.ACCOUNT_LINE, self.cfg,
                                              exact=True), "other")
+        self.compose("\n".join(watch.ACCOUNT_LINE[at:at + 10]
+                               for at in range(0, len(watch.ACCOUNT_LINE), 10)), "opencode")
+        self.assertEqual(watch.composer_holds(SEAT, self.seat, watch.ACCOUNT_LINE, self.cfg),
+                         "line")
+        self.assertEqual(watch.composer_holds(SEAT, self.seat, watch.ACCOUNT_LINE, self.cfg,
+                                             exact=True), "other")
 
     def test_an_old_opencode_prompt_above_its_empty_composer_is_not_a_draft(self):
         captured = (REPO / "tests/fixtures/opencode-working-pane.txt").read_text()
@@ -275,12 +281,6 @@ class OwnLineGetsItsEnter(Sandbox):
                 self.assertEqual(watch.composer_draft("opencode", self.pane), "")
                 self.tick()
                 self.assertEqual(self.keys, [])
-        self.compose("\n".join(watch.ACCOUNT_LINE[at:at + 10]
-                               for at in range(0, len(watch.ACCOUNT_LINE), 10)), "opencode")
-        self.assertEqual(watch.composer_holds(SEAT, self.seat, watch.ACCOUNT_LINE, self.cfg),
-                         "line")
-        self.assertEqual(watch.composer_holds(SEAT, self.seat, watch.ACCOUNT_LINE, self.cfg,
-                                             exact=True), "other")
 
     def test_an_empty_composer_with_an_old_echo_and_an_unreadable_screen_get_no_enter(self):
         for pane in (watch.ACCOUNT_LINE + "\n" + self.base, "", "harness starting"):
