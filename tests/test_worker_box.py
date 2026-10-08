@@ -206,12 +206,25 @@ if role == "mount":
             # or, case by case, a private, a 6to4 or a Teredo one, and a network beyond
             # its first one.
             first = {"familyprivate": "fd42::1/64", "familyno4": "fd42::1/64",
-                     "family6to4": "2002:c000:201::1/64",
+                     "family6to4": "2002:c000:201::1/64", "familyapart": "2002:c000:201::1/64",
                      "familyteredo": "2001:0:c000:201::1/64"}.get(sys.argv[3], "2001:db8::1/64")
-            for command in (("addr", "add", first, "dev", "internet", "nodad"),
+            # One case's only address is past its preferred life, which the kernel knows
+            # and libc asks it; another has a gai.conf of its own that pairs the host's
+            # address with no destination.
+            # A last case has a 6to4 address and a gai.conf that pairs a private address with
+            # the internet: there neither address of a box's makes libc list as the host does.
+            past = ("preferred_lft", "0") if sys.argv[3] == "familydeprecated" else ()
+            labels = ("label ::1/128 0\nlabel ::/0 1\nlabel 2002::/16 2\nlabel ::/96 3\n"
+                      "label ::ffff:0:0/96 4\nlabel fec0::/10 5\nlabel 2001:0::/32 7\n")
+            policy = {"familygai": labels + "label fc00::/7 6\nlabel 2001:db8::/64 99\n",
+                      "familyapart": labels + "label fc00::/7 1\n"}.get(sys.argv[3])
+            if policy and Path("/etc/gai.conf").exists():
+                (root / "gai.conf").write_text(policy)
+                subprocess.run(["mount", "--bind", str(root / "gai.conf"), "/etc/gai.conf"], check=True)
+            for command in (("addr", "add", first, "dev", "internet", "nodad", *past),
                             ("-6", "route", "add", "default", "dev", "internet"),
                             ("link", "add", "beyond", "type", "dummy"),
-                            ("addr", "add", "fd42:1::1/64", "dev", "beyond", "nodad"),
+                            *([] if past else [("addr", "add", "fd42:1::1/64", "dev", "beyond", "nodad")]),
                             ("link", "set", "beyond", "up")):
                 subprocess.run(["ip", *command], check=True)
     Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
@@ -373,22 +386,27 @@ try:
                 assert boxed('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
                              'socket.gethostbyname("fixture")]))', overlay) == [here, "203.0.113.7"]
         elif sys.argv[3].startswith("family"):
-            if Path("/proc/sys/net/ipv6").exists():
+            if Path("/proc/sys/net/ipv6").exists() and (
+                    sys.argv[3] not in ("familygai", "familyapart") or Path("/etc/gai.conf").exists()):
                 server = stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
                 server.bind(("192.0.2.1", 53))
                 thread = threading.Thread(target=serve, args=(server, stop, True))
                 thread.start()
                 threads.append(thread)
-                # A name with an address in each family. This host lists first the family
-                # it has a way out for and whose own address the rules pair with the
-                # destination, and a box lists them in the same order.
-                order = ('import json, socket; print(json.dumps([found[0] for found in '
-                         'socket.getaddrinfo("fixture.acme.test", 80, type=socket.SOCK_STREAM)]))')
-                here = json.loads(subprocess.check_output([sys.executable, "-c", order], text=True, timeout=30))
+                # A name with an address in each family, served by a resolver this time. Libc
+                # weighs for this host its ways out, the addresses the kernel would send from
+                # and gai.conf, and a box in a network of its own lists the two in the order
+                # the host lists them. Where it would not, it is given the host's network.
+                order = ('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
+                         '[found[0] for found in socket.getaddrinfo("fixture.acme.test", 80, '
+                         'type=socket.SOCK_STREAM)]]))')
+                net, here = json.loads(subprocess.check_output([sys.executable, "-c", order], text=True, timeout=30))
                 first = socket.AF_INET6 if sys.argv[3] in ("family", "familyno4") else socket.AF_INET
                 assert here[0] == first and sorted(here) == [socket.AF_INET, socket.AF_INET6], here
                 for overlay in (False, True):
-                    assert boxed(order, overlay) == here, here
+                    own, there = boxed(order, overlay)
+                    assert there == here, (there, here)
+                    assert (own == net) == (sys.argv[3] == "familyapart"), (own, net)
         else:
             # Where this host has IPv6, the stand-in internet answers over it too: at its own
             # address, which stays the host's, and at one on its second network.
@@ -966,7 +984,8 @@ class WorkerBox(unittest.TestCase):
         self.network_fixture("ports")
 
     def test_a_box_puts_the_families_of_a_name_in_the_order_its_host_does(self):
-        for mode in ("family", "familyprivate", "familyno4", "family6to4", "familyteredo"):
+        for mode in ("family", "familyprivate", "familyno4", "family6to4", "familyteredo",
+                     "familydeprecated", "familygai", "familyapart"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
 
@@ -1333,7 +1352,9 @@ class WorkerBox(unittest.TestCase):
 
             def interrupt(proc, *args, **kwargs):
                 nonlocal interrupted
-                if "bwrap" in proc.args and not interrupted:
+                # The turn's own box is the one whose first process bwrap is to name: ak
+                # also starts short ones of its own, to ask libc a question.
+                if "--info-fd" in proc.args and not interrupted:
                     deadline = time.monotonic() + 5
                     while not (self.out / "events.jsonl").exists():
                         if time.monotonic() > deadline:

@@ -43,6 +43,9 @@ HOLDER = ("/bin/sh", "-c", "echo ready; read _")
 # the global kind or one of the private kind. Each is nobody's: the second lies in the
 # prefix kept for discarding, so nothing of the host's becomes the box's.
 OWN, GLOBAL, PRIVATE = "10.0.2.15", "100::15", "fd00::15"
+# A name with an address in each family, both kept for documentation: no resolver knows the
+# name and no host has a route of its own for either address.
+FAMILIES = b"203.0.113.1 family.agentkit.invalid\n2001:db8:9::1 family.agentkit.invalid\n"
 
 
 def _contents(root):
@@ -340,38 +343,29 @@ def _bind(own, writable, homes=()):
     return args
 
 
-def _family():
-    """The box's IPv6 address: the one of the two with which a program in the box lists the
-    families of a name in the order the host lists them.
+def _order(entered=()):
+    """The order in which libc lists the two families of a name with an address of the
+    internet's in each: here, or in the network that the `entered` launch enters.
 
-    For a name with an address of the internet's in each family, libc lists first (RFC 6724,
-    in this order) the family this host has a way out for; then the one whose own address
-    is of the destination's scope; then the one whose own address the policy table pairs
-    with the destination, which it does for neither a private IPv6 address nor a 6to4 or
-    Teredo one; then IPv6. A box has a way out for both families and an IPv4 address that
-    matches, so its IPv6 address alone decides: the global one leaves the order to that
-    last rule, the private one puts IPv4 first. (#705's box always had the private one: on
-    a host with a global address it listed IPv4 first where the host lists IPv6, and a
-    provider that serves an account over the host's family turned it away.) The kernel
-    says which addresses the host would send from, with no packet sent."""
-    def source(family, destination):
-        try:
-            with socket.socket(family, socket.SOCK_DGRAM) as asked:
-                asked.connect((destination, 9))
-                return ipaddress.ip_address(asked.getsockname()[0].partition("%")[0])
-        except OSError:
-            return None
-
-    # Addresses kept for documentation: no host has a route of their own for them.
-    four, six = source(socket.AF_INET, "203.0.113.1"), source(socket.AF_INET6, "2001:db8:9::1")
-    if six is None:
-        return PRIVATE
-    paired = not any(six in ipaddress.ip_network(other) for other in (
-        "fe80::/10", "fec0::/10", "fc00::/7", "2002::/16", "2001::/32", "::/96", "::ffff:0:0/96"))
-    # IPv4 comes first on the host only where it has a way out with an address of the
-    # internet's scope and the IPv6 address is not one the first rules let stand beside it.
-    ahead = four is not None and not (four.is_link_local or four.is_loopback) and not paired
-    return PRIVATE if ahead else GLOBAL
+    Asked of libc itself, by one short-lived process that is shown a hosts file of ak's
+    own, so no resolver is asked and nothing here says how libc sorts: which addresses the
+    kernel would send from, which of them it has deprecated and what `gai.conf` holds are
+    all libc's to weigh. Empty where it cannot be asked."""
+    read, write = os.pipe()
+    try:
+        os.write(write, FAMILIES)
+        os.close(write)
+        asked = subprocess.run(
+            [*entered, "bwrap", "--unshare-user", "--die-with-parent", "--ro-bind", "/", "/",
+             "--ro-bind-data", str(read), "/etc/hosts", "--", sys.executable, "-I", "-S", "-c",
+             "import socket\nprint(*(found[0].value for found in socket.getaddrinfo("
+             "'family.agentkit.invalid', 80, type=socket.SOCK_STREAM)))"],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, pass_fds=(read,))
+    except (OSError, subprocess.SubprocessError):
+        return []
+    finally:
+        os.close(read)
+    return asked.stdout.split() if asked.returncode == 0 else []
 
 
 def _plain(resolver, own):
@@ -482,8 +476,14 @@ def _network(cmd, nested=False):
         resolver = Path("/etc/resolv.conf").read_bytes()
     except OSError:
         resolver = b""
-    family = _family()
-    if not _plain(resolver, set(map(ipaddress.ip_address, (OWN, family)))):
+    # A program in a box must list the families of a name in the order the host lists
+    # them: a provider may serve an account over the one and turn it away on the other.
+    # From a private IPv6 address libc lists IPv4 first and from a global one it weighs
+    # the rest, so the box is given the one that goes with what the host lists first, and
+    # keeps its own network only if libc then lists there what it lists here.
+    wanted = _order()
+    family = PRIVATE if wanted[:1] == [str(socket.AF_INET.value)] else GLOBAL
+    if not wanted or not _plain(resolver, set(map(ipaddress.ip_address, (OWN, family)))):
         yield cmd
         return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
@@ -521,8 +521,13 @@ def _network(cmd, nested=False):
         for fd in spaces:
             held.callback(os.close, fd)
         own = f"/proc/{os.getpid()}/fd"
-        yield [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
-               "--preserve-credentials", *cmd]
+        entered = [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
+                   "--preserve-credentials"]
+        if _order(entered) != wanted:
+            held.close()
+            yield cmd
+            return
+        yield [*entered, *cmd]
 
 
 @contextmanager
