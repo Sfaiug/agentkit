@@ -175,6 +175,73 @@ class RunNotice(Sandbox):
         self.assertIn("result.md", self.sent[-1])
         self.assertEqual(self.composer, "")
 
+    def test_a_saved_ending_keeps_its_followups_and_refusals_before_typing(self):
+        refusal = "the check could not run: " + "failure evidence " * 100 + "plan refusal"
+        items = ["api.py:1 - a defect\ncomplete reviewer evidence"]
+        directory, state = self.result(
+            repo=str(self.root), followups=items, followup_runs=[], handback_pending=True,
+            followup_plan=[{"outcome": "Fix api.py:1", "refused": refusal}])
+        result = directory / "result.md"
+        result.write_text("# PASS merged\n\nFixed API.\n")  # a report saved before follow-ups were rendered
+        run.start_followups(state, directory, self.logs.append)
+        line = run.handback_line(state, directory, self.cfg)
+        saved = result.read_text()
+        self.assertIsNone(tell.too_long(line))
+        self.assertIn(refusal, saved)
+        self.assertIn("complete reviewer evidence", saved)
+        self.assertIn("Fixed API.", saved)
+        self.assertEqual(run.handback_line(state, directory, self.cfg), line)
+        self.assertEqual(result.read_text(), saved)  # a retry retains the evidence without copying it
+
+    def test_a_compact_recovery_retains_its_cause_and_rerun_warning(self):
+        reason = "a process stopped during a remote write " * 30 + "interruption cause"
+        directory = self.ended("fix-api", owner="fix-api", state="interrupted", verdict=None,
+                               interruption_reason=reason, interrupted_at=10000, started_at=9990)
+        with patch.object(orch, "watching", return_value=False), \
+                patch.object(orch, "ensure", return_value=False), \
+                patch.object(watch, "orphan_fresh", return_value=True), \
+                patch.object(watch, "is_preexisting", return_value=False):
+            run.notify_recovery(directory, record.read_state(directory))
+        self.assertIsNone(tell.too_long(self.sent[-1]))
+        self.assertIn("result.md", self.sent[-1])
+        saved = (directory / "result.md").read_text()
+        self.assertIn(reason, saved)
+        self.assertIn("Do not automatically rerun it; check for effects from the interrupted attempt.",
+                      saved)
+        self.assertEqual(record.read_state(directory)["recovery_notified"], "orchestrator")
+
+    def test_an_after_merge_failure_survives_delivery_and_episode_cleanup(self):
+        now = 2000000
+        evidence = "deployment missing " * 100 + "deployment evidence"
+        directory, state = self.result(
+            repo=str(self.root), finished_at=now - watch.AFTER_MERGE_WINDOW - 1,
+            merge_sha="a" * 40, target="origin/main",
+            health={"command": "probe", "output": evidence})
+        episodes = {}
+        with patch.object(watch, "after_merge_sha", return_value="a" * 40), \
+                patch.object(watch, "after_merge_status", return_value=("passed", None, None)):
+            watch.after_merge_checks(episodes, False, self.logs.append, now=now)
+            self.assertEqual(len(self.sent), 1)
+            self.assertIsNone(tell.too_long(self.sent[0]))
+            self.assertIn("result.md", self.sent[0])
+            self.assertNotIn("health", record.read_state(directory))
+            episode = episodes["after_merge"][watch.after_merge_repo(state["pr"])[3]]
+            self.assertIn("notified", episode)
+            self.assertNotIn("pending", episode)
+            self.assertIn(evidence, (directory / "result.md").read_text())
+            watch.after_merge_checks(episodes, False, self.logs.append, now=now + 1)
+        self.assertEqual(episodes["after_merge"], {})
+        self.assertIn(evidence, (directory / "result.md").read_text())
+
+    def test_a_notice_is_not_typed_when_its_omitted_details_cannot_be_saved(self):
+        directory, state = self.followups(2)
+        result = directory / "result.md"
+        result.unlink()
+        result.mkdir()
+        with self.assertRaises(OSError):
+            run.announce(state, directory, self.logs.append, self.cfg)
+        self.assertEqual((self.keys, self.sent), ([], []))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

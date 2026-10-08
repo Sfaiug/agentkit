@@ -3541,10 +3541,6 @@ def followups_handed(run_dir, state, handed):
     state.update(handed)
     with run_record.recovery_lock(run_dir), delivery_lock(run_dir), \
             run_record.record(run_dir) as current:
-        result = run_dir / "result.md"
-        if result.is_file() and (onward := followup_report(handed)):
-            with result.open("a") as report:
-                report.write("\n" + onward)
         current.update(handed)
 
 
@@ -7526,11 +7522,12 @@ def followup_report(state):
     return "\n".join(parts)
 
 
-def seat_notice(line, state, run_dir, brief, action="Decide the next step.", *, report="result.md"):
+def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     """A run line that fits stays unchanged; otherwise its files carry the whole news.
 
     Use the same bound as `ak tell`, including its byte limit, after every addition to the
-    line. Never type even the compact form unless that bound accepts it.
+    line. Never type even the compact form unless that bound accepts it and its full notice
+    and follow-ups have been saved in result.md, including for an older pending ending.
     """
     from . import plan, tell
     if not tell.too_long(line):
@@ -7542,8 +7539,9 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step.", *, 
         except ValueError:
             return str(path)
 
-    where = shown(run_dir / report)
-    report = Path(report).name
+    result = run_dir / "result.md"
+    where = shown(result)
+    report = result.name
     parts = [brief, f"Result: {where}."]
     entries = state.get("followup_plan") or []
     count = len(state.get("followups") or entries)
@@ -7564,6 +7562,15 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step.", *, 
     refusal = tell.too_long(compact)
     if refusal:
         raise config.Error(refusal)
+    with delivery_lock(run_dir):
+        try:
+            saved = result.read_text()
+        except FileNotFoundError:
+            saved = ""
+        missing = [part for part in (line, followup_report(state)) if part and part not in saved]
+        if missing:
+            with result.open("a") as output:
+                output.write("\n## Seat notice\n\n" + "\n\n".join(missing) + "\n")
     return compact
 
 

@@ -4106,7 +4106,7 @@ def tell_parked(run_id, step, seat, log):
                 line = run_mod.seat_notice(
                     line, run_record.read_state(run_dir) or {}, run_dir,
                     f"run {run_id} stalled three times; parked.",
-                    f"Resume: ak run resume {run_id}.", report="run.json")
+                    f"Resume: ak run resume {run_id}.")
                 if type_into(found, line, log):
                     return True
             except (config.Error, OSError):
@@ -5128,7 +5128,7 @@ def revive_seats(cfg, log):
                            "pick up where you left off", log, cfg,
                      prepare=lambda line: run_mod.seat_notice(
                          line, state, run_dir, f"run {run_id} is still going.",
-                         "Pick up where you left off.", report="run.json"))
+                         "Pick up where you left off."))
         if why is None:
             log(f"reopened {name} and asked it to continue {run_id}")
             continue
@@ -5736,7 +5736,7 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
     from . import run as run_mod   # here, not at the top: run imports this module
     line = run_mod.seat_notice(line, {}, run_dir,
                               f"run {run_dir.name}: a check failed after its merge.",
-                              "Fix the target.", report=state_path())
+                              "Fix the target.")
     try:
         session = run_mod.launched_session(run_state)
     except config.Error:
