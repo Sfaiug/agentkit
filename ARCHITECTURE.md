@@ -34,11 +34,10 @@
   (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
   watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
   `own_pr_wait_note`). Leak: run's private `_cached_providers`.
-- `stop.py`: `ak run stop` and `ak run clean`. A stop writes `stopped` under the lock
-  first, then ends its scope, tree and marked processes, then the checkout unless kept.
-  `stop_owned_runs` and `release_session` for orch, `cmd_stop` for menu,
-  `ways_out` for the stop hook, `marker_pids` for status. Leaks: run's
-  `launched_session`, `note_in`, `history_finish`, `redress_seat`, `record_result`.
+- `stop.py`: stop/clean a run; records its stop before ending processes and releasing
+  its checkout. `stop_owned_runs` and `release_session` for orch, `cmd_stop` for menu,
+  `marker_pids` for status. `recorded_ending` decides native and hookless turns;
+  `ways_out` names parked-run choices. For watch and hooks. Leaks: run lifecycle helpers.
 - `worktrees.py`: a run's worktree and local branch: whether they may go (final run, gone
   loop, never ~/code, held for a resume) and the one way they go, `stop_checkout`: the
   repo's `cleanup:` line, git, the directory, the branch. Stop, clean, endings and gc call
@@ -60,11 +59,11 @@
 - `job.py`: task files as jobs: `job.json` (capped `owner_words` since the seat's last
   launch), scheduling, task ladders (waits, merge, rerun), hand-back, relaunch.
   Calls `run.*`; for run, gc, watch, menu.
-- `watch.py`: tick (its passes in one list, `local_passes`), watch.json, errors
-  (harness/manifest; `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`), typing
-  receipts by source, revive, resume, PR scans, after-merge checks, `health:` probes,
-  `doctor`. For run, job, orch, menu, notify, update, usage, worker, hooks.
-  Leaks: run.json writes (stalls, freezes, resumes), states (`GOING`).
+- `watch.py`: tick passes (`local_passes`), watch.json, seat state, errors, recovery,
+  typing receipts, PR scans, after-merge checks and `health:` probes. `session_state`
+  and `waiting_on` decide state; hookless stops use stop.recorded_ending.
+  For run, job, orch, menu, notify, update, usage, worker and hooks.
+  Leaks: run.json writes and run state groups.
 - `retire.py`: the tick's pass that tells a project's seats, once a day via `tell.queue`,
   each feature switch on for everyone two weeks, to take out of the code: the seat whose plan
   names it, else the newest. `retire.json` under STATE. For watch. Leak: menu's `features_run`,

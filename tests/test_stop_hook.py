@@ -178,6 +178,100 @@ class StopHook(unittest.TestCase):
         self.notified("done", self.turn - 600)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
+    def test_completion_changed_while_reading_work_is_read_before_the_native_stop(self):
+        for action in ("publish", "retire"):
+            with self.subTest(action=action):
+                self.setUp()
+                if action == "retire":
+                    self.notified("done", self.turn - 1)
+                    self.run_json("failed-run", state="fail", started_at=self.turn - 3600,
+                                  finished_at=self.turn - 0.5)
+                    latch = self.state / f"stop-{SEAT}.json"
+                    saved = json.loads(latch.read_text())
+                    latch.write_text(json.dumps({**saved, "peer": True}) + "\n")
+                # A concurrent writer changes the notice while the hook reads its runs.
+                (self.home / "sitecustomize.py").write_text(f'''import json, os, time
+from pathlib import Path
+root = Path(os.environ["HOME"]) / ".agentkit"
+original = Path.iterdir
+changed = False
+def during_census(path):
+    global changed
+    if path == root / "runs" and not changed:
+        changed = True
+        notice = root / "state" / "notify-{SEAT}.json"
+        if {action!r} == "publish":
+            data = {{"session": {SEAT!r}, "kind": "done", "text": "Shipped the parser",
+                    "time": time.time()}}
+        else:
+            data = json.loads(notice.read_text())
+            data["seen"] = True
+        temporary = notice.with_suffix(".tmp")
+        temporary.write_text(json.dumps(data) + "\\n")
+        temporary.replace(notice)
+    return original(path)
+Path.iterdir = during_census
+''')
+                output = self.stop(env={"PYTHONDONTWRITEBYTECODE": "1"})
+                if action == "retire":
+                    self.assertEqual(self.blocked(output)["reason"], REASON)
+                else:
+                    self.assertEqual(output, "")
+
+    def test_a_completion_published_during_the_wait_check_holds_the_next_stop(self):
+        (self.home / "sitecustomize.py").write_text(f'''import json, os, time
+from pathlib import Path
+from agentkit import watch
+def during_wait(*args, **kwargs):
+    notice = Path(os.environ["HOME"]) / ".agentkit/state/notify-{SEAT}.json"
+    notice.write_text(json.dumps({{"session": {SEAT!r}, "kind": "done",
+                                  "text": "Shipped the parser", "time": time.time()}}) + "\\n")
+    return None
+watch.waiting_on = during_wait
+''')
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+        self.assertEqual(self.stop(), "")
+
+    def test_a_run_started_while_reading_completion_is_a_live_wait(self):
+        (self.home / "sitecustomize.py").write_text(f'''import json, os, time
+from pathlib import Path
+root = Path(os.environ["HOME"]) / ".agentkit"
+original_iterdir, original_read = Path.iterdir, Path.read_text
+censused, started = False, False
+def during_census(path):
+    global censused
+    if path == root / "runs":
+        censused = True
+    return original_iterdir(path)
+def during_completion(path, *args, **kwargs):
+    global started
+    if censused and not started and path == root / "state/notify-{SEAT}.json":
+        started = True
+        directory = root / "runs/late-work"
+        directory.mkdir()
+        (directory / "run.json").write_text(json.dumps({{"run_id": "late-work",
+            "launched_session": {SEAT!r}, "state": "running", "started_at": time.time()}}))
+    return original_read(path, *args, **kwargs)
+Path.iterdir, Path.read_text = during_census, during_completion
+''')
+        self.assertEqual(self.stop(), "")
+        self.assertTrue((self.runs / "late-work/run.json").is_file())
+
+    def test_a_seen_current_done_keeps_the_native_stop_policy(self):
+        self.notified("done", self.turn + 1)
+        path = self.state / f"notify-{SEAT}.json"
+        note = json.loads(path.read_text())
+        path.write_text(json.dumps({**note, "seen": True}) + "\n")
+        self.assertEqual(self.stop(), "")
+
+    def test_a_boolean_run_stamp_is_not_a_new_launch(self):
+        for stamp in (True, False, "later", None):
+            with self.subTest(stamp=stamp):
+                self.setUp()
+                self.run_json("finished", state="done", started_at=stamp, queued_at=stamp,
+                              finished_at=self.turn - 1)
+                self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
     def test_a_run_launched_during_the_turn_allows_the_stop(self):
         self.run_json("finished", state="done", started_at=self.turn + 5,
                       finished_at=self.turn + 6)
