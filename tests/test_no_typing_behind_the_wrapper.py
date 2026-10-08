@@ -35,12 +35,8 @@ else:
 with (root / 'calls.jsonl').open('a') as log:
     log.write(json.dumps(args) + '\n')
 if args[0] == 'set-option':
-    assert args[1:5] in (['-p', '-t', '%7', '@ak_input_tty'],
-                         ['-pu', '-t', '%7', '@ak_input_tty'])
-    if args[1] == '-pu':
-        given['options'].pop(args[4], None)
-    else:
-        given['options'][args[4]] = args[5]
+    assert args[1:5] == ['-p', '-t', '%7', '@ak_input_tty']
+    given['options'][args[4]] = args[5]
     temp = state.with_suffix('.tmp')
     temp.write_text(json.dumps(given))
     temp.replace(state)
@@ -151,12 +147,9 @@ class WrappedPane(Seats):
         self.until(lambda: received.exists() and received.read_bytes() == expected)
         self.until(lambda: unread(self.slave) == unread(self.inner) == 0)
 
-    def test_the_wrapper_names_its_tty_before_exec_once_per_start_and_clears_it_on_exit(self):
+    def test_the_wrapper_names_its_tty_before_exec_once_per_start_replacing_the_previous_name(self):
         for start in range(2):
             if start:
-                given = json.loads(self.state.read_text())
-                given['options']['@ak_input_tty'] = '/dev/an-old-tty'
-                self.state.write_text(json.dumps(given))
                 self.start_wrapper()
             self.assertEqual(self.ready['named'], self.ready['tty'])
             self.assertNotEqual(self.ready['tty'], os.ttyname(self.slave))
@@ -165,7 +158,6 @@ class WrappedPane(Seats):
             calls = [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
             self.assertEqual(sum(call[:2] == ['set-option', '-p'] for call in calls), start + 1)
             self.stop(self.proc)
-            self.assertEqual(json.loads(self.state.read_text())['options'], {})
 
     def test_the_empty_outer_tty_does_not_release_a_peer_line_until_the_harness_reads(self):
         data = self.held_input()

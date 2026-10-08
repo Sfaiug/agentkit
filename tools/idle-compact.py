@@ -53,7 +53,6 @@ import math
 import os
 import re
 import signal
-import subprocess
 import sys
 import termios
 import time
@@ -431,14 +430,14 @@ def exit_code(wait_status):
     return 128 - code if code < 0 else code
 
 
-def name_input_tty(path=None):
+def name_input_tty(path):
     """The pane owns this fact across renames; its next wrapper replaces it at start."""
     pane = os.environ.get("TMUX_PANE")
     server = os.environ.get("TMUX", "").partition(",")[0]
     if not os.environ.get(config.SESSION_ENV) or not pane or not server:
         return
-    rc, out = orch.tmux_out("-S", server, "set-option", "-p" if path else "-pu",
-                            "-t", pane, watch.INPUT_TTY_OPTION, *([path] if path else []),
+    rc, out = orch.tmux_out("-S", server, "set-option", "-p",
+                            "-t", pane, watch.INPUT_TTY_OPTION, path,
                             socket="", timeout=5)
     if rc:
         raise OSError(errno.EIO, f"cannot name the harness terminal: {out}")
@@ -654,10 +653,6 @@ def run(options, command):
                     os.waitpid(child_pid, 0)
                 except ChildProcessError:
                     pass
-        try:
-            name_input_tty()
-        except (OSError, subprocess.TimeoutExpired):
-            pass
         state_path.unlink(missing_ok=True)
 
 
