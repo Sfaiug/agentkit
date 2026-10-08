@@ -90,8 +90,9 @@ class OwnerParts(unittest.TestCase):
                 self.commit(path)
                 self.assertEqual(self.touched(), hit)
 
-    def test_a_section_is_read_as_a_reader_reads_it(self):
-        # either fence holds a `## ` line inside the section; a change elsewhere is outside it.
+    def test_a_section_holding_a_fence_is_protected_to_the_end_of_the_file(self):
+        # A section that holds either fence marker runs to the end of the file: fence parsing is
+        # not relied on to find where it ends, so a change anywhere below it needs the owner's yes.
         fenced = AGENTS.replace("Less.", "Less.\n\n~~~\n## not a heading\n~~~")
         sh(self.wt, "checkout", "-q", "-B", "change", self.base)
         self.write("AGENTS.md", fenced)
@@ -101,7 +102,7 @@ class OwnerParts(unittest.TestCase):
         sh(self.wt, "update-ref", "refs/remotes/origin/main", base2)
         self.write("AGENTS.md", fenced.replace("- one", "- one\n- two"))
         self.commit("lessons after the fence")
-        self.assertEqual(self.touched(), [])
+        self.assertEqual(self.touched(), ["AGENTS.md#Vision"])
 
     def test_a_declaration_read_from_the_target_ignores_a_shadowing_tag(self):
         sh(self.wt, "tag", "origin/main", self.base)   # a tag of the same name, pre-owner
@@ -232,11 +233,59 @@ class OwnerParts(unittest.TestCase):
         doc = AGENTS + "\n## Vision\n\nMore, appended.\n"
         self.assertIn("More, appended.", owner.piece(doc, "Vision"))
 
-    def test_a_fenced_block_with_the_other_marker_does_not_close_early(self):
+    def test_a_section_with_a_fence_runs_to_the_end_of_the_file(self):
         doc = "## Vision\n\n```\n~~~\n## inside\n```\n\n## After\n\nx\n"
         section = owner.piece(doc, "Vision")
         self.assertIn("## inside", section)
-        self.assertNotIn("## After", section)
+        self.assertIn("## After", section)        # a fenced section is protected to the end
+
+    def test_a_section_named_by_a_literal_dashes_heading_is_not_the_front_matter(self):
+        # `file#---` names the `## ---` section, not the file's front matter: a change there is a hit.
+        doc = "---\ntitle: acme\n---\n## ---\nOwner policy\n## Public\nApp notes\n"
+        section = owner.piece(doc, "---")
+        self.assertIn("Owner policy", section)
+        self.assertNotIn("title: acme", section)  # not the front matter
+        changed = owner.piece(doc.replace("Owner policy", "Changed policy"), "---")
+        self.assertNotEqual(section, changed)
+
+    def test_a_replace_ref_does_not_hide_an_added_owner_file(self):
+        # The owner names a file absent at the base; the branch adds it, then a replace ref swaps the
+        # head for the base so a lookup with replacements on reads it absent at both revisions.
+        sh(self.wt, "checkout", "-q", "-B", "main", self.base)
+        self.write("AGENTS.md", AGENTS.replace("owner: AGENTS.md#Vision, gate/, score.py",
+                                               "owner: guard.txt"))
+        base2 = self.commit("owner names a not-yet-present file")
+        sh(self.wt, "update-ref", "refs/remotes/origin/main", base2)
+        sh(self.wt, "checkout", "-q", "-b", "add-guard")
+        self.write("guard.txt", "owner content\n")
+        head = self.commit("add the protected file")
+        self.assertIn("guard.txt", run.owner_parts(self.wt, "origin/main", head)[1])
+        sh(self.wt, "replace", head, base2)
+        self.assertIn("guard.txt", run.owner_parts(self.wt, "origin/main", head)[1])
+        sh(self.wt, "replace", "-d", head)
+
+    def test_an_owner_file_turned_into_a_symlink_is_a_change(self):
+        # A regular file becomes a symlink to a same-named file with other content: the blob id is
+        # unchanged, but the entry mode is part of the identity, so it is a change.
+        sh(self.wt, "checkout", "-q", "-B", "change", self.base)
+        self.write("locked", "open\n")
+        (self.wt / "score.py").unlink()
+        (self.wt / "score.py").symlink_to("locked")
+        self.commit("score.py becomes a symlink")
+        self.assertIn("score.py", self.touched())
+
+    def test_an_unreadable_declaration_stops_delivery(self):
+        sh(self.wt, "checkout", "-q", "-B", "change", self.base)
+        self.write("score.py", "y = 2\n")
+        self.commit("score")
+        oid = sh(self.wt, "rev-parse", "refs/remotes/origin/main:AGENTS.md")
+        (self.wt / ".git/objects" / oid[:2] / oid[2:]).unlink()
+        with self.assertRaises(config.Error):
+            run.owner_parts(self.wt, "origin/main", sh(self.wt, "rev-parse", "HEAD"))
+
+    def test_a_declared_owner_key_is_accepted_front_matter(self):
+        # rules_check reads the owner key, so a project's first owner declaration lands.
+        self.assertEqual(run.unknown_front_lines(AGENTS), [])
 
     def test_yes_and_no_refuse_inside_a_run(self):
         lp, head = self.parked()

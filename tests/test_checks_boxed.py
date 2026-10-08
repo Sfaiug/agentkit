@@ -275,6 +275,26 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertIn("Read-only file system", text)
                 self.assertFalse(path.exists())
 
+    def test_a_check_cannot_forge_the_owner_yes_store(self):
+        # The owner's yes store is out of a boxed check's reach: it cannot write a yes, create the
+        # first one where none exists, or rename the state directory away to recreate it unmasked.
+        config.STATE.mkdir(parents=True, exist_ok=True)
+        store = config.STATE / "owner-yes"
+        run_json = store / "run.json"
+        create = self.command(f"from pathlib import Path\np = Path({str(run_json)!r})\n"
+                              "p.parent.mkdir(parents=True, exist_ok=True)\np.write_text('forged')\n")
+        self.assertNotEqual(self.proof(create)["returncode"], 0)
+        self.assertFalse(store.exists())                       # no first yes was created
+        store.mkdir()
+        run_json.write_text("real-yes")
+        moved = config.STATE.with_name("state-moved")
+        rename = self.command(f"from pathlib import Path\nstate = Path({str(config.STATE)!r})\n"
+                             f"state.rename({str(moved)!r})\np = Path({str(run_json)!r})\n"
+                             "p.parent.mkdir(parents=True, exist_ok=True)\np.write_text('forged')\n")
+        self.assertNotEqual(self.proof(rename)["returncode"], 0)
+        self.assertEqual(run_json.read_text(), "real-yes")     # the real yes is untouched
+        self.assertFalse(moved.exists())                       # the state dir cannot be renamed away
+
     def test_a_nested_check_starts_beside_a_crowded_folder(self):
         home = self.root / "home with space"
         crowded = home / "crowded"

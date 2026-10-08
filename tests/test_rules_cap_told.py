@@ -198,7 +198,7 @@ class RulesCapTold(unittest.TestCase):
         self.path.write_text("---\nusers: none\ntest: make check\npreview: make serve\n---\nAcme.\n")
         self.assert_round_fails_with(
             "AGENTS.md front matter has lines ak does not read: `test: make check`, "
-            "`preview: make serve` (it reads tests, health, cleanup, users, features): "
+            "`preview: make serve` (it reads tests, health, cleanup, users, features, owner): "
             "remove them, or fix the misspelled name.")
 
     def test_unread_lines_in_any_line_ending_or_after_a_blank_line_fail(self):
