@@ -1289,6 +1289,8 @@ def _completion(session):
     """
     from . import plan
     created = (config.session_records().get(session) or {}).get("created")
+    if created is None:
+        return None
 
     def outcomes(value):
         if not isinstance(value, dict) or value.get("created") != created:
