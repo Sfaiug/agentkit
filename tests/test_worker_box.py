@@ -482,7 +482,9 @@ class WorkerBox(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-worker-box-", dir=REPO)
         self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name)
+        fixture = Path(tmp.name)
+        self.root = fixture / "workspace"
+        self.root.mkdir()
         self.out = self.root / "out"
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
@@ -495,7 +497,8 @@ class WorkerBox(unittest.TestCase):
                     "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS", "BOX_SIGNAL", "BOX_TERM", "BOX_AGENT",
                     "SSH_AUTH_SOCK"):
             os.environ.pop(key, None)
-        self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
+        for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+            self.stack.enter_context(patch.object(config, key, fixture / key.lower()))
         # The only real child is our fixture. No marker sweep may inspect the hosting run.
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         gh = self.root / ".config/gh"
@@ -548,12 +551,39 @@ class WorkerBox(unittest.TestCase):
         yes = self.root / ".agentkit/state/owner-yes/x.json"
         yes.parent.mkdir(parents=True)
         yes.write_text("real-yes")
-        with patch.dict(os.environ, {"BOX_OWNER_YES": "1"}):
+        with patch.dict(os.environ, {"BOX_OWNER_YES": "1"}), \
+                patch.object(config, "STATE", yes.parent.parent):
             code, text, _, killed, _ = self.turn()
         self.assertEqual((code, killed), (0, False))
         seen = json.loads(text)
         self.assertEqual(seen["owner_yes_read"], "")          # the store reads empty in the box
+        self.assertFalse(seen["owner_yes_wrote"])
         self.assertEqual(yes.read_text(), "real-yes")         # a write in the box never reaches it
+
+    def test_a_read_only_symlink_ancestor_keeps_both_store_addresses_closed(self):
+        state = config.STATE
+        store = state / config.OWNER_YES
+        store.mkdir(parents=True)
+        yes = store / "acme.json"
+        yes.write_text('{"digest":"real-yes"}')
+        link = state.parent / "state-link"
+        link.symlink_to(state, target_is_directory=True)
+        source = ("from pathlib import Path\n"
+                  f"for name in {[str(store), str(link / config.OWNER_YES)]!r}:\n"
+                  " p = Path(name) / 'acme.json'\n"
+                  " assert not p.exists()\n"
+                  " try:\n  p.write_text('forged')\n"
+                  " except OSError:\n  pass\n"
+                  " else:\n  raise AssertionError('forged yes')\n")
+        self.out.mkdir()
+        with patch.object(config, "STATE", link), box.command(
+                [sys.executable, "-c", source], dict(os.environ), self.out,
+                cwd=self.root, home_overlay=True) as (argv, env, spawn):
+            spawn.pop("stop")
+            result = subprocess.run(argv, env=env, cwd=self.root, capture_output=True,
+                                    text=True, timeout=60, **spawn)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(yes.read_text(), '{"digest":"real-yes"}')
 
     def test_paths_symlinks_and_all_token_variables(self):
         login, store = self.root / "login", self.root / "store"

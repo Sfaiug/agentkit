@@ -5269,9 +5269,32 @@ def owner_env():
     return {"GIT_NO_REPLACE_OBJECTS": "1", "GIT_GRAFT_FILE": os.devnull}
 
 
-def qualified(upstream):
-    """A target as its remote-tracking ref, so a tag or branch of the same name cannot stand in."""
-    return f"refs/remotes/{upstream}" if upstream.startswith("origin/") else upstream
+def owner_target(wt, upstream, pr=None):
+    """Pin the target independently of writable tracking refs and fetch configuration.
+
+    Delivery names the repository by its PR URL, never by worker-writable remote URLs.
+    Standalone Git readers verify an explicit remote branch; all tree reads use its SHA.
+    """
+    if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", upstream):
+        return upstream
+    branch = upstream.removeprefix("origin/")
+    if pr:
+        parts = pr_parts(pr)
+        if parts is None:
+            raise config.Error("cannot locate the target repository for the owner's parts")
+        api, account, repo, _ = parts
+        data, why = gh_json(config.RUNS, *api,
+                            f"repos/{account}/{repo}/git/ref/heads/{quote(branch, safe='')}")
+        entry = data.get("object", {}) if isinstance(data, dict) else {}
+        sha = entry.get("sha") if entry.get("type") == "commit" else None
+    else:
+        ref = f"refs/heads/{branch}"
+        rows = git_bytes(wt, "ls-remote", "--exit-code", "origin", ref).splitlines()
+        sha = next((row.split()[0] for row in rows if row.split()[1:] == [ref]), None)
+        why = "the remote did not name that branch"
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
+        raise config.Error(f"cannot verify the target for the owner's parts: {why}")
+    return sha
 
 
 def front_has_key(text, key):
@@ -5284,17 +5307,15 @@ def front_has_key(text, key):
 
 def owner_declaration(wt, upstream):
     """The target's `owner:` value as written (a trailing `# comment` removed), from the
-    remote-tracking ref, or None when the target has no AGENTS.md or names no owner key.
+    verified target commit, or None when the target has no AGENTS.md or names no owner key.
 
     An AGENTS.md whose entry is in the tree but whose content git cannot read, or whose tree
     cannot be read at all, stops delivery rather than quietly dropping the guard: its owner parts
     are unknown, not absent.  A read that stops raises on its own."""
-    rev = qualified(upstream)
+    rev = owner_target(wt, upstream)
     if owner_entry(wt, rev, "AGENTS.md") is None:
         return None                      # the target has no AGENTS.md entry: it names no owner
-    code, text = git_out(wt, "show", f"{rev}:AGENTS.md", env=owner_env())
-    if code != 0:
-        raise config.Error("the target's AGENTS.md could not be read to check its owner parts")
+    text = git_bytes(wt, "show", f"{rev}:AGENTS.md", env=owner_env())
     if not front_has_key(text, "owner"):
         return None
     return re.sub(r"\s#.*$", "", front_value(text, "owner") or "").strip()
@@ -5322,8 +5343,9 @@ def owner_entry(wt, rev, path):
     unreadable tree is not an absent entry, so it stops delivery rather than dropping the guard."""
     parent, _, base = path.rpartition("/")
     tree = f"{rev}:{parent}" if parent else rev
-    code, listing = git_out(wt, "ls-tree", "-z", tree, env=owner_env())
-    if code != 0:
+    try:
+        listing = git_bytes(wt, "ls-tree", "-z", tree, env=owner_env())
+    except config.Error:
         # The parent is genuinely absent (an added file in a new folder) or its tree cannot be
         # read; only the first is an absent entry, the second stops delivery.
         if parent and owner_entry(wt, rev, parent) is None:
@@ -5333,7 +5355,7 @@ def owner_entry(wt, rev, path):
         if not item:
             continue
         meta, _, name = item.partition("\t")
-        if name == base:
+        if name.encode("utf-8", "surrogateescape") == base.encode("utf-8", "surrogateescape"):
             mode, _type, oid = meta.split()
             return mode, oid
     return None
@@ -5364,10 +5386,11 @@ def owner_digest(wt, rev, parts):
 
 def owner_parts(wt, upstream, sha):
     """(the owner parts the target names, the names of those the change at `sha` touches)."""
-    parts = owner_target_parts(wt, upstream)
+    target = owner_target(wt, upstream)
+    parts = owner_target_parts(wt, target)
     if not parts:
         return [], []
-    base = git(wt, "merge-base", qualified(upstream), sha, env=owner_env())
+    base = git(wt, "merge-base", target, sha, env=owner_env())
     before = owner_contents(wt, base, parts)
     after = owner_contents(wt, sha, parts)
     hit = [owner.name(p, h) for (p, h, a), (_, _, b) in zip(before, after) if a != b]
@@ -5397,6 +5420,23 @@ def owner_session(run_dir, state):
     return launch_session(run_dir) or state.get("session") or config.inbox()
 
 
+def owner_question(session, records):
+    """The outstanding approval, even after a notice was replaced or a run restarted.
+
+    Rendering reads the wait, never Git: missing checkouts or an unavailable remote cannot
+    hide an answer the owner still owes.
+    """
+    for directory, state in records:
+        head = (state.get("waiting_on") or {}).get("owner")
+        if not head or config.resolve_session(owner_session(directory, state)) != session:
+            continue
+        commands = (f"ak run yes {directory.name} {head[:12]}, or ak run no {directory.name}")
+        reason = state.get("error") or f"waiting for the owner's yes ({commands})"
+        return {"word": "needs you", "reason": reason, "since": state.get("started_at"),
+                "question": True, "command": True}
+    return None
+
+
 def post_owner_question(run_dir, state, session, hit, head):
     """Put this run's owner-approval question on `session`.  Factored so a second run still waiting
     on the owner can be resurfaced after the first is answered, since a session carries one notice
@@ -5406,17 +5446,18 @@ def post_owner_question(run_dir, state, session, hit, head):
     line = (f"Run {run_id} changes {', '.join(hit)}, which land only on your yes. "
             f"Review it, then `{yes}` to land or `{no}` to keep it unmerged.")
     with speaking_for(state):
-        notify.shaped("needs", line, session=session, event_id=f"owner:{run_id}:{head}")
+        notify.shaped("needs", line, session=session, event_id=f"owner:{run_id}:{head}", command=True)
 
 
-def owner_block(lp, upstream):
+def owner_block(lp, upstream, pr=None):
     """True, having parked the run and asked the owner, when its change touches owner parts with
     no yes of theirs for that content.  The question goes to the owner, never a self-serve note to
     the seat that wrote the change, so an improvement loop cannot approve its own.  On a shared
     host the orchestrator seat has a shell ak cannot tell from the owner's, so this stops the loop
     merging owner parts in its normal run, not a seat that means to forge the owner's yes."""
     head = lp.state.get("delivery_sha") or git(lp.wt, "rev-parse", "HEAD")
-    parts, hit = owner_parts(lp.wt, upstream, head)
+    target = owner_target(lp.wt, upstream, pr or lp.state.get("pr"))
+    parts, hit = owner_parts(lp.wt, target, head)
     if not hit or owner_said(lp.run_dir.name) == owner_digest(lp.wt, head, parts):
         return False
     key, run_id = head[:12], lp.run_dir.name      # the key names this content: a stale yes misses
@@ -5463,7 +5504,7 @@ def do_merge(lp, url, upstream):
                         return rejoin_line(lp, upstream, "the PR's target moved")
                 # The owner's yes is checked for THIS delivered head, each attempt: an integration
                 # that changed owner content under the run parks for a fresh yes rather than merging.
-                if owner_block(lp, upstream):
+                if owner_block(lp, upstream, url):
                     return False
                 body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
@@ -9971,7 +10012,7 @@ def owner_answered(run_dir):
             continue
         upstream = target if target.startswith("origin/") else f"origin/{target}"
         try:
-            _, hit = owner_parts(Path(wt), upstream, head)
+            _, hit = owner_parts(Path(wt), owner_target(wt, upstream, said.get("pr")), head)
         except config.Error:
             continue
         if hit:
@@ -9983,10 +10024,13 @@ def cmd_yes(argv):
     """`ak run yes ID`: the owner's yes to the content a run changes in their parts, then its
     delivery once more.  A later change to those parts asks again."""
     run_dir, wt, upstream, head = owner_waiting(argv, "yes")
-    parts, hit = owner_parts(wt, upstream, head)
+    state = run_record.read_state(run_dir) or {}
+    parts, hit = owner_parts(wt, owner_target(wt, upstream, state.get("pr")), head)
     if not hit:
         raise config.Error(f"{argv[0]} changes none of the owner's parts; nothing waits for a yes")
     owner_say(run_dir.name, owner_digest(wt, head, parts))
+    with run_record.record(run_dir) as state:
+        state.pop("waiting_on", None)
     owner_answered(run_dir)
     print(f"the owner's yes to {', '.join(hit)} at {head[:12]} is kept; delivering {argv[0]} again")
     return cmd_resume([argv[0], "--bg"])

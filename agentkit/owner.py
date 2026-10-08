@@ -87,12 +87,16 @@ def piece(blob, heading):
 def digest(contents):
     """One fingerprint of every part's content, byte for byte: [(path, heading, text|None)].
 
-    The text is the byte-lossless surrogateescape form, hashed as its own bytes, so two
-    different files never fold to one fingerprint.
+    Lengths frame every field, including absent content, so embedded NULs cannot move a
+    field or a part boundary. The text keeps its surrogateescape bytes.
     """
     sink = hashlib.sha256()
     for path, heading, body in contents:
-        sink.update(repr((path, heading, body is None)).encode())
-        if body is not None:
-            sink.update(b"\0" + body.encode("utf-8", "surrogateescape") + b"\0")
+        fields = (path.encode("utf-8", "surrogateescape"),
+                  b"" if heading is None else b"\1" + heading.encode("utf-8", "surrogateescape"),
+                  b"\1" if body is None else b"\0",
+                  b"" if body is None else body.encode("utf-8", "surrogateescape"))
+        for field in fields:
+            sink.update(len(field).to_bytes(8, "big"))
+            sink.update(field)
     return sink.hexdigest()

@@ -27,7 +27,9 @@ class ChecksBoxed(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-", dir=REPO)
         self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name)
+        self.fixture = Path(tmp.name)
+        self.root = self.fixture / "workspace"
+        self.root.mkdir()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(account_home(self.root))
@@ -37,8 +39,8 @@ class ChecksBoxed(unittest.TestCase):
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
-        for key in ("HOME", "RUNS", "STATE"):
-            self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
+        for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+            self.stack.enter_context(patch.object(config, key, self.fixture / key.lower()))
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(gate, "derived_heavy_limit", return_value=2))
@@ -313,6 +315,106 @@ class ChecksBoxed(unittest.TestCase):
             self.assertNotEqual(self.proof(rename)["returncode"], 0)
             self.assertEqual(run_json.read_text(), "real-yes")   # the real yes is untouched
             self.assertFalse(moved.exists())                     # an ancestor cannot be renamed away
+
+    def test_writable_state_and_places_never_cover_the_owner_store(self):
+        state = self.root / ".agentkit/state"
+        store = state / config.OWNER_YES
+        store.mkdir(parents=True)
+        yes = store / "acme.json"
+        yes.write_text('{"digest":"real-yes"}')
+        sibling = state / "checks"
+        sibling.mkdir()
+        out = self.root / "out"
+        out.mkdir()
+        source = ("import json\nfrom pathlib import Path\n"
+                  f"p = Path({str(yes)!r})\n"
+                  "try:\n p.write_text(json.dumps({'digest':'forged'}))\n"
+                  "except OSError:\n pass\nelse:\n raise AssertionError('forged yes')\n"
+                  f"sibling = Path({str(sibling)!r})\n"
+                  "(sibling / 'new').write_text('kept')\n"
+                  "(sibling / 'new').rename(sibling / 'renamed')\n")
+        with patch.object(config, "STATE", state), patch.dict(os.environ, {"CODEX_HOME": str(state.parent)}):
+            for overlay in (False, True):
+                with self.subTest(home_overlay=overlay), box.command(
+                        [sys.executable, "-c", source], dict(os.environ), out, cwd=self.root,
+                        state=("$CODEX_HOME",), places=(state, store, store / "nested"),
+                        home_overlay=overlay) as (argv, env, spawn):
+                    mounts = argv[:argv.index("--")]
+                    for i, arg in enumerate(mounts):
+                        if arg in ("--bind", "--dev-bind", "--tmp-overlay"):
+                            destination = Path(mounts[i + (1 if arg == "--tmp-overlay" else 2)])
+                            self.assertFalse(destination == store or destination in store.parents,
+                                             (arg, destination, store))
+                    spawn.pop("stop")
+                    result = subprocess.run(argv, env=env, cwd=self.root, capture_output=True,
+                                            text=True, timeout=60, **spawn)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(run.owner_said("acme"), "real-yes")
+                    self.assertEqual((sibling / "renamed").read_text(), "kept")
+
+    def test_a_swappable_store_or_symlink_ancestor_refuses_the_check(self):
+        actual = self.fixture / "actual"
+        (actual / "state/owner-yes").mkdir(parents=True)
+        for name in (".agentkit", ".agentkit/state", ".agentkit/state/owner-yes"):
+            with self.subTest(link=name):
+                link = self.root / name
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(actual / Path(name).relative_to(".agentkit"), target_is_directory=True)
+                with patch.object(config, "STATE", self.root / ".agentkit/state"), \
+                        self.assertRaisesRegex(config.Error, "owner's yes:.*symlink"):
+                    self.proof(self.command("raise AssertionError('the check started')"))
+                self.assertFalse((actual / "state/owner-yes/acme.json").exists())
+                link.unlink()
+
+    def test_a_box_cannot_hide_owner_parts_by_rewriting_git_refs_or_remote_config(self):
+        for path, text in (("AGENTS.md", "---\n---\n# acme\n"), ("policy.txt", "locked")):
+            (self.root / path).write_text(text)
+        run.git(self.root, "init", "-q", "-b", "main")
+        run.git(self.root, "config", "user.name", "acme")
+        run.git(self.root, "config", "user.email", "acme@localhost")
+        run.git(self.root, "add", "AGENTS.md", "policy.txt")
+        run.git(self.root, "commit", "-qm", "before owner declaration")
+        earlier = run.git(self.root, "rev-parse", "HEAD")
+        (self.root / "AGENTS.md").write_text("---\nowner: policy.txt\n---\n# acme\n")
+        run.git(self.root, "commit", "-qam", "protect the policy")
+        target = run.git(self.root, "rev-parse", "HEAD")
+        remote, decoy = (self.fixture / name for name in ("origin.git", "decoy.git"))
+        for destination in (remote, decoy):
+            run.git(self.root, "clone", "--bare", "-q", str(self.root), str(destination))
+        run.git(decoy, "update-ref", "refs/heads/main", earlier)
+        run.git(self.root, "remote", "add", "origin", str(remote))
+        run.git(self.root, "checkout", "-qb", "change")
+        (self.root / "policy.txt").write_text("open")
+        run.git(self.root, "commit", "-qam", "change owner policy")
+        head = run.git(self.root, "rev-parse", "HEAD")
+        directory = self.fixture / "delivery"
+        directory.mkdir()
+        for redirect_url in (False, True):
+            with self.subTest(redirect_url=redirect_url):
+                run.git(self.root, "remote", "set-url", "origin", str(remote))
+                run.git(self.root, "update-ref", "refs/remotes/origin/main", target)
+                source = ("import subprocess\n"
+                    "subprocess.run(['git','config','remote.origin.fetch',"
+                    "'+refs/heads/main:refs/remotes/origin/elsewhere'], check=True)\n"
+                    f"subprocess.run(['git','update-ref','refs/remotes/origin/main',{earlier!r}], check=True)\n")
+                if redirect_url:
+                    source += f"subprocess.run(['git','remote','set-url','origin',{str(decoy)!r}], check=True)\n"
+                result = self.proof(self.command(source))
+                self.assertEqual(result["returncode"], 0, result)
+                state = {"run_id": directory.name, "state": "running", "verdict": "PASS",
+                         "delivery_sha": head, "target": "main", "merge_method": "squash",
+                         "review": {"head_sha": head}, "waiting_on": {"line": True},
+                         "session": "seat-acme", "worktree": str(self.root), "repo": str(self.root)}
+                lp = SimpleNamespace(wt=self.root, run_dir=directory, state=state, cfg={},
+                    log=lambda *_: None, write=lambda: None)
+                with patch.object(run, "require_review_pass"), \
+                        patch.object(run, "gh_json", return_value=({"object": {"type": "commit", "sha": target}}, "")), \
+                        patch.object(run.notify, "shaped", return_value=0), \
+                        patch.object(run, "gh", return_value=(0, "")) as merge:
+                    self.assertFalse(run.do_merge(lp, "https://github.com/acme/widget/pull/1", "origin/main"))
+                merge.assert_not_called()
+                self.assertEqual(lp.state["waiting_on"], {"owner": head})
+                self.assertEqual(run.git(remote, "rev-parse", "refs/heads/main"), target)
 
     def test_a_nested_check_starts_beside_a_crowded_folder(self):
         home = self.root / "home with space"

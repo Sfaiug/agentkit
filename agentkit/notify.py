@@ -431,7 +431,7 @@ def resolved(data):
     """
     if data.get("seen"):
         return True
-    if data.get("kind") == "done":
+    if data.get("kind") == "done" or data.get("command"):
         return False
     stamps = [data.get(key) for key in ("time", "answered_at")]
     if (all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n)
@@ -454,7 +454,7 @@ def answered(session, at):
     """
     with session_lock(session) as session:
         previous = last(session)
-        if previous and previous.get("watcher") is True:
+        if previous and (previous.get("watcher") is True or previous.get("command")):
             return
         if not previous or previous["kind"] != "needs":
             card = _card_read(session)
@@ -520,7 +520,8 @@ def progress(session, capture, seat_harness):
     """
     with session_lock(session) as session:
         previous = last(session)
-        if not previous or previous.get("opened_at") is None or previous["kind"] == "done":
+        if (not previous or previous.get("opened_at") is None or previous["kind"] == "done"
+                or previous.get("command")):
             return                 # output after an open answers a question, never a done
         if (seat_harness and previous.get("watcher") is not True
                 and harness.load(seat_harness).prompt_hook is not None):
@@ -925,7 +926,7 @@ def _remember_card(event, previous=None):
     if event["kind"] == "needs" and receipt.get("message_id"):
         pending = {**receipt, "embed": event["payload"]["embeds"][0]}
         # An answer from before this episode began was to an earlier needs you, not this one.
-        answered = (current is not None and resolved(current)
+        answered = (not card.get("command") and current is not None and resolved(current)
                     and (current.get("answered_at") or math.inf) > card.get("since", 0))
         if (card.get("episode") != event.get("episode") or card.get("closed")
                 or card.get("word") != "needs you" or answered):
@@ -1047,11 +1048,12 @@ def needs_transition(session, card, answer, now, seat=None):
     # A newer notice carries the answer to the one it replaced (`shaped`).
     answered_at = max(card.get("answered_at") or 0, declared.get("earlier_answer_at") or 0,
                       (declared.get("answered_at") or 0) if resolved(declared) else 0)
-    answered_here = answered_at > card["since"]
+    answered_here = not answer.get("command") and answered_at > card["since"]
     # The seat's own question stands until he answers it: input in its seat once the card is
     # out is him looking, and a seat that asked and works on shows no question on its screen.
     asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
              and not resolved(declared))
+    asked = asked or bool(answer.get("command"))
     if ((_attached(session, card["since"], seat) and not (asked and card.get("sent")))
             or answered_here):
         if not card.get("closed") or card.get("open_needs") or answered_here:
@@ -1190,6 +1192,9 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 card["began"] = began
                 _card_write(name, card)
             if word == "needs you":
+                if card.get("command", False) != bool(answer.get("command")):
+                    card["command"] = bool(answer.get("command"))
+                    _card_write(name, card)
                 return needs_transition(name, card, answer, at, seat)
             if word == "done":
                 return done_transition(name, card, answer, at)
@@ -1307,7 +1312,7 @@ def _completion(session):
     return {"created": created, "outcomes": [list(outcome) for outcome in sorted(work | pending | covered)]}
 
 
-def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
+def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None, command=False):
     """Record the question or declaration, then evaluate the same transition latch.
 
     A done, whoever declares it, waits for every line of the seat's plan: its checks run
@@ -1349,6 +1354,8 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                 extra = {"source": event_id, "pr": pr,
                          "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:")),
                          "open_needs": previous.get("open_needs", []) if previous else []}
+                if command:
+                    extra["command"] = True
                 earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
                 if earlier:
                     # The answer ends its card's episode at the next tick; the newer notice

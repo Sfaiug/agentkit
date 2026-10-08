@@ -17,7 +17,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, owner, record as run_record, run
+from agentkit import config, notify, owner, record as run_record, run, watch
+from fixtures.sandbox import Sandbox
 
 AGENTS = """---
 owner: AGENTS.md#Vision, gate/, score.py
@@ -40,11 +41,15 @@ def sh(wt, *args):
                           text=True).stdout.strip()
 
 
-class OwnerParts(unittest.TestCase):
+class OwnerParts(Sandbox):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.home = Path(tmp.name)
+        super().setUp()
+        self.stack.enter_context(patch.dict(os.environ, {
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AK_RUN_ROLE": "",
+            "AK_NOTIFY_SINK": "off", "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1"}))
+        self.home = self.root
         self.wt = self.home / "repo"
         self.wt.mkdir()
         sh(self.wt, "init", "-q", "-b", "main")
@@ -55,16 +60,22 @@ class OwnerParts(unittest.TestCase):
         self.write("score.py", "y = 1\n")
         self.write("app.py", "z = 1\n")
         self.base = self.commit("base")
-        sh(self.wt, "update-ref", "refs/remotes/origin/main", self.base)
+        self.target(self.base)
+        sh(self.wt, "remote", "add", "origin", str(self.wt))
         sh(self.wt, "checkout", "-q", "-b", "change")
-        for name in ("STATE", "RUNS"):
-            p = patch.object(config, name, self.home / name.lower())
-            p.start()
-            self.addCleanup(p.stop)
+        self.stack.enter_context(patch.object(run, "gh_json", side_effect=self.target_api))
+
+    def target(self, sha):
+        sh(self.wt, "update-ref", "refs/heads/main", sha)
+        sh(self.wt, "update-ref", "refs/remotes/origin/main", sha)
+
+    def target_api(self, _cwd, *args, **_kw):
+        self.assertEqual(args, ("api", "repos/acme/widget/git/ref/heads/main"))
+        return {"object": {"type": "commit", "sha": sh(self.wt, "rev-parse", "refs/heads/main")}}, ""
 
     def write(self, path, text):
         (self.wt / path).parent.mkdir(parents=True, exist_ok=True)
-        (self.wt / path).write_text(text)
+        (self.wt / path).write_text(text, encoding="utf-8", errors="surrogateescape")
 
     def commit(self, message):
         sh(self.wt, "add", "-A")
@@ -99,7 +110,7 @@ class OwnerParts(unittest.TestCase):
         self.commit("tilde fence in the vision")
         self.assertEqual(self.touched(), ["AGENTS.md#Vision"])
         base2 = sh(self.wt, "rev-parse", "HEAD")
-        sh(self.wt, "update-ref", "refs/remotes/origin/main", base2)
+        self.target(base2)
         self.write("AGENTS.md", fenced.replace("- one", "- one\n- two"))
         self.commit("lessons after the fence")
         self.assertEqual(self.touched(), ["AGENTS.md#Vision"])
@@ -118,7 +129,7 @@ class OwnerParts(unittest.TestCase):
         self.write("AGENTS.md", AGENTS.replace("owner: AGENTS.md#Vision, gate/, score.py",
                                                'owner: "score.py"'))
         quoted = self.commit("quote the owner value")
-        sh(self.wt, "update-ref", "refs/remotes/origin/main", quoted)
+        self.target(quoted)
         sh(self.wt, "checkout", "-q", "-b", "change2")
         self.write("score.py", "y = 2\n")
         self.commit("score")
@@ -136,6 +147,7 @@ class OwnerParts(unittest.TestCase):
         run_dir.mkdir(parents=True)
         lp = SimpleNamespace(wt=self.wt, run_dir=run_dir, log=lambda *a: None, write=lambda: None,
                              state={"delivery_sha": head, "session": "seat-x",
+                                    "pr": "https://github.com/acme/widget/pull/1",
                                     "target": "main", "merge_method": "squash",
                                     "worktree": str(self.wt), "repo": str(self.wt)})
         run_record.save_state(run_dir, dict(lp.state, run_id="run-1", state="running"))
@@ -206,7 +218,7 @@ class OwnerParts(unittest.TestCase):
         self.write("AGENTS.md", AGENTS.replace("owner: AGENTS.md#Vision, gate/, score.py",
                                                "owner: score.py  # the scoreboard"))
         commented = self.commit("comment the owner value")
-        sh(self.wt, "update-ref", "refs/remotes/origin/main", commented)
+        self.target(commented)
         self.assertEqual(run.owner_declaration(self.wt, "origin/main"), "score.py")
         sh(self.wt, "checkout", "-q", "-b", "c1"); self.write("score.py", "y = 2\n"); self.commit("s")
         self.assertEqual(run.owner_parts(self.wt, "origin/main",
@@ -216,7 +228,7 @@ class OwnerParts(unittest.TestCase):
         self.write("AGENTS.md", AGENTS.replace("owner: AGENTS.md#Vision, gate/, score.py",
                                                "owner:\n  - score.py"))
         block = self.commit("block-form owner")
-        sh(self.wt, "update-ref", "refs/remotes/origin/main", block)
+        self.target(block)
         self.assertEqual(run.owner_target_parts(self.wt, "origin/main"),
                          [("AGENTS.md", owner.FRONT)])
 
@@ -255,7 +267,7 @@ class OwnerParts(unittest.TestCase):
         self.write("AGENTS.md", AGENTS.replace("owner: AGENTS.md#Vision, gate/, score.py",
                                                "owner: guard.txt"))
         base2 = self.commit("owner names a not-yet-present file")
-        sh(self.wt, "update-ref", "refs/remotes/origin/main", base2)
+        self.target(base2)
         sh(self.wt, "checkout", "-q", "-b", "add-guard")
         self.write("guard.txt", "owner content\n")
         head = self.commit("add the protected file")
@@ -290,7 +302,7 @@ class OwnerParts(unittest.TestCase):
         self.write("AGENTS.md", AGENTS.replace("owner: AGENTS.md#Vision, gate/, score.py",
                                                "owner: policy/rules.txt"))
         base2 = self.commit("owner names a nested file")
-        sh(self.wt, "update-ref", "refs/remotes/origin/main", base2)
+        self.target(base2)
         sh(self.wt, "checkout", "-q", "-b", "addrules")
         self.write("policy/rules.txt", "new owner rules")
         head = self.commit("add rules")
@@ -309,7 +321,7 @@ class OwnerParts(unittest.TestCase):
                     "owner: AGENTS.md#Vision, gate/, score.py", f"owner: {path}"))
                 self.write(path, "locked")
                 based = self.commit("owner names a quoted path")
-                sh(self.wt, "update-ref", "refs/remotes/origin/main", based)
+                self.target(based)
                 sh(self.wt, "checkout", "-q", "-B", "change", based)
                 self.write(path, "open")
                 head = self.commit("change the quoted path")
@@ -360,6 +372,105 @@ class OwnerParts(unittest.TestCase):
             for verb, fn in (("yes", run.cmd_yes), ("no", run.cmd_no)):
                 with self.subTest(verb=verb), self.assertRaisesRegex(config.Error, "a run cannot"):
                     fn(["run-1"])
+
+    def test_a_nul_cannot_move_part_metadata_and_reuse_an_owner_yes(self):
+        sh(self.wt, "checkout", "-q", "-B", "change", self.base)
+        self.write("AGENTS.md", "---\nowner: a.md#Vision, b.md#Vision\n---\n# acme\n")
+        self.write("a.md", "## Vision\nlocked a\n")
+        self.write("b.md", "## Vision\nlocked b\n")
+        self.target(self.commit("owner sections"))
+        marker = "\0" + repr(("b.md", "Vision", False)) + "\0" + "100644\0"
+        a, b, tail = "## Vision\nalpha\n", "## Vision\nbeta\n", "## Vision\ngamma\n"
+        self.write("a.md", a)
+        self.write("b.md", b + marker + tail)
+        approved = self.commit("reviewed owner sections")
+        lp, _ = self.parked_at(approved)
+        self.assertTrue(self.gate(lp)[0])
+        run_record.save_state(lp.run_dir, {**lp.state, "run_id": lp.run_dir.name})
+        with patch.object(run, "cmd_resume", return_value=0):
+            run.cmd_yes([lp.run_dir.name, approved[:12]])
+        parts = run.owner_target_parts(self.wt, "origin/main")
+        self.write("a.md", a + marker + b)
+        self.write("b.md", tail)
+        changed = self.commit("move delimiter and metadata between sections")
+        self.assertNotEqual(run.owner_contents(self.wt, approved, parts),
+                            run.owner_contents(self.wt, changed, parts))
+        self.assertNotEqual(run.owner_digest(self.wt, approved, parts),
+                            run.owner_digest(self.wt, changed, parts))
+        lp.state["delivery_sha"] = changed
+        self.assertTrue(self.gate(lp)[0])
+
+    def parked_at(self, head):
+        directory = config.RUNS / "run-1"
+        directory.mkdir(exist_ok=True)
+        state = {"run_id": directory.name, "delivery_sha": head, "session": "seat-x",
+                 "launched_session": "seat-x", "target": "main", "merge_method": "squash",
+                 "worktree": str(self.wt), "repo": str(self.wt), "started_at": 9990,
+                 "pr": "https://github.com/acme/widget/pull/1"}
+        lp = SimpleNamespace(wt=self.wt, run_dir=directory, state=state, cfg={},
+                             log=lambda *_: None, write=lambda: run_record.save_state(directory, state))
+        lp.write()
+        return lp, head
+
+    def test_digest_distinguishes_all_fields_and_absent_content(self):
+        cases = [("a", None, None), ("a", None, ""), ("a", "", ""),
+                 ("a\0b", "c", "d"), ("a", "b\0c", "d"),
+                 ("a", "b", "c\0d"), ("a", "b", "c\udc80d")]
+        self.assertEqual(len({owner.digest([case]) for case in cases}), len(cases))
+        self.assertNotEqual(owner.digest(cases), owner.digest(cases[::-1]))
+        self.assertNotEqual(owner.digest([]), owner.digest([("", None, None)]))
+
+    def test_invalid_utf8_names_cannot_shadow_a_protected_entry(self):
+        for protected in ("policy\ufffd.txt", os.fsdecode(b"policy\x81.txt")):
+            with self.subTest(protected=protected):
+                sh(self.wt, "checkout", "-q", "-B", "change", self.base)
+                self.write("AGENTS.md", f"---\nowner: {protected}\n---\n# acme\n")
+                self.write(protected, "locked")
+                self.write(os.fsdecode(b"policy\x80.txt"), "unchanged unowned file")
+                self.target(self.commit("byte-distinct filenames"))
+                self.write(protected, "open")
+                self.commit("change the protected file")
+                self.assertIn(protected, self.touched())
+
+    def session_answer(self, records):
+        return watch.session_state("seat-x", session={"name": "seat-x"}, records=records,
+            cfg={"models": {}, "providers": {}}, live={"state": "at_prompt"}, harness="codex",
+            auth_out={}, gh_out={}, token_out={}, waits=False, silent={})
+
+    def test_an_unrelated_prompt_or_restart_cannot_hide_owner_approval(self):
+        lp, head = self.parked()
+        lp.state["launched_session"] = "seat-x"
+        config.session_path("seat-x").write_text("{}")
+        with patch.object(notify, "transition", return_value=0):
+            self.assertTrue(run.owner_block(lp, "origin/main"))
+        lp.state["finished_at"] = 9990
+        run_record.save_state(lp.run_dir, lp.state)
+        notify.answered("seat-x", 10001)
+        self.assertIsNotNone(notify.last("seat-x"))
+        notify.opened("seat-x", lambda: "before")
+        notify.progress("seat-x", lambda: "after", None)
+        records = [(lp.run_dir, run_record.read_state(lp.run_dir))]
+        for replaced in (False, True):
+            with self.subTest(replaced=replaced), patch.object(run, "launcher_watched", return_value=True):
+                if replaced:
+                    config.notify_path("seat-x").unlink()
+                answer = self.session_answer(records)
+                self.assertTrue(answer.get("question"), answer)
+                self.assertIn(f"ak run yes {lp.run_dir.name} {head[:12]}", answer["reason"])
+        with patch.object(run, "cmd_resume", return_value=0):
+            run.cmd_yes([lp.run_dir.name, head[:12]])
+        with patch.object(run, "launcher_watched", return_value=True):
+            self.assertFalse(self.session_answer([(lp.run_dir, run_record.read_state(lp.run_dir))]).get("question"))
+
+    def test_direct_owner_test_leaves_the_callers_home_empty(self):
+        caller = self.root / "caller"
+        caller.mkdir()
+        result = subprocess.run([sys.executable, "-B", __file__,
+            "OwnerParts.test_a_second_runs_owner_question_stays_visible_after_the_first_is_answered"],
+            env={**os.environ, "HOME": str(caller), "TMPDIR": str(self.root)},
+            capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(list(caller.rglob("*")), [])
 
 
 if __name__ == "__main__":
