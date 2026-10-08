@@ -397,11 +397,31 @@ def name_lock(name):
 def record(session, kind, text, **extra):
     """Remember the last thing a session said, so the menu can show it as the session's state."""
     config.ensure_dirs()
-    # A question changes the turn's word, not the work a pending completion covers.
-    if kind == "needs" and "completion" not in extra:
+    if kind == "needs" or extra.get("quiet"):
         previous = last(session, include_seen=True) or {}
-        if previous.get("completion"):
-            extra["completion"] = previous["completion"]
+        pending = previous.get("pending_done")
+        if previous.get("kind") == "done":
+            pending = (previous if not previous.get("quiet") and not previous.get("seen")
+                       and not _carded(session, previous) else None)
+        if kind == "needs":
+            # A question changes the word, not a job's still-promised completion.
+            if "completion" not in extra and previous.get("completion"):
+                extra["completion"] = previous["completion"]
+            if pending:
+                extra.setdefault("pending_done", pending)
+        elif pending:
+            # Quiet answers refresh that declaration even across questions. Keep its
+            # failure boundary and payload, with the current question's delivery facts.
+            text = pending["text"]
+            kept = {k: v for k, v in pending.items()
+                    if k not in ("session", "kind", "text", "time", "pending_done")}
+            kept.setdefault("declared_at", pending["time"])
+            kept["open_needs"] = extra.get("open_needs", previous.get("open_needs", []))
+            earlier = extra.get("earlier_answer_at", previous.get(
+                "answered_at", previous.get("earlier_answer_at")))
+            if earlier:
+                kept["earlier_answer_at"] = earlier
+            extra = kept
     path = config.notify_path(session)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"session": session, "kind": kind, "text": text,
@@ -1368,25 +1388,15 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     # carries it there, in a field of its own: it answered only the one replaced.
                     extra["earlier_answer_at"] = earlier
                 if kind == "done":
-                    if (quiet and previous and previous["kind"] == "done"
-                            and not previous.get("quiet") and not previous.get("seen")
-                            and not _carded(name, previous)):
-                        # A quiet answer refreshes the turn's ending without withdrawing
-                        # the job's promised alert or moving its failure boundary.
-                        text = previous["text"]
-                        extra = {k: v for k, v in previous.items()
-                                 if k not in ("session", "kind", "text", "time")}
-                        extra.setdefault("declared_at", previous["time"])
-                    else:
-                        completion = _completion(name)
-                        if completion:
-                            extra["completion"] = completion
-                        extra["declared_at"] = time.time()
-                        if quiet:
-                            extra["quiet"] = True
-                        extra["runs"] = [directory.name for directory, state in menu.run_records()
-                                         if run.launched_session(state) == name and
-                                         (run.going(state) or run.unfinished(state))]
+                    completion = _completion(name)
+                    if completion:
+                        extra["completion"] = completion
+                    extra["declared_at"] = time.time()
+                    if quiet:
+                        extra["quiet"] = True
+                    extra["runs"] = [directory.name for directory, state in menu.run_records()
+                                     if run.launched_session(state) == name and
+                                     (run.going(state) or run.unfinished(state))]
                 record(name, kind, text, **extra)
                 if event_id is None:
                     watch.seat_write(name, wait=None)   # the seat's newer word ends its `ak wait`
