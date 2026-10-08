@@ -203,6 +203,38 @@ class RelayIO(unittest.TestCase):
         except BlockingIOError:
             return b''
 
+    def test_one_poll_delivers_new_input_to_the_harness(self):
+        from agentkit.pty_relay import Relay
+        outer_master, outer_slave = pty.openpty()
+        self.fds.extend((outer_master, outer_slave))
+        tty.setraw(outer_slave)
+        self.relay.close()
+        self.relay = Relay(self.master, outer_slave, outer_slave, self.seen.extend)
+        original = os.write
+        draft = b'unread owner draft'
+        for short in (False, True):
+            with self.subTest(short_writes=short):
+                interrupted = False
+
+                def write(fd, data):
+                    nonlocal interrupted
+                    if short and fd == self.master:
+                        if not interrupted:
+                            interrupted = True
+                            raise InterruptedError()
+                        data = data[:3]
+                    return original(fd, data)
+
+                os.write(outer_master, draft)
+                self.assertTrue(select.select([outer_slave], [], [], 5)[0])
+                with patch('agentkit.pty_relay.os.write', side_effect=write):
+                    self.relay.poll(0)
+                # Do not poll the relay again: a delayed wrapper must leave the
+                # draft in the harness's terminal, where the typing guard sees it.
+                self.assertTrue(select.select([self.slave], [], [], 5)[0],
+                                'input waited in the relay for a second poll')
+                self.assertEqual(self.read(self.slave), draft)
+
     def test_short_writes_and_retries_keep_both_streams_in_order(self):
         incoming = b'owner draft\x1b[<35;12;6M\x1b' * 20
         outgoing = bytes(range(256)) * 3

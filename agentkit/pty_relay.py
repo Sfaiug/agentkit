@@ -61,27 +61,10 @@ class Relay:
         if self.to_child and self.writable:
             writes.append(self.master)
         try:
-            ready, writable, _ = select.select(reads, writes, [], max(0, timeout))
+            ready, _, _ = select.select(reads, writes, [], max(0, timeout))
         except InterruptedError:
             return False
         moved = False
-        for fd, pending in ((self.stdout, self.to_owner), (self.master, self.to_child)):
-            if fd not in writable:
-                continue
-            try:
-                count = os.write(fd, pending)
-            except (BlockingIOError, InterruptedError):
-                continue
-            except OSError as exc:
-                if fd == self.master and exc.errno == errno.EIO:
-                    self.writable = False
-                    pending.clear()
-                    continue
-                raise
-            if not count:
-                raise OSError(errno.EIO, 'zero-byte terminal write')
-            del pending[:count]
-            moved = True
         for fd, pending in ((self.master, self.to_owner), (self.stdin, self.to_child)):
             if fd not in ready:
                 continue
@@ -105,6 +88,28 @@ class Relay:
             else:
                 self.input_open = False
                 self.to_child.extend(b'\x04')
+                moved = True
+        # Write new reads in this poll too: leaving a draft only in our queue
+        # hides it from terminal unread-input checks until the next poll.
+        for fd, pending in ((self.stdout, self.to_owner), (self.master, self.to_child)):
+            if fd == self.master and not self.writable:
+                continue
+            while pending:
+                try:
+                    count = os.write(fd, pending)
+                except BlockingIOError:
+                    break
+                except InterruptedError:
+                    continue
+                except OSError as exc:
+                    if fd == self.master and exc.errno == errno.EIO:
+                        self.writable = False
+                        pending.clear()
+                        break
+                    raise
+                if not count:
+                    raise OSError(errno.EIO, 'zero-byte terminal write')
+                del pending[:count]
                 moved = True
         return moved
 
