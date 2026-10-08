@@ -189,6 +189,82 @@ class CompletionNotices(Sandbox):
         self.declare('The late handback confirms the export')
         self.assertEqual(len(self.posted()), 2)
 
+    def test_a_quiet_answer_after_questions_keeps_the_pending_job_alert(self):
+        for index, (direct, archive, known) in enumerate(product((False, True), repeat=3)):
+            with self.subTest(direct=direct, archive=archive, known=known):
+                self.name = f'quiet-question-{index}'
+                self.seat(self.name, created=index + 20 if known else None)
+                self.checked('API shipped')
+                self.declare()
+                self.now += 100
+                self.checked('API shipped', 'Export shipped')
+                directory = config.RUNS / f'acme-export-{index}'
+                directory.mkdir()
+                state = {'run_id': directory.name, 'state': 'running',
+                         'launched_session': self.name, 'started_at': self.now, 'pid': 0}
+                path = directory / 'run.json'
+                path.write_text(json.dumps(state))
+                self.assertEqual(notify.shaped('done', 'The export is live',
+                    pr='https://example.test/acme/12', session=self.name), 0)
+                promised = notify.last(self.name)
+                for question in ('Which export format?', 'Which export delimiter?'):
+                    self.now += 100
+                    self.assertEqual(notify.shaped('needs', question, session=self.name), 0)
+                    self.now += 100
+                    notify.answered(self.name, self.now)
+                if archive:
+                    plan.forget(self.name)
+                self.now += 100
+                if direct:
+                    # The publication proof also covers declarations recorded without the CLI.
+                    notify.record(self.name, 'done', 'Explained the format', quiet=True,
+                        completion=notify._completion(self.name), declared_at=self.now,
+                        runs=[directory.name])
+                    self.assertEqual(notify.transition(self.name), 0)
+                else:
+                    self.assertEqual(notify.shaped('done', 'Explained the format',
+                                                  session=self.name, quiet=True), 0)
+                refreshed = notify.last(self.name)
+                for key in ('text', 'pr', 'runs', 'completion', 'declared_at'):
+                    self.assertEqual(refreshed.get(key), promised.get(key), key)
+                self.assertEqual(len(self.posted()), 1)
+                state.update(state='pass', verdict='PASS', reported=True,
+                             finished_at=self.now + 1)
+                path.write_text(json.dumps(state))
+                self.now += 100
+                self.assertEqual(notify.transition(self.name), 0)
+                self.assertEqual(len(self.posted()), 2)
+                self.assertEqual(notify._carded(self.name, notify.last(self.name))['text'],
+                                 promised['text'])
+                self.internal_turn()
+                self.assertEqual(notify.shaped('done', 'Another format answer',
+                                              session=self.name, quiet=True), 0)
+                self.assertEqual(len(self.posted()), 2)
+
+    def test_a_quiet_answer_after_a_question_cannot_revive_a_failed_job(self):
+        self.checked('Export shipped')
+        directory = config.RUNS / 'acme-export'
+        directory.mkdir()
+        state = {'run_id': directory.name, 'state': 'running', 'launched_session': self.name,
+                 'started_at': self.now, 'pid': 0}
+        path = directory / 'run.json'
+        path.write_text(json.dumps(state))
+        self.declare('The export is live')
+        promised = notify.last(self.name)
+        self.now += 100
+        self.assertEqual(notify.shaped('needs', 'Which export format?', session=self.name), 0)
+        self.now += 100
+        notify.answered(self.name, self.now)
+        # A delayed failure predates the question but invalidates the original declaration.
+        state.update(state='fail', verdict='FAIL', reported=True, handed_back=self.now,
+                     finished_at=promised['declared_at'] + 1)
+        path.write_text(json.dumps(state))
+        self.now += 100
+        self.assertEqual(notify.shaped('done', 'Explained the format',
+                                      session=self.name, quiet=True), 0)
+        self.assertIsNone(notify.last(self.name))
+        self.assertEqual(len(self.posted()), 0)
+
     def test_proof_refresh_and_reordering_do_not_create_another_completion(self):
         lines = [f'- [x] {outcome} · your eye · acme · written 2026-01-01 12:00'
                  ' · done your yes 2026-01-02 12:00' for outcome in ('API looks right', 'Export looks right')]
