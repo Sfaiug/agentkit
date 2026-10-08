@@ -11,6 +11,7 @@ import select
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -231,6 +232,11 @@ if role == "mount":
                     + ("label ::ffff:192.0.2.1/128 98\nlabel ::ffff:203.0.113.7/128 98\n"
                        if sys.argv[3] == "familygai4" else ""))
                 subprocess.run(["mount", "--bind", str(root / "gai.conf"), "/etc/gai.conf"], check=True)
+            # In one more the address is on a second interface as well, past its life there.
+            if sys.argv[3] == "familytwice":
+                subprocess.run(["ip", "link", "add", "twice", "type", "dummy"], check=True)
+                subprocess.run(["ip", "addr", "add", "2001:db8::1/128", "dev", "twice", "nodad",
+                                "preferred_lft", "0"], check=True)
             for command in (("addr", "add", first, "dev", "internet", "nodad", *past),
                             ("-6", "route", "add", "default", "dev", "internet"),
                             *([] if past else [("addr", "add", "fd42:1::1/64", "dev", "beyond", "nodad")])):
@@ -294,6 +300,20 @@ if role == "host" and sys.argv[3].startswith("stop-"):
     sys.exit(0)
 
 
+# Loopback answers and there is no way out, whatever idle devices the kernel puts in a
+# new network.
+LOOPBACK_ONLY = '''import json, socket
+def way(family, address):
+    try:
+        with socket.socket(family, socket.SOCK_DGRAM) as asked:
+            asked.connect((address, 9))
+        return True
+    except OSError:
+        return False
+print(json.dumps([way(socket.AF_INET, "127.0.0.1"), way(socket.AF_INET, "203.0.113.1"), way(socket.AF_INET6, "2001:db8:9::1")]))
+'''
+
+
 def boxed(source, overlay=False):
     out = Path(tempfile.mkdtemp(dir=root))
     with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
@@ -310,7 +330,7 @@ def boxed(source, overlay=False):
 
 
 if role == "offline":
-    assert boxed('import json, socket; print(json.dumps(socket.if_nameindex()))') == [[1, "lo"]]
+    assert boxed(LOOPBACK_ONLY) == [True, False, False]
     # The shell that brought this role here cannot carry such a name itself.
     os.environ["BASH_FUNC_acme%%"] = "() {  echo kept\n}"
     assert boxed('import json, os; print(json.dumps(os.environ.get("BASH_FUNC_acme%%")))') \
@@ -418,7 +438,7 @@ try:
                 net, here, paired = json.loads(subprocess.check_output(
                     [sys.executable, "-c", order], text=True, timeout=30))
                 first = socket.AF_INET6 if sys.argv[3] in (
-                    "family", "familyno4", "family254", "familypast4") else socket.AF_INET
+                    "family", "familyno4", "family254", "familypast4", "familytwice") else socket.AF_INET
                 assert here[0] == first and sorted(here) == [socket.AF_INET, socket.AF_INET6], here
                 if sys.argv[3] in ("family6to4", "familyteredo", "familygai", "familygai4"):
                     assert paired[0] == socket.AF_INET6, paired
@@ -429,7 +449,8 @@ try:
                     own, *there = boxed(order, overlay)
                     assert there == [here, paired], (there, here, paired)
                     assert (own == net) == (sys.argv[3] in (
-                        "familyno4", "familydeprecated", "familygaipast", "familypast4")), (own, net)
+                        "familyno4", "familydeprecated", "familygaipast", "familypast4",
+                        "familytwice")), (own, net)
         else:
             # Where this host has IPv6, the stand-in internet answers over it too, at an
             # address on its second network; its own address toward the internet is the
@@ -499,7 +520,7 @@ try:
                 (unavailable / "pasta").write_text(
                     f'#!/bin/sh\n{said}sleep 300 &\necho $! > {unavailable}/left\nexit 1\n')
                 (unavailable / "pasta").chmod(0o755)
-                assert boxed('import json, socket; print(json.dumps(socket.if_nameindex()))') == [[1, "lo"]]
+                assert boxed(LOOPBACK_ONLY) == [True, False, False]
                 left = Path("/proc", (unavailable / "left").read_text().strip(), "stat")
                 assert not left.exists() or left.read_text().rsplit(")", 1)[1].split()[0] == "Z"
         stop.set()
@@ -1014,7 +1035,7 @@ class WorkerBox(unittest.TestCase):
     def test_a_box_puts_the_families_of_a_name_in_the_order_its_host_does(self):
         for mode in ("family", "familyprivate", "familyno4", "family6to4", "familyteredo",
                      "familydeprecated", "familygai", "familygai4", "familygaipast",
-                     "familypast4", "family254"):
+                     "familypast4", "family254", "familytwice"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
 
@@ -1022,6 +1043,39 @@ class WorkerBox(unittest.TestCase):
         for mode in ("dns", "dns6", "dnsshort", "dnscrlf", "dnsnone"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
+
+    def test_a_hosts_addresses_must_be_weighed_as_a_boxs_would(self):
+        four, six = ipaddress.ip_address("192.0.2.1"), ipaddress.ip_address("2001:db8::1")
+
+        def address(local, index, flags=0x80):
+            return struct.pack("=BBBBI", 0, 64, flags, 0, index) + struct.pack(
+                "=HH", 4 + len(local.packed), 1) + local.packed
+
+        def kernel(addresses, links=((2, 1), (3, 1))):
+            # What the kernel answers: the addresses of the family asked for, or every
+            # interface with its type.
+            def answers(request, family=0):
+                if request == 18:
+                    return [struct.pack("=BBHI", 0, 0, kind, index) for index, kind in links]
+                return [entry for version, entry in addresses if (version == 4) == (family == socket.AF_INET)]
+            return patch.object(box, "_kernel", answers)
+
+        plain = [(4, address(four, 2)), (6, address(six, 2))]
+        for name, answers, alike in (
+                ("both on one interface", kernel(plain), True),
+                ("on two native interfaces", kernel([plain[0], (6, address(six, 3))]), True),
+                ("one of the two under a tunnel", kernel([plain[0], (6, address(six, 3))],
+                                                         links=((2, 768), (3, 1))), False),
+                ("both under tunnels", kernel([plain[0], (6, address(six, 3))],
+                                              links=((2, 768), (3, 776))), True),
+                ("past its preferred life", kernel([plain[0], (6, address(six, 2, 0x20))]), False),
+                ("not yet confirmed", kernel([(4, address(four, 2, 0x04)), plain[1]]), False),
+                ("on a second interface as well", kernel([*plain, (6, address(six, 3, 0x20))]), False),
+                ("unknown to the kernel", kernel([plain[0]]), False)):
+            with self.subTest(name), answers:
+                self.assertIs(box._alike({four, six}), alike)
+        with patch.object(box, "_kernel", side_effect=OSError("refused")):
+            self.assertIs(box._alike({four, six}), False)
 
     def test_only_plainly_named_resolvers_give_a_box_a_network_of_its_own(self):
         plain = (b"nameserver 192.0.2.1\n", b"nameserver 192.0.2.1", b"nameserver\t192.0.2.1\n",

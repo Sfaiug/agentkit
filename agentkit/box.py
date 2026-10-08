@@ -354,37 +354,64 @@ def _source(family):
     return None if source.is_link_local else source
 
 
-def _avoided(address):
-    """Whether libc avoids sending from this address of the host's: the kernel holds it
-    past its preferred life, not yet confirmed, or a home address. The address a box is
-    given is none of these, so libc there would weigh it otherwise; only the kernel knows,
-    and it is asked as libc asks it. True as well where it cannot be asked."""
+def _kernel(request, family=0):
+    """The kernel's answers to one question over netlink, as libc asks it: every address
+    of a family (RTM_GETADDR, 22) or every interface (RTM_GETLINK, 18), each without its
+    netlink header. OSError where it cannot be asked."""
+    with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE) as link:
+        link.send(struct.pack("=IHHIIB7x", 24, request, 0x301, 1, 0, family))
+        while True:
+            answers = link.recv(65536)
+            while answers:
+                size, kind = struct.unpack_from("=IH", answers)
+                if kind == 3:
+                    return
+                if kind == 2 or size < 16:
+                    raise OSError("netlink refused")
+                yield answers[16:size]
+                answers = answers[size + 3 & ~3:]
+
+
+def _wired(address):
+    """The interface this address of the host's is on, by its index, where libc weighs the
+    address there as it would weigh a box's; None where it would not.
+
+    Beside the address itself, libc reads the kernel's word on it: it avoids one past its
+    preferred life, not yet confirmed or a home address, and it finds that word by the
+    address alone, so with the address on two interfaces it may read either. The address
+    a box is given is fresh and on one interface."""
+    found = []
     try:
-        with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE) as link:
-            # Every address of the family (RTM_GETADDR, a dump); each answer is one address
-            # with its attributes (RTM_NEWADDR), and anything else ends the list.
-            link.send(struct.pack("=IHHIIB7x", 24, 22, 0x301, 1, 0, socket.AF_INET if
-                                  address.version == 4 else socket.AF_INET6))
-            while True:
-                answers = link.recv(65536)
-                while answers:
-                    size, kind = struct.unpack_from("=IH", answers)
-                    if kind != 20:
-                        return True
-                    flags, local, at = answers[18], None, 24
-                    while at + 4 <= size:
-                        length, attribute = struct.unpack_from("=HH", answers, at)
-                        if attribute == 2 or attribute == 1 and local is None:
-                            local = answers[at + 4:at + length]
-                        elif attribute == 8:
-                            flags = struct.unpack_from("=I", answers, at + 4)[0]
-                        at += length + 3 & ~3
-                    if local == address.packed:
-                        # Deprecated, optimistic, home address.
-                        return bool(flags & 0x34)
-                    answers = answers[size + 3 & ~3:]
+        for answer in _kernel(22, socket.AF_INET if address.version == 4 else socket.AF_INET6):
+            flags, index, local, at = answer[2], struct.unpack_from("=I", answer, 4)[0], None, 8
+            while at + 4 <= len(answer):
+                length, attribute = struct.unpack_from("=HH", answer, at)
+                if attribute == 2 or attribute == 1 and local is None:
+                    local = answer[at + 4:at + length]
+                elif attribute == 8:
+                    flags = struct.unpack_from("=I", answer, at + 4)[0]
+                at += max(length, 4) + 3 & ~3
+            if local == address.packed:
+                found.append((flags, index))
     except (OSError, struct.error):
-        return True
+        return None
+    # Deprecated, optimistic, home address.
+    return found[0][1] if len(found) == 1 and not found[0][0] & 0x34 else None
+
+
+def _alike(own):
+    """Whether libc weighs these addresses of the host's, one per family, as it would weigh
+    the same two in a box: each on one interface with nothing against it, and no tunnel
+    under one of them alone, which libc puts behind native transport where two addresses
+    are on different interfaces. A box's two are on one."""
+    wired = {_wired(address) for address in own}
+    try:
+        # ARPHRD_TUNNEL, _TUNNEL6 and _SIT: what libc takes for no native transport.
+        tunnels = {struct.unpack_from("=I", link, 4)[0] for link in _kernel(18)
+                   if struct.unpack_from("=H", link, 2)[0] in (768, 769, 776)}
+    except (OSError, struct.error):
+        return False
+    return None not in wired and not (len(wired) == 2 and len(wired & tunnels) == 1)
 
 
 def _order(entered=()):
@@ -528,17 +555,19 @@ def _network(cmd, nested=False):
     # Libc orders them by this host's ways out, the addresses it would send from and
     # gai.conf, pairing each destination with the address. So a box has a family where the
     # host has a way out in it, and its address there is the host's own: the box reads the
-    # same gai.conf, and every pairing is the host's. An address libc avoids on the host
-    # (the kernel has it past its preferred life) cannot be given as such, so that host's
-    # boxes keep its network. Last, libc itself is asked, here and then in the box's
-    # network, and the two answers must agree.
+    # same gai.conf, and every pairing is the host's. Libc reads three more things from
+    # the kernel for each address: its word on the address, the interface it is on, and
+    # whether that is a tunnel, which it puts behind a native one where the two addresses
+    # are on different interfaces. A box's two are fresh and on one interface, so a host
+    # where any of that would count keeps its boxes on its network. Last, libc itself is
+    # asked, here and then in the box's network, and the two answers must agree.
     four, six = _source(4), _source(6)
     wanted = _order()
     own = {address for address in (four, six) if address}
     # A family in which the host reaches a neighbouring network and not the internet can
     # be given to a box neither way.
-    if (routes and not four or routes6 and not six or not wanted
-            or not _plain(resolver, own) or any(map(_avoided, own))):
+    if (routes and not four or routes6 and not six or not wanted or not _plain(resolver, own)
+            or not _alike(own)):
         yield cmd
         return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
