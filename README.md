@@ -81,7 +81,7 @@ A turn can end waiting on its job while the launcher is alive and any task is un
 
 Sessions talk to each other with `ak tell <session> "<text>"`, the same way for every harness: ak types the message into that session at its next quiet prompt, or mid-turn where its harness holds a typed line for its next step, headed with who sent it. It never counts as your words and never answers your question.
 
-When a session's terminal reports unread input, ak holds further lines until those bytes are read, even if the screen shows an empty composer. Messages and notices stay queued. If the terminal cannot be checked, typing works as before. Delivery stays at least once: a crash between Enter and recording delivery can repeat a line.
+When a session's terminal reports unread input, ak holds further lines until those bytes are read, even if the screen shows an empty composer. Messages and notices stay queued, and waiting spends none of the recovery-notice retries. The check gates new lines, while the usual composer checks still decide their Enter. If the terminal cannot be checked, typing works as before. Delivery stays at least once: a crash between Enter and recording delivery can repeat a line.
 
 A run recorded in the line to land holds no process and stays working however long it waits. Status and the menu show `waiting · 3rd in line to land on main`; only the lander moves it. Its job follows it to its ending.
 

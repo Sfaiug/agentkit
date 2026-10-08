@@ -30,9 +30,14 @@ class UnreadPane(Seats):
         self.assertEqual(os.write(self.master, text), len(text))
         self.assertEqual(select.select([self.slave], [], [], 5)[0], [self.slave])
 
-    def read_input(self):
-        self.assertEqual(select.select([self.slave], [], [], 5)[0], [self.slave])
-        return os.read(self.slave, 65536)
+    def read_input(self, size=None):
+        data = b""
+        while size is None or len(data) < size:
+            self.assertEqual(select.select([self.slave], [], [], 5)[0], [self.slave])
+            data += os.read(self.slave, size - len(data) if size is not None else 65536)
+            if size is None:
+                break
+        return data
 
     def tmux(self, *args, **kwargs):
         self.assertEqual(args[args.index("-t") + 1], f"={self.seat['name']}:")
@@ -52,7 +57,7 @@ class UnreadPane(Seats):
             if "-l" in args:
                 self.typed.append(args[-1])
             return 0, ""
-        self.assertEqual(self.read_input(), text)
+        self.assertEqual(self.read_input(len(text)), text)
         return super().tmux(*args, **kwargs)
 
     def tick(self):
@@ -134,7 +139,7 @@ class UnreadPane(Seats):
                 watch.stop_nudge(self.seat, harness, self.pane, None, [], False, lambda _: None)
                 # The Enter completes this line; only a new literal line must wait for the
                 # tty to drain. No pending draft or extra receipt state is needed on recovery.
-                self.assertEqual(self.read_input(), b"continue\r")
+                self.assertEqual(self.read_input(len(b"continue\r")), b"continue\r")
                 self.frozen = False
                 self.pane = (REPO / f"tests/fixtures/{harness}-working-pane.txt").read_text()
                 for tick in range(1, 4):
@@ -142,18 +147,15 @@ class UnreadPane(Seats):
                         watch.stop_nudge(self.seat, harness, self.pane, None, [], False, lambda _: None)
                 self.assertEqual([args[-1] for args in self.keys], ["continue", "Enter"])
 
-    def test_notices_nudges_pty_senders_and_pending_enters_share_the_guard(self):
+    def test_notices_nudges_and_pty_senders_share_the_line_guard(self):
         self.put(b"unread")
         sent, typed = Mock(return_value=(0, "")), Mock()
         for legacy in (False, True):
             self.seat["legacy"] = legacy
             self.assertFalse(watch.type_at_prompt(self.seat, "Run finished.", lambda _: None))
-            self.assertFalse(watch.type_into(self.seat, "continue", lambda _: None))
-            self.assertFalse(watch._send_line(self.seat, "/compact", lambda _: None,
-                                               typed, send=sent))
-            self.assertFalse(watch.type_checked(self.seat, "continue", lambda _: None,
-                                                pending=True))
-            self.assertFalse(watch._send_enter(self.seat, lambda _: None))
+            self.assertIsNone(watch.type_into(self.seat, "continue", lambda _: None))
+            self.assertIsNone(watch._send_line(self.seat, "/compact", lambda _: None,
+                                              typed, send=sent))
         sent.assert_not_called()
         typed.assert_not_called()
         self.assertEqual(self.keys, [])

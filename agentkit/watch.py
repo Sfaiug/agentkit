@@ -510,7 +510,8 @@ def continue_turns(cfg, log, accounts=False):
 
     The mark goes on once the relaunch is back and comes off once the line has landed, so a
     send that failed -- or a tick killed in the warmup -- is tried again by the next tick,
-    MIDTURN_TRIES times in all.  Only the tick types it, and ticks never overlap, so no two
+    MIDTURN_TRIES times in all; unread-input deferrals spend none of those tries.
+    Only the tick types it, and ticks never overlap, so no two
     passes send the same line.  A mark from another boot, a seat gone again, and a seat that
     has been prompted since it came back -- by the line, or by him, finished or not -- need
     no line at all, and that is read under the send's own lock, just before each keystroke.
@@ -537,10 +538,13 @@ def continue_turns(cfg, log, accounts=False):
 
                 def taken(held):
                     return held != mark.get("name") or prompted_since(held, at)
-                if type_into(session, mark.get("line") or MIDTURN_LINE, log, taken):
+                sent = type_into(session, mark.get("line") or MIDTURN_LINE, log, taken)
+                if sent:
                     log(f"told {name} to continue the turn it was in before reopening")
                 elif taken(config.resolve_session(name)):
                     log(f"{name} was prompted or renamed since it came back: no continue line")
+                elif sent is None:
+                    continue
                 elif tries < MIDTURN_TRIES:
                     seat_write(name, midturn={**mark, "tries": tries})
                     log(f"WARN {name}: the continue line did not land; the next tick tries again")
@@ -2451,9 +2455,7 @@ def pane_unread(session):
 
 
 def _send_enter(session, log):
-    """One Enter into a seat; False while its tty holds input or the send fails."""
-    if pane_unread(session):
-        return False
+    """One Enter completing a line already begun; False where the send failed."""
     name = session["name"]
     rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", "Enter",
                             socket=orch.seat_socket(session))
@@ -2469,9 +2471,10 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
     A pty sender supplies `send(text)`; both transports share the same typing receipt.
+    None means unread input deferred this line before any receipt or key was written.
     """
     if pane_unread(session):
-        return False
+        return None
     name = session["name"]
     record = config.session_records().get(name, {})
     plugin = orch.seat_plugin(record)
@@ -2512,7 +2515,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     told the moment the text is in the composer; `pending` sends only its locked Enter.
     `ready` is asked under the guard right before each Enter, after the gap, and the first
     Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
-    never sent.
+    never sent. None means unread input deferred the line before its text went in. The tty
+    check gates new text, never the Enter completing it: withholding that Enter would leave
+    a draft the caller cannot recover, or let a retry append the same text to itself.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -2543,8 +2548,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
         if veto(held if held is not None else name):
             return False
         if not pending:
-            if not _send_line(seat, text, log, typed, source=source):
-                return False
+            sent = _send_line(seat, text, log, typed, source=source)
+            if not sent:
+                return sent
             time.sleep(KEY_GAP)
         if not _wait_ready(ready, held if held is not None else name) or not _send_enter(seat, log):
             return False
