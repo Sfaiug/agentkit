@@ -552,11 +552,13 @@ def _pidfd(info, launcher=None):
         except (OSError, StopIteration):
             return False
 
-    def stat(pid, field):
+    def vouched(pid):
+        from . import host
+        seen = host.proc_stat(pid)
         try:
-            return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[field])
-        except (OSError, IndexError, ValueError):
-            return None
+            return seen is not None and os.getpgid(seen.ppid) == launcher
+        except ProcessLookupError:
+            return False
 
     pid = named if first(named) else None
     if pid is None and launcher is not None:
@@ -565,8 +567,7 @@ def _pidfd(info, launcher=None):
         # the next one made, another box's. So the search takes only a process whose parent,
         # bwrap, is in the process group of the launcher being stopped.
         for entry in Path("/proc").iterdir():
-            if entry.name.isdigit() and first(entry.name) \
-                    and stat(stat(entry.name, 1), 2) == launcher:
+            if entry.name.isdigit() and first(entry.name) and vouched(entry.name):
                 pid = int(entry.name)
                 break
     if pid is None:
