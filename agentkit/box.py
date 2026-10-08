@@ -461,10 +461,13 @@ def _network(cmd, nested=False):
     # its IPv6 route out leaves by: for a name with both families, programs in the box then
     # prefer the family the host prefers on that route. (An IPv6 address of the box's own,
     # a private one, made each prefer IPv4, and a provider that serves an account over
-    # IPv6 turned it away.)
+    # IPv6 turned it away.) Pasta copies that one interface's routes only, so the box is
+    # given a gateway for all of IPv6: whatever the host reaches by another interface, or
+    # with no route out at all, pasta reaches for the box.
     beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet", "--ns-ifname", "tap0",
               "--address", OWN, "--netmask", "24", "--gateway", "10.0.2.2",
+              "--gateway", "fe80::1",
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
     with ExitStack() as held:
         helper = subprocess.Popen([*beside, sys.executable, "-I", "-S", "-c", HOLDER],
