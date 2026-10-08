@@ -21,6 +21,7 @@ REPO = Path(__file__).resolve().parent.parent
 HOME = Path.home() / ".agentkit"
 RUNS, WT, STATE, SECRETS, TMP, ENV, WORK = (
     HOME / n for n in ("runs", "wt", "state", "secrets", "tmp", "env", "work"))
+OWNER_YES = "owner-yes"          # the one name of the owner-yes store, under STATE; box masks it too
 
 
 # Python calls __getattr__ for config.JOBS: it follows HOME wherever a test or a checkout
@@ -1405,6 +1406,6 @@ def provider_harness(cfg, provider):
 def ensure_dirs():
     # The owner-yes store always exists, so a box can mask it read-only over an existing mount
     # point even where its parent is read-only, and no boxed check meets it absent and creates it.
-    for d in (HOME, RUNS, WT, STATE, STATE / "owner-yes", SECRETS, TMP, ENV, WORK, HOME / "jobs"):
+    for d in (HOME, RUNS, WT, STATE, STATE / OWNER_YES, SECRETS, TMP, ENV, WORK, HOME / "jobs"):
         d.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(d, 0o700)   # a dir someone else created stays 0700 too

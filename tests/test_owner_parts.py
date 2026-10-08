@@ -283,6 +283,71 @@ class OwnerParts(unittest.TestCase):
         with self.assertRaises(config.Error):
             run.owner_parts(self.wt, "origin/main", sh(self.wt, "rev-parse", "HEAD"))
 
+    def test_an_unreadable_owner_tree_stops_delivery(self):
+        # An added owner file whose parent tree object git cannot read: a failed read is not an
+        # absent entry, so delivery stops rather than dropping the guard.
+        sh(self.wt, "checkout", "-q", "-B", "main", self.base)
+        self.write("AGENTS.md", AGENTS.replace("owner: AGENTS.md#Vision, gate/, score.py",
+                                               "owner: policy/rules.txt"))
+        base2 = self.commit("owner names a nested file")
+        sh(self.wt, "update-ref", "refs/remotes/origin/main", base2)
+        sh(self.wt, "checkout", "-q", "-b", "addrules")
+        self.write("policy/rules.txt", "new owner rules")
+        head = self.commit("add rules")
+        oid = sh(self.wt, "rev-parse", head + ":policy")
+        (self.wt / ".git/objects" / oid[:2] / oid[2:]).unlink()
+        with self.assertRaises(config.Error):
+            run.owner_parts(self.wt, "origin/main", head)
+
+    def test_a_non_ascii_or_tab_owner_path_is_detected(self):
+        # Git C-quotes such names in plain ls-tree; read with -z they keep their exact bytes, so a
+        # change to a café.txt or a tab-bearing owner path is seen, not read as absent.
+        for path in ("café.txt", "policy\tfile.txt"):
+            with self.subTest(path=path):
+                sh(self.wt, "checkout", "-q", "-B", "main", self.base)
+                self.write("AGENTS.md", AGENTS.replace(
+                    "owner: AGENTS.md#Vision, gate/, score.py", f"owner: {path}"))
+                self.write(path, "locked")
+                based = self.commit("owner names a quoted path")
+                sh(self.wt, "update-ref", "refs/remotes/origin/main", based)
+                sh(self.wt, "checkout", "-q", "-B", "change", based)
+                self.write(path, "open")
+                head = self.commit("change the quoted path")
+                self.assertIn(path, run.owner_parts(self.wt, "origin/main", head)[1])
+
+    def test_a_second_runs_owner_question_stays_visible_after_the_first_is_answered(self):
+        # Two runs from one seat each wait on the owner; a session carries one notice at a time.
+        # Answering one must resurface the other, so a pending approval is never hidden.
+        from agentkit import notify
+        sh(self.wt, "checkout", "-q", "-B", "change", self.base)
+        self.write("score.py", "y = 2\n")
+        head = self.commit("score")
+        config.ensure_dirs()
+        config.session_path("seat-x").write_text("{}")
+        dirs = []
+        for name in ("run-a", "run-b"):
+            rd = config.RUNS / name
+            rd.mkdir(parents=True)
+            lp = SimpleNamespace(wt=self.wt, run_dir=rd, log=lambda *a: None,
+                                 write=lambda rd=rd: None,
+                                 state={"run_id": name, "delivery_sha": head, "session": "seat-x",
+                                        "launched_session": "seat-x", "target": "main",
+                                        "merge_method": "squash", "worktree": str(self.wt),
+                                        "repo": str(self.wt)})
+            with patch.object(run, "launch_session", return_value="seat-x"), \
+                    patch.object(notify, "transition", return_value=0):
+                self.assertTrue(run.owner_block(lp, "origin/main"))
+            run_record.save_state(rd, {**lp.state, "state": "waiting", "finished_at": 1.0,
+                                       "waiting_on": {"owner": head}})
+            dirs.append(rd)
+        self.assertIn("owner:run-b:", notify.last("seat-x")["source"])
+        with patch.object(run, "launch_session", return_value="seat-x"), \
+                patch.object(notify, "transition", return_value=0):
+            run.cmd_no(["run-b"])
+        resurfaced = notify.last("seat-x")
+        self.assertIsNotNone(resurfaced)
+        self.assertIn("owner:run-a:", resurfaced["source"])   # the first run's approval is back
+
     def test_a_declared_owner_key_is_accepted_front_matter(self):
         # rules_check reads the owner key, so a project's first owner declaration lands.
         self.assertEqual(run.unknown_front_lines(AGENTS), [])

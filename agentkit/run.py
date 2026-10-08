@@ -5263,9 +5263,6 @@ def merged_anyway(lp, url, upstream):
             and merged(lp, url, lp.state["merge_method"]))
 
 
-OWNER_YES = "owner-yes"           # under STATE: the owner's yes to a run's change to their parts
-
-
 def owner_env():
     """git with replacement objects and grafts off, so a replace ref or an info/grafts line a
     worker left in the shared repository cannot show base content or bend the merge base."""
@@ -5289,12 +5286,11 @@ def owner_declaration(wt, upstream):
     """The target's `owner:` value as written (a trailing `# comment` removed), from the
     remote-tracking ref, or None when the target has no AGENTS.md or names no owner key.
 
-    An AGENTS.md whose entry is in the tree but whose content git cannot read stops delivery
-    rather than quietly dropping the guard: its owner parts are unknown, not absent.  A read that
-    stops raises on its own."""
+    An AGENTS.md whose entry is in the tree but whose content git cannot read, or whose tree
+    cannot be read at all, stops delivery rather than quietly dropping the guard: its owner parts
+    are unknown, not absent.  A read that stops raises on its own."""
     rev = qualified(upstream)
-    present, _ = git_out(wt, "rev-parse", "--verify", "--quiet", f"{rev}:AGENTS.md", env=owner_env())
-    if present != 0:
+    if owner_entry(wt, rev, "AGENTS.md") is None:
         return None                      # the target has no AGENTS.md entry: it names no owner
     code, text = git_out(wt, "show", f"{rev}:AGENTS.md", env=owner_env())
     if code != 0:
@@ -5315,19 +5311,28 @@ def owner_target_parts(wt, upstream):
 
 
 def owner_entry(wt, rev, path):
-    """(entry mode, object id) for `path` in `rev`'s tree, or None when it is absent.
+    """(entry mode, object id) for `path` in `rev`'s tree, None when it is absent in a readable
+    tree, raising config.Error when the tree that would hold it cannot be read.
 
-    Read from the parent tree with `git ls-tree`, so the entry mode is part of the identity: a
+    Read from the parent tree with `git ls-tree -z`, so the entry mode is part of the identity (a
     file turned into a symlink, or an executable bit flipped, is a change even when the blob is
-    byte-identical.  Replacement objects and grafts are off, so a planted ref cannot make a
-    currently-named path read as absent on both revisions and slip past unseen."""
+    byte-identical) and names keep their exact bytes, since `-z` never C-quotes a non-ASCII or
+    tab-bearing name.  Replacement objects and grafts are off, so a planted ref cannot make a
+    currently-named path read as absent on both revisions.  A failed read fails closed: an
+    unreadable tree is not an absent entry, so it stops delivery rather than dropping the guard."""
     parent, _, base = path.rpartition("/")
     tree = f"{rev}:{parent}" if parent else rev
-    code, listing = git_out(wt, "ls-tree", tree, env=owner_env())
+    code, listing = git_out(wt, "ls-tree", "-z", tree, env=owner_env())
     if code != 0:
-        return None                      # the parent tree is absent, so the path is too
-    for line in listing.splitlines():
-        meta, _, name = line.partition("\t")
+        # The parent is genuinely absent (an added file in a new folder) or its tree cannot be
+        # read; only the first is an absent entry, the second stops delivery.
+        if parent and owner_entry(wt, rev, parent) is None:
+            return None
+        raise config.Error(f"the target's {path} could not be read to check the owner's parts")
+    for item in listing.split("\0"):
+        if not item:
+            continue
+        meta, _, name = item.partition("\t")
         if name == base:
             mode, _type, oid = meta.split()
             return mode, oid
@@ -5372,18 +5377,36 @@ def owner_parts(wt, upstream, sha):
 def owner_said(run_id):
     """The fingerprint the owner said yes to for that run, or None."""
     try:
-        return json.loads((config.STATE / OWNER_YES / f"{run_id}.json").read_text()).get("digest")
+        return json.loads((config.STATE / config.OWNER_YES / f"{run_id}.json").read_text()).get("digest")
     except (OSError, ValueError, AttributeError):
         return None
 
 
 def owner_say(run_id, fingerprint):
     """Keep the owner's yes to that content, where a worker's box cannot write."""
-    path = config.STATE / OWNER_YES / f"{run_id}.json"
+    path = config.STATE / config.OWNER_YES / f"{run_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}")
     tmp.write_text(json.dumps({"digest": fingerprint}) + "\n")
     os.replace(tmp, path)
+
+
+def owner_session(run_dir, state):
+    """The session owner_block asks, and owner_answered clears: the launcher, else the recorded
+    session, else the inbox.  A run with no seat asks the inbox."""
+    return launch_session(run_dir) or state.get("session") or config.inbox()
+
+
+def post_owner_question(run_dir, state, session, hit, head):
+    """Put this run's owner-approval question on `session`.  Factored so a second run still waiting
+    on the owner can be resurfaced after the first is answered, since a session carries one notice
+    at a time."""
+    run_id = run_dir.name
+    yes, no = f"ak run yes {run_id} {head[:12]}", f"ak run no {run_id}"
+    line = (f"Run {run_id} changes {', '.join(hit)}, which land only on your yes. "
+            f"Review it, then `{yes}` to land or `{no}` to keep it unmerged.")
+    with speaking_for(state):
+        notify.shaped("needs", line, session=session, event_id=f"owner:{run_id}:{head}")
 
 
 def owner_block(lp, upstream):
@@ -5404,12 +5427,8 @@ def owner_block(lp, upstream):
                     merge_failed=False, merged=False, finished_at=None)
     lp.state.pop("recovery_pending", None)
     lp.write()
-    # the owner is asked, never the seat that wrote the change; a run with no seat asks the inbox
-    session = launch_session(lp.run_dir) or lp.state.get("session") or config.inbox()
-    line = (f"Run {run_id} changes {', '.join(hit)}, which land only on your yes. "
-            f"Review it, then `{yes}` to land or `{no}` to keep it unmerged.")
-    with speaking_for(lp.state):
-        notify.shaped("needs", line, session=session, event_id=f"owner:{run_id}:{head}")
+    session = owner_session(lp.run_dir, lp.state)
+    post_owner_question(lp.run_dir, lp.state, session, hit, head)
     lp.log(f"--- merge: parked for the owner's yes; asked {session} about {', '.join(hit)}")
     return True
 
@@ -9922,15 +9941,42 @@ def owner_waiting(argv, verb):
 
 
 def owner_answered(run_dir):
-    """Retire the owner question `owner_block` raised for this run, on the session it asked, so a
-    decision the owner has made stops showing as still open.  `ak run yes`/`no` answer from the
-    CLI, outside the seat, where its prompt hook never acknowledges them."""
+    """Retire the owner question `owner_block` raised for this run, on the session it asked, then
+    resurface another run still waiting on the owner for that session, so a second pending approval
+    is never hidden behind the one just answered.  `ak run yes`/`no` answer from the CLI, outside
+    the seat, where its prompt hook never acknowledges them, and the tick never re-asks an
+    owner-parked run on its own; a session also carries one notice at a time."""
     state = run_record.read_state(run_dir) or {}
-    raw = launch_session(run_dir) or state.get("session") or config.inbox()
+    raw = owner_session(run_dir, state)
     session = config.resolve_session(raw) if raw else raw
-    notice = notify.last(session, include_seen=True) if session else None
+    if not session:
+        return
+    notice = notify.last(session, include_seen=True)
     if notice and str(notice.get("source") or "").startswith(f"owner:{run_dir.name}:"):
         watch.forget(session, resolve=False, notice=notice.get("text"))
+    for other in run_record.run_dirs():
+        if other.name == run_dir.name:
+            continue
+        said = run_record.read_state(other) or {}
+        head = (said.get("waiting_on") or {}).get("owner")
+        if said.get("state") != "waiting" or not head:
+            continue
+        other_raw = owner_session(other, said)
+        if (config.resolve_session(other_raw) if other_raw else None) != session:
+            continue
+        wt = next((p for p in (said.get("worktree"), said.get("repo")) if p and Path(p).is_dir()),
+                  None)
+        target = said.get("target") or said.get("base")
+        if not (wt and target):
+            continue
+        upstream = target if target.startswith("origin/") else f"origin/{target}"
+        try:
+            _, hit = owner_parts(Path(wt), upstream, head)
+        except config.Error:
+            continue
+        if hit:
+            post_owner_question(other, said, session, hit, head)
+            break
 
 
 def cmd_yes(argv):
