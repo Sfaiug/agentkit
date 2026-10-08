@@ -358,16 +358,41 @@ def _loopback(name):
 
 
 def _seen(path, shown, hidden):
-    """Where on this host the file is that the box will find at `path`, or None where the
-    box is shown none: a path the box masks, nothing; under a place the box mounts, what
-    `_bind` shows there, the deepest place winning as it does among the mounts (a copy of
-    the box's own, or the host's directory again); elsewhere the path itself."""
-    if path in hidden or any(up in hidden for up in path.parents):
+    """What the regular file holds that the box will find at `path`, or None where it is
+    shown none: a path the box masks or its own /dev and /proc, nothing; under a place the
+    box mounts, what `_bind` shows there, the deepest place winning as it does among the
+    mounts (a copy of the box's own, or the host's directory again); elsewhere the path
+    itself.
+
+    It is opened through plain directories only, one name at a time: a link on the way,
+    copied into the box's own /run or put there since, is never followed, so nothing is
+    read that the names do not lead to themselves."""
+    if any(up in hidden or up in (Path("/dev"), Path("/proc")) for up in (path, *path.parents)):
         return None
-    for place in (path, *path.parents):
-        if place in shown:
-            return shown[place] / path.relative_to(place)
-    return path
+    place = next((up for up in (path, *path.parents) if up in shown), None)
+    if place is None or shown[place] == place:
+        root, names = "/", path.parts[1:]
+    else:
+        root, names = shown[place], path.relative_to(place).parts
+    if not names:
+        return None
+    try:
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for name in names[:-1]:
+                step = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(fd)
+                fd = step
+            # Never a wait on something else that lies there.
+            last = os.open(names[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        finally:
+            os.close(fd)
+        with os.fdopen(last, errors="surrogateescape") as readable:
+            if stat.S_ISREG(os.fstat(last).st_mode):
+                return readable.read()
+    except OSError:
+        pass
+    return None
 
 
 def _alive(fd):
@@ -383,14 +408,20 @@ def _spaces(helper):
     """Descriptors for the user and network namespaces of the holder pasta started, once
     it says it runs there; None where pasta did not get that far."""
     from . import host
-    # A pasta that fails may leave a process holding this pipe open: its own end says so too.
-    ended = os.pidfd_open(helper.pid)
+    # A pasta that fails may leave a process holding this pipe open, after part of a line
+    # or none: the whole read ends with its deadline, or with the helper's own end.
+    said, deadline, ended = b"", time.monotonic() + 10, os.pidfd_open(helper.pid)
     try:
-        ready = select.select([helper.stdout, ended], [], [], 10)[0]
+        while said != b"ready\n":
+            left = max(0, deadline - time.monotonic())
+            if helper.stdout not in select.select([helper.stdout, ended], [], [], left)[0]:
+                return None
+            more = os.read(helper.stdout.fileno(), 64)
+            said += more
+            if not more or not b"ready\n".startswith(said):
+                return None
     finally:
         os.close(ended)
-    if helper.stdout not in ready or helper.stdout.readline() != b"ready\n":
-        return None
     opened = []
     try:
         # The helper is this process's own child, unreaped, so its number is its own. Pasta
@@ -418,9 +449,9 @@ def _spaces(helper):
 
 
 @contextmanager
-def _network(cmd, out_dir=None, nested=False, hidden=(), shown=None):
-    """The launch with a network of its own; `hidden` are the paths the box masks and
-    `shown` what `_bind` shows at each place it mounts.
+def _network(cmd, scratch=None, nested=False, hidden=(), shown=None):
+    """The launch with a network of its own; `scratch` is the box's own directory, `hidden`
+    the paths it masks and `shown` what `_bind` shows at each place it mounts.
 
     Pasta runs beside the box, never in front of it. A helper this context owns makes the
     network namespace and keeps a holder in it; `nsenter` puts bwrap into the holder's
@@ -451,22 +482,9 @@ def _network(cmd, out_dir=None, nested=False, hidden=(), shown=None):
               "--address", "fd00::15", "--gateway", "fe80::1",
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
     # The resolver is read as the box will find it, so a rewritten one shows the box nothing
-    # it was not given: what the box hides or leaves out of its own /run stays out. Where
-    # that is the host's own file, a rewritten copy is bound over it; where it is the box's
-    # own copy, that copy is rewritten.
-    target = Path("/etc/resolv.conf").resolve()
-    seen = _seen(target, shown or {}, hidden)
-    content = ""
-    try:
-        if seen is not None:
-            # Only a regular file lying there itself: never one a link there leads to, and
-            # never a wait on anything else that lies there.
-            with os.fdopen(os.open(seen, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK),
-                           errors="surrogateescape") as readable:
-                if stat.S_ISREG(os.fstat(readable.fileno()).st_mode):
-                    content = readable.read()
-    except OSError:
-        pass
+    # it was not given: what the box hides or leaves out of its own /run stays out.
+    target = Path(os.path.realpath("/etc/resolv.conf"))
+    content = _seen(target, shown or {}, hidden) or ""
     hosts, forwarder = {}, {4: "10.0.2.3", 6: "fd00::3"}
 
     def forward(match):
@@ -506,19 +524,15 @@ def _network(cmd, out_dir=None, nested=False, hidden=(), shown=None):
         own = f"/proc/{os.getpid()}/fd"
         launch = [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
                   "--preserve-credentials", *cmd]
-        if hosts and seen == target and out_dir is not None:
-            # A launch with no out dir, the preflight's, writes nothing anywhere, as ever,
-            # and needs no names.
-            dns = held.enter_context(tempfile.NamedTemporaryFile(
-                mode="w", errors="surrogateescape", prefix=".box-dns-", dir=out_dir))
-            dns.write(content)
-            dns.flush()
-            launch.extend(["--ro-bind", dns.name, str(target)])
-        elif hosts and seen != target:
-            # The box's own copy is rewritten where it lies.
-            with os.fdopen(os.open(seen, os.O_WRONLY | os.O_NOFOLLOW | os.O_TRUNC), "w",
-                           errors="surrogateescape") as written:
+        if hosts and scratch is not None:
+            # The rewritten resolver is a file of its own, bound over the one the box would
+            # find: nothing that was there is written to. It goes with the box's scratch.
+            # A launch without one, the preflight's, writes nothing anywhere, as ever, and
+            # needs no names.
+            fd, dns = tempfile.mkstemp(prefix="dns-", dir=scratch)
+            with os.fdopen(fd, "w", errors="surrogateescape") as written:
                 written.write(content)
+            launch.extend(["--ro-bind", dns, str(target)])
         yield launch
 
 
@@ -631,7 +645,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             cmd[at:at], shown = _bind(
                 _own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            with _network(cmd, out_dir, nested, targets, shown) as launch:
+            with _network(cmd, scratch, nested, targets, shown) as launch:
                 yield [*launch, "--info-fd", str(write), "--", *argv], clean, {
                     "pass_fds": (write,), "stop": stop}
         finally:

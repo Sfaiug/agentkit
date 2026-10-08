@@ -352,9 +352,9 @@ try:
                 assert boxed('import json, socket; print(json.dumps(socket.gethostbyname("fixture")))',
                              places=("/run/acme",)) == "203.0.113.7"
                 # In /run the box keeps a copy of its own, which leaves a hidden credential
-                # out under every name it has. The resolver is rewritten in that copy, so
-                # one the copy left out is not brought back: not even when the credential
-                # is replaced once the copy is made.
+                # out under every name it has. The resolver is read from that copy, so one
+                # the copy left out is not brought back: not even when the credential is
+                # replaced once the copy is made.
                 from unittest.mock import patch
                 os.link("/run/acme/resolver", "/run/acme/key")
                 (root / ".ssh").mkdir()
@@ -370,6 +370,26 @@ try:
                 there = 'import json, os; print(json.dumps(os.path.exists("/etc/resolv.conf")))'
                 with patch.object(box, "_own", replaced):
                     assert boxed(there) is False
+                # A link in /run that led to a directory of the host's when the box made
+                # its copy, and is a directory itself by the time the resolver is read:
+                # what the copied link leads to is left as it was.
+                (root / ".ssh/id_acme").unlink()
+                settings = root / "settings"
+                settings.mkdir()
+                given = Path("/run/acme/resolver").read_text()
+                (settings / "resolver").write_text(given)
+                os.rename("/run/acme", "/run/kept")
+                os.symlink(settings, "/run/acme")
+
+                def relinked(*args, **kwargs):
+                    own = made(*args, **kwargs)
+                    os.unlink("/run/acme")
+                    os.rename("/run/kept", "/run/acme")
+                    return own
+
+                with patch.object(box, "_own", relinked):
+                    assert boxed('import json; print(json.dumps("ran"))') == "ran"
+                assert (settings / "resolver").read_text() == given
         else:
             for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
                                     (socket.AF_INET, ("127.0.0.1", None)),
@@ -421,15 +441,17 @@ try:
             assert json.loads(result.stdout) == "ok"
             unavailable = root / "unavailable"
             unavailable.mkdir()
-            # A pasta that fails has already made a process for its command, and leaves it:
-            # the box starts with loopback only, at once, and that process is ended.
-            (unavailable / "pasta").write_text(
-                f'#!/bin/sh\nsleep 300 &\necho $! > {unavailable}/left\nexit 1\n')
-            (unavailable / "pasta").chmod(0o755)
+            # A pasta that fails has already made a process for its command, and leaves it,
+            # with nothing said or with part of the holder's line: the box starts with
+            # loopback only, at once, and that process is ended.
             os.environ["PATH"] = str(unavailable) + os.pathsep + os.environ["PATH"]
-            assert boxed('import json, socket; print(json.dumps(socket.if_nameindex()))') == [[1, "lo"]]
-            left = Path("/proc", (unavailable / "left").read_text().strip(), "stat")
-            assert not left.exists() or left.read_text().rsplit(")", 1)[1].split()[0] == "Z"
+            for said in ("", "printf rea\n"):
+                (unavailable / "pasta").write_text(
+                    f'#!/bin/sh\n{said}sleep 300 &\necho $! > {unavailable}/left\nexit 1\n')
+                (unavailable / "pasta").chmod(0o755)
+                assert boxed('import json, socket; print(json.dumps(socket.if_nameindex()))') == [[1, "lo"]]
+                left = Path("/proc", (unavailable / "left").read_text().strip(), "stat")
+                assert not left.exists() or left.read_text().rsplit(")", 1)[1].split()[0] == "Z"
         stop.set()
         for thread in threads:
             thread.join()
