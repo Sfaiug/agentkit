@@ -990,21 +990,43 @@ def tmux_literal(word):
     return word[:-1] + "\\;" if word.endswith(";") else word
 
 
+def tmux_file(words, socket=None):
+    """Run that command list from a file, which tmux reads past the 16 KiB its message stops at.
+    Each word is written in quotes, where nothing but a quote is read as anything else, so tmux
+    takes it as whole as it does a call's (`tmux_literal`)."""
+    def quoted(word):
+        whole = word[:-2] + ";" if word.endswith("\\;") else word
+        return "'" + whole.replace("'", "'\\''") + "'"
+
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".tmux") as file:
+        file.write(" ; ".join(" ".join(map(quoted, command))
+                              for command in guard.commands(words)) + "\n")
+        file.flush()
+        return tmux_out("source-file", file.name, socket=socket)
+
+
 def tmux_lists(lists, socket=None):
     """Run those command lists in as few tmux calls as its message takes: one, unless they are
-    long.  tmux stops a call at the first command that fails, so the lists sent with one that
-    did are then run one by one: each sets what it can, as when each had a call of its own.  The
-    answer is (0, "") when every list ran, else the first failure's."""
+    long, and a list longer than a message by itself from a file (`tmux_file`).  tmux stops a
+    call at the first command that fails, so the lists sent with one that did are then run one
+    by one: each sets what it can, as when each had a call of its own.  The answer is (0, "")
+    when every list ran, else the first failure's."""
+    def size(sent):
+        return sum(len(word.encode()) + 1 for words in sent for word in (";", *words))
+
     calls, failed = [], (0, "")
     for words in lists:
-        if not calls or sum(len(word.encode()) + 1 for sent in (*calls[-1], words)
-                            for word in (";", *sent)) > TMUX_MESSAGE:
+        if not calls or size((*calls[-1], words)) > TMUX_MESSAGE:
             calls.append([])
         calls[-1].append(words)
     for sent in calls:
-        answers = [tmux_out(*[word for words in sent for word in (";", *words)][1:], socket=socket)]
-        if answers[0][0] != 0 and len(sent) > 1:
-            answers = [tmux_out(*words, socket=socket) for words in sent]
+        if size(sent) > TMUX_MESSAGE:
+            answers = [tmux_file(sent[0], socket)]
+        else:
+            answers = [tmux_out(*[word for words in sent for word in (";", *words)][1:],
+                                socket=socket)]
+            if answers[0][0] != 0 and len(sent) > 1:
+                answers = [tmux_out(*words, socket=socket) for words in sent]
         failed = next((answer for answer in (failed, *answers) if answer[0] != 0), failed)
     return failed
 
