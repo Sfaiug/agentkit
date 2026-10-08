@@ -9,6 +9,7 @@ its own in this test's HOME.
 import os
 import shutil
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -29,11 +30,13 @@ class LongerThanAMessage(Sandbox):
         self.argv = ["tmux", "-S", "agentkit-test"]
         self.addCleanup(subprocess.run, [*self.argv, "kill-server"], env=self.env,
                         cwd=self.sockets, capture_output=True)
+        self.calls = []
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.assertEqual(self.tmux("-f", "/dev/null", "new-session", "-d", "-s", "acme",
                                    "sleep 600")[0], 0)
 
     def tmux(self, *args, **_kw):
+        self.calls.append(args[0])
         done = subprocess.run([*self.argv, *args], env=self.env, cwd=self.sockets,
                               capture_output=True, text=True, timeout=10)
         return done.returncode, (done.stdout + done.stderr).rstrip("\n")
@@ -52,6 +55,28 @@ class LongerThanAMessage(Sandbox):
         self.assertGreater(len(question.encode()), 16 * 1024)
         statusbar._write("acme", "opus", word="needs you",
                          lasts=[question] * len(statusbar.BARS))
+        for version in statusbar.WHYS:
+            self.assertEqual(self.option(version), "  " + orch.tmux_text(question), version)
+
+    def test_a_question_a_call_carries_goes_in_a_call_as_before(self):
+        # longer than what several lists are packed into, shorter than tmux's own limit
+        question = "May I merge acme's fix? " + "The context of the question. " * 540
+        self.assertGreater(len(question.encode()), orch.TMUX_MESSAGE)
+        statusbar._write("acme", "opus", word="needs you",
+                         lasts=[question] * len(statusbar.BARS))
+        for version in statusbar.WHYS:
+            self.assertEqual(self.option(version), "  " + orch.tmux_text(question), version)
+        self.assertNotIn("source-file", self.calls)
+
+    def test_a_temporary_directory_named_like_a_pattern_is_no_obstacle(self):
+        # tmux reads a file's path as a pattern
+        kept = self.root / "[scratch] *? \\ here"
+        kept.mkdir()
+        question = "May I merge acme's fix? " + "The context of the question. " * 700
+        with patch.object(tempfile, "tempdir", str(kept)):
+            statusbar._write("acme", "opus", word="needs you",
+                             lasts=[question] * len(statusbar.BARS))
+        self.assertIn("source-file", self.calls)
         for version in statusbar.WHYS:
             self.assertEqual(self.option(version), "  " + orch.tmux_text(question), version)
 

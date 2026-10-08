@@ -1000,15 +1000,17 @@ def tmux_file(words, socket=None):
                      for word in command)
             for command in guard.commands(words)) + "\n")
         file.flush()
-        return tmux_out("source-file", file.name, socket=socket)
+        # tmux reads the path as a pattern: escaped, it names this file wherever it is kept
+        return tmux_out("source-file", re.sub(r"([*?\[\\])", r"\\\1", file.name),
+                        socket=socket)
 
 
 def tmux_lists(lists, socket=None):
     """Run those command lists in as few tmux calls as its message takes: one, unless they are
-    long, and a list longer than a message by itself from a file (`tmux_file`).  tmux stops a
-    call at the first command that fails, so the lists sent with one that did are then run one
-    by one: each sets what it can, as when each had a call of its own.  The answer is (0, "")
-    when every list ran, else the first failure's."""
+    long.  tmux stops a call at the first command that fails, so the lists sent with one that
+    did are then run one by one: each sets what it can, as when each had a call of its own.  A
+    list tmux refuses by itself that is longer than a message is run from a file (`tmux_file`).
+    The answer is (0, "") when every list ran, else the first failure's."""
     def size(sent):
         return sum(len(word.encode()) + 1 for words in sent for word in (";", *words))
 
@@ -1018,13 +1020,11 @@ def tmux_lists(lists, socket=None):
             calls.append([])
         calls[-1].append(words)
     for sent in calls:
-        if size(sent) > TMUX_MESSAGE:
+        answers = [tmux_out(*[word for words in sent for word in (";", *words)][1:], socket=socket)]
+        if answers[0][0] != 0 and len(sent) > 1:
+            answers = [tmux_out(*words, socket=socket) for words in sent]
+        elif answers[0][0] != 0 and size(sent) > TMUX_MESSAGE:
             answers = [tmux_file(sent[0], socket)]
-        else:
-            answers = [tmux_out(*[word for words in sent for word in (";", *words)][1:],
-                                socket=socket)]
-            if answers[0][0] != 0 and len(sent) > 1:
-                answers = [tmux_out(*words, socket=socket) for words in sent]
         failed = next((answer for answer in (failed, *answers) if answer[0] != 0), failed)
     return failed
 
