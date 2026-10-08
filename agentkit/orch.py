@@ -232,17 +232,19 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     The seat's rulebook is written before the adapter is asked, in this process, and named to
     it in $AGENTKIT_RULEBOOK: the adapter takes that file, where running `tools/rulebook.py` for
     it started a second Python with all of agentkit to import on every launch.  `rulebook` is
-    that file where the caller wrote it for more than one asking.
+    that file where the caller wrote it for more than one asking.  What the harness checks
+    before a launch is checked here too (its plugin's `checked`), and the adapter told so.
     """
     entry = config.model(cfg, name)
     adapter = config.adapter(entry["harness"])
     rulebook = rulebook or write_rulebook(os.environ.get(config.SESSION_ENV, ""))
+    told = {**config.account_env(account), config.RULEBOOK_ENV: str(rulebook)}
+    told.update(harness_plugin(entry["harness"]).checked(told[config.ACCOUNT_ENV]))
     proc = subprocess.run([str(adapter), "interactive", entry["model"], entry["effort"],
                            *([conversation] if conversation else []),
                            *(["new"] if conversation and fresh else [])],
                           capture_output=True, encoding="utf-8", errors="replace",
-                          env={**os.environ, **config.account_env(account),
-                               config.RULEBOOK_ENV: str(rulebook)})
+                          env={**os.environ, **told})
     if fresh and proc.returncode == CANNOT_PIN:
         return None
     line = proc.stdout.strip()

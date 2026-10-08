@@ -326,6 +326,13 @@ class Harness:
         from .. import worker
         return worker.auth_ok(self.name, seat=True, account=account)
 
+    def checked(self, account):
+        """What a launch on that login checks before its adapter is asked, refusing it with a
+        `config.Error`; the env pairs that tell the adapter it is done, so the adapter starts
+        nothing to do it again.  By default nothing."""
+        hook = self._hook("checked")
+        return hook(account) if hook else {}
+
     def conversation(self, record, cwd=None):
         """The conversation this seat owns: by default the one its record was launched with."""
         hook = self._hook("conversation")
