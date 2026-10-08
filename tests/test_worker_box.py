@@ -2,6 +2,7 @@
 
 from contextlib import ExitStack
 import fcntl
+import ipaddress
 import json
 import os
 import re
@@ -198,6 +199,16 @@ if role == "mount":
         subprocess.run(["ip", "addr", "add", "192.0.2.1/24", "dev", "internet"], check=True)
         subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
         subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
+        if Path("/proc/sys/net/ipv6").exists():
+            # The stand-in internet has IPv6 as well, with an address of the global kind
+            # or, in one case, of the private kind, and a network beyond its first one.
+            first = "fd42::1/64" if sys.argv[3] == "familyprivate" else "2001:db8::1/64"
+            for command in (("addr", "add", first, "dev", "internet", "nodad"),
+                            ("-6", "route", "add", "default", "dev", "internet"),
+                            ("link", "add", "beyond", "type", "dummy"),
+                            ("addr", "add", "fd42:1::1/64", "dev", "beyond", "nodad"),
+                            ("link", "set", "beyond", "up")):
+                subprocess.run(["ip", *command], check=True)
     Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
     # The fixture's own resolver, so the host's decides nothing here: one on the stand-in
     # internet, or for the resolver cases one that only this namespace's own network
@@ -212,15 +223,33 @@ if role == "mount":
     # The package's AppArmor profile uses an unconfined exec transition, forbidden
     # by an enclosing box's no_new_privs. This private copy tests pasta itself.
     bindir = root / "bin"
-    bindir.mkdir()
+    (bindir / "real").mkdir(parents=True)
     pasta = Path(shutil.which("pasta"))
     for binary in (pasta, pasta.with_name("pasta.avx2")):
         if binary.exists():
-            shutil.copyfile(binary, bindir / binary.name)
-            (bindir / binary.name).chmod(0o755)
+            shutil.copyfile(binary, bindir / "real" / binary.name)
+            (bindir / "real" / binary.name).chmod(0o755)
+    # That profile also lets pasta start no program outside /bin and /usr/bin. The copy
+    # keeps the rule, and ak runs here under a Python outside both, as from /usr/local/bin
+    # or a virtual environment.
+    (bindir / "pasta").write_text('''#!/bin/sh
+for word in "$@"; do
+    case "$word" in
+    /bin/*|/usr/bin/*) ;;
+    /*) if [ -f "$word" ] && [ -x "$word" ]; then
+            echo "Failed to start command or shell: Permission denied" >&2
+            exit 1
+        fi ;;
+    esac
+done
+exec "$(dirname "$0")/real/pasta" "$@"
+''')
+    (bindir / "pasta").chmod(0o755)
     os.environ["PATH"] = str(bindir) + os.pathsep + os.environ["PATH"]
+    (root / "venv").mkdir()
+    (root / "venv/python3").symlink_to(sys.executable)
     os.execvp("setpriv", ["setpriv", "--inh-caps=-all", "--ambient-caps=-all",
-                         sys.executable, __file__, str(root), "host", *sys.argv[3:]])
+                         str(root / "venv/python3"), __file__, str(root), "host", *sys.argv[3:]])
 sys.path.insert(0, os.environ["BOX_REPO"])
 from agentkit import box
 sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
@@ -278,11 +307,16 @@ def serve(server, stop, dns=False):
                     size = query[at]
                     labels.append(query[at + 1:at + 1 + size].decode())
                     at += size + 1
+                # The name has an address in each family: asked for one, that one is given.
+                kind = struct.unpack("!H", query[at + 1:at + 3])[0]
+                given = {1: socket.inet_aton("203.0.113.7"),
+                         28: socket.inet_pton(socket.AF_INET6, "2001:db8:9::9")}.get(kind)
                 found = ".".join(labels) == "fixture.acme.test"
-                answer = b"\xc0\x0c" + struct.pack("!HHIH", 1, 1, 60, 4) + socket.inet_aton("203.0.113.7")
+                answer = b"" if given is None or not found else (
+                    b"\xc0\x0c" + struct.pack("!HHIH", kind, 1, 60, len(given)) + given)
                 server.sendto(query[:2] + struct.pack("!HHHHH", 0x8180 if found else 0x8183,
-                                                    1, int(found), 0, 0)
-                              + query[12:] + (answer if found else b""), peer)
+                                                    1, int(bool(answer)), 0, 0)
+                              + query[12:] + answer, peer)
             else:
                 client, _ = server.accept()
                 with client:
@@ -309,6 +343,8 @@ seen = [reaches(socket.AF_INET, (host, int(os.environ["PORT"])))
         for host in ("192.0.2.1", "127.0.0.1", "10.0.2.2")]
 seen.append(reaches(socket.AF_UNIX, "\0acme"))
 seen.append(reaches(socket.AF_INET6, ("::1", int(os.environ["PORT"]))))
+for host in filter(None, os.environ["IPV6"].split()):
+    seen.append(reaches(socket.AF_INET6, (host, int(os.environ["PORT"]))))
 print(json.dumps(seen))
 '''
 stop, threads = threading.Event(), []
@@ -331,11 +367,32 @@ try:
             for overlay in (False, True):
                 assert boxed('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
                              'socket.gethostbyname("fixture")]))', overlay) == [here, "203.0.113.7"]
+        elif sys.argv[3].startswith("family"):
+            if Path("/proc/sys/net/ipv6").exists():
+                server = stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+                server.bind(("192.0.2.1", 53))
+                thread = threading.Thread(target=serve, args=(server, stop, True))
+                thread.start()
+                threads.append(thread)
+                # A name with an address in each family. This host puts first the family
+                # its own address matches in kind, and a box puts them in the same order.
+                order = ('import json, socket; print(json.dumps([found[0] for found in '
+                         'socket.getaddrinfo("fixture.acme.test", 80, type=socket.SOCK_STREAM)]))')
+                here = json.loads(subprocess.check_output([sys.executable, "-c", order], text=True, timeout=30))
+                first = socket.AF_INET if sys.argv[3] == "familyprivate" else socket.AF_INET6
+                assert here[0] == first and sorted(here) == [socket.AF_INET, socket.AF_INET6], here
+                for overlay in (False, True):
+                    assert boxed(order, overlay) == here, here
         else:
+            # Where this host has IPv6, the stand-in internet answers over it too: at its own
+            # address, which stays the host's, and at one on its second network.
+            ipv6 = ["2001:db8::1", "fd42:1::1"] if Path("/proc/sys/net/ipv6").exists() else []
+            os.environ["IPV6"] = " ".join(ipv6)
             for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
                                     (socket.AF_INET, ("127.0.0.1", None)),
                                     (socket.AF_INET6, ("::1", None)),
-                                    (socket.AF_UNIX, "\0acme")):
+                                    (socket.AF_UNIX, "\0acme"),
+                                    *((socket.AF_INET6, (host, None)) for host in ipv6)):
                 server = stack.enter_context(socket.socket(family))
                 if family in (socket.AF_INET, socket.AF_INET6):
                     server.bind((address[0], address[1] if address[1] is not None else port))
@@ -350,10 +407,10 @@ try:
             os.environ["IDENTITY"] = json.dumps([os.getuid(), os.getgid()])
             seen = json.loads(subprocess.check_output([sys.executable, "-c", probe],
                                                      cwd=root, text=True, timeout=10))
-            assert seen == [True, True, False, True, True], seen
+            assert seen == [True, True, False, True, True, *[True for _ in ipv6]], seen
             for overlay in (False, True):
                 seen = boxed(probe, overlay)
-                assert seen == [True, False, False, False, False], seen
+                assert seen == [True, False, False, False, False, *[True for _ in ipv6]], seen
                 assert (root / "written").stat().st_uid == os.getuid()
                 assert (root / "written").stat().st_gid == os.getgid()
             # The command's variables arrive whole, one a shell cannot name among them.
@@ -902,6 +959,11 @@ class WorkerBox(unittest.TestCase):
     def test_a_box_reaches_no_host_port(self):
         self.network_fixture("ports")
 
+    def test_a_box_puts_the_families_of_a_name_in_the_order_its_host_does(self):
+        for mode in ("family", "familyprivate"):
+            with self.subTest(mode=mode):
+                self.network_fixture(mode)
+
     def test_a_box_keeps_the_hosts_network_where_resolv_conf_is_not_plain(self):
         for mode in ("dns", "dns6", "dnsshort", "dnscrlf", "dnsnone"):
             with self.subTest(mode=mode):
@@ -916,15 +978,20 @@ class WorkerBox(unittest.TestCase):
         other = (b"", b"search acme.test\n", b"nameserver 127.0.0.53\n", b"nameserver ::1\n",
                  b"nameserver 0.0.0.0\n", b"nameserver ::\n", b"nameserver fe80::1\n",
                  b"nameserver ::ffff:192.0.2.1\n", b"nameserver 224.0.0.251\n",
-                 b"nameserver 10.0.2.15\n", b"nameserver fd00::15\n",
+                 b"nameserver 10.0.2.15\n",
                  b"nameserver 192.0.2.1\nnameserver 127.0.0.1\n",
                  b"nameserver 127.53\n", b"nameserver 192.0.2.01\n", b"nameserver fe80::1%eth0\n",
                  b"nameserver 192.0.2.1\r\n", b" nameserver 192.0.2.1\n", b"nameserver 192.0.2.1;\n",
                  b"nameserver #192.0.2.1\n", b"nameserver 192.0.2.1 # acme\n",
                  b"nameserver 192.0.2.1\x00\n", b"nameserver \xff\xfe\n")
-        for resolver, own in (*((text, True) for text in plain), *((text, False) for text in other)):
-            with self.subTest(resolver=resolver):
-                self.assertIs(box._plain(resolver), own)
+        # The box's own addresses there: its IPv4 one, and its IPv6 one of either kind.
+        for family in (box.GLOBAL, box.PRIVATE):
+            own = set(map(ipaddress.ip_address, (box.OWN, family)))
+            for resolver, is_plain in (*((text, True) for text in plain),
+                                       *((text, False) for text in other),
+                                       (f"nameserver {family}\n".encode(), False)):
+                with self.subTest(family=family, resolver=resolver):
+                    self.assertIs(box._plain(resolver, own), is_plain)
 
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in

@@ -15,6 +15,7 @@ import select
 import shlex
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -34,10 +35,14 @@ OVERLAY_REMEDY = ("install bubblewrap with --tmp-overlay support and use a kerne
 # under a running launcher, when a probe checks out another revision of ak's own checkout.
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 # What pasta keeps running in the box's network namespace: it says when it is there, which is
-# when pasta has set the namespace up, and lives while its stdin, held by ak, stays open.
-HOLDER = "import sys\nprint('ready', flush=True)\nsys.stdin.read()\n"
-# The box's own addresses in the network pasta gives it.
-OWN = ("10.0.2.15", "fd00::15")
+# when pasta has set the namespace up, and lives while its stdin, held by ak, stays open. The
+# shell in /bin, because the packaged pasta may start no program outside /bin and /usr/bin
+# (its AppArmor profile), and the Python ak runs under is often one.
+HOLDER = ("/bin/sh", "-c", "echo ready; read _")
+# The box's own addresses in the network pasta gives it: one for IPv4, and for IPv6 one of
+# the global kind or one of the private kind. Each is nobody's: the second lies in the
+# prefix kept for discarding, so nothing of the host's becomes the box's.
+OWN, GLOBAL, PRIVATE = "10.0.2.15", "100::15", "fd00::15"
 
 
 def _contents(root):
@@ -335,9 +340,29 @@ def _bind(own, writable, homes=()):
     return args
 
 
-def _plain(resolver):
+def _family():
+    """The box's IPv6 address: of the kind this host reaches the internet from.
+
+    For a name with both families, a program puts first the one whose address it would
+    send from matches the destination in kind: from a global IPv6 address it prefers IPv6,
+    from a private one IPv4. So a box given a private address on a host with a global one
+    preferred IPv4 where the host prefers IPv6, and a provider that serves an account over
+    the host's family turned it away. The kernel says which address the host would send
+    from, with no packet sent; where it has none, or a private or link-local one, the
+    box's is private."""
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as asked:
+            asked.connect(("2000::1", 9))
+            source = ipaddress.ip_address(asked.getsockname()[0].partition("%")[0])
+    except OSError:
+        return PRIVATE
+    return PRIVATE if any(source in ipaddress.ip_network(kind) for kind in (
+        "fc00::/7", "fec0::/10", "fe80::/10")) else GLOBAL
+
+
+def _plain(resolver, own):
     """Whether resolv.conf, given as bytes, names this host's resolvers so plainly that a
-    box in a network of its own asks the very same ones.
+    box in a network of its own asks the very same ones; `own` are the box's addresses there.
 
     Every line with the word in it, comments apart, is `nameserver`, blanks and one address
     and nothing else, and no address is one only this host's own network reaches as
@@ -356,7 +381,7 @@ def _plain(resolver):
             return False
         if (address.is_loopback or address.is_unspecified or address.is_link_local
                 or address.is_multicast or getattr(address, "ipv4_mapped", None)
-                or str(address) in OWN):
+                or address in own):
             return False
         named = True
     return named
@@ -443,7 +468,8 @@ def _network(cmd, nested=False):
         resolver = Path("/etc/resolv.conf").read_bytes()
     except OSError:
         resolver = b""
-    if not _plain(resolver):
+    family = _family()
+    if not _plain(resolver, set(map(ipaddress.ip_address, (OWN, family)))):
         yield cmd
         return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
@@ -453,13 +479,13 @@ def _network(cmd, nested=False):
     beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
-              "--address", OWN[0], "--netmask", "24", "--gateway", "10.0.2.2",
-              "--address", OWN[1], "--gateway", "fe80::1",
+              "--address", OWN, "--netmask", "24", "--gateway", "10.0.2.2",
+              "--address", family, "--gateway", "fe80::1",
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
     with ExitStack() as held:
-        helper = subprocess.Popen([*beside, sys.executable, "-I", "-S", "-c", HOLDER],
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, start_new_session=True)
+        helper = subprocess.Popen([*beside, *HOLDER], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                  start_new_session=True)
 
         def end():
             # The whole group, a process pasta left waiting too, and only while its leader is
