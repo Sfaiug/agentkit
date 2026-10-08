@@ -10,6 +10,7 @@ from unittest.mock import patch
 from fixtures.pane import resolved
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, watch
+from agentkit.guard import commands
 from agentkit.harness import claude
 
 
@@ -100,12 +101,14 @@ class SeatFollowsClear(Sandbox):
             if target not in (*self.panes, f"={self.seat['name']}:"):
                 return 1, "can't find pane"
             return 0, ""
-        if args[0] == "set-option" and orch.PANE_OPTION in args:
-            if "-F" in args:
-                target = args[args.index("-t") + 1]
-                self.bound_pane = self.active_pane if target == f"={self.seat['name']}:" else target
-            else:
-                self.bound_pane = args[-1]
+        for command in commands(args):
+            if command[0] == "set-option" and orch.PANE_OPTION in command:
+                if "-F" in command:
+                    target = command[command.index("-t") + 1]
+                    self.bound_pane = (self.active_pane if target == f"={self.seat['name']}:"
+                                       else target)
+                else:
+                    self.bound_pane = command[-1]
         if args[0] == "rename-session":
             self.seat = dict(self.seat, name=args[-1])
         elif args[0] == "capture-pane":

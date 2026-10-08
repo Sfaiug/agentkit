@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, statusbar
+from agentkit.guard import commands
 
 
 ROOTS = ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "GROK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
@@ -62,10 +63,13 @@ class SeatEnvironment(Sandbox):
         if args[0] == "display-message":
             return 0, "acme"
         if args[0] == "set-environment":
-            if "-r" in args:
-                self.session_env.pop(args[-1], None)
-            else:
-                self.session_env[args[-2]] = args[-1]
+            for command in commands(args):
+                if command[0] != "set-environment":
+                    continue
+                if "-r" in command:
+                    self.session_env.pop(command[-1], None)
+                else:
+                    self.session_env[command[-2]] = command[-1]
             return 0, ""
         if "new-session" not in args and "respawn-pane" not in args:
             return 0, ""
