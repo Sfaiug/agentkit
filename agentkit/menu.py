@@ -201,7 +201,8 @@ class Live:
         os.set_blocking(self.writer, False)
         self.watcher, self.done = None, threading.Event()
         self.seen = None                 # the records the last read was read from, as they stood
-        self.looker = None               # the pass looking at every seat, while one is going
+        self.looker = None               # the thread of the last pass looking at every seat
+        self.passing = threading.Lock()  # held while a pass is going
         self.met = set()                 # the listed seats a pass of this menu's has looked at
         self.asked, self.looking = threading.Event(), False   # a read asked for, and a look
         self.last = None                 # where each read leaves the seats and their groups
@@ -267,7 +268,7 @@ class Live:
         again (`ask`) for its words to be drawn.  One pass at a time; one still going is not
         doubled, and a menu that has left starts none: whether this one started is the answer.
         """
-        if not self.done.is_set() and (self.looker is None or not self.looker.is_alive()):
+        if not self.done.is_set() and self.passing.acquire(blocking=False):
             self.looker = threading.Thread(target=self._look, args=(found,), daemon=True)
             self.looker.start()
             return True
@@ -278,6 +279,10 @@ class Live:
             v5o_groups(self.cfg, found)
         except (config.Error, OSError, ValueError, TypeError, KeyError):
             pass    # a seat that cannot be looked at keeps what its record says
+        finally:
+            # Over before the read it asks for, not when its thread ends: that read is the one
+            # that starts the pass for a seat found while this one was going.
+            self.passing.release()
         self.ask()
 
     def tidy(self, work):
@@ -305,18 +310,19 @@ class Live:
         The one place the main screen reads them, and never between a key and its frame: a draw
         is whatever the last read left, so a key that moves the highlight costs a draw and
         nothing more, and one back from another screen shows the list at once.  With `look`
-        every seat is looked at as well, behind it (`look`); without, only a seat no pass of
-        this menu's has looked at yet, once: one started elsewhere while the menu is open is
-        drawn on what there is (`seat_row_state`), a word its bar has never been told, and
-        opening it keeps every later look away for as long as its owner stays in it.
+        every seat is looked at as well, behind it (`look`); and without, when one is listed
+        that no pass of this menu's has looked at yet: a seat started elsewhere while the menu
+        is open is drawn on what there is (`seat_row_state`), a word its bar has never been
+        told, and opening it keeps every later look away for as long as its owner stays in it.
+        The pass is always over every seat, each under the number it is listed by.
         """
         found = orch.listing()
         records = run_records()       # one pass over run.json a read, filing and drawing
         orch.file_projectless(found, [state for _, state in records])
-        self.met &= {seat["name"] for seat in found}    # one that went and came back is new
-        new = found if look else [seat for seat in found if seat["name"] not in self.met]
-        if (look or new) and self.look(new):
-            self.met |= {seat["name"] for seat in new}
+        listed = {seat["name"] for seat in found}
+        self.met &= listed            # one that went and came back is new
+        if (look or listed - self.met) and self.look(found):
+            self.met = listed
         self.last[:] = found, v5o_groups(self.cfg, found, records, look=False)
 
     def ask(self, look=False):
@@ -335,9 +341,9 @@ class Live:
         contradicts for longer than this.
         The records are noted before every read, so one written while it reads is still news.
         Looking is a `stat` per file -- its inode as well as its mtime, since every write
-        replaces the file -- and nothing here captures a pane.  A read on news looks at no seat
-        but one it has not met (`read`), once, and writes nothing else, so no menu's read keeps
-        waking another, or itself; each one landing asks for one draw.
+        replaces the file -- and nothing here captures a pane.  A read on news starts a look
+        only when a seat is listed that it has not met (`read`), once, and writes nothing else,
+        so no menu's read keeps waking another, or itself; each one landing asks for one draw.
         """
         self.last, self.seen = last, self.recorded()
         self.read(look=True)
