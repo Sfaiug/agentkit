@@ -215,6 +215,18 @@ class NudgeTurnRule(Sandbox):
                 self.stopped()
                 self.assertEqual(self.tick(), ["continue"])
 
+    def test_a_live_wait_leaves_the_ticks_completion_binding_untouched(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                notify.record(SEAT, "done", "Shipped the parser")
+                self.receipt(THEIRS, OTHER, "running")
+                self.wait()
+                self.stopped()
+                self.assertEqual(self.tick(), [])
+                self.assertIsNone(watch.seat_read(SEAT).get("stop_done"))
+
     def test_d_the_same_parked_run_is_nudged_twice_and_the_third_stop_stands(self):
         """Each `continue` is a turn, so a seat that never decides was nudged forever."""
         for harness in HARNESSES:
@@ -256,6 +268,26 @@ class NudgeTurnRule(Sandbox):
                 self.assertEqual(self.judged(), (True, ["continue"]))
                 self.receipt(LATER, SEAT, "pass", merged=True, finished_at=time.time() - 60,
                              **{"from": "ak/parked"})
+                self.assertEqual(self.judged(), (False, []))
+
+
+    def test_f_a_run_that_just_finished_remains_a_native_wait_only(self):
+        """The prompt hook knows the launch turn; the tick requires work still live."""
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.receipt(THEIRS, SEAT, "pass", started_at=time.time() - 3600,
+                             finished_at=time.time() - 60)
+                self.assertEqual(self.judged(), (False, ["continue"]))
+
+    def test_g_a_current_question_stands_past_parked_work(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.receipt(PARKED, SEAT, "interrupted", recovery_pending=True)
+                notify.record(SEAT, "needs", "Which account should I use?")
                 self.assertEqual(self.judged(), (False, []))
 
 
