@@ -107,6 +107,71 @@ class SeatTransport(unittest.TestCase):
         self.assertEqual(bytes(output), bytes(range(256)) * 4096)
         self.assertEqual((self.root / 'received').read_text(), hashlib.sha256(data).hexdigest())
 
+    def test_a_backed_up_display_never_compacts_from_its_stale_prompt(self):
+        from agentkit.pty_relay import BUFFER_LIMIT
+        adapters = self.root / 'adapters'
+        adapters.mkdir()
+        (adapters / 'plain.toml').write_text('''version = 1
+[compact]
+command = ["/compact", "\\r"]
+signal = "screen"
+context = "muse-session"
+idle = 30
+stash = "none"
+[screen]
+composer = ">$"
+[[rule]]
+state = "at_prompt"
+at_composer = true
+lines = 8
+none = ["esc to interrupt"]
+''')
+        fake = self.root / 'busy.py'
+        fake.write_text(r'''
+import json, os, select, sys, time, tty
+from pathlib import Path
+tty.setraw(0)
+root = Path(os.environ["HOME"])
+directory = Path(os.environ["XDG_DATA_HOME"]) / "muse/sessions/2026/10/08/fake"
+directory.mkdir(parents=True)
+(directory / "session.jsonl").write_text(json.dumps({"payload": {
+ "kind": "route_facts", "record": {"pid": os.getpid()}}}) + "\n" + json.dumps({"payload": {
+ "event": {"kind": "goal_usage_attribution", "record": {"usage_family": "provider",
+ "owner": {"owner_type": "main_root"}, "quantity": {"input_tokens": 40000}}}}}) + "\n")
+view = memoryview(b">" * int(sys.argv[1]))
+while view:
+ view = view[os.write(1, view):]
+os.write(1, b"\nesc to interrupt\n>\n")
+received = bytearray()
+until = time.monotonic() + 2
+while time.monotonic() < until:
+ if select.select([0], [], [], .05)[0]:
+  received.extend(os.read(0, 65536))
+(root / "received").write_bytes(received)
+''')
+        reader, writer = os.pipe()
+        self.addCleanup(os.close, reader)
+        capacity = fcntl.fcntl(writer, fcntl.F_GETPIPE_SZ)
+        proc = subprocess.Popen([sys.executable, str(WRAPPER), '--harness', 'plain',
+                                 '--idle', '.05', '--poll', '.01', '--',
+                                 sys.executable, str(fake), str(capacity + BUFFER_LIMIT)],
+                                stdin=subprocess.PIPE, stdout=writer, stderr=subprocess.PIPE,
+                                cwd=self.root, env={**self.env, 'AGENTKIT_ADAPTER_DIR': str(adapters)})
+        os.close(writer)
+        self.addCleanup(self.stop, proc)
+        received = self.root / 'received'
+        deadline = time.monotonic() + 20
+        while not received.exists() and time.monotonic() < deadline:
+            self.assertIsNone(proc.poll(), 'fake harness exited before recording input')
+            time.sleep(.01)
+        self.assertTrue(received.exists(), 'fake harness could not write its busy marker')
+        os.set_blocking(reader, False)
+        while proc.poll() is None and time.monotonic() < deadline:
+            if select.select([reader], [], [], .05)[0]:
+                os.read(reader, 65536)
+        self.assertEqual(proc.wait(timeout=5), 0, proc.stderr.read().decode())
+        self.assertEqual(received.read_bytes(), b'', 'an unread busy marker must defer compaction')
+
 
 class RelayIO(unittest.TestCase):
     def setUp(self):
