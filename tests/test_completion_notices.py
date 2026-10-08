@@ -149,6 +149,25 @@ class CompletionNotices(Sandbox):
         self.declare('Proof refreshed; still shipped')
         self.assertEqual(len(self.posted()), 1)
 
+    def test_repeating_a_proven_outcome_does_not_finish_another_job(self):
+        variants = (
+            '- [x] API looks right · your eye · acme · written 2026-01-01 12:00'
+            ' · done your yes 2026-01-02 12:00\n',
+            '- [x] API shipped\n')
+        for index, line in enumerate(variants):
+            name = f'repeated-{index}'
+            with self.subTest(plan=line):
+                self.seat(name, created=index + 20)
+                config.plan_path(name).write_text(line)
+                self.declare(name=name)
+                self.now += 100
+                config.plan_path(name).write_text(line + line)
+                self.declare('The same checked outcome remains shipped', name=name)
+                self.assertEqual(len(self.posted(name)), 1)
+                self.internal_turn(name)
+                self.declare('The repeated outcome remains shipped', name=name)
+                self.assertEqual(len(self.posted(name)), 1)
+
     def test_check_proofs_refresh_on_main_without_reannouncing_the_work(self):
         repo = config.CODE / 'acme'
         repo.mkdir(parents=True)
@@ -257,6 +276,31 @@ class CompletionNotices(Sandbox):
         path.unlink()
         self.declare('Internal handback while the transcript is unavailable')
         self.assertEqual(len(self.posted()), 1)
+
+    def test_a_replacement_seat_sends_its_first_completion_after_a_failed_old_edit(self):
+        for tick_first in (False, True):
+            with self.subTest(tick_first=tick_first):
+                self.name = f'replacement-{int(tick_first)}'
+                self.seat(self.name, created=20)
+                self.checked('API shipped')
+                self.declare()
+                self.now += 100
+                self.assertEqual(notify.shaped(
+                    'needs', 'Which export format?', session=self.name), 0)
+                self.response_status = 503
+                notify.forget_card(self.name)
+                self.assertTrue(config.card_path(self.name).exists())
+                # The create path clears notice and plan, while a failed Discord edit
+                # leaves the old question's card for retry under this same name.
+                self.seat(self.name, created=30)
+                config.notify_path(self.name).unlink(missing_ok=True)
+                plan.forget(self.name)
+                self.response_status = 200
+                self.now += 100
+                if tick_first:
+                    self.assertEqual(notify.transition(self.name), 0)
+                self.declare('The replacement seat has shipped its own job')
+                self.assertEqual(len(self.posted()), 2)
 
     def test_a_legacy_sent_completion_keeps_its_existing_latch(self):
         self.checked('API shipped')
