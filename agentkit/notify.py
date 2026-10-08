@@ -1002,6 +1002,18 @@ def _went_at(name):
     return math.inf
 
 
+def _done_events(session):
+    """Recorded completions of this seat, including its earlier names."""
+    for path in outbox().glob("*.json"):
+        try:
+            event = json.loads(path.read_text())
+            if (event.get("kind") == "done" and event.get("session")
+                    and config.resolve_session(event["session"]) == session):
+                yield event
+        except (OSError, ValueError, AttributeError, TypeError, config.Error):
+            continue
+
+
 def _carded(session, declared):
     """The existing done receipt covering this declaration, if any.
 
@@ -1012,16 +1024,14 @@ def _carded(session, declared):
     stamp = declared.get("time")
     if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
         return None
-    for path in outbox().glob("*.json"):
+    for event in _done_events(session):
         try:
-            event = json.loads(path.read_text())
             same = (event.get("completion") == declared["completion"]
                     if event.get("completion") and declared.get("completion") else
                     event.get("text") == declared["text"] and event.get("created_at", 0) >= stamp)
-            if (event.get("kind") == "done" and same and event.get("session")
-                    and config.resolve_session(event["session"]) == session):
+            if same:
                 return event
-        except (OSError, ValueError, AttributeError, TypeError, config.Error):
+        except (TypeError, KeyError):
             continue
     return None
 
@@ -1274,27 +1284,45 @@ class Refused(config.Error):
 def _completion(session):
     """The checked owner work, read under the declaration's existing seat lock.
 
-    A plan outranks later information questions. Without a plan, the harness's existing
-    owner-input contract excludes run handbacks and peer typing receipts. Seats with no
-    tracked work keep the legacy card rule; an unreadable source refuses publication.
+    A receipt retains its proved outcomes, so archiving them adds no work. Without a
+    plan, the harness's owner-input contract excludes internal typing receipts. Unknown
+    older receipts keep their original gates: no plan today explains their past work.
     """
     from . import orch, plan
     record = config.session_records().get(session) or {}
-    outcomes = plan.outcomes(session)
-    if outcomes:
-        work = ["plan", outcomes]
-    else:
-        plugin = orch.seat_plugin(record)
-        cwd = record.get("cwd")
-        messages = plugin.user_messages(record, cwd, plugin.conversation(record, cwd), seat=session)
+    created = record.get("created")
+
+    def belongs(value):
+        return isinstance(value, dict) and value.get("created") == created
+
+    completed = _card_read(session).get("completed")
+    if not belongs(completed):
+        completed = max((event["completion"] for event in _done_events(session)
+                         if belongs(event.get("completion"))),
+                        key=lambda value: value["through"], default=None)
+    earlier = (last(session, include_seen=True) or {}).get("completion")
+    earlier = earlier if belongs(earlier) else None
+    outcomes = set(plan.outcomes(session))
+    covered = {tuple(outcome) for outcome in completed["outcomes"]} if completed else set()
+    if outcomes and outcomes <= covered:
+        return completed
+    plugin = orch.seat_plugin(record)
+    cwd = record.get("cwd")
+    messages = plugin.user_messages(record, cwd, plugin.conversation(record, cwd), seat=session)
+    owner = hashlib.sha256(json.dumps(messages[-1], sort_keys=True).encode()).hexdigest() if messages else None
+    if not outcomes:
         if not messages:
-            # A disappearing transcript or a switch to a harness without that reader
-            # cannot make an already completed job new work.
-            return ((last(session, include_seen=True) or {}).get("completion") or
-                    _card_read(session).get("completed"))
-        work = ["owner", messages[-1]]
-    body = json.dumps([record.get("created"), work], sort_keys=True)
-    return hashlib.sha256(body.encode()).hexdigest()
+            # Keep newer pending work even when its owner source disappears.
+            return earlier or completed
+        if completed and (owner == completed["owner"] or (
+                completed["outcomes"] and completed["owner"] is None
+                and messages[-1]["at"] <= completed["through"])):
+            return completed
+    work = {"created": created, "outcomes": [list(outcome) for outcome in sorted(outcomes | covered)]
+            if outcomes else [], "owner": owner, "through": time.time()}
+    if earlier and earlier["outcomes"] == work["outcomes"] and earlier["owner"] == owner:
+        return earlier
+    return work
 
 
 def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
