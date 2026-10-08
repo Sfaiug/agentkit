@@ -36,8 +36,8 @@ SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
 # What pasta keeps running in the box's network namespace: it says when it is there, which is
 # when pasta has set the namespace up, and lives while its stdin, held by ak, stays open.
 HOLDER = "import sys\nprint('ready', flush=True)\nsys.stdin.read()\n"
-# The box's own addresses in the network pasta gives it.
-OWN = ("10.0.2.15", "fd00::15")
+# The box's own IPv4 address in the network pasta gives it.
+OWN = "10.0.2.15"
 
 
 def _contents(root):
@@ -335,9 +335,10 @@ def _bind(own, writable, homes=()):
     return args
 
 
-def _plain(resolver):
+def _plain(resolver, own):
     """Whether resolv.conf, given as bytes, names this host's resolvers so plainly that a
-    box in a network of its own asks the very same ones.
+    box in a network of its own asks the very same ones; `own` are the addresses that are
+    the box's own there.
 
     Every line with the word in it, comments apart, is `nameserver`, blanks and one address
     and nothing else, and no address is one only this host's own network reaches as
@@ -356,7 +357,7 @@ def _plain(resolver):
             return False
         if (address.is_loopback or address.is_unspecified or address.is_link_local
                 or address.is_multicast or getattr(address, "ipv4_mapped", None)
-                or str(address) in OWN):
+                or address in own):
             return False
         named = True
     return named
@@ -439,22 +440,30 @@ def _network(cmd, nested=False):
     if nested or not (routes or routes6) or not all((unshare, pasta, nsenter)):
         yield [*cmd, "--unshare-net"]
         return
+    # The box's IPv6 address is the host's own, as pasta gives it where the host has a way
+    # out over IPv6: programs in the box then choose between the two families as they do
+    # on the host. (An address of the box's own, a private one, made each prefer IPv4, and
+    # a provider that serves an account over IPv6 turned it away.) So every IPv6 address
+    # of this host may be the box's own there, and none reaches the host from inside.
+    own = {ipaddress.ip_address(OWN)}
+    try:
+        own.update(ipaddress.IPv6Address(int(line.split()[0], 16))
+                   for line in Path("/proc/net/if_inet6").read_text().splitlines())
+    except OSError:
+        pass  # a host without IPv6 has no such addresses
     try:
         resolver = Path("/etc/resolv.conf").read_bytes()
     except OSError:
         resolver = b""
-    if not _plain(resolver):
+    if not _plain(resolver, own):
         yield cmd
         return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
     # so bwrap maps nothing back and starts the same inside an enclosing box.
-    # A different address inside keeps host listeners on its LAN address reachable.
-    # Loopback supplies both IP families.
+    # An IPv4 address of the box's own keeps host listeners on the host's reachable.
     beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
-              "--netns-only", "--config-net", "--no-map-gw", "--quiet",
-              "--interface", "lo", "--ns-ifname", "tap0",
-              "--address", OWN[0], "--netmask", "24", "--gateway", "10.0.2.2",
-              "--address", OWN[1], "--gateway", "fe80::1",
+              "--netns-only", "--config-net", "--no-map-gw", "--quiet", "--ns-ifname", "tap0",
+              "--address", OWN, "--netmask", "24", "--gateway", "10.0.2.2",
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
     with ExitStack() as held:
         helper = subprocess.Popen([*beside, sys.executable, "-I", "-S", "-c", HOLDER],

@@ -72,6 +72,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A PID namespace's number names another namespace the moment it ends: never find a process by it. Hold a pidfd, or go through a process you hold: its group, its children (#699: each box that ended could kill another box's first process on the same host).
 - A box change is tried twice before it is pushed: inside one of ak's own boxes, as the lander runs every test, and on a host with a route out, where the offline suite never goes. Either run shows at once what three review rounds found (#699).
 - A test fakes one module's sleep (`tests/fixtures/clock.py`), never `time.sleep` itself: every other wait in the process then spins, and a recording fake keeps every spin (#700: 3.7 GB in a landing check).
+- A change to what a box's network looks like is tried with each harness's own live check (`python3 tests/check_harness_contract.py <harness>`) before it is pushed: the landing suite asks no provider, and a red live check then holds every later change back from the host (#705: an IPv6 address of the box's own turned Muse's provider away).
 
 ## Owner rules
 

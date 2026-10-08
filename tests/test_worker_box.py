@@ -2,6 +2,7 @@
 
 from contextlib import ExitStack
 import fcntl
+import ipaddress
 import json
 import os
 import re
@@ -198,6 +199,14 @@ if role == "mount":
         subprocess.run(["ip", "addr", "add", "192.0.2.1/24", "dev", "internet"], check=True)
         subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
         subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
+        if Path("/proc/sys/net/ipv6").exists():
+            # The stand-in internet has IPv6 as well, and a network beyond its first one.
+            for command in (("addr", "add", "2001:db8::1/64", "dev", "internet", "nodad"),
+                            ("-6", "route", "add", "default", "dev", "internet"),
+                            ("link", "add", "beyond", "type", "dummy"),
+                            ("addr", "add", "2001:db8:1::1/64", "dev", "beyond", "nodad"),
+                            ("link", "set", "beyond", "up")):
+                subprocess.run(["ip", *command], check=True)
     Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
     # The fixture's own resolver, so the host's decides nothing here: one on the stand-in
     # internet, or for the resolver cases one that only this namespace's own network
@@ -309,6 +318,11 @@ seen = [reaches(socket.AF_INET, (host, int(os.environ["PORT"])))
         for host in ("192.0.2.1", "127.0.0.1", "10.0.2.2")]
 seen.append(reaches(socket.AF_UNIX, "\0acme"))
 seen.append(reaches(socket.AF_INET6, ("::1", int(os.environ["PORT"]))))
+if os.environ.get("BEYOND"):
+    seen.append(reaches(socket.AF_INET6, (os.environ["BEYOND"], int(os.environ["PORT"]))))
+    with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as client:
+        client.connect((os.environ["BEYOND"], 9))
+        seen.append(client.getsockname()[0])
 print(json.dumps(seen))
 '''
 stop, threads = threading.Event(), []
@@ -332,10 +346,16 @@ try:
                 assert boxed('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
                              'socket.gethostbyname("fixture")]))', overlay) == [here, "203.0.113.7"]
         else:
+            # Where this host has IPv6, the stand-in internet answers over it too, and the
+            # box's own IPv6 address is the host's: programs in it then choose between
+            # the two families as they do on the host.
+            beyond = "2001:db8:1::1" if Path("/proc/sys/net/ipv6").exists() else ""
+            os.environ["BEYOND"] = beyond
             for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
                                     (socket.AF_INET, ("127.0.0.1", None)),
                                     (socket.AF_INET6, ("::1", None)),
-                                    (socket.AF_UNIX, "\0acme")):
+                                    (socket.AF_UNIX, "\0acme"),
+                                    *([(socket.AF_INET6, (beyond, None))] if beyond else [])):
                 server = stack.enter_context(socket.socket(family))
                 if family in (socket.AF_INET, socket.AF_INET6):
                     server.bind((address[0], address[1] if address[1] is not None else port))
@@ -350,10 +370,11 @@ try:
             os.environ["IDENTITY"] = json.dumps([os.getuid(), os.getgid()])
             seen = json.loads(subprocess.check_output([sys.executable, "-c", probe],
                                                      cwd=root, text=True, timeout=10))
-            assert seen == [True, True, False, True, True], seen
+            assert seen == [True, True, False, True, True, *([True, beyond] if beyond else [])], seen
             for overlay in (False, True):
                 seen = boxed(probe, overlay)
-                assert seen == [True, False, False, False, False], seen
+                assert seen == [True, False, False, False, False,
+                                *([True, "2001:db8::1"] if beyond else [])], seen
                 assert (root / "written").stat().st_uid == os.getuid()
                 assert (root / "written").stat().st_gid == os.getgid()
             # The command's variables arrive whole, one a shell cannot name among them.
@@ -916,15 +937,17 @@ class WorkerBox(unittest.TestCase):
         other = (b"", b"search acme.test\n", b"nameserver 127.0.0.53\n", b"nameserver ::1\n",
                  b"nameserver 0.0.0.0\n", b"nameserver ::\n", b"nameserver fe80::1\n",
                  b"nameserver ::ffff:192.0.2.1\n", b"nameserver 224.0.0.251\n",
-                 b"nameserver 10.0.2.15\n", b"nameserver fd00::15\n",
+                 b"nameserver 10.0.2.15\n", b"nameserver 2001:db8::15\n",
                  b"nameserver 192.0.2.1\nnameserver 127.0.0.1\n",
                  b"nameserver 127.53\n", b"nameserver 192.0.2.01\n", b"nameserver fe80::1%eth0\n",
                  b"nameserver 192.0.2.1\r\n", b" nameserver 192.0.2.1\n", b"nameserver 192.0.2.1;\n",
                  b"nameserver #192.0.2.1\n", b"nameserver 192.0.2.1 # acme\n",
                  b"nameserver 192.0.2.1\x00\n", b"nameserver \xff\xfe\n")
-        for resolver, own in (*((text, True) for text in plain), *((text, False) for text in other)):
+        # The box's own addresses there: its IPv4 one, and an IPv6 one of the host's.
+        own = set(map(ipaddress.ip_address, ("10.0.2.15", "2001:db8::15")))
+        for resolver, is_plain in (*((text, True) for text in plain), *((text, False) for text in other)):
             with self.subTest(resolver=resolver):
-                self.assertIs(box._plain(resolver), own)
+                self.assertIs(box._plain(resolver, own), is_plain)
 
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in
