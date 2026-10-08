@@ -55,6 +55,7 @@ MIDTURN_LINE = ("Your process was ended by the host, not by you, in the middle o
                 "Continue that turn and finish it; do not start over.")
 ACCOUNT_LINE = ("Your subscription ran out. This seat has resumed the same conversation on "
                 "an account of the same provider with usage available. Continue where you stopped.")
+CONTINUE_LINE = "continue"
 MIDTURN_TRIES = 3       # passes that may type it before a seat is left at its prompt
 MARKER = "agentkit review of"
 RETRY_BACKOFF = (600, 1800, 3600)  # after that, hourly; a head is never abandoned
@@ -552,6 +553,31 @@ def continue_turns(cfg, log, accounts=False):
                 else:
                     log(f"WARN {name}: the continue line did not land in {tries} tries")
         seat_write(config.resolve_session(name), midturn=None)
+
+
+def finish_own_lines(cfg, log):
+    """Finish a fixed ak line left in its composer, even after its retries were spent.
+
+    The screen decides, without a mark: only that line alone gets its locked Enter.
+    Delivery remains at least once, as it does for every line ak types.
+    """
+    for session in orch.sessions():
+        if session.get("legacy") or any(session.get(key) for key in orch.CLOSED):
+            continue
+        name = session["name"]
+        harness, _ = seat_model(cfg, name)
+        if not harness:
+            continue
+        resume = config.manifest(harness).get("resume")
+        key = resume.get("key") if isinstance(resume, dict) else None
+        for line in (ACCOUNT_LINE, MIDTURN_LINE, CONTINUE_LINE, key):
+            if not line or composer_holds(name, session, line, cfg) != "line":
+                continue
+            type_checked(session, line, log, harness, pending=True,
+                         guard=lambda: seat_held(name),
+                         veto=lambda held: owner_question(notify.last(held)),
+                         ready=lambda held: composer_holds(held, session, line, cfg) == "line")
+            break
 
 
 # --- the session babysitter -------------------------------------------------
@@ -2349,7 +2375,7 @@ def keystroke(harness, tail):
     if isinstance(block, dict) and block.get("key") and block.get("when"):
         if re.search(block["when"], tail, re.I):
             return block["key"]
-    return "continue"
+    return CONTINUE_LINE
 
 
 def asking(name, harness, pane):
@@ -6104,6 +6130,8 @@ def local_passes(state, dry_run, log):
          lambda: notify.retry_pending(dry_run=dry_run, log=log), True),
         ("the boot resume pass did not run",
          lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
+        ("the held-line Enter pass did not run",
+         lambda: finish_own_lines(config.load(), log), False),
         ("the mid-turn continue pass did not run",
          lambda: continue_turns(config.load(), log), False),
         # the seats first, and never behind GitHub: a stalled seat is the one thing on this tick

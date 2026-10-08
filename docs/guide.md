@@ -211,7 +211,11 @@ refusal parks the provider until it refills, a usage-limit reset held or not: ak
 ## The tick
 
 `ak watch` runs every three minutes from cron on the server, under a lock so ticks never overlap, writing
-`~/.agentkit/tmp/watch.log` and rolling it at 5 MB. Each tick: retries the notification outbox; reads every seat's
+`~/.agentkit/tmp/watch.log` and rolling it at 5 MB. Before typing new lines, it gives Enter to a composer holding
+only ak's account-switch notice, mid-turn continuation or resume nudge, even when its retries ran out and its mark
+is gone. It reads the composer again under the typing lock before each Enter; other text and dialogs are left
+alone. Delivery stays at least once: a crash between Enter and recording delivery can repeat a line.
+Each tick: retries the notification outbox; reads every seat's
 last error from its harness's own record of the conversation (Claude's transcript, Codex's rollout), off its screen
 where it keeps none, and asks each harness's `auth` verb where a login looks gone; types `continue` into a seat stopped
 on its harness's own stall words for three quiet minutes, at most every three minutes, and after an hour of that asks you once;

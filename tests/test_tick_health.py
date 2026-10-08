@@ -47,6 +47,7 @@ class TickHealth(unittest.TestCase):
         """Every pass of the tick except the ones a test is about, so nothing leaves the box."""
         for where, name in ((notify, "retry_pending"), (notify, "tick_cards"),
                             (watch, "resume_after_boot"), (watch, "health"),
+                            (watch, "finish_own_lines"),
                             (watch, "recover_runs"), (watch, "resume_exhausted"),
                             (watch, "revive_seats"), (gc, "schedule_gc"),
                             (orch, "stamp"), (orch, "sweep"), (usage, "collect")):
