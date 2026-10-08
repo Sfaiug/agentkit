@@ -256,6 +256,14 @@ class OwnLineGetsItsEnter(Sandbox):
                     self.assertEqual(self.keys, ["Enter"] if when == "retry" else [])
                     self.assertEqual(self.pane, capture)
 
+    def test_cropped_opencode_drafts_keep_existing_delivery_from_typing_new_text(self):
+        self.compose("My unfinished draft\n" * 20 + watch.ACCOUNT_LINE, "opencode")
+        self.assertTrue(watch.composer_draft("opencode", self.pane))
+        self.assertEqual(watch.composer_holds(SEAT, self.seat, watch.ACCOUNT_LINE, self.cfg),
+                         "other")
+        self.assertEqual(watch.composer_holds(SEAT, self.seat, watch.ACCOUNT_LINE, self.cfg,
+                                             exact=True), "other")
+
     def test_an_empty_composer_with_an_old_echo_and_an_unreadable_screen_get_no_enter(self):
         for pane in (watch.ACCOUNT_LINE + "\n" + self.base, "", "harness starting"):
             with self.subTest(pane=pane):
