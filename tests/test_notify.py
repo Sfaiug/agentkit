@@ -191,6 +191,30 @@ class Notifications(unittest.TestCase):
         self.assertEqual(notify._card_read("seat")["closed"], "Answered")
         self.assertEqual(self.cards("done"), [])
 
+    def test_quiet_answer_recovers_answered_question_edits_after_card_loss(self):
+        for edit_status in (200, 503):
+            with self.subTest(edit_status=edit_status):
+                self.setUp()
+                self.cli("needs", "Which export format?")
+                notify.answered("seat", time.time())
+                self.assertIsNone(notify.last("seat"))
+                self.assertTrue(notify.last("seat", include_seen=True)["open_needs"])
+                config.card_path("seat").unlink()
+                events = list(notify.outbox().glob("*.json"))
+                self.cli("done", "Explained the format", "--quiet")
+                self.edit_status = edit_status
+                self.assertEqual(notify.transition("seat"), 0)
+                if edit_status == 503:
+                    self.assertTrue(notify._card_read("seat")["open_needs"])
+                self.edit_status = 200
+                self.assertEqual(notify.transition("seat"), 0)
+                self.assertEqual(notify.last("seat", include_seen=True)["open_needs"], [])
+                self.assertEqual(notify._card_read("seat")["open_needs"], [])
+                self.assertTrue(any(method == "PATCH" and payload["embeds"][0]["title"]
+                                    == "Answered · seat" for method, _, payload in self.requests))
+                self.assertEqual(self.cards("done"), [])
+                self.assertEqual(list(notify.outbox().glob("*.json")), events)
+
     def test_quiet_dry_runs_and_workers_change_no_state(self):
         self.cli("done", "Explained the schema", "--quiet", "--dry-run")
         self.cli("done", "Explained the schema", "--quiet", env={"AK_RUN_ROLE": "worker"})

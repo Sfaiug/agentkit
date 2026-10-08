@@ -151,6 +151,33 @@ class StopAnswer(unittest.TestCase):
             stop.quiet_done(SEAT, ANSWER)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
+    def test_a_delayed_quiet_command_keeps_the_newer_answer(self):
+        for new_prompt in (False, True):
+            with self.subTest(new_prompt=new_prompt):
+                self.setUp()
+                turn = self.prompt("Which parser does it use?")
+                current_text = "The export uses the current schema."
+                with self.local_config():
+                    require_done = stop.plan.require_done
+
+                    def slow_check(name):
+                        proven = require_done(name)
+                        current = (self.prompt("Which export format does it use?")
+                                   if new_prompt else turn)
+                        with patch.object(stop.plan, "require_done", require_done), \
+                                patch.object(stop.time, "time", return_value=max(
+                                    current["turn"], turn["turn"] + 1)):
+                            stop.quiet_done(name, current_text)
+                        self.assertEqual(self.stop(), "")
+                        return proven
+
+                    with patch.object(stop.plan, "require_done", side_effect=slow_check), \
+                            patch.object(stop.time, "time", return_value=turn["turn"]):
+                        stop.quiet_done(SEAT, "Explained the old parser")
+                    ending, _ = stop.recorded_ending(SEAT)
+                    self.assertEqual(ending["text"], current_text)
+                self.assertEqual(self.stop(), "")
+
     def test_a_quiet_answer_cannot_complete_an_open_plan(self):
         self.prompt("What caused the schema failure? Fix it and ship the API.")
         (self.state / f"plan-{SEAT}.md").write_text(
