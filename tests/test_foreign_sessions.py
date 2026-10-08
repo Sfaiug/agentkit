@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentkit import config, notify, orch
+from agentkit import config, notify, orch, watch
 from agentkit.harness import LAUNCHER
 
 LOOP = "while :; do sleep 60; done"   # the watcher an orchestrator left behind: no agent
@@ -298,10 +298,13 @@ class ForeignSessions(unittest.TestCase):
         self.codes = [503, 503]
         notify.forget_card("atoll")          # the gone seat's close, not taken
         # the new seat's first word closes it again, not taken either; its next one is
-        notify.transition("atoll", {"word": "working", "since": time.time(), "reason": "busy"})
-        self.assertEqual([n["message_id"] for n in notify._card_read("atoll")["open_needs"]],
-                         ["4242"])
-        notify.transition("atoll", {"word": "needs you", "since": time.time(), "reason": "ask"})
+        working = {"word": "working", "since": time.time(), "reason": "busy"}
+        asking = {"word": "needs you", "since": time.time(), "reason": "ask"}
+        with patch.object(watch, "session_state", side_effect=[working, asking]):
+            notify.transition("atoll", working)
+            self.assertEqual([n["message_id"] for n in notify._card_read("atoll")["open_needs"]],
+                             ["4242"])
+            notify.transition("atoll", asking)
         self.assertEqual([r[0] for r in self.requests], ["PATCH"] * 3)
         self.assertEqual(notify._card_read("atoll")["open_needs"], [])
 
