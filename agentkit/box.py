@@ -345,8 +345,11 @@ def _bind(own, writable, homes=()):
 
 
 @contextmanager
-def _network(cmd, env, out_dir=None):
+def _network(cmd, env, out_dir=None, nested=False):
     """The launch with its network, and whether pasta is in front of bwrap in it."""
+    if nested:
+        yield [*cmd, "--unshare-net"], False
+        return
     # With no usable route, pasta has no outside to connect to. Bubblewrap still
     # supplies a private network namespace with its own working loopback.
     routes = any(line.split()[0] != "lo" and int(line.split()[3], 16) & 0x201 == 1
@@ -379,7 +382,7 @@ def _network(cmd, env, out_dir=None):
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
     resolver = Path("/etc/resolv.conf")
     content = resolver.read_text() if resolver.exists() else ""
-    hosts = {}
+    hosts, forwarder = {}, {4: "10.0.2.3", 6: "fd00::3"}
 
     def forward(match):
         try:
@@ -389,12 +392,11 @@ def _network(cmd, env, out_dir=None):
         if not address.is_loopback:
             return match[0]
         hosts.setdefault(address.version, str(address).split("%")[0])
-        return match[1] + ("10.0.2.3" if address.version == 4 else "fd00::3")
+        return match[1] + forwarder[address.version]
 
     content = re.sub(r"(?m)^([^\S\n]*nameserver[ \t]+)(\S+)", forward, content)
     for version, address in hosts.items():
-        prefix.extend(["--dns-forward", "10.0.2.3" if version == 4 else "fd00::3",
-                       "--dns-host", address])
+        prefix.extend(["--dns-forward", forwarder[version], "--dns-host", address])
     # Behind pasta the command reads nothing: its stdin carried the stderr across. Bwrap must
     # also receive no ambient capabilities.
     prefix.extend([sys.executable, "-I", "-S", "-c", UNPARK,
@@ -407,8 +409,8 @@ def _network(cmd, env, out_dir=None):
             dns.write(content)
             dns.flush()
             launch.extend(["--ro-bind", dns.name, str(resolver.resolve())])
-        # The probe starts bwrap behind pasta as the launch will, with a command that only
-        # lists its environment: in an enclosing box pasta may be unable to start a command
+        # The probe is the launch itself, with a command that only lists its environment:
+        # in an enclosing box pasta may be unable to start a command
         # (an AppArmor exec transition under no_new_privs), or bwrap unable to start behind
         # it. Where both start, that transition may clear variables the loader distrusts
         # (TMPDIR, LD_LIBRARY_PATH): the list says which reach the command, and bwrap gives
@@ -416,9 +418,7 @@ def _network(cmd, env, out_dir=None):
         # A pasta that fails leaves the process it had made for the command waiting: the probe
         # writes to a file, never a pipe that process would hold open, and its group ends with it.
         with tempfile.TemporaryFile(dir=out_dir) as said, \
-                subprocess.Popen([*prefix, "bwrap", "--unshare-user", "--unshare-pid",
-                                  "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
-                                  "--", "/usr/bin/env", "-0"], env=env, stdout=said,
+                subprocess.Popen([*launch, "--", "/usr/bin/env", "-0"], env=env, stdout=said,
                                  stderr=subprocess.DEVNULL, start_new_session=True) as probe:
             try:
                 ready = probe.wait(timeout=10) == 0
@@ -442,8 +442,11 @@ def _network(cmd, env, out_dir=None):
 
 @contextmanager
 def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(),
-            home_overlay=False, drain=False):
+            home_overlay=False, drain=False, nested=False):
     """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
+
+    `nested` says the launch will be started inside another box, which cannot be asked from
+    here whether pasta starts there: it gets loopback only.
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
     directories the command may also write. With an out dir, /run is copied without services
@@ -491,7 +494,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
         cmd[at:at] = _bind({}, writable, homes)
-        with _network(cmd, clean) as (connected, _):
+        with _network(cmd, clean, nested=nested) as (connected, _):
             yield [*connected, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
@@ -559,7 +562,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            with _network(cmd, clean, out_dir) as (connected, behind):
+            with _network(cmd, clean, out_dir, nested) as (connected, behind):
                 if behind:
                     # No descriptor of ours crosses pasta: a stop finds PID 1 through
                     # the launcher it is given.
@@ -659,11 +662,9 @@ def check():
     if not shutil.which("pasta"):
         raise config.Error("worker box needs pasta; run `sudo apt-get install -y passt`")
     try:
-        # The nested probe needs only loopback, like an offline check.
-        inner = ["bwrap", "--unshare-user", "--unshare-pid", "--unshare-net",
-                 "--ro-bind", "/", "/", "--", "true"]
-        with command(inner, os.environ) as (outer, env, _):
-            result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
+        with command(["true"], os.environ, nested=True) as (inner, env, _):
+            with command(inner, env) as (outer, env, _):
+                result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
             return
         why = result.stderr.strip() or f"exit {result.returncode}"
