@@ -210,6 +210,47 @@ class Cards(unittest.TestCase):
         self.assertEqual(found["word"], "needs you")
         self.assertEqual(found["reason"], "session closed by the owner: press 3 to reopen")
 
+    def test_resolved_questions_do_not_renew_an_old_episode(self):
+        for resolution in ("clear", "progress"):
+            for guard in ("history", "input"):
+                for cached in (False, True):
+                    with self.subTest(resolution=resolution, guard=guard, cached=cached):
+                        config.card_path("seat").unlink(missing_ok=True)
+                        config.notify_path("seat").unlink(missing_ok=True)
+                        self.posts.clear()
+                        clock = [300.0]
+
+                        def tmux(*args, **kwargs):
+                            if guard == "input" and args[:1] == ("list-clients",):
+                                return (0, "seat\t250")
+                            return (1, "")
+
+                        with patch.object(notify.time, "time", side_effect=lambda: clock[0]), \
+                                patch.object(notify, "installed_at", return_value=(
+                                    200.0 if guard == "history" else 0)), \
+                                patch.object(notify, "terminal_notice"), \
+                                patch.object(orch, "tmux_out", side_effect=tmux):
+                            seat = {"name": "seat"}
+                            watch.seat_write("seat", state="at_prompt", began=100.0,
+                                             word="needs you", word_since=100.0)
+                            notify.record("seat", "needs", "Which schema?")
+                            if resolution == "clear":
+                                notify.clear("seat")
+                            else:
+                                clock[0] = 310.0
+                                notify.opened("seat", lambda: "Original output")
+                                clock[0] = 320.0
+                                self.assertTrue(notify.progress(
+                                    "seat", lambda: "Fresh owner reply", None))
+                            self.assertIsNone(notify.last("seat"))
+                            clock[0] = 500.0
+                            current = watch.session_state("seat", now=500.0, session=seat)
+                            self.assertEqual(current["since"], 100.0)
+                            self.assertEqual(notify.transition(
+                                "seat", current if cached else None, now=500.0, seat=seat,
+                                began=100.0 if cached else None), 0)
+                            self.assertEqual(self.posts, [])
+
     def test_no_card_for_an_episode_older_than_the_install(self):
         now = time.time()
         self.assertEqual(notify.installed_at(), 0)          # no install stamped this home
