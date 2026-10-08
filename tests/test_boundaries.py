@@ -140,6 +140,13 @@ RULES = [
                 r"if not (parked|undecided) and",
      "home": ("agentkit/stop.py",),
      "max": 0},
+    # The quiet answer is a turn fact, owned by Stop. Callers use the ending it returns;
+    # none writes or reconstructs the private fact, a job receipt or a card for it.
+    {"name": "quiet turn fact",
+     "flags": (),
+     "pattern": r"[\"']quiet_done[\"']|quiet_done=",
+     "home": ("agentkit/stop.py",),
+     "max": 0},
     # A task file's format is read in one module: a pattern for its front-matter fence
     # (`^---\n`) or its `## Done when` heading is a second reader to keep in step.  A task
     # written out (`## Done when\n```bash`) is no reader, and `FRONT` reads AGENTS.md's front

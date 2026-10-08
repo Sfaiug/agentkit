@@ -145,10 +145,9 @@ sys.exit(0 if passive else 1)
 import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
-from agentkit import config, watch
+from agentkit import config, stop
 from agentkit.told import told
-watch.seat_write(config.resolve_session(sys.argv[2]), turn_began=float(sys.argv[3]),
-                 quiet_done=None)
+stop.prompted(config.resolve_session(sys.argv[2]), float(sys.argv[3]))
 payload = json.load(sys.stdin)
 sys.exit(0 if any(told(payload.get(key)) for key in ("prompt", "message")) else 1)
 ' "${BASH_SOURCE[0]}" "$row" "$ts" <<<"$payload" 2>/dev/null; then

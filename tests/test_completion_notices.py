@@ -175,6 +175,7 @@ class CompletionNotices(Sandbox):
             self.now += 100
             self.assertEqual(notify.shaped('done', 'Explained the error', session=self.name,
                                            quiet=True), 0)
+        self.assertEqual(len(self.posted()), 1)
         config.card_path(self.name).unlink(missing_ok=True)
         self.now += 100
         state.update(state='pass', finished_at=self.now)

@@ -2201,17 +2201,15 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if last:
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time")}
-    quiet = seat_read(name).get("quiet_done")
-    if isinstance(quiet, dict):
-        from . import stop
-        live = seat_read(name)
-        ending, _ = stop.recorded_ending(
-            name, records, since=_stamp(live.get("turn_began")), waits=False,
-            completion=lambda declared: not stop_enforced(harness) or done_holds(
-                name, live, declared, live.get("stop_said", ""), True))
-        if ending == "quiet":
-            return {"word": "done", "reason": quiet["text"], "since": quiet["time"],
-                    "quiet": True}
+    from . import stop
+    live = seat_read(name)
+    ending, _ = stop.recorded_ending(
+        name, records, since=_stamp(live.get("turn_began")), waits=False,
+        completion=lambda declared: not stop_enforced(harness) or done_holds(
+            name, live, declared, live.get("stop_said", ""), True))
+    if ending and ending["kind"] == "quiet":
+        return {"word": "done", "reason": ending["text"], "since": ending["time"],
+                "quiet": True}
     # A question on its screen, and typed text nobody sent, are both him: the fact is a
     # reason for the word, never a word of its own.
     asked = found.get("evidence") if found.get("state") in ("asking", "draft") else ""
@@ -3228,8 +3226,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     began = _stamp(live.get("turn_began"))
     if began is None:
         return          # nothing has watched this seat finish a turn; there is none to judge
-    question = bool(notice and notice.get("kind") == "needs"
-                    and (_stamp(notice.get("time")) or 0) >= began)
+    question = owner_question(notify.last(name))
     said = progress_output(harness, pane_tail(pane))
     if not said or live.get("stop_nudged") == [began, said]:
         return

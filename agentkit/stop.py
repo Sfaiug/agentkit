@@ -38,6 +38,11 @@ def _ending_work(name, records):
     return records, mine
 
 
+def prompted(name, at):
+    """A new prompt begins a turn and retires its previous quiet answer."""
+    watch.seat_write(name, turn_began=at, quiet_done=None)
+
+
 def quiet_done(name, text):
     """Record an information answer as a turn ending, without announcing a job."""
     at = time.time()
@@ -50,7 +55,7 @@ def quiet_done(name, text):
 
 def recorded_ending(name, records=None, *, question=False, completion=None, since=None,
                     waits=True):
-    """(ending kind, parked records); an empty kind holds the turn.
+    """(recorded ending, parked records); None holds the turn.
 
     Native hooks read completion after their census, then fresh wait receipts. The tick
     supplies its census and binds completion to output only after live waits. Quiet
@@ -58,14 +63,14 @@ def recorded_ending(name, records=None, *, question=False, completion=None, sinc
     so it passes waits=False when asking whether its last turn ended quietly.
     """
     if question:
-        return "question", []
+        return {"kind": "question"}, []
     supplied = records
     records, mine = _ending_work(name, records)
     parked = [(directory, state) for directory, state in mine
               if (not run.going(state) or state.get("state") == "stalled")
               and run.unfinished(state, records)]
     if parked:
-        return "", parked
+        return None, parked
 
     def completed():
         quiet = watch.seat_read(name).get("quiet_done")
@@ -82,12 +87,13 @@ def recorded_ending(name, records=None, *, question=False, completion=None, sinc
                 continue
             try:
                 if plan.unfinished(name):
-                    return ""
+                    return None
             except config.Error:
-                return ""
-            if completion is None or completion(declared):
-                return kind
-        return ""
+                return None
+            ending = {**declared, "kind": kind}
+            if completion is None or completion(ending):
+                return ending
+        return None
 
     if supplied is None:
         ending = completed()
@@ -95,10 +101,10 @@ def recorded_ending(name, records=None, *, question=False, completion=None, sinc
             return ending, []
         _, mine = _ending_work(name, None)
     if any(run.going(state) for _, state in mine):
-        return "wait", []
+        return {"kind": "wait"}, []
     if jobs.job_waiting(name) or (waits and watch.waiting_on(name, supplied)):
-        return "wait", []
-    return (completed() if supplied is not None else ""), []
+        return {"kind": "wait"}, []
+    return (completed() if supplied is not None else None), []
 
 
 def stoppable(state):
