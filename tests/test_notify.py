@@ -395,6 +395,131 @@ sys.exit(p.returncode)
         self.assertEqual(config.notify_path("seat").read_bytes(), before)
         self.assertEqual(len(self.requests), 1)
 
+    def test_quiet_completion_stays_quiet_across_ticks_and_a_later_job_announces(self):
+        result = self.cli("done", "The parser caches its schema.", "--quiet")
+        self.assertEqual((result.stdout, result.stderr), ("", ""))
+        self.assertEqual(menu.state({"name": "seat"}), "done")
+        self.assertEqual(notify.last("seat")["text"], "The parser caches its schema.")
+        for _ in range(3):
+            notify.transition("seat")
+            notify.retry_pending(log=lambda _: None)
+        self.assertEqual(self.requests, [])
+        self.assertEqual(list(notify.outbox().glob("*.json")), [])
+        self.cli("done", "The requested job is now live.")
+        self.assertEqual([r[0] for r in self.requests], ["POST"])
+        self.assertEqual(self.requests[0][2]["embeds"][0]["title"], "Done · seat")
+
+    def test_quiet_completion_closes_an_answered_question_without_posting(self):
+        self.cli("needs", "Which schema?")
+        self.open_and_progress()
+        self.requests.clear()
+        self.cli("done", "Explained the schema.", "--quiet")
+        notify.transition("seat")
+        self.assertFalse(any(r[0] == "POST" for r in self.requests))
+        self.assertEqual(menu.state({"name": "seat"}), "done")
+
+    def test_quiet_completion_waits_for_live_and_unfinished_runs(self):
+        directory = config.RUNS / "acme-parser"
+        directory.mkdir()
+        for state in ("running", "stalled"):
+            (directory / "run.json").write_text(json.dumps({
+                "run_id": directory.name, "launched_session": "seat", "state": state,
+                "started_at": time.time() - 60}))
+            self.cli("done", "Explained the parser.", "--quiet")
+            self.assertNotEqual(menu.state({"name": "seat"}), "done")
+            self.assertFalse(any(r[0] == "POST" and
+                                 r[2]["embeds"][0]["title"] == "Done · seat"
+                                 for r in self.requests))
+
+    def test_quiet_answers_preserve_a_job_completion_waiting_for_its_run(self):
+        directory = config.RUNS / "acme-parser"
+        directory.mkdir()
+        path = directory / "run.json"
+        state = {"run_id": directory.name, "launched_session": "seat", "state": "running",
+                 "started_at": time.time() - 60}
+        path.write_text(json.dumps(state))
+        self.cli("done", "Parser fix merged.", "--pr", "https://example.invalid/pr/7")
+        pending = notify.last("seat")
+        for _ in range(2):
+            turn = time.time()
+            self.cli("done", "The parser caches its schema.", "--quiet")
+            self.assertGreater(notify.last("seat")["time"], turn)
+            self.assertEqual(notify.last("seat")["text"], pending["text"])
+            self.assertEqual(notify.last("seat")["pr"], pending["pr"])
+            self.assertEqual(notify.last("seat")["runs"], pending["runs"])
+            self.assertFalse(any(r[0] == "POST" for r in self.requests))
+        path.write_text(json.dumps({**state, "state": "done", "finished_at": time.time()}))
+        notify.transition("seat")
+        notify.retry_pending(log=lambda _line: None)
+        self.assertEqual([r[2]["embeds"][0]["title"] for r in self.requests if r[0] == "POST"],
+                         ["Done · seat"])
+        self.cli("done", "Explained the cache.", "--quiet")
+        notify.transition("seat")
+        self.assertEqual(sum(r[0] == "POST" for r in self.requests), 1)
+
+    def test_quiet_preview_records_nothing_and_needs_cannot_be_quiet(self):
+        result = self.cli("done", "An answer", "--quiet", "--dry-run")
+        self.assertEqual(json.loads(result.stdout), {
+            "session": "seat", "kind": "done", "text": "An answer", "quiet": True})
+        self.assertIsNone(notify.last("seat", include_seen=True))
+        self.assertEqual(self.requests, [])
+        with self.assertRaises(config.Error):
+            notify.main(["needs", "Which schema?", "--quiet"])
+
+    def test_quiet_answers_do_not_revive_failed_job_completions(self):
+        for failure in ("before_refresh", "during_write", "delayed_record"):
+            with self.subTest(failure=failure):
+                self.setUp()
+                self.clock = 10000
+                self.stack.enter_context(patch.object(time, "time", lambda: self.clock))
+                first = config.RUNS / "acme-parser"
+                first.mkdir()
+                state = {"run_id": first.name, "launched_session": "seat", "state": "running",
+                         "started_at": self.clock - 60}
+                (first / "run.json").write_text(json.dumps(state))
+                self.assertEqual(notify.main(["done", "Parser fix is live."]), 0)
+                original = notify.last("seat")
+                second = config.RUNS / "acme-notify"
+                second.mkdir()
+                other = {"run_id": second.name, "launched_session": "seat", "state": "running",
+                         "started_at": original["time"]}
+                (second / "run.json").write_text(json.dumps(other))
+
+                def fail(stamped=None):
+                    self.clock += 0.25
+                    (second / "run.json").write_text(json.dumps({
+                        **other, "state": "blocked",
+                        "finished_at": self.clock if stamped is None else stamped,
+                        "handed_back": self.clock, "reported": True}))
+                    self.clock += 0.25
+
+                self.clock = 10001
+                if failure == "before_refresh":
+                    fail()
+                self.clock = 10002
+                record = notify.record
+                written = False
+
+                def write(*args, **kwargs):
+                    nonlocal written
+                    if failure != "before_refresh" and not written:
+                        written = True
+                        fail(10001 if failure == "delayed_record" else None)
+                    return record(*args, **kwargs)
+
+                with patch.object(notify, "record", side_effect=write):
+                    self.assertEqual(notify.main(["done", "The parser reads one schema.",
+                                                  "--quiet"]), 0)
+                self.clock = 10003
+                (first / "run.json").write_text(json.dumps({
+                    **state, "state": "pass", "finished_at": self.clock,
+                    "handed_back": self.clock, "reported": True}))
+                notify.transition("seat")
+                self.assertFalse(any(req[0] == "POST" and
+                                     req[2]["embeds"][0]["title"] == "Done · seat"
+                                     for req in self.requests))
+                self.assertIsNone(notify.last("seat"))
+
     def test_freeform_and_file_arguments_are_removed(self):
         with self.assertRaises(config.Error):
             notify.main(["plain message"])

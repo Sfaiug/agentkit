@@ -397,11 +397,31 @@ def name_lock(name):
 def record(session, kind, text, **extra):
     """Remember the last thing a session said, so the menu can show it as the session's state."""
     config.ensure_dirs()
-    # A question changes the turn's word, not the work a pending completion covers.
-    if kind == "needs" and "completion" not in extra:
+    if kind == "needs" or extra.get("quiet"):
         previous = last(session, include_seen=True) or {}
-        if previous.get("completion"):
-            extra["completion"] = previous["completion"]
+        pending = previous.get("pending_done")
+        if previous.get("kind") == "done":
+            pending = (previous if not previous.get("quiet")
+                       and not _carded(session, previous) else None)
+        if kind == "needs":
+            # A question changes the word, not a job's still-promised completion.
+            if "completion" not in extra and previous.get("completion"):
+                extra["completion"] = previous["completion"]
+            if pending:
+                extra.setdefault("pending_done", pending)
+        elif pending:
+            # Quiet answers keep even a retired declaration's failure boundary and
+            # payload, with the current question's delivery facts. Repair needs a new done.
+            text = pending["text"]
+            kept = {k: v for k, v in pending.items()
+                    if k not in ("session", "kind", "text", "time", "pending_done")}
+            kept.setdefault("declared_at", pending["time"])
+            kept["open_needs"] = extra.get("open_needs", previous.get("open_needs", []))
+            earlier = extra.get("earlier_answer_at", previous.get(
+                "answered_at", previous.get("earlier_answer_at")))
+            if earlier:
+                kept["earlier_answer_at"] = earlier
+            extra = kept
     path = config.notify_path(session)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"session": session, "kind": kind, "text": text,
@@ -887,7 +907,7 @@ def failed_declaration(notice, mine, index=None):
     one supersession is not read.
     """
     from . import run as run_mod    # here, not at the top: the loop imports this module
-    stamp = notice.get("time", 0)
+    stamp = notice.get("declared_at", notice.get("time", 0))
     return [directory.name for directory, state in mine
             if state.get("state") in run_record.FAILED
             and (directory.name in notice.get("runs", []) or
@@ -1084,18 +1104,26 @@ def needs_transition(session, card, answer, now, seat=None):
 
 
 def done_transition(session, card, answer, now):
-    """One completion when the state function says done, after editing open questions.
+    """A quiet receipt or one completion alert when the state function says done.
 
-    Never for an episode that is history, a seat the owner closed himself, or a declaration
-    already carded -- which latches this episode as sent, so the outbox is read once.
+    Delivery skips history, owner-closed seats and already-carded declarations. A new quiet
+    receipt latches independently of those delivery gates; open questions close when allowed.
     """
     from . import watch
+    declared = last(session, include_seen=True)
+    quiet = declared and declared["kind"] == "done" and declared.get("quiet")
+    if quiet and declared.get("completion"):
+        # A quiet declaration records its own work even behind an older sent/history card.
+        card["completed"] = declared["completion"]
+        _card_write(session, card)
     if card.get("sent") or _history(card) or watch.seat_closed_by_owner(session):
         return 0
     # A question a standing done was outranked by is finished when the word comes back to it,
     # carded before or not.
     _close_card(session, card, "Done")
-    declared = last(session, include_seen=True)
+    if quiet:
+        _card_write(session, card)
+        return 0
     completion = declared.get("completion") if declared else None
     receipt = _carded(session, declared) if declared and declared["kind"] == "done" else None
     if (completion and card.get("completed") == completion) or receipt:
@@ -1307,7 +1335,8 @@ def _completion(session):
     return {"created": created, "outcomes": [list(outcome) for outcome in sorted(work | pending | covered)]}
 
 
-def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
+def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None,
+           quiet=False):
     """Record the question or declaration, then evaluate the same transition latch.
 
     A done, whoever declares it, waits for every line of the seat's plan: its checks run
@@ -1318,8 +1347,14 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         return 0
     if paths:
         raise config.Error("--file was removed: notification cards carry no attachments")
+    if quiet and kind != "done":
+        raise config.Error("--quiet applies only to done")
     name = config.resolve_session(session) if session else config.current_session()
     if dry_run:
+        if quiet:
+            print(json.dumps({"session": name, "kind": kind, "text": text, "quiet": True},
+                             indent=2))
+            return 0
         payload = {"username": "agentkit", "embeds": [embed(kind, name, text)]}
         who = mention()
         if who:
@@ -1358,6 +1393,9 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     completion = _completion(name)
                     if completion:
                         extra["completion"] = completion
+                    extra["declared_at"] = time.time()
+                    if quiet:
+                        extra["quiet"] = True
                     extra["runs"] = [directory.name for directory, state in menu.run_records()
                                      if run.launched_session(state) == name and
                                      (run.going(state) or run.unfinished(state))]
@@ -1427,7 +1465,7 @@ def main(argv):
     if argv == ["--check"]:
         return check()
     kind = argv[0] if argv[:1] in (["needs"], ["done"]) else None
-    rest, pr, session, dry_run, i = [], None, None, False, 1 if kind else 0
+    rest, pr, session, dry_run, quiet, i = [], None, None, False, False, 1 if kind else 0
     while i < len(argv):
         arg = argv[i]
         if kind == "done" and arg == "--pr":
@@ -1441,6 +1479,8 @@ def main(argv):
             session, i = argv[i + 1], i + 2
         elif kind and arg == "--dry-run":
             dry_run, i = True, i + 1
+        elif kind == "done" and arg == "--quiet":
+            quiet, i = True, i + 1
         elif kind and arg == "--file":
             raise config.Error("--file was removed: notification cards carry no attachments")
         else:
@@ -1457,5 +1497,5 @@ def main(argv):
                                "the status bar and the menu show a question's start; context "
                                "goes after it")
     if kind:
-        return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run)
+        return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run, quiet=quiet)
     raise config.Error(USAGE)
