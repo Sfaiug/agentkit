@@ -63,7 +63,6 @@ KEY_GAP = 0.5           # text and Enter go separately: a return in the same rea
                         # tools/idle-compact.py, measured on Codex 0.153.4 and Muse 1.2.1
 SENT_WAIT = 5.0         # how long a typed line gets to show whole in its composer, and to leave it
 SENT_POLL = 0.5         # ... polling the pane this often for its absence
-INPUT_TTY_OPTION = "@ak_input_tty"   # the wrapper's inner tty, on the pane it belongs to
 RESUME_EVERY = 600      # seconds between resume attempts for one exhausted run: a start that
                         # failed -- and a launch already on its way -- is retried at most this often
 DEAD_BACKOFF = 600      # a loop that dies again this soon after its resume waits this long
@@ -2440,7 +2439,7 @@ def pane_unread(session):
     """
     try:
         rc, paths = orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:",
-                                  "#{pane_tty}\t#{" + INPUT_TTY_OPTION + "}",
+                                  "#{pane_tty}\t#{" + orch.INPUT_TTY_OPTION + "}",
                                   socket=orch.seat_socket(session), timeout=5)
     except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
         return False

@@ -431,13 +431,13 @@ def exit_code(wait_status):
 
 
 def name_input_tty(path):
-    """The pane owns this fact across renames; its next wrapper replaces it at start."""
+    """The pane owns this fact across renames; respawning its harness forgets it."""
     pane = os.environ.get("TMUX_PANE")
     server = os.environ.get("TMUX", "").partition(",")[0]
     if not os.environ.get(config.SESSION_ENV) or not pane or not server:
         return
     rc, out = orch.tmux_out("-S", server, "set-option", "-p",
-                            "-t", pane, watch.INPUT_TTY_OPTION, path,
+                            "-t", pane, orch.INPUT_TTY_OPTION, path,
                             socket="", timeout=5)
     if rc:
         raise OSError(errno.EIO, f"cannot name the harness terminal: {out}")

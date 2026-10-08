@@ -44,7 +44,7 @@ class UnreadPane(Seats):
         if args[0] == "display-message":
             self.assertEqual(args, ("display-message", "-p", "-t",
                                     f"={self.seat['name']}:",
-                                    "#{pane_tty}\t#{" + watch.INPUT_TTY_OPTION + "}"))
+                                    "#{pane_tty}\t#{" + orch.INPUT_TTY_OPTION + "}"))
             self.assertEqual(kwargs.get("socket"), orch.seat_socket(self.seat))
             self.assertIsNotNone(kwargs.get("timeout"))
             if isinstance(self.tty_reply, Exception):

@@ -5,7 +5,6 @@ Real outer and inner PTYs, the real wrapper and relay, and a fake tmux: no serve
 import fcntl
 import json
 import os
-from pathlib import Path
 import select
 import struct
 import subprocess
@@ -17,7 +16,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from test_tell import NOW, REPO, SEAT, Seats
-from agentkit import orch, tell, watch
+from agentkit import config, orch, statusbar, tell, watch
 from agentkit.pty_relay import Relay
 
 TMUX = r'''#!/usr/bin/env python3
@@ -34,16 +33,48 @@ else:
     assert given['socket'] == ''
 with (root / 'calls.jsonl').open('a') as log:
     log.write(json.dumps(args) + '\n')
-if args[0] == 'set-option':
-    assert args[1:5] == ['-p', '-t', '%7', '@ak_input_tty']
-    given['options'][args[4]] = args[5]
+commands = [[]]
+for arg in args:
+    if arg == ';':
+        commands.append([])
+    else:
+        commands[-1].append(arg)
+changed = False
+for args in commands:
+    target = args[args.index('-t') + 1]
+    if args[0] == 'display-message':
+        assert args[:3] == ['display-message', '-p', '-t']
+        owner = given['name'] if target in ('%7', '=' + given['name'] + ':') else 'acme-other'
+        print(args[4].replace('#{pane_tty}', given['outer']).replace(
+            '#{@ak_input_tty}', given['options'].get('@ak_input_tty', '')).replace(
+            '#{session_name}', owner))
+    else:
+        assert target in ('%7', '=' + given['name'] + ':')
+        if args[0] == 'set-option':
+            if args[4] == '@ak_input_tty':
+                assert args[1] in ('-p', '-pu')
+                if args[1] == '-pu':
+                    given['options'].pop(args[4], None)
+                else:
+                    given['options'][args[4]] = args[5]
+            else:
+                assert args[1] == '-F' and args[4:] == ['@ak_harness_pane', '#{pane_id}']
+                given['bound'] = '%7'
+            changed = True
+        elif args[0] == 'show-options':
+            assert args[-1] == '@ak_harness_pane'
+            print(given.get('bound', '%7'))
+        elif args[0] == 'respawn-pane':
+            if given.get('refuse_respawn'):
+                sys.exit(1)
+            given['respawned'] = True
+            changed = True
+        else:
+            assert args[0] == 'set-environment'
+if changed:
     temp = state.with_suffix('.tmp')
     temp.write_text(json.dumps(given))
     temp.replace(state)
-else:
-    assert args[:4] == ['display-message', '-p', '-t', '=' + given['name'] + ':']
-    print(args[4].replace('#{pane_tty}', given['outer']).replace(
-        '#{@ak_input_tty}', given['options'].get('@ak_input_tty', '')))
 '''
 
 HARNESS = r'''
@@ -114,7 +145,15 @@ class WrappedPane(Seats):
         self.until(lambda: (self.root / 'ready').exists())
         self.ready = json.loads((self.root / 'ready').read_text())
         self.inner = os.open(self.ready['tty'], os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
-        self.addCleanup(os.close, self.inner)
+        self.inner_reader = os.fdopen(self.inner, 'rb', buffering=0)
+        self.addCleanup(self.inner_reader.close)
+
+    def respawn(self, client=None):
+        with patch.object(orch, 'tmux_out', client or self.client), \
+                patch.object(orch, 'user_manager', return_value=False), \
+                patch.object(orch.guard, 'install_shim', return_value=self.root / 'bin'), \
+                patch.object(statusbar, 'dress'):
+            orch._start_harness(SEAT, 'gemini', self.root, ['true'], self.seat)
 
     def stop(self, proc):
         if proc.poll() is None:
@@ -203,6 +242,64 @@ class WrappedPane(Seats):
                 self.assertEqual(watch.seat_read(SEAT).get('midturn'), mark)
         self.assertEqual(self.typed, [])
         self.assertEqual(self.receipts(), [])
+
+    def test_an_unwrapped_respawn_forgets_a_recycled_inner_tty(self):
+        self.stop(self.proc)
+        self.inner_reader.close()
+        master, slave = os.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        tty.setraw(slave)
+        os.write(master, b'other seat unread draft')
+        self.assertEqual(select.select([slave], [], [], 5)[0], [slave])
+        for bound, legacy in (('%7', False), ('', True), ('%8', False)):
+            with self.subTest(bound=bound, legacy=legacy):
+                given = json.loads(self.state.read_text())
+                # Model reuse explicitly: the host can allocate PTYs between these opens.
+                given['options']['@ak_input_tty'] = os.ttyname(slave)
+                given.update(bound=bound, socket='' if legacy else 'acme-test')
+                self.state.write_text(json.dumps(given))
+                self.seat['legacy'] = legacy
+                self.assertTrue(watch.pane_unread(self.seat))
+                self.respawn()
+                self.assertTrue(json.loads(self.state.read_text())['respawned'])
+                self.assertEqual(unread(self.slave), 0)
+                self.assertGreater(unread(slave), 0)
+                self.assertFalse(watch.pane_unread(self.seat))
+                sent = Mock(return_value=(0, ''))
+                self.assertTrue(watch._send_line(self.seat, 'Run finished.', lambda _: None, send=sent))
+                sent.assert_called_once_with('Run finished.')
+
+    def test_a_refused_respawn_keeps_the_live_wrappers_guard(self):
+        self.held_input()
+        given = json.loads(self.state.read_text())
+        before = dict(given['options'])
+        given['refuse_respawn'] = True
+        self.state.write_text(json.dumps(given))
+        with self.assertRaises(config.Error):
+            self.respawn()
+        self.assertIsNone(self.proc.poll())
+        self.assertEqual(json.loads(self.state.read_text())['options'], before)
+        self.assertTrue(watch.pane_unread(self.seat))
+
+    def test_respawn_clears_the_old_name_before_a_new_wrapper_can_publish(self):
+        self.stop(self.proc)
+
+        def client(*args, **kwargs):
+            answer = self.client(*args, **kwargs)
+            if args[0] == 'respawn-pane' and answer[0] == 0:
+                self.start_wrapper()
+            return answer
+
+        self.respawn(client)
+        self.assertEqual(json.loads(self.state.read_text())['options']['@ak_input_tty'],
+                         self.ready['tty'])
+        self.held_input()
+        self.assertTrue(watch.pane_unread(self.seat))
+        calls = [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
+        respawn = next(call for call in calls if call[0] == 'respawn-pane')
+        self.assertEqual(respawn[respawn.index(';') + 1:],
+                         ['set-option', '-pu', '-t', '%7', '@ak_input_tty'])
 
 
 class RelayBacklog(Seats):

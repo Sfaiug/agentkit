@@ -73,6 +73,7 @@ class SeatEnvironment(Sandbox):
             return 0, ""
         if "new-session" not in args and "respawn-pane" not in args:
             return 0, ""
+        args = tuple(next(commands(args)))
         if "respawn-pane" in args and self.refuse_respawn:
             return 1, "tmux refused; the old pane is still running"
         if "new-session" in args:
