@@ -5575,7 +5575,8 @@ fakeadapter "$EAD2" opencode meterless
 cp "$REPO/adapters/claude.toml" "$REPO/adapters/codex.toml" "$REPO/adapters/muse.toml" \
   "$REPO/adapters/grokbuild.toml" "$REPO/adapters/opencode.toml" "$EAD2/"
 cp "$REPO/tests/fixtures/adapters/echo.sh" "$REPO/tests/fixtures/adapters/echo.toml" "$EAD2/"
-cp -R "$REPO/agentkit" "$REPO/bin" "$REPO/templates" "$REPO/hooks" "$REPO/tools" "$ERP/"
+cp -R "$REPO/agentkit" "$REPO/bin" "$REPO/templates" "$REPO/hooks" "$REPO/tools" \
+  "$REPO/orchestrator.md" "$ERP/"   # a launch writes its seat's rulebook, whatever the harness
 printf '# the fourth-harness fixture never runs a gate; ak update --dry-run only names it\n' \
   >"$ERP/tests/smoke.sh"
 python3 - "$REPO/config.default.toml" "$ERP/config.default.toml" <<'PY'
