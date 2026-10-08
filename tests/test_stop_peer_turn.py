@@ -22,7 +22,7 @@ HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "peer-seat"
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
-          "declaring done with ak notify done, "
+          "declaring done with ak notify done (--quiet for an information answer), "
           "or waiting on a run. Continue: decide the next step and do it.")
 ACK = "Noted -- nothing new on my side."      # the seat acknowledges the message and stops
 SPENT = "three rounds spent: split or re-scope the task"

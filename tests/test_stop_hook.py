@@ -26,7 +26,7 @@ HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "stop-seat"
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
-          "declaring done with ak notify done, "
+          "declaring done with ak notify done (--quiet for an information answer), "
           "or waiting on a run. Continue: decide the next step and do it.")
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 STOOD = 300     # longer than watch.STALL_WAIT: how long a tick lets a screen stand

@@ -1158,6 +1158,11 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             elif answer is not None:
                 began = None
             answer = current
+            if answer.get("quiet"):
+                if card.get("open_needs"):
+                    _close_card(name, card, "Answered")
+                    _card_write(name, card)
+                return 0    # an information answer supplies no job announcement or receipt
             since = answer.get("since")
             since = since if isinstance(since, (int, float)) and math.isfinite(since) else at
             word = answer["word"]
@@ -1307,7 +1312,8 @@ def _completion(session):
     return {"created": created, "outcomes": [list(outcome) for outcome in sorted(work | pending | covered)]}
 
 
-def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
+def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None,
+           quiet=False):
     """Record the question or declaration, then evaluate the same transition latch.
 
     A done, whoever declares it, waits for every line of the seat's plan: its checks run
@@ -1319,6 +1325,25 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
     if paths:
         raise config.Error("--file was removed: notification cards carry no attachments")
     name = config.resolve_session(session) if session else config.current_session()
+    if quiet:
+        if kind != "done":
+            raise config.Error("--quiet ends an information answer: use ak notify done")
+        if dry_run:
+            print(f"Quiet answer · {subject(name, text)}: {text}")
+            return 0
+        if not name:
+            raise config.Error("a quiet answer needs a session: use --session NAME")
+        from . import stop
+        try:
+            stop.quiet_done(name, text)
+        except config.Error as exc:
+            raise Refused(str(exc)) from None
+        except OSError as exc:
+            print(f"notify: quiet answer could not be recorded ({type(exc).__name__}); "
+                  "retry required", file=sys.stderr)
+            return 1
+        print(f"{name}: answer recorded (quiet)")
+        return 0
     if dry_run:
         payload = {"username": "agentkit", "embeds": [embed(kind, name, text)]}
         who = mention()
@@ -1427,13 +1452,15 @@ def main(argv):
     if argv == ["--check"]:
         return check()
     kind = argv[0] if argv[:1] in (["needs"], ["done"]) else None
-    rest, pr, session, dry_run, i = [], None, None, False, 1 if kind else 0
+    rest, pr, session, dry_run, quiet, i = [], None, None, False, False, 1 if kind else 0
     while i < len(argv):
         arg = argv[i]
         if kind == "done" and arg == "--pr":
             if i + 1 >= len(argv) or not argv[i + 1].startswith(("https://", "http://")):
                 raise config.Error("--pr needs the PR's URL")
             pr, i = argv[i + 1], i + 2
+        elif kind == "done" and arg == "--quiet":
+            quiet, i = True, i + 1
         elif kind and arg == "--session":
             # for a caller that speaks for a seat it is not in: `ak watch` speaks for `inbox`
             if i + 1 >= len(argv):
@@ -1457,5 +1484,5 @@ def main(argv):
                                "the status bar and the menu show a question's start; context "
                                "goes after it")
     if kind:
-        return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run)
+        return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run, quiet=quiet)
     raise config.Error(USAGE)

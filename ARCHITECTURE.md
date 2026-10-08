@@ -34,10 +34,10 @@
   (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
   watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
   `own_pr_wait_note`). Leak: run's private `_cached_providers`.
-- `stop.py`: stop/clean a run; records its stop before ending processes and releasing
-  its checkout. `stop_owned_runs` and `release_session` for orch, `cmd_stop` for menu,
-  `marker_pids` for status. `recorded_ending` decides native and hookless turns;
-  `ways_out` names parked-run choices. For watch and hooks. Leaks: run lifecycle helpers.
+- `stop.py`: stop/clean a run before ending processes and releasing its checkout.
+  `recorded_ending` decides native and hookless turns from plans, notices, runs and waits;
+  `quiet_done` records a turn answer outside job notifications. `ways_out` names parked-run
+  choices. For watch, notify, hooks, orch, menu and status. Leak: run lifecycle helpers.
 - `worktrees.py`: a run's worktree and local branch: whether they may go (final run, gone
   loop, never ~/code, held for a resume) and the one way they go, `stop_checkout`: the
   repo's `cleanup:` line, git, the directory, the branch. Stop, clean, endings and gc call

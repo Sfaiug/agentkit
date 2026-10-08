@@ -5,12 +5,13 @@ the checkout unless kept. `ways_out` names the commands that settle a parked run
 `recorded_ending` decides whether recorded work lets a seat's turn end.
 """
 
+import math
 import os
 import subprocess
 import time
 from pathlib import Path
 
-from . import config, orch, run, watch, worker, worktrees
+from . import config, notify, orch, plan, run, watch, worker, worktrees
 from . import job as jobs
 from . import record as run_record
 
@@ -37,40 +38,66 @@ def _ending_work(name, records):
     return records, mine
 
 
-def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
-                    since=None):
-    """(the turn may end, parked records), from the evidence its caller can see.
+def quiet_done(name, text):
+    """Record an information answer as a turn ending, without announcing a job."""
+    proven = plan.require_done(name)
+    with plan.held(name) as current:
+        plan.still_done(current, proven)
+        if not watch.seat_write(current, quiet_done={"time": time.time(), "text": text}):
+            raise config.Error(f"could not record the quiet answer for {current}")
 
-    The native hook reads parked work, then completion, then fresh wait receipts; the tick
-    supplies its existing census. A question stands past parked work, which holds a
-    completion, an answer and every live wait. `since` retains the prompt hook's wait on
-    work launched in this turn even after it ends. A callable completion reads the native
-    notice after the census; a callable answer binds the tick's output after live waits.
+
+def recorded_ending(name, records=None, *, question=False, completion=None, since=None,
+                    waits=True):
+    """(ending kind, parked records); an empty kind holds the turn.
+
+    Native hooks read completion after their census, then fresh wait receipts. The tick
+    supplies its census and binds completion to output only after live waits. Quiet
+    answers cover a turn, never a job receipt. The state ladder already decided waits,
+    so it passes waits=False when asking whether its last turn ended quietly.
     """
     if question:
-        return True, []
+        return "question", []
     supplied = records
     records, mine = _ending_work(name, records)
     parked = [(directory, state) for directory, state in mine
               if (not run.going(state) or state.get("state") == "stalled")
               and run.unfinished(state, records)]
     if parked:
-        return False, parked
-    if completion() if callable(completion) else completion:
-        return True, []
+        return "", parked
+
+    def completed():
+        quiet = watch.seat_read(name).get("quiet_done")
+        for kind, declared in (("quiet", quiet), ("done", notify.last(name))):
+            stamp = watch._stamp(declared.get("time")) if isinstance(declared, dict) else None
+            if (stamp is None or not math.isfinite(stamp)
+                    or (since is not None and stamp < since)):
+                continue
+            if kind == "quiet":
+                if not isinstance(declared.get("text"), str) or watch.prompted_since(name, stamp):
+                    continue
+            elif (declared["kind"] != "done" or notify.failed_declaration(
+                    declared, mine, run.supersession_index(records))):
+                continue
+            try:
+                if plan.unfinished(name):
+                    return ""
+            except config.Error:
+                return ""
+            if completion is None or completion(declared):
+                return kind
+        return ""
+
     if supplied is None:
+        ending = completed()
+        if ending:
+            return ending, []
         _, mine = _ending_work(name, None)
-    for _, state in mine:
-        if run.going(state):
-            return True, []
-        if since is not None and state.get("state") not in ("error", "waiting"):
-            for key in ("started_at", "queued_at"):
-                stamp = watch._stamp(state.get(key))
-                if stamp is not None and stamp >= since:
-                    return True, []
-    if jobs.job_waiting(name) or watch.waiting_on(name, supplied):
-        return True, []
-    return bool(answer() if callable(answer) else answer), []
+    if any(run.going(state) for _, state in mine):
+        return "wait", []
+    if jobs.job_waiting(name) or (waits and watch.waiting_on(name, supplied)):
+        return "wait", []
+    return (completed() if supplied is not None else ""), []
 
 
 def stoppable(state):

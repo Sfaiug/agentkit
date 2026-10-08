@@ -4,7 +4,7 @@ WORKER_USAGE = ("usage: ak worker MODEL TASK [--workspace DIR] [--out DIR] [--se
                 "       [--role executor|reviewer|fixer|reviewer-pr|executor-scratch|"
                 "fixer-scratch|reviewer-scratch]")
 NOTIFY_NEEDS = 'ak notify needs "QUESTION" [--session NAME] [--dry-run]'
-NOTIFY_DONE = ('ak notify done "SUMMARY" [--pr URL] '
+NOTIFY_DONE = ('ak notify done "SUMMARY" [--quiet] [--pr URL] '
                '[--session NAME] [--dry-run]')
 NOTIFY_USAGE = (f"usage: {NOTIFY_NEEDS}\n       {NOTIFY_DONE}\n"
                 "       ak notify --check")
@@ -133,7 +133,9 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                      "--dry-run prints the payload without posting.",
                      'ak notify needs "Which branch?" --session parser-fix --dry-run'),
     "notify done": (f"usage: {NOTIFY_DONE}",
-                    "Report the finished job; --dry-run prints the payload without posting.",
+                    "Report the finished job; --dry-run prints the payload without posting.\n"
+                    "--quiet records an information answer for this turn without a job alert.\n"
+                    "It leaves ordinary completion notices and receipts untouched.",
                     'ak notify done "Parser fixed" --dry-run'),
     "wait": ("usage: ak wait SESSION", "End this turn waiting on another session's work.",
              "ak wait fix-api"),

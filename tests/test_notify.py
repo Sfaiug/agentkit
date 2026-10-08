@@ -178,6 +178,19 @@ class Notifications(unittest.TestCase):
         self.assertEqual(len(self.cards("done")), 1)
         self.assertEqual(notify.last("seat")["text"], "Export shipped")
 
+    def test_quiet_answer_keeps_answered_question_edits_without_a_job_card(self):
+        self.cli("needs", "Which export format?")
+        notify.answered("seat", time.time() + 1)
+        self.edit_status = 503
+        self.cli("done", "Explained the format", "--quiet")
+        self.assertEqual(notify.transition("seat"), 0)
+        self.assertTrue(notify._card_read("seat")["open_needs"])
+        self.edit_status = 200
+        self.assertEqual(notify.transition("seat"), 0)
+        self.assertEqual(notify._card_read("seat")["open_needs"], [])
+        self.assertEqual(notify._card_read("seat")["closed"], "Answered")
+        self.assertEqual(self.cards("done"), [])
+
     def test_quiet_dry_runs_and_workers_change_no_state(self):
         self.cli("done", "Explained the schema", "--quiet", "--dry-run")
         self.cli("done", "Explained the schema", "--quiet", env={"AK_RUN_ROLE": "worker"})

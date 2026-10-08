@@ -118,6 +118,14 @@ def open_lines(name):
                 if LINE.match(line.strip()) and is_open(line)]
 
 
+def unfinished(name):
+    """Any open outcome in the current atomic plan, including hand-kept box lines.
+
+    This read also runs inside notification publication's plan lock.
+    """
+    return any(is_open(line) for line in lines(name))
+
+
 def write(name, text_lines):
     path_ = path(name)
     path_.parent.mkdir(parents=True, exist_ok=True)

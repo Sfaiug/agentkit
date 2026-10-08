@@ -21,7 +21,7 @@ HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "answer-seat"
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
-          "declaring done with ak notify done, "
+          "declaring done with ak notify done (--quiet for an information answer), "
           "or waiting on a run. Continue: decide the next step and do it.")
 ANSWER = "The parser reads the schema at startup and caches it."
 SPENT = "three rounds spent: split or re-scope the task"

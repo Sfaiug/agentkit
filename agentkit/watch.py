@@ -2201,6 +2201,17 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if last:
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time")}
+    quiet = seat_read(name).get("quiet_done")
+    if isinstance(quiet, dict):
+        from . import stop
+        live = seat_read(name)
+        ending, _ = stop.recorded_ending(
+            name, records, since=_stamp(live.get("turn_began")), waits=False,
+            completion=lambda declared: not stop_enforced(harness) or done_holds(
+                name, live, declared, live.get("stop_said", ""), True))
+        if ending == "quiet":
+            return {"word": "done", "reason": quiet["text"], "since": quiet["time"],
+                    "quiet": True}
     # A question on its screen, and typed text nobody sent, are both him: the fact is a
     # reason for the word, never a word of its own.
     asked = found.get("evidence") if found.get("state") in ("asking", "draft") else ""
@@ -3154,23 +3165,15 @@ def window_ends(cfg, provider, name):
     return max(ends, default=None)
 
 
-def done_holds(name, live, notice, began, said, dry_run):
-    """Does that `done` speak for the turn the seat is stopped on, or for an earlier one?
+def done_holds(name, live, notice, said, dry_run):
+    """Bind a valid turn ending to the output it first ended on.
 
-    Two ways of having answered it, and either is enough, because each catches what the other
-    cannot see.  A turn that began after it was recorded is the user's reply, so the job it
-    called finished is not the one stopped now -- the rule hooks/orchestrator-stop.sh applies
-    with the prompt hook's own record, and `turn_began` is what stands in for that record on a
-    harness with no hooks.  And the words it was first seen with are the ending it was about:
-    once the seat has said something else, it has been about nothing since, whether or not
-    anything was watching when the turn between them ran.
+    The shared recorded-ending decision checks its turn, plan and runs before this call.
     """
     told = _stamp(notice.get("time"))
-    if told is not None and told < began:
-        return False
     bound = live.get("stop_done")
     if not isinstance(bound, list) or len(bound) != 2 or bound[0] != told:
-        if not dry_run:     # the words this done was the ending of, kept beside it
+        if not dry_run:
             seat_write(name, stop_done=[told, said])
         return True
     return bound[1] == said
@@ -3236,9 +3239,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         if found is not None and not wait_holds(found):
             return      # that session has stopped: tell_waits says so, and why, instead
     ends, undecided = stop.recorded_ending(
-        name, records, question=question,
-        answer=lambda: bool(notice and notice["kind"] == "done" and done_holds(
-            name, live, notice, began, said, dry_run)))
+        name, records, question=question, since=began,
+        completion=lambda declared: done_holds(name, live, declared, said, dry_run))
     if ends:
         return
     parked = [directory.name for directory, _ in undecided]
