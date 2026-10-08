@@ -175,6 +175,7 @@ class StopAnswer(unittest.TestCase):
                             patch.object(stop.time, "time", return_value=turn["turn"]):
                         stop.quiet_done(SEAT, "Explained the old parser")
                     ending, _ = stop.recorded_ending(SEAT)
+                    self.assertIsNotNone(ending, "the newer answer still ends its turn")
                     self.assertEqual(ending["text"], current_text)
                 self.assertEqual(self.stop(), "")
 

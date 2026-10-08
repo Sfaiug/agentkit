@@ -49,8 +49,16 @@ def quiet_done(name, text):
     proven = plan.require_done(name)
     with plan.held(name) as current:
         plan.still_done(current, proven)
-        if not watch.seat_write(current, quiet_done={"time": at, "text": text}):
-            raise config.Error(f"could not record the quiet answer for {current}")
+        with watch.seat_lock(current):
+            live = watch.seat_read(current)
+            previous = live.get("quiet_done")
+            newer = [watch._stamp(live.get("turn_began")),
+                     watch._stamp(previous.get("time")) if isinstance(previous, dict) else None]
+            if any(stamp is not None and stamp > at for stamp in newer):
+                return False
+            if not watch._seat_put(current, live, {"quiet_done": {"time": at, "text": text}}):
+                raise config.Error(f"could not record the quiet answer for {current}")
+            return True
 
 
 def recorded_ending(name, records=None, *, question=False, completion=None, since=None,

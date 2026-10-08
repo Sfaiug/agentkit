@@ -1158,8 +1158,11 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             elif answer is not None:
                 began = None
             answer = current
+            pending = card.get("open_needs", (last(name, include_seen=True) or {}).get("open_needs", []))
             if answer.get("quiet"):
-                if card.get("open_needs"):
+                if pending:
+                    # A lost card leaves the question's edit receipt on its notice.
+                    card = {"word": "", "since": at, **card, "open_needs": pending}
                     _close_card(name, card, "Answered")
                     _card_write(name, card)
                 return 0    # an information answer supplies no job announcement or receipt
@@ -1178,7 +1181,6 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             if card.get("word") != word or (
                     word == "done" and completion and card.get("completed") and card.get("sent")
                     and card.get("completed") != completion):
-                pending = card.get("open_needs", (last(name, include_seen=True) or {}).get("open_needs", []))
                 card = {"word": word, "since": since, "began": since,
                         "episode": secrets.token_hex(16), "sent": False, "open_needs": pending,
                         **({"completed": card["completed"]} if card.get("completed") else {})}
@@ -1335,14 +1337,15 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
             raise config.Error("a quiet answer needs a session: use --session NAME")
         from . import stop
         try:
-            stop.quiet_done(name, text)
+            recorded = stop.quiet_done(name, text)
         except config.Error as exc:
             raise Refused(str(exc)) from None
         except OSError as exc:
             print(f"notify: quiet answer could not be recorded ({type(exc).__name__}); "
                   "retry required", file=sys.stderr)
             return 1
-        print(f"{name}: answer recorded (quiet)")
+        print(f"{name}: answer recorded (quiet)" if recorded else
+              f"{name}: quiet answer superseded by a newer turn or answer")
         return 0
     if dry_run:
         payload = {"username": "agentkit", "embeds": [embed(kind, name, text)]}

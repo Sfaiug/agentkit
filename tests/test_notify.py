@@ -205,7 +205,7 @@ class Notifications(unittest.TestCase):
                 self.edit_status = edit_status
                 self.assertEqual(notify.transition("seat"), 0)
                 if edit_status == 503:
-                    self.assertTrue(notify._card_read("seat")["open_needs"])
+                    self.assertTrue(notify._card_read("seat").get("open_needs"))
                 self.edit_status = 200
                 self.assertEqual(notify.transition("seat"), 0)
                 self.assertEqual(notify.last("seat", include_seen=True)["open_needs"], [])
