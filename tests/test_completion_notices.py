@@ -202,6 +202,7 @@ class CompletionNotices(Sandbox):
         config.plan_path(self.name).write_text(before + before)
         self.declare('The same check line is proven twice')
         self.assertEqual(len(self.posted()), 1)
+        before = config.plan_path(self.name).read_text()
         self.internal_turn()
         (repo / 'base.txt').write_text('unrelated update\n')
         git('add', '.')
