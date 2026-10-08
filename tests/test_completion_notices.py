@@ -285,6 +285,23 @@ class CompletionNotices(Sandbox):
         self.declare('Another handback after the new identified receipt')
         self.assertEqual(len(self.posted()), 2)
 
+    def test_a_legacy_receipt_after_card_loss_keeps_its_old_latch(self):
+        self.checked('API shipped')
+        self.declare()
+        self.legacy()
+        config.card_path(self.name).unlink()
+        # Main recognizes this same-time, same-text receipt without knowing its work.
+        self.declare()
+        self.checked('API shipped', 'Export shipped')
+        self.declare('Export shipped')
+        self.assertEqual(len(self.posted()), 1)
+        self.internal_turn()
+        self.declare('Export shipped after the next working episode')
+        self.assertEqual(len(self.posted()), 2)
+        self.internal_turn()
+        self.declare('Late handback confirms the newly recorded export')
+        self.assertEqual(len(self.posted()), 2)
+
     def test_new_checked_work_never_relabels_the_legacy_jobs_receipt(self):
         self.checked('API shipped')
         self.declare()
