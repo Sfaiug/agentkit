@@ -308,10 +308,7 @@ def _own(scratch, clean, cwd, writable, hidden):
 
 
 def _bind(own, writable, homes=()):
-    """Mount HOME overlays, private and writable places, parents first so deeper mounts win.
-
-    Returns the arguments, and for each place mounted the directory on this host that the
-    box is shown there."""
+    """Mount HOME overlays, private and writable places, parents first so deeper mounts win."""
     clash = sorted(own.keys() & writable)
     if clash:
         from . import config
@@ -334,7 +331,7 @@ def _bind(own, writable, homes=()):
         elif (parent is None or parent in overlays
               or binds[parent] / path.relative_to(parent) != binds[path]):
             args.extend(["--bind", str(binds[path]), str(path)])
-    return args, binds
+    return args
 
 
 def _loopback(name):
@@ -357,42 +354,15 @@ def _loopback(name):
     return address if address.is_loopback else None
 
 
-def _seen(path, shown, hidden):
-    """What the regular file holds that the box will find at `path`, or None where it is
-    shown none: a path the box masks or its own /dev and /proc, nothing; under a place the
-    box mounts, what `_bind` shows there, the deepest place winning as it does among the
-    mounts (a copy of the box's own, or the host's directory again); elsewhere the path
-    itself.
-
-    It is opened through plain directories only, one name at a time: a link on the way,
-    copied into the box's own /run or put there since, is never followed, so nothing is
-    read that the names do not lead to themselves."""
-    if any(up in hidden or up in (Path("/dev"), Path("/proc")) for up in (path, *path.parents)):
-        return None
-    place = next((up for up in (path, *path.parents) if up in shown), None)
-    if place is None or shown[place] == place:
-        root, names = "/", path.parts[1:]
-    else:
-        root, names = shown[place], path.relative_to(place).parts
-    if not names:
-        return None
+def _local_resolver():
+    """Whether this host's resolver is one only the host's own network reaches: resolv.conf
+    names a loopback nameserver, or none, which libc takes for this host's loopback."""
     try:
-        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            for name in names[:-1]:
-                step = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
-                os.close(fd)
-                fd = step
-            # Never a wait on something else that lies there.
-            last = os.open(names[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
-        finally:
-            os.close(fd)
-        with os.fdopen(last, errors="surrogateescape") as readable:
-            if stat.S_ISREG(os.fstat(last).st_mode):
-                return readable.read()
+        text = Path("/etc/resolv.conf").read_text(errors="surrogateescape")
     except OSError:
-        pass
-    return None
+        text = ""
+    named = re.findall(r"(?m)^[^\S\n]*nameserver[ \t]+(\S+)", text)
+    return not named or any(_loopback(name) is not None for name in named)
 
 
 def _alive(fd):
@@ -449,16 +419,17 @@ def _spaces(helper):
 
 
 @contextmanager
-def _network(cmd, scratch=None, nested=False, hidden=(), shown=None):
-    """The launch with a network of its own; `scratch` is the box's own directory, `hidden`
-    the paths it masks and `shown` what `_bind` shows at each place it mounts.
+def _network(cmd, nested=False):
+    """The launch with a network of its own.
 
     Pasta runs beside the box, never in front of it. A helper this context owns makes the
     network namespace and keeps a holder in it; `nsenter` puts bwrap into the holder's
     namespaces and becomes it. So bwrap stays the process its caller started, with every
     descriptor and variable it was given, and nothing of pasta's is in a command's way.
     With no way out (no route, no pasta, a launch that says it will start inside another
-    box) bwrap makes a network namespace of its own, with loopback only.
+    box) bwrap makes a network namespace of its own, with loopback only. Where the host's
+    resolver answers only on the host's own network, the box keeps that network, as before:
+    in one of its own no name would resolve.
     """
     # With no usable route, pasta has no outside to connect to.
     routes = any(line.split()[0] != "lo" and int(line.split()[3], 16) & 0x201 == 1
@@ -471,32 +442,19 @@ def _network(cmd, scratch=None, nested=False, hidden=(), shown=None):
     if nested or not (routes or routes6) or not all((unshare, pasta, nsenter)):
         yield [*cmd, "--unshare-net"]
         return
+    if _local_resolver():
+        yield cmd
+        return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
     # so bwrap maps nothing back and starts the same inside an enclosing box.
     # A different address inside keeps host listeners on its LAN address reachable.
-    # Loopback supplies both IP families, including a resolver's only family.
+    # Loopback supplies both IP families.
     beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
               "--address", "10.0.2.15", "--netmask", "24", "--gateway", "10.0.2.2",
               "--address", "fd00::15", "--gateway", "fe80::1",
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
-    # The resolver is read as the box will find it, so a rewritten one shows the box nothing
-    # it was not given: what the box hides or leaves out of its own /run stays out.
-    target = Path(os.path.realpath("/etc/resolv.conf"))
-    content = _seen(target, shown or {}, hidden) or ""
-    hosts, forwarder = {}, {4: "10.0.2.3", 6: "fd00::3"}
-
-    def forward(match):
-        address = _loopback(match[2])
-        if address is None:
-            return match[0]
-        hosts.setdefault(address.version, str(address))
-        return match[1] + forwarder[address.version]
-
-    content = re.sub(r"(?m)^([^\S\n]*nameserver[ \t]+)(\S+)", forward, content)
-    for version, address in hosts.items():
-        beside.extend(["--dns-forward", forwarder[version], "--dns-host", address])
     with ExitStack() as held:
         helper = subprocess.Popen([*beside, sys.executable, "-I", "-S", "-c", HOLDER],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -522,18 +480,8 @@ def _network(cmd, scratch=None, nested=False, hidden=(), shown=None):
         for fd in spaces:
             held.callback(os.close, fd)
         own = f"/proc/{os.getpid()}/fd"
-        launch = [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
-                  "--preserve-credentials", *cmd]
-        if hosts and scratch is not None:
-            # The rewritten resolver is a file of its own, bound over the one the box would
-            # find: nothing that was there is written to. It goes with the box's scratch.
-            # A launch without one, the preflight's, writes nothing anywhere, as ever, and
-            # needs no names.
-            fd, dns = tempfile.mkstemp(prefix="dns-", dir=scratch)
-            with os.fdopen(fd, "w", errors="surrogateescape") as written:
-                written.write(content)
-            launch.extend(["--ro-bind", dns, str(target)])
-        yield launch
+        yield [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
+               "--preserve-credentials", *cmd]
 
 
 @contextmanager
@@ -588,8 +536,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
-        cmd[at:at], shown = _bind({}, writable, homes)
-        with _network(cmd, nested=nested, hidden=targets, shown=shown) as launch:
+        cmd[at:at] = _bind({}, writable, homes)
+        with _network(cmd, nested) as launch:
             yield [*launch, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
@@ -642,10 +590,9 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            cmd[at:at], shown = _bind(
-                _own(scratch, clean, cwd, writable, targets), writable, homes)
+            cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            with _network(cmd, scratch, nested, targets, shown) as launch:
+            with _network(cmd, nested) as launch:
                 yield [*launch, "--info-fd", str(write), "--", *argv], clean, {
                     "pass_fds": (write,), "stop": stop}
         finally:

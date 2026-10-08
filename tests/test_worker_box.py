@@ -199,25 +199,15 @@ if role == "mount":
         subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
         subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
     Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
-    if sys.argv[3].startswith("dns"):
-        resolver = root / "resolv.conf"
-        # 127.53 is 127.0.0.53 to libc.
-        address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53", "dnsrun": "127.0.0.53"}[sys.argv[3]]
-        resolver.write_text(f"nameserver {address}\nsearch acme.test\noptions timeout:1 attempts:1\n")
-        if sys.argv[3] == "dnsrun":
-            # /etc/resolv.conf as a link into /run, where the box keeps a copy of its own.
-            # Only this namespace sees the stand-in /run and /etc; no host file is changed.
-            etc = root / "etc"
-            etc.mkdir()
-            for name in ("passwd", "group", "nsswitch.conf", "hosts"):
-                shutil.copyfile(Path("/etc", name), etc / name)
-            (etc / "resolv.conf").symlink_to("/run/acme/resolver")
-            subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/run"], check=True)
-            Path("/run/acme").mkdir()
-            shutil.copyfile(resolver, "/run/acme/resolver")
-            subprocess.run(["mount", "--bind", str(etc), "/etc"], check=True)
-        else:
-            subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
+    # The fixture's own resolver, so the host's decides nothing here: one on the stand-in
+    # internet, or for the resolver cases one that only this namespace's own network
+    # reaches. 127.53 is 127.0.0.53 to libc, and with no nameserver named it asks 127.0.0.1.
+    resolver = root / "resolv.conf"
+    address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53",
+               "dnsnone": None}.get(sys.argv[3], "192.0.2.1")
+    resolver.write_text((f"nameserver {address}\n" if address else "")
+                        + "search acme.test\noptions timeout:1 attempts:1\n")
+    subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
     # The package's AppArmor profile uses an unconfined exec transition, forbidden
     # by an enclosing box's no_new_privs. This private copy tests pasta itself.
     bindir = root / "bin"
@@ -248,14 +238,10 @@ if role == "host" and sys.argv[3].startswith("stop-"):
     sys.exit(0)
 
 
-def boxed(source, overlay=False, places=()):
+def boxed(source, overlay=False):
     out = Path(tempfile.mkdtemp(dir=root))
-    if role == "host" and sys.argv[3].startswith("dns"):
-        source = ("import os; assert os.readlink('/proc/self/ns/net') != "
-                  + repr(os.readlink("/proc/self/ns/net")) + "; " + source)
     with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
-                                        out, cwd=root, home_overlay=overlay,
-                                        places=places) as (cmd, env, spawn):
+                                        out, cwd=root, home_overlay=overlay) as (cmd, env, spawn):
         spawn.pop("stop")
         result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
                                 timeout=30, **spawn)
@@ -328,68 +314,21 @@ stop, threads = threading.Event(), []
 try:
     with ExitStack() as stack:
         if sys.argv[3].startswith("dns"):
-            family, address = (socket.AF_INET6, "::1") if sys.argv[3] == "dns6" else (socket.AF_INET, "127.0.0.53")
+            family, address = {"dns6": (socket.AF_INET6, "::1"),
+                               "dnsnone": (socket.AF_INET, "127.0.0.1")}.get(
+                                   sys.argv[3], (socket.AF_INET, "127.0.0.53"))
             server = stack.enter_context(socket.socket(family, socket.SOCK_DGRAM))
             server.bind((address, 53))
             thread = threading.Thread(target=serve, args=(server, stop, True))
             thread.start()
             threads.append(thread)
             assert socket.gethostbyname("fixture.acme.test") == "203.0.113.7"
+            # Only this host's own network reaches such a resolver: the box is in it, as
+            # before, and resolves the name.
+            here = os.readlink("/proc/self/ns/net")
             for overlay in (False, True):
-                assert boxed('import json, socket; print(json.dumps(socket.gethostbyname("fixture")))',
-                             overlay) == "203.0.113.7"
-            assert Path("/etc/resolv.conf").read_text().startswith("nameserver ")
-            if sys.argv[3] == "dns":
-                # A resolver file whose own path the box masks as a credential stays masked:
-                # no copy with the forwarder's address takes the mask's place.
-                (root / ".ssh").mkdir()
-                (root / ".ssh/id_acme").symlink_to("/etc/resolv.conf")
-                assert boxed('import json; print(json.dumps(open("/etc/resolv.conf").read()))') == ""
-            if sys.argv[3] == "dnsrun":
-                # A place the command may write, laid over the box's own /run where the
-                # resolver lies: the command is shown the host's file there again, and
-                # names still resolve.
-                assert boxed('import json, socket; print(json.dumps(socket.gethostbyname("fixture")))',
-                             places=("/run/acme",)) == "203.0.113.7"
-                # In /run the box keeps a copy of its own, which leaves a hidden credential
-                # out under every name it has. The resolver is read from that copy, so one
-                # the copy left out is not brought back: not even when the credential is
-                # replaced once the copy is made.
-                from unittest.mock import patch
-                os.link("/run/acme/resolver", "/run/acme/key")
-                (root / ".ssh").mkdir()
-                (root / ".ssh/id_acme").symlink_to("/run/acme/key")
-                made = box._own
-
-                def replaced(*args, **kwargs):
-                    own = made(*args, **kwargs)
-                    Path("/run/acme/fresh").write_text("another key\n")
-                    os.replace("/run/acme/fresh", "/run/acme/key")
-                    return own
-
-                there = 'import json, os; print(json.dumps(os.path.exists("/etc/resolv.conf")))'
-                with patch.object(box, "_own", replaced):
-                    assert boxed(there) is False
-                # A link in /run that led to a directory of the host's when the box made
-                # its copy, and is a directory itself by the time the resolver is read:
-                # what the copied link leads to is left as it was.
-                (root / ".ssh/id_acme").unlink()
-                settings = root / "settings"
-                settings.mkdir()
-                given = Path("/run/acme/resolver").read_text()
-                (settings / "resolver").write_text(given)
-                os.rename("/run/acme", "/run/kept")
-                os.symlink(settings, "/run/acme")
-
-                def relinked(*args, **kwargs):
-                    own = made(*args, **kwargs)
-                    os.unlink("/run/acme")
-                    os.rename("/run/kept", "/run/acme")
-                    return own
-
-                with patch.object(box, "_own", relinked):
-                    assert boxed('import json; print(json.dumps("ran"))') == "ran"
-                assert (settings / "resolver").read_text() == given
+                assert boxed('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
+                             'socket.gethostbyname("fixture")]))', overlay) == [here, "203.0.113.7"]
         else:
             for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
                                     (socket.AF_INET, ("127.0.0.1", None)),
@@ -961,8 +900,8 @@ class WorkerBox(unittest.TestCase):
     def test_a_box_reaches_no_host_port(self):
         self.network_fixture("ports")
 
-    def test_a_box_resolves_names_through_a_loopback_resolver(self):
-        for mode in ("dns", "dns6", "dnsshort", "dnsrun"):
+    def test_a_box_keeps_the_hosts_network_where_only_that_reaches_its_resolver(self):
+        for mode in ("dns", "dns6", "dnsshort", "dnsnone"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
 
