@@ -138,6 +138,57 @@ class CompletionNotices(Sandbox):
         self.declare('A late PASS confirms the next job')
         self.assertEqual(len(self.posted()), 2)
 
+    def test_a_quiet_completion_keeps_the_plan_receipt_without_an_outbox_event(self):
+        self.checked('API shipped')
+        self.assertEqual(notify.shaped('done', 'API answer', session=self.name, quiet=True), 0)
+        declared = notify.last(self.name)
+        self.assertEqual(notify._card_read(self.name)['completed'], declared['completion'])
+        self.assertEqual(list(notify.outbox().glob('*.json')), [])
+        for _ in range(2):
+            self.now += 100
+            self.assertEqual(notify.transition(self.name), 0)
+        self.internal_turn()
+        self.declare('The same checked outcome remains complete')
+        self.assertEqual(len(self.posted()), 0)
+        self.now += 100
+        self.checked('API shipped', 'Export shipped')
+        self.declare('The new export is live')
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_quiet_answer_retains_the_whole_pending_job_declaration(self):
+        self.checked('API shipped')
+        self.declare()
+        self.now += 100
+        self.checked('API shipped', 'Export shipped')
+        pending = config.RUNS / 'acme-export'
+        pending.mkdir()
+        state = {'run_id': pending.name, 'state': 'running', 'launched_session': self.name,
+                 'started_at': self.now, 'pid': 0}
+        (pending / 'run.json').write_text(json.dumps(state))
+        self.assertEqual(notify.shaped('done', 'The export is live',
+                                      pr='https://example.test/acme/12', session=self.name), 0)
+        promised = notify.last(self.name)
+        self.now += 100
+        self.assertEqual(notify.shaped('done', 'The status answer is complete',
+                                      session=self.name, quiet=True), 0)
+        refreshed = notify.last(self.name)
+        for key in ('text', 'pr', 'runs', 'completion', 'declared_at'):
+            self.assertEqual(refreshed[key], promised[key], key)
+        self.assertGreater(refreshed['time'], promised['time'])
+        self.assertFalse(refreshed.get('quiet'))
+        self.assertEqual(len(self.posted()), 1)
+        state.update(state='pass', verdict='PASS', reported=True, finished_at=self.now + 1)
+        (pending / 'run.json').write_text(json.dumps(state))
+        self.now += 100
+        self.assertEqual(notify.transition(self.name), 0)
+        self.assertEqual(len(self.posted()), 2)
+        receipt = notify._carded(self.name, notify.last(self.name))
+        self.assertEqual(receipt['text'], promised['text'])
+        self.assertEqual(receipt['completion'], promised['completion'])
+        self.internal_turn()
+        self.declare('The late handback confirms the export')
+        self.assertEqual(len(self.posted()), 2)
+
     def test_proof_refresh_and_reordering_do_not_create_another_completion(self):
         lines = [f'- [x] {outcome} · your eye · acme · written 2026-01-01 12:00'
                  ' · done your yes 2026-01-02 12:00' for outcome in ('API looks right', 'Export looks right')]

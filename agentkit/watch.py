@@ -3235,8 +3235,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
             return      # that session has stopped: tell_waits says so, and why, instead
     ends, undecided = stop.recorded_ending(
         name, records, question=question,
-        answer=lambda: bool(notice and notice["kind"] == "done" and done_holds(
-            name, live, notice, began, said, dry_run)))
+        since=began, completion=lambda declared: done_holds(
+            name, live, declared, began, said, dry_run))
     if ends:
         return
     parked = [directory.name for directory, _ in undecided]

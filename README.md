@@ -77,6 +77,8 @@ Agentkit does not stop until the work ships, or until it truly needs you. Truly 
 
 `AGENTS.md`'s `health:` command checks merged changes in production; passing reports them live.
 
+Every turn records a question, a valid completion or a live wait. An information-only answer uses `ak notify done --quiet`, which sends no completion alert; unfinished plans and runs still hold it. A quiet answer preserves a job completion that is waiting to be sent.
+
 A turn can end waiting on its job while the launcher is alive and any task is unsettled, even before the first run starts and after a seat rename. A job whose launcher is gone or whose tasks have all settled gives no wait.
 
 Sessions talk to each other with `ak tell <session> "<text>"`, the same way for every harness: ak types the message into that session at its next quiet prompt, or mid-turn where its harness holds a typed line for its next step, headed with who sent it. It never counts as your words and never answers your question.

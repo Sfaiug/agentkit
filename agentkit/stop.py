@@ -5,12 +5,13 @@ the checkout unless kept. `ways_out` names the commands that settle a parked run
 `recorded_ending` decides whether recorded work lets a seat's turn end.
 """
 
+import math
 import os
 import subprocess
 import time
 from pathlib import Path
 
-from . import config, orch, run, watch, worker, worktrees
+from . import config, notify, orch, plan, run, watch, worker, worktrees
 from . import job as jobs
 from . import record as run_record
 
@@ -37,15 +38,12 @@ def _ending_work(name, records):
     return records, mine
 
 
-def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
-                    since=None):
-    """(the turn may end, parked records), from the evidence its caller can see.
+def recorded_ending(name, records=None, *, question=False, completion=None, since=None):
+    """(the turn may end, parked records), from recorded questions, waits and completions.
 
-    The native hook reads parked work, then completion, then fresh wait receipts; the tick
-    supplies its existing census. A question stands past parked work, which holds a
-    completion, an answer and every live wait. `since` retains the prompt hook's wait on
-    work launched in this turn even after it ends. A callable completion reads the native
-    notice after the census; a callable answer binds the tick's output after live waits.
+    Native hooks read completion after their census, then fresh wait receipts. The tick
+    supplies its census and binds completion to output only after live waits. Both reject
+    retired or failed declarations and open plans; `since` dates this turn's completion.
     """
     if question:
         return True, []
@@ -56,21 +54,30 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
               and run.unfinished(state, records)]
     if parked:
         return False, parked
-    if completion() if callable(completion) else completion:
-        return True, []
+
+    def completed():
+        notice = notify.last(name)
+        stamp = watch._stamp((notice or {}).get("time"))
+        if (not notice or notice["kind"] != "done" or stamp is None
+                or not math.isfinite(stamp) or (since is not None and stamp < since)
+                or notify.failed_declaration(notice, mine, run.supersession_index(records))):
+            return False
+        try:
+            if plan.open_lines(name):
+                return False
+        except config.Error:
+            return False
+        return completion(notice) if completion is not None else True
+
     if supplied is None:
-        _, mine = _ending_work(name, None)
-    for _, state in mine:
-        if run.going(state):
+        if completed():
             return True, []
-        if since is not None and state.get("state") not in ("error", "waiting"):
-            for key in ("started_at", "queued_at"):
-                stamp = watch._stamp(state.get(key))
-                if stamp is not None and stamp >= since:
-                    return True, []
+        _, mine = _ending_work(name, None)
+    if any(run.going(state) for _, state in mine):
+        return True, []
     if jobs.job_waiting(name) or watch.waiting_on(name, supplied):
         return True, []
-    return bool(answer() if callable(answer) else answer), []
+    return (completed() if supplied is not None else False), []
 
 
 def stoppable(state):
