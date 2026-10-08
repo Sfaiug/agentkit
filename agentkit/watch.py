@@ -5535,8 +5535,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
     if not dry_run:
         history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
     if not st.get("live_notified"):
-        line = run.seat_notice(f"run {run_dir.name} is live: {pr_url}.", st, run_dir,
-                               f"run {run_dir.name} is live.")
+        line = f"run {run_dir.name} is live: {pr_url}."
         if dry_run:
             log(f"would tell its launching seat: {line}")
             return "passed", None, None
@@ -5558,6 +5557,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 with run_record.record(run_dir) as current:
                     current["live_typed"] = mark
 
+            line = run.seat_notice(line, st, run_dir, f"run {run_dir.name} is live.")
             if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept):
                 with run_record.record(run_dir) as current:
                     current["live_notified"] = now
