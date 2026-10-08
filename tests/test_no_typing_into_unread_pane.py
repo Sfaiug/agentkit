@@ -9,10 +9,10 @@ import select
 import subprocess
 import tty
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from test_tell import SEAT, Seats
-from agentkit import orch, tell, watch
+from test_tell import NOW, REPO, SEAT, Seats
+from agentkit import config, orch, tell, watch
 
 
 class UnreadPane(Seats):
@@ -94,6 +94,53 @@ class UnreadPane(Seats):
         self.assertEqual(self.typed, [line])
         self.assertEqual(self.keys[-1][-1], "Enter")
         self.assertEqual(self.waiting(), [])
+
+    def test_reboot_and_account_notices_keep_their_tries_while_input_is_unread(self):
+        for accounts in (False, True):
+            with self.subTest(accounts=accounts):
+                self.frozen = True
+                self.put(b"prior unread input")
+                line = watch.ACCOUNT_LINE if accounts else watch.MIDTURN_LINE
+                mark = {"boot": watch.boot_id(), "at": NOW - 100, "name": SEAT,
+                        "tries": watch.MIDTURN_TRIES - 1}
+                if accounts:
+                    mark["line"] = line
+                watch.seat_write(SEAT, midturn=mark)
+                before = list(self.keys)
+                for _ in range(watch.MIDTURN_TRIES + 1):
+                    watch.continue_turns(self.cfg, lambda _: None, accounts=accounts)
+                self.assertEqual(watch.seat_read(SEAT).get("midturn"), mark)
+                self.assertEqual(self.keys, before)
+                self.assertEqual(self.read_input(), b"prior unread input")
+                self.frozen = False
+                for _ in range(3):
+                    watch.continue_turns(self.cfg, lambda _: None, accounts=accounts)
+                self.assertEqual(self.typed.count(line), 1)
+                self.assertEqual(self.keys[-1][-1], "Enter")
+                self.assertIsNone(watch.seat_read(SEAT).get("midturn"))
+
+    def test_stop_nudges_finish_the_line_that_began_before_the_terminal_froze(self):
+        for harness, model in (("antigravity", "gemini"), ("muse", "spark"),
+                               ("opencode", "mimo")):
+            with self.subTest(harness=harness):
+                config.save_session(self.cfg, SEAT, model, ["astra"], {
+                    "cwd": str(self.root), "created": 10})
+                self.pane = (REPO / f"tests/fixtures/{harness}-prompt-pane.txt").read_text()
+                self.frozen = True
+                self.keys.clear()
+                watch.seat_write(SEAT, state="at_prompt", turn_began=NOW - 7200,
+                                 stop_said_at=NOW - 3600, stop_nudged=None,
+                                 stop_said=watch.progress_output(harness, watch.pane_tail(self.pane)))
+                watch.stop_nudge(self.seat, harness, self.pane, None, [], False, lambda _: None)
+                # The Enter completes this line; only a new literal line must wait for the
+                # tty to drain. No pending draft or extra receipt state is needed on recovery.
+                self.assertEqual(self.read_input(), b"continue\r")
+                self.frozen = False
+                self.pane = (REPO / f"tests/fixtures/{harness}-working-pane.txt").read_text()
+                for tick in range(1, 4):
+                    with patch.object(watch.time, "time", return_value=NOW + tick * watch.STALL_WAIT * 2):
+                        watch.stop_nudge(self.seat, harness, self.pane, None, [], False, lambda _: None)
+                self.assertEqual([args[-1] for args in self.keys], ["continue", "Enter"])
 
     def test_notices_nudges_pty_senders_and_pending_enters_share_the_guard(self):
         self.put(b"unread")
