@@ -992,15 +992,13 @@ def tmux_literal(word):
 
 def tmux_file(words, socket=None):
     """Run that command list from a file, which tmux reads past the 16 KiB its message stops at.
-    Each word is written in quotes, where nothing but a quote is read as anything else, so tmux
-    takes it as whole as it does a call's (`tmux_literal`)."""
-    def quoted(word):
-        whole = word[:-2] + ";" if word.endswith("\\;") else word
-        return "'" + whole.replace("'", "'\\''") + "'"
-
+    Each word is written as a config line's (`tmux_word`), and the `\\;` a call's word ends in
+    to keep its `;` (`tmux_literal`) is that `;` here: tmux takes each as whole as a call's."""
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".tmux") as file:
-        file.write(" ; ".join(" ".join(map(quoted, command))
-                              for command in guard.commands(words)) + "\n")
+        file.write(" ; ".join(
+            " ".join(tmux_word(word[:-2] + ";" if word.endswith("\\;") else word)
+                     for word in command)
+            for command in guard.commands(words)) + "\n")
         file.flush()
         return tmux_out("source-file", file.name, socket=socket)
 
