@@ -1,11 +1,10 @@
-"""The worker's filesystem, network and process walls, built in one place.
+"""The worker's filesystem and process walls, built in one place.
 
 Offline worker fixtures may patch command to yield (argv, env, {}), keeping
 their process audit active outside the turn. The real walls are exercised by
 tests/test_worker_box.py.
 """
 
-import ipaddress
 import json
 import os
 from pathlib import Path
@@ -21,7 +20,7 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from string import Template
 
 # What a box never passes on: GitHub tokens, and the SSH agent's address.
@@ -33,11 +32,6 @@ OVERLAY_REMEDY = ("install bubblewrap with --tmp-overlay support and use a kerne
 # The supervisor runs from the text this module was loaded from: the file on disk can change
 # under a running launcher, when a probe checks out another revision of ak's own checkout.
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
-# What pasta keeps running in the box's network namespace: it says when it is there, which is
-# when pasta has set the namespace up, and lives while its stdin, held by ak, stays open.
-HOLDER = "import sys\nprint('ready', flush=True)\nsys.stdin.read()\n"
-# The box's own addresses in the network pasta gives it.
-OWN = ("10.0.2.15", "fd00::15")
 
 
 def _contents(root):
@@ -68,16 +62,12 @@ def _contents(root):
     return found
 
 
-def _host_binary(name):
-    return shutil.which(name, path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
-
-
 def _git(args, env, cwd, **kwargs):
     """Ask ak's own Git: the first in a directory ak's own PATH names in full.
 
     Its answers decide what a box hides and what it opens for writing. The command's PATH, a
     relative entry and the current directory may each name the project's own `git`."""
-    git = _host_binary("git")
+    git = shutil.which("git", path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
     if git is None:
         from . import config
         raise config.Error("worker box needs git in a directory PATH names in full")
@@ -335,159 +325,9 @@ def _bind(own, writable, homes=()):
     return args
 
 
-def _plain(resolver):
-    """Whether resolv.conf, given as bytes, names this host's resolvers so plainly that a
-    box in a network of its own asks the very same ones.
-
-    Every line with the word in it, comments apart, is `nameserver`, blanks and one address
-    and nothing else, and no address is one only this host's own network reaches as
-    written: loopback, the unspecified address libc takes for it, link-local, multicast, an
-    IPv4 address inside an IPv6 one, or the box's own. A line written any other way is read
-    differently from one libc to the next, and with no nameserver left libc asks
-    127.0.0.1: none of that is decided here, so none of it counts as plain."""
-    named = False
-    for line in resolver.split(b"\n"):
-        if line[:1] in (b"#", b";") or b"nameserver" not in line:
-            continue
-        match = re.fullmatch(rb"nameserver[ \t]+([0-9A-Fa-f:.]+)", line)
-        try:
-            address = ipaddress.ip_address(match[1].decode())
-        except (TypeError, ValueError):
-            return False
-        if (address.is_loopback or address.is_unspecified or address.is_link_local
-                or address.is_multicast or getattr(address, "ipv4_mapped", None)
-                or str(address) in OWN):
-            return False
-        named = True
-    return named
-
-
-def _alive(fd):
-    """Whether the process this pidfd names still holds its number: running or unreaped."""
-    try:
-        signal.pidfd_send_signal(fd, 0)
-    except ProcessLookupError:
-        return False
-    return True
-
-
-def _spaces(helper):
-    """Descriptors for the user and network namespaces of the holder pasta started, once
-    it says it runs there; None where pasta did not get that far."""
-    from . import host
-    # A pasta that fails may leave a process holding this pipe open, after part of a line
-    # or none: the whole read ends with its deadline, or with the helper's own end.
-    said, deadline, ended = b"", time.monotonic() + 10, os.pidfd_open(helper.pid)
-    try:
-        while said != b"ready\n":
-            left = max(0, deadline - time.monotonic())
-            if helper.stdout not in select.select([helper.stdout, ended], [], [], left)[0]:
-                return None
-            more = os.read(helper.stdout.fileno(), 64)
-            said += more
-            if not more or not b"ready\n".startswith(said):
-                return None
-    finally:
-        os.close(ended)
-    opened = []
-    try:
-        # The helper is this process's own child, unreaped, so its number is its own. Pasta
-        # stays in the user namespace it was started in; the holder is a child of it.
-        opened.append(os.open(f"/proc/{helper.pid}/ns/user", os.O_RDONLY))
-        for task in Path(f"/proc/{helper.pid}/task").iterdir():
-            for child in (task / "children").read_text().split():
-                holder = os.pidfd_open(int(child))
-                try:
-                    net = os.open(f"/proc/{child}/ns/net", os.O_RDONLY)
-                    seen = host.proc_stat(child)
-                    # The number named pasta's child for as long as the opened process kept
-                    # it, and the child is the holder only in a network namespace of its own.
-                    if seen is not None and seen.ppid == helper.pid and _alive(holder) \
-                            and os.fstat(net).st_ino != Path("/proc/self/ns/net").stat().st_ino:
-                        return opened.pop(), net
-                    os.close(net)
-                finally:
-                    os.close(holder)
-    except OSError:
-        pass
-    for fd in opened:
-        os.close(fd)
-    return None
-
-
-@contextmanager
-def _network(cmd, nested=False):
-    """The launch with a network of its own.
-
-    Pasta runs beside the box, never in front of it. A helper this context owns makes the
-    network namespace and keeps a holder in it; `nsenter` puts bwrap into the holder's
-    namespaces and becomes it. So bwrap stays the process its caller started, with every
-    descriptor and variable it was given, and nothing of pasta's is in a command's way.
-    With no way out (no route, no pasta, a launch that says it will start inside another
-    box) bwrap makes a network namespace of its own, with loopback only. Where resolv.conf
-    does not name the host's resolvers plainly, the box keeps the host's network, as before:
-    in one of its own it might resolve no name.
-    """
-    # With no usable route, pasta has no outside to connect to.
-    routes = any(line.split()[0] != "lo" and int(line.split()[3], 16) & 0x201 == 1
-                 for line in Path("/proc/net/route").read_text().splitlines()[1:])
-    ipv6 = Path("/proc/net/ipv6_route")
-    routes6 = ipv6.exists() and any(
-        line.split()[-1] != "lo" and int(line.split()[8], 16) & 0x201 == 1
-        for line in ipv6.read_text().splitlines())
-    unshare, pasta, nsenter = map(_host_binary, ("unshare", "pasta", "nsenter"))
-    if nested or not (routes or routes6) or not all((unshare, pasta, nsenter)):
-        yield [*cmd, "--unshare-net"]
-        return
-    try:
-        resolver = Path("/etc/resolv.conf").read_bytes()
-    except OSError:
-        resolver = b""
-    if not _plain(resolver):
-        yield cmd
-        return
-    # Pasta's own user namespace would map the account to root; this one keeps its numbers,
-    # so bwrap maps nothing back and starts the same inside an enclosing box.
-    # A different address inside keeps host listeners on its LAN address reachable.
-    # Loopback supplies both IP families.
-    beside = [unshare, "--user", "--map-current-user", "--keep-caps", pasta,
-              "--netns-only", "--config-net", "--no-map-gw", "--quiet",
-              "--interface", "lo", "--ns-ifname", "tap0",
-              "--address", OWN[0], "--netmask", "24", "--gateway", "10.0.2.2",
-              "--address", OWN[1], "--gateway", "fe80::1",
-              "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
-    with ExitStack() as held:
-        helper = subprocess.Popen([*beside, sys.executable, "-I", "-S", "-c", HOLDER],
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, start_new_session=True)
-
-        def end():
-            # The whole group, a process pasta left waiting too, and only while its leader is
-            # this process's own unreaped child: no other time is its number safe to signal.
-            try:
-                os.killpg(helper.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            helper.stdin.close()
-            helper.stdout.close()
-            helper.wait()
-
-        held.callback(end)
-        spaces = _spaces(helper)
-        if spaces is None:
-            held.close()
-            yield [*cmd, "--unshare-net"]
-            return
-        for fd in spaces:
-            held.callback(os.close, fd)
-        own = f"/proc/{os.getpid()}/fd"
-        yield [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
-               "--preserve-credentials", *cmd]
-
-
 @contextmanager
 def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(),
-            home_overlay=False, drain=False, nested=False):
+            home_overlay=False, drain=False):
     """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
@@ -495,8 +335,6 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     or /run/user, and temporary and runtime directories are the box's own, empty. Everything
     else is read-only; `home_overlay` gives checks throwaway writes in the account's home and
     HOME without child mounts, beneath the writable places and credential masks.
-    `nested` says the launch will be started inside another box, which cannot be asked from
-    here whether pasta starts there: it gets loopback only.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
@@ -538,8 +376,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
         cmd[at:at] = _bind({}, writable, homes)
-        with _network(cmd, nested) as launch:
-            yield [*launch, "--", *argv], clean, {}
+        yield [*cmd, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
     report.unlink(missing_ok=True)
@@ -593,9 +430,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            with _network(cmd, nested) as launch:
-                yield [*launch, "--info-fd", str(write), "--", *argv], clean, {
-                    "pass_fds": (write,), "stop": stop}
+            yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
+                "pass_fds": (write,), "stop": stop}
         finally:
             target = namespace()
             if target is not None:
@@ -652,10 +488,8 @@ def check():
     remedy = "sudo apt-get install -y bubblewrap"
     if not shutil.which("bwrap"):
         raise config.Error(f"worker box needs bubblewrap; run `{remedy}`")
-    if not shutil.which("pasta"):
-        raise config.Error("worker box needs pasta; run `sudo apt-get install -y passt`")
     try:
-        with command(["true"], os.environ, nested=True) as (inner, env, _):
+        with command(["true"], os.environ) as (inner, env, _):
             with command(inner, env) as (outer, env, _):
                 result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
@@ -679,7 +513,7 @@ def check():
             remedy = f"sudo sysctl -w {setting}"
             break
     raise config.Error(f"worker box cannot start: {why}; run `{remedy}`; "
-                       "the host must allow nested unprivileged user, network and PID namespaces")
+                       "the host must allow nested unprivileged user and PID namespaces")
 
 
 def _report(out_dir):
