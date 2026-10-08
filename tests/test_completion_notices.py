@@ -215,6 +215,165 @@ class CompletionNotices(Sandbox):
                 self.declare('The new export is shipped')
                 self.assertEqual(len(self.posted()), alerts + 1)
 
+    def test_a_failed_quiet_job_can_announce_its_repaired_ordinary_completion(self):
+        for index, (direct, older_coverage) in enumerate(product((False, True), repeat=2)):
+            with self.subTest(direct=direct, older_coverage=older_coverage):
+                self.name = f'quiet-gated-{index}'
+                self.seat(self.name, created=index + 20)
+                if older_coverage:
+                    self.checked('API shipped')
+                    self.assertEqual(notify.shaped('done', 'Explained the API',
+                                                  session=self.name, quiet=True), 0)
+                self.checked('API shipped', 'Export shipped')
+                directory = config.RUNS / f'acme-export-{index}'
+                directory.mkdir()
+                path = directory / 'run.json'
+                state = {'run_id': directory.name, 'state': 'running',
+                         'launched_session': self.name, 'started_at': self.now - 10, 'pid': 0}
+                path.write_text(json.dumps(state))
+                if direct:
+                    notify.record(self.name, 'done', 'Explained the export', quiet=True,
+                                  completion=notify._completion(self.name),
+                                  declared_at=self.now, runs=[directory.name])
+                    self.assertEqual(notify.transition(self.name), 0)
+                else:
+                    self.assertEqual(notify.shaped('done', 'Explained the export',
+                                                  session=self.name, quiet=True), 0)
+                self.assertEqual(watch.session_state(self.name)['word'], 'working')
+                self.assertEqual(self.posted(), [])
+                self.now += 10
+                state.update(state='fail', verdict='FAIL', reported=True,
+                             handed_back=self.now, finished_at=self.now)
+                path.write_text(json.dumps(state))
+                self.assertEqual(notify.transition(self.name), 0)
+                self.assertTrue(notify.last(self.name, include_seen=True)['seen'])
+                self.now += 10
+                state.update(state='running', reported=False, handed_back=None, finished_at=None)
+                path.write_text(json.dumps(state))
+                self.assertEqual(notify.transition(self.name), 0)
+                self.now += 10
+                state.update(state='pass', verdict='PASS', reported=True,
+                             handed_back=self.now, finished_at=self.now)
+                path.write_text(json.dumps(state))
+                self.declare('The repaired export is live')
+                self.assertEqual(len(self.posted()), 1)
+                self.internal_turn()
+                self.declare('The late handback confirms the repaired export')
+                self.assertEqual(len(self.posted()), 1)
+
+    def test_an_active_handback_keeps_the_next_quiet_answers_new_receipt(self):
+        decide = watch.session_state
+        for index, (direct, questioned) in enumerate(product((False, True), repeat=2)):
+            with self.subTest(direct=direct, questioned=questioned):
+                self.name = f'quiet-next-{index}'
+                self.seat(self.name, created=index + 20)
+                self.checked('API shipped')
+                live = {'state': 'working', 'began': self.now - 10}
+
+                def state(name, **facts):
+                    return decide(name, **{**facts, 'live': live})
+
+                with patch.object(watch, 'session_state', side_effect=state):
+                    self.assertEqual(notify.shaped('done', 'Explained the API',
+                                                  session=self.name, quiet=True), 0)
+                    self.now += 10
+                    live = {'state': 'at_prompt', 'began': self.now}
+                    self.assertEqual(watch.session_state(self.name)['word'], 'done')
+                    self.now += 10
+                    live = {'state': 'working', 'began': self.now}
+                    self.declare('A late internal handback confirms the API')
+                    if questioned:
+                        self.now += 10
+                        self.assertEqual(notify.shaped('needs', 'Which export format?',
+                                                      session=self.name), 0)
+                        self.now += 10
+                        notify.answered(self.name, self.now)
+                    self.now += 10
+                    self.checked('API shipped', 'Export shipped')
+                    receipt = notify._completion(self.name)
+                    if direct:
+                        notify.record(self.name, 'done', 'Explained the export', quiet=True,
+                                      completion=receipt, declared_at=self.now, runs=[])
+                    else:
+                        self.assertEqual(notify.shaped('done', 'Explained the export',
+                                                      session=self.name, quiet=True), 0)
+                    declared = notify.last(self.name)
+                    self.assertEqual((declared.get('quiet'), declared['text'],
+                                      declared['completion']), (True, 'Explained the export', receipt))
+                    self.internal_turn()
+                    self.declare('The late handback confirms the export')
+                    self.now += 10
+                    live = {'state': 'at_prompt', 'began': self.now}
+                    self.assertEqual(notify.transition(self.name), 0)
+                    self.assertEqual(self.posted(), [])
+                    self.now += 10
+                    self.checked('API shipped', 'Export shipped', 'Report shipped')
+                    self.declare('The new report is shipped')
+                    self.assertEqual(len(self.posted()), 1)
+
+    def test_a_quiet_receipt_recovers_after_its_card_write_was_interrupted(self):
+        decide = watch.session_state
+        for index, (direct, replaced) in enumerate(product((False, True), repeat=2)):
+            with self.subTest(direct=direct, replaced=replaced):
+                self.name = f'quiet-recovery-{index}'
+                self.seat(self.name, created=index + 20)
+                self.checked('API shipped')
+                live = {'state': 'working', 'began': self.now - 10}
+
+                def state(name, **facts):
+                    return decide(name, **{**facts, 'live': live})
+
+                with patch.object(watch, 'session_state', side_effect=state):
+                    notify.terminal_notice.reset_mock()
+                    with patch.object(notify, '_card_write', side_effect=OSError('interrupted')):
+                        if direct:
+                            with self.assertRaises(OSError):
+                                notify.record(self.name, 'done', 'Explained the API', quiet=True,
+                                              completion=notify._completion(self.name),
+                                              declared_at=self.now, runs=[])
+                        else:
+                            self.assertEqual(notify.shaped('done', 'Explained the API',
+                                                          session=self.name, quiet=True), 1)
+                    self.assertTrue(notify.last(self.name).get('quiet'))
+                    if not replaced:
+                        for _ in range(2):
+                            self.now += 10
+                            self.assertEqual(notify.transition(self.name), 0)
+                    self.now += 10
+                    # Replacement itself must recover the saved quiet work if no tick did.
+                    self.declare('A late internal handback confirms the API')
+                    self.now += 10
+                    live = {'state': 'at_prompt', 'began': self.now}
+                    self.assertEqual(notify.transition(self.name), 0)
+                    self.assertEqual(self.posted(), [])
+                    notify.terminal_notice.assert_not_called()
+                    self.now += 10
+                    self.checked('API shipped', 'Export shipped')
+                    self.declare('The new export is shipped')
+                    self.assertEqual(len(self.posted()), 1)
+
+    def test_a_passed_quiet_job_is_covered_before_a_handback_replaces_it(self):
+        self.checked('API shipped')
+        directory = config.RUNS / 'acme-api'
+        directory.mkdir()
+        path = directory / 'run.json'
+        state = {'run_id': directory.name, 'state': 'running',
+                 'launched_session': self.name, 'started_at': self.now - 10, 'pid': 0}
+        path.write_text(json.dumps(state))
+        self.assertEqual(notify.shaped('done', 'Explained the API',
+                                      session=self.name, quiet=True), 0)
+        self.assertEqual(self.posted(), [])
+        self.now += 10
+        state.update(state='pass', verdict='PASS', reported=True,
+                     handed_back=self.now, finished_at=self.now)
+        path.write_text(json.dumps(state))
+        self.declare('The late handback confirms the API')
+        self.assertEqual(self.posted(), [])
+        self.now += 10
+        self.checked('API shipped', 'Export shipped')
+        self.declare('The new export is shipped')
+        self.assertEqual(len(self.posted()), 1)
+
     def test_a_quiet_answer_after_an_unkeyed_card_keeps_the_verified_completion(self):
         for index, direct in enumerate((False, True)):
             with self.subTest(direct=direct):
