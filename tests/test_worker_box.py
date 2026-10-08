@@ -201,7 +201,8 @@ if role == "mount":
     Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
     if sys.argv[3].startswith("dns"):
         resolver = root / "resolv.conf"
-        address = "::1" if sys.argv[3] == "dns6" else "127.0.0.53"
+        # 127.53 is 127.0.0.53 to libc.
+        address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53"}[sys.argv[3]]
         resolver.write_text(f"nameserver {address}\nsearch acme.test\noptions timeout:1 attempts:1\n")
         subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
     # The package's AppArmor profile uses an unconfined exec transition, forbidden
@@ -323,7 +324,13 @@ try:
             for overlay in (False, True):
                 assert boxed('import json, socket; print(json.dumps(socket.gethostbyname("fixture")))',
                              overlay) == "203.0.113.7"
-            assert Path("/etc/resolv.conf").read_text().startswith(f"nameserver {address}\n")
+            assert Path("/etc/resolv.conf").read_text().startswith("nameserver ")
+            if sys.argv[3] == "dns":
+                # A resolver file the box masks as a credential stays masked: no copy of it
+                # takes the mask's place.
+                (root / ".ssh").mkdir()
+                (root / ".ssh/id_acme").symlink_to("/etc/resolv.conf")
+                assert boxed('import json; print(json.dumps(open("/etc/resolv.conf").read()))') == ""
         else:
             for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
                                     (socket.AF_INET, ("127.0.0.1", None)),
@@ -675,12 +682,9 @@ def stop_box(root, *, already_gone, online):
             proc.communicate(timeout=30)
             assert not beside(root), beside(root)
         finally:
-            # A failing proof must also end its own fixtures.
+            # What a failing proof leaves ends with this fixture's PID namespace.
             if proc is not None:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                proc.kill()
                 proc.wait(timeout=30)
                 for pipe in (proc.stdin, proc.stdout, proc.stderr):
                     pipe.close()
@@ -883,7 +887,10 @@ class WorkerBox(unittest.TestCase):
         script = work / "network.py"
         script.write_text(NETWORK)
         result = subprocess.run(
-            ["unshare", "--user", "--map-current-user", "--net", "--mount", "--keep-caps",
+            # A PID namespace of the fixture's own: whatever a failing proof leaves running
+            # ends with it, and no number of another process's is ever signalled.
+            ["unshare", "--user", "--map-current-user", "--net", "--mount", "--pid", "--fork",
+             "--mount-proc", "--keep-caps",
              sys.executable, str(script), str(work), "mount", mode, "online" if online else "offline"],
             env={**os.environ, "BOX_REPO": str(REPO), "HOME": str(work)}, capture_output=True, text=True,
             timeout=120)
@@ -893,7 +900,7 @@ class WorkerBox(unittest.TestCase):
         self.network_fixture("ports")
 
     def test_a_box_resolves_names_through_a_loopback_resolver(self):
-        for mode in ("dns", "dns6"):
+        for mode in ("dns", "dns6", "dnsshort"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
 

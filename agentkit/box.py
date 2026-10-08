@@ -15,6 +15,7 @@ import select
 import shlex
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -333,6 +334,26 @@ def _bind(own, writable, homes=()):
     return args
 
 
+def _loopback(name):
+    """The loopback address a resolv.conf nameserver names, as libc reads it, or None.
+
+    Libc reads an IPv4 address in its short and numeric spellings too (`127.53`), follows
+    an IPv4 address written inside an IPv6 one, and takes the unspecified address for this
+    host itself."""
+    name = name.partition("%")[0]
+    try:
+        address = ipaddress.ip_address(socket.inet_aton(name))
+    except OSError:
+        try:
+            address = ipaddress.ip_address(socket.inet_pton(socket.AF_INET6, name))
+        except OSError:
+            return None
+        address = address.ipv4_mapped or address
+    if address.is_unspecified:
+        return ipaddress.ip_address("127.0.0.1" if address.version == 4 else "::1")
+    return address if address.is_loopback else None
+
+
 def _alive(fd):
     """Whether the process this pidfd names still holds its number: running or unreaped."""
     try:
@@ -381,8 +402,8 @@ def _spaces(helper):
 
 
 @contextmanager
-def _network(cmd, out_dir=None, nested=False):
-    """The launch with a network of its own.
+def _network(cmd, out_dir=None, nested=False, hidden=()):
+    """The launch with a network of its own; `hidden` are the paths the box masks.
 
     Pasta runs beside the box, never in front of it. A helper this context owns makes the
     network namespace and keeps a holder in it; `nsenter` puts bwrap into the holder's
@@ -417,13 +438,10 @@ def _network(cmd, out_dir=None, nested=False):
     hosts, forwarder = {}, {4: "10.0.2.3", 6: "fd00::3"}
 
     def forward(match):
-        try:
-            address = ipaddress.ip_address(match[2])
-        except ValueError:
+        address = _loopback(match[2])
+        if address is None:
             return match[0]
-        if not address.is_loopback:
-            return match[0]
-        hosts.setdefault(address.version, str(address).split("%")[0])
+        hosts.setdefault(address.version, str(address))
         return match[1] + forwarder[address.version]
 
     content = re.sub(r"(?m)^([^\S\n]*nameserver[ \t]+)(\S+)", forward, content)
@@ -456,12 +474,14 @@ def _network(cmd, out_dir=None, nested=False):
         own = f"/proc/{os.getpid()}/fd"
         launch = [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
                   "--preserve-credentials", *cmd]
-        if hosts:
+        # A resolver the box masks as a credential stays masked: no copy of it is bound.
+        target = resolver.resolve()
+        if hosts and target not in hidden and not any(up in hidden for up in target.parents):
             dns = held.enter_context(
                 tempfile.NamedTemporaryFile(mode="w", prefix=".box-dns-", dir=out_dir))
             dns.write(content)
             dns.flush()
-            launch.extend(["--ro-bind", dns.name, str(resolver.resolve())])
+            launch.extend(["--ro-bind", dns.name, str(target)])
         yield launch
 
 
@@ -518,7 +538,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
         cmd[at:at] = _bind({}, writable, homes)
-        with _network(cmd, nested=nested) as launch:
+        with _network(cmd, nested=nested, hidden=targets) as launch:
             yield [*launch, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
@@ -573,7 +593,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            with _network(cmd, out_dir, nested) as launch:
+            with _network(cmd, out_dir, nested, targets) as launch:
                 yield [*launch, "--info-fd", str(write), "--", *argv], clean, {
                     "pass_fds": (write,), "stop": stop}
         finally:
