@@ -372,6 +372,15 @@ try:
                 capture_output=True, text=True, timeout=30)
             assert result.returncode == 0, result.stderr
             assert json.loads(result.stdout) == "ok"
+            # A pasta that starts a plain command, but behind which bwrap cannot start: an
+            # enclosing box's no_new_privs, on a host that leaves pasta unconfined.
+            refused = root / "refused"
+            refused.mkdir()
+            (refused / "pasta").write_text(
+                '#!/bin/sh\ncase " $* " in *" bwrap "*) exit 1;; esac\nexec /usr/bin/env -0\n')
+            (refused / "pasta").chmod(0o755)
+            os.environ["PATH"] = str(refused) + os.pathsep + os.environ["PATH"]
+            assert boxed('import json, socket; print(json.dumps(socket.if_nameindex()))') == [[1, "lo"]]
             unavailable = root / "unavailable"
             unavailable.mkdir()
             # A pasta that fails has already made a process for the command, and leaves it.
@@ -1219,6 +1228,36 @@ class WorkerBox(unittest.TestCase):
         for online in (False, True):
             with self.subTest(online=online):
                 self.network_fixture("stop-building", online=online)
+
+    def test_an_ended_box_s_namespace_number_never_names_another_box(self):
+        # The kernel gives an ended PID namespace's number to the next one made: a witness
+        # left by an ended box must not name the first process of a box that now has it.
+        other = subprocess.Popen(["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1",
+                                  "--die-with-parent", "--ro-bind", "/", "/", "--proc", "/proc",
+                                  "--", "sleep", "600"],
+                                 start_new_session=True, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+        self.addCleanup(other.wait)
+        self.addCleanup(other.kill)
+        beside = subprocess.Popen(["sleep", "600"], start_new_session=True,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(beside.wait)
+        self.addCleanup(beside.kill)
+        children = Path(f"/proc/{other.pid}/task/{other.pid}/children")
+        while not children.read_text().split():
+            self.assertIsNone(other.poll(), "the other box did not start")
+            time.sleep(.01)
+        # Killed this early, bwrap has not yet tied its box's first process to its own life.
+        first = os.pidfd_open(int(children.read_text().split()[0]))
+        self.addCleanup(os.close, first)
+        self.addCleanup(signal.pidfd_send_signal, first, signal.SIGKILL)
+        number = Path("/proc", children.read_text().split()[0], "ns/pid").stat().st_ino
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        witness = json.dumps({"child-pid": gone.pid, "pid-namespace": number})
+        self.assertIsNone(box._pidfd(witness))
+        # Nor when a stop searches on behalf of a launcher that is not that box's.
+        self.assertIsNone(box._pidfd(witness, beside.pid))
 
     def test_a_box_whose_launcher_is_already_gone_is_ended_by_its_stop(self):
         for online in (False, True):

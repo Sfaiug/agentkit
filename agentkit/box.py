@@ -21,7 +21,7 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from string import Template
 
 # What a box never passes on: GitHub tokens, and the SSH agent's address.
@@ -372,40 +372,46 @@ def _network(cmd, env, out_dir=None, info=None):
     for version, address in hosts.items():
         prefix.extend(["--dns-forward", "10.0.2.3" if version == 4 else "fd00::3",
                        "--dns-host", address])
-    # In an enclosing box, the host's pasta may be unable to start a command
-    # (for example an AppArmor exec transition under no_new_privs). Where it can, that
-    # transition may clear variables the loader distrusts (TMPDIR, LD_LIBRARY_PATH):
-    # the probe says which survive, and bwrap gives the command the rest back.
-    # A pasta that fails leaves the process it had made for the command waiting: the probe
-    # writes to a file, never a pipe that process would hold open, and its group ends with it.
-    with tempfile.TemporaryFile() as said, \
-            subprocess.Popen([*prefix, "/usr/bin/env", "-0"], env=env, stdout=said,
-                             stderr=subprocess.DEVNULL, start_new_session=True) as probe:
-        try:
-            ready = probe.wait(timeout=10) == 0
-        except subprocess.TimeoutExpired:
-            ready = False
-        finally:
+    with ExitStack() as held:
+        account = ["--uid", str(os.getuid()), "--gid", str(os.getgid())]
+        launch = [*prefix, *cmd, *account]
+        if hosts:
+            dns = held.enter_context(
+                tempfile.NamedTemporaryFile(mode="w", prefix=".box-dns-", dir=out_dir))
+            dns.write(content)
+            dns.flush()
+            launch.extend(["--ro-bind", dns.name, str(resolver.resolve())])
+        # The probe starts bwrap behind pasta as the launch will, with a command that only
+        # lists its environment: in an enclosing box pasta may be unable to start a command
+        # (an AppArmor exec transition under no_new_privs), or may start one behind which
+        # bwrap cannot map the account. Where both start, that transition may clear variables
+        # the loader distrusts (TMPDIR, LD_LIBRARY_PATH): the list says which reach the
+        # command, and bwrap gives it the rest back.
+        # A pasta that fails leaves the process it had made for the command waiting: the probe
+        # writes to a file, never a pipe that process would hold open, and its group ends with it.
+        with tempfile.TemporaryFile() as said, \
+                subprocess.Popen([*prefix, "bwrap", "--unshare-user", "--unshare-pid", *account,
+                                  "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
+                                  "--", "/usr/bin/env", "-0"], env=env, stdout=said,
+                                 stderr=subprocess.DEVNULL, start_new_session=True) as probe:
             try:
-                os.killpg(probe.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        said.seek(0)
-        kept = {entry.partition(b"=")[0] for entry in said.read().split(b"\0")}
-    if not ready:
-        yield [*cmd, "--unshare-net"]
-        return
-    account = ["--uid", str(os.getuid()), "--gid", str(os.getgid())]
-    for name, value in env.items():
-        if os.fsencode(name) not in kept:
-            account.extend(["--setenv", name, value])
-    if not hosts:
-        yield [*prefix, *cmd, *account]
-        return
-    with tempfile.NamedTemporaryFile(mode="w", prefix=".box-dns-", dir=out_dir) as dns:
-        dns.write(content)
-        dns.flush()
-        yield [*prefix, *cmd, *account, "--ro-bind", dns.name, str(resolver.resolve())]
+                ready = probe.wait(timeout=10) == 0
+            except subprocess.TimeoutExpired:
+                ready = False
+            finally:
+                try:
+                    os.killpg(probe.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            said.seek(0)
+            kept = {entry.partition(b"=")[0] for entry in said.read().split(b"\0")}
+        if not ready:
+            yield [*cmd, "--unshare-net"]
+            return
+        for name, value in env.items():
+            if os.fsencode(name) not in kept:
+                launch.extend(["--setenv", name, value])
+        yield launch
 
 
 @contextmanager
@@ -471,22 +477,22 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     target = None
     lock = threading.Lock()
 
-    def namespace():
+    def namespace(launcher=None):
         nonlocal target
         with lock:
             if target is None:
                 info.seek(0)
-                target = _pidfd(info.read())
+                target = _pidfd(info.read(), launcher)
         return target
 
     def stop(proc, grace):
-        target = namespace()
         deadline = time.monotonic() + grace
-        if target is not None:
-            fd, pid = target
-            # The witness precedes exec. PID 1 ignores TERM until the supervisor
-            # installs its handler, so an early interruption must wait for it.
-            while proc.poll() is None and time.monotonic() < deadline:
+        # The witness precedes exec. PID 1 ignores TERM until the supervisor
+        # installs its handler, so an early interruption must wait for it.
+        while proc.poll() is None and time.monotonic() < deadline:
+            target = namespace(proc.pid)
+            if target is not None:
+                fd, pid = target
                 try:
                     status = Path(f"/proc/{pid}/status").read_text()
                     caught = next(line.split()[1] for line in status.splitlines()
@@ -496,19 +502,20 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                         break
                 except (FileNotFoundError, ProcessLookupError):
                     break
-                time.sleep(.01)
+            time.sleep(.01)
         try:
             proc.wait(timeout=max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
             pass
         finally:
-            # End pasta, bwrap and any unnamed box first. PID 1 leaves this group
-            # only after bwrap names it, so no unnamed box can appear after the kill.
+            # Name PID 1 while its launcher's group can still vouch for it, then end pasta,
+            # bwrap and any unnamed box with that group. PID 1 leaves the group only after
+            # bwrap names it, so no unnamed box can appear after the kill.
+            target = namespace(proc.pid)
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            target = namespace()
             if target is not None:
                 _kill(target[0])
 
@@ -526,35 +533,51 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                 _wait(target[0])
 
 
-def _pidfd(info):
+def _pidfd(info, launcher=None):
     # A killed bwrap can exit before its PID 1 finishes killing descendants.
     # Its private witness names that process; a pidfd waits for the kernel's
     # teardown, not an environment sweep or a delay guessed to be long enough.
     try:
         info = json.loads(info)
-        pid = info["child-pid"]
-        # Pasta also makes a PID namespace, so bwrap's child number may be local
-        # to it. Find PID 1 by the namespace inode before opening its host pidfd.
-        for entry in [Path(f"/proc/{pid}"), *Path("/proc").iterdir()]:
-            if not entry.name.isdigit():
-                continue
-            try:
-                if (entry / "ns/pid").stat().st_ino != info["pid-namespace"]:
-                    continue
-                status = (entry / "status").read_text().splitlines()
-                if next(line.split()[-1] for line in status if line.startswith("NSpid:")) == "1":
-                    pid = int(entry.name)
-                    break
-            except (FileNotFoundError, PermissionError):
-                continue
-        else:
-            return
+        named, space = info["child-pid"], info["pid-namespace"]
+    except (ValueError, KeyError, TypeError):
+        return
+
+    def first(pid):
+        try:
+            if Path(f"/proc/{pid}/ns/pid").stat().st_ino != space:
+                return False
+            status = Path(f"/proc/{pid}/status").read_text().splitlines()
+            return next(line.split()[-1] for line in status if line.startswith("NSpid:")) == "1"
+        except (OSError, StopIteration):
+            return False
+
+    def stat(pid, field):
+        try:
+            return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[field])
+        except (OSError, IndexError, ValueError):
+            return None
+
+    pid = named if first(named) else None
+    if pid is None and launcher is not None:
+        # Behind pasta, bwrap's number is local to pasta's PID namespace. A namespace's own
+        # number is no name for it either: once it has ended the kernel gives that number to
+        # the next one made, another box's. So the search takes only a process whose parent,
+        # bwrap, is in the process group of the launcher being stopped.
+        for entry in Path("/proc").iterdir():
+            if entry.name.isdigit() and first(entry.name) \
+                    and stat(stat(entry.name, 1), 2) == launcher:
+                pid = int(entry.name)
+                break
+    if pid is None:
+        return
+    try:
         fd = os.pidfd_open(pid)
-    except (ValueError, KeyError, ProcessLookupError):
+    except ProcessLookupError:
         return
     try:
         try:
-            same = Path(f"/proc/{pid}/ns/pid").stat().st_ino == info["pid-namespace"]
+            same = Path(f"/proc/{pid}/ns/pid").stat().st_ino == space
         except FileNotFoundError:
             # The namespace link disappears before PID 1 finishes teardown.
             same = True
