@@ -7,11 +7,18 @@ from agentkit import config, land, record, run, watch
 from agentkit.run import join_line
 
 
+def local_owner_target(wt, upstream, *_args, **_kw):
+    """These fake GitHub repositories keep their target in the fixture's Git refs."""
+    ref = f"refs/remotes/{upstream}" if upstream.startswith("origin/") else upstream
+    return run.git(wt, "rev-parse", f"{ref}^{{commit}}")
+
+
 def landing(lp, deliver=None, *, checked=lambda: None, consume=None):
     """Join, run one lander pass and consume its verdict; a changed target stays queued."""
     (lp.run_dir / "task.md").write_text(
         f"# {lp.state['title']}\n\n## Done when\n```bash\n" + "\n".join(lp.cmds) + "\n```\n")
-    with patch.object(land, "start_line"), patch.object(watch, "launch_resume"):
+    with patch.object(land, "start_line"), patch.object(watch, "launch_resume"), \
+            patch.object(run, "owner_target", side_effect=local_owner_target):
         def act():
             if deliver is None:
                 return run.merge(lp)
@@ -60,8 +67,9 @@ def fork_landing(lp):
 
 def fork_turn(lp, upstream, deliver):
     """The line handoff's stand-in for tests of the integration path retained for forks."""
-    return run.land(lp, upstream,
-                    lambda: (run.integrate(lp, upstream)
-                             and ((lp.state.get("pr") and run.git(lp.wt, "rev-parse", "HEAD")
-                                   == lp.state.get("delivery_sha"))
-                                  or run.final_check(lp, upstream))), deliver)
+    with patch.object(run, "owner_target", side_effect=local_owner_target):
+        return run.land(lp, upstream,
+                        lambda: (run.integrate(lp, upstream)
+                                 and ((lp.state.get("pr") and run.git(lp.wt, "rev-parse", "HEAD")
+                                       == lp.state.get("delivery_sha"))
+                                      or run.final_check(lp, upstream))), deliver)

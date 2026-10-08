@@ -74,6 +74,8 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
                 "author": "owner", "title": "Mend the fence", "body": "Fix the fence"}
 
     def gh_json(self, _cwd, *args, **_kw):
+        if args == ("api", "repos/acme/widget/git/ref/heads/main"):
+            return {"object": {"type": "commit", "sha": run.git(self.remote, "rev-parse", "main")}}, ""
         if "graphql" in args:
             return "Mend the fence", ""
         url = next((url for url in self.prs if url in args), None)
