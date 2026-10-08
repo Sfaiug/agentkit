@@ -397,8 +397,10 @@ def name_lock(name):
 def record(session, kind, text, **extra):
     """Remember the last thing a session said, so the menu can show it as the session's state."""
     config.ensure_dirs()
+    previous = last(session, include_seen=True) or {}
+    # Recover a valid quiet receipt before another declaration can replace its evidence.
+    _remember_quiet(session, previous)
     if kind == "needs" or extra.get("quiet"):
-        previous = last(session, include_seen=True) or {}
         pending = previous.get("pending_done")
         if previous.get("kind") == "done":
             pending = (previous if not previous.get("quiet") and not previous.get("handled")
@@ -422,17 +424,17 @@ def record(session, kind, text, **extra):
             if earlier:
                 kept["earlier_answer_at"] = earlier
             extra = kept
+    if (kind == "done" and not extra.get("quiet") and not extra.get("seen")
+            and extra.get("completion") == _card_read(session).get("completed")
+            and extra.get("completion")):
+        # Already-covered work is handled even while this handback's turn is running.
+        extra["handled"] = True
+    declared = {"session": session, "kind": kind, "text": text, "time": time.time(), **extra}
     path = config.notify_path(session)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"session": session, "kind": kind, "text": text,
-                               "time": time.time(), **extra}) + "\n")
+    tmp.write_text(json.dumps(declared) + "\n")
     tmp.replace(path)
-    if kind == "done" and extra.get("quiet") and extra.get("completion"):
-        # The harness may still be working, and another turn can replace this notice
-        # before a card tick. Only a standalone quiet answer covers its own receipt.
-        card = _card_read(session)
-        if card.get("completed") != extra["completion"]:
-            _card_write(session, {**card, "completed": extra["completion"]})
+    _remember_quiet(session, declared)
 
 
 def last(session, include_seen=False):
@@ -1109,6 +1111,29 @@ def needs_transition(session, card, answer, now, seat=None):
     return _send_card(session, "needs", card, answer)
 
 
+def _remember_quiet(session, declared, records=None):
+    """Cover a quiet receipt once its runs permit completion, even during a harness turn.
+
+    Record and tick use the same proof. A failed card write leaves the declaration for
+    either path to recover; an unfinished or failed declaration covers no new work.
+    """
+    if (not declared or declared.get("kind") != "done" or not declared.get("quiet")
+            or declared.get("seen") or not declared.get("completion")):
+        return
+    card = _card_read(session)
+    if card.get("completed") == declared["completion"]:
+        return
+    from . import menu, run
+    records = menu.run_records() if records is None else records
+    mine = [(directory, state) for directory, state in records
+            if run.launched_session(state) == session]
+    index = run.supersession_index(records)
+    if (failed_declaration(declared, mine, index)
+            or any(run.going(state) or run.unfinished(state, index=index) for _, state in mine)):
+        return
+    _card_write(session, {**card, "completed": declared["completion"]})
+
+
 def _remember_done(session, declared):
     """A duplicate handled by the card latch is complete without another outbox event."""
     if (not declared or declared["kind"] != "done" or declared.get("quiet")
@@ -1127,8 +1152,8 @@ def _remember_done(session, declared):
 def done_transition(session, card, answer, now):
     """A quiet receipt or one completion alert when the state function says done.
 
-    Quiet receipts are covered when recorded. Delivery skips history, owner-closed seats
-    and already-carded declarations; open questions close when allowed.
+    Valid quiet receipts are covered by record and tick. Delivery skips history,
+    owner-closed seats and already-carded declarations; open questions close when allowed.
     """
     from . import watch
     declared = last(session, include_seen=True)
@@ -1173,7 +1198,6 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
     try:
         with session_lock(session) as name:
             at = time.time() if now is None else now
-            card = _card_read(name)
             records = menu.run_records()
             mine = [(directory, state) for directory, state in records
                     if run.launched_session(state) == name]
@@ -1181,6 +1205,7 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             if declared and declared.get("seen") and declared.get("kind") == "done":
                 # Already dropped: no second log line, but later words still card.
                 declared = None
+            _remember_quiet(name, declared, records)
             if declared and declared["kind"] == "done":
                 failed = failed_declaration(
                     declared, mine, run.supersession_index(records))
@@ -1189,6 +1214,7 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                     record(name, "done", declared["text"], **extra, seen=True)
                     log(f"dropping done declaration for {name}: {', '.join(failed)} failed; not sent")
                     answer = None
+            card = _card_read(name)
             previous = watch.seat_read(name)
             # A screen may have observed an intervening episode since our last tick, but
             # not while a job's done stands: the screens read no notice there, and their
