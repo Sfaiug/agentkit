@@ -401,7 +401,7 @@ def record(session, kind, text, **extra):
         previous = last(session, include_seen=True) or {}
         pending = previous.get("pending_done")
         if previous.get("kind") == "done":
-            pending = (previous if not previous.get("quiet") and not previous.get("seen")
+            pending = (previous if not previous.get("quiet")
                        and not _carded(session, previous) else None)
         if kind == "needs":
             # A question changes the word, not a job's still-promised completion.
@@ -410,8 +410,8 @@ def record(session, kind, text, **extra):
             if pending:
                 extra.setdefault("pending_done", pending)
         elif pending:
-            # Quiet answers refresh that declaration even across questions. Keep its
-            # failure boundary and payload, with the current question's delivery facts.
+            # Quiet answers keep even a retired declaration's failure boundary and
+            # payload, with the current question's delivery facts. Repair needs a new done.
             text = pending["text"]
             kept = {k: v for k, v in pending.items()
                     if k not in ("session", "kind", "text", "time", "pending_done")}
@@ -1110,16 +1110,18 @@ def done_transition(session, card, answer, now):
     already carded -- which latches this episode as sent, so the outbox is read once.
     """
     from . import watch
+    declared = last(session, include_seen=True)
+    quiet = declared and declared["kind"] == "done" and declared.get("quiet")
+    if quiet and declared.get("completion"):
+        # A quiet declaration records its own work even behind an older sent/history card.
+        card["completed"] = declared["completion"]
+        _card_write(session, card)
     if card.get("sent") or _history(card) or watch.seat_closed_by_owner(session):
         return 0
     # A question a standing done was outranked by is finished when the word comes back to it,
     # carded before or not.
     _close_card(session, card, "Done")
-    declared = last(session, include_seen=True)
-    if declared and declared["kind"] == "done" and declared.get("quiet"):
-        # The same checked work stays complete across internal turns, without an outbox event.
-        if declared.get("completion"):
-            card["completed"] = declared["completion"]
+    if quiet:
         _card_write(session, card)
         return 0
     completion = declared.get("completion") if declared else None

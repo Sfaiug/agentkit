@@ -63,7 +63,7 @@ def recorded_ending(name, records=None, *, question=False, completion=None, sinc
                 or notify.failed_declaration(notice, mine, run.supersession_index(records))):
             return False
         try:
-            if plan.open_lines(name):
+            if plan.unfinished(name):
                 return False
         except config.Error:
             return False

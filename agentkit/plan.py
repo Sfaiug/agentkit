@@ -118,6 +118,12 @@ def open_lines(name):
                 if LINE.match(line.strip()) and is_open(line)]
 
 
+def unfinished(name):
+    """Whether any outcome remains open, including hand-kept box lines."""
+    with held(name) as current:
+        return any(is_open(line) for line in lines(current))
+
+
 def write(name, text_lines):
     path_ = path(name)
     path_.parent.mkdir(parents=True, exist_ok=True)
