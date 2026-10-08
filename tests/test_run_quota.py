@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.clock import Clock
 from fixtures.hand_in import submitting, scripted, stateful
 from agentkit import gate, harness, host, config, notify, orch, run, status, usage, watch
 from agentkit import record
@@ -40,21 +41,6 @@ def meter(name, used, resets_at, window=WEEK):
 
 
 METERED = ("anthropic", "openai", "meta")
-
-
-class Clock:
-    """`time` as run.py sees it, with only run.py's own sleeps going to `sleep`.
-
-    Patching `time.sleep` itself would also record `subprocess`'s wait-polling under
-    every timed git, gh or adapter call -- hundreds of tiny sleeps whenever a child
-    outlives its first waitpid -- and the exact lists below would fail by host load.
-    """
-
-    def __init__(self, sleep):
-        self.sleep = sleep
-
-    def __getattr__(self, name):
-        return getattr(time, name)
 
 
 def scope_defaults(cfg):
