@@ -186,224 +186,6 @@ else:
         print(json.dumps(boxed("probe", role == "check")))
 '''
 
-NETWORK = r"""import json, os, shutil, socket, struct, subprocess, sys, tempfile, threading
-from contextlib import ExitStack
-from pathlib import Path
-root, role = Path(sys.argv[1]), sys.argv[2]
-if role == "mount":
-    subprocess.run(["mount", "--make-rprivate", "/"], check=True)
-    subprocess.run(["ip", "link", "set", "lo", "up"], check=True)
-    if sys.argv[4] == "online":
-        subprocess.run(["ip", "link", "add", "internet", "type", "dummy"], check=True)
-        subprocess.run(["ip", "addr", "add", "192.0.2.1/24", "dev", "internet"], check=True)
-        subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
-        subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
-    Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").write_text("0")
-    # The fixture's own resolver, so the host's decides nothing here: one on the stand-in
-    # internet, or for the resolver cases one that only this namespace's own network
-    # reaches. 127.53 is 127.0.0.53 to libc; an address with a carriage return after it is
-    # none to libc, and with no nameserver named it asks 127.0.0.1.
-    resolver = root / "resolv.conf"
-    address = {"dns": "127.0.0.53", "dns6": "::1", "dnsshort": "127.53", "dnscrlf": "192.0.2.1\r",
-               "dnsnone": None}.get(sys.argv[3], "192.0.2.1")
-    resolver.write_bytes(((f"nameserver {address}\n" if address else "")
-                          + "search acme.test\noptions timeout:1 attempts:1\n").encode())
-    subprocess.run(["mount", "--bind", str(resolver), "/etc/resolv.conf"], check=True)
-    # The package's AppArmor profile uses an unconfined exec transition, forbidden
-    # by an enclosing box's no_new_privs. This private copy tests pasta itself.
-    bindir = root / "bin"
-    bindir.mkdir()
-    pasta = Path(shutil.which("pasta"))
-    for binary in (pasta, pasta.with_name("pasta.avx2")):
-        if binary.exists():
-            shutil.copyfile(binary, bindir / binary.name)
-            (bindir / binary.name).chmod(0o755)
-    os.environ["PATH"] = str(bindir) + os.pathsep + os.environ["PATH"]
-    os.execvp("setpriv", ["setpriv", "--inh-caps=-all", "--ambient-caps=-all",
-                         sys.executable, __file__, str(root), "host", *sys.argv[3:]])
-sys.path.insert(0, os.environ["BOX_REPO"])
-from agentkit import box
-sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
-from fixtures.sandbox import account_home
-
-
-from test_worker_box import beside
-if role == "host" and sys.argv[3].startswith("stop-"):
-    from test_worker_box import stop_box
-    with socket.socket() as internet:
-        if sys.argv[4] == "online":
-            internet.bind(("192.0.2.1", 12345))
-            internet.listen()
-        stop_box(root, already_gone=sys.argv[3] == "stop-gone", online=sys.argv[4] == "online")
-    print(json.dumps("ok"))
-    sys.exit(0)
-
-
-def boxed(source, overlay=False):
-    out = Path(tempfile.mkdtemp(dir=root))
-    with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
-                                        out, cwd=root, home_overlay=overlay) as (cmd, env, spawn):
-        spawn.pop("stop")
-        result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
-                                timeout=30, **spawn)
-    assert result.returncode == 0, result.stderr
-    # The walls print nothing of their own into what a command prints, and the pasta that
-    # ran beside the box is gone with it.
-    assert result.stderr == "", result.stderr
-    assert not beside(root), beside(root)
-    return json.loads(result.stdout)
-
-
-if role == "offline":
-    assert boxed('import json, socket; print(json.dumps(socket.if_nameindex()))') == [[1, "lo"]]
-    # The shell that brought this role here cannot carry such a name itself.
-    os.environ["BASH_FUNC_acme%%"] = "() {  echo kept\n}"
-    assert boxed('import json, os; print(json.dumps(os.environ.get("BASH_FUNC_acme%%")))') \
-        == "() {  echo kept\n}"
-    assert boxed('import json, socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); '
-                 's.listen(); c = socket.create_connection(s.getsockname()); '
-                 'print(json.dumps(True))') is True
-    print(json.dumps("ok"))
-    sys.exit(0)
-
-
-def serve(server, stop, dns=False):
-    server.settimeout(.1)
-    while not stop.is_set():
-        try:
-            if dns:
-                query, peer = server.recvfrom(4096)
-                labels, at = [], 12
-                while query[at]:
-                    size = query[at]
-                    labels.append(query[at + 1:at + 1 + size].decode())
-                    at += size + 1
-                found = ".".join(labels) == "fixture.acme.test"
-                answer = b"\xc0\x0c" + struct.pack("!HHIH", 1, 1, 60, 4) + socket.inet_aton("203.0.113.7")
-                server.sendto(query[:2] + struct.pack("!HHHHH", 0x8180 if found else 0x8183,
-                                                    1, int(found), 0, 0)
-                              + query[12:] + (answer if found else b""), peer)
-            else:
-                client, _ = server.accept()
-                with client:
-                    client.sendall(b"acme")
-        except socket.timeout:
-            pass
-        except OSError:
-            break
-
-
-probe = r'''import json, os, socket
-from pathlib import Path
-assert [os.getuid(), os.getgid()] == json.loads(os.environ["IDENTITY"])
-Path("written").write_text("own")
-def reaches(family, address):
-    with socket.socket(family) as client:
-        client.settimeout(2)
-        try:
-            client.connect(address)
-            return client.recv(4) == b"acme"
-        except OSError:
-            return False
-seen = [reaches(socket.AF_INET, (host, int(os.environ["PORT"])))
-        for host in ("192.0.2.1", "127.0.0.1", "10.0.2.2")]
-seen.append(reaches(socket.AF_UNIX, "\0acme"))
-seen.append(reaches(socket.AF_INET6, ("::1", int(os.environ["PORT"]))))
-print(json.dumps(seen))
-'''
-stop, threads = threading.Event(), []
-try:
-    with ExitStack() as stack:
-        if sys.argv[3].startswith("dns"):
-            family, address = {"dns6": (socket.AF_INET6, "::1"),
-                               "dnscrlf": (socket.AF_INET, "127.0.0.1"),
-                               "dnsnone": (socket.AF_INET, "127.0.0.1")}.get(
-                                   sys.argv[3], (socket.AF_INET, "127.0.0.53"))
-            server = stack.enter_context(socket.socket(family, socket.SOCK_DGRAM))
-            server.bind((address, 53))
-            thread = threading.Thread(target=serve, args=(server, stop, True))
-            thread.start()
-            threads.append(thread)
-            assert socket.gethostbyname("fixture.acme.test") == "203.0.113.7"
-            # The resolver file does not name this host's resolver plainly: the box is in
-            # the host's network, as before, and resolves the name as the host does.
-            here = os.readlink("/proc/self/ns/net")
-            for overlay in (False, True):
-                assert boxed('import json, os, socket; print(json.dumps([os.readlink("/proc/self/ns/net"), '
-                             'socket.gethostbyname("fixture")]))', overlay) == [here, "203.0.113.7"]
-        else:
-            for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
-                                    (socket.AF_INET, ("127.0.0.1", None)),
-                                    (socket.AF_INET6, ("::1", None)),
-                                    (socket.AF_UNIX, "\0acme")):
-                server = stack.enter_context(socket.socket(family))
-                if family in (socket.AF_INET, socket.AF_INET6):
-                    server.bind((address[0], address[1] if address[1] is not None else port))
-                    port = server.getsockname()[1]
-                else:
-                    server.bind(address)
-                server.listen(8)
-                thread = threading.Thread(target=serve, args=(server, stop))
-                thread.start()
-                threads.append(thread)
-            os.environ["PORT"] = str(port)
-            os.environ["IDENTITY"] = json.dumps([os.getuid(), os.getgid()])
-            seen = json.loads(subprocess.check_output([sys.executable, "-c", probe],
-                                                     cwd=root, text=True, timeout=10))
-            assert seen == [True, True, False, True, True], seen
-            for overlay in (False, True):
-                seen = boxed(probe, overlay)
-                assert seen == [True, False, False, False, False], seen
-                assert (root / "written").stat().st_uid == os.getuid()
-                assert (root / "written").stat().st_gid == os.getgid()
-            # The command's variables arrive whole, one a shell cannot name among them.
-            os.environ["BASH_FUNC_acme%%"] = "() {  echo kept\n}"
-            assert boxed('import json, os; print(json.dumps(os.environ.get("BASH_FUNC_acme%%")))') \
-                == "() {  echo kept\n}"
-            # A stop reaches the command's own handler, which saves its cleanup first.
-            from agentkit import worker
-            out = Path(tempfile.mkdtemp(dir=root))
-            source = ('import signal, sys, time; from pathlib import Path; '
-                      'signal.signal(signal.SIGTERM, lambda *_: '
-                      '(Path("closed").touch(), sys.exit(0))); '
-                      'Path("ready").touch(); time.sleep(300)')
-            with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
-                                                out, cwd=root) as (cmd, env, spawn):
-                _, _, killed = worker.limited(cmd, None, env=env, cwd=root,
-                                               abort=lambda: (root / "ready").exists(), **spawn)
-            assert killed and (root / "closed").exists()
-            assert box.leftovers(out) == []
-            result = subprocess.run(
-                ["unshare", "--user", "--map-current-user", "--net", "--keep-caps",
-                 "sh", "-c", 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"',
-                 "-", sys.executable, __file__, str(root), "offline"],
-                capture_output=True, text=True, timeout=30)
-            assert result.returncode == 0, result.stderr
-            assert json.loads(result.stdout) == "ok"
-            unavailable = root / "unavailable"
-            unavailable.mkdir()
-            # A pasta that fails has already made a process for its command, and leaves it,
-            # with nothing said or with part of the holder's line: the box starts with
-            # loopback only, at once, and that process is ended.
-            os.environ["PATH"] = str(unavailable) + os.pathsep + os.environ["PATH"]
-            for said in ("", "printf rea\n"):
-                (unavailable / "pasta").write_text(
-                    f'#!/bin/sh\n{said}sleep 300 &\necho $! > {unavailable}/left\nexit 1\n')
-                (unavailable / "pasta").chmod(0o755)
-                assert boxed('import json, socket; print(json.dumps(socket.if_nameindex()))') == [[1, "lo"]]
-                left = Path("/proc", (unavailable / "left").read_text().strip(), "stat")
-                assert not left.exists() or left.read_text().rsplit(")", 1)[1].split()[0] == "Z"
-        stop.set()
-        for thread in threads:
-            thread.join()
-finally:
-    stop.set()
-    for thread in threads:
-        thread.join()
-print(json.dumps("ok"))
-"""
-
-
 SHM = r'''import json, os, subprocess, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, os.environ["BOX_REPO"])
@@ -633,22 +415,19 @@ else:
 '''
 
 
-def beside(root):
-    """The pasta a network fixture copied into `root`, wherever it still runs."""
-    found = []
-    for entry in Path("/proc").iterdir():
-        try:
-            if entry.name.isdigit() and str(root / "bin").encode() in (entry / "cmdline").read_bytes():
-                found.append(entry.name)
-        except OSError:
-            pass
-    return found
+STOPS = r'''import json, os, sys
+from pathlib import Path
+sys.path.insert(0, os.environ["BOX_REPO"])
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
+from test_worker_box import stop_box
+stop_box(Path(sys.argv[1]), already_gone=sys.argv[2] == "gone")
+print(json.dumps("ok"))
+'''
 
 
-def stop_box(root, *, already_gone, online):
+def stop_box(root, *, already_gone):
     # Stdin holds bwrap mid-build and its status on stderr says it has named the box's
-    # first process, the same with pasta beside the box as without: bwrap is the launcher
-    # either way. Last, no stop at all: the context ends its own box as it closes.
+    # first process. Last, no stop at all: the context ends its own box as it closes.
     moments = ("named",) if already_gone else ("early", "named")
     up = "import time; print('up', flush=True); time.sleep(600)"
     for moment in moments if already_gone else (*moments, "unstopped"):
@@ -658,7 +437,6 @@ def stop_box(root, *, already_gone, online):
             with account_home(root), box.command([sys.executable, "-c", up], dict(os.environ), out,
                                                 cwd=root, drain=True) as (cmd, env, spawn):
                 stop = spawn.pop("stop")
-                assert ("--unshare-net" not in cmd) == online, cmd
                 if moment == "named":
                     at = cmd.index("--info-fd")
                     cmd[at:at] = ["--block-fd", "0", "--json-status-fd", "2"]
@@ -680,9 +458,8 @@ def stop_box(root, *, already_gone, online):
                     proc.wait()
                 if moment != "unstopped":
                     stop(proc, 0)
-            # Whatever still ran would hold these open; the pasta beside the box is gone too.
+            # Whatever still ran would hold these open.
             proc.communicate(timeout=30)
-            assert not beside(root), beside(root)
         finally:
             # What a failing proof leaves ends with this fixture's PID namespace.
             if proc is not None:
@@ -882,49 +659,6 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual((code, killed), (0, False))
         self.assertEqual(json.loads(text)["paths"], [""] * len(paths))
         self.assertEqual([path.read_text() for path in paths], ["fixture-key"] * len(paths))
-
-    def network_fixture(self, mode, *, online=True):
-        work = self.root / (mode if online else mode + "-offline")
-        work.mkdir()
-        script = work / "network.py"
-        script.write_text(NETWORK)
-        result = subprocess.run(
-            # A PID namespace of the fixture's own: whatever a failing proof leaves running
-            # ends with it, also when this launcher is ended for its time limit, and no
-            # number of another process's is ever signalled.
-            ["unshare", "--user", "--map-current-user", "--net", "--mount", "--pid", "--fork",
-             "--kill-child", "--mount-proc", "--keep-caps",
-             sys.executable, str(script), str(work), "mount", mode, "online" if online else "offline"],
-            env={**os.environ, "BOX_REPO": str(REPO), "HOME": str(work)}, capture_output=True, text=True,
-            timeout=120)
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, '"ok"'), result.stderr)
-
-    def test_a_box_reaches_no_host_port(self):
-        self.network_fixture("ports")
-
-    def test_a_box_keeps_the_hosts_network_where_resolv_conf_is_not_plain(self):
-        for mode in ("dns", "dns6", "dnsshort", "dnscrlf", "dnsnone"):
-            with self.subTest(mode=mode):
-                self.network_fixture(mode)
-
-    def test_only_plainly_named_resolvers_give_a_box_a_network_of_its_own(self):
-        plain = (b"nameserver 192.0.2.1\n", b"nameserver 192.0.2.1", b"nameserver\t192.0.2.1\n",
-                 b"# nameserver 127.0.0.1\n; nameserver ::1\nnameserver 192.0.2.1\n"
-                 b"nameserver 2001:db8::1\nsearch acme.test\n")
-        # No nameserver; one only the host's own network reaches as written; a line that is
-        # not the word, blanks and one address, whatever a libc makes of it.
-        other = (b"", b"search acme.test\n", b"nameserver 127.0.0.53\n", b"nameserver ::1\n",
-                 b"nameserver 0.0.0.0\n", b"nameserver ::\n", b"nameserver fe80::1\n",
-                 b"nameserver ::ffff:192.0.2.1\n", b"nameserver 224.0.0.251\n",
-                 b"nameserver 10.0.2.15\n", b"nameserver fd00::15\n",
-                 b"nameserver 192.0.2.1\nnameserver 127.0.0.1\n",
-                 b"nameserver 127.53\n", b"nameserver 192.0.2.01\n", b"nameserver fe80::1%eth0\n",
-                 b"nameserver 192.0.2.1\r\n", b" nameserver 192.0.2.1\n", b"nameserver 192.0.2.1;\n",
-                 b"nameserver #192.0.2.1\n", b"nameserver 192.0.2.1 # acme\n",
-                 b"nameserver 192.0.2.1\x00\n", b"nameserver \xff\xfe\n")
-        for resolver, own in (*((text, True) for text in plain), *((text, False) for text in other)):
-            with self.subTest(resolver=resolver):
-                self.assertIs(box._plain(resolver), own)
 
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in
@@ -1260,7 +994,7 @@ class WorkerBox(unittest.TestCase):
 
             def interrupt(proc, *args, **kwargs):
                 nonlocal interrupted
-                if "bwrap" in proc.args and not interrupted:
+                if proc.args[0] == "bwrap" and not interrupted:
                     deadline = time.monotonic() + 5
                     while not (self.out / "events.jsonl").exists():
                         if time.monotonic() > deadline:
@@ -1283,25 +1017,32 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual((code, session, killed), (worker.TIMEOUT, "fixture-session", True))
         self.assertFalse(self.alive())
 
+    def stops(self, moment):
+        work = self.root / moment
+        work.mkdir()
+        script = work / "stops.py"
+        script.write_text(STOPS)
+        result = subprocess.run(
+            # A PID namespace of the fixture's own: whatever a failing proof leaves running
+            # ends with it, also when this launcher is ended for its time limit, and no
+            # number of another process's is ever signalled.
+            ["unshare", "--user", "--map-current-user", "--pid", "--fork", "--kill-child",
+             "--mount-proc", sys.executable, str(script), str(work), moment],
+            env={**os.environ, "BOX_REPO": str(REPO), "HOME": str(work)}, capture_output=True,
+            text=True, timeout=120)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, '"ok"'), result.stderr)
+
     def test_a_box_stopped_while_it_is_still_being_built_leaves_nothing_running(self):
-        for online in (False, True):
-            with self.subTest(online=online):
-                self.network_fixture("stop-building", online=online)
+        self.stops("building")
 
     def test_a_box_whose_launcher_is_already_gone_is_ended_by_its_stop(self):
-        for online in (False, True):
-            with self.subTest(online=online):
-                self.network_fixture("stop-gone", online=online)
+        self.stops("gone")
 
-    def test_launch_refuses_before_allocating_without_box_tools(self):
-        which = shutil.which
-        for binary, package in (("bwrap", "bubblewrap"), ("pasta", "passt")):
-            with self.subTest(binary=binary), \
-                    patch.object(box.shutil, "which", side_effect=lambda name, **kw:
-                                 None if name == binary else which(name, **kw)), \
-                    patch.object(config, "ensure_dirs", side_effect=AssertionError("allocated run")), \
-                    self.assertRaisesRegex(config.Error, f"sudo apt-get install -y {package}"):
-                run.main([str(self.root / "task.md")])
+    def test_launch_refuses_before_allocating_without_bubblewrap(self):
+        with patch.object(box.shutil, "which", return_value=None), \
+                patch.object(config, "ensure_dirs", side_effect=AssertionError("allocated run")), \
+                self.assertRaisesRegex(config.Error, "sudo apt-get install -y bubblewrap"):
+            run.main([str(self.root / "task.md")])
 
     def test_job_resume_refuses_before_starting_without_bubblewrap(self):
         receipt = self.root / "jobs" / "job-acme"

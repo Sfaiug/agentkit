@@ -191,7 +191,7 @@ elif [ "$SANDBOX" = 0 ]; then
     missing=()
     # python3-pytest is not used by ak itself; tests/smoke.sh, the acceptance gate, runs its
     # generated repo's done-when command with it.  cron is what runs `ak watch` on the server.
-    packages=(tmux:tmux mosh:mosh git:git gh:gh jq:jq curl:curl rsync:rsync crontab:cron bwrap:bubblewrap pasta:passt)
+    packages=(tmux:tmux mosh:mosh git:git gh:gh jq:jq curl:curl rsync:rsync crontab:cron bwrap:bubblewrap)
     [ "$ROLE" != client ] || packages=(mosh:mosh git:git ssh:openssh-client curl:curl)
     for pair in "${packages[@]}"; do
       have "${pair%%:*}" || missing+=("${pair##*:}")

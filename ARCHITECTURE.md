@@ -89,7 +89,7 @@
   `turn`, `call`, `boxed` checks, `kill_marked`, `auth_ok`.
   Used by run, gate, watch, usage, menu, harness. Leak: Claude shell timeout.
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye; a merged run writes its review follow-ups here.
-- `box.py`: credential masks, own temporary places and /run, pasta network, PID teardown. `command`, `check`,
+- `box.py`: credential masks, own temporary places and /run, PID teardown. `command`, `check`,
   `returncode`, `leftovers`; for worker and run.
 - `guard.py`: what a seat may not do and its refusal -- tmux end or type into another seat
   (`refusal`), `gh pr merge` (`gh_refusal`), `git worktree add` into ~/code (`worktree_refusal`),
