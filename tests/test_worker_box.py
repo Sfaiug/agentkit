@@ -415,6 +415,60 @@ else:
 '''
 
 
+STOPS = r'''import json, os, sys
+from pathlib import Path
+sys.path.insert(0, os.environ["BOX_REPO"])
+sys.path.insert(0, str(Path(os.environ["BOX_REPO"]) / "tests"))
+from test_worker_box import stop_box
+stop_box(Path(sys.argv[1]), already_gone=sys.argv[2] == "gone")
+print(json.dumps("ok"))
+'''
+
+
+def stop_box(root, *, already_gone):
+    # Stdin holds bwrap mid-build and its status on stderr says it has named the box's
+    # first process. Last, no stop at all: the context ends its own box as it closes.
+    moments = ("named",) if already_gone else ("early", "named")
+    up = "import time; print('up', flush=True); time.sleep(600)"
+    for moment in moments if already_gone else (*moments, "unstopped"):
+        out = Path(tempfile.mkdtemp(dir=root))
+        proc = None
+        try:
+            with account_home(root), box.command([sys.executable, "-c", up], dict(os.environ), out,
+                                                cwd=root, drain=True) as (cmd, env, spawn):
+                stop = spawn.pop("stop")
+                if moment == "named":
+                    at = cmd.index("--info-fd")
+                    cmd[at:at] = ["--block-fd", "0", "--json-status-fd", "2"]
+                proc = subprocess.Popen(cmd, env=env, cwd=root, stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        start_new_session=True, **spawn)
+                said = {"named": (proc.stderr, b'"child-pid"'), "unstopped": (proc.stdout, b"up")}
+                if moment in said:
+                    pipe, word = said[moment]
+                    seen, deadline = b"", time.monotonic() + 30
+                    while word not in seen:
+                        assert select.select([pipe], [], [], max(
+                            0, deadline - time.monotonic()))[0], f"the box never got to {moment}"
+                        chunk = os.read(pipe.fileno(), 4096)
+                        assert chunk, seen
+                        seen += chunk
+                if already_gone:
+                    proc.kill()
+                    proc.wait()
+                if moment != "unstopped":
+                    stop(proc, 0)
+            # Whatever still ran would hold these open.
+            proc.communicate(timeout=30)
+        finally:
+            # What a failing proof leaves ends with this fixture's PID namespace.
+            if proc is not None:
+                proc.kill()
+                proc.wait(timeout=30)
+                for pipe in (proc.stdin, proc.stdout, proc.stderr):
+                    pipe.close()
+
+
 class WorkerBox(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-worker-box-", dir=REPO)
@@ -963,50 +1017,26 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual((code, session, killed), (worker.TIMEOUT, "fixture-session", True))
         self.assertFalse(self.alive())
 
+    def stops(self, moment):
+        work = self.root / moment
+        work.mkdir()
+        script = work / "stops.py"
+        script.write_text(STOPS)
+        result = subprocess.run(
+            # A PID namespace of the fixture's own: whatever a failing proof leaves running
+            # ends with it, also when this launcher is ended for its time limit, and no
+            # number of another process's is ever signalled.
+            ["unshare", "--user", "--map-current-user", "--pid", "--fork", "--kill-child",
+             "--mount-proc", sys.executable, str(script), str(work), moment],
+            env={**os.environ, "BOX_REPO": str(REPO), "HOME": str(work)}, capture_output=True,
+            text=True, timeout=120)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, '"ok"'), result.stderr)
+
     def test_a_box_stopped_while_it_is_still_being_built_leaves_nothing_running(self):
-        forever = "import time\nwhile True:\n print('on', flush=True)\n time.sleep(.05)"
-        self.out.mkdir()
-        with box.command([sys.executable, "-c", forever], dict(os.environ), self.out,
-                         cwd=self.root, drain=True) as (cmd, env, spawn):
-            stop = spawn.pop("stop")
-            proc = subprocess.Popen(cmd, env=env, cwd=self.root, stdout=subprocess.PIPE,
-                                    start_new_session=True, **spawn)
-            self.addCleanup(proc.stdout.close)
-            # No grace left, as when the ceiling is already past: the stop falls on a bwrap
-            # that has named the box's first process and not yet started the command in it.
-            stop(proc, 0)
-            ended = threading.Thread(target=proc.stdout.read, daemon=True)
-            ended.start()
-            ended.join(30)
-            self.assertFalse(ended.is_alive(), "the command outlived its box's stop")
+        self.stops("building")
 
     def test_a_box_whose_launcher_is_already_gone_is_ended_by_its_stop(self):
-        self.out.mkdir()
-        held, hold = os.pipe()
-        named, name = os.pipe()
-        self.addCleanup(os.close, hold)
-        self.addCleanup(os.close, named)
-        with box.command(["sleep", "600"], dict(os.environ), self.out,
-                         cwd=self.root, drain=True) as (cmd, env, spawn):
-            stop = spawn.pop("stop")
-            # Bwrap holds the box's first process before the command, as a slow build does,
-            # and says on a pipe of the test's own when it has named that process.
-            at = cmd.index("--info-fd")
-            cmd[at:at] = ["--block-fd", str(held), "--json-status-fd", str(name)]
-            spawn["pass_fds"] += (held, name)
-            proc = subprocess.Popen(cmd, env=env, cwd=self.root, stdout=subprocess.PIPE,
-                                    start_new_session=True, **spawn)
-            self.addCleanup(proc.stdout.close)
-            os.close(held)
-            os.close(name)
-            self.assertTrue(select.select([named], [], [], 30)[0], "bwrap named no process")
-            proc.kill()
-            proc.wait()
-            stop(proc, 0)
-            ended = threading.Thread(target=proc.stdout.read, daemon=True)
-            ended.start()
-            ended.join(30)
-            self.assertFalse(ended.is_alive(), "the box outlived its stop")
+        self.stops("gone")
 
     def test_launch_refuses_before_allocating_without_bubblewrap(self):
         with patch.object(box.shutil, "which", return_value=None), \
