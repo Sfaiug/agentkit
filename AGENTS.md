@@ -75,6 +75,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 
 ## Owner rules
 
+- Terminal input and output must keep moving when both fill at once, for every model and harness. Enforce this in the shared transport and its regression tests: a frozen seat must not recur on a different agent. [8 Oct 2026]
 - Notifications are only for an unanswered orchestrator question that needs the owner or the whole finished job, for every harness and model. Internal probes and late messages about a finished job must not page the owner. Reason: probe setup and repeated completion cards interrupted the owner without a new decision or completed job. [7 Oct 2026]
 - Codex pairing is optional and requested when the owner wants app access; opening or resuming a seat sends no setup alert. Optional access does not need the owner or block terminal work. [7 Oct 2026]
 - Adding a model or harness is an adapter, its toml and a `models.toml` entry, never a name hard-coded in code; `n` keeps the orchestrator question so the owner can switch freely. [18 Sep]

@@ -116,6 +116,9 @@
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression; a harness config's stale trust and MCP entries, where its plugin
   says they are (`config_entries`). For gc, run, orch, update, notify.
+- `pty_relay.py`: nonblocking terminal transport, bounded queues, ordered injected keys and
+  exit draining. `Relay.poll`, `send`, `finish`, `close` for `tools/idle-compact.py`;
+  owns the two directions without harness or model knowledge.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
   every listing screen. Used by menu, usage, orch, watch, run, motion.
 - `motion.py`: one clock: time, easing, what moves; for menu, orch, terminal.
