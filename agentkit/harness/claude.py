@@ -490,6 +490,41 @@ def _pin(settings):
     settings["switchModelsOnFlag"] = True
 
 
+CHECKED_ENV = "AGENTKIT_CLAUDE_CHECKED"   # the launch has read Claude's settings: adapters/claude.sh
+
+
+def _settings(account):
+    """(paths, what each holds) of the configuration a seat on that login is opened with: the
+    owner's settings and the login's global config, with a named login's own settings.  A file
+    not there holds nothing; one that is not a JSON object is a ValueError."""
+    home = Path.home()
+    directory = home / f".claude-{account}"
+    paths = ((home / ".claude/settings.json", directory / ".claude.json",
+              directory / "settings.json") if account else
+             (home / ".claude/settings.json", home / ".claude.json"))
+    values = []
+    for path in paths:
+        try:
+            values.append(json.loads(path.read_text()) if path.exists() else {})
+        except ValueError as exc:
+            raise ValueError(f"{path} is not JSON: {exc}") from exc
+        if not isinstance(values[-1], dict):
+            raise ValueError(f"{path} is not a JSON object")
+    return paths, values
+
+
+def checked(account):
+    """Refuse a launch whose settings Claude Code could not be started with, before the pane it
+    would replace is touched, and tell the adapter so: it then starts no Python to read them
+    again (`--check`, which an adapter run on its own still does)."""
+    from .. import config
+    try:
+        _settings(account)
+    except (OSError, ValueError) as exc:
+        raise config.Error(f"Claude's settings cannot be read: {exc}") from exc
+    return {CHECKED_ENV: "1"}
+
+
 def account_config(check=False):
     """Keep the owner's configuration beside an alternate login's own credentials.
 
@@ -500,15 +535,11 @@ def account_config(check=False):
     with Claude Code's own messages between sessions refused (`_pin`).
     """
     account = os.environ.get("AGENTKIT_ACCOUNT")
+    paths, values = _settings(account)
+    if check:
+        return
     if not account:
         os.environ.pop("CLAUDE_CONFIG_DIR", None)
-        home = Path.home()
-        paths = (home / ".claude/settings.json", home / ".claude.json")
-        values = [json.loads(path.read_text()) if path.exists() else {} for path in paths]
-        if not all(isinstance(value, dict) for value in values):
-            raise ValueError("Claude settings and global config must be JSON objects")
-        if check:
-            return
         _pin(values[0])
         answered(values[1])
         paths[0].parent.mkdir(parents=True, exist_ok=True)
@@ -517,13 +548,6 @@ def account_config(check=False):
         return
     home = Path.home()
     directory = home / f".claude-{account}"
-    settings = home / ".claude/settings.json"
-    paths = (settings, directory / ".claude.json", directory / "settings.json")
-    values = [json.loads(path.read_text()) if path.exists() else {} for path in paths]
-    if not all(isinstance(value, dict) for value in values):
-        raise ValueError("Claude settings and global config must be JSON objects")
-    if check:
-        return
     directory.mkdir(parents=True, exist_ok=True)
     try:
         usual = json.loads((home / ".claude.json").read_text())

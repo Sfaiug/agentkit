@@ -322,7 +322,7 @@ time, with its cheapest turn (`haiku`, one word, no tools, no saved conversation
 
 `interactive` is where the rulebook goes: a launch has written the file already, in its own process, and names it in `$AGENTKIT_RULEBOOK`; without one, `python3 tools/rulebook.py "$AGENTKIT_SESSION"` writes it and prints its path (`rb=${AGENTKIT_RULEBOOK:-$(python3 …)}`),
 and the command line hands it to the harness, adding no instructions of its own, so an orchestrator behaves one way
-whatever runs it. Anything else the launch writes goes beside that path, so a dry run's is thrown away with it. A
+whatever runs it. Anything else the launch writes goes beside that path, so a dry run's is thrown away with it. What a harness must check before its pane is replaced is its plugin's `checked`: the launch runs it in its own process and tells the adapter in the environment, so `interactive` starts no Python for it (Claude's settings, `$AGENTKIT_CLAUDE_CHECKED`). A
 variable the seat's launch sets goes under `[launch] seat_env`, and the core drops it from child environments. What the
 harness runs as besides its `[update] version` program, such as Muse's `muse-bin-<build>`, is named under `[launch] programs`: a tmux session made by hand is a seat only while one of those runs in it.
 
