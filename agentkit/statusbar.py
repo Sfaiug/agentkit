@@ -290,10 +290,8 @@ def _tell(only=None, own=()):
     never lands on a bar after a newer word.  The click is bound with every write, so a server
     that was up before the names came gets it with the first bar that draws one.
 
-    A list longer than a tmux message is asked by itself where it stands, as it always was, and
-    where tmux refuses it each of its options is told alone, a long one in pieces
-    (`orch.tmux_option`): a bar never keeps what was said before because what is said now is
-    long.
+    What tmux refuses for its length is told again in pieces (`orch.tmux_options`), so a bar
+    does not keep what was said before because what is said now is longer than a message.
     """
     config.ensure_dirs()
     with (config.STATE / "statusbar.lock").open("a") as lock:
@@ -304,30 +302,15 @@ def _tell(only=None, own=()):
                 named, folded, needing, hit = others(found, name)
                 # One command list, which tmux runs whole before it reads another click: no
                 # click lands between the names a bar draws and the lookup that finds them.
-                # Told one by one, the lookup is emptied first, so a click finds no seat until
-                # the names it is for are drawn.
+                # Where they are told one by one the lookup is emptied first, so a click finds
+                # no seat until the names it is for are drawn.
                 target = f"={name}:"   # that session alone, as `_write` says
-                told.append((["set-option", "-t", target, SEATS, named, ";",
-                              "set-option", "-t", target, FOLD, folded, ";",
-                              "set-option", "-t", target, NEED, needing, ";",
-                              "set-option", "-t", target, HIT, hit],
-                             [(target, HIT, ""), (target, SEATS, named), (target, FOLD, folded),
+                told.append(([(target, HIT, "")],
+                             [(target, SEATS, named), (target, FOLD, folded),
                               (target, NEED, needing), (target, HIT, hit)]))
-        told += [(["set-option", "-t", target, option, orch.tmux_literal(text)],
-                  [(target, option, text)]) for target, option, text in own]
-        socket, fitting = orch.socket_name(), []
-        for words, options in told:
-            if sum(len(word.encode()) + 1 for word in words) <= orch.TMUX_MESSAGE:
-                fitting.append(words)
-                continue
-            orch.tmux_lists(fitting, socket=socket)
-            fitting = []
-            if orch.tmux_lists([words], socket=socket)[0] != 0:
-                for option in options:   # to the first tmux refuses, as a list stops there
-                    if orch.tmux_option(*option, socket=socket)[0] != 0:
-                        break
         # a seat gone since it was listed fails its own list and no other's (`orch.tmux_lists`)
-        orch.tmux_lists([*fitting, CLICK], socket=socket)
+        orch.tmux_options([*told, *(((), [option]) for option in own)], [CLICK],
+                          socket=orch.socket_name())
 
 
 def dress(name, model):
@@ -390,7 +373,7 @@ def _write(name, model, word=None, lasts=None, cfg=None, versions=(), every=Fals
     # seconds on a busy host; another only where a long question's reason, drawn in every
     # width, would take it past what tmux takes in one.  The title last, so whoever sees it
     # has the whole bar to read.  Each value whole: a question may end in the `;` tmux would
-    # take for the end of its command (`_tell`).
+    # take for the end of its command (`orch.tmux_set`).
     _tell(None if every else name,
           [(f"={name}:", option, value)
            for option, value in (*LAYOUT, *zip(TOPS, tops), *zip(WHYS, whys), (KEY, key),
