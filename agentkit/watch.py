@@ -55,6 +55,7 @@ MIDTURN_LINE = ("Your process was ended by the host, not by you, in the middle o
                 "Continue that turn and finish it; do not start over.")
 ACCOUNT_LINE = ("Your subscription ran out. This seat has resumed the same conversation on "
                 "an account of the same provider with usage available. Continue where you stopped.")
+CONTINUE_LINE = "continue"
 MIDTURN_TRIES = 3       # passes that may type it before a seat is left at its prompt
 MARKER = "agentkit review of"
 RETRY_BACKOFF = (600, 1800, 3600)  # after that, hourly; a head is never abandoned
@@ -552,6 +553,34 @@ def continue_turns(cfg, log, accounts=False):
                 else:
                     log(f"WARN {name}: the continue line did not land in {tries} tries")
         seat_write(config.resolve_session(name), midturn=None)
+
+
+def finish_own_lines(cfg, log):
+    """Finish a fixed ak line left in its composer, even after its retries were spent.
+
+    The screen decides, without a mark: only that line alone gets its locked Enter.
+    Delivery remains at least once, as it does for every line ak types.
+    """
+    for session in orch.sessions():
+        if session.get("legacy") or any(session.get(key) for key in orch.CLOSED):
+            continue
+        name = session["name"]
+        harness, _ = seat_model(cfg, name)
+        if not harness:
+            continue
+        resume = config.manifest(harness).get("resume")
+        key = resume.get("key") if isinstance(resume, dict) else None
+        for line in (ACCOUNT_LINE, MIDTURN_LINE, CONTINUE_LINE, key):
+            def alone(held):
+                return composer_holds(held, session, line, cfg, exact=True) == "line"
+
+            if not line or not alone(name):
+                continue
+            type_checked(session, line, log, harness, pending=True,
+                         guard=lambda: seat_held(name),
+                         veto=lambda held: owner_question(notify.last(held)),
+                         ready=alone)
+            break
 
 
 # --- the session babysitter -------------------------------------------------
@@ -2349,7 +2378,7 @@ def keystroke(harness, tail):
     if isinstance(block, dict) and block.get("key") and block.get("when"):
         if re.search(block["when"], tail, re.I):
             return block["key"]
-    return "continue"
+    return CONTINUE_LINE
 
 
 def asking(name, harness, pane):
@@ -2632,7 +2661,7 @@ def composer_draft(harness, pane):
     return None if rows is None else re.sub(r"\s+", "", "".join(rows))
 
 
-def _composer_rows(harness, pane):
+def _composer_rows(harness, pane, *, exact=False):
     """The rows of text in the composer, [] when empty, None where none is found.
 
     Read on any turn, from its prompt row down to the chrome under it: a wrap or a newline
@@ -2643,42 +2672,73 @@ def _composer_rows(harness, pane):
     chrome = screen(harness)
     raws, rows = _screen_rows(pane_tail(pane))
     if chrome["draft"]:
-        # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
-        # block of them, and finding none reads as empty -- where the composer itself is on the
+        # A composer no `❯›⟩` mark finds: its manifest finds the framed block it holds,
+        # and finding none reads as empty -- where the composer itself is on the
         # screen, a row its pattern names; with none there, a blank capture above all, nothing
         # was read.
-        found = chrome["draft"].findall("\n".join(rows))
+        source = "\n".join(strip_sgr(raw).rstrip() for raw in raws) if exact else "\n".join(rows)
+        found = list(chrome["draft"].finditer(source))
+        if exact and not found:
+            return None
         if not found and not (chrome["composer"]
                               and any(chrome["composer"].fullmatch(row) for row in rows)):
             return None
-        return _unscrolled(chrome, [row for block in found for row in block.splitlines()])
+        parts = []
+        for match in found:
+            edge = match.groupdict().get("edge")
+            if edge:
+                before = source[:match.start()].splitlines()
+                # A padding row inside a draft is not its opening edge, nor is an edge at
+                # the start of a cropped read proof that none of the draft sits above it.
+                if exact and (not match.groupdict().get("opening")
+                              or before and before[-1].startswith(edge)
+                              or not before and len(_content_rows(pane)) > PANE_LINES):
+                    return None
+                parts.extend(row[len(edge):] for row in match["text"].splitlines())
+            else:
+                parts.extend(match[1].splitlines())
+        return _unscrolled(chrome, parts, exact=exact)
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
                     len(rows))
 
     marked = prompt_rows(raws)
+    if exact:
+        marked = [row for row in marked
+                  if re.match(r"(?:\s*│\s?)?[❯›⟩]", strip_sgr(raws[row]))]
     at = next(iter(marked), None)
     stop = None if at is None else end(at)
+    if exact and at is not None:
+        # Key hints can also be owner text. Read through them to the last composer chrome
+        # (its status or box edge), or an unindented closing rule before that chrome.
+        stop = next((row for row in range(len(rows) - 1, at, -1)
+                     if chrome["composer"] and chrome["composer"].fullmatch(rows[row])), None)
+        if stop is not None:
+            stop = next((row for row in range(at + 1, stop)
+                         if re.fullmatch(RULE, strip_sgr(raws[row]).rstrip())), stop)
     if chrome["ruled"]:
         # Its box between its own rules; a pane's bottom row stands in where none is drawn.
         at, stop = ruled_composer(chrome, raws)
-        if at is None and marked and marked[0] + 1 == len(rows):
+        if not exact and at is None and marked and marked[0] + 1 == len(rows):
             at, stop = marked[0], len(rows)
-    if at is None:
+    if at is None or exact and (stop is None or any(dim_rows(raws)[at:stop])
+                               or chrome["composer"] and chrome["composer"].fullmatch(rows[at])):
         return None
-    return _unscrolled(chrome, _composer_parts(chrome, raws, rows, at, stop))
+    return _unscrolled(chrome, _composer_parts(chrome, raws, rows, at, stop), exact=exact)
 
 
-def _unscrolled(chrome, rows):
+def _unscrolled(chrome, rows, *, exact=False):
     """Those composer rows without what the harness draws on a composer scrolled past its
     height (`[screen] scrolled`: a scrollbar, a count of the rows above), none left empty."""
     if chrome["scrolled"] is not None:
+        if exact and any(chrome["scrolled"].search(row) for row in rows):
+            return None
         rows = [chrome["scrolled"].sub("", row) for row in rows]
     return [row for row in rows if row.strip()]
 
 
-def composer_holds(name, session, line, cfg=None):
+def composer_holds(name, session, line, cfg=None, *, exact=False):
     """What that seat's composer holds now, off one capture: "line", "empty", or "other" --
     anything else, nothing read, or a question to the owner on the screen, as a dialog that
     keeps the composer drawn is.
@@ -2689,6 +2749,8 @@ def composer_holds(name, session, line, cfg=None):
     folds_over`.  What the owner types goes in at its end, so none of these is a line with the
     owner's words beside it, and a one-row draft that only ends the way the line does is the
     owner's.
+    `exact` requires the whole composer to be read and hold the full line: a cropped or
+    scrolled composer, suffix or paste fold is no proof without a delivery mark.
     """
     try:
         name = config.resolve_session(name)
@@ -2698,11 +2760,11 @@ def composer_holds(name, session, line, cfg=None):
     pane = pane_text(session)
     if not harness or not pane.strip() or asking(name, harness, pane):
         return "other"
-    rows = _composer_rows(harness, pane)
+    rows = _composer_rows(harness, pane, exact=exact)
     if rows is not None and not re.sub(r"\s+", "", "".join(rows)):
         return "empty"
     chrome = screen(harness)
-    if rows is None and len(_content_rows(pane)) > PANE_LINES:
+    if not exact and rows is None and len(_content_rows(pane)) > PANE_LINES:
         # its top above the read: every row over the chrome under it is the composer's, read as
         # its rows under the prompt row are -- inside a box's edges, its scroll marks left out
         tail = content_lines(harness, pane_tail(pane))
@@ -2710,8 +2772,9 @@ def composer_holds(name, session, line, cfg=None):
     held, whole = re.sub(r"\s+", "", "".join(rows or ())), re.sub(r"\s+", "", line)
     folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
               and len(line) > chrome["folds_over"])
-    if held and (held == whole or len(rows) > 1 and whole.endswith(held)
-                 or folded and chrome["folded"].fullmatch(held)):
+    if held and (held == whole or not exact and (
+            len(rows) > 1 and whole.endswith(held)
+            or folded and chrome["folded"].fullmatch(held))):
         return "line"
     return "other"
 
@@ -3108,13 +3171,14 @@ def sweep_preexisting(log, now=None):
     return len(marked)
 
 
-def revive(name, line, log, cfg=None):
+def revive(name, line, log, cfg=None, *, prepare):
     """Bring a gone seat back on its own conversation, and type one line into it.
 
     The way its number in the menu opens it: the saved conversation where the record holds
     one, and fresh where it does not -- then the line says so.  A seat just started gets
     INBOX_WARMUP before it is typed into, as the inbox does, and the line goes through the
-    confirmed send.  The answer is None when the seat was told, else why it was not, in a
+    confirmed send, after `prepare` fits the final line to its composer. The answer is None
+    when the seat was told, else why it was not, in a
     clause the owner's notice can end with.
     """
     try:
@@ -3123,6 +3187,7 @@ def revive(name, line, log, cfg=None):
         return str(exc)
     if back == "fresh":
         line += FRESH_NOTE
+    line = prepare(line)
     if back:
         time.sleep(INBOX_WARMUP)     # the TUI has to be listening before it is typed into
     if type_into(orch.find(name) or {"name": name}, line, log):
@@ -4100,6 +4165,11 @@ def tell_parked(run_id, step, seat, log):
         if alive:
             found = orch.find(seat) or {"name": seat}
             try:
+                run_dir = config.RUNS / run_id
+                line = run_mod.seat_notice(
+                    line, run_record.read_state(run_dir) or {}, run_dir,
+                    f"run {run_id} stalled three times; parked.",
+                    f"Resume: ak run resume {run_id}.")
                 if type_into(found, line, log):
                     return True
             except (config.Error, OSError):
@@ -5098,7 +5168,7 @@ def revive_seats(cfg, log):
         except config.Error:
             continue
         if seat:
-            going.setdefault(seat, (run_dir.name, state.get("title") or run_dir.name))
+            going.setdefault(seat, (run_dir, state))
     kept = config.session_records()
     orch.file_projectless([{**record, "name": name} for name, record in kept.items()], states)
     if not going and not any(seat_read(name).get("reopened_at") for name in kept):
@@ -5113,11 +5183,15 @@ def revive_seats(cfg, log):
         if (name not in going or marks.get("reopened_at") or seat_closed(name)
                 or marks.get("closed_by_owner")):
             continue
-        run_id, title = going[name]
+        run_dir, state = going[name]
+        run_id, title = run_dir.name, state.get("title") or run_dir.name
         died = time.time()
         seat_write(name, reopened_at=died)
         why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
-                           "pick up where you left off", log, cfg)
+                           "pick up where you left off", log, cfg,
+                     prepare=lambda line: run_mod.seat_notice(
+                         line, state, run_dir, f"run {run_id} is still going.",
+                         "Pick up where you left off."))
         if why is None:
             log(f"reopened {name} and asked it to continue {run_id}")
             continue
@@ -5417,6 +5491,9 @@ def say(dry_run, log, text, url, session, merged=False):
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
                 "decision on a PR of ours, for you to act on or not."
                 + (f" {planned}" if planned else ""))
+        if run_dir:
+            line = run.seat_notice(line, run_state, run_dir,
+                                   f"run {run_dir.name}: the maintainer decided on its PR.")
         if not type_into(seat, line, log):
             return False
         log(f"told the {seat['name']} seat: {text}")
@@ -5543,6 +5620,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 with run_record.record(run_dir) as current:
                     current["live_typed"] = mark
 
+            line = run.seat_notice(line, st, run_dir, f"run {run_dir.name} is live.")
             if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept):
                 with run_record.record(run_dir) as current:
                     current["live_notified"] = now
@@ -5719,6 +5797,9 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
     did not land is entered and never typed a second time.  True when the line was told.
     """
     from . import run as run_mod   # here, not at the top: run imports this module
+    line = run_mod.seat_notice(line, {}, run_dir,
+                              f"run {run_dir.name}: a check failed after its merge.",
+                              "Fix the target.")
     try:
         session = run_mod.launched_session(run_state)
     except config.Error:
@@ -6086,6 +6167,8 @@ def local_passes(state, dry_run, log):
          lambda: notify.retry_pending(dry_run=dry_run, log=log), True),
         ("the boot resume pass did not run",
          lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
+        ("the held-line Enter pass did not run",
+         lambda: finish_own_lines(config.load(), log), False),
         ("the mid-turn continue pass did not run",
          lambda: continue_turns(config.load(), log), False),
         # the seats first, and never behind GitHub: a stalled seat is the one thing on this tick

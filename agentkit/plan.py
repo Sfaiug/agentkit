@@ -362,6 +362,23 @@ def identity(line):
     return undone(line.strip(), found)[6:] if found and found["check"] else None
 
 
+def outcomes(name):
+    """The plan's work, independent of order, repetition, checks and renewed proof stamps.
+
+    A done caller has already proved these lines under the seat's lock. Keep format
+    knowledge here: eye lines and hand-kept outcomes count as work too.
+    """
+    result = []
+    for line in lines(name):
+        line = line.strip()
+        found = LINE.match(line)
+        if found:
+            result.append((found["project"], found["what"]))
+        elif line.startswith("- [x] ") and not is_open(line):
+            result.append(("", line[6:]))
+    return sorted(set(result))
+
+
 def verify(name, every=False):
     """The open lines left once the plan's checks ran (`_verify`)."""
     return _verify(name, every)[0]

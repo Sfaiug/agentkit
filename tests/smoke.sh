@@ -476,6 +476,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
                          (watch.browser, "tidy")):
         passes[name] = stack.enter_context(patch.object(module, name))
     stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
+    stack.enter_context(patch.object(orch, "sessions", return_value=[]))
     stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline fixture")))
 
     def meter(name, used):
