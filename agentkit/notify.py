@@ -1045,10 +1045,12 @@ def needs_transition(session, card, answer, now, seat=None):
                 # The answer ends the needs you it answered once Discord took every edit: one
                 # still read now came after it -- a dialog, or the seat waiting again -- and
                 # is an episode of its own, though no tick saw the seat work in between.  Its
-                # minute counts from now; it began after the answer, which an upgrade since
-                # makes history, and after a newer `ak notify` asking again, which is never
-                # history; a watcher's notice is dated by the word, as in `shaped`.
-                card = {"word": "needs you", "since": now, "began": max(
+                # minute counts from now, no earlier than its current question: an older
+                # callback can still be publishing. It began after the answer, which an
+                # upgrade since makes history, and after a newer `ak notify` asking again,
+                # which is never history; a watcher's notice is dated by the word.
+                card = {"word": "needs you", "since": max(
+                            now, declared.get("time", 0) if asked else 0), "began": max(
                             answered_at, 0 if declared.get("source") else declared.get("time", 0)),
                         "episode": secrets.token_hex(16), "sent": False, "open_needs": []}
             _card_write(session, card)
