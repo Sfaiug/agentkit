@@ -2661,7 +2661,7 @@ def composer_draft(harness, pane):
     return None if rows is None else re.sub(r"\s+", "", "".join(rows))
 
 
-def _composer_rows(harness, pane):
+def _composer_rows(harness, pane, *, exact=False):
     """The rows of text in the composer, [] when empty, None where none is found.
 
     Read on any turn, from its prompt row down to the chrome under it: a wrap or a newline
@@ -2672,37 +2672,67 @@ def _composer_rows(harness, pane):
     chrome = screen(harness)
     raws, rows = _screen_rows(pane_tail(pane))
     if chrome["draft"]:
-        # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
-        # block of them, and finding none reads as empty -- where the composer itself is on the
+        # A composer no `❯›⟩` mark finds: its manifest finds the framed block it holds,
+        # and finding none reads as empty -- where the composer itself is on the
         # screen, a row its pattern names; with none there, a blank capture above all, nothing
         # was read.
-        found = chrome["draft"].findall("\n".join(rows))
+        source = "\n".join(strip_sgr(raw).rstrip() for raw in raws) if exact else "\n".join(rows)
+        found = list(chrome["draft"].finditer(source))
+        if exact and not found:
+            return None
         if not found and not (chrome["composer"]
                               and any(chrome["composer"].fullmatch(row) for row in rows)):
             return None
-        return _unscrolled(chrome, [row for block in found for row in block.splitlines()])
+        parts = []
+        for match in found:
+            edge = match.groupdict().get("edge")
+            if edge:
+                before = source[:match.start()].splitlines()
+                # A padding row inside a draft is not its opening edge, nor is an edge at
+                # the start of a cropped read proof that none of the draft sits above it.
+                if exact and (before and before[-1].startswith(edge)
+                              or not before and len(_content_rows(pane)) > PANE_LINES):
+                    return None
+                parts.extend(row[len(edge):] for row in match["text"].splitlines())
+            else:
+                parts.extend(match[1].splitlines())
+        return _unscrolled(chrome, parts, exact=exact)
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
                     len(rows))
 
     marked = prompt_rows(raws)
+    if exact:
+        marked = [row for row in marked
+                  if re.match(r"(?:│\s?)?[❯›⟩]", strip_sgr(raws[row]))]
     at = next(iter(marked), None)
     stop = None if at is None else end(at)
+    if exact and at is not None:
+        # Key hints can also be owner text. Read through them to the last composer chrome
+        # (its status or box edge), or an unindented closing rule before that chrome.
+        stop = next((row for row in range(len(rows) - 1, at, -1)
+                     if chrome["composer"] and chrome["composer"].fullmatch(rows[row])), None)
+        if stop is not None:
+            stop = next((row for row in range(at + 1, stop)
+                         if re.fullmatch(RULE, strip_sgr(raws[row]).rstrip())), stop)
     if chrome["ruled"]:
         # Its box between its own rules; a pane's bottom row stands in where none is drawn.
         at, stop = ruled_composer(chrome, raws)
-        if at is None and marked and marked[0] + 1 == len(rows):
+        if not exact and at is None and marked and marked[0] + 1 == len(rows):
             at, stop = marked[0], len(rows)
-    if at is None:
+    if at is None or exact and (stop is None or any(dim_rows(raws)[at:stop])
+                               or chrome["composer"] and chrome["composer"].fullmatch(rows[at])):
         return None
-    return _unscrolled(chrome, _composer_parts(chrome, raws, rows, at, stop))
+    return _unscrolled(chrome, _composer_parts(chrome, raws, rows, at, stop), exact=exact)
 
 
-def _unscrolled(chrome, rows):
+def _unscrolled(chrome, rows, *, exact=False):
     """Those composer rows without what the harness draws on a composer scrolled past its
     height (`[screen] scrolled`: a scrollbar, a count of the rows above), none left empty."""
     if chrome["scrolled"] is not None:
+        if exact and any(chrome["scrolled"].search(row) for row in rows):
+            return None
         rows = [chrome["scrolled"].sub("", row) for row in rows]
     return [row for row in rows if row.strip()]
 
@@ -2718,7 +2748,8 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     folds_over`.  What the owner types goes in at its end, so none of these is a line with the
     owner's words beside it, and a one-row draft that only ends the way the line does is the
     owner's.
-    `exact` requires the full line: a suffix or paste fold is no proof without a delivery mark.
+    `exact` requires the whole composer to be read and hold the full line: a cropped or
+    scrolled composer, suffix or paste fold is no proof without a delivery mark.
     """
     try:
         name = config.resolve_session(name)
@@ -2728,11 +2759,11 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     pane = pane_text(session)
     if not harness or not pane.strip() or asking(name, harness, pane):
         return "other"
-    rows = _composer_rows(harness, pane)
+    rows = _composer_rows(harness, pane, exact=exact)
     if rows is not None and not re.sub(r"\s+", "", "".join(rows)):
         return "empty"
     chrome = screen(harness)
-    if rows is None and len(_content_rows(pane)) > PANE_LINES:
+    if not exact and rows is None and len(_content_rows(pane)) > PANE_LINES:
         # its top above the read: every row over the chrome under it is the composer's, read as
         # its rows under the prompt row are -- inside a box's edges, its scroll marks left out
         tail = content_lines(harness, pane_tail(pane))

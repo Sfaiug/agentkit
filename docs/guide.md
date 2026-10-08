@@ -214,7 +214,9 @@ refusal parks the provider until it refills, a usage-limit reset held or not: ak
 `~/.agentkit/tmp/watch.log` and rolling it at 5 MB. Before typing new lines, it gives Enter to a composer holding
 only ak's full account-switch notice, mid-turn continuation or resume nudge, even when its retries ran out and its mark
 is gone. It reads the composer again under the typing lock before each Enter; other text and dialogs are left
-alone, including partial lines whose last rows match a recovery notice. Delivery stays at least once: a crash
+alone, including partial lines whose last rows match a recovery notice. The whole composer must be visible,
+from its opening to its closing chrome; cropped or scrolled composers and owner rows that resemble footer
+text get no recovery Enter. Delivery stays at least once: a crash
 between Enter and recording delivery can repeat a line.
 Each tick: retries the notification outbox; reads every seat's
 last error from its harness's own record of the conversation (Claude's transcript, Codex's rollout), off its screen
