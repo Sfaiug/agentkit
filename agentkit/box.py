@@ -374,20 +374,33 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             continue
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
-    # The owner's yes to a change lands only outside a box.  The state directory that holds its
-    # store is a read-only mount point here -- deeper than the writable workspace or home overlay
-    # above, so it wins over both: its content stays readable, but a branch-supplied check can
-    # neither write it nor rename it away.  An existing store also reads empty over a tmpfs.  So no
-    # check can read a yes, write one for its own change, or recreate the store where none was.
+    # The owner's yes to a change lands only outside a box.  Its store reads empty over a tmpfs;
+    # and where the store sits inside the writable workspace (a HOME-rooted checkout), the store and
+    # every ancestor of it up to the workspace -- itself a mount point -- become read-only mount
+    # points too.  So a branch-supplied check can neither write the store nor rename any ancestor
+    # away to recreate it unmasked.  The box's own writable places that fall under a pinned ancestor
+    # (its out and run directories) are re-bound after, so they still take writes.
     from . import config
-    states = {config.STATE, *(Path(path) / ".agentkit" / "state" for path in _homes(clean, cwd))}
-    for state in sorted(states):
+    workspace = Path(cwd).resolve() if cwd is not None else None
+    pins, stores = set(), []
+    for state in sorted({config.STATE, *(Path(p) / ".agentkit" / "state" for p in _homes(clean, cwd))}):
         if not state.is_dir():
             continue
-        cmd.extend(["--ro-bind", str(state), str(state)])
-        store = state / "owner-yes"
+        store = state / config.OWNER_YES
         if store.is_dir():
-            cmd.extend(["--tmpfs", str(store), "--remount-ro", str(store)])
+            stores.append(store.resolve())
+        ancestor = state.resolve()
+        while workspace is not None and workspace in ancestor.parents:
+            pins.add(ancestor)               # the store's dir and each ancestor inside the workspace
+            ancestor = ancestor.parent
+    for pin in sorted(pins):                  # shallowest first, so each deeper mount below wins
+        cmd.extend(["--ro-bind", str(pin), str(pin)])
+    for store in sorted(stores):              # over its now read-only parent: reads empty, unwritable
+        cmd.extend(["--tmpfs", str(store), "--remount-ro", str(store)])
+    for place in sorted(writable):            # restore the box's own writable places under a pin
+        resolved = place.resolve()
+        if any(pin == resolved or pin in resolved.parents for pin in pins):
+            cmd.extend(["--bind", str(resolved), str(resolved)])
     if out_dir is None:
         cmd[at:at] = _bind({}, writable, homes)
         yield [*cmd, "--", *argv], clean, {}

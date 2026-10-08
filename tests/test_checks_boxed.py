@@ -295,6 +295,25 @@ class ChecksBoxed(unittest.TestCase):
         self.assertEqual(run_json.read_text(), "real-yes")     # the real yes is untouched
         self.assertFalse(moved.exists())                       # the state dir cannot be renamed away
 
+    def test_a_check_cannot_forge_by_renaming_a_state_ancestor(self):
+        # With the store nested inside the workspace, a check renames an intermediate ancestor and
+        # recreates the store. Every ancestor up to the workspace is a mount point, so the rename
+        # fails and no forged yes lands.
+        nested = self.root / ".agentkit" / "state"
+        with patch.object(config, "STATE", nested):
+            store = nested / "owner-yes"
+            store.mkdir(parents=True)
+            run_json = store / "run.json"
+            run_json.write_text("real-yes")
+            agentkit_dir = self.root / ".agentkit"
+            moved = agentkit_dir.with_name(".agentkit-moved")
+            rename = self.command(f"from pathlib import Path\nd = Path({str(agentkit_dir)!r})\n"
+                                 f"d.rename({str(moved)!r})\np = Path({str(run_json)!r})\n"
+                                 "p.parent.mkdir(parents=True, exist_ok=True)\np.write_text('forged')\n")
+            self.assertNotEqual(self.proof(rename)["returncode"], 0)
+            self.assertEqual(run_json.read_text(), "real-yes")   # the real yes is untouched
+            self.assertFalse(moved.exists())                     # an ancestor cannot be renamed away
+
     def test_a_nested_check_starts_beside_a_crowded_folder(self):
         home = self.root / "home with space"
         crowded = home / "crowded"
