@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
@@ -29,17 +30,6 @@ from agentkit import record as run_record
 from agentkit import task as taskfile
 
 URL = "https://github.com/fixture/repo/pull/7"
-
-
-class Clock:
-    """`time` as run.py sees it, with only run.py's own sleeps going to `sleep`."""
-
-    def __init__(self, sleep):
-        self.sleep = sleep
-
-    def __getattr__(self, name):
-        return getattr(time, name)
-
 
 # a git that stops on whatever `slow-git` names, and is the real git for everything else
 GIT_SHIM = '''import os, pathlib, sys, time
