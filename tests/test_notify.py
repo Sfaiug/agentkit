@@ -214,6 +214,8 @@ class Notifications(unittest.TestCase):
                                     == "Answered · seat" for method, _, payload in self.requests))
                 self.assertEqual(self.cards("done"), [])
                 self.assertEqual(list(notify.outbox().glob("*.json")), events)
+                self.cli("done", "Export shipped")
+                self.assertEqual(len(self.cards("done")), 1)
 
     def test_quiet_dry_runs_and_workers_change_no_state(self):
         self.cli("done", "Explained the schema", "--quiet", "--dry-run")

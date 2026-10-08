@@ -52,6 +52,7 @@ def quiet_done(name, text):
         with watch.seat_lock(current):
             live = watch.seat_read(current)
             previous = live.get("quiet_done")
+            # Plan checks can outlive the prompt or a newer answer's checks.
             newer = [watch._stamp(live.get("turn_began")),
                      watch._stamp(previous.get("time")) if isinstance(previous, dict) else None]
             if any(stamp is not None and stamp > at for stamp in newer):
