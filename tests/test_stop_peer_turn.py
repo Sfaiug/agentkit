@@ -1,13 +1,7 @@
-"""A turn another session's message opened keeps the seat's standing done.
+"""Internal peer turns require their own recorded ending and never answer owner questions.
 
-Offline and deterministic: hooks/seat-state.sh opens the turn and
-hooks/orchestrator-stop.sh judges its end, both run as their harness runs them --
-the hook's own JSON on stdin -- against fake notify records and a throwaway HOME,
-never a real seat or ~/.agentkit.  `ak tell` heads such a message (agentkit/told.py);
-the seat only acknowledges it, so a done declared before the turn still tells --
-unless `ak notify` dropped it, or a run sits parked.
+Drive the native hooks against fake records and a throwaway HOME.
 """
-
 import json
 import os
 from pathlib import Path
@@ -100,88 +94,46 @@ class StopPeerTurn(unittest.TestCase):
         self.assertTrue(output.strip(), "the hook allowed the stop")
         return json.loads(output)
 
-    # --- the standing done ----------------------------------------------------
-
-    def test_a_peer_opened_turn_with_a_standing_undropped_done_is_not_held(self):
+    def test_each_peer_turn_requires_its_own_completion(self):
         self.notified("done", self.done_at)
-        latch = self.prompt(PEER_PROMPT)
-        self.assertTrue(latch["peer"])
-        self.assertGreater(latch["turn"], self.done_at)   # the done predates the turn
-        self.assertEqual(self.stop(), "")
-
-    def test_an_owner_opened_turn_with_the_same_standing_done_is_held_as_today(self):
-        """The owner, or a run's notice typed into the seat, answers the done: it tells nothing."""
-        for opened in ("merge the parser now",
-                       "run 20260101-0900-parser finished: PASS"):   # typed in, not wrapped
-            with self.subTest(opened=opened):
-                self.setUp()
-                self.notified("done", self.done_at)
-                latch = self.prompt(opened)
-                self.assertFalse(latch["peer"])
+        for field in ("prompt", "message"):
+            with self.subTest(field=field):
+                latch = self.prompt(PEER_PROMPT, field)
                 self.assertEqual(self.blocked(self.stop())["reason"], REASON)
-
-    def test_a_line_told_with_ak_tell_opens_a_peer_turn(self):
-        """Headed as `ak tell` heads it, typed in or sent over Remote Control, from any seat name
-        a seat may have, a legacy one with a space in it too."""
-        for field, sender in (("prompt", "acme-fix-api"), ("message", "acme-fix-api"),
-                              ("prompt", "legacy name")):
-            with self.subTest(field=field, sender=sender):
-                self.setUp()
-                self.notified("done", self.done_at)
-                latch = self.prompt(heading(sender, time.time()) + NEWS, field)
-                self.assertTrue(latch["peer"])
+                self.notified("done", latch["turn"] + 1, quiet=True)
                 self.assertEqual(self.stop(), "")
-
-    def test_the_same_words_without_the_heading_up_front_are_the_owners(self):
-        told = heading("acme-fix-api", time.time())
-        for said in (NEWS, f"Did you read this: {told}{NEWS}",
-                     "[from seat acme-fix-api at 12:34, not the owner; ...] expand this example",
-                     told.replace("ak tell acme-fix-api", "ak tell acme-docs") + NEWS):
-            with self.subTest(said=said):
-                self.setUp()
+                # The next peer turn cannot borrow this completion either.
                 self.notified("done", self.done_at)
-                self.assertFalse(self.prompt(said)["peer"])
-                self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
-    def test_a_peer_opened_turn_whose_last_done_was_dropped_is_held(self):
-        self.notified("done", self.done_at, seen=True)    # `ak notify` dropped it
+    def test_peer_input_never_answers_an_owner_question(self):
+        self.notified("needs", self.done_at)
+        self.prompt(PEER_PROMPT)
+        self.assertEqual(self.stop(), "")
+        notice = json.loads((self.state / f"notify-{SEAT}.json").read_text())
+        self.assertNotIn("answered_at", notice)
+
+    def test_a_peer_completion_retired_after_failure_holds_the_turn(self):
         latch = self.prompt(PEER_PROMPT)
-        self.assertTrue(latch["peer"])
+        self.notified("done", latch["turn"] + 1, quiet=True, seen=True)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
-        # ... and the latch that says so is still the peer's one on the second stop
-        self.assertTrue(json.loads((self.state / f"stop-{SEAT}.json").read_text())["peer"])
-        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
-        self.assertEqual(self.stop(), "")     # the third stop stands, as it always did
 
-    def test_a_peer_opened_turn_with_an_undecided_parked_run_is_held(self):
-        self.notified("done", self.done_at)
+    def test_a_rename_keeps_parked_work_holding_a_peer_completion(self):
+        latch = self.prompt(PEER_PROMPT)
+        self.notified("done", latch["turn"] + 1, quiet=True)
         self.run_json("parked-exhausted", state="exhausted", started_at=self.done_at - 9000,
                       finished_at=self.done_at - 60, error=SPENT)
-        self.prompt(PEER_PROMPT)
-        reason = self.blocked(self.stop())["reason"]
-        self.assertIn("run parked-exhausted parked: ", reason)
-        self.assertIn("ak run resume parked-exhausted", reason)
-
-    def test_a_rename_during_the_turn_keeps_its_parked_run_holding_the_stop(self):
-        """review 20261006-1337: the harness keeps its launch name, and so does its turn's latch,
-        so a rename does not let the standing done end a turn while a run sits parked."""
-        self.notified("done", self.done_at)
-        self.run_json("parked-exhausted", state="exhausted", started_at=self.done_at - 9000,
-                      finished_at=self.done_at - 60, error=SPENT)
-        self.prompt(PEER_PROMPT)
-        self.assertIn("run parked-exhausted parked: ", self.blocked(self.stop())["reason"])
         with patch.object(config, "STATE", self.state), patch.object(config, "ensure_dirs"):
             config.rename_session(SEAT, "renamed-peer")
-        self.assertIn("run parked-exhausted parked: ", self.blocked(self.stop())["reason"])
+        self.assertIn("run parked-exhausted parked:", self.blocked(self.stop())["reason"])
 
-    def test_a_peer_opened_turn_waiting_on_a_run_is_judged_as_today(self):
-        """A run launched during the turn still counts as waiting, peer or not."""
+    def test_peer_turns_wait_only_while_their_work_is_live(self):
         self.prompt(PEER_PROMPT)
-        turn = json.loads((self.state / f"stop-{SEAT}.json").read_text())["turn"]
-        self.run_json("fresh-run", state="done", started_at=turn + 5,
-                      finished_at=turn + 6)
+        self.run_json("fresh-run", state="running", started_at=time.time())
         self.assertEqual(self.stop(), "")
-        self.assertTrue(json.loads((self.state / f"stop-{SEAT}.json").read_text())["peer"])
+        path = self.runs / "fresh-run/run.json"
+        saved = json.loads(path.read_text())
+        path.write_text(json.dumps({**saved, "state": "done", "finished_at": time.time()}))
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
 
 if __name__ == "__main__":

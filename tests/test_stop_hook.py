@@ -183,12 +183,7 @@ class StopHook(unittest.TestCase):
             with self.subTest(action=action):
                 self.setUp()
                 if action == "retire":
-                    self.notified("done", self.turn - 1)
-                    self.run_json("failed-run", state="fail", started_at=self.turn - 3600,
-                                  finished_at=self.turn - 0.5)
-                    latch = self.state / f"stop-{SEAT}.json"
-                    saved = json.loads(latch.read_text())
-                    latch.write_text(json.dumps({**saved, "peer": True}) + "\n")
+                    self.notified("done", self.turn + 1)
                 # A concurrent writer changes the notice while the hook reads its runs.
                 (self.home / "sitecustomize.py").write_text(f'''import json, os, time
 from pathlib import Path
@@ -257,12 +252,24 @@ Path.iterdir, Path.read_text = during_census, during_completion
         self.assertEqual(self.stop(), "")
         self.assertTrue((self.runs / "late-work/run.json").is_file())
 
-    def test_a_seen_current_done_keeps_the_native_stop_policy(self):
+    def test_a_retired_completion_does_not_allow_the_stop(self):
         self.notified("done", self.turn + 1)
         path = self.state / f"notify-{SEAT}.json"
         note = json.loads(path.read_text())
         path.write_text(json.dumps({**note, "seen": True}) + "\n")
-        self.assertEqual(self.stop(), "")
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
+    def test_a_failed_completion_does_not_allow_the_stop_before_retirement(self):
+        self.notified("done", self.turn + 1)
+        self.run_json("failed-run", state="fail", started_at=self.turn - 3600,
+                      finished_at=self.turn + 2, reported=True, handed_back=self.turn + 3)
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
+    def test_an_open_plan_holds_a_recorded_completion(self):
+        self.notified("done", self.turn + 1)
+        (self.state / f"plan-{SEAT}.md").write_text(
+            '- [ ] The API repair is live · your eye · acme · written 2026-01-01 12:00\n')
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_a_boolean_run_stamp_is_not_a_new_launch(self):
         for stamp in (True, False, "later", None):
@@ -272,10 +279,10 @@ Path.iterdir, Path.read_text = during_census, during_completion
                               finished_at=self.turn - 1)
                 self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
-    def test_a_run_launched_during_the_turn_allows_the_stop(self):
+    def test_a_finished_run_requires_a_completion_declaration(self):
         self.run_json("finished", state="done", started_at=self.turn + 5,
                       finished_at=self.turn + 6)
-        self.assertEqual(self.stop(), "")
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_an_unfinished_run_of_this_seat_allows_the_stop(self):
         # `stalled` is not here: nothing resumes one, so it sits parked undecided and now
@@ -458,9 +465,10 @@ Path.iterdir, Path.read_text = during_census, during_completion
         (self.state / f"stop-{SEAT}.json").unlink()
         self.assertEqual(self.stop(), "")
 
-    def test_an_unreadable_transcript_is_left_alone(self):
-        self.assertEqual(self.stop(said=None, transcript_path=str(self.home / "gone.jsonl")), "")
-        self.assertEqual(self.stop(said=None), "")
+    def test_an_unreadable_transcript_still_needs_a_recorded_ending(self):
+        self.assertEqual(self.blocked(self.stop(
+            said=None, transcript_path=str(self.home / "gone.jsonl")))["reason"], REASON)
+        self.assertEqual(self.blocked(self.stop(said=None))["reason"], REASON)
 
     def test_a_payload_no_argument_list_would_carry_still_decides(self):
         """A turn that moved a lot of tool output is still a turn this has to judge."""

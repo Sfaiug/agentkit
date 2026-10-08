@@ -139,6 +139,54 @@ class Notifications(unittest.TestCase):
                 if method == "POST" and payload["embeds"][0]["title"]
                 == f"{notify.TITLES[kind]} · seat"]
 
+    def test_quiet_answers_do_not_write_notification_state(self):
+        for previous in ("empty", "pending", "question", "retired", "sent"):
+            with self.subTest(previous=previous):
+                self.setUp()
+                if previous != "empty":
+                    notify.record("seat", "needs" if previous == "question" else "done",
+                                  "Which export?" if previous == "question" else "Export shipped",
+                                  runs=["acme-run"], seen=previous == "retired",
+                                  completion={"created": 1, "outcomes": [["Export shipped"]]})
+                    notify._card_write("seat", {"word": "done", "since": 1, "began": 1,
+                                               "episode": "ordinary", "sent": previous == "sent"})
+                paths = (config.notify_path("seat"), config.card_path("seat"))
+                before = [path.read_bytes() if path.exists() else None for path in paths]
+                events = list(notify.outbox().glob("*.json"))
+                self.cli("done", "Explained the schema", "--quiet")
+                self.assertEqual([path.read_bytes() if path.exists() else None for path in paths],
+                                 before)
+                self.assertEqual(list(notify.outbox().glob("*.json")), events)
+                self.assertEqual(self.requests, [])
+                self.assertEqual(watch.seat_read("seat")["quiet_done"]["text"],
+                                 "Explained the schema")
+
+    def test_quiet_answers_preserve_a_job_completion_waiting_for_its_run(self):
+        pending = config.RUNS / "acme-run"
+        pending.mkdir()
+        state = {"run_id": pending.name, "state": "running", "launched_session": "seat",
+                 "started_at": time.time(), "pid": 0}
+        (pending / "run.json").write_text(json.dumps(state))
+        self.cli("done", "Export shipped")
+        original = config.notify_path("seat").read_bytes()
+        self.cli("done", "Explained why it waits", "--quiet")
+        self.assertEqual(config.notify_path("seat").read_bytes(), original)
+        self.assertEqual(self.cards("done"), [])
+        state.update(state="pass", verdict="PASS", reported=True, finished_at=time.time())
+        (pending / "run.json").write_text(json.dumps(state))
+        self.assertEqual(notify.transition("seat"), 0)
+        self.assertEqual(len(self.cards("done")), 1)
+        self.assertEqual(notify.last("seat")["text"], "Export shipped")
+
+    def test_quiet_dry_runs_and_workers_change_no_state(self):
+        self.cli("done", "Explained the schema", "--quiet", "--dry-run")
+        self.cli("done", "Explained the schema", "--quiet", env={"AK_RUN_ROLE": "worker"})
+        self.assertEqual(watch.seat_read("seat"), {})
+        self.assertIsNone(notify.last("seat", include_seen=True))
+        self.assertFalse(config.card_path("seat").exists())
+        self.assertEqual(list(notify.outbox().glob("*.json")), [])
+        self.assertEqual(self.requests, [])
+
     def test_a_cached_done_cannot_announce_a_running_job(self):
         self.assertEqual(notify.shaped("needs", "Which API route?", session="seat"), 0)
         pending = config.RUNS / "acme-run"

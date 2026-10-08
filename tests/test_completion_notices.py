@@ -127,6 +127,64 @@ class CompletionNotices(Sandbox):
                 self.assertEqual(set(payload['embeds'][0]), {'title', 'color', 'timestamp'})
                 self.assertEqual(payload['embeds'][0]['color'], notify.COLORS['done'])
 
+    def test_quiet_turns_leave_job_receipts_untouched_on_every_configured_model(self):
+        for index, model in enumerate(self.cfg['models']):
+            name = f'quiet-{index}'
+            with self.subTest(model=model):
+                self.seat(name, model, created=index + 20)
+                self.checked('API shipped', name=name)
+                self.assertEqual(notify.shaped('done', 'Explained the API', session=name,
+                                               quiet=True), 0)
+                for _ in range(2):
+                    self.assertEqual(notify.transition(name), 0)
+                self.assertEqual(self.posted(name), [])
+                self.assertIsNone(notify.last(name, include_seen=True))
+                self.assertFalse(config.card_path(name).exists())
+                # A quiet answer claims no job announcement. Its first real ending alerts.
+                self.declare(name=name)
+                self.assertEqual(len(self.posted(name)), 1)
+                receipt = notify._card_read(name)['completed']
+                self.internal_turn(name)
+                self.assertEqual(notify.shaped('done', 'Confirmed the shipped API', session=name,
+                                               quiet=True), 0)
+                config.card_path(name).unlink(missing_ok=True)
+                self.declare('Late handback confirms API', name=name)
+                self.assertEqual(len(self.posted(name)), 1)
+                self.assertEqual(notify._card_read(name)['completed'], receipt)
+
+    def test_failed_work_and_questions_do_not_turn_quiet_answers_into_job_receipts(self):
+        self.checked('API shipped')
+        self.declare()
+        self.now += 100
+        self.checked('API shipped', 'Export shipped')
+        directory = config.RUNS / 'acme-export'
+        directory.mkdir()
+        state = {'run_id': directory.name, 'launched_session': self.name, 'state': 'running',
+                 'started_at': self.now, 'pid': 0}
+        (directory / 'run.json').write_text(json.dumps(state))
+        self.assertEqual(notify.shaped('done', 'Explained the export', session=self.name,
+                                       quiet=True), 0)
+        self.now += 100
+        state.update(state='fail', finished_at=self.now, reported=True, handed_back=self.now)
+        (directory / 'run.json').write_text(json.dumps(state))
+        self.assertEqual(notify.transition(self.name), 0)
+        self.assertEqual(notify.shaped('needs', 'Which export format?', session=self.name), 0)
+        self.now += 100
+        notify.answered(self.name, self.now)
+        for _ in range(2):
+            self.now += 100
+            self.assertEqual(notify.shaped('done', 'Explained the error', session=self.name,
+                                           quiet=True), 0)
+        config.card_path(self.name).unlink(missing_ok=True)
+        self.now += 100
+        state.update(state='pass', finished_at=self.now)
+        (directory / 'run.json').write_text(json.dumps(state))
+        self.declare('The repaired export is shipped')
+        self.assertEqual(len(self.posted()), 2)
+        self.internal_turn()
+        self.declare('A handback confirms the repaired export')
+        self.assertEqual(len(self.posted()), 2)
+
     def test_new_checked_work_sends_without_an_intermediate_tick(self):
         self.checked('API accepts the new parameters')
         self.declare()

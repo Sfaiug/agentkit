@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, host, job as jobs, menu, notify, orch, run, watch
+from agentkit import config, host, job as jobs, menu, notify, orch, plan, run, watch
 from agentkit import record
 
 SEAT, OTHER = "acme-api", "fix-api"
@@ -271,15 +271,83 @@ class NudgeTurnRule(Sandbox):
                 self.assertEqual(self.judged(), (False, []))
 
 
-    def test_f_a_run_that_just_finished_remains_a_native_wait_only(self):
-        """The prompt hook knows the launch turn; the tick requires work still live."""
+    def test_f_finished_work_requires_completion_on_every_harness(self):
+        """A completed run is neither a live wait nor a completion declaration."""
         for harness in HARNESSES:
             with self.subTest(harness=harness):
                 self.setUp()
                 self.harness = harness
                 self.receipt(THEIRS, SEAT, "pass", started_at=time.time() - 3600,
                              finished_at=time.time() - 60)
-                self.assertEqual(self.judged(), (False, ["continue"]))
+                self.assertEqual(self.judged(), (True, ["continue"]))
+
+    def test_failed_and_retired_completions_require_correction_on_every_harness(self):
+        for harness in HARNESSES:
+            for retired in (False, True):
+                with self.subTest(harness=harness, retired=retired):
+                    self.setUp()
+                    self.harness = harness
+                    now = time.time()
+                    notify.record(SEAT, "done", "The API is live", time=now - 60, seen=retired)
+                    self.receipt(THEIRS, SEAT, "fail", finished_at=now - 30,
+                                 reported=True, handed_back=now - 20)
+                    self.assertEqual(self.judged(), (True, ["continue"]))
+                    self.assertIsNone(watch.seat_read(SEAT).get("stop_done"))
+
+    def test_an_open_plan_holds_completion_on_every_harness(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                notify.record(SEAT, "done", "The API is live")
+                config.plan_path(SEAT).write_text(
+                    '- [ ] The API repair is live · your eye · acme · written 2026-01-01 12:00\n')
+                self.assertEqual(self.judged(), (True, ["continue"]))
+
+    def test_a_hand_kept_plan_holds_completion_on_every_harness(self):
+        for harness in HARNESSES:
+            for line in ('- [ ] The API repair is live', '  - [ ] The API repair is live'):
+                with self.subTest(harness=harness, line=line):
+                    self.setUp()
+                    self.harness = harness
+                    notify.record(SEAT, "done", "Explained the API")
+                    config.plan_path(SEAT).write_text(line + '\n')
+                    with self.assertRaises(config.Error):
+                        plan.require_done(SEAT)
+                    self.assertEqual(self.judged(), (True, ["continue"]))
+                    config.plan_path(SEAT).write_text(line.replace('[ ]', '[x]') + '\n')
+                    self.assertEqual(self.judged(), (False, []))
+
+    def test_quiet_answers_end_only_their_turn_on_every_nudge_harness(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.stopped()
+                self.assertEqual(notify.shaped("done", "Explained the API", session=SEAT,
+                                               quiet=True), 0)
+                self.assertEqual(self.judged(), (False, []))
+                self.assertIsNone(notify.last(SEAT, include_seen=True))
+                # Different output without a new declaration is unfinished again.
+                self.pane = self.screen("prompt").replace("recommendation", "next change")
+                watch.seat_write(SEAT, turn_began=time.time() + 1, stop_nudged=None)
+                self.assertTrue(self.hook_holds())
+                self.assertEqual(self.tick(), ["continue"])
+
+    def test_new_open_work_holds_a_previously_quiet_answer(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.stopped()
+                self.assertEqual(notify.shaped("done", "Explained the API", session=SEAT,
+                                               quiet=True), 0)
+                config.plan_path(SEAT).write_text('  - [ ] Repair the API\n')
+                self.assertEqual(self.judged(), (True, ["continue"]))
+                config.plan_path(SEAT).write_text('  - [x] Repair the API\n')
+                self.assertEqual(self.judged(), (False, []))
+                self.receipt(PARKED, SEAT, "interrupted", recovery_pending=True)
+                self.assertEqual(self.judged(), (True, ["continue"]))
 
     def test_g_a_current_question_stands_past_parked_work(self):
         for harness in HARNESSES:
