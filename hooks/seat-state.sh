@@ -138,16 +138,20 @@ sys.exit(0 if passive else 1)
     look "$seat"
     return 0
   fi
-  # Peer messages and bookkeeping never answer an owner's standing question.
+  # A prompt begins a turn and retires its previous quiet answer. Peer messages and
+  # bookkeeping never answer an owner's standing question.
   peer=false
   if /usr/bin/env python3 -c '
 import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+from agentkit import config, watch
 from agentkit.told import told
+watch.seat_write(config.resolve_session(sys.argv[2]), turn_began=float(sys.argv[3]),
+                 quiet_done=None)
 payload = json.load(sys.stdin)
 sys.exit(0 if any(told(payload.get(key)) for key in ("prompt", "message")) else 1)
-' "${BASH_SOURCE[0]}" <<<"$payload" 2>/dev/null; then
+' "${BASH_SOURCE[0]}" "$row" "$ts" <<<"$payload" 2>/dev/null; then
     peer=true
   fi
   tmp="$dir/stop-$seat.json.tmp.$$"

@@ -40,10 +40,11 @@ def _ending_work(name, records):
 
 def quiet_done(name, text):
     """Record an information answer as a turn ending, without announcing a job."""
+    at = time.time()
     proven = plan.require_done(name)
     with plan.held(name) as current:
         plan.still_done(current, proven)
-        if not watch.seat_write(current, quiet_done={"time": time.time(), "text": text}):
+        if not watch.seat_write(current, quiet_done={"time": at, "text": text}):
             raise config.Error(f"could not record the quiet answer for {current}")
 
 

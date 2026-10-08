@@ -2,6 +2,7 @@
 
 Drive both native hooks against a throwaway HOME and fake records.
 """
+from contextlib import contextmanager, ExitStack
 import json
 import os
 from pathlib import Path
@@ -90,6 +91,16 @@ class StopAnswer(unittest.TestCase):
         self.assertTrue(output.strip(), "the hook allowed the stop")
         return json.loads(output)
 
+    @contextmanager
+    def local_config(self):
+        with ExitStack() as stack:
+            home = self.home / ".agentkit"
+            for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
+                stack.enter_context(patch.object(config, name,
+                                    home if name == "HOME" else home / name.lower()))
+            stack.enter_context(patch.object(config, "CODE", self.home / "code"))
+            yield
+
     def read_as(self):
         """(state, event) a Claude seat's row reads off what its hooks have written down."""
         with patch.object(config, "STATE", self.state):
@@ -126,7 +137,7 @@ class StopAnswer(unittest.TestCase):
         (self.state / f"stop-{SEAT}.json").rename(self.state / f"stop-{renamed}.json")
         (self.state / f"session-{SEAT}.json").write_text(json.dumps({"renamed": renamed}))
         self.prompt("Fix the export")
-        with patch.object(config, "STATE", self.state), patch.object(config, "RUNS", self.runs):
+        with self.local_config():
             word = watch.session_state(renamed, session={"name": renamed}, cfg={}, records=[],
                                        harness="claude", live={"state": "at_prompt"},
                                        auth_out={}, gh_out={}, token_out={})
@@ -135,8 +146,7 @@ class StopAnswer(unittest.TestCase):
 
     def test_a_quiet_command_cannot_finish_a_prompt_arriving_while_plan_checks_run(self):
         self.prompt("Explain the parser")
-        with patch.object(config, "STATE", self.state), patch.object(config, "RUNS", self.runs), \
-                patch.object(stop.plan, "require_done", side_effect=lambda _name:
+        with self.local_config(), patch.object(stop.plan, "require_done", side_effect=lambda _name:
                              (self.prompt("Fix the export"), set())[1]):
             stop.quiet_done(SEAT, ANSWER)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
