@@ -2690,7 +2690,8 @@ def _composer_rows(harness, pane, *, exact=False):
                 before = source[:match.start()].splitlines()
                 # A padding row inside a draft is not its opening edge, nor is an edge at
                 # the start of a cropped read proof that none of the draft sits above it.
-                if exact and (before and before[-1].startswith(edge)
+                if exact and (not match.groupdict().get("opening")
+                              or before and before[-1].startswith(edge)
                               or not before and len(_content_rows(pane)) > PANE_LINES):
                     return None
                 parts.extend(row[len(edge):] for row in match["text"].splitlines())

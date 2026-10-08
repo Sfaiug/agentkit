@@ -110,10 +110,11 @@ composer = '[┃╹].*'
 # flight is never trimmed as chrome.
 footer = ['.*ctrl\+p commands', '.*\d+\.\d+\.\d+',
           '[\w-]+ · [^·]+( · \d+(ms|\.\ds|m \d+s|h \d+m|d \d+h))?( · \d+\.\d+ tok/s)?( · interrupted)?']
-# The whole input box, from its opening padding row to its `╹` bottom edge. `edge` names
-# the inset and frame removed from every `text` row, so placeholder-like owner rows inside
-# a draft stay text. The grey `Ask anything… "…"` placeholder holds nothing typed.
-draft = '^(?P<edge> *┃)\n(?P<text>(?P=edge) +(?!Ask anything… ")\S.*\n(?:(?P=edge)(?: .*)?\n)*)(?P=edge)\n(?P=edge) .*\n *╹'
+# The input box through its `╹` bottom edge. `edge` names the inset and frame removed from
+# every `text` row; placeholder-like owner rows inside a draft stay text. `opening` proves
+# its top was read for unmarked recovery, while pending delivery can still read a cropped
+# draft. The grey `Ask anything… "…"` placeholder holds nothing typed.
+draft = '^(?=(?P<edge> *┃))(?P<opening>(?P=edge)\n)?(?P<text>(?P=edge) +(?!Ask anything… ")\S.*\n(?:(?P=edge)(?: .*)?\n)*)(?P=edge)\n(?P=edge) .*\n *╹'
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.
