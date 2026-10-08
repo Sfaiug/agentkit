@@ -984,6 +984,23 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
+def tmux_lists(lists, socket=None):
+    """Run those command lists in as few tmux calls as its message takes: one, unless they are
+    long.  tmux stops a call at the first command that fails, so the lists sent with one that
+    did are then run one by one: each sets what it can, as when each had a call of its own."""
+    calls = []
+    for words in lists:
+        if not calls or sum(len(word.encode()) + 1 for sent in (*calls[-1], words)
+                            for word in (";", *sent)) > TMUX_MESSAGE:
+            calls.append([])
+        calls[-1].append(words)
+    for sent in calls:
+        rc, _ = tmux_out(*[word for words in sent for word in (";", *words)][1:], socket=socket)
+        if rc != 0 and len(sent) > 1:
+            for words in sent:
+                tmux_out(*words, socket=socket)
+
+
 def dead(socket):
     """The sessions on that server whose panes have all exited but which tmux still holds."""
     rc, out = tmux_out("list-panes", "-a", "-F", "#{session_name}\t#{pane_dead}", socket=socket)

@@ -279,8 +279,10 @@ def retell(session):
         pass
 
 
-def _tell(only=None):
-    """Write line one's right end on that seat's bar, or on every seat's, and bind its click.
+def _tell(only=None, own=()):
+    """Write line one's right end on that seat's bar, or on every seat's, then the caller's
+    `own` commands, and bind its click: one tmux call however many seats there are, where a
+    call per seat made every start and every changed word wait on each open seat.
 
     One lock across every bar's reading and writing: the seat words are read under it and
     written before it is let go, so whoever writes last has read last, and an older reading
@@ -290,26 +292,26 @@ def _tell(only=None):
     config.ensure_dirs()
     with (config.STATE / "statusbar.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        found = seats()
+        found, ends = seats(), []
         for _, name, _ in found:
             if only in (None, name):
                 named, folded, needing, hit = others(found, name)
                 # One command list, which tmux runs whole before it reads another click: no
                 # click lands between the names a bar draws and the lookup that finds them.
                 target = f"={name}:"   # that session alone, as `_write` says
-                orch.tmux_out("set-option", "-t", target, SEATS, named, ";",
-                              "set-option", "-t", target, FOLD, folded, ";",
-                              "set-option", "-t", target, NEED, needing, ";",
-                              "set-option", "-t", target, HIT, hit, socket=orch.socket_name())
-    orch.tmux_out(*CLICK, socket=orch.socket_name())
+                ends.append(["set-option", "-t", target, SEATS, named, ";",
+                             "set-option", "-t", target, FOLD, folded, ";",
+                             "set-option", "-t", target, NEED, needing, ";",
+                             "set-option", "-t", target, HIT, hit])
+        # a seat gone since it was listed fails its own list and no other's (`orch.tmux_lists`)
+        orch.tmux_lists([*ends, *own, CLICK], socket=orch.socket_name())
 
 
 def dress(name, model):
     """A new seat's bar, before its first word: who is in it; and every other seat's bar counts
     it again, since a seat opened under a name that needed you needs you still.  Never raises."""
     try:
-        _write(name, model)
-        _tell()
+        _write(name, model, every=True)
     except Exception:  # noqa: BLE001 - dressing a bar never breaks the seat beneath it
         pass
 
@@ -344,13 +346,14 @@ def redress(session, answer, cfg=None, records=None):
         pass
 
 
-def _write(name, model, word=None, lasts=None, cfg=None, versions=()):
+def _write(name, model, word=None, lasts=None, cfg=None, versions=(), every=False):
     """Set the bar on that seat's own session, never the server's or another seat's: a seat gone
     mid-draw, or a draw under test, fails its `set-option` quietly.  `={name}:` is that session
     alone: tmux reads a plain name as the start of any session's, so a gone `new-1` would write
     `new-10`'s bar, and it refuses `=name` without the colon as a target.  `lasts` are the
     seat's last column at each of `BARS`, and `versions` a working seat's line two (`live`),
-    else every version of it is the reason."""
+    else every version of it is the reason.  `every` has each other seat's bar count this one
+    again, in the same call."""
     cfg = config.load() if cfg is None else cfg
     lasts, colour = lasts or [""] * len(BARS), company(cfg, model)
     tops = [lines(name, model, colour, word, last)[0] for last in lasts]
@@ -360,19 +363,11 @@ def _write(name, model, word=None, lasts=None, cfg=None, versions=()):
                             f"{orch.tmux_text(said)}" for said, colour, bold in version)
              + "#[default]"
              for version in versions])
-    _tell(name)
-    # Command lists, which tmux runs whole: one call where a call per option made a seat's start
-    # wait seconds on a busy host, and another only where a long question's reason, drawn in
-    # every width, would take a list past what tmux takes in one call.  The title last, so
-    # whoever sees it has the whole bar to read.  Every command is this seat's, so a seat gone
-    # mid-draw fails them all alike.
-    calls = [[]]
-    for option, value in (*LAYOUT, *zip(TOPS, tops), *zip(WHYS, whys), (KEY, key),
-                          ("set-titles-string", title)):
-        command = ["set-option", "-t", f"={name}:", option, value]
-        if calls[-1] and sum(len(word.encode()) + 1 for word in [*calls[-1], ";", *command]) \
-                > orch.TMUX_MESSAGE:
-            calls.append([])
-        calls[-1] += [";"] * bool(calls[-1]) + command
-    for words in calls:
-        orch.tmux_out(*words, socket=orch.socket_name())
+    # With line one's right end, in one call, where a call per option made a seat's start wait
+    # seconds on a busy host; another only where a long question's reason, drawn in every
+    # width, would take it past what tmux takes in one.  The title last, so whoever sees it
+    # has the whole bar to read.
+    _tell(None if every else name,
+          [["set-option", "-t", f"={name}:", option, value]
+           for option, value in (*LAYOUT, *zip(TOPS, tops), *zip(WHYS, whys), (KEY, key),
+                                 ("set-titles-string", title))])

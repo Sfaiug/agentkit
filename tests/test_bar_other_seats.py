@@ -27,6 +27,7 @@ from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
 from agentkit import config, notify, orch, statusbar, terminal, watch
+from agentkit.guard import commands
 
 IDS = {"fix-api": "$0", "atlas-proxies": "$1", "web": "$2", "zeta": "$3"}
 WORDS = {"fix-api": "working", "atlas-proxies": "needs you", "web": "working", "zeta": "done"}
@@ -82,11 +83,12 @@ class OtherSeats(Sandbox):
         self.assertEqual(drawn(self.options["fix-api"][statusbar.FOLD]),
                          "! 1 needs you   ● 1 working   ✓ 1 done ")
         self.assertNotIn("range=", self.options["fix-api"][statusbar.FOLD])
-        # the names and their lookup in one tmux command list, which no click can land inside
-        whole = [args for args, _ in self.calls if statusbar.HIT in args]
-        self.assertEqual({(args[3::6], args[5::6]) for args in whole},
-                         {((statusbar.SEATS, statusbar.FOLD, statusbar.NEED, statusbar.HIT),
-                           (";", ";", ";"))})
+        # each seat's names and their lookup side by side in one tmux command list, which no
+        # click can land inside
+        (sent,) = [args for args, _ in self.calls if statusbar.HIT in args]
+        ends = (statusbar.SEATS, statusbar.FOLD, statusbar.NEED, statusbar.HIT)
+        self.assertEqual([command[2:4] for command in commands(sent) if command[3] in ends],
+                         [[f"={name}:", option] for name in IDS for option in ends])
         found = statusbar.seats()
         self.assertEqual(found[1], ("$1", "atlas-proxies", "needs you"))
         named, folded, needing, hit = statusbar.others(found, "atlas-proxies")
@@ -143,7 +145,11 @@ class OtherSeats(Sandbox):
     def test_e_every_bar_write_binds_the_click_on_a_name_and_nothing_else(self):
         statusbar.dress("fix-api", "fable")
         # on ak's own server, so one that was up before the names came gets it too
-        self.assertIn((statusbar.CLICK, "agentkit-test"), self.calls)
+        writes = [(args, socket) for args, socket in self.calls if args[0] != "list-sessions"]
+        self.assertTrue(writes)
+        for args, socket in writes:
+            self.assertEqual((args[-len(statusbar.CLICK):], socket),
+                             (statusbar.CLICK, "agentkit-test"))
         self.assertEqual(statusbar.CLICK[:3], ("bind-key", "-n", "MouseDown1StatusRight"))
         self.assertEqual(statusbar.CLICK[5], f"#{{E:{statusbar.HIT}}}")   # only over a name
         self.assertEqual([line for line in orch.tmux_conf().read_text().splitlines()
