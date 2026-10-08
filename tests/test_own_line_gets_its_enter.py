@@ -114,6 +114,16 @@ class OwnLineGetsItsEnter(Sandbox):
         self.assertEqual(self.keys, ["Enter", "Enter"])
         self.assertEqual(self.pane, self.base)
 
+    def test_full_recovery_lines_wrapped_over_several_rows_get_enter(self):
+        for harness in COMPOSERS:
+            for line in (watch.ACCOUNT_LINE, watch.MIDTURN_LINE):
+                with self.subTest(harness=harness, line=line):
+                    self.keys.clear()
+                    self.compose("\n  ".join(line[at:at + 26] for at in range(0, len(line), 26)),
+                                 harness)
+                    self.tick()
+                    self.assertEqual(self.keys, ["Enter"])
+
     def test_other_text_including_owner_edits_is_left_alone(self):
         for line in ("Fix the login redirect", watch.ACCOUNT_LINE[:60],
                      "My note: " + watch.ACCOUNT_LINE, watch.ACCOUNT_LINE + " Wait.",
@@ -129,6 +139,7 @@ class OwnLineGetsItsEnter(Sandbox):
         for harness in COMPOSERS:
             for _line, draft in SUFFIX_DRAFTS:
                 with self.subTest(harness=harness, draft=draft):
+                    self.keys.clear()
                     self.compose(draft, harness)
                     self.tick()
                     self.assertEqual(self.keys, [])
@@ -137,6 +148,7 @@ class OwnLineGetsItsEnter(Sandbox):
         for harness in ("claude", "codex"):
             for line, draft in SUFFIX_DRAFTS:
                 with self.subTest(harness=harness, draft=draft):
+                    self.keys.clear()
                     self.compose(line, harness)
                     with patch.object(orch, "rulebook_prepare", side_effect=lambda _name:
                                       self.compose(draft, harness)):

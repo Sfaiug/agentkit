@@ -571,12 +571,15 @@ def finish_own_lines(cfg, log):
         resume = config.manifest(harness).get("resume")
         key = resume.get("key") if isinstance(resume, dict) else None
         for line in (ACCOUNT_LINE, MIDTURN_LINE, CONTINUE_LINE, key):
-            if not line or composer_holds(name, session, line, cfg) != "line":
+            def alone(held):
+                return composer_holds(held, session, line, cfg, exact=True) == "line"
+
+            if not line or not alone(name):
                 continue
             type_checked(session, line, log, harness, pending=True,
                          guard=lambda: seat_held(name),
                          veto=lambda held: owner_question(notify.last(held)),
-                         ready=lambda held: composer_holds(held, session, line, cfg) == "line")
+                         ready=alone)
             break
 
 
@@ -2704,7 +2707,7 @@ def _unscrolled(chrome, rows):
     return [row for row in rows if row.strip()]
 
 
-def composer_holds(name, session, line, cfg=None):
+def composer_holds(name, session, line, cfg=None, *, exact=False):
     """What that seat's composer holds now, off one capture: "line", "empty", or "other" --
     anything else, nothing read, or a question to the owner on the screen, as a dialog that
     keeps the composer drawn is.
@@ -2715,6 +2718,7 @@ def composer_holds(name, session, line, cfg=None):
     folds_over`.  What the owner types goes in at its end, so none of these is a line with the
     owner's words beside it, and a one-row draft that only ends the way the line does is the
     owner's.
+    `exact` requires the full line: a suffix or paste fold is no proof without a delivery mark.
     """
     try:
         name = config.resolve_session(name)
@@ -2736,8 +2740,9 @@ def composer_holds(name, session, line, cfg=None):
     held, whole = re.sub(r"\s+", "", "".join(rows or ())), re.sub(r"\s+", "", line)
     folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
               and len(line) > chrome["folds_over"])
-    if held and (held == whole or len(rows) > 1 and whole.endswith(held)
-                 or folded and chrome["folded"].fullmatch(held)):
+    if held and (held == whole or not exact and (
+            len(rows) > 1 and whole.endswith(held)
+            or folded and chrome["folded"].fullmatch(held))):
         return "line"
     return "other"
 
