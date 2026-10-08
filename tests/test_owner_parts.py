@@ -432,9 +432,9 @@ class OwnerParts(Sandbox):
                 self.commit("change the protected file")
                 self.assertIn(protected, self.touched())
 
-    def session_answer(self, records):
+    def session_answer(self, records, live=None):
         return watch.session_state("seat-x", session={"name": "seat-x"}, records=records,
-            cfg={"models": {}, "providers": {}}, live={"state": "at_prompt"}, harness="codex",
+            cfg={"models": {}, "providers": {}}, live=live or {"state": "at_prompt"}, harness="codex",
             auth_out={}, gh_out={}, token_out={}, waits=False, silent={})
 
     def test_an_unrelated_prompt_or_restart_cannot_hide_owner_approval(self):
@@ -454,9 +454,30 @@ class OwnerParts(Sandbox):
             with self.subTest(replaced=replaced), patch.object(run, "launcher_watched", return_value=True):
                 if replaced:
                     config.notify_path("seat-x").unlink()
-                answer = self.session_answer(records)
-                self.assertTrue(answer.get("question"), answer)
-                self.assertIn(f"ak run yes {lp.run_dir.name} {head[:12]}", answer["reason"])
+                for live in ({"state": "at_prompt"}, {"state": "draft", "text": "unrelated"}):
+                    answer = self.session_answer(records, live)
+                    self.assertTrue(answer.get("question"), answer)
+                    self.assertIn(f"ak run yes {lp.run_dir.name} {head[:12]}", answer["reason"])
+        # A later, unrelated answer cannot close or re-page this approval's card, including a
+        # receipt delivered after the other prompt was answered.
+        card = {"word": "needs you", "since": 9990, "episode": "approval", "sent": True,
+                "command": True, "open_needs": []}
+        notify._card_write("seat-x", card)
+        notify.record("seat-x", "needs", "An unrelated question", time=10000, answered_at=10001)
+        with patch.object(notify, "_attached", return_value=False), \
+                patch.object(notify, "_close_card") as close, \
+                patch.object(notify, "_send_card") as send:
+            for now in (10002, 10003):
+                notify.needs_transition("seat-x", card, self.session_answer(records), now)
+        close.assert_not_called()
+        send.assert_not_called()
+        event = {"session": "seat-x", "kind": "needs", "episode": "approval", "created_at": 9990,
+                 "receipt": {"message_id": "approval-message"}, "payload": {"embeds": [{}]}}
+        with patch.object(notify, "close_needs") as close:
+            notify._remember_card(event)
+        close.assert_not_called()
+        self.assertEqual(notify._card_read("seat-x")["open_needs"],
+                         [{"message_id": "approval-message", "embed": {}}])
         with patch.object(run, "cmd_resume", return_value=0):
             run.cmd_yes([lp.run_dir.name, head[:12]])
         with patch.object(run, "launcher_watched", return_value=True):

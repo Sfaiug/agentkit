@@ -299,8 +299,8 @@ class ChecksBoxed(unittest.TestCase):
 
     def test_a_check_cannot_forge_by_renaming_a_state_ancestor(self):
         # With the store nested inside the workspace, a check renames an intermediate ancestor and
-        # recreates the store. Every ancestor up to the workspace is a mount point, so the rename
-        # fails and no forged yes lands.
+        # recreates the store. Its ancestors stay read-only, so the rename fails and no forged
+        # yes lands.
         nested = self.root / ".agentkit" / "state"
         with patch.object(config, "STATE", nested):
             store = nested / "owner-yes"
