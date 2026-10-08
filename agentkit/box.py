@@ -419,9 +419,11 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         try:
             proc.wait(timeout=max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
+            proc.kill()
+        finally:
+            # However bwrap ended, by this stop or killed before it, PID 1 ends too.
             if target is not None:
                 _kill(target[0])
-            proc.kill()
 
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
