@@ -20,6 +20,7 @@ from agentkit import usage, watch  # noqa: E402
 # Every pass of the tick, in its order, and whether a dry run runs it too.
 PASSES = (
     (notify, "retry_pending", True), (watch, "resume_after_boot", True),
+    (watch, "finish_own_lines", False),
     (watch, "continue_turns", False), (watch, "health", True),
     (watch, "resume_dead_loops", True), (watch, "resume_dead_jobs", True),
     (watch, "recover_runs", True), (watch, "save_state", False), (usage, "collect", False),

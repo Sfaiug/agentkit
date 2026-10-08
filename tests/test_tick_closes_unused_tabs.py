@@ -259,6 +259,7 @@ class V5AE(unittest.TestCase):
                    patch.object(watch, "save_state"),
                    patch.object(usage, "collect", return_value={}),
                    patch.object(record, "run_dirs", return_value=[]),
+                   patch.object(orch, "sessions", return_value=[]),
                    patch.object(gc, "schedule_gc"),
                    patch.object(orch, "stamp"),
                    patch.object(orch, "sweep"),
