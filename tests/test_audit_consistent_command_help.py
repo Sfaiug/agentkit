@@ -285,14 +285,16 @@ sys.exit(int(os.environ.get("HELP_WORKER_EXIT", "0")))
     def test_notify_documented_variants_match_parsing(self):
         expected = [
             (["needs", "Question?"], "shaped", ["needs", "Question?", None],
-             {"session": None, "dry_run": False}),
+             {"session": None, "dry_run": False, "quiet": False}),
             (["needs", "Question?", "--session", "seat", "--dry-run"], "shaped",
-             ["needs", "Question?", None], {"session": "seat", "dry_run": True}),
+             ["needs", "Question?", None], {"session": "seat", "dry_run": True, "quiet": False}),
             (["done", "Summary"], "shaped", ["done", "Summary", None],
-             {"session": None, "dry_run": False}),
+             {"session": None, "dry_run": False, "quiet": False}),
             (["done", "--session", "seat", "Summary", "--pr", "https://example.invalid/pr/1",
               "--dry-run"], "shaped", ["done", "Summary", "https://example.invalid/pr/1"],
-             {"session": "seat", "dry_run": True}),
+             {"session": "seat", "dry_run": True, "quiet": False}),
+            (["done", "An answer", "--quiet"], "shaped", ["done", "An answer", None],
+             {"session": None, "dry_run": False, "quiet": True}),
             (["--check"], "check", [], {}),
         ]
         for args, call, parsed, kwargs in expected:
