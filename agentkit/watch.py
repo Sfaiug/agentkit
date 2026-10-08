@@ -1999,9 +1999,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             owner = None
         if owner == name:
             mine.append((run_dir, state))
-    approval = run_mod.owner_question(name, records)
-    if approval:
-        return approval
     # 1. a login expired: the seat cannot move and only he can move it.  What decides it for
     # this seat is its harness's own `auth seat` verb, as the last tick asked it -- never the
     # pane, which a queued input redraws between ticks, and which is how `needs login` and

@@ -46,6 +46,7 @@ class OwnerParts(Sandbox):
         self.stack.enter_context(patch.dict(os.environ, {
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AK_RUN_ROLE": "",
+            config.INBOX_ENV: "inbox",
             "AK_NOTIFY_SINK": "off", "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_NOSYSTEM": "1"}))
         self.home = self.root
@@ -171,9 +172,42 @@ class OwnerParts(Sandbox):
         self.assertEqual(len(cards), 1)                         # the owner is asked, once
         kind, text, kw = cards[0]
         self.assertEqual(kind, "needs")
-        self.assertEqual(kw.get("session"), "seat-x")          # the launching seat's owner card
+        self.assertEqual(kw.get("session"), "inbox")
+        self.assertFalse(kw.get("command"))
         self.assertIn("score.py", text)
         self.assertIn("ak run yes run-1", text)
+
+    def test_the_gate_records_one_ordinary_inbox_notice_per_head(self):
+        lp, head = self.parked()
+        config.session_path("inbox").write_text("{}")
+        with patch.object(watch, "ask_inbox", wraps=watch.ask_inbox) as ask, \
+                patch.object(notify, "record", wraps=notify.record) as record, \
+                patch.object(notify, "transition", return_value=0):
+            self.assertTrue(run.owner_block(lp, "origin/main"))
+            self.assertTrue(run.owner_block(lp, "origin/main"))
+            record.assert_called_once()
+            self.assertTrue(ask.call_args.kwargs["asked"])
+            notice = notify.last("inbox")
+            self.assertEqual(notice["source"], f"inbox:owner:run-1:{head}")
+            self.assertEqual(notice["kind"], "needs")
+            self.assertNotIn("command", notice)
+            self.write("score.py", "y = 3\n")
+            lp.state["delivery_sha"] = self.commit("another score change")
+            self.assertTrue(run.owner_block(lp, "origin/main"))
+            self.assertEqual(record.call_count, 2)
+
+    def test_the_tick_leaves_owner_approval_parked(self):
+        lp, head = self.parked()
+        self.gate(lp)
+        run_record.save_state(lp.run_dir, {**lp.state, "state": "waiting",
+                                           "waiting_on": {"owner": head}})
+        with patch.object(run, "tick_admission", return_value=True), \
+                patch.object(run, "upstream_sha", return_value="moved") as target, \
+                patch.object(run, "spawn_bg") as resume:
+            watch.resume_waiting(run=lp.run_dir)
+        target.assert_not_called()
+        resume.assert_not_called()
+        self.assertEqual(run_record.read_state(lp.run_dir)["waiting_on"], {"owner": head})
 
     def test_yes_records_the_content_and_delivers_again(self):
         lp, head = self.parked()
@@ -329,13 +363,11 @@ class OwnerParts(Sandbox):
     def test_a_second_runs_owner_question_stays_visible_after_the_first_is_answered(self):
         # Two runs from one seat each wait on the owner; a session carries one notice at a time.
         # Answering one must resurface the other, so a pending approval is never hidden.
-        from agentkit import notify
         sh(self.wt, "checkout", "-q", "-B", "change", self.base)
         self.write("score.py", "y = 2\n")
         head = self.commit("score")
         config.ensure_dirs()
-        config.session_path("seat-x").write_text("{}")
-        dirs = []
+        config.session_path("inbox").write_text("{}")
         for name in ("run-a", "run-b"):
             rd = config.RUNS / name
             rd.mkdir(parents=True)
@@ -350,12 +382,11 @@ class OwnerParts(Sandbox):
                 self.assertTrue(run.owner_block(lp, "origin/main"))
             run_record.save_state(rd, {**lp.state, "state": "waiting", "finished_at": 1.0,
                                        "waiting_on": {"owner": head}})
-            dirs.append(rd)
-        self.assertIn("owner:run-b:", notify.last("seat-x")["source"])
+        self.assertIn("owner:run-b:", notify.last("inbox")["source"])
         with patch.object(run, "launch_session", return_value="seat-x"), \
                 patch.object(notify, "transition", return_value=0):
             run.cmd_no(["run-b"])
-        resurfaced = notify.last("seat-x")
+        resurfaced = notify.last("inbox")
         self.assertIsNotNone(resurfaced)
         self.assertIn("owner:run-a:", resurfaced["source"])   # the first run's approval is back
 
@@ -458,57 +489,6 @@ class OwnerParts(Sandbox):
                 self.write(protected, "open")
                 self.commit("change the protected file")
                 self.assertIn(protected, self.touched())
-
-    def session_answer(self, records, live=None):
-        return watch.session_state("seat-x", session={"name": "seat-x"}, records=records,
-            cfg={"models": {}, "providers": {}}, live=live or {"state": "at_prompt"}, harness="codex",
-            auth_out={}, gh_out={}, token_out={}, waits=False, silent={})
-
-    def test_an_unrelated_prompt_or_restart_cannot_hide_owner_approval(self):
-        lp, head = self.parked()
-        lp.state["launched_session"] = "seat-x"
-        config.session_path("seat-x").write_text("{}")
-        with patch.object(notify, "transition", return_value=0):
-            self.assertTrue(run.owner_block(lp, "origin/main"))
-        lp.state["finished_at"] = 9990
-        run_record.save_state(lp.run_dir, lp.state)
-        notify.answered("seat-x", 10001)
-        self.assertIsNotNone(notify.last("seat-x"))
-        notify.opened("seat-x", lambda: "before")
-        notify.progress("seat-x", lambda: "after", None)
-        records = [(lp.run_dir, run_record.read_state(lp.run_dir))]
-        for replaced in (False, True):
-            with self.subTest(replaced=replaced), patch.object(run, "launcher_watched", return_value=True):
-                if replaced:
-                    config.notify_path("seat-x").unlink()
-                for live in ({"state": "at_prompt"}, {"state": "draft", "text": "unrelated"}):
-                    answer = self.session_answer(records, live)
-                    self.assertTrue(answer.get("question"), answer)
-                    self.assertIn(f"ak run yes {lp.run_dir.name} {head[:12]}", answer["reason"])
-        # A later, unrelated answer cannot close or re-page this approval's card, including a
-        # receipt delivered after the other prompt was answered.
-        card = {"word": "needs you", "since": 9990, "episode": "approval", "sent": True,
-                "command": True, "open_needs": []}
-        notify._card_write("seat-x", card)
-        notify.record("seat-x", "needs", "An unrelated question", time=10000, answered_at=10001)
-        with patch.object(notify, "_attached", return_value=False), \
-                patch.object(notify, "_close_card") as close, \
-                patch.object(notify, "_send_card") as send:
-            for now in (10002, 10003):
-                notify.needs_transition("seat-x", card, self.session_answer(records), now)
-        close.assert_not_called()
-        send.assert_not_called()
-        event = {"session": "seat-x", "kind": "needs", "episode": "approval", "created_at": 9990,
-                 "receipt": {"message_id": "approval-message"}, "payload": {"embeds": [{}]}}
-        with patch.object(notify, "close_needs") as close:
-            notify._remember_card(event)
-        close.assert_not_called()
-        self.assertEqual(notify._card_read("seat-x")["open_needs"],
-                         [{"message_id": "approval-message", "embed": {}}])
-        with patch.object(run, "cmd_resume", return_value=0):
-            run.cmd_yes([lp.run_dir.name, head[:12]])
-        with patch.object(run, "launcher_watched", return_value=True):
-            self.assertFalse(self.session_answer([(lp.run_dir, run_record.read_state(lp.run_dir))]).get("question"))
 
     def test_direct_owner_test_leaves_the_callers_home_empty(self):
         caller = self.root / "caller"

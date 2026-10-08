@@ -5414,31 +5414,8 @@ def owner_say(run_id, fingerprint):
     os.replace(tmp, path)
 
 
-def owner_session(run_dir, state):
-    """The session owner_block asks, and owner_answered clears: the launcher, else the recorded
-    session, else the inbox.  A run with no seat asks the inbox."""
-    return launch_session(run_dir) or state.get("session") or config.inbox()
-
-
-def owner_question(session, records):
-    """The outstanding approval, even after a notice was replaced or a run restarted.
-
-    Rendering reads the wait, never Git: missing checkouts or an unavailable remote cannot
-    hide an answer the owner still owes.
-    """
-    for directory, state in records:
-        head = (state.get("waiting_on") or {}).get("owner")
-        if not head or config.resolve_session(owner_session(directory, state)) != session:
-            continue
-        commands = (f"ak run yes {directory.name} {head[:12]}, or ak run no {directory.name}")
-        reason = state.get("error") or f"waiting for the owner's yes ({commands})"
-        return {"word": "needs you", "reason": reason, "since": state.get("started_at"),
-                "question": True, "command": True}
-    return None
-
-
-def post_owner_question(run_dir, state, session, hit, head):
-    """Put this run's owner-approval question on `session`.  Factored so a second run still waiting
+def post_owner_question(run_dir, state, hit, head):
+    """Put this run's owner-approval question in the inbox.  Factored so a second run still waiting
     on the owner can be resurfaced after the first is answered, since a session carries one notice
     at a time."""
     run_id = run_dir.name
@@ -5446,7 +5423,9 @@ def post_owner_question(run_dir, state, session, hit, head):
     line = (f"Run {run_id} changes {', '.join(hit)}, which land only on your yes. "
             f"Review it, then `{yes}` to land or `{no}` to keep it unmerged.")
     with speaking_for(state):
-        notify.shaped("needs", line, session=session, event_id=f"owner:{run_id}:{head}", command=True)
+        # The question already names its commands; only the ordinary owner notice is owed,
+        # never ask_inbox's instructions for merging somebody else's PR from the seat.
+        watch.ask_inbox({}, line, f"owner:{run_id}", head, print, asked=True)
 
 
 def owner_block(lp, upstream, pr=None):
@@ -5468,9 +5447,8 @@ def owner_block(lp, upstream, pr=None):
                     merge_failed=False, merged=False, finished_at=None)
     lp.state.pop("recovery_pending", None)
     lp.write()
-    session = owner_session(lp.run_dir, lp.state)
-    post_owner_question(lp.run_dir, lp.state, session, hit, head)
-    lp.log(f"--- merge: parked for the owner's yes; asked {session} about {', '.join(hit)}")
+    post_owner_question(lp.run_dir, lp.state, hit, head)
+    lp.log(f"--- merge: parked for the owner's yes; asked {config.inbox()} about {', '.join(hit)}")
     return True
 
 
@@ -10083,13 +10061,9 @@ def owner_answered(run_dir):
     is never hidden behind the one just answered.  `ak run yes`/`no` answer from the CLI, outside
     the seat, where its prompt hook never acknowledges them, and the tick never re-asks an
     owner-parked run on its own; a session also carries one notice at a time."""
-    state = run_record.read_state(run_dir) or {}
-    raw = owner_session(run_dir, state)
-    session = config.resolve_session(raw) if raw else raw
-    if not session:
-        return
+    session = config.resolve_session(config.inbox())
     notice = notify.last(session, include_seen=True)
-    if notice and str(notice.get("source") or "").startswith(f"owner:{run_dir.name}:"):
+    if notice and str(notice.get("source") or "").startswith(f"inbox:owner:{run_dir.name}:"):
         watch.forget(session, resolve=False, notice=notice.get("text"))
     for other in run_record.run_dirs():
         if other.name == run_dir.name:
@@ -10097,9 +10071,6 @@ def owner_answered(run_dir):
         said = run_record.read_state(other) or {}
         head = (said.get("waiting_on") or {}).get("owner")
         if said.get("state") != "waiting" or not head:
-            continue
-        other_raw = owner_session(other, said)
-        if (config.resolve_session(other_raw) if other_raw else None) != session:
             continue
         wt = next((p for p in (said.get("worktree"), said.get("repo")) if p and Path(p).is_dir()),
                   None)
@@ -10112,7 +10083,7 @@ def owner_answered(run_dir):
         except config.Error:
             continue
         if hit:
-            post_owner_question(other, said, session, hit, head)
+            post_owner_question(other, said, hit, head)
             break
 
 
