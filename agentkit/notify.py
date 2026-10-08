@@ -425,8 +425,8 @@ def record(session, kind, text, **extra):
                 kept["earlier_answer_at"] = earlier
             extra = kept
     if (kind == "done" and not extra.get("quiet") and not extra.get("seen")
-            and extra.get("completion") == _card_read(session).get("completed")
-            and extra.get("completion")):
+            and extra.get("completion")
+            and extra["completion"] == _card_read(session).get("completed")):
         # Already-covered work is handled even while this handback's turn is running.
         extra["handled"] = True
     declared = {"session": session, "kind": kind, "text": text, "time": time.time(), **extra}
