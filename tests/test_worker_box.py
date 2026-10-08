@@ -199,20 +199,25 @@ if role == "mount":
         subprocess.run(["ip", "link", "add", "internet", "type", "dummy"], check=True)
         # The host's own address is the last of its network in one case, and past its
         # preferred life in another.
-        subprocess.run(["ip", "addr", "add", "192.0.2.254/24" if sys.argv[3] == "family254" else
-                        "192.0.2.1/24", "dev", "internet",
+        subprocess.run(["ip", "addr", "add", {"family254": "192.0.2.254/24", "familyrule": "192.0.2.1/32"}.get(
+                            sys.argv[3], "192.0.2.1/24"), "dev", "internet",
                         *(("preferred_lft", "0") if sys.argv[3] == "familypast4" else ())], check=True)
         subprocess.run(["ip", "link", "set", "internet", "up"], check=True)
-        # One case has no IPv4 way out, only the network next to it.
-        if sys.argv[3] != "familyno4":
+        # One case has no IPv4 way out, only the network next to it; another has its only
+        # way out in a routing table of its own that a rule chooses, and IPv4 alone.
+        if sys.argv[3] == "familyrule":
+            subprocess.run(["ip", "route", "add", "default", "dev", "internet", "table", "100"], check=True)
+            subprocess.run(["ip", "rule", "add", "lookup", "100", "priority", "100"], check=True)
+        elif sys.argv[3] != "familyno4":
             subprocess.run(["ip", "route", "add", "default", "dev", "internet"], check=True)
         # The host's own address toward the internet is a box's own there, so what the
         # stand-in internet serves is at an address on a second network.
         for command in (("link", "add", "beyond", "type", "dummy"),
-                        ("addr", "add", "198.51.100.1/24", "dev", "beyond"),
+                        ("addr", "add", "198.51.100.1/32" if sys.argv[3] == "familyrule" else
+                         "198.51.100.1/24", "dev", "beyond"),
                         ("link", "set", "beyond", "up")):
             subprocess.run(["ip", *command], check=True)
-        if Path("/proc/sys/net/ipv6").exists():
+        if Path("/proc/sys/net/ipv6").exists() and sys.argv[3] != "familyrule":
             # The stand-in internet has IPv6 as well, with an address of the global kind
             # or, case by case, a private, a 6to4 or a Teredo one, and a network beyond
             # its first one.
@@ -439,6 +444,7 @@ try:
                     [sys.executable, "-c", order], text=True, timeout=30))
                 first = socket.AF_INET6 if sys.argv[3] in (
                     "family", "familyno4", "family254", "familypast4", "familytwice") else socket.AF_INET
+                # With no IPv6 at all libc still lists the name's IPv6 address, last.
                 assert here[0] == first and sorted(here) == [socket.AF_INET, socket.AF_INET6], here
                 if sys.argv[3] in ("family6to4", "familyteredo", "familygai", "familygai4"):
                     assert paired[0] == socket.AF_INET6, paired
@@ -1035,7 +1041,7 @@ class WorkerBox(unittest.TestCase):
     def test_a_box_puts_the_families_of_a_name_in_the_order_its_host_does(self):
         for mode in ("family", "familyprivate", "familyno4", "family6to4", "familyteredo",
                      "familydeprecated", "familygai", "familygai4", "familygaipast",
-                     "familypast4", "family254", "familytwice"):
+                     "familypast4", "family254", "familytwice", "familyrule"):
             with self.subTest(mode=mode):
                 self.network_fixture(mode)
 
@@ -1098,6 +1104,10 @@ class WorkerBox(unittest.TestCase):
                                    (b"nameserver 2001:db8::15\n", False)):
             with self.subTest(resolver=resolver):
                 self.assertIs(box._plain(resolver, own), is_plain)
+        # A resolver in a family the box has no address in is out of its reach.
+        four = {ipaddress.ip_address("192.0.2.15")}
+        self.assertIs(box._plain(b"nameserver 192.0.2.1\n", four), True)
+        self.assertIs(box._plain(b"nameserver 192.0.2.1\nnameserver 2001:db8::1\n", four), False)
 
     def test_a_box_reaches_no_host_socket(self):
         # Host services run commands for whoever connects, outside the box: a tmux server in

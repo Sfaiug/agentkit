@@ -447,7 +447,8 @@ def _plain(resolver, own):
     Every line with the word in it, comments apart, is `nameserver`, blanks and one address
     and nothing else, and no address is one only this host's own network reaches as
     written: loopback, the unspecified address libc takes for it, link-local, multicast, an
-    IPv4 address inside an IPv6 one, or the box's own. A line written any other way is read
+    IPv4 address inside an IPv6 one, the box's own, or one in a family the box has no
+    address in, the host having no way out there. A line written any other way is read
     differently from one libc to the next, and with no nameserver left libc asks
     127.0.0.1: none of that is decided here, so none of it counts as plain."""
     named = False
@@ -461,7 +462,7 @@ def _plain(resolver, own):
             return False
         if (address.is_loopback or address.is_unspecified or address.is_link_local
                 or address.is_multicast or getattr(address, "ipv4_mapped", None)
-                or address in own):
+                or address in own or address.version not in {mine.version for mine in own}):
             return False
         named = True
     return named
@@ -533,17 +534,12 @@ def _network(cmd, nested=False):
     does not name the host's resolvers plainly, the box keeps the host's network, as before:
     in one of its own it might resolve no name.
     """
-    # With no usable route, pasta has no outside to connect to. Every interface has routes
-    # for its own link and for multicast, which lead no further.
-    routes = any(line.split()[0] != "lo" and int(line.split()[3], 16) & 0x201 == 1
-                 for line in Path("/proc/net/route").read_text().splitlines()[1:])
-    ipv6 = Path("/proc/net/ipv6_route")
-    routes6 = ipv6.exists() and any(
-        line.split()[-1] != "lo" and int(line.split()[8], 16) & 0x201 == 1
-        and not line.startswith(("fe8", "fe9", "fea", "feb", "ff"))
-        for line in ipv6.read_text().splitlines())
+    # With no way out, pasta has no outside to connect to. The kernel says whether there is
+    # one, by the address it would send from: routing tables and the rules that choose
+    # among them are its to read.
+    four, six = _source(4), _source(6)
     unshare, pasta, nsenter = map(_host_binary, ("unshare", "pasta", "nsenter"))
-    if nested or not (routes or routes6) or not all((unshare, pasta, nsenter)):
+    if nested or not (four or six) or not all((unshare, pasta, nsenter)):
         yield [*cmd, "--unshare-net"]
         return
     try:
@@ -561,13 +557,9 @@ def _network(cmd, nested=False):
     # are on different interfaces. A box's two are fresh and on one interface, so a host
     # where any of that would count keeps its boxes on its network. Last, libc itself is
     # asked, here and then in the box's network, and the two answers must agree.
-    four, six = _source(4), _source(6)
     wanted = _order()
     own = {address for address in (four, six) if address}
-    # A family in which the host reaches a neighbouring network and not the internet can
-    # be given to a box neither way.
-    if (routes and not four or routes6 and not six or not wanted or not _plain(resolver, own)
-            or not _alike(own)):
+    if not wanted or not _plain(resolver, own) or not _alike(own):
         yield cmd
         return
     # Pasta's own user namespace would map the account to root; this one keeps its numbers,
