@@ -234,6 +234,30 @@ class Seat(unittest.TestCase):
 
     # --- (a) the seat every other one is modelled on ------------------------
 
+    def test_compaction_fixture_keeps_tmux_in_its_sandbox(self):
+        caller_bin = self.root / "caller-bin"
+        caller_bin.mkdir()
+        calls = self.root / "tmux-calls.jsonl"
+        client = caller_bin / "tmux"
+        client.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
+                          f"with open({str(calls)!r}, 'a') as log:\n"
+                          " log.write(json.dumps({'args': sys.argv[1:], "
+                          "'tmpdir': os.environ.get('TMUX_TMPDIR')}) + '\\n')\n"
+                          "raise SystemExit(1)\n")
+        client.chmod(0o755)
+        with patch.dict(os.environ, {
+            "PATH": str(caller_bin) + os.pathsep + os.environ["PATH"],
+            "TMUX": f"{self.root / 'caller-server'},123,0", "TMUX_PANE": "%7",
+            "AGENTKIT_TMUX_SOCKET": "acme-inherited", "TMUX_TMPDIR": str(caller_bin),
+        }):
+            self.said("seat", "Stop")
+            _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_STOP_ON="/compact",
+                                      FAKE_LIFE=15, AGENTKIT_SESSION="seat")
+        for call in (map(json.loads, calls.read_text().splitlines()) if calls.exists() else []):
+            self.assertEqual(call["args"][:2], ["-L", "agentkit-test"], call)
+            self.assertEqual(call["tmpdir"], str(self.root), call)
+        self.assert_compacted(events, manifest_command("claude"))
+
     def test_v5e_a_claude_like_seat_compacts_itself_at_a_quiet_prompt(self):
         command = manifest_command("claude")
         _, events = self.run_seat(FAKE_TOKENS=40000, FAKE_STOP_ON="/compact", FAKE_LIFE=15)
