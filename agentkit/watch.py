@@ -3152,20 +3152,14 @@ def window_ends(cfg, provider, name):
     return max(ends, default=None)
 
 
-def done_holds(name, live, notice, began, said, dry_run):
-    """Does that `done` speak for the turn the seat is stopped on, or for an earlier one?
+def done_holds(name, live, notice, said, dry_run):
+    """Bind a valid completion to the output it first ended on.
 
-    Two ways of having answered it, and either is enough, because each catches what the other
-    cannot see.  A turn that began after it was recorded is the user's reply, so the job it
-    called finished is not the one stopped now -- the rule hooks/orchestrator-stop.sh applies
-    with the prompt hook's own record, and `turn_began` is what stands in for that record on a
-    harness with no hooks.  And the words it was first seen with are the ending it was about:
-    once the seat has said something else, it has been about nothing since, whether or not
-    anything was watching when the turn between them ran.
+    The shared recorded-ending decision checks its turn, plans and runs before this call.
+    Once the seat says something else, this completion no longer ends those words, whether
+    or not a tick saw the intervening turn.
     """
     told = _stamp(notice.get("time"))
-    if told is not None and told < began:
-        return False
     bound = live.get("stop_done")
     if not isinstance(bound, list) or len(bound) != 2 or bound[0] != told:
         if not dry_run:     # the words this done was the ending of, kept beside it
@@ -3236,7 +3230,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     ends, undecided = stop.recorded_ending(
         name, records, question=question,
         since=began, completion=lambda declared: done_holds(
-            name, live, declared, began, said, dry_run))
+            name, live, declared, said, dry_run))
     if ends:
         return
     parked = [directory.name for directory, _ in undecided]
