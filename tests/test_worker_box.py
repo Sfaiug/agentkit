@@ -326,11 +326,16 @@ try:
                              overlay) == "203.0.113.7"
             assert Path("/etc/resolv.conf").read_text().startswith("nameserver ")
             if sys.argv[3] == "dns":
-                # A resolver file the box masks as a credential stays masked: no copy of it
-                # takes the mask's place.
+                # A resolver file the box hides as a credential gets no copy with the
+                # forwarder's address: not under another name of the same file,
                 (root / ".ssh").mkdir()
-                (root / ".ssh/id_acme").symlink_to("/etc/resolv.conf")
-                assert boxed('import json; print(json.dumps(open("/etc/resolv.conf").read()))') == ""
+                os.link(root / "resolv.conf", root / "key")
+                (root / ".ssh/id_acme").symlink_to(root / "key")
+                read = 'import json; print(json.dumps(open("/etc/resolv.conf").read()))'
+                assert "10.0.2.3" not in boxed(read)
+                # and not in place of the mask over its own path.
+                (root / ".ssh/id_other").symlink_to("/etc/resolv.conf")
+                assert boxed(read) == ""
         else:
             for family, address in ((socket.AF_INET, ("192.0.2.1", 12345)),
                                     (socket.AF_INET, ("127.0.0.1", None)),
@@ -888,9 +893,10 @@ class WorkerBox(unittest.TestCase):
         script.write_text(NETWORK)
         result = subprocess.run(
             # A PID namespace of the fixture's own: whatever a failing proof leaves running
-            # ends with it, and no number of another process's is ever signalled.
+            # ends with it, also when this launcher is ended for its time limit, and no
+            # number of another process's is ever signalled.
             ["unshare", "--user", "--map-current-user", "--net", "--mount", "--pid", "--fork",
-             "--mount-proc", "--keep-caps",
+             "--kill-child", "--mount-proc", "--keep-caps",
              sys.executable, str(script), str(work), "mount", mode, "online" if online else "offline"],
             env={**os.environ, "BOX_REPO": str(REPO), "HOME": str(work)}, capture_output=True, text=True,
             timeout=120)

@@ -217,18 +217,24 @@ def _writable(clean, cwd, out_dir, state, places, logins):
     return writable
 
 
-def _copy_run(source, destination, hidden):
-    """Keep readable directories, links and files; let the kernel resolve their paths."""
-    if source in hidden or any(parent in hidden for parent in source.parents):
-        return
-    # Bind mounts and hard links can give the same credential another path.
-    hidden_ids = set()
+def _hidden_ids(hidden):
+    """Bind mounts and hard links can give the same credential another path: what it is
+    names it under each."""
+    ids = set()
     for path in hidden:
         try:
             info = path.stat()
         except OSError:
             continue
-        hidden_ids.add((info.st_dev, info.st_ino))
+        ids.add((info.st_dev, info.st_ino))
+    return ids
+
+
+def _copy_run(source, destination, hidden):
+    """Keep readable directories, links and files; let the kernel resolve their paths."""
+    if source in hidden or any(parent in hidden for parent in source.parents):
+        return
+    hidden_ids = _hidden_ids(hidden)
     for directory, dirs, files, fd in os.fwalk(source):
         info = os.fstat(fd)
         if (info.st_dev, info.st_ino) in hidden_ids:
@@ -434,7 +440,13 @@ def _network(cmd, out_dir=None, nested=False, hidden=()):
               "--address", "fd00::15", "--gateway", "fe80::1",
               "-t", "none", "-u", "none", "-T", "none", "-U", "none"]
     resolver = Path("/etc/resolv.conf")
-    content = resolver.read_text() if resolver.exists() else ""
+    content, named = "", None
+    try:
+        with resolver.open(errors="surrogateescape") as readable:
+            named = os.fstat(readable.fileno())
+            content = readable.read()
+    except OSError:
+        pass
     hosts, forwarder = {}, {4: "10.0.2.3", 6: "fd00::3"}
 
     def forward(match):
@@ -474,11 +486,18 @@ def _network(cmd, out_dir=None, nested=False, hidden=()):
         own = f"/proc/{os.getpid()}/fd"
         launch = [nsenter, f"--user={own}/{spaces[0]}", f"--net={own}/{spaces[1]}",
                   "--preserve-credentials", *cmd]
-        # A resolver the box masks as a credential stays masked: no copy of it is bound.
-        target = resolver.resolve()
-        if hosts and target not in hidden and not any(up in hidden for up in target.parents):
-            dns = held.enter_context(
-                tempfile.NamedTemporaryFile(mode="w", prefix=".box-dns-", dir=out_dir))
+        # A resolver the box hides as a credential, under whatever path, gets no copy.
+        target, ids = resolver.resolve(), _hidden_ids(hidden)
+        masked = (named.st_dev, named.st_ino) in ids if named else True
+        for place in (target, *target.parents):
+            try:
+                info = place.stat()
+                masked = masked or place in hidden or (info.st_dev, info.st_ino) in ids
+            except OSError:
+                masked = True
+        if hosts and not masked:
+            dns = held.enter_context(tempfile.NamedTemporaryFile(
+                mode="w", errors="surrogateescape", prefix=".box-dns-", dir=out_dir))
             dns.write(content)
             dns.flush()
             launch.extend(["--ro-bind", dns.name, str(target)])
