@@ -255,6 +255,10 @@ def boxed(source, overlay=False):
 
 if role == "offline":
     assert boxed('import json, socket; print(json.dumps(socket.if_nameindex()))') == [[1, "lo"]]
+    # The shell that brought this role here cannot carry such a name itself.
+    os.environ["BASH_FUNC_acme%%"] = "() {  echo kept\n}"
+    assert boxed('import json, os; print(json.dumps(os.environ.get("BASH_FUNC_acme%%")))') \
+        == "() {  echo kept\n}"
     assert boxed('import json, socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); '
                  's.listen(); c = socket.create_connection(s.getsockname()); '
                  'print(json.dumps(True))') is True
@@ -348,6 +352,10 @@ try:
                 assert (root / "written").stat().st_gid == os.getgid()
             os.environ["BOX_DROPPED"] = "given back"
             assert boxed('import json, os; print(json.dumps(os.environ.get("BOX_DROPPED")))') == "given back"
+            # Nor does the launch lose a variable a shell cannot name, an exported function's.
+            os.environ["BASH_FUNC_acme%%"] = "() {  echo kept\n}"
+            assert boxed('import json, os; print(json.dumps(os.environ.get("BASH_FUNC_acme%%")))') \
+                == "() {  echo kept\n}"
             # Stop the supervisor across pasta's PID namespace and let the command
             # save its cleanup before the broker exits.
             from agentkit import worker
@@ -355,9 +363,6 @@ try:
             source = ('import signal, sys, time; from pathlib import Path; '
                       'signal.signal(signal.SIGTERM, lambda *_: '
                       '(Path("closed").touch(), sys.exit(0))); '
-                      f'witnesses = list(Path({str(out)!r}).glob(".box-pid-*")); '
-                      'assert len(witnesses) == 1 and witnesses[0].read_text() == ""; '
-                      'witnesses[0].write_text("not a pid witness"); '
                       'Path("ready").touch(); time.sleep(300)')
             with account_home(root), box.command([sys.executable, "-c", source], dict(os.environ),
                                                 out, cwd=root) as (cmd, env, spawn):
@@ -632,34 +637,39 @@ else:
 
 
 def stop_box(root, *, already_gone, online):
-    for named in ((True,) if already_gone else (False, True)):
+    # Where bwrap is the launcher, stdin holds it mid-build and its status on stderr says
+    # it has named the box's first process. Pasta passes neither on: behind it the stop
+    # falls as early as it can, and again once the command runs.
+    moments = ("early", "running") if online else ("named",) if already_gone else ("early", "named")
+    up = "import time; print('up', flush=True); time.sleep(600)"
+    for moment in moments:
         out = Path(tempfile.mkdtemp(dir=root))
-        with account_home(root), box.command(["sleep", "600"], dict(os.environ), out,
+        with account_home(root), box.command([sys.executable, "-c", up], dict(os.environ), out,
                                             cwd=root, drain=True) as (cmd, env, spawn):
             stop = spawn.pop("stop")
             assert ("--unshare-net" not in cmd) == online, cmd
-            if named:
-                # Standard descriptors survive pasta: stdin holds bwrap mid-build,
-                # and its status on stderr says it has named the box's first process.
+            if moment == "named":
                 at = cmd.index("--info-fd")
                 cmd[at:at] = ["--block-fd", "0", "--json-status-fd", "2"]
             proc = subprocess.Popen(cmd, env=env, cwd=root, stdin=subprocess.PIPE,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     start_new_session=True, **spawn)
             try:
-                if named:
-                    # Pasta's diagnostics can arrive before bwrap's status.
-                    status, deadline = b"", time.monotonic() + 30
-                    while b'"child-pid"' not in status:
-                        assert select.select([proc.stderr], [], [], max(
-                            0, deadline - time.monotonic()))[0], "bwrap named no process"
-                        chunk = os.read(proc.stderr.fileno(), 4096)
-                        assert chunk, status
-                        status += chunk
+                said = {"named": (proc.stderr, b'"child-pid"'), "running": (proc.stdout, b"up")}
+                if moment in said:
+                    pipe, word = said[moment]
+                    seen, deadline = b"", time.monotonic() + 30
+                    while word not in seen:
+                        assert select.select([pipe], [], [], max(
+                            0, deadline - time.monotonic()))[0], f"the box never got to {moment}"
+                        chunk = os.read(pipe.fileno(), 4096)
+                        assert chunk, seen
+                        seen += chunk
                 if already_gone:
                     proc.kill()
                     proc.wait()
                 stop(proc, 0)
+                # Whatever still ran would hold these open.
                 proc.communicate(timeout=30)
             finally:
                 # A failing proof must also end its own fixtures.
@@ -1201,7 +1211,7 @@ class WorkerBox(unittest.TestCase):
 
             def interrupt(proc, *args, **kwargs):
                 nonlocal interrupted
-                if "--info-fd" in proc.args and not interrupted:
+                if "bwrap" in proc.args and not interrupted:
                     deadline = time.monotonic() + 5
                     while not (self.out / "events.jsonl").exists():
                         if time.monotonic() > deadline:
@@ -1229,35 +1239,49 @@ class WorkerBox(unittest.TestCase):
             with self.subTest(online=online):
                 self.network_fixture("stop-building", online=online)
 
-    def test_an_ended_box_s_namespace_number_never_names_another_box(self):
-        # The kernel gives an ended PID namespace's number to the next one made: a witness
-        # left by an ended box must not name the first process of a box that now has it.
-        other = subprocess.Popen(["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1",
-                                  "--die-with-parent", "--ro-bind", "/", "/", "--proc", "/proc",
-                                  "--", "sleep", "600"],
-                                 start_new_session=True, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
-        self.addCleanup(other.wait)
-        self.addCleanup(other.kill)
+    def test_a_stop_finds_only_the_first_process_of_its_own_launcher_s_box(self):
+        # Behind pasta a stop looks for the box's first process itself: the first process of
+        # a PID namespace two below, whose parent is in its launcher's process group. The
+        # namespace's own number is no name for it: the kernel gives an ended one's to the
+        # next one made, another box's. Two launchers of that shape find only their own.
+        def launcher():
+            inner = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--ro-bind", "/", "/",
+                     "--proc", "/proc", "--", "sleep", "600"]
+            proc = subprocess.Popen(["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1",
+                                     "--ro-bind", "/", "/", "--proc", "/proc", "--", *inner],
+                                    start_new_session=True, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+            self.addCleanup(proc.wait)
+            self.addCleanup(self.end_group, proc.pid)
+            return proc
+
+        def first(proc):
+            while True:
+                found = box._first(proc.pid)
+                if found is not None:
+                    self.addCleanup(os.close, found[0])
+                    return found[1]
+                self.assertIsNone(proc.poll(), "the launcher ended before its box started")
+                time.sleep(.01)
+
+        one, other = launcher(), launcher()
         beside = subprocess.Popen(["sleep", "600"], start_new_session=True,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(beside.wait)
         self.addCleanup(beside.kill)
-        children = Path(f"/proc/{other.pid}/task/{other.pid}/children")
-        while not children.read_text().split():
-            self.assertIsNone(other.poll(), "the other box did not start")
-            time.sleep(.01)
-        # Killed this early, bwrap has not yet tied its box's first process to its own life.
-        first = os.pidfd_open(int(children.read_text().split()[0]))
-        self.addCleanup(os.close, first)
-        self.addCleanup(signal.pidfd_send_signal, first, signal.SIGKILL)
-        number = Path("/proc", children.read_text().split()[0], "ns/pid").stat().st_ino
-        gone = subprocess.Popen(["true"])
-        gone.wait()
-        witness = json.dumps({"child-pid": gone.pid, "pid-namespace": number})
-        self.assertIsNone(box._pidfd(witness))
-        # Nor when a stop searches on behalf of a launcher that is not that box's.
-        self.assertIsNone(box._pidfd(witness, beside.pid))
+        found = first(one), first(other)
+        self.assertNotEqual(*found)
+        for pid, proc in zip(found, (one, other)):
+            parent = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+            self.assertEqual(os.getpgid(parent), proc.pid)
+        self.assertIsNone(box._first(beside.pid))
+
+    @staticmethod
+    def end_group(group):
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
     def test_a_box_whose_launcher_is_already_gone_is_ended_by_its_stop(self):
         for online in (False, True):

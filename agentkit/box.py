@@ -33,6 +33,20 @@ OVERLAY_REMEDY = ("install bubblewrap with --tmp-overlay support and use a kerne
 # The supervisor runs from the text this module was loaded from: the file on disk can change
 # under a running launcher, when a probe checks out another revision of ak's own checkout.
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
+# Pasta passes only descriptors 0, 1 and 2 on, and prints its own diagnostics on 2: the
+# command's stderr crosses it parked on 0, and behind it the command reads nothing.
+PARK = ("import os, sys\n"
+        "os.dup2(2, 0)\n"
+        "null = os.open(os.devnull, os.O_WRONLY)\n"
+        "os.dup2(null, 2)\n"
+        "os.close(null)\n"
+        "os.execvp(sys.argv[1], sys.argv[1:])\n")
+UNPARK = ("import os, sys\n"
+          "os.dup2(0, 2)\n"
+          "null = os.open(os.devnull, os.O_RDONLY)\n"
+          "os.dup2(null, 0)\n"
+          "os.close(null)\n"
+          "os.execvp(sys.argv[1], sys.argv[1:])\n")
 
 
 def _contents(root):
@@ -323,7 +337,8 @@ def _bind(own, writable, homes=()):
 
 
 @contextmanager
-def _network(cmd, env, out_dir=None, info=None):
+def _network(cmd, env, out_dir=None):
+    """The launch with its network, and whether pasta is in front of bwrap in it."""
     # With no usable route, pasta has no outside to connect to. Bubblewrap still
     # supplies a private network namespace with its own working loopback.
     routes = any(line.split()[0] != "lo" and int(line.split()[3], 16) & 0x201 == 1
@@ -332,25 +347,22 @@ def _network(cmd, env, out_dir=None, info=None):
     routes6 = ipv6.exists() and any(
         line.split()[-1] != "lo" and int(line.split()[8], 16) & 0x201 == 1
         for line in ipv6.read_text().splitlines())
-    if info is not None:
-        # Pasta closes extra descriptors. Open the witness after it starts,
-        # and keep its contents unreachable from the command.
-        cmd.extend(["--dev-bind", "/dev/null", info])
-        cmd = [_host_binary("sh"), "-c", 'exec 3>"$1"; shift; exec "$@"', "box", info, *cmd]
     if not (routes or routes6):
-        yield [*cmd, "--unshare-net"]
+        yield [*cmd, "--unshare-net"], False
         return
-    sh, unshare, pasta, setpriv = map(_host_binary, ("sh", "unshare", "pasta", "setpriv"))
-    if not all((sh, unshare, pasta, setpriv)):
-        yield [*cmd, "--unshare-net"]
+    unshare, pasta, setpriv = map(_host_binary, ("unshare", "pasta", "setpriv"))
+    if not all((unshare, pasta, setpriv)):
+        yield [*cmd, "--unshare-net"], False
         return
     # Keep the account's numbers in pasta's user namespace: its own maps the account to root,
     # and behind an enclosing box's no_new_privs bwrap cannot map root back. Kept out of
     # mapping, pasta prints its failed attempts on stderr, and it passes only descriptors 0,
-    # 1 and 2 on: the real stderr crosses it parked on 0, and comes back behind it.
+    # 1 and 2 on: the real stderr crosses it parked on 0, and comes back behind it. Python
+    # moves the descriptors, as it already starts every boxed command: a shell would drop
+    # the variables it cannot name.
     # A different address inside keeps host listeners on its LAN address reachable.
     # Loopback supplies both IP families, including a resolver's only family.
-    prefix = [sh, "-c", 'exec 0>&2 2>/dev/null; exec "$@"', "box",
+    prefix = [sys.executable, "-I", "-S", "-c", PARK,
               unshare, "--user", "--map-current-user", "--keep-caps", pasta,
               "--netns-only", "--config-net", "--no-map-gw", "--quiet",
               "--interface", "lo", "--ns-ifname", "tap0",
@@ -377,7 +389,7 @@ def _network(cmd, env, out_dir=None, info=None):
                        "--dns-host", address])
     # Behind pasta the command reads nothing: its stdin carried the stderr across. Bwrap must
     # also receive no ambient capabilities.
-    prefix.extend([sh, "-c", 'exec 2>&0 0</dev/null; exec "$@"', "box",
+    prefix.extend([sys.executable, "-I", "-S", "-c", UNPARK,
                    setpriv, "--inh-caps=-all", "--ambient-caps=-all"])
     with ExitStack() as held:
         launch = [*prefix, *cmd]
@@ -412,12 +424,12 @@ def _network(cmd, env, out_dir=None, info=None):
             said.seek(0)
             kept = {entry.partition(b"=")[0] for entry in said.read().split(b"\0")}
         if not ready:
-            yield [*cmd, "--unshare-net"]
+            yield [*cmd, "--unshare-net"], False
             return
         for name, value in env.items():
             if os.fsencode(name) not in kept:
                 launch.extend(["--setenv", name, value])
-        yield launch
+        yield launch, True
 
 
 @contextmanager
@@ -471,7 +483,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
         cmd[at:at] = _bind({}, writable, homes)
-        with _network(cmd, clean) as connected:
+        with _network(cmd, clean) as (connected, _):
             yield [*connected, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
@@ -480,21 +492,26 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     # every descendant, even one with a new session or an empty environment.
     argv = [sys.executable, "-I", "-c", SUPERVISOR, str(report),
             *(["--drain"] if drain else []), *argv]
-    target = None
+    read, write = os.pipe()
+    target, behind = None, False
     lock = threading.Lock()
 
     def namespace(launcher=None):
-        nonlocal target
+        nonlocal write, target
         with lock:
-            if target is None:
-                info.seek(0)
-                target = _pidfd(info.read(), launcher)
+            if write is not None:
+                os.close(write)
+                write = None
+                with os.fdopen(read) as info:
+                    target = _pidfd(info.read())
+            if target is None and behind and launcher is not None:
+                target = _first(launcher)
         return target
 
     def stop(proc, grace):
         deadline = time.monotonic() + grace
-        # The witness precedes exec. PID 1 ignores TERM until the supervisor
-        # installs its handler, so an early interruption must wait for it.
+        # PID 1 ignores TERM until the supervisor installs its handler, so an early
+        # interruption must wait for the box's first process, and then for that.
         while proc.poll() is None and time.monotonic() < deadline:
             target = namespace(proc.pid)
             if target is not None:
@@ -514,77 +531,51 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         except subprocess.TimeoutExpired:
             pass
         finally:
-            # Name PID 1 while its launcher's group can still vouch for it, then end pasta,
-            # bwrap and any unnamed box with that group. PID 1 leaves the group only after
-            # bwrap names it, so no unnamed box can appear after the kill.
+            # Name PID 1 while its launcher's group can still vouch for it, then end that
+            # group: pasta, bwrap and a box still being built are in it, and behind pasta
+            # bwrap is the first process of pasta's PID namespace, whose end ends the box.
+            # Then PID 1 itself: it has left the group once bwrap has named it.
             target = namespace(proc.pid)
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            proc.kill()
             if target is not None:
                 _kill(target[0])
 
-    with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch, \
-            tempfile.NamedTemporaryFile(mode="r+", prefix=".box-pid-", dir=out_dir) as info:
+    with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            with _network(cmd, clean, out_dir, info.name) as connected:
-                yield [*connected, "--info-fd", "3", "--", *argv], clean, {"stop": stop}
+            with _network(cmd, clean, out_dir) as (connected, behind):
+                if behind:
+                    # No descriptor of ours crosses pasta: a stop finds PID 1 through
+                    # the launcher it is given.
+                    yield [*connected, "--", *argv], clean, {"stop": stop}
+                else:
+                    yield [*connected, "--info-fd", str(write), "--", *argv], clean, {
+                        "pass_fds": (write,), "stop": stop}
         finally:
             target = namespace()
             if target is not None:
                 _wait(target[0])
 
 
-def _pidfd(info, launcher=None):
+def _pidfd(info):
     # A killed bwrap can exit before its PID 1 finishes killing descendants.
-    # Its private witness names that process; a pidfd waits for the kernel's
+    # Its private info pipe names that process; a pidfd waits for the kernel's
     # teardown, not an environment sweep or a delay guessed to be long enough.
     try:
         info = json.loads(info)
-        named, space = info["child-pid"], info["pid-namespace"]
-    except (ValueError, KeyError, TypeError):
-        return
-
-    def first(pid):
-        try:
-            if Path(f"/proc/{pid}/ns/pid").stat().st_ino != space:
-                return False
-            status = Path(f"/proc/{pid}/status").read_text().splitlines()
-            return next(line.split()[-1] for line in status if line.startswith("NSpid:")) == "1"
-        except (OSError, StopIteration):
-            return False
-
-    def vouched(pid):
-        from . import host
-        seen = host.proc_stat(pid)
-        try:
-            return seen is not None and os.getpgid(seen.ppid) == launcher
-        except ProcessLookupError:
-            return False
-
-    pid = named if first(named) else None
-    if pid is None and launcher is not None:
-        # Behind pasta, bwrap's number is local to pasta's PID namespace. A namespace's own
-        # number is no name for it either: once it has ended the kernel gives that number to
-        # the next one made, another box's. So the search takes only a process whose parent,
-        # bwrap, is in the process group of the launcher being stopped.
-        for entry in Path("/proc").iterdir():
-            if entry.name.isdigit() and first(entry.name) and vouched(entry.name):
-                pid = int(entry.name)
-                break
-    if pid is None:
-        return
-    try:
+        pid = info["child-pid"]
         fd = os.pidfd_open(pid)
-    except ProcessLookupError:
+    except (ValueError, KeyError, ProcessLookupError):
         return
     try:
         try:
-            same = Path(f"/proc/{pid}/ns/pid").stat().st_ino == space
+            same = Path(f"/proc/{pid}/ns/pid").stat().st_ino == info["pid-namespace"]
         except FileNotFoundError:
             # The namespace link disappears before PID 1 finishes teardown.
             same = True
@@ -595,6 +586,39 @@ def _pidfd(info, launcher=None):
         os.close(fd)
         return None
     return fd, pid
+
+
+def _first(launcher):
+    """Behind pasta, the box's first process: PID 1 of a PID namespace two below this one
+    (pasta's, then bwrap's) whose parent, bwrap, is in the launcher's process group.
+
+    Bwrap's own number for it is local to pasta's namespace, and no descriptor crosses
+    pasta to carry it. A namespace's number is no name either: the kernel gives an ended
+    one's to the next one made, another box's.
+    """
+    from . import host
+
+    def depths(pid):
+        try:
+            status = Path(f"/proc/{pid}/status").read_text().splitlines()
+            return next(line.split()[1:] for line in status if line.startswith("NSpid:"))
+        except (OSError, StopIteration):
+            return []
+
+    below = len(depths(os.getpid())) + 2
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        seen = depths(entry.name)
+        if len(seen) != below or seen[-1] != "1":
+            continue
+        parent = host.proc_stat(entry.name)
+        try:
+            if parent is None or os.getpgid(parent.ppid) != launcher:
+                continue
+            return os.pidfd_open(int(entry.name)), int(entry.name)
+        except ProcessLookupError:
+            continue
 
 
 def _kill(fd):
