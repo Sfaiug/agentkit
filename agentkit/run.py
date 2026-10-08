@@ -7172,6 +7172,29 @@ def result_done_when(cmds, state=None):
     return marked
 
 
+def save_result(run_dir, text=None, *, notices=()):
+    """Publish a report or save its full notices without a rebuild losing them.
+
+    Build the report before taking the delivery lock: while git reads its diff, the tick
+    can deliver a notice. Read its saved section only at publication, under the same lock.
+    """
+    with delivery_lock(run_dir):
+        result = run_dir / "result.md"
+        try:
+            saved = result.read_text()
+        except FileNotFoundError:
+            saved = ""
+        heading = "\n## Seat notice\n\n"
+        _, boundary, kept = saved.partition(heading)
+        if text is None:
+            missing = [part for part in notices if part and part not in kept]
+            if missing:
+                with result.open("a") as output:
+                    output.write(heading + "\n\n".join(missing) + "\n")
+        else:
+            result.write_text(text + boundary + kept)
+
+
 def write_result(run_dir, state, cmds, log=None, cfg=None):
     """The full result.md.  `log` carries a stop observed while reporting, if any.
 
@@ -7240,6 +7263,8 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
         parts += [overridden_section(state)]
     if state["verdict"] != "PASS" and state["findings"]:
         parts += ["## Reviewer findings", "", without_followups(state["findings"]), ""]
+    if followup_report(state):
+        parts += [followup_report(state), ""]
     if state.get("notes"):
         parts += ["## Notes", "", *("- " + item.replace("\n", "\n  ") for item in state["notes"]), ""]
     if state.get("disputes"):
@@ -7247,7 +7272,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     onward = continue_line(state, run_dir)
     if onward:
         parts += [onward, ""]
-    (run_dir / "result.md").write_text("\n".join(parts))
+    save_result(run_dir, "\n".join(parts))
 
 
 def run_for_pr(url):
@@ -7277,11 +7302,13 @@ def record_decision(run_dir, state, reason, merged=False):
         if state.get("worktree") and Path(state["worktree"]).is_dir():
             _, body, _ = taskfile.parse_task(run_dir / "task.md")
             write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"))
-        elif note not in result.read_text():
+        else:
             # The worktree is gone, so the diff stat cannot be produced again: keep the result
             # as it was written and add what has happened to it since.
-            with result.open("a") as fh:
-                fh.write(f"\n## The maintainer decided\n\n{note}\n")
+            with delivery_lock(run_dir):
+                if note not in result.read_text():
+                    with result.open("a") as fh:
+                        fh.write(f"\n## The maintainer decided\n\n{note}\n")
     except (config.Error, OSError, KeyError):
         pass          # the note is on the run; a result we cannot rewrite from here is not news
     return state
@@ -7722,7 +7749,64 @@ def planned_followups(state):
                if refused else ""))
 
 
-def handback_line(state, run_dir, cfg=None):
+def followup_report(state):
+    """Keep everything a compact seat notice refers to in the run's result."""
+    parts = []
+    if state.get("followups"):
+        parts += ["## Follow-ups", "",
+                  *("- " + item.replace("\n", "\n  ") for item in state["followups"]), ""]
+    if state.get("followup_plan"):
+        parts += ["## Follow-up plan", "", planned_followups(state).strip(), ""]
+    if state.get("followup_runs"):
+        parts += ["## Fix runs", "", *("- " + name for name in state["followup_runs"]), ""]
+    return "\n".join(parts)
+
+
+def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
+    """A run line that fits stays unchanged; otherwise its files carry the whole news.
+
+    Use the same bound as `ak tell`, including its byte limit, after every addition to the
+    line. Never type even the compact form unless that bound accepts it and its full notice
+    and follow-ups have been saved in result.md, including for an older pending ending.
+    """
+    from . import plan, tell
+    if not tell.too_long(line):
+        return line
+
+    def shown(path):
+        try:
+            return f"~/{path.relative_to(Path.home())}"
+        except ValueError:
+            return str(path)
+
+    result = run_dir / "result.md"
+    where = shown(result)
+    report = result.name
+    parts = [brief, f"Result: {where}."]
+    entries = state.get("followup_plan") or []
+    count = len(state.get("followups") or entries)
+    if count:
+        parts.append(f"{count} review follow-ups in full in {report}.")
+    planned = sum("refused" not in entry for entry in entries)
+    if planned:
+        parts.append(f"{planned} in your plan: {shown(plan.path(launched_session(state)))}.")
+    refused = len(entries) - planned
+    if refused:
+        parts.append(f"{refused} refused by your plan; reasons in {report}.")
+    if state.get("followup_runs"):
+        parts.append(f"{len(state['followup_runs'])} fix runs named in {report}.")
+    parts.append(action)
+    if line.endswith(watch.FRESH_NOTE):
+        parts.append(watch.FRESH_NOTE.lstrip("; "))
+    compact = " ".join(parts)
+    refusal = tell.too_long(compact)
+    if refusal:
+        raise config.Error(refusal)
+    save_result(run_dir, notices=(line, followup_report(state)))
+    return compact
+
+
+def handback_line(state, run_dir, cfg=None, *, review_round=None):
     """The one line a finished run types into the seat that launched it.
 
     `run <id> finished <verdict>: <why>. Result: <path>. Decide the next step.` -- an ending
@@ -7736,17 +7820,23 @@ def handback_line(state, run_dir, cfg=None):
     """
     workspace = (f" Workspace: {state['worktree']}."
                  if state.get("scratch") and state.get("worktree") else "")
-    line = (f"run {run_dir.name} finished {handback_verdict(state, cfg)}: "
+    ending = (f"review round {review_round}/{state['rounds']} FAIL" if review_round is not None
+              else f"finished {handback_verdict(state, cfg)}")
+    action = ("Fix the findings and push to this PR; this run reviews the new head."
+              if review_round is not None else "Decide the next step.")
+    line = (f"run {run_dir.name} {ending}: "
             f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace} "
             + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
                if state.get("followup_runs") else "") + planned_followups(state)
-            + "Decide the next step.")
+            + action)
     spent = len(state.get("round_summaries") or [])
     if (state.get("state") == "fail" and (state.get("rounds") or 0) > 0
             and spent >= (state.get("rounds") or 0) and review_failed(state)):
         word = NUMBER_WORDS[spent] if 0 <= spent < len(NUMBER_WORDS) else str(spent)
-        line += f" {word} rounds spent: split or re-scope"
-    return line
+        split = f" {word} rounds spent: split or re-scope"
+        line += split
+        action += split
+    return seat_notice(line, state, run_dir, f"run {run_dir.name} {ending}.", action)
 
 
 def already_handed_back(state):
@@ -7907,7 +7997,6 @@ def hand_back(state, run_dir, log, cfg=None):
     """
     session = launched_session(state)
     seat = orch.find(session) or {"name": session}
-    line = handback_line(state, run_dir, cfg)
     with delivery_lock(run_dir):
         said = run_record.read_state(run_dir) or state
         if not same_attempt(state, said):
@@ -7928,6 +8017,7 @@ def hand_back(state, run_dir, log, cfg=None):
             # The seat is not going to read the tree: the ending is history.
             worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
+        line = handback_line(state, run_dir, cfg)
         if watch.type_at_prompt(seat, line, log, cfg=cfg, typed=said.get("handback_typed"),
                                 receipt=lambda mark: mark_delivery(run_dir, state,
                                                                    handback_typed=mark)):
@@ -8066,7 +8156,9 @@ def announce(state, run_dir, log, cfg=None):
         log(f"the orchestrator session {session} this run was launched from is gone; "
             "reopening it")
         why = watch.revive(session, f"continue {task}: run {run_dir.name} finished {verdict}, "
-                                    f"result at {run_dir / 'result.md'}", log)
+                                    f"result at {run_dir / 'result.md'}", log,
+                           prepare=lambda line: seat_notice(
+                               line, state, run_dir, f"run {run_dir.name} finished {verdict}."))
         if why is None:
             log(f"reopened {session} and asked it to continue {run_dir.name}")
             mark_delivery(run_dir, state, reported=True, notification_pending=None)
@@ -8310,7 +8402,8 @@ def notify_recovery(run_dir, state):
     if (not watch.seat_closed(owner) and watch.orphan_fresh(state, owner)
             and not watch.is_preexisting(state)):
         log(f"the orchestrator session {owner} this run was launched from is gone; reopening it")
-        why = watch.revive(owner, line, log)
+        why = watch.revive(owner, line, log, prepare=lambda line: seat_notice(
+            line, state, run_dir, f"run {run_dir.name} is unfinished."))
         if why is None:
             log(f"reopened {owner} and asked it to take up {run_dir.name}")
             mark_delivery(run_dir, state, recovery_notified="orchestrator",
@@ -10348,11 +10441,11 @@ def record_result(run_dir, state, log=None, cfg=None):
     else:
         suffix = ""
     try:
-        (run_dir / "result.md").write_text(
+        save_result(run_dir,
             f"# {delivery(state, report_config(cfg))} — {state.get('title') or run_dir.name}\n\n"
             f"VERDICT: {state.get('verdict') or 'none'}\n\n## Why this run stopped\n\n"
             f"{state.get('error') or 'no reason was recorded'}\n\n"
-            f"relaunch: ak run {run_dir / 'task.md'}{suffix}\n")
+            f"relaunch: ak run {run_dir / 'task.md'}{suffix}\n\n{followup_report(state)}")
     except OSError:
         pass
     else:
@@ -10821,9 +10914,7 @@ def tell_own_pr_round(cfg, run_dir, state, log):
         said = run_record.read_state(run_dir) or state
         if not same_attempt(state, said) or said.get("own_pr_round_told") == rnd:
             return
-        line = handback_line({**state, "state": "fail"}, run_dir, cfg).replace(
-            "finished FAIL:", f"review round {rnd}/{state['rounds']} FAIL:", 1).replace(
-            "Decide the next step.", "Fix the findings and push to this PR; this run reviews the new head.")
+        line = handback_line({**state, "state": "fail"}, run_dir, cfg, review_round=rnd)
         with launcher_world(session) as live:
             if live and watch.type_at_prompt(
                     orch.find(session) or {"name": session}, line, log, cfg=cfg,

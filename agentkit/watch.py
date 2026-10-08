@@ -3111,13 +3111,14 @@ def sweep_preexisting(log, now=None):
     return len(marked)
 
 
-def revive(name, line, log, cfg=None):
+def revive(name, line, log, cfg=None, *, prepare):
     """Bring a gone seat back on its own conversation, and type one line into it.
 
     The way its number in the menu opens it: the saved conversation where the record holds
     one, and fresh where it does not -- then the line says so.  A seat just started gets
     INBOX_WARMUP before it is typed into, as the inbox does, and the line goes through the
-    confirmed send.  The answer is None when the seat was told, else why it was not, in a
+    confirmed send, after `prepare` fits the final line to its composer. The answer is None
+    when the seat was told, else why it was not, in a
     clause the owner's notice can end with.
     """
     try:
@@ -3126,6 +3127,7 @@ def revive(name, line, log, cfg=None):
         return str(exc)
     if back == "fresh":
         line += FRESH_NOTE
+    line = prepare(line)
     if back:
         time.sleep(INBOX_WARMUP)     # the TUI has to be listening before it is typed into
     if type_into(orch.find(name) or {"name": name}, line, log):
@@ -4103,6 +4105,11 @@ def tell_parked(run_id, step, seat, log):
         if alive:
             found = orch.find(seat) or {"name": seat}
             try:
+                run_dir = config.RUNS / run_id
+                line = run_mod.seat_notice(
+                    line, run_record.read_state(run_dir) or {}, run_dir,
+                    f"run {run_id} stalled three times; parked.",
+                    f"Resume: ak run resume {run_id}.")
                 if type_into(found, line, log):
                     return True
             except (config.Error, OSError):
@@ -5103,7 +5110,7 @@ def revive_seats(cfg, log):
         except config.Error:
             continue
         if seat:
-            going.setdefault(seat, (run_dir.name, state.get("title") or run_dir.name))
+            going.setdefault(seat, (run_dir, state))
     kept = config.session_records()
     orch.file_projectless([{**record, "name": name} for name, record in kept.items()], states)
     if not going and not any(seat_read(name).get("reopened_at") for name in kept):
@@ -5118,11 +5125,15 @@ def revive_seats(cfg, log):
         if (name not in going or marks.get("reopened_at") or seat_closed(name)
                 or marks.get("closed_by_owner")):
             continue
-        run_id, title = going[name]
+        run_dir, state = going[name]
+        run_id, title = run_dir.name, state.get("title") or run_dir.name
         died = time.time()
         seat_write(name, reopened_at=died)
         why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
-                           "pick up where you left off", log, cfg)
+                           "pick up where you left off", log, cfg,
+                     prepare=lambda line: run_mod.seat_notice(
+                         line, state, run_dir, f"run {run_id} is still going.",
+                         "Pick up where you left off."))
         if why is None:
             log(f"reopened {name} and asked it to continue {run_id}")
             continue
@@ -5422,6 +5433,9 @@ def say(dry_run, log, text, url, session, merged=False):
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
                 "decision on a PR of ours, for you to act on or not."
                 + (f" {planned}" if planned else ""))
+        if run_dir:
+            line = run.seat_notice(line, run_state, run_dir,
+                                   f"run {run_dir.name}: the maintainer decided on its PR.")
         if not type_into(seat, line, log):
             return False
         log(f"told the {seat['name']} seat: {text}")
@@ -5548,6 +5562,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 with run_record.record(run_dir) as current:
                     current["live_typed"] = mark
 
+            line = run.seat_notice(line, st, run_dir, f"run {run_dir.name} is live.")
             if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept):
                 with run_record.record(run_dir) as current:
                     current["live_notified"] = now
@@ -5724,6 +5739,9 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
     did not land is entered and never typed a second time.  True when the line was told.
     """
     from . import run as run_mod   # here, not at the top: run imports this module
+    line = run_mod.seat_notice(line, {}, run_dir,
+                              f"run {run_dir.name}: a check failed after its merge.",
+                              "Fix the target.")
     try:
         session = run_mod.launched_session(run_state)
     except config.Error:
