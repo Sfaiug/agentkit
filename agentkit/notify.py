@@ -1104,10 +1104,10 @@ def needs_transition(session, card, answer, now, seat=None):
 
 
 def done_transition(session, card, answer, now):
-    """One completion when the state function says done, after editing open questions.
+    """A quiet receipt or one completion alert when the state function says done.
 
-    Never for an episode that is history, a seat the owner closed himself, or a declaration
-    already carded -- which latches this episode as sent, so the outbox is read once.
+    Delivery skips history, owner-closed seats and already-carded declarations. A new quiet
+    receipt latches independently of those delivery gates; open questions close when allowed.
     """
     from . import watch
     declared = last(session, include_seen=True)
