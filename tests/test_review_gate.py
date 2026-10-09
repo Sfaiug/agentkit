@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, notify, run, stop, task, worker
+from agentkit import config, notify, run, stop, task, tell, worker
 from agentkit import record
 
 
@@ -269,7 +269,10 @@ sys.exit(1)
         self.assertIn("after 3 rounds, open findings: - a.py:1 - off-by-one in the gate", reason)
         self.assertIn("- b.py:2 - drops the error - silent data loss", reason)
         self.assertNotIn("rename this", reason)
-        line = run.handback_line(state, directory)
+        # what a line that fits says: its paths grow with where this checkout lives, and one
+        # past the bound names its files instead (tests/test_run_notice_fits_a_composer.py)
+        with patch.object(tell, "longest", return_value=tell.MAX_BYTES):
+            line = run.handback_line(state, directory)
         self.assertIn("finished FAIL: after 3 rounds, open findings: - a.py:1 - off-by-one", line)
         self.assertIn("Decide the next step.", line)
         result = (directory / "result.md").read_text()
