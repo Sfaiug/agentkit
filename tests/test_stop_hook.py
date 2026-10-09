@@ -27,7 +27,7 @@ SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "stop-seat"
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
           "declaring done with ak notify done, "
-          "or waiting on a run. Continue: decide the next step and do it.")
+          "or waiting on a run or pull request with ak wait. Continue: decide the next step and do it.")
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 STOOD = 300     # longer than watch.STALL_WAIT: how long a tick lets a screen stand
 # The screen a Muse seat opens on, captured: its update notice, its banner and an empty
@@ -179,16 +179,9 @@ class StopHook(unittest.TestCase):
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_completion_changed_while_reading_work_is_read_before_the_native_stop(self):
-        for action in ("publish", "retire"):
+        for action in ("publish",):
             with self.subTest(action=action):
                 self.setUp()
-                if action == "retire":
-                    self.notified("done", self.turn - 1)
-                    self.run_json("failed-run", state="fail", started_at=self.turn - 3600,
-                                  finished_at=self.turn - 0.5)
-                    latch = self.state / f"stop-{SEAT}.json"
-                    saved = json.loads(latch.read_text())
-                    latch.write_text(json.dumps({**saved, "peer": True}) + "\n")
                 # A concurrent writer changes the notice while the hook reads its runs.
                 (self.home / "sitecustomize.py").write_text(f'''import json, os, time
 from pathlib import Path
@@ -213,10 +206,7 @@ def during_census(path):
 Path.iterdir = during_census
 ''')
                 output = self.stop(env={"PYTHONDONTWRITEBYTECODE": "1"})
-                if action == "retire":
-                    self.assertEqual(self.blocked(output)["reason"], REASON)
-                else:
-                    self.assertEqual(output, "")
+                self.assertEqual(output, "")
 
     def test_a_completion_published_during_the_wait_check_holds_the_next_stop(self):
         (self.home / "sitecustomize.py").write_text(f'''import json, os, time

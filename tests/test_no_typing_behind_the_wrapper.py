@@ -15,8 +15,8 @@ import tty
 import unittest
 from unittest.mock import Mock, patch
 
-from test_tell import NOW, REPO, SEAT, Seats
-from agentkit import config, orch, statusbar, tell, watch
+from fixtures.seats import LINE, NOW, REPO, SEAT, Seats
+from agentkit import config, orch, statusbar, watch
 from agentkit.pty_relay import Relay
 
 TMUX = r'''#!/usr/bin/env python3
@@ -198,14 +198,13 @@ class WrappedPane(Seats):
             self.assertEqual(sum(call[:2] == ['set-option', '-p'] for call in calls), start + 1)
             self.stop(self.proc)
 
-    def test_the_empty_outer_tty_does_not_release_a_peer_line_until_the_harness_reads(self):
+    def test_the_empty_outer_tty_does_not_release_an_ak_line_until_the_harness_reads(self):
         data = self.held_input()
-        self.tell(SEAT, 'Parser merged.')
-        queued = self.waiting()
+        self.wait_line()
         for _ in range(3):
-            tell.deliver(self.cfg, lambda _: None)
+            self.tick()
         self.assertEqual(self.typed, [])
-        self.assertEqual(self.waiting(), queued)
+        self.assertFalse(self.told())
         self.assertEqual(self.receipts(), [])
         sent, typed = Mock(return_value=(0, '')), Mock()
         self.assertIsNone(watch._send_line(self.seat, '/compact', lambda _: None, typed, send=sent))
@@ -213,10 +212,10 @@ class WrappedPane(Seats):
         typed.assert_not_called()
         self.release_reader(data)
         for _ in range(3):
-            tell.deliver(self.cfg, lambda _: None)
-        line = self.header() + 'Parser merged.'
+            self.tick()
+        line = LINE
         self.assertEqual(self.typed, [line])
-        self.assertEqual(self.waiting(), [])
+        self.assertTrue(self.told())
         self.assertEqual(len(self.receipts()), 1)
         self.until(lambda: (self.root / 'received').read_bytes() == data + line.encode() + b'\r')
 

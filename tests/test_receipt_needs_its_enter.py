@@ -131,18 +131,14 @@ class ReceiptNeedsEnter(Sandbox):
         self.assertEqual(self.keys, [line])
         self.read_input(line.encode())
 
-    def check_notice(self, own_pr):
-        directory = self.ended("own-pr-round" if own_pr else "hand-back", owner=SEAT,
+    def test_hand_back_keeps_its_receipt_until_enter(self):
+        directory = self.ended("hand-back", owner=SEAT,
                                handback_pending=True, rounds=3, round_summaries=[{}])
         state = record.read_state(directory)
-        typed = "own_pr_round_typed" if own_pr else "handback_typed"
-        delivered = "own_pr_round_told" if own_pr else "handed_back"
+        typed, delivered = "handback_typed", "handed_back"
 
         def tick():
-            if own_pr:
-                run.tell_own_pr_round(self.cfg, directory, state, lambda _: None)
-            else:
-                run.hand_back(state, directory, lambda _: None, self.cfg)
+            run.hand_back(state, directory, lambda _: None, self.cfg)
 
         tick()
         mark = record.read_state(directory)[typed]
@@ -163,11 +159,6 @@ class ReceiptNeedsEnter(Sandbox):
         self.assertNotIn(typed, saved)
         self.assertEqual(self.keys, [line, "Enter"])
 
-    def test_hand_back_keeps_its_receipt_until_enter(self):
-        self.check_notice(False)
-
-    def test_own_pr_round_keeps_its_receipt_until_enter(self):
-        self.check_notice(True)
 
 
 if __name__ == "__main__":

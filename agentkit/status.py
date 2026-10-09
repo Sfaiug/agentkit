@@ -295,14 +295,12 @@ def workspace_location(state, present):
     """`present`, or what a missing checkout still leaves behind.
 
     Every other cleanup keeps the local branch, so `removed; branch/PR retained`
-    is the whole story -- except a stop without `--keep`, a merged run, and a
-    branch a session stop took, which say `removed; branch removed` instead.
+    is the whole story -- except the exits `record.branch_gone` names, which say
+    `removed; branch removed` instead.
     """
     if present:
         return "present"
-    if state.get("state") == "stopped" and not state.get("stop_kept"):
-        return "removed; branch removed"
-    if state.get("merged") or state.get("branch_removed"):
+    if run_record.branch_gone(state):
         return "removed; branch removed"
     return "removed; branch/PR retained"
 
@@ -425,8 +423,8 @@ def status_rows(found, width, index=None, cfg=None):
         total = state.get("rounds")
         going = state.get("state") in run_record.ACTIVE
         rnd = min(done + 1, total) if going and total else done
-        if run.own_pr_wait_note(state) or state.get("own_pr_round_pending"):
-            rnd = state.get("own_pr_round_pending") or done
+        if state.get("own_pr_round_pending"):
+            rnd = state["own_pr_round_pending"]
         rounds = f"round {rnd}/{total or '?'}"
         if state.get("extended"):
             rounds += f" (+{state['extended']})"
@@ -544,8 +542,6 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
     lines.extend(death_lines(state))
     if state.get("state") == "queued":
         lines.append(f"  {gate.slot_note(state)}")
-    elif run.own_pr_wait_note(state):
-        lines.append(f"  {run.own_pr_wait_note(state)}")
     elif gate.gate_turn_note(state):
         lines.append(f"  {gate.gate_turn_note(state)}")
     if run.needs_recovery(state):
@@ -757,8 +753,6 @@ def cmd_status(argv):
                 print(f"  {parked_line(state, d.name)}")
             elif state.get("state") == "queued":
                 print(f"  {gate.slot_note(state)}")
-            elif run.own_pr_wait_note(state):
-                print(f"  {run.own_pr_wait_note(state)}")
             elif gate.gate_turn_note(state):
                 print(f"  {gate.gate_turn_note(state)}")
             if state.get("first"):
@@ -821,8 +815,6 @@ def cmd_status(argv):
                 parked = parked_line(state, directory.name)
                 if state.get("state") == "queued":
                     print(f"  {gate.slot_note(state)}")
-                elif run.own_pr_wait_note(state):
-                    print(f"  {run.own_pr_wait_note(state)}")
                 elif gate.gate_turn_note(state):
                     print(f"  {gate.gate_turn_note(state)}")
                 elif blocked_note(state):

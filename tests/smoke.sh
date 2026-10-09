@@ -758,7 +758,9 @@ class SessionState(unittest.TestCase):
         return 0
 
     def notice(self, kind, text):
-        with redirect_stdout(io.StringIO()):
+        # said for the seat from outside it: a question the seat asks itself is kept back
+        # until its turn ends (tests/test_question_waits_for_the_stop.py)
+        with redirect_stdout(io.StringIO()), patch.dict(os.environ, {config.SESSION_ENV: ""}):
             self.assertEqual(notify.shaped(kind, text, session=self.seat["name"]), 0)
 
     def open(self):
@@ -4338,8 +4340,10 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_SESSION=smoke-shape ak notify 
   >"$WORK/done-fail.json" 2>"$WORK/done-fail.err" || SHAPE=1
 [ "$(cat "$WORK/done-fail.err")" = 'terminal notice: Done · smoke-shape: FAIL: tests red' ] || SHAPE=1
 jq -e '.embeds[0].color == 15158332' "$WORK/done-fail.json" >/dev/null 2>&1 || SHAPE=1
-# the real form, with no webhook: stderr, exit 0, and the record the menu reads
-HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= AGENTKIT_SESSION=smoke-shape ak notify needs "Which branch?" \
+# the real form, with no webhook: stderr, exit 0, and the record the menu reads.  Asked from
+# outside the seat: its own question is held until its turn ends
+# (tests/test_question_waits_for_the_stop.py)
+HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "Which branch?" --session smoke-shape \
   >"$WORK/needs-real.log" 2>&1 || SHAPE=1
 grep -q 'no webhook configured; message: Needs you . smoke-shape: Which branch?' "$WORK/needs-real.log" || SHAPE=1
 jq -e '.session == "smoke-shape" and .kind == "needs" and .text == "Which branch?" and (.time | type == "number")' \
