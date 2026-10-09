@@ -61,7 +61,7 @@
   Calls `run.*`; for run, gc, watch, menu.
 - `watch.py`: tick passes (`local_passes`), watch.json, seat state, errors, recovery,
   typing receipts, PR scans, after-merge checks and `health:` probes. `session_state`
-  and `waiting_on` (a seat's `ak wait` on a pull request or run, ended by `wait_over`) decide state; hookless stops use stop.recorded_ending.
+  and `waiting_on` decide state; hookless stops use stop.recorded_ending.
   For run, job, orch, menu, notify, update, usage, worker and hooks.
   Leaks: run.json writes and run state groups.
 - `retire.py`: the tick's pass that writes, once a day, a plan line for each feature switch

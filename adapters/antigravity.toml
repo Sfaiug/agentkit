@@ -46,10 +46,6 @@ at_prompt = "screen"
 enforce = "nudge"
 
 [screen]
-# A line typed while a turn runs waits above the composer ("Press up to edit queued
-# messages") and goes to the model after (1.3.1): a line ak types goes in then,
-# not held for the turn's end.
-queues_typing = true
 # The composer is a bare `>` between two rules; a typed line reads `> text`, and so does every
 # prompt the transcript echoes, which is why only the empty one is chrome.
 composer = '^>$'
