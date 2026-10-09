@@ -4,11 +4,13 @@ The stop hook decides from the record alone: a question, a done, a run of the se
 merged run of its not yet live where its project declares `health:`, or an `ak wait` on a pull
 request or run ends the turn; with no open line in the seat's plan nothing is owed and any
 reply stands; with one open and none of those recorded the stop is sent back twice, and the
-third becomes a question to the owner carrying the seat's last words.  No words of the owner's
-prompt decide anything.  Offline: hooks/seat-state.sh and hooks/orchestrator-stop.sh run as
+third becomes a question to the owner carrying the seat's last words, kept back for the next
+look to ask as the seat's own `ak notify needs` is.  No words of the owner's prompt decide
+anything, and the hook waits on no notice lock.  Offline: hooks/seat-state.sh and hooks/orchestrator-stop.sh run as
 their harness runs them, JSON on stdin, against fake records in a throwaway HOME.
 """
 
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -28,6 +30,7 @@ SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "facts-seat"
 SAID = "The parser is fixed and the tests pass. Let me know if I should continue."
 LINE = "- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n"
+HAND_KEPT = "- [ ] fix the parser\n"      # open as a done reads it, though `ak plan` never wrote it
 SPENT = "three rounds spent: split or re-scope the task"
 
 
@@ -65,7 +68,7 @@ class RecordedWaits(unittest.TestCase):
         done = subprocess.run(["bash", str(hook)], text=True, capture_output=True,
                               input=json.dumps({"hook_event_name": "Stop", "session_id": "fake",
                                                 "transcript_path": str(transcript), **payload}),
-                              env=self.env())
+                              env=self.env(), timeout=120)
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout
 
@@ -73,12 +76,30 @@ class RecordedWaits(unittest.TestCase):
         self.assertTrue(output.strip(), "the hook allowed the stop")
         return json.loads(output)
 
-    def owes(self):
-        (self.state / f"plan-{SEAT}.md").write_text(LINE)
+    def owes(self, line=LINE):
+        (self.state / f"plan-{SEAT}.md").write_text(line)
 
     def notice(self):
         path = self.state / f"notify-{SEAT}.json"
         return json.loads(path.read_text()) if path.exists() else None
+
+    def kept(self):
+        path = self.state / f"seat-{SEAT}.json"
+        return (json.loads(path.read_text()) if path.exists() else {}).get("unasked")
+
+    def held_notice_lock(self):
+        """The seat's notice lock, held as a delivery or a card post holds it."""
+        lock = (self.state / f"notify-{SEAT}.lock").open("a")
+        self.addCleanup(lock.close)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return lock
+
+    def look(self):
+        """What the next look does with a question kept back for a turn that has ended."""
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); from agentkit import notify\n"
+                "with notify.session_lock(sys.argv[2]) as name: notify.ask_kept(name, ended=True)")
+        subprocess.run([sys.executable, "-c", code, str(REPO), SEAT], env=self.env(), check=True,
+                       timeout=120)
 
     def parked_exhausted(self, name="parked-exhausted"):
         directory = self.runs / name
@@ -146,17 +167,27 @@ class RecordedWaits(unittest.TestCase):
                 self.assertEqual(json.loads((self.state / f"stop-{SEAT}.json").read_text())["blocks"], 0)
 
     def test_with_work_open_a_reply_is_sent_back_and_the_third_stop_asks_the_owner(self):
-        self.owes()
-        self.prompt("Which parser does it use?")
-        for _ in range(2):
-            back = json.loads(self.stop())
-            self.assertEqual(back["decision"], "block")
-            self.assertIn("You stopped with work open and nothing recorded", back["reason"])
-            self.assertIsNone(self.notice())
-        self.assertEqual(self.stop(), "")               # the third stop stands ...
-        notice = self.notice()                           # ... as a question to the owner
-        self.assertEqual(notice["kind"], "needs")
-        self.assertEqual(notice["text"], "Stopped three times with work open: " + SAID)
+        for line in (LINE, HAND_KEPT):
+            with self.subTest(line=line):
+                self.setUp()
+                self.owes(line)
+                self.prompt("Which parser does it use?")
+                lock = self.held_notice_lock()          # the hook decides without it
+                for _ in range(2):
+                    back = json.loads(self.stop())
+                    self.assertEqual(back["decision"], "block")
+                    self.assertIn("You stopped with work open and nothing recorded", back["reason"])
+                    self.assertIsNone(self.kept())
+                self.assertEqual(self.stop(), "")       # the third stop stands ...
+                self.assertIsNone(self.notice())        # ... its question kept back, its turn ended
+                self.assertEqual(self.kept()["text"], "Stopped three times with work open: " + SAID)
+                self.assertIsInstance(self.kept()["ended"], float)
+                lock.close()
+                self.look()                             # ... and the next look asks the owner
+                notice = self.notice()
+                self.assertEqual(notice["kind"], "needs")
+                self.assertEqual(notice["text"], "Stopped three times with work open: " + SAID)
+                self.assertIsNone(self.kept())
 
     def test_the_third_stops_question_carries_the_owners_earlier_answer(self):
         # recorded as `ak notify needs` records one: the owner's answer to the question it
@@ -169,6 +200,7 @@ class RecordedWaits(unittest.TestCase):
         for _ in range(2):
             self.assertEqual(json.loads(self.stop())["decision"], "block")
         self.assertEqual(self.stop(), "")
+        self.look()
         notice = self.notice()
         self.assertEqual(notice["text"], "Stopped three times with work open: " + SAID)
         self.assertEqual(notice["earlier_answer_at"], 1234.5)
@@ -235,7 +267,8 @@ class RecordedWaits(unittest.TestCase):
             self.assertIn("run parked-exhausted parked: ", reason)
             self.assertIn("ak run resume parked-exhausted", reason)
         self.assertEqual(self.stop(), "")       # the third stop stands ...
-        self.assertIsNone(self.notice())        # ... on the parked card, with no question of its own
+        self.assertIsNone(self.kept())          # ... on the parked card, with no question of its own
+        self.assertIsNone(self.notice())
 
 
 if __name__ == "__main__":

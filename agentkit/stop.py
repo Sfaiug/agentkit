@@ -38,11 +38,12 @@ def _ending_work(name, records):
 
 
 def owed(name):
-    """Whether the seat owes work: an open line in its plan, or a plan nothing can read, which
-    proves nothing done."""
+    """Whether the seat owes work: an open line in its plan (`plan.is_open`, as a done reads
+    it), or a plan nothing can read, which proves nothing done.  Read without the plan's lock:
+    a harness hook never waits on it, and every plan write is a whole-file replace."""
     from . import plan
     try:
-        return bool(plan.open_lines(name))
+        return any(plan.is_open(line) for line in plan.lines(name))
     except config.Error:
         return True
 
