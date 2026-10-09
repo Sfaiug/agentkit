@@ -255,6 +255,47 @@ out = pathlib.Path(sys.argv[6])
         self.lp.state["review_records"] = []
         self.assertEqual([row["line"] for row in run.earlier_findings(self.lp)], [3])
 
+    def on_main(self, content, message):
+        """Main moves, and the branch is rebased onto it: what a push after a rebase is."""
+        run.git(self.wt, "checkout", "-q", "main")
+        (self.wt / "api.py").write_text(content)
+        self.commit(message)
+        run.git(self.wt, "checkout", "-q", "ak/fix-api")
+        run.git(self.wt, "rebase", "-q", "main")
+        self.head = run.git(self.wt, "rev-parse", "HEAD")
+        self.lp.validation = run.commit_identity(self.wt)
+        self.lp.state["base_sha"] = run.git(self.wt, "rev-parse", "main")    # the merge base now
+
+    def test_an_earlier_finding_is_placed_in_the_reviewed_commits_own_coordinates(self):
+        run.git(self.wt, "checkout", "-q", "main")
+        (self.wt / "api.py").write_text("# a\n# b\n# c\nvalue = 1\n")
+        self.commit("A base with room above the value")
+        run.git(self.wt, "checkout", "-q", "-B", "ak/fix-api", "main")
+        self.lp.state["base_sha"] = run.git(self.wt, "rev-parse", "main")
+        self.write("# a\n# b\n# c\nvalue = 2\n", "Change the value")
+        self.assertEqual(self.review(finding("api.py:4", "the value is wrong", probe("api.value == 1"))), "FAIL")
+        reviewed = self.head
+        # a push rebased onto a main that grew above the value: the finding moves with its line
+        self.on_main("# top\n# a\n# b\n# c\nvalue = 1\n", "Main grows a line above")
+        self.assertEqual(run.moved_line(self.lp, "api.py", 4, reviewed, self.head), 5)
+        self.assertEqual(self.review(), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 5, "still failing; it blocks until its proof passes")])
+
+    def test_a_touched_line_still_failing_is_one_finding_with_the_reviewers_own(self):
+        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
+        # the fix rewrites the flag's line, still wrongly, and adds a line above it
+        self.write('mode = "fixed"\nimport os\nflag = "still wrong"\nextra = 1\n', "Rewrite the flag, badly")
+        self.assertEqual(self.review(finding("api.py:3", "the flag still reads wrong", self.flag_fixed)), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 3, "")])      # no copy beside it
+        # ... and a new finding at the old number, on a line the fix never touched, is a note
+        self.setUp()
+        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
+        self.write('flag = "fixed"\nextra = 1\n', "Drop the mode line, mend the flag")
+        self.assertEqual(self.review(finding("api.py:2", "extra is odd", self.never)), "PASS")
+        self.assertEqual(self.records("finding"), [])
+        self.assertIn(("api.py", 2, f"the fix delta since {self.lp.state['round_summaries'][0]['head_sha'][:12]}; "
+                                    "judged in an earlier round"), self.records("note"))
+
     def test_a_review_of_the_same_commit_again_replays_nothing(self):
         self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed)), "FAIL")
         self.assertEqual(self.review(), "PASS")

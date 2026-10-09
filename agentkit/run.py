@@ -3725,10 +3725,12 @@ TEST_NAMES = ("*_test.*", "*_spec.*", "*.test.*", "*.spec.*")
 
 
 def hunks(lp, path, since, head):
-    """The hunks of `path` between `since` and `head`, no context, as git reads a conflict:
-    (old start, old count, new start, new count) each, in order."""
+    """The hunks of `path` from the commit `since` to `head`, no context, as git reads a
+    conflict: (old start, old count, new start, new count) each, in order.  Two commits'
+    trees, not their merge base's: after a rebased push the coordinates are the reviewed
+    commit's own, and the base is already the merge base."""
     diff = git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
-               "--unified=0", f"{since}...{head}", "--", f":(literal){path}")
+               "--unified=0", since, head, "--", f":(literal){path}")
     return [(int(hunk[1]), int(hunk[2] or 1), int(hunk[3]), int(hunk[4] or 1))
             for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", diff, re.M)]
 
@@ -3882,12 +3884,12 @@ def moved_line(lp, path, line, since, head):
 
 
 def earlier_sites(lp, head, since):
-    """Where the last review's blocking findings sit on `head`: their recorded site at `since`
-    and where the diff since then moved it, so a finding handed in again upholds an earlier
-    one wherever its line went, in whatever words."""
+    """Where the last review's blocking findings sit on `head`: where the diff since `since`
+    moved each line, so a finding handed in again upholds an earlier one wherever its line
+    went, in whatever words.  A line the fix touched has no place here: a finding raised
+    there is inside the fix delta anyway, and the old number names another line now."""
     sites = set()
     for row in earlier_findings(lp):
-        sites.add((row["path"], row["line"]))
         now = moved_line(lp, row["path"], row["line"], since, head)
         if now is not None:
             sites.add((row["path"], now))
@@ -4009,15 +4011,21 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                 lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
         records.append(row)
     if replayed:
+        # the reviewer's own hand-in of an earlier finding, at its site now or by the same
+        # proof, is that finding upheld: ak's replay adds no second copy beside it
         upheld = {(row["path"], row["line"]) for row in records if row["kind"] == "finding"}
+        proofs = {row["evidence"].get("run") for row in records if row["kind"] == "finding"}
         extra = []
         for row, now, failing in replayed:
-            # where the fix moved its line, when the delta is known and left the line itself alone
-            line = moved_line(lp, row["path"], row["line"], since, head) if since else None
+            # where the fix moved its line, when the delta is known and left the line itself
+            # alone; a line the fix touched keeps its number and says so
+            line = moved_line(lp, row["path"], row["line"], since, head) if since else row["line"]
             row = {**row, "line": line if line is not None else row["line"]}
-            if failing and (row["path"], row["line"]) not in upheld:
+            where = ("" if line is not None
+                     else "; the fix changed its line, and the proof says where it stands now")
+            if failing and (row["path"], row["line"]) not in upheld and now["run"] not in proofs:
                 extra.append({**row, "kind": "finding", "evidence": now,
-                              "replayed": "still failing; it blocks until its proof passes"})
+                              "replayed": "still failing; it blocks until its proof passes" + where})
                 lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit")
             elif not failing:
                 extra.append({**row, "kind": "note", "evidence": now,
@@ -4100,7 +4108,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         # it here is nobody's fix round
         delta = reviewed_before(lp, delta_from, at) if record else None
         if delta:
-            changed = capped(lp, git(lp.wt, "diff", f"{delta}...{head}", check=False))
+            changed = capped(lp, git(lp.wt, "diff", delta, head, check=False))
             # a finding the fixer disputed is the reviewer's to weigh, and a quote is no failing
             # proof (the quoted lines can stay while the defect goes): both are listed for the
             # reviewer, not replayed
