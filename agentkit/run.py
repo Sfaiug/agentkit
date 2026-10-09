@@ -7574,12 +7574,12 @@ def followup_report(state):
 def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     """A run line that fits stays unchanged; otherwise its files carry the whole news.
 
-    Use the same bound as `ak tell`, including its byte limit, after every addition to the
+    Use the bound of a typed line (`watch.too_long`), including its byte limit, after every addition to the
     line. Never type even the compact form unless that bound accepts it and its full notice
     and follow-ups have been saved in result.md, including for an older pending ending.
     """
-    from . import plan, tell
-    if not tell.too_long(line):
+    from . import plan
+    if not watch.too_long(line):
         return line
 
     def shown(path):
@@ -7608,7 +7608,7 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     if line.endswith(watch.FRESH_NOTE):
         parts.append(watch.FRESH_NOTE.lstrip("; "))
     compact = " ".join(parts)
-    refusal = tell.too_long(compact)
+    refusal = watch.too_long(compact)
     if refusal:
         raise config.Error(refusal)
     save_result(run_dir, notices=(line, followup_report(state)))

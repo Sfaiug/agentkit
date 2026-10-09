@@ -475,8 +475,8 @@ def _pin(settings):
     """What every seat runs with, whatever an offer or a hand edit wrote since.
 
     Bypass permissions, and Claude Code's own messages from other sessions refused:
-    seats talk through `ak tell`, which reaches every harness and account, says who sent
-    it, and is never taken for the owner's words.  A message its safeguards flag switches
+    seats never message one another, on any harness or account; a seat waits on a pull
+    request or run through ak (`ak wait`).  A message its safeguards flag switches
     the conversation to another model by itself instead of pausing the seat on a dialog
     until the owner answers; an answer there writes this same setting, which an account
     login's copy of the usual login's settings carried over.  Claude Code reads its user

@@ -92,7 +92,7 @@ enforce = "nudge"
 
 [screen]
 # A line typed while a turn runs waits under the running step and goes to the model after
-# it (2.0.24): another seat's `ak tell` is typed then, not held for the turn's end.
+# it (2.0.24): a line ak types goes in then, not held for the turn's end.
 queues_typing = true
 # fullmatch against a bottom line: the input box, whose edges are `┃` and `╹` and whose
 # model line reads `Build auto · mimo-v2.6-pro MiMo · high`.  The dialog that replaces it is

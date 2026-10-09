@@ -83,7 +83,7 @@ kinds = ["idle_prompt"]
 # narrow pane cuts the border's words short of its corner (`· always-appro─╯`, 1.0.46).
 [screen]
 # A line typed while a turn runs waits as "Queued 1" above the composer and goes to the model
-# once the turn ends (1.0.46): another seat's `ak tell` is typed then, not held for it.
+# once the turn ends (1.0.46): a line ak types goes in then, not held for it.
 queues_typing = true
 composer = '(?:│ ❯\s*│|╰─+ .*─╯)$'
 footer = ['Shift\+Tab:mode.*', 'Enter:send.*']
