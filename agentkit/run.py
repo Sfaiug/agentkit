@@ -9976,16 +9976,16 @@ def resume_run(argv):
     # `needs_recovery`, because a resume of its own records `recovery_pending`, and a second
     # FAIL at the same cap must be refused exactly like the first rather than repeat itself.
     at_budget = failed_at_budget(state)
-    cap = lineage_cap(state, run_dir) if at_budget else None
-    if at_budget and state["rounds"] >= cap:
-        # the change's budget is spent across its runs: no --rounds carries it on, so the
-        # task is what changes
-        raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
-                           f"{cap} rounds is the budget of this change across its runs, "
-                           "so split or redesign the task")
-    if at_budget and (n_rounds is None or n_rounds <= state["rounds"]):
-        raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
-                           f"give --rounds N above it, at most {taskfile.TASK_MAX_ROUNDS}, to continue")
+    if at_budget:
+        # the change's budget with this run's own rounds counted: spent, no --rounds carries
+        # it on and the task is what changes; else the way on names the bound `over_lineage`
+        # holds a --rounds to
+        left, why = change_budget(state, run_dir, taskfile.TASK_MAX_ROUNDS, own=state["rounds"])
+        if why:
+            raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); {why}")
+        if n_rounds is None or n_rounds <= state["rounds"]:
+            raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
+                               f"give --rounds N above it, at most {state['rounds'] + left}, to continue")
     # A FAIL recorded by integration below its budget carries its branch and its rounds
     # with it: the work is reviewed and only the merge is left to try again.
     integration_fail = failed_in_integration(state, run_dir)

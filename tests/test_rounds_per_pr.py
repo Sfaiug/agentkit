@@ -214,13 +214,19 @@ class RoundsPerPr(Sandbox):
         with patch.object(run.box, "check"), patch.object(run, "place_here", return_value=None):
             with self.assertRaises(config.Error) as refused:
                 run.resume_run(["20260101-0700-b", "--rounds", "3"])
-        self.assertIn("1 rounds is the budget of this change across its runs", str(refused.exception))
+        self.assertIn("3 review rounds spent on this change across 2 runs: 3 per pull request is the budget",
+                      str(refused.exception))
         # with one round left on the change, the resume may take exactly that much
         record.save_state(config.RUNS / "20260101-0600-a", {
             **record.read_state(config.RUNS / "20260101-0600-a"),
             "round_summaries": [{"round": 1, "verdict": "FAIL", "summary": ""}]})
         self.assertEqual(run.lineage_cap(state, b), 2)
         self.assertEqual(run.continue_line(state, b), "continue: ak run resume 20260101-0700-b --rounds 2")
+        with patch.object(run.box, "check"), patch.object(run, "place_here", return_value=None):
+            with self.assertRaises(config.Error) as refused:
+                run.resume_run(["20260101-0700-b"])
+        # the bound named is the one a --rounds is held to
+        self.assertIn("give --rounds N above it, at most 2, to continue", str(refused.exception))
         seen = []
         with patch.object(run.box, "check"), patch.object(run, "place_here", return_value=None), \
                 patch.object(run, "drive", side_effect=lambda *a, **k: seen.append(k["prior"]["rounds"]) or 0):
