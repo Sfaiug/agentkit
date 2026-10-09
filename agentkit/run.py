@@ -10846,6 +10846,13 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
         lp.rnd += 1
         return settle_pr_round(lp, url, info)
+    if is_own and not summaries:
+        # a first review takes at most MAX_PR_LINES at once: past it, the run ends blocked
+        # with the reason before any reviewer is picked, and the PR is split; a later round
+        # reviews whatever the fix left
+        why = pr_size_refusal(number, diff_lines(repo, base_sha, head, removed=False))
+        if why:
+            return review_blocked(run_dir, state, cmds, log, cfg, Blocked(why, f"## Blocked\n\n{why}"))
     providers = collect_usage(cfg)
     exec_for_rule = orchestrator if is_own else None
     order = reviewer_order(cfg, exec_for_rule, ready_order(cfg, providers,
@@ -10912,12 +10919,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         summary = (f"PR #{number} by {info['author']}: {info['title']}. agentkit executed nothing; "
                    "review the author's diff.")
     try:
-        if is_own and not summaries:
-            # a first review takes at most MAX_PR_LINES at once: past it, the run ends blocked
-            # with the reason and the PR is split; a later round reviews whatever the fix left
-            why = pr_size_refusal(number, diff_lines(repo, base_sha, head, removed=False))
-            if why:
-                raise Blocked(why, f"## Blocked\n\n{why}")
         if summaries:
             preface = ("## Previous review findings\nIn this re-review, first rule on each previous "
                        "finding: fixed, upheld or dropped, and why; then report anything new.\n\n"
@@ -10926,17 +10927,21 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         else:
             verdict = review(lp, summary, ok, dw_log)
     except Blocked as exc:
-        # No reviewer's harness can run, or the PR is more than a first review takes: the
-        # review ends `blocked` with the reason, as a task run does, and not in an `error`
-        # the tick would retry into that harness.
-        log(f"BLOCKED {exc}")
-        state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
-                      "blocked": exc.section, "finished_at": time.time()})
-        state.pop("own_pr_round_pending", None)
-        run_record.save_state(run_dir, state)
-        write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
-        return state
+        return review_blocked(run_dir, state, cmds, log, cfg, exc)
     return settle_pr_round(lp, url, info)
+
+
+def review_blocked(run_dir, state, cmds, log, cfg, exc):
+    """A PR review's blocked ending: no reviewer's harness can run, or the PR is more than a
+    first review takes.  Recorded with the reason, as a task run's is, and not in an `error`
+    the tick would retry into that harness."""
+    log(f"BLOCKED {exc}")
+    state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
+                  "blocked": exc.section, "finished_at": time.time()})
+    state.pop("own_pr_round_pending", None)
+    run_record.save_state(run_dir, state)
+    write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
+    return state
 
 
 def settle_pr_round(lp, url, info):
