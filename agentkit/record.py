@@ -34,6 +34,14 @@ class StopRequested(Exception):
     """
 
 
+
+def branch_gone(state):
+    """Whether the run's local branch went with its checkout: a stop without `--keep`, a merge,
+    a `not_needed` ending, or a branch a session stop took.  Every other cleanup keeps it."""
+    return bool((state.get("state") == "stopped" and not state.get("stop_kept"))
+                or state.get("state") == "not_needed"
+                or state.get("merged") or state.get("branch_removed"))
+
 def record_limits(state):
     """Migrate old receipts without reviving task-specific time budgets."""
     for key in ("done_when_minutes", "turn_hours", "stall_minutes"):
