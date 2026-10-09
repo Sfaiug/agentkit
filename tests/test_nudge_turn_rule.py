@@ -290,6 +290,40 @@ class NudgeTurnRule(Sandbox):
                 notify.record(SEAT, "needs", "Which account should I use?")
                 self.assertEqual(self.judged(), (False, []))
 
+    def test_h_a_question_the_seat_kept_back_is_asked_by_the_ticks_own_look(self):
+        """No hook reports these seats' stops: the health pass's look finds the turn over and
+        asks the question (tests/test_question_waits_for_the_stop.py), so its end-of-turn rule
+        reads a seat that stopped on one."""
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.assertEqual(notify.main(["needs", "Which account should I use?"]), 0)
+                self.assertIsNone(notify.last(SEAT))        # kept back: its turn was running
+                self.stopped()
+                with patch.object(notify, "progress", return_value=None):
+                    watch.health(self.cfg, {"stalls": {}}, False, lambda line: None)
+                self.assertEqual(notify.last(SEAT)["text"], "Which account should I use?")
+                self.assertEqual(self.sent, [])
+
+    def test_i_a_line_typed_where_the_turn_ended_asks_the_kept_question_first(self):
+        """A run ending at the quiet prompt types its hand-back before any tick looks: the
+        typer asks the question first, so the turn the line opens leaves it his."""
+        question = "Which account should I use?"
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.pane = self.screen("working")
+                self.assertEqual(notify.main(["needs", question]), 0)
+                self.pane = self.screen("prompt")       # its turn ends; no hook says so here
+                self.assertTrue(watch.type_at_prompt(
+                    self.seat, "run acme-parser finished PASS merged.", lambda line: None,
+                    cfg=self.cfg))
+                answer = watch.announce_state(dict(self.seat), cfg=self.cfg, look=True,
+                                              auth_out={}, gh_out={}, token_out={})
+                self.assertEqual((answer["word"], answer["reason"]), ("needs you", question))
+
 
 if __name__ == "__main__":
     unittest.main()
