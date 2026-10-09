@@ -354,6 +354,30 @@ class Wait(Sandbox):
         self.assertIsNone(watch.waiting_on(SEAT))
         self.assertTrue(watch.seat_read(SEAT)["wait"]["over"])
 
+    def test_n_a_wait_gh_cannot_read_is_the_owners_login_or_ends_said_after_three_ticks(self):
+        self.wait(PR)
+        self.gh = None                                      # gh: no route to GitHub
+        for _ in range(watch.UNREAD_TICKS - 1):
+            self.assertEqual(self.tick(), [])
+            self.assertEqual(self.decide(), ("working", f"waiting on {PR}"))
+        self.assertEqual(self.tick(), [f"your wait on {PR} cannot be read (gh: no route to GitHub); "
+                                       "your wait is over. Decide the next step."])
+        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        # a logged-out gh is the owner's to fix: the wait holds, and the seat is held up by gh
+        # like one with a push to make (rung 1b), however many ticks it takes
+        self.gh = {"state": "OPEN", "number": 12, "mergeCommit": None}
+        self.wait(PR)
+        with patch.object(watch, "gh_json", return_value=(None, "HTTP 401: Bad credentials")):
+            for _ in range(watch.UNREAD_TICKS + 1):
+                self.assertEqual(self.tick(), [])
+        self.assertEqual(self.decide(), ("working", f"waiting on {PR}"))
+        self.assertIn(SEAT, watch.pushing_seats())
+        harness, live = watch.look_at(self.seats[SEAT], cfg=self.cfg)
+        found = watch.session_state(SEAT, NOW, session=self.seats[SEAT], cfg=self.cfg, live=live,
+                                    harness=harness, gh_out={"at": NOW, "seats": watch.pushing_seats()})
+        self.assertEqual((found["word"], found["reason"]),
+                         ("needs you", "gh login expired: run `gh auth login`"))
+
     def test_k_a_pull_request_gh_cannot_view_is_refused(self):
         self.gh = None
         code, out, err = self.wait(PR)

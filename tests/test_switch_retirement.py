@@ -191,23 +191,28 @@ class Retire(unittest.TestCase):
         self.assertEqual(self.lines("acme"), ["older", "old", "newer"])
 
     def test_the_check_fails_while_the_list_shows_the_switch_and_passes_once_it_is_gone(self):
-        command = f"{sys.executable} {self.fake / 'features.py'}"
-        proven, unproven = retire.check(command, row("older", 60), True), retire.check(
-            command, {**row("unstamped"), "everyone_since": None}, False)
+        proven, unproven = retire.check(row("older", 60), True), retire.check(
+            {**row("unstamped"), "everyone_since": None}, False)
+        run = lambda line: subprocess.run(["bash", "-c", line], cwd=self.acme).returncode   # in the checkout
         self.switches(row("older", 60), {**row("unstamped"), "everyone_since": None})
-        self.assertEqual(subprocess.run(["bash", "-c", proven]).returncode, 1)
-        self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 1)
+        self.assertEqual(run(proven), 1)
+        self.assertEqual(run(unproven), 1)
         self.switches(row("unstamped", 3))
-        self.assertEqual(subprocess.run(["bash", "-c", proven]).returncode, 0)
-        self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 0)
+        self.assertEqual(run(proven), 0)
+        self.assertEqual(run(unproven), 0)
         # ... a stamp ak cannot read is none, as `undated` reads it
         self.switches({**row("unstamped"), "everyone_since": "20 Sep 2026"})
-        self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 1)
+        self.assertEqual(run(unproven), 1)
         # ... and a row off for everyone, or gone, has nothing left to prove: the line ticks
         self.switches({**row("unstamped", everyone=False), "everyone_since": None})
-        self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 0)
+        self.assertEqual(run(unproven), 0)
         self.switches()
-        self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 0)
+        self.assertEqual(run(unproven), 0)
+        # ... a list the command cannot give is no list, and the line is not yet true
+        (self.fake / "features.json").write_text('{"error": "down"}')
+        self.assertEqual((run(proven), run(unproven)), (1, 1))
+        (self.fake / "features.json").write_text("not json")
+        self.assertEqual((run(proven), run(unproven)), (1, 1))
         # ... and a check that already passes on the default branch is no line: the switch
         # is gone from the list between the read and the write
         self.seat("acme", self.acme, created=10)

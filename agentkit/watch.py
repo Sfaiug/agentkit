@@ -75,6 +75,8 @@ HOOK_LOOK_WAIT = 10.0   # how long a hook's look waits for the Stop hooks/orches
 # none of those is a login for the user to go and fix.  Neither is a 403, which is what a
 # rate limit answers with credentials that are perfectly good; only 401 is about the login.
 LOGGED_OUT = re.compile(r"gh auth login|not logged in|bad credentials|HTTP 401", re.I)
+# the ticks a wait may stand on a fact nobody can read before it ends, said
+UNREAD_TICKS = 3
 
 
 def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
@@ -2354,7 +2356,8 @@ def waiting_on(name):
 def wait_fact(wait):
     """(whether what that wait names is over, the one line saying how): a run once it is no
     longer going, a pull request once it is merged or closed.  (None, why) where nothing can
-    say yet, which leaves the wait as it is."""
+    say yet: `wait_over` leaves the wait as it is while that is the owner's login to fix, and
+    for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
     if wait.get("kind") == "run":
         directory = config.RUNS / on
@@ -2417,7 +2420,17 @@ def wait_over(cfg, log):
             over, reason = wait_fact(wait)
             if over is None:
                 log(f"WARN {name}: its wait on {wait['on']} cannot be read: {reason}")
-                continue
+                if LOGGED_OUT.search(reason or ""):
+                    # the owner's login to fix: the seat is written down as held up by gh
+                    # (`pushing_seats`), and the wait holds until he has
+                    continue
+                unread = int(wait.get("unread") or 0) + 1
+                if unread < UNREAD_TICKS:
+                    wait_mark(name, wait, unread=unread)
+                    continue
+                # a fact nobody could read for this long ends the wait, said: no seat stands
+                # on it for good
+                over, reason = True, f"your wait on {wait['on']} cannot be read ({reason})"
             if not over or not wait_mark(name, wait, over=reason):
                 continue
             wait = seat_read(name).get("wait")
@@ -5362,7 +5375,8 @@ def wants_github(state):
 
 
 def pushing_seats():
-    """The seats a logged-out `gh` is holding up, by the name each goes by now.
+    """The seats a logged-out `gh` is holding up, by the name each goes by now: one with a run
+    that still owes GitHub a push, and one whose wait names a pull request only gh can read.
 
     No run.json can stop the tick from writing down the rest: a receipt half-written by a
     launch that is still starting, or one somebody edited by hand, counts for nobody.
@@ -5382,6 +5396,10 @@ def pushing_seats():
                     seats.add(name)
         except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError):
             continue    # an unreadable run says nothing about whose seat it was
+    for name in config.session_records():
+        wait = waiting_on(name)
+        if wait and wait["kind"] == "pr":
+            seats.add(name)
     return sorted(seats)
 
 
