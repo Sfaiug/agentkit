@@ -6244,7 +6244,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             if from_branch:
                 # the change continues on that branch: the rounds earlier runs spent on it,
                 # and on branches cut from it, are spent
-                n_rounds, why = round_budget(n_rounds, branches=(from_branch,),
+                n_rounds, why = round_budget(n_rounds, branches=(from_branch,), repo=repo,
                                              exclude=run_dir, what=f"branch {from_branch}")
                 if why:
                     raise config.Error(f"{task_path}: {why}")
@@ -6750,6 +6750,14 @@ def mark_state(run_dir, name, error=None, log=None):
     return state
 
 
+def over_lineage(state, run_dir, n_rounds):
+    """Refuse a `--rounds` above what the change has left across its runs."""
+    cap = lineage_cap(state, run_dir)
+    if n_rounds > cap:
+        raise config.Error(f"--rounds {n_rounds} is over this change's budget: {cap} of "
+                           f"{taskfile.TASK_MAX_ROUNDS} rounds across its runs; split or redesign the task")
+
+
 def failed_at_budget(state):
     """A FAIL that ran out of rounds rather than out of work, so more rounds carry it on.
 
@@ -6860,9 +6868,12 @@ def continue_line(state, run_dir=None):
     if (state.get("state") == "exhausted" and state.get("review_pending")
             and "gave no verdict twice" in (state.get("error") or "")):
         return f"continue: ak run resume {state['run_id']}"
-    if failed_at_budget(state) and state["rounds"] < taskfile.TASK_MAX_ROUNDS:
-        # up to the budget and no further: past it the task is split or re-scoped instead
-        return f"continue: ak run resume {state['run_id']} --rounds {taskfile.TASK_MAX_ROUNDS}"
+    if failed_at_budget(state):
+        # up to the change's budget across its runs and no further: past it the task is
+        # split or redesigned instead
+        cap = lineage_cap(state, run_dir or config.RUNS / state["run_id"])
+        return (f"continue: ak run resume {state['run_id']} --rounds {cap}"
+                if state["rounds"] < cap else "")
     if failed_in_integration(state, run_dir):
         return f"continue: ak run resume {state['run_id']}"
     if judged_in_integration(state, run_dir):
@@ -9898,6 +9909,7 @@ def resume_run(argv):
         if n_rounds is not None:
             if n_rounds < (state.get("rounds") or 0):
                 raise config.Error("--rounds cannot reduce the saved round budget")
+            over_lineage(state, run_dir, n_rounds)
             state["rounds"] = n_rounds
         state.pop("pickup", None)
         state.setdefault("merge_method", "squash")
@@ -9962,6 +9974,11 @@ def resume_run(argv):
         # the whole budget is spent: no --rounds carries it on, so the task is what changes
         raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
                            f"{taskfile.TASK_MAX_ROUNDS} rounds is the budget, so split or re-scope the task")
+    if at_budget and state["rounds"] >= lineage_cap(state, run_dir):
+        # ... and so is the change's budget, counted across its runs
+        raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
+                           f"{lineage_cap(state, run_dir)} rounds is this change's budget across its runs, "
+                           "so split or redesign the task")
     if at_budget and (n_rounds is None or n_rounds <= state["rounds"]):
         raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
                            f"give --rounds N above it, at most {taskfile.TASK_MAX_ROUNDS}, to continue")
@@ -10005,6 +10022,7 @@ def resume_run(argv):
     if n_rounds is not None:
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
+        over_lineage(state, run_dir, n_rounds)
         state["rounds"] = n_rounds
     # A failed review or aborted integration carries a stale pending review. A
     # landing gate wait keeps its non-task review so recovery first updates the
@@ -11008,14 +11026,24 @@ def settle_pr_round(lp, url, info):
     return state
 
 
-def rounds_spent_elsewhere(*, pr=None, branches=(), exclude=None):
-    """(the review rounds earlier runs spent on that pull request or on those branches, how
-    many runs spent them): the budget is the change's, not the run's, so a relaunch inherits
-    what was spent on it.
+def same_repo(a, b):
+    """Whether two recorded checkouts name the same repository."""
+    try:
+        return bool(a) and bool(b) and Path(a).resolve() == Path(b).resolve()
+    except OSError:
+        return False
+
+
+def rounds_spent_elsewhere(*, pr=None, branches=(), repo=None, exclude=None):
+    """(the review rounds earlier runs spent on that pull request or on those branches of that
+    repository, how many runs spent them): the budget is the change's, not the run's, so a
+    relaunch inherits what was spent on it.
 
     A round counts once its verdict was recorded (`round_summaries`).  A branch's lineage
-    follows `from:`: a run cut from a branch continues that branch's change, so the rounds
-    spent on either count.  A run on another pull request and branch, and the run itself
+    runs both ways along `from:`: the branch a run was cut from and the branches cut from it
+    continue the same change, so the rounds spent on any of them count.  A branch name is
+    one repository's, so only that repository's runs are on a lineage; a pull request is
+    its own name.  A run on another pull request and branch, and the run itself
     (`exclude`), count for nothing.  Read-only.
     """
     states = []
@@ -11025,18 +11053,25 @@ def rounds_spent_elsewhere(*, pr=None, branches=(), exclude=None):
         state = run_record.read_state(run_dir)
         if state:
             states.append(state)
+    here = [state for state in states if repo is None or same_repo(state.get("repo"), repo)]
     names = {name for name in branches if name}
-    grown = True
-    while grown:     # a branch cut from a branch of the lineage is the lineage's too
+    grown = bool(names)
+    while grown:
         grown = False
-        for state in states:
-            if state.get("from") in names and state.get("branch") not in names:
-                names.add(state["branch"])
+        for state in here:
+            branch, parent = state.get("branch"), state.get("from")
+            if branch in names and parent and parent not in names:
+                names.add(parent)
                 grown = True
+            if parent in names and branch and branch not in names:
+                names.add(branch)
+                grown = True
+    lineage = {id(state) for state in here}
     spent = runs = 0
     for state in states:
         on_pr = bool(pr) and pr in (state.get("pr"), state.get("review_pr"))
-        on_branch = bool(names) and (state.get("branch") in names or state.get("from") in names)
+        on_branch = (id(state) in lineage and bool(names)
+                     and (state.get("branch") in names or state.get("from") in names))
         rounds = len(state.get("round_summaries") or [])
         if (on_pr or on_branch) and rounds:
             spent += rounds
@@ -11044,11 +11079,21 @@ def rounds_spent_elsewhere(*, pr=None, branches=(), exclude=None):
     return spent, runs
 
 
-def round_budget(asked, *, pr=None, branches=(), exclude=None, what):
+def lineage_cap(state, run_dir):
+    """The rounds that run may have in all: the change's budget less what other runs on its
+    pull request or branch lineage spent."""
+    spent, _ = rounds_spent_elsewhere(
+        pr=state.get("pr") or state.get("review_pr"),
+        branches=(state.get("from"), state.get("branch")), repo=state.get("repo"),
+        exclude=run_dir)
+    return max(0, taskfile.TASK_MAX_ROUNDS - spent)
+
+
+def round_budget(asked, *, pr=None, branches=(), repo=None, exclude=None, what):
     """(the rounds this run may still spend, None), or (0, why) once the change's budget is
     spent: `asked` less what earlier runs spent on the same pull request or branch lineage,
     `taskfile.TASK_MAX_ROUNDS` in all."""
-    spent, runs = rounds_spent_elsewhere(pr=pr, branches=branches, exclude=exclude)
+    spent, runs = rounds_spent_elsewhere(pr=pr, branches=branches, repo=repo, exclude=exclude)
     left = min(asked, taskfile.TASK_MAX_ROUNDS - spent)
     if left < 1:
         return 0, (f"{spent} review rounds spent on {what} across {runs} earlier "

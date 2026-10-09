@@ -52,7 +52,10 @@ class RoundsPerPr(Sandbox):
         self.assertEqual(run.rounds_spent_elsewhere(pr=URL, exclude=own), (1, 1))
         self.assertEqual(run.rounds_spent_elsewhere(pr=OTHER), (3, 1))
         self.assertEqual(run.rounds_spent_elsewhere(branches=("ak/first",)), (4, 3))
-        self.assertEqual(run.rounds_spent_elsewhere(branches=("ak/first-2",)), (2, 2))
+        # the lineage runs both ways: a relaunch from the newest branch owes its ancestors' rounds
+        self.assertEqual(run.rounds_spent_elsewhere(branches=("ak/first-2",)), (4, 3))
+        self.assertEqual(run.rounds_spent_elsewhere(branches=("ak/first-3",)), (4, 3))
+        self.assertEqual(run.round_budget(3, branches=("ak/first-3",), what="branch ak/first-3")[0], 0)
         self.assertEqual(run.rounds_spent_elsewhere(branches=("ak/nothing",)), (0, 0))
         self.assertEqual(run.rounds_spent_elsewhere(), (0, 0))
 
@@ -112,6 +115,49 @@ class RoundsPerPr(Sandbox):
             with self.assertRaises(config.Error) as refused:
                 run.review_pr_round(self.cfg, launch, URL, {"--review-pr": URL}, logs.append)
             self.assertIn("3 review rounds spent on PR #7; split or redesign it", str(refused.exception))
+
+    def test_a_branch_name_is_one_repositorys(self):
+        self.earlier("20260101-0900-widget", 3, branch="ak/fix-parser", repo=str(self.root / "widget"))
+        self.earlier("20260101-0800-acme", 1, branch="ak/fix-parser", repo=str(self.root / "acme"))
+        for name in ("widget", "acme"):
+            (self.root / name).mkdir(exist_ok=True)
+        self.assertEqual(run.rounds_spent_elsewhere(branches=("ak/fix-parser",), repo=self.root / "acme"), (1, 1))
+        self.assertEqual(run.rounds_spent_elsewhere(branches=("ak/fix-parser",), repo=self.root / "widget"), (3, 1))
+        self.assertEqual(run.rounds_spent_elsewhere(branches=("ak/fix-parser",)), (4, 2))
+
+    def test_a_resume_cannot_spend_past_the_changes_budget(self):
+        repo = self.root / "acme"
+        repo.mkdir()
+        self.earlier("20260101-0600-a", 2, branch="ak/a", repo=str(repo))
+        wt = self.root / "checkout-b"
+        wt.mkdir()
+        b = self.earlier("20260101-0700-b", 1, branch="ak/b", worktree=str(wt), repo=str(repo),
+                         base="origin/main", base_sha="a" * 40, no_merge=True, **{"from": "ak/a"})
+        record.save_state(b, {**record.read_state(b), "rounds": 1})
+        (b / "task.md").write_text("# B\n\n## Goal\nx\n\n## Done when\n```bash\ntrue\n```\n")
+        (b / "log.txt").write_text("")
+        state = record.read_state(b)
+        self.assertTrue(run.failed_at_budget(state))
+        self.assertEqual(run.lineage_cap(state, b), 1)
+        self.assertEqual(run.continue_line(state, b), "")       # nothing to spend: no way on
+        with patch.object(run.box, "check"), patch.object(run, "place_here", return_value=None):
+            with self.assertRaises(config.Error) as refused:
+                run.resume_run(["20260101-0700-b", "--rounds", "3"])
+        self.assertIn("1 rounds is this change's budget across its runs", str(refused.exception))
+        # with one round left on the change, the resume may take exactly that much
+        record.save_state(config.RUNS / "20260101-0600-a", {
+            **record.read_state(config.RUNS / "20260101-0600-a"),
+            "round_summaries": [{"round": 1, "verdict": "FAIL", "summary": ""}]})
+        self.assertEqual(run.lineage_cap(state, b), 2)
+        self.assertEqual(run.continue_line(state, b), "continue: ak run resume 20260101-0700-b --rounds 2")
+        seen = []
+        with patch.object(run.box, "check"), patch.object(run, "place_here", return_value=None), \
+                patch.object(run, "drive", side_effect=lambda *a, **k: seen.append(k["prior"]["rounds"]) or 0):
+            with self.assertRaises(config.Error) as refused:
+                run.resume_run(["20260101-0700-b", "--rounds", "3"])
+            self.assertIn("--rounds 3 is over this change's budget: 2 of 3 rounds", str(refused.exception))
+            self.assertEqual(run.resume_run(["20260101-0700-b", "--rounds", "2"]), 0)
+        self.assertEqual(seen, [2])
 
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True,
