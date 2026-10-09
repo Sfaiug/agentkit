@@ -343,8 +343,12 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
         self.write('mode = "branch"\nextra = 1\n', "Delete the flag")
         self.assertEqual(self.review(), "FAIL")
-        self.assertEqual(self.records("finding"),
-                         [("api.py", 2, "still failing; it blocks until its proof passes; the fix deleted its line")])
+        deleted = [("api.py", 2, "still failing; it blocks until its proof passes; the fix deleted its line")]
+        self.assertEqual(self.records("finding"), deleted)
+        # ... and in every round after, though its old number names base's own line by now
+        self.write('mode = "branch"\nextra = 1\n# noted\n', "Note something else")
+        self.assertEqual(self.review(), "FAIL")
+        self.assertEqual(self.records("finding"), deleted)
 
     def test_a_dispute_silences_only_the_finding_it_names(self):
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed),

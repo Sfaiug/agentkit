@@ -4054,8 +4054,11 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                               else (range(row["line"], row["line"] + 1), False))
             changed = [] if lp.scratch else hunks(lp, row["path"], lp.base_sha, head)   # read once
             inside = [at for at in lines if in_hunks(at, changed)]
-            deleted = touched and not lines
-            row = {**row, "line": inside[0] if inside else lines[0] if lines else row["line"]}
+            # a line a fix deleted stays deleted: its number names nothing of its own from
+            # then on, so the record says so and no later round reads it as base's
+            deleted = bool(row.get("deleted")) or (touched and not lines)
+            row = {**row, "line": inside[0] if inside else lines[0] if lines else row["line"],
+                   **({"deleted": True} if deleted else {})}
             where = ("; the fix deleted its line" if deleted
                      else "; the fix changed its line" if touched else "")
             if not failing:
