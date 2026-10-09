@@ -265,6 +265,55 @@ class OwnerParts(Sandbox):
         self.assertEqual(run.owner_target_parts(self.wt, "origin/main"),
                          [("AGENTS.md", owner.FRONT)])
 
+    def test_crlf_and_cr_declarations_require_consent_and_keep_content_bytes(self):
+        for eol in ("\r\n", "\r"):
+            with self.subTest(eol=repr(eol)):
+                sh(self.wt, "checkout", "-q", "-B", "change", self.base)
+                agents = "---\nowner: policy.md#Vision\n---\n# acme\n".replace("\n", eol)
+                policy = "## Vision\nlocked\n".replace("\n", eol)
+                self.write("AGENTS.md", agents)
+                self.write("policy.md", policy)
+                target = self.commit("target with non-LF front matter")
+                self.target(target)
+                self.assertEqual(run.owner_declaration(self.wt, "origin/main"), "policy.md#Vision")
+                self.write("policy.md", policy.replace("locked", "open"))
+                head = self.commit("change owner section")
+                lp, _ = self.parked_at(head)
+                lp.state.update(merge_method="rebase", review={"head_sha": head})
+                with patch.object(run, "require_review_pass"), \
+                        patch.object(run, "post_owner_question"), \
+                        patch.object(run, "merged", return_value=True), \
+                        patch.object(run, "gh", return_value=(0, "")) as merge:
+                    self.assertFalse(run.do_merge(lp, lp.state["pr"], "origin/main"))
+                merge.assert_not_called()
+                self.assertEqual(lp.state["waiting_on"], {"owner": head})
+                before = run.owner_contents(self.wt, target, [("policy.md", "Vision")])
+                self.assertEqual(before[0][2], "100644\0" + policy)
+                # Parsing alone normalizes endings: the same words with different bytes need yes.
+                self.write("policy.md", policy.replace(eol, "\n"))
+                changed = self.commit("change only protected line endings")
+                self.assertIn("policy.md#Vision", run.owner_parts(self.wt, target, changed)[1])
+                self.assertNotEqual(run.owner_digest(self.wt, target, [("policy.md", "Vision")]),
+                                    run.owner_digest(self.wt, changed, [("policy.md", "Vision")]))
+
+    def test_non_lf_empty_or_block_owner_keys_still_protect_front_matter(self):
+        for eol in ("\r\n", "\r"):
+            for declaration in ("owner:", "owner:\n  - score.py"):
+                with self.subTest(eol=repr(eol), declaration=declaration):
+                    sh(self.wt, "checkout", "-q", "-B", "change", self.base)
+                    self.write("AGENTS.md", f"---\n{declaration}\n---\n# acme\n".replace("\n", eol))
+                    self.target(self.commit("non-LF owner key"))
+                    self.assertEqual(run.owner_target_parts(self.wt, "origin/main"),
+                                     [("AGENTS.md", owner.FRONT)])
+
+    def test_packed_objects_and_parent_path_aliases_keep_owner_identity(self):
+        self.write("AGENTS.md", "---\nowner: ./gate//check.py\n---\n# acme\n")
+        self.target(self.commit("owner names a parent path alias"))
+        self.write("gate/check.py", "x = 2\n")
+        self.commit("change owner file")
+        sh(self.wt, "gc", "--prune=now")
+        self.assertEqual(self.touched(), ["./gate//check.py"])
+
     def test_a_replace_ref_does_not_hide_a_change(self):
         old = self.base
         sh(self.wt, "checkout", "-q", "-B", "change", self.base)

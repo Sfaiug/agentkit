@@ -25,6 +25,7 @@ import sys
 import tempfile
 import threading
 import time
+import zlib
 from collections import Counter
 from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import datetime
@@ -5269,6 +5270,83 @@ def owner_env():
     return {"GIT_NO_REPLACE_OBJECTS": "1", "GIT_GRAFT_FILE": os.devnull}
 
 
+def owner_objects(wt, ids):
+    """Read and hash the exact raw objects consumed, even from packed or alternate storage.
+
+    Git can read different bytes planted under a loose object's filename without checking its
+    hash. A separate fsck followed by another read would leave the same substitution race.
+    """
+    if any(not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", oid) for oid in ids):
+        raise config.Error("cannot verify Git object names for the owner's parts")
+    raw = git_bytes(wt, "cat-file", "--batch", input="\n".join(ids).encode() + b"\n",
+                    env=owner_env()).encode("utf-8", "surrogateescape")
+    objects, at = {}, 0
+    for oid in ids:
+        try:
+            end = raw.index(b"\n", at)
+            found, kind, size = raw[at:end].decode("ascii").split()
+            size = int(size)
+            body = raw[end + 1:end + 1 + size]
+            framed = kind.encode() + b" " + str(size).encode() + b"\0" + body
+            hashed = hashlib.new("sha1" if len(oid) == 40 else "sha256", framed).hexdigest()
+            if (found != oid or size < 0 or len(body) != size or hashed != oid
+                    or raw[end + 1 + size:end + 2 + size] != b"\n"):
+                raise ValueError
+        except (ValueError, UnicodeError):
+            raise config.Error(f"cannot verify Git object {oid} for the owner's parts") from None
+        objects[oid] = kind, body
+        at = end + 2 + size
+    if at != len(raw):
+        raise config.Error("cannot verify Git object output for the owner's parts")
+    return objects
+
+
+def owner_object(wt, kind, oid):
+    actual, body = owner_objects(wt, [oid])[oid]
+    if actual != kind:
+        raise config.Error(f"Git object {oid} is not a {kind} for the owner's parts")
+    return body
+
+
+def owner_commit(body, oid):
+    """The tree and parents linked by an authenticated commit, without grafts or cached graphs."""
+    headers = body.partition(b"\n\n")[0].split(b"\n")
+    try:
+        tree = headers[0].removeprefix(b"tree ").decode("ascii")
+        parents = [line[7:].decode("ascii") for line in headers if line.startswith(b"parent ")]
+        if (not headers[0].startswith(b"tree ") or any(
+                not re.fullmatch(r"[0-9a-f]{" + str(len(oid)) + r"}", value)
+                for value in [tree, *parents])):
+            raise ValueError
+    except (ValueError, UnicodeError):
+        raise config.Error(f"cannot read verified commit {oid} for the owner's parts") from None
+    return tree, parents
+
+
+def owner_base(wt, target, head):
+    """Let Git select its merge base from copied, verified commit bytes in the protected store.
+
+    The shared rev-list is only a candidate inventory: every linked parent must be present.
+    This keeps an altered commit, shallow boundary or commit graph from truncating ancestry.
+    """
+    ids = git_bytes(wt, "rev-list", target, head, env=owner_env()).splitlines()
+    commits = owner_objects(wt, ids)
+    if target not in commits or head not in commits or any(
+            kind != "commit" or any(parent not in commits for parent in owner_commit(body, oid)[1])
+            for oid, (kind, body) in commits.items()):
+        raise config.Error("cannot verify complete Git ancestry for the owner's parts")
+    store = config.STATE / config.OWNER_YES
+    store.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".git-", dir=store) as directory:
+        git_bytes(directory, "init", "--bare", "--template=",
+                  "--object-format=" + ("sha1" if len(target) == 40 else "sha256"), env=owner_env())
+        for oid, (_, body) in commits.items():
+            path = Path(directory, "objects", oid[:2], oid[2:])
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(zlib.compress(b"commit " + str(len(body)).encode() + b"\0" + body))
+        return git_bytes(directory, "merge-base", target, head, env=owner_env()).strip()
+
+
 def owner_target(wt, upstream, pr=None):
     """Pin the target independently of writable tracking refs and fetch configuration.
 
@@ -5313,9 +5391,12 @@ def owner_declaration(wt, upstream):
     cannot be read at all, stops delivery rather than quietly dropping the guard: its owner parts
     are unknown, not absent.  A read that stops raises on its own."""
     rev = owner_target(wt, upstream)
-    if owner_entry(wt, rev, "AGENTS.md") is None:
+    entry = owner_entry(wt, rev, "AGENTS.md")
+    if entry is None:
         return None                      # the target has no AGENTS.md entry: it names no owner
-    text = git_bytes(wt, "show", f"{rev}:AGENTS.md", env=owner_env())
+    # Parsing follows the text reader's universal newlines; content comparisons keep raw bytes.
+    text = owner_object(wt, "blob", entry[1]).decode("utf-8", "surrogateescape")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     if not front_has_key(text, "owner"):
         return None
     return re.sub(r"\s#.*$", "", front_value(text, "owner") or "").strip()
@@ -5335,30 +5416,35 @@ def owner_entry(wt, rev, path):
     """(entry mode, object id) for `path` in `rev`'s tree, None when it is absent in a readable
     tree, raising config.Error when the tree that would hold it cannot be read.
 
-    Read from the parent tree with `git ls-tree -z`, so the entry mode is part of the identity (a
-    file turned into a symlink, or an executable bit flipped, is a change even when the blob is
-    byte-identical) and names keep their exact bytes, since `-z` never C-quotes a non-ASCII or
-    tab-bearing name.  Replacement objects and grafts are off, so a planted ref cannot make a
-    currently-named path read as absent on both revisions.  A failed read fails closed: an
-    unreadable tree is not an absent entry, so it stops delivery rather than dropping the guard."""
+    Follow only authenticated commit and tree bytes, matching names byte for byte. Modes remain
+    part of the identity, including symlinks and executable bits. An unreadable or forged tree
+    stops delivery rather than being mistaken for an absent entry."""
     parent, _, base = path.rpartition("/")
-    tree = f"{rev}:{parent}" if parent else rev
-    try:
-        listing = git_bytes(wt, "ls-tree", "-z", tree, env=owner_env())
-    except config.Error:
-        # The parent is genuinely absent (an added file in a new folder) or its tree cannot be
-        # read; only the first is an absent entry, the second stops delivery.
-        if parent and owner_entry(wt, rev, parent) is None:
+    tree, _ = owner_commit(owner_object(wt, "commit", rev), rev)
+    names = [name for name in parent.split("/") if name not in ("", ".")] + [base]
+    for depth, name in enumerate(names):
+        data = owner_object(wt, "tree", tree)
+        at, entry = 0, None
+        while at < len(data):
+            try:
+                space, end = data.index(b" ", at), data.index(b"\0", at)
+                mode = data[at:space].decode("ascii").zfill(6)
+                oid = data[end + 1:end + 1 + len(rev) // 2]
+                if len(oid) != len(rev) // 2:
+                    raise ValueError
+            except (ValueError, UnicodeError):
+                raise config.Error(f"cannot read verified tree {tree} for the owner's parts") from None
+            if data[space + 1:end] == name.encode("utf-8", "surrogateescape"):
+                entry = mode, oid.hex()
+                break
+            at = end + 1 + len(oid)
+        if entry is None:
             return None
-        raise config.Error(f"the target's {path} could not be read to check the owner's parts")
-    for item in listing.split("\0"):
-        if not item:
-            continue
-        meta, _, name = item.partition("\t")
-        if name.encode("utf-8", "surrogateescape") == base.encode("utf-8", "surrogateescape"):
-            mode, _type, oid = meta.split()
-            return mode, oid
-    return None
+        if depth == len(names) - 1:
+            return entry
+        if entry[0] != "040000":
+            raise config.Error(f"the target's {path} has a non-directory parent")
+        tree = entry[1]
 
 
 def owner_contents(wt, rev, parts):
@@ -5375,7 +5461,7 @@ def owner_contents(wt, rev, parts):
         if heading is None:              # a whole file or folder: mode and object id are its identity
             out.append((path, heading, f"{mode} {oid}"))
         else:                            # a section: its mode and its own text
-            text = owner.piece(git_bytes(wt, "show", f"{rev}:{path}", env=owner_env()), heading)
+            text = owner.piece(owner_object(wt, "blob", oid).decode("utf-8", "surrogateescape"), heading)
             out.append((path, heading, None if text is None else f"{mode}\0{text}"))
     return out
 
@@ -5390,7 +5476,7 @@ def owner_parts(wt, upstream, sha):
     parts = owner_target_parts(wt, target)
     if not parts:
         return [], []
-    base = git(wt, "merge-base", target, sha, env=owner_env())
+    base = owner_base(wt, target, sha)
     before = owner_contents(wt, base, parts)
     after = owner_contents(wt, sha, parts)
     hit = [owner.name(p, h) for (p, h, a), (_, _, b) in zip(before, after) if a != b]
@@ -10626,12 +10712,13 @@ def text_blob(repo, ref, path):
         return False
 
 
-def git_bytes(repo, *args, env=None):
+def git_bytes(repo, *args, env=None, input=None):
     """git's output with every byte kept (surrogateescape), names included: a carriage return or
     a byte that is not UTF-8 stays itself, and handed back to git names the same file."""
     try:
         proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
-                              stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
+                              **({"stdin": subprocess.DEVNULL} if input is None else {"input": input}),
+                              timeout=TOOL_CAP,
                               env={**tool_env(), **(env or {})})
     except subprocess.TimeoutExpired:
         raise Stopped(f"git {' '.join(args[:2])} ran past {TOOL_CAP:g}s in {repo}")

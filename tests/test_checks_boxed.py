@@ -15,6 +15,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 import unittest
+import zlib
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -458,6 +459,88 @@ class ChecksBoxed(unittest.TestCase):
                 merge.assert_not_called()
                 self.assertEqual(lp.state["waiting_on"], {"owner": head})
                 self.assertEqual(run.git(remote, "rev-parse", "refs/heads/main"), target)
+
+    def test_boxed_object_overwrites_cannot_bypass_verified_target_consent(self):
+        for case in ("declaration", "section", "target-commit", "head-commit", "root-tree",
+                     "parent-tree", "ancestor-commit"):
+            with self.subTest(case=case):
+                repo, remote, out = (self.root / (case + suffix) for suffix in ("", ".git", "-out"))
+                repo.mkdir()
+                path = "policy/rules.md" if case == "parent-tree" else "policy.md"
+                owned = path + ("#Vision" if case == "section" else "")
+                agents = f"---\nowner: {owned}\n---\n# acme\n"
+                before, after = "## Vision\nlocked\n", "## Vision\nopen\n"
+                (repo / "AGENTS.md").write_text(agents)
+                policy = repo / path
+                policy.parent.mkdir(parents=True, exist_ok=True)
+                policy.write_text(after)
+                run.git(repo, "init", "-q", "-b", "main")
+                run.git(repo, "config", "user.name", "acme")
+                run.git(repo, "config", "user.email", "acme@localhost")
+
+                def commit(message):
+                    run.git(repo, "add", "-A")
+                    run.git(repo, "commit", "-qm", message)
+                    return run.git(repo, "rev-parse", "HEAD")
+
+                earlier = commit("earlier owner policy")
+                policy.write_text(before)
+                target = commit("target locks the policy")
+                run.git(repo, "clone", "--bare", "--no-hardlinks", "-q", str(repo), str(remote))
+                run.git(repo, "remote", "add", "origin", str(remote))
+                run.git(repo, "fetch", "-q", "origin")
+                run.git(repo, "checkout", "-qb", "change")
+                (repo / "app.py").write_text("x = 1\n")
+                ancestor = commit("ordinary app change")
+                policy.write_text(after)
+                head = commit("change protected policy")
+                run.git(repo, "push", "-q", "origin", "HEAD:refs/heads/change")
+                self.assertEqual(run.owner_parts(repo, target, head)[1], [owned])
+
+                if case == "declaration":
+                    oid = run.git(repo, "rev-parse", target + ":AGENTS.md")
+                    body = b"---\n---\n# acme\n"
+                    fake = b"blob " + str(len(body)).encode() + b"\0" + body
+                else:
+                    current, original = {
+                        "section": (head + ":" + path, target + ":" + path),
+                        "target-commit": (target, earlier),
+                        "head-commit": (head, earlier),
+                        "root-tree": (target + "^{tree}", earlier + "^{tree}"),
+                        "parent-tree": (head + ":policy", target + ":policy"),
+                        "ancestor-commit": (ancestor, ancestor)}[case]
+                    oid, original = (run.git(repo, "rev-parse", name) for name in (current, original))
+                    fake = zlib.decompress((repo / ".git/objects" / original[:2] / original[2:]).read_bytes())
+                    if case == "ancestor-commit":
+                        fake = fake.replace(b"parent " + target.encode(), b"parent " + earlier.encode())
+                object_path = repo / ".git/objects" / oid[:2] / oid[2:]
+                source = ("from pathlib import Path; import zlib; "
+                          f"p = Path({str(object_path)!r}); p.unlink(); "
+                          f"p.write_bytes(zlib.compress({fake!r}))")
+                out.mkdir()
+                with box.command([sys.executable, "-c", source], dict(os.environ), out,
+                                 cwd=repo, home_overlay=True) as (argv, env, spawn):
+                    spawn.pop("stop")
+                    result = subprocess.run(argv, env=env, cwd=repo, capture_output=True,
+                                            text=True, timeout=60, **spawn)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(run.git(remote, "show", target + ":AGENTS.md"), agents.strip())
+                self.assertEqual(run.git(remote, "show", head + ":" + path), after.strip())
+                state = {"run_id": case, "delivery_sha": head, "target": "main",
+                         "merge_method": "rebase", "review": {"head_sha": head},
+                         "waiting_on": {"line": True}, "worktree": str(repo), "repo": str(repo)}
+                lp = SimpleNamespace(wt=repo, run_dir=out, state=state, cfg={},
+                                     log=lambda *_: None, write=lambda: None)
+                with patch.object(run, "gh_json", return_value=(
+                        {"object": {"type": "commit", "sha": target}}, "")), \
+                        patch.object(run, "require_review_pass"), \
+                        patch.object(run, "post_owner_question"), \
+                        patch.object(run, "merged", return_value=True), \
+                        patch.object(run, "gh", return_value=(0, "")) as merge:
+                    with self.assertRaises(config.Error):
+                        run.do_merge(lp, "https://github.com/acme/widget/pull/1", "origin/main")
+                merge.assert_not_called()
+                self.assertIsNone(run.owner_said(out.name))
 
     def test_a_nested_check_starts_beside_a_crowded_folder(self):
         home = self.root / "home with space"
