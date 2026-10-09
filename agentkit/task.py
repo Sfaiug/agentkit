@@ -166,7 +166,7 @@ def launch_refusal(meta, cmds):
 
 def checks_refusal(every):
     """One sentence when more than `MAX_CHECKS` checks would run each round, else None:
-    `every` as the loop settles it (`run.round_checks`), the repository's suite line, which
+    `every` as the loop settles it (`run.round_commands`), the target's suite line, which
     runs once at landing, never among them, a `# once` line among them where the run has no
     landing."""
     if len(every) > MAX_CHECKS:

@@ -547,14 +547,15 @@ def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
     return kept + [f"{suite}  # once"]
 
 
-def round_checks(cmds, repo, target=None, *, landing):
-    """The checks a round runs, as the loop settles them: without a landing (a scratch task,
-    `--no-merge`) every done-when line, `# once` marks stripped; with one, the task's own
-    lines less the repository's suite, which runs once at landing however the task names
-    it (`with_suite`).  What the check ceiling counts (`task.checks_refusal`)."""
-    if not landing:
+def round_commands(cmds, wt, target, *, scratch, landing):
+    """The done-when as a round runs it, in one reading for preflight, which counts its checks
+    (`task.checks_refusal`), and the loop, which runs them: a scratch task's lines with their
+    `# once` marks stripped; else the task's lines with the target's suite as the one `# once`
+    line when landing, however the task names it, and every line each round without a landing
+    (`with_suite`, which reads `origin/<target>`'s `tests:` line, else the checkout's)."""
+    if scratch:
         return [taskfile.split_once(cmd)[0] for cmd in cmds]
-    return taskfile.group_commands(with_suite(cmds, repo, target, landing=True))[0]
+    return with_suite(cmds, wt, target, landing=landing)
 
 
 def slugify(title):
@@ -6479,10 +6480,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         target = state.get("target") or state["base"]
         where = (f"Repo checkout: {wt}\nBranch: {state['branch']} (based on {state['base']}"
                  + (f", to be merged into {target}" if target != state["base"] else "") + ")")
-    if state.get("scratch"):
-        cmds = [taskfile.split_once(cmd)[0] for cmd in cmds]
-    else:
-        cmds = with_suite(cmds, wt, target, landing=not state.get("no_merge"))
+    cmds = round_commands(cmds, wt, target, scratch=state.get("scratch"), landing=not state.get("no_merge"))
     every, once = taskfile.group_commands(cmds)
     body += repo_rules(wt, state.get("base_sha"))
     run_record.save_state(run_dir, state)
@@ -9546,10 +9544,12 @@ def preflight(run_dir, opts, log):
         run_record.save_state(run_dir, state)
         cmds = taskfile.done_when(body, run_dir / "task.md")
         repo = task_repo(meta, run_dir / "task.md", state.get("task_file"))
-        landing = not (opts["--no-merge"] or repo is None)
-        every = round_checks(cmds, repo, meta.get("target"), landing=landing)
-        once = taskfile.group_commands(cmds)[1] if landing else []
-        refusal = taskfile.checks_refusal(every)   # the checks a round runs, as settled here
+        base = (meta.get("base") or default_base(repo, log)) if repo else "none"
+        target, method = meta.get("target") or base, meta.get("merge") or "squash"
+        # the checks a round runs, settled as the loop settles them, against the same target
+        every, once = taskfile.group_commands(round_commands(
+            cmds, repo, target, scratch=repo is None, landing=not opts["--no-merge"]))
+        refusal = taskfile.checks_refusal(every)
         if refusal:
             raise config.Error(refusal)
         commands = " ; ".join(every)
@@ -9568,8 +9568,6 @@ def preflight(run_dir, opts, log):
                              "no_merge": bool(opts["--no-merge"]) or repo is None,
                              "project": str(checkout) if checkout else None})
         join_session_project(state.get("launched_session"))
-        base = (meta.get("base") or default_base(repo, log)) if repo else "none"
-        target, method = meta.get("target") or base, meta.get("merge") or "squash"
         branch = (git(repo, "rev-parse", "--abbrev-ref", "HEAD") if repo and opts["--no-worktree"]
                   else f"new ak/{slugify(title)} branch (unique suffix if needed)")
         action = (f"push {branch} to origin (fork if needed); PR into {target}; merge after PASS"

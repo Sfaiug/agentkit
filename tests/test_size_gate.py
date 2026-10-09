@@ -51,13 +51,21 @@ class SizeGate(Sandbox):
                    "in one read; split it")
         (self.repo / "AGENTS.md").write_text("---\ntests: python3 tests/suite.py 2>&1 | tee suite.log\n---\n# widget\n")
         three, suite = ["true", "true", "true"], "python3 tests/suite.py"
+        checks = lambda cmds, **how: taskfile.group_commands(run.round_commands(
+            cmds, self.repo, "main", scratch=False, **how))[0]
         # the list a round runs: the suite line, bare or whole, runs once at landing and never counts
-        self.assertEqual(run.round_checks(three + [suite], self.repo, landing=True), three)
-        self.assertEqual(run.round_checks(three + ["bash tests/smoke.sh  # once"], self.repo, landing=True), three)
-        self.assertIsNone(taskfile.checks_refusal(run.round_checks(three + [suite], self.repo, landing=True)))
-        self.assertEqual(taskfile.checks_refusal(run.round_checks(three + ["false"], self.repo, landing=True)), refused)
+        self.assertEqual(checks(three + [suite], landing=True), three)
+        self.assertEqual(checks(three + ["bash tests/smoke.sh  # once"], landing=True), three)
+        self.assertIsNone(taskfile.checks_refusal(checks(three + [suite], landing=True)))
+        self.assertEqual(taskfile.checks_refusal(checks(three + ["false"], landing=True)), refused)
         # without a landing every line runs each round, `# once` or the suite's
-        self.assertEqual(taskfile.checks_refusal(run.round_checks(three + [suite], self.repo, landing=False)), refused)
+        self.assertEqual(taskfile.checks_refusal(checks(three + [suite], landing=False)), refused)
+        # the target's `tests:` line wins over the checkout's, as the loop reads it
+        self.git("add", "AGENTS.md")
+        self.git("commit", "-qm", "Declare the suite")
+        self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
+        (self.repo / "AGENTS.md").write_text("---\n---\n# widget, behind origin\n")
+        self.assertEqual(checks(three + [suite], landing=True), three)
         self.assertIsNone(taskfile.launch_refusal({}, ["true"] * 4))         # the ceiling is preflight's
         # ... which preflight applies: here a scratch task's `# once` line
         directory = config.RUNS / "20260102-0900-scratch"
