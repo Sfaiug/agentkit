@@ -256,6 +256,18 @@ def told(seat, turn, kind, peer=False):
     return when is not None and when >= turn
 
 
+def unanswered(seat):
+    """The question to the owner this seat's turn may end on, as recorded, or None: the one
+    it kept back for this turn's end (`watch.keeps_back`), which is in its record, else the
+    one that stands from an earlier turn (`watch.stop_nudge`).  What ends the turn is what
+    the stop shows."""
+    kept = seat_read(seat).get("unasked")
+    if isinstance(kept, dict) and isinstance(kept.get("text"), str):
+        return kept["text"]
+    standing = notify.last(seat)
+    return standing["text"] if owner_question(standing) else None
+
+
 def parked_reason(found):
     """The block where runs sit parked and undecided: each run, its reason and the commands its
     state takes -- `ways_out`, so none that refuses it -- and the ways out."""
@@ -290,13 +302,11 @@ def held(launched, payload):
     seat = resolve(launched)
     if last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
-    # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
-    # a hand-back or a told line opens turns on a seat while it stands (`watch.stop_nudge`),
-    # and one the seat kept back for this turn's end (`watch.keeps_back`) is in its record
-    kept = isinstance(seat_read(seat).get("unasked"), dict)
+    # a question to the owner that nothing has answered yet ends a turn whenever it was asked
+    # (`unanswered`): a hand-back or a told line opens turns on a seat while it stands
     ends, undecided = recorded_ending(
-        seat, question=(questioned(payload) or told(seat, turn, "needs") or kept
-                        or owner_question(notify.last(seat))),
+        seat, question=(questioned(payload) or told(seat, turn, "needs")
+                        or unanswered(seat) is not None),
         completion=lambda: told(seat, turn, "done", peer), answer=asked and not peer, since=turn)
     if ends:
         return ""
@@ -342,16 +352,12 @@ def main():
     if back:
         print(json.dumps({"decision": "block", "reason": back}))
         return
-    # The turn has ended with this seat's question to the owner unanswered -- the one it kept
-    # back for this end (`watch.keeps_back`), or one that stands from an earlier turn: the
-    # harness draws it under the turn's last message, as recorded, so what he is asked is on
-    # the screen he answers on however long ago the seat asked it.
-    seat = resolve(launched)
-    kept, standing = seat_read(seat).get("unasked"), notify.last(seat)
-    if isinstance(kept, dict) and isinstance(kept.get("text"), str):
-        print(json.dumps({"systemMessage": kept["text"]}))
-    elif owner_question(standing):
-        print(json.dumps({"systemMessage": standing["text"]}))
+    # The turn has ended with this seat's question to the owner unanswered: the harness draws
+    # it under the turn's last message, as recorded, so what he is asked is on the screen he
+    # answers on however long ago the seat asked it.
+    question = unanswered(resolve(launched))
+    if question is not None:
+        print(json.dumps({"systemMessage": question}))
 
 
 main()
