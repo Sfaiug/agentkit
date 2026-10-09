@@ -105,8 +105,9 @@ def quiet_ending(name, *, state="at_prompt", said=None, message=None, at=None,
                     watch._seat_put(name, live, {"quiet_done": quiet})
         if state != "at_prompt":
             return None
-        if stopped is None or stopped[1] is None and output is not None:
-            quiet = {**quiet, "stopped": [at, output]}
+        if stopped is None or (stopped[1] is None and output is not None
+                               and captured_at >= stopped[0]):
+            quiet = {**quiet, "stopped": [stopped[0] if stopped else at, output]}
             watch._seat_put(name, live, {"quiet_done": quiet})
         if not observe:
             try:
