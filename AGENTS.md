@@ -72,7 +72,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A PID namespace's number names another namespace the moment it ends: never find a process by it. Hold a pidfd, or go through a process you hold: its group, its children (#699: each box that ended could kill another box's first process on the same host).
 - A box change is tried twice before it is pushed: inside one of ak's own boxes, as the lander runs every test, and on a host with a route out, where the offline suite never goes. Either run shows at once what three review rounds found (#699).
 - A test fakes one module's sleep (`tests/fixtures/clock.py`), never `time.sleep` itself: every other wait in the process then spins, and a recording fake keeps every spin (#700: 3.7 GB in a landing check).
-- A module removed from agentkit ends every run still on the old install at its next lazy import of it (`ImportError`, seen when `tell.py` went): leave an empty module in its place for one release and delete it in the next.
+- A module removed from agentkit ends every run still on the old install at its next lazy import of it (`ImportError`, seen when `tell.py` went): keep the module whole until no run of the old install is left, then delete it.
 
 ## Owner rules
 
