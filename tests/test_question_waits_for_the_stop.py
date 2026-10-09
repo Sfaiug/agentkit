@@ -241,6 +241,17 @@ class QuestionWaitsForTheStop(Sandbox):
         self.assertEqual((answer["word"], answer["reason"]), ("needs you", QUESTION))
         self.assertIsNone(watch.seat_read(SEAT).get("unasked"))
 
+    def test_a_conversation_ak_forgets_takes_its_kept_question_with_it(self):
+        """`ak orch stop`, a model switch and a new seat under the name retire the old
+        conversation's question (`watch.forget`): the next one never asks it."""
+        self.hook("UserPromptSubmit", prompt="Build the acme parser.")
+        self.asks()
+        watch.forget(SEAT)
+        answer = self.looked(PROMPT, {}, after=10)
+        self.assertNotEqual(answer["reason"], QUESTION)
+        self.assertIsNone(notify.last(SEAT, include_seen=True))
+        self.assertIsNone(watch.seat_read(SEAT).get("unasked"))
+
     def test_asked_for_another_seat_it_is_asked_at_once(self):
         """`--session` speaks for a seat the caller is not in: no turn of its own to wait for."""
         config.save_session(self.cfg, "acme-inbox", "opus", ["astra"], {"cwd": str(self.root)})

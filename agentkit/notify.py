@@ -590,8 +590,12 @@ def close_needs(previous, status):
 
 
 def clear(session, *, notice=None):
-    """Retire a conversation's notice, or retract only the watcher's matching alert."""
+    """Retire a conversation's notice and the question it kept back for its turn's end, or
+    retract only the watcher's matching alert."""
     with session_lock(session) as session:
+        if notice is None:
+            from . import watch    # here, not at the top: watch imports this module
+            watch.seat_write(session, unasked=None)
         previous = last(session, include_seen=True)
         if not previous or previous.get("seen"):
             return
