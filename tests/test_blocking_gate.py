@@ -30,6 +30,10 @@ def finding(site, what, command):
     return ["finding", site, what, "breaks callers", "--run", command]
 
 
+def quoted(site, what, quote):
+    return ["finding", site, what, "breaks callers", "--quote", quote]
+
+
 def probe(expression):
     return "python3 -c " + shlex.quote(f"import api; raise SystemExit(0 if ({expression}) else 7)")
 
@@ -116,14 +120,27 @@ out = pathlib.Path(sys.argv[6])
         self.head = run.git(self.wt, "rev-parse", "HEAD")
         self.lp.validation = run.commit_identity(self.wt)
 
-    def review(self, *commands):
+    def review(self, *commands, record=True):
         """One review round: the scripted reviewer hands in `commands`, then done."""
         self.lp.rnd += 1
         self.plan.write_text(json.dumps([{"commands": commands}]))
-        verdict = run.review(self.lp, "## Summary\nFixture", True, "$ true\n[exit 0]")
+        verdict = run.review(self.lp, "## Summary\nFixture", True, "$ true\n[exit 0]", record=record)
         self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), self.head)
         self.assertEqual(run.git(self.wt, "status", "--porcelain"), "")
         return verdict
+
+    def dispute(self, path, line, what, command):
+        """The fixer disputed that finding with a passing command: what its turn leaves for the
+        next reviewer (`dispute_files`)."""
+        finding = next(row for row in self.lp.state["review_records"]
+                       if row["kind"] == "finding" and (row["path"], row["line"]) == (path, line))
+        file = self.directory / f"round-{self.lp.rnd + 1}" / "executor" / "hand-in.jsonl"
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text("".join(json.dumps(row) + "\n" for row in (
+            {"kind": "turn", "workspace": str(self.wt), "role": "fixer", "findings": []},
+            {"kind": "dispute", "path": path, "line": line, "what": what, "why": "it is right",
+             "evidence": {"run": command, "returncode": 0, "output": ""}, "finding": finding})))
+        self.lp.state.setdefault("dispute_files", []).append(str(file))
 
     def records(self, kind):
         return [(row["path"], row["line"], row.get("replayed") or row.get("outside") or "")
@@ -176,6 +193,39 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.records("finding"), [])
         self.assertEqual(self.records("note"), [("api.py", 1, "fixed; its proof passes now")])
         self.assertEqual(self.lp.state["round_summaries"][-1]["finding_count"], 0)
+
+    def test_a_finding_handed_in_again_at_its_moved_line_upholds_it(self):
+        # by quote: the fix mends line 1 and adds a line above the flag, which moves untouched
+        self.assertEqual(self.review(quoted("api.py:2", "flag is wrong", 'flag = "branch"')), "FAIL")
+        self.write('mode = "fixed"\nimport os\nflag = "branch"\nextra = 1\n', "Fix the mode, add an import")
+        self.assertEqual(self.review(quoted("api.py:3", "flag is wrong", 'flag = "branch"')), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 3, "")])
+        prompt = self.prompt()
+        self.assertIn("## Earlier findings left to you", prompt)
+        self.assertIn("api.py:2 - flag is wrong - a quote, which ak cannot re-prove", prompt)
+        # ... and after a dispute: the --run finding is the reviewer's to weigh, not ak's
+        self.setUp()
+        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
+        self.write('mode = "fixed"\nimport os\nflag = "branch"\nextra = 1\n', "Fix the mode, add an import")
+        self.dispute("api.py", 2, "flag is wrong", probe("True"))
+        self.assertEqual(self.review(finding("api.py:3", "flag is wrong", self.flag_fixed)), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 3, "")])
+        prompt = self.prompt()
+        self.assertIn("api.py:2 - flag is wrong - disputed by the fixer", prompt)
+        self.assertNotIn("still fails", prompt)
+
+    def test_a_round_after_a_landing_re_review_gets_the_delta_and_the_replay(self):
+        # a landing re-review judges the whole change and records nothing of its own ...
+        self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed),
+                                     record=False), "FAIL")
+        self.assertNotIn("## Fix delta", self.prompt())
+        # ... yet the fix round after it stands on the commit it judged
+        self.lp.state.update(verdict=None, review=None)     # what execute() clears before a fixer
+        self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode")
+        self.assertEqual(self.review(), "PASS")
+        prompt = self.prompt()
+        self.assertIn("## Fix delta", prompt)
+        self.assertIn("api.py:1 - mode is wrong - fixed (the proof passes now)", prompt)
 
     def test_a_review_of_the_same_commit_again_replays_nothing(self):
         self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed)), "FAIL")

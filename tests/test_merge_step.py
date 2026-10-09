@@ -264,6 +264,7 @@ class MergeStep(unittest.TestCase):
 
         def fixer(lp2, role, text, name):
             turns.append((name, lp2.rnd, text))
+            lp2.state.update(verdict=None, review=None)     # as execute() clears before a fixer
             (wt / f"fix{len(turns)}.txt").write_text("fixed\n")
             (wt / "fix1.txt").write_text(f"fixed {len(turns)}\n")   # the cited file changes too
             run.git(wt, "add", ".")
@@ -271,8 +272,10 @@ class MergeStep(unittest.TestCase):
             return "## Summary\nFixed."
 
         verdicts = iter(["FAIL", "PASS"])
+        bodies = []
 
         def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
+            bodies.append(body)
             verdict = next(verdicts)
             answer = (f"VERDICT: {verdict}\n\n## Findings\n"
                       + ("- fix1.txt:1 - the fix skips the gate\n" if verdict == "FAIL"
@@ -289,6 +292,9 @@ class MergeStep(unittest.TestCase):
                          [("final-fixer", 1), ("executor", 2)])
         self.assertIn("## Reviewer findings to fix", turns[1][2])
         self.assertIn("fix1.txt:1 - the fix skips the gate", turns[1][2])
+        # the round after the landing re-review stands on the commit it judged
+        self.assertIn("## Fix delta", bodies[1])
+        self.assertIn("fix1.txt:1 - the fix skips the gate - fixed (the proof passes now)", bodies[1])
         state = record.read_state(run_dir)
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1, 2])
         self.assertEqual(state["final_check"]["outcome"], "passed")
