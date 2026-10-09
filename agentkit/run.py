@@ -11026,6 +11026,13 @@ def settle_pr_round(lp, url, info):
     return state
 
 
+def pr_key(url):
+    """One pull request's identity, however its URL was spelled: owner and repository
+    case-folded, a trailing slash ignored; None for no pull request URL."""
+    found = PR_PARTS.match((url or "").strip()) if isinstance(url, str) else None
+    return (found.group(1).lower(), found.group(2).lower(), found.group(3)) if found else None
+
+
 def same_repo(a, b):
     """Whether two recorded checkouts name the same repository."""
     try:
@@ -11042,9 +11049,11 @@ def rounds_spent_elsewhere(*, pr=None, branches=(), repo=None, exclude=None):
     A round counts once its verdict was recorded (`round_summaries`).  A branch's lineage
     runs both ways along `from:`: the branch a run was cut from and the branches cut from it
     continue the same change, so the rounds spent on any of them count.  A branch name is
-    one repository's, so only that repository's runs are on a lineage; a pull request is
-    its own name.  A run on another pull request and branch, and the run itself
-    (`exclude`), count for nothing.  Read-only.
+    one repository's, and free again once its change merged (the branch goes with the
+    merge, and the next task of that title gets the name back), so only that repository's
+    unmerged runs are on a lineage; a pull request is its own name, whatever the spelling
+    of its URL.  A run on another pull request and branch, and the run itself (`exclude`),
+    count for nothing.  Read-only.
     """
     states = []
     for run_dir in run_record.run_dirs():
@@ -11053,7 +11062,8 @@ def rounds_spent_elsewhere(*, pr=None, branches=(), repo=None, exclude=None):
         state = run_record.read_state(run_dir)
         if state:
             states.append(state)
-    here = [state for state in states if repo is None or same_repo(state.get("repo"), repo)]
+    here = [state for state in states
+            if (repo is None or same_repo(state.get("repo"), repo)) and not state.get("merged")]
     names = {name for name in branches if name}
     grown = bool(names)
     while grown:
@@ -11067,9 +11077,10 @@ def rounds_spent_elsewhere(*, pr=None, branches=(), repo=None, exclude=None):
                 names.add(branch)
                 grown = True
     lineage = {id(state) for state in here}
+    wanted = pr_key(pr)
     spent = runs = 0
     for state in states:
-        on_pr = bool(pr) and pr in (state.get("pr"), state.get("review_pr"))
+        on_pr = wanted is not None and wanted in (pr_key(state.get("pr")), pr_key(state.get("review_pr")))
         on_branch = (id(state) in lineage and bool(names)
                      and (state.get("branch") in names or state.get("from") in names))
         rounds = len(state.get("round_summaries") or [])

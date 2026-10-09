@@ -58,6 +58,22 @@ class RoundsPerPr(Sandbox):
         self.assertEqual(run.round_budget(3, branches=("ak/first-3",), what="branch ak/first-3")[0], 0)
         self.assertEqual(run.rounds_spent_elsewhere(branches=("ak/nothing",)), (0, 0))
         self.assertEqual(run.rounds_spent_elsewhere(), (0, 0))
+        # a pull request is one name however its URL is spelled
+        for spelled in (URL + "/", "https://github.com/Acme/Widget/pull/7", " " + URL):
+            self.assertEqual(run.rounds_spent_elsewhere(pr=spelled), (3, 2), spelled)
+        self.earlier("20260101-0200-review-pr-widget-7", 1, review_pr=URL + "/", pr=URL + "/")
+        self.assertEqual(run.rounds_spent_elsewhere(pr=URL), (4, 3))
+
+    def test_a_merged_change_frees_its_branch_name(self):
+        repo = self.root / "acme"
+        repo.mkdir()
+        self.earlier("20260101-0100-merged", 3, branch="ak/fix-parser", repo=str(repo), merged=True,
+                     pr="https://github.com/acme/widget/pull/3")
+        self.earlier("20260101-0200-stopped", 1, branch="ak/fix-parser", repo=str(repo))
+        self.assertEqual(run.rounds_spent_elsewhere(branches=("ak/fix-parser",), repo=repo), (1, 1))
+        state = {"repo": str(repo), "branch": "ak/fix-parser"}
+        self.assertEqual(run.lineage_cap(state, self.root / "none"), 2)
+        self.assertEqual(run.round_budget(3, branches=("ak/fix-parser",), repo=repo, what="x"), (2, None))
 
     def test_the_budget_is_what_earlier_runs_left_of_three(self):
         self.assertEqual(run.round_budget(3, pr=URL, what="PR #7"), (3, None))
