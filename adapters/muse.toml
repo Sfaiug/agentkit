@@ -61,9 +61,6 @@ at_prompt = "screen"
 enforce = "nudge"
 
 [screen]
-# A line typed while a turn runs waits as "Queued input" and reaches the running turn at its
-# next step (1.4.3): another seat's `ak tell` is typed then, not held for the turn's end.
-queues_typing = true
 # 1.2.1 draws `❯` where 1.0.3 drew `⟩`; the shared footer already reads both, so the composer
 # pattern is the one the babysitter has always used, unchanged.
 composer = '(?:⟩|[\w.-]+ · (?:none|minimal|low|medium|high|xhigh|max|ultra) · .+ · YOLO)$'

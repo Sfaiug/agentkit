@@ -3,7 +3,7 @@
 Muse, OpenCode and Antigravity declare `[stop] enforce = "nudge"`, and the tick types the
 continue keystroke at a stop hooks/orchestrator-stop.sh would send back.  A run of the seat's
 own parked and undecided holds the stop past a run going, an `ak wait` and a `done` there just
-as the hook holds it, and a seat whose `ak wait` names a session that has stopped is told so,
+as the hook holds it, and a seat whose `ak wait` names a run that has ended is told so,
 with its reason, before any bare `continue`.  Offline: a fake tmux, fake adapters for the three
 harnesses, fake run receipts and a throwaway HOME; the hook runs as its harness runs it, JSON on
 stdin.  The seat's turn began once, long ago, and never moves: what is decided here is read off
@@ -33,8 +33,7 @@ TYPED = {"muse": ("\n\u276f\n", "\n\u276f {}\n"), "antigravity": ("\n>\n", "\n> 
 SAID = "Here is my recommendation. Let me know if I should continue."
 PARKED, THEIRS = "20260101-0800-parked", "20260101-0900-schema"
 LATER = "20260101-1000-parked"
-TOLD = (f"{OTHER} is now needs you: session closed: press its number to reopen. "
-        "Decide the next step.")
+TOLD = f"run {THEIRS} ended pass; your wait is over. Decide the next step."
 
 
 class NudgeTurnRule(Sandbox):
@@ -99,7 +98,7 @@ class NudgeTurnRule(Sandbox):
         before = len(self.sent)
         watch.stop_nudge(self.seat, self.harness, self.pane, notify.last(SEAT),
                          menu.run_records(), False, lambda line: None)
-        watch.tell_waits(self.cfg, lambda line: None)
+        watch.wait_over(self.cfg, lambda line: None)
         return self.sent[before:]
 
     def receipt(self, name, owner, state, **extra):
@@ -116,7 +115,7 @@ class NudgeTurnRule(Sandbox):
 
     def wait(self):
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(watch.wait_main([OTHER]), 0)
+            self.assertEqual(watch.wait_main([THEIRS]), 0)
 
     def hook_holds(self, blocks=0):
         """Does hooks/orchestrator-stop.sh send this same stop back, where a harness runs it,
@@ -290,6 +289,45 @@ class NudgeTurnRule(Sandbox):
                 notify.record(SEAT, "needs", "Which account should I use?")
                 self.assertEqual(self.judged(), (False, []))
 
+    def test_h_a_question_is_kept_back_only_where_the_harness_reports_its_turns(self):
+        """A seat whose turns only its screen shows is asked at once, as it always was: ak
+        learns of that turn's end by looking, too late to ask it there.  Where hooks report
+        the turns, the question waits for the turn's end, and the tick's own look asks it
+        (tests/test_question_waits_for_the_stop.py)."""
+        question = "Which account should I use?"
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.pane = self.screen("working")
+                self.assertEqual(notify.main(["needs", question]), 0)
+                if (config.manifest(harness).get("authority") or {}).get("working") != "hooks":
+                    self.assertEqual(notify.last(SEAT)["text"], question)
+                    continue
+                self.assertIsNone(notify.last(SEAT))        # kept back: its turn is running
+                self.stopped()
+                with patch.object(notify, "progress", return_value=None):
+                    watch.health(self.cfg, {"stalls": {}}, False, lambda line: None)
+                self.assertEqual(notify.last(SEAT)["text"], question)
+                self.assertEqual(self.sent, [])
+
+    def test_i_a_line_typed_where_the_turn_ended_leaves_the_question_his(self):
+        """A run ending at the quiet prompt types its hand-back before any tick looks: a kept
+        question is asked by the typer first, so the turn the line opens leaves it his."""
+        question = "Which account should I use?"
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.pane = self.screen("working")
+                self.assertEqual(notify.main(["needs", question]), 0)
+                self.pane = self.screen("prompt")       # its turn ends
+                self.assertTrue(watch.type_at_prompt(
+                    self.seat, "run acme-parser finished PASS merged.", lambda line: None,
+                    cfg=self.cfg))
+                answer = watch.announce_state(dict(self.seat), cfg=self.cfg, look=True,
+                                              auth_out={}, gh_out={}, token_out={})
+                self.assertEqual((answer["word"], answer["reason"]), ("needs you", question))
 
 if __name__ == "__main__":
     unittest.main()

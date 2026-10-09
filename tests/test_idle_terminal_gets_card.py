@@ -1,4 +1,5 @@
-"""Only client input during a needs-you episode keeps its card quiet."""
+"""Only client input during a needs-you episode keeps its card quiet, and only until the
+card is out."""
 
 import json
 import os
@@ -82,18 +83,22 @@ class IdleTerminalGetsCard(Sandbox):
         self.assertEqual(self.posts, [])
         self.assertEqual(self.edits, [])
 
-    def test_input_after_delivery_closes_the_sent_card_as_answered_once(self):
+    def test_input_after_delivery_leaves_the_sent_card_until_the_seat_needs_him_no_more(self):
+        """A card that is out says what its seat says (tests/test_card_agrees_with_the_seat.py):
+        his keys there are him looking, and the word changing is what closes it, once."""
         self.clients = [(SEAT, int(NOW) - 600)]
         self.tick(notify.CARD_WAIT)
         self.clients.append((SEAT, int(NOW) + 61))
         # Later state readings do not move the stored episode's start.
         self.tick(120, since=NOW + 100)
         self.tick(180)
+        self.assertEqual(self.edits, [])
+        self.assertNotIn("closed", self.card())
         self.clients = []
-        self.tick(300)
+        self.tick(300, since=NOW + 300, word="working")
+        self.tick(360, since=NOW + 300, word="working")
         self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
         self.assertEqual(self.edits, [("1", "Answered")])
-        self.assertEqual(self.card()["closed"], "Answered")
 
     def test_no_attached_client_keeps_the_wait_delivery_and_answer(self):
         self.tick()

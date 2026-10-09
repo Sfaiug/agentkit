@@ -164,7 +164,7 @@ class TmuxShim(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, (args, result.stderr))
                 self.assertIn("other-seat" if "404" not in "".join(args) else "404-page",
                               result.stderr)
-                self.assertIn("ak tell ", result.stderr)
+                self.assertIn("another seat", result.stderr)
                 self.assertNotIn("kill-session\n", ran + "\n")   # the real tmux never ran the kill
 
     def test_typing_into_another_seat_is_refused(self):
@@ -177,7 +177,7 @@ class TmuxShim(unittest.TestCase):
                 result, ran = self.run_tmux(args)
                 self.assertEqual(result.returncode, 1, (args, result.stderr))
                 self.assertIn("type into other-seat", result.stderr)
-                self.assertIn("ak tell other-seat", result.stderr)
+                self.assertIn("typed into another seat", result.stderr)
 
     def test_own_out_of_reach_and_non_seat_sessions_run_the_real_tmux(self):
         for args in ALLOWED:

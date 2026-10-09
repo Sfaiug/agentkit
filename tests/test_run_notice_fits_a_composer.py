@@ -1,4 +1,4 @@
-"""Run notices share ak tell's bound; the full result and plan keep every follow-up.
+"""Run notices share the typed line's bound; the full result and plan keep every follow-up.
 
 Offline: a temporary HOME and a fake seat whose composer shows only a prefix of an
 oversized line. The real confirmed send must get its Enter and leave no unsent notice.
@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import Sandbox
-from agentkit import config, orch, plan, record, run, tell, watch, worktrees
+from agentkit import config, orch, plan, record, run, watch, worktrees
 
 
 class RunNotice(Sandbox):
@@ -24,7 +24,7 @@ class RunNotice(Sandbox):
         config.save_session(self.cfg, "fix-api", "opus", ["astra"], {
             "cwd": str(self.root), "created": 100, "conversation": "fixture-thread"})
         self.composer, self.sent, self.keys, self.logs = "", [], [], []
-        self.visible = tell.longest(self.cfg)
+        self.visible = watch.longest(self.cfg)
         self.stack.enter_context(patch.object(orch, "find", return_value=self.seat))
         self.stack.enter_context(patch.object(orch, "watching", return_value=True))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
@@ -76,7 +76,7 @@ class RunNotice(Sandbox):
         self.assertEqual(self.keys[-1], "Enter")
         self.assertEqual(self.composer, "")
         self.assertEqual(len(self.sent), 1)
-        self.assertIsNone(tell.too_long(self.sent[0]))
+        self.assertIsNone(watch.too_long(self.sent[0]))
         self.assertIn("2 review follow-ups", self.sent[0])
         self.assertIn("2 in your plan:", self.sent[0])
         self.assertIn("result.md", self.sent[0])
@@ -93,7 +93,7 @@ class RunNotice(Sandbox):
     def test_any_number_of_followups_is_counted_and_retained(self):
         directory, state = self.followups(1000)
         line = run.handback_line(state, directory, self.cfg)
-        self.assertIsNone(tell.too_long(line))
+        self.assertIsNone(watch.too_long(line))
         self.assertIn("1000 review follow-ups", line)
         self.assertIn("1000 in your plan:", line)
         result = (directory / "result.md").read_text()
@@ -107,7 +107,7 @@ class RunNotice(Sandbox):
                   "followup_runs": [f"fix-api-{i}" for i in range(100)]}
         run.followups_handed(directory, state, handed)
         line = run.handback_line(state, directory, self.cfg)
-        self.assertIsNone(tell.too_long(line))
+        self.assertIsNone(watch.too_long(line))
         self.assertIn("1 refused by your plan", line)
         self.assertIn("100 fix runs", line)
         result = (directory / "result.md").read_text()
@@ -124,21 +124,21 @@ class RunNotice(Sandbox):
                     "default branch or `ak plan check N` puts your own test in its place. "
                     "Decide the next step.")
         self.assertEqual(run.handback_line(state, directory, self.cfg), expected)
-        with patch.object(tell, "longest", return_value=len(expected)):
+        with patch.object(watch, "longest", return_value=len(expected)):
             self.assertEqual(run.handback_line(state, directory, self.cfg), expected)
-        with patch.object(tell, "longest", return_value=len(expected) - 1):
+        with patch.object(watch, "longest", return_value=len(expected) - 1):
             line = run.handback_line(state, directory, self.cfg)
-            self.assertIsNone(tell.too_long(line))
+            self.assertIsNone(watch.too_long(line))
             self.assertIn("1 review follow-ups", line)
             self.assertNotEqual(line, expected)
 
     def test_the_same_byte_bound_as_tell_is_applied(self):
         directory, state = self.result()
         state["pr"] = "é" * 250
-        with patch.object(tell, "MAX_BYTES", 600):
+        with patch.object(watch, "MAX_BYTES", 600):
             line = run.handback_line(state, directory, self.cfg)
-            self.assertIsNone(tell.too_long(line))
-            self.assertLessEqual(len(line.encode("utf-8")), tell.MAX_BYTES)
+            self.assertIsNone(watch.too_long(line))
+            self.assertLessEqual(len(line.encode("utf-8")), watch.MAX_BYTES)
             self.assertNotIn(state["pr"], line)
 
     def test_the_rounds_final_line_is_bounded_after_its_longer_action(self):
@@ -148,9 +148,9 @@ class RunNotice(Sandbox):
                                        error="no reason was recorded")
         # The old ending fits; changing it into a review-round notice pushes it over.
         expected = run.handback_line(state, directory, self.cfg)
-        with patch.object(tell, "longest", return_value=len(expected) + 5):
+        with patch.object(watch, "longest", return_value=len(expected) + 5):
             run.tell_own_pr_round(self.cfg, directory, state, self.logs.append)
-            self.assertIsNone(tell.too_long(self.sent[-1]))
+            self.assertIsNone(watch.too_long(self.sent[-1]))
         self.assertIn("review round 1/3 FAIL", self.sent[-1])
         self.assertIn("Fix the findings and push to this PR", self.sent[-1])
         self.assertEqual(self.composer, "")
@@ -161,7 +161,7 @@ class RunNotice(Sandbox):
         with patch.object(run, "run_for_pr", return_value=(directory, state)):
             self.assertTrue(watch.say(False, self.logs.append, "The maintainer merged the PR",
                                       state["pr"], "fix-api", merged=True))
-        self.assertIsNone(tell.too_long(self.sent[-1]))
+        self.assertIsNone(watch.too_long(self.sent[-1]))
         self.assertIn("2 review follow-ups", self.sent[-1])
         self.assertEqual(self.composer, "")
 
@@ -171,7 +171,7 @@ class RunNotice(Sandbox):
                 patch.object(orch, "ensure", return_value="fresh"), \
                 patch.object(watch, "is_preexisting", return_value=False):
             run.announce(state, directory, self.logs.append, self.cfg)
-        self.assertIsNone(tell.too_long(self.sent[-1]))
+        self.assertIsNone(watch.too_long(self.sent[-1]))
         self.assertIn("earlier conversation could not be resumed", self.sent[-1])
         self.assertIn("result.md", self.sent[-1])
         self.assertEqual(self.composer, "")
@@ -187,7 +187,7 @@ class RunNotice(Sandbox):
         run.start_followups(state, directory, self.logs.append)
         line = run.handback_line(state, directory, self.cfg)
         saved = result.read_text()
-        self.assertIsNone(tell.too_long(line))
+        self.assertIsNone(watch.too_long(line))
         self.assertIn(refusal, saved)
         self.assertIn("complete reviewer evidence", saved)
         self.assertIn("Fixed API.", saved)
@@ -203,7 +203,7 @@ class RunNotice(Sandbox):
                 patch.object(watch, "orphan_fresh", return_value=True), \
                 patch.object(watch, "is_preexisting", return_value=False):
             run.notify_recovery(directory, record.read_state(directory))
-        self.assertIsNone(tell.too_long(self.sent[-1]))
+        self.assertIsNone(watch.too_long(self.sent[-1]))
         self.assertIn("result.md", self.sent[-1])
         saved = (directory / "result.md").read_text()
         self.assertIn(reason, saved)
@@ -223,7 +223,7 @@ class RunNotice(Sandbox):
                 patch.object(watch, "after_merge_status", return_value=("passed", None, None)):
             watch.after_merge_checks(episodes, False, self.logs.append, now=now)
             self.assertEqual(len(self.sent), 1)
-            self.assertIsNone(tell.too_long(self.sent[0]))
+            self.assertIsNone(watch.too_long(self.sent[0]))
             self.assertIn("result.md", self.sent[0])
             self.assertNotIn("health", record.read_state(directory))
             episode = episodes["after_merge"][watch.after_merge_repo(state["pr"])[3]]
@@ -253,7 +253,7 @@ class RunNotice(Sandbox):
                     "details_url": details}]}], "")):
             run.write_result(directory, state, [], cfg=self.cfg)
         self.assertEqual(len(self.sent), 1)
-        self.assertIsNone(tell.too_long(self.sent[0]))
+        self.assertIsNone(watch.too_long(self.sent[0]))
         self.assertNotIn(details, self.sent[0])
         episode = episodes["after_merge"][watch.after_merge_repo(state["pr"])[3]]
         self.assertIn("notified", episode)
@@ -262,7 +262,7 @@ class RunNotice(Sandbox):
 
     def test_all_report_rebuilds_keep_saved_notice_details(self):
         directory, state = self.followups(2)
-        with patch.object(tell, "longest", return_value=1000000):
+        with patch.object(watch, "longest", return_value=1000000):
             full = run.handback_line(state, directory, self.cfg)
         self.assertTrue(run.hand_back(state, directory, self.logs.append, self.cfg))
         result = directory / "result.md"

@@ -136,8 +136,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
     "notify done": (f"usage: {NOTIFY_DONE}",
                     "Report the finished job; --dry-run prints the payload without posting.",
                     'ak notify done "Parser fixed" --dry-run'),
-    "wait": ("usage: ak wait SESSION", "End this turn waiting on another session's work.",
-             "ak wait fix-api"),
+    "wait": ("usage: ak wait PR_URL|RUN_ID",
+             "End this turn waiting on that pull request or run; ak wakes you with one line\n"
+             "when it merges, closes or ends. Never a session.",
+             "ak wait https://github.com/acme/api/pull/12"),
     "plan": ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
              "ak plan add \"OUTCOME\" --eye | ak plan tick N | ak plan check N 'COMMAND'",
              "This session's plan: each line an outcome with the check that proves it.\n"
@@ -148,10 +150,6 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
              "Listing ticks each check line that now passes on its project's default branch;\n"
              "ak notify done runs every check again and waits for all.",
              "ak plan add \"each session sees its project\" --check 'python3 tests/test_x.py'"),
-    "tell": ('usage: ak tell SESSION "TEXT"',
-             "Queues it; ak types it into that session as soon as it can take a line, headed\n"
-             "with who sent it; it never counts as the owner's words.",
-             'ak tell fix-api "I am changing parser.py; leave it until my PR lands"'),
     "update": ("usage: ak update [--dry-run]",
                "Upgrade harnesses and verify with acceptance gates; --dry-run prints the plan.",
                "ak update --dry-run"),
@@ -194,7 +192,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
 
 # `ak --help` is one screen: the menu, then the commands an orchestrator uses, one line
 # each, and under one dim `internal:` line the ones the toolkit runs for itself.
-ORCHESTRATOR = ("run", "plan", "notify", "wait", "tell", "usage", "browser", "fetch")
+ORCHESTRATOR = ("run", "plan", "notify", "wait", "usage", "browser", "fetch")
 INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor")
 
 PURPOSES = {
@@ -210,8 +208,7 @@ PURPOSES = {
     "watch": "check PRs and stalled sessions",
     "doctor": "show the slice, the tick, and any model set to an effort it does not take",
     "notify": "record a needs-you question or a job summary",
-    "wait": "end this turn waiting on another session's work",
-    "tell": "send another session a message",
+    "wait": "end this turn waiting on a pull request or run",
     "fetch": "copy requested Mac files to this host",
     "macbridge": "macOS only: forward requested files to the server over SSH",
 }
