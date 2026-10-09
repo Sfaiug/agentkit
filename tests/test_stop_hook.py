@@ -435,8 +435,10 @@ Path.iterdir, Path.read_text = during_census, during_completion
         record = json.loads((self.state / f"stop-{SEAT}.json").read_text())
         self.assertEqual(record["blocks"], 0)
         self.assertGreater(record["turn"], self.turn)
-        # the third stop asked the owner; their prompt answered it (test_answer_closes_question)
-        (self.state / f"notify-{SEAT}.json").unlink()
+        # the third stop kept a question back for the next look; their prompt asked and
+        # answered it (test_answer_closes_question), which needs a seat this sandbox has not
+        self.assertIsInstance(json.loads((self.state / f"seat-{SEAT}.json").read_text())["unasked"], dict)
+        (self.state / f"seat-{SEAT}.json").unlink()
         self.assertEqual(self.blocked(self.stop())["decision"], "block")
 
     # --- who this hook may never speak for ----------------------------------
