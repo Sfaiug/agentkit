@@ -167,8 +167,15 @@ class Sandbox(unittest.TestCase):
                               str(self.task(title, ["true"])),
                               "--exec", "opus", "--review", "astra"])
         before = set(record.run_dirs())
-        ok, text = gate.run_done_when([command], self.root,
-                                     self.root / f"{run.slugify(title)}.log", set())
+        # A check protects its caller's consent, outside the nested run's temporary HOME.
+        outer_state = self.root / "check-state"
+        approval = outer_state / "owner-yes" / "kept"
+        approval.parent.mkdir(parents=True)
+        approval.write_text("outer approval")
+        with patch.object(config, "STATE", outer_state):
+            ok, text = gate.run_done_when([command], self.root,
+                                         self.root / f"{run.slugify(title)}.log", set())
+        self.assertEqual(approval.read_text(), "outer approval")
         self.assertTrue(ok, text)
         made = [d for d in record.run_dirs() if d not in before]
         self.assertEqual(len(made), 1, made)
