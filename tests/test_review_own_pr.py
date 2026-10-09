@@ -123,6 +123,15 @@ class OwnPr(unittest.TestCase):
             patch.object(run, "commit_identity", return_value={"head_sha": HEAD, "tree_sha": "c" * 40}),
         ]
 
+    def gh_view(self, head=HEAD):
+        """GitHub as these tests see it: an open PR at `head` to `pr view`; to the read a fix
+        turn makes after a FAIL, closed, so the run ends there with its one round judged."""
+        def gh_json(_cwd, *args, **_kw):
+            if args[0] == "api":
+                return {"state": "closed", "merged": False, "head": {"sha": head}, "base": {"ref": "main"}}, ""
+            return {"headRefOid": head, "state": "OPEN"}, ""
+        return gh_json
+
     def posting_gh(self, events, merges=None):
         """Fake gh that posts reviews successfully and records merge calls."""
         def fake_gh(cwd, *args, **kwargs):
@@ -147,8 +156,7 @@ class OwnPr(unittest.TestCase):
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
@@ -172,8 +180,7 @@ class OwnPr(unittest.TestCase):
             for m in self.base_patches(author=LOGIN, reviewer="PASS"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(
                 run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(run, "merge_lock", side_effect=turn))
@@ -200,8 +207,7 @@ class OwnPr(unittest.TestCase):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "text_only_pr", return_value=True))
             mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
             mocks.enter_context(patch.object(
                 watch, "ask_inbox", side_effect=lambda *a, **k: inbox.append(a) or 0))
@@ -391,8 +397,7 @@ class OwnPr(unittest.TestCase):
                 mocks.enter_context(m)
             checks = mocks.enter_context(patch.object(
                 run, "checks", return_value=(False, "required checks failed: gate")))
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(
                 run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(
@@ -414,8 +419,7 @@ class OwnPr(unittest.TestCase):
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(
                 run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(
@@ -439,8 +443,7 @@ class OwnPr(unittest.TestCase):
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
@@ -466,8 +469,7 @@ class OwnPr(unittest.TestCase):
         with ExitStack() as mocks:
             for m in self.base_patches(author="other", reviewer="FAIL"):
                 mocks.enter_context(m)
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(
                 run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(
@@ -489,8 +491,7 @@ class OwnPr(unittest.TestCase):
             for m in self.base_patches(author="other", reviewer="PASS"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(
                 run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(
@@ -515,8 +516,7 @@ class OwnPr(unittest.TestCase):
             for m in self.base_patches(author=LOGIN, reviewer="PASS"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(
                 run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(
@@ -539,8 +539,7 @@ class OwnPr(unittest.TestCase):
                        for m in self.base_patches(author=LOGIN, reviewer="PASS")]
             review_mock = entered[9]
             mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             gh_mock = mocks.enter_context(patch.object(
                 run, "gh", side_effect=self.posting_gh(events)))
             mocks.enter_context(patch.object(
@@ -565,8 +564,7 @@ class OwnPr(unittest.TestCase):
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
@@ -586,8 +584,7 @@ class OwnPr(unittest.TestCase):
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
-            mocks.enter_context(patch.object(
-                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
