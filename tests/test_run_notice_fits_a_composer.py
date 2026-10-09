@@ -140,21 +140,6 @@ class RunNotice(Sandbox):
             self.assertLessEqual(len(line.encode("utf-8")), tell.MAX_BYTES)
             self.assertNotIn(state["pr"], line)
 
-    def test_the_rounds_final_line_is_bounded_after_its_longer_action(self):
-        directory, state = self.result(state="fail", verdict="FAIL",
-                                       round_summaries=[{"round": 1, "verdict": "FAIL",
-                                                         "done_when": True, "summary": "Fix api.py"}],
-                                       error="no reason was recorded")
-        # The old ending fits; changing it into a review-round notice pushes it over.
-        expected = run.handback_line(state, directory, self.cfg)
-        with patch.object(tell, "longest", return_value=len(expected) + 5):
-            run.tell_own_pr_round(self.cfg, directory, state, self.logs.append)
-            self.assertIsNone(tell.too_long(self.sent[-1]))
-        self.assertIn("review round 1/3 FAIL", self.sent[-1])
-        self.assertIn("Fix the findings and push to this PR", self.sent[-1])
-        self.assertEqual(self.composer, "")
-        self.assertEqual(record.read_state(directory)["own_pr_round_told"], 1)
-
     def test_a_maintainer_decision_uses_the_same_followup_bound(self):
         directory, state = self.followups(2)
         with patch.object(run, "run_for_pr", return_value=(directory, state)):

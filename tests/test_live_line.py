@@ -66,7 +66,7 @@ class LiveLine(Sandbox):
         runs = [run("b1", "building", 120), run("c1", "checking", 300), run("r1", "reviewing", 60)]
         whole = "b1 ■□□□ opus building · 2m   c1 ■■□□ checking · 5m   r1 ■■■□ astra reviewing · 1m"
         self.assertEqual(self.versions(runs), [
-            whole, whole, whole,                    # nothing landing or fixing to fold first
+            whole, whole,                           # nothing landing to fold first
             "b1 ■□□□ opus building · 2m   c1 ■■□□ checking · 5m   reviewing 1 · 1m",
             "b1 ■□□□ opus building · 2m   checking 1 · 5m   reviewing 1 · 1m",
             "building 1 · 2m   checking 1 · 5m   reviewing 1 · 1m",
@@ -97,28 +97,6 @@ class LiveLine(Sandbox):
         bar = menu.last_column("working", "", 0, 4, menu.seat_runs("fix-api"), 16)
         self.assertEqual(menu.last_column("working", "", 0, 4, [r for r in menu.seat_runs(
             "fix-api") if r["step"] != "waiting"], 16), bar)
-
-    def test_e_a_run_waiting_for_its_seat_s_push_is_its_seat_fixing(self):
-        # its review is over and its seat fixes what it found: no reviewer is named, and it is
-        # counted apart from the runs still reviewing
-        for n, step in enumerate(("reviewer", "waiting for the seat's push", "reviewer")):
-            directory = config.RUNS / f"20260101-090{n}-r{n}"
-            directory.mkdir(parents=True)
-            record.save_state(directory, {
-                "run_id": directory.name, "launched_session": "fix-api", "state": "running",
-                "task_file": f"/t/r{n}-x.md", "step": step, "step_at": NOW - 120,
-                "executor": "opus", "reviewer": "astra", "own_pr": True})
-        runs = menu.seat_runs("fix-api")
-        self.assertEqual({one["task"]: (one["doing"], one["step"], one["model"]) for one in runs},
-                         {"r0": ("reviewing", "review", "astra"), "r1": ("fixing", "review", None),
-                          "r2": ("reviewing", "review", "astra")})
-        versions = self.versions(runs)
-        self.assertEqual(versions[0], "r0 ■■■□ astra reviewing · 2m   r2 ■■■□ astra reviewing · 2m"
-                                      "   r1 ■■■□ fixing · 2m")
-        self.assertIn("reviewing 2 · longest 2m   fixing 1 · 2m", versions)
-        # the tasks bar fills its slot as far as a review's
-        self.assertEqual(menu.last_column("working", "", 0, 4, runs[1:2], 16),
-                         menu.last_column("working", "", 0, 4, runs[:1], 16))
 
 
 class OnTmux(Sandbox):

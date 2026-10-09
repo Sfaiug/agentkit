@@ -757,16 +757,13 @@ def seat_progress(name):
 
 # What a live run is doing, in the order a round does it and the words its seat's live line
 # says it in: the step of a round it is on, in the words a seat's bar reads, and which of its
-# models does it -- none of its own while it checks or lands, or while its seat fixes what its
-# review found.
+# models does it -- none of its own while it checks or lands.
 DOING = {"building": ("building", "executor"), "checking": ("checks", None),
-         "reviewing": ("review", "reviewer"), "fixing": ("review", None),
-         "landing": ("landing", None)}
-# A live run's step, as `Loop.step` records it: the wait on the seat's own push is its seat
-# fixing; one not stepped yet builds.  A run in its repository's line to land is landing, and
-# one queued for a slot is waiting.
+         "reviewing": ("review", "reviewer"), "landing": ("landing", None)}
+# A live run's step, as `Loop.step` records it; one not stepped yet builds.  A run in its
+# repository's line to land is landing, and one queued for a slot is waiting.
 STEPS = {"executor": "building", "done-when": "checking", "reviewer": "reviewing",
-         "waiting for the seat's push": "fixing", "merge": "landing"}
+         "merge": "landing"}
 FILLS = {"building": 1 / 4, "checks": 1 / 2, "review": 3 / 4, "landing": 7 / 8}   # of its slot
 
 
@@ -814,11 +811,8 @@ def silent_for_run(run_dir, state, now=None):
     for more than an hour is stuck in one step. The age is the newest file under the
     run directory, whatever the step. Under an hour nothing changes.
     """
-    from . import run as _run
     if state.get("state") not in record.ACTIVE:
         return None
-    if _run.own_pr_wait_note(state) and record.process_active(state):
-        return None  # the seat's push, not another loop write, ends this wait
     at = time.time() if now is None else now
     try:
         from . import watch as _watch

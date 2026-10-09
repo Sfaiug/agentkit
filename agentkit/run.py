@@ -7591,7 +7591,7 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     return compact
 
 
-def handback_line(state, run_dir, cfg=None, *, review_round=None):
+def handback_line(state, run_dir, cfg=None):
     """The one line a finished run types into the seat that launched it.
 
     `run <id> finished <verdict>: <why>. Result: <path>. Decide the next step.` -- an ending
@@ -7605,10 +7605,8 @@ def handback_line(state, run_dir, cfg=None, *, review_round=None):
     """
     workspace = (f" Workspace: {state['worktree']}."
                  if state.get("scratch") and state.get("worktree") else "")
-    ending = (f"review round {review_round}/{state['rounds']} FAIL" if review_round is not None
-              else f"finished {handback_verdict(state, cfg)}")
-    action = ("Fix the findings and push to this PR; this run reviews the new head."
-              if review_round is not None else "Decide the next step.")
+    ending = f"finished {handback_verdict(state, cfg)}"
+    action = "Decide the next step."
     line = (f"run {run_dir.name} {ending}: "
             f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace} "
             + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
@@ -10572,13 +10570,7 @@ def merge_own_pr(lp, url):
         lp.state["delivery_sha"] = pinned
         lp.write()
         if remote["sha"] != pinned:
-            branch, source = remote.get("ref"), (remote.get("repo") or {}).get("clone_url")
-            if not branch or not source:
-                raise config.Error("cannot locate the PR branch to push its tested tree")
-            rc, out = git_out(lp.wt, "push", f"--force-with-lease=refs/heads/{branch}:{remote['sha']}",
-                              "--", source, f"HEAD:refs/heads/{branch}")
-            if rc:
-                raise config.Error(f"pushing the tested PR head failed: {out[-400:]}")
+            push_pr_branch(lp, remote, remote["sha"])
         lp.state["head_sha"] = pinned
         lp.write()
         return wait_checks(lp, url) and do_merge(lp, url, upstream)
@@ -10586,61 +10578,113 @@ def merge_own_pr(lp, url):
     return join_line(lp, upstream, deliver)
 
 
-def own_pr_wait_note(state):
-    if (state.get("state") == "running" and state.get("own_pr")
-            and state.get("own_pr_wait") == state.get("head_sha") and state.get("head_sha")):
-        return f"waiting for the {launched_session(state)} seat to push fixes to its PR"
-    return ""
+def pick_fixer(cfg, state, log):
+    """The model that fixes a seat's own PR: the session's executor, picked as every executor
+    is, else the seat's own orchestrator model, run headless."""
+    order = ready_order(cfg, collect_usage(cfg), run_workers(cfg, state), log, role="executor")
+    return order[0] if order else state.get("own_orchestrator")
 
 
-def tell_own_pr_round(cfg, run_dir, state, log):
-    """Hand back this FAIL without settling the run or collecting its checkout."""
-    rnd = len(state["round_summaries"])
-    session = launched_session(state)
-    with delivery_lock(run_dir):
-        said = run_record.read_state(run_dir) or state
-        if not same_attempt(state, said) or said.get("own_pr_round_told") == rnd:
-            return
-        line = handback_line({**state, "state": "fail"}, run_dir, cfg, review_round=rnd)
-        with launcher_world(session) as live:
-            if live and watch.type_at_prompt(
-                    orch.find(session) or {"name": session}, line, log, cfg=cfg,
-                    typed=said.get("own_pr_round_typed"),
-                    receipt=lambda mark: mark_delivery(run_dir, state, own_pr_round_typed=mark)):
-                mark_delivery(run_dir, state, own_pr_round_told=rnd, own_pr_round_typed=None)
+def pr_context(state, body):
+    """What a worker on a PR review's checkout is told first: where it is and on what branch."""
+    number = PR_PARTS.match(state["review_pr"]).group(3)
+    return (f"Repo checkout: {state['worktree']}\nBranch: {state['branch']} (PR #{number} head, "
+            f"based on origin/{state['target']})\n\n{body}")
 
 
-def wait_for_own_pr(cfg, run_dir, url, state, log):
-    """The seat fixes the reviewed head; a push, close or stop ends this wait."""
-    state.update(state="running", **run_record.process_owner(), finished_at=None,
-                 step="waiting for the seat's push", step_at=time.time())
+def push_pr_branch(lp, remote, lease):
+    """The checkout's HEAD onto the PR branch GitHub describes (`remote`, the PR's head), over
+    `lease` and nothing else: a push made by hand meanwhile is never overwritten."""
+    branch, source = remote.get("ref"), (remote.get("repo") or {}).get("clone_url")
+    if not branch or not source:
+        raise config.Error("cannot locate the PR branch to push to")
+    rc, out = git_out(lp.wt, "push", f"--force-with-lease=refs/heads/{branch}:{lease}",
+                      "--", source, f"HEAD:refs/heads/{branch}")
+    if rc:
+        raise config.Error(f"pushing to the PR branch failed: {out[-400:]}")
+
+
+def fix_own_pr(cfg, run_dir, url, state, opts, log):
+    """The fixer turn a FAIL on a seat's own PR gets while rounds are left.
+
+    The findings go to a model on the run's own checkout of the reviewed head, as a task
+    run's fixer gets them, and what it commits is pushed to the PR branch over that head
+    (`--force-with-lease`) for the next round to review.  Nothing is typed into the seat and
+    no process waits for it: the seat hears the ending, as of any run.  A fixer that commits
+    nothing -- a dispute, `not-needed` -- leaves the head where it is, reviewed again with
+    what it handed in.  The push is written down (`delivery_sha`) before it is tried, so a
+    resume after a crash pushes again instead of fixing twice.  A head pushed by
+    hand before the fix starts is what the next round reviews; one pushed while the fix was
+    made, or a PR closed, ends the run `fail`: a changed fact means a new review, never a fix
+    pushed over somebody's commit.  Returns whether the next round may run.
+    """
+    reviewed = state["head_sha"]
+    api, owner, name, number = pr_parts(url)
+    lp = pr_loop(cfg, run_dir, state, opts, log)
+    lp.rnd = len(state.get("round_summaries") or []) + 1
+    state.update(state="running", **run_record.process_owner(), finished_at=None)
     run_record.save_state(run_dir, state)
-    history.open_step(run_dir.name, state["step"], log=log)
-    redress_seat(launched_session(state))
-    log(own_pr_wait_note(state))
-    while True:
-        run_record.stop_check(run_dir)
-        if state.get("verdict") == "FAIL":
-            tell_own_pr_round(cfg, run_dir, state, log)
+
+    def ended(why):
+        state.update(state="fail", error=why, finished_at=time.time())
+        state.pop("own_pr_wait", None)
+        lp.write()
+        write_result(run_dir, state, lp.cmds or ["(none declared)"], log, cfg)
+        log(f"FAIL {why}")
+        return False
+
+    current, why = gh_json(run_dir, *api, f"repos/{owner}/{name}/pulls/{number}")
+    if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
+        raise config.Error(f"cannot read the PR before fixing it: {why}")
+    if current.get("state") != "open":
+        return ended(f"{url} is {current.get('state', '?')}, not open")
+    remote, pushed = current["head"], state.get("delivery_sha")
+    head = git(lp.wt, "rev-parse", "HEAD")
+    if remote["sha"] != reviewed and remote["sha"] != pushed:
+        # pushed by hand since the review: that head is what the next round judges
+        log(f"the PR head moved to {remote['sha'][:12]} since the review; reviewing it")
+        return True
+    if not (pushed and pushed != reviewed and head == pushed):
+        if head != reviewed:
+            # the line or a crash left the checkout elsewhere; the fix starts from what was reviewed
+            git(lp.wt, "reset", "--hard", reviewed)
+        if not lp.executor:
+            lp.executor = state["executor"] = pick_fixer(cfg, state, log)
+            if not lp.executor:
+                raise QuotaDry("no executor can fix this PR: every worker has a gate meter at 100% used")
+        log(f"--- round {lp.rnd}/{lp.rounds}: fixer {lp.executor} (findings on PR #{number})")
+        lp.context = pr_context(state, lp.body + repo_rules(lp.wt, state["base_sha"]))
+        fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
         try:
-            info = pr_view(url)
-        except Stopped:
-            raise
-        except config.Error as exc:
-            log(f"WARN cannot check the PR head; retrying: {exc}")
-            time.sleep(gate.SLOT_POLL)
-            continue
-        if info.get("state") != "OPEN":
-            state.update(state="fail", error=f"{url} is {info.get('state', '?')}; review ended",
-                         finished_at=time.time())
+            execute(lp, "fixer", fix, "executor")
+        except Blocked as exc:
+            log(f"BLOCKED {exc}")
+            state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
+                          "blocked": exc.section, "finished_at": time.time()})
             state.pop("own_pr_wait", None)
-            run_record.save_state(run_dir, state)
-            _, body, _ = taskfile.parse_task(run_dir / "task.md")
-            write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"), log, cfg)
+            lp.write()
+            write_result(run_dir, state, lp.cmds or ["(none declared)"], log, cfg)
             return False
-        if info["headRefOid"] != state["head_sha"]:
+        commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+        head = git(lp.wt, "rev-parse", "HEAD")
+        if head == reviewed:
+            log("the fixer committed nothing; the next round reviews this head with what it handed in")
+            lp.write()
             return True
-        time.sleep(gate.SLOT_POLL)
+        state["delivery_sha"] = head
+        lp.write()
+        current, why = gh_json(run_dir, *api, f"repos/{owner}/{name}/pulls/{number}")
+        if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
+            raise config.Error(f"cannot read the PR before pushing the fix: {why}")
+        remote = current["head"]
+        if current.get("state") != "open":
+            return ended(f"{url} is {current.get('state', '?')}, not open")
+        if remote["sha"] != reviewed:
+            return ended("the PR head moved while the fix was made; review it with a new run")
+    if remote["sha"] != head:
+        push_pr_branch(lp, remote, reviewed)
+        log(f"--- pushed the fix {head[:12]} to {remote['ref']}")
+    return True
 
 
 def pr_loop(cfg, run_dir, state, opts, log):
@@ -10652,14 +10696,13 @@ def pr_loop(cfg, run_dir, state, opts, log):
 
 
 def review_pr(cfg, run_dir, url, opts, log):
-    """Own PRs wait for fixes between reviews; other authors get a single review."""
+    """Own PRs get a fixer turn between reviews; other authors get a single review."""
     while True:
         state = run_record.read_state(run_dir) or {}
         if state.get("own_pr_wait") and state.get("own_pr"):
-            if not wait_for_own_pr(cfg, run_dir, url, state, log):
+            if not fix_own_pr(cfg, run_dir, url, state, opts, log):
                 return state
-            # the push starts a round, and a round runs on the agentkit installed now: a wait
-            # can outlast many merges
+            # the fix starts a round, and a round runs on the agentkit installed now
             pickup_new_code(pr_loop(cfg, run_dir, state, opts, log))
         summaries = state.get("round_summaries") or []
         if (state.get("waiting_on") or {}).get("line") and not state.get("merged"):
@@ -10743,7 +10786,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                          "started_at": prior.get("started_at") or time.time(), "review_posted": False})
     # `own_pr_wait` stays until the new head's checkout is written down below: a fetch that
     # fails or a process that dies before then still lets the next attempt move to that head
-    receipt.pop("own_pr_round_typed", None)
     if advancing:
         receipt["review_session"] = None
     run_record.save_state(run_dir, receipt)
@@ -10787,7 +10829,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
              "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
              "base": f"origin/{base}", "target": base, "base_sha": base_sha,
              "target_sha": target_sha, "branch": branch,
-             "worktree": str(wt), "executor": None, "reviewer": None, "rounds": n_rounds,
+             "worktree": str(wt), "executor": prior.get("executor"), "reviewer": None, "rounds": n_rounds,
              "state": "running", "verdict": None, **run_record.process_owner(), "started_at": receipt["started_at"],
              "finished_at": None, "round_summaries": summaries, "findings": previous, "merge_method": "squash",
              "no_merge": not is_own or bool(opts.get("--no-merge")), "merged": False,
@@ -10873,8 +10915,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                                                                  reviewer))))
     body += repo_rules(wt, base_sha)
     run_record.save_state(run_dir, state)
-    context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
-    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)
+    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, pr_context(state, body), spares)
     lp.rnd += 1
     lp.round_dir.mkdir(parents=True, exist_ok=True)
     state.pop("final_check", None)

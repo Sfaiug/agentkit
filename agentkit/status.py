@@ -425,8 +425,8 @@ def status_rows(found, width, index=None, cfg=None):
         total = state.get("rounds")
         going = state.get("state") in run_record.ACTIVE
         rnd = min(done + 1, total) if going and total else done
-        if run.own_pr_wait_note(state) or state.get("own_pr_round_pending"):
-            rnd = state.get("own_pr_round_pending") or done
+        if state.get("own_pr_round_pending"):
+            rnd = state["own_pr_round_pending"]
         rounds = f"round {rnd}/{total or '?'}"
         if state.get("extended"):
             rounds += f" (+{state['extended']})"
@@ -544,8 +544,6 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
     lines.extend(death_lines(state))
     if state.get("state") == "queued":
         lines.append(f"  {gate.slot_note(state)}")
-    elif run.own_pr_wait_note(state):
-        lines.append(f"  {run.own_pr_wait_note(state)}")
     elif gate.gate_turn_note(state):
         lines.append(f"  {gate.gate_turn_note(state)}")
     if run.needs_recovery(state):
@@ -757,8 +755,6 @@ def cmd_status(argv):
                 print(f"  {parked_line(state, d.name)}")
             elif state.get("state") == "queued":
                 print(f"  {gate.slot_note(state)}")
-            elif run.own_pr_wait_note(state):
-                print(f"  {run.own_pr_wait_note(state)}")
             elif gate.gate_turn_note(state):
                 print(f"  {gate.gate_turn_note(state)}")
             if state.get("first"):
@@ -821,8 +817,6 @@ def cmd_status(argv):
                 parked = parked_line(state, directory.name)
                 if state.get("state") == "queued":
                     print(f"  {gate.slot_note(state)}")
-                elif run.own_pr_wait_note(state):
-                    print(f"  {run.own_pr_wait_note(state)}")
                 elif gate.gate_turn_note(state):
                     print(f"  {gate.gate_turn_note(state)}")
                 elif blocked_note(state):

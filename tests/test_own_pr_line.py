@@ -162,18 +162,17 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         land.check_line(self.turn)
         handed_back = []
 
-        def push(seconds):
-            if seconds != gate.SLOT_POLL or handed_back:
-                return
-            handed_back.append(record.read_state(directory).get("findings") or "")
+        def rebased(cfg, directory, url, state, opts, log):
+            handed_back.append(state.get("findings") or "")
             self.assertEqual(self.merges, [])
             # the seat brings its branch onto the target and pushes it: now it is code
             run.git(self.repo, "checkout", self.prs[url]["branch"])
             run.git(self.repo, "rebase", "-q", "main")
             run.git(self.repo, "push", "-q", "-f", "origin", self.prs[url]["branch"])
             self.prs[url]["head"] = run.git(self.repo, "rev-parse", "HEAD")
+            return True
 
-        with patch.object(run.time, "sleep", side_effect=push):
+        with patch.object(run, "fix_own_pr", side_effect=rebased):
             state = self.review(directory, url)
         self.assertIn("need review", handed_back[0])
         self.assertFalse(state["review"].get("skipped", False))
@@ -200,7 +199,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.base = run.git(self.repo, "rev-parse", "HEAD")
         directory, url = self.own_pr("first", 1)
         with patch.object(run, "review", side_effect=self.fail_first_review), \
-                patch.object(run, "wait_for_own_pr", return_value=False):
+                patch.object(run, "fix_own_pr", return_value=False):
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
         run.git(self.repo, "checkout", self.prs[url]["branch"])
@@ -211,7 +210,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.prs[url]["head"] = run.git(self.repo, "rev-parse", "HEAD")
         self.review(directory, url)
         land.check_line(self.turn)
-        with patch.object(run, "wait_for_own_pr", return_value=False):
+        with patch.object(run, "fix_own_pr", return_value=False):
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
         current_failure = state["review"]["overridden"]
@@ -226,7 +225,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         run.git(self.repo, "cherry-pick", state["head_sha"])
         run.git(self.repo, "push", "origin", "main")
         land.check_line(self.turn)
-        with patch.object(run, "wait_for_own_pr", return_value=False):
+        with patch.object(run, "fix_own_pr", return_value=False):
             state = self.review(directory, url)
         self.assertTrue(state.get("on_target"))
         self.assertEqual(self.merges, [])
@@ -282,14 +281,12 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertEqual(len(self.reviews), 2, "delivery repeated the review")
         self.assertEqual(self.merges[0][1], run.git(Path(passed["worktree"]), "rev-parse", "HEAD"))
         self.assertNotEqual(self.merges[0][1], passed["round_summaries"][0]["head_sha"])
-        with patch.object(run, "wait_for_own_pr", return_value=False):
+        with patch.object(run, "fix_own_pr", return_value=False):
             failed = self.review(second, second_url)
         self.assertEqual(failed["verdict"], "FAIL")
         self.assertEqual(failed["own_pr_wait"], self.prs[second_url]["head"])
         self.assertIn(SUITE, failed["findings"])
-        run.tell_own_pr_round(self.cfg, second, failed, lambda _: None)
-        self.assertTrue(self.notices)
-        self.assertIn("Fix the findings and push", self.notices[-1])
+        self.assertEqual(self.notices, [])          # the fix is the run's, not the seat's
         self.assertEqual(len(self.merges), 1)
         self.assertFalse(record.read_state(second)["merged"])
         self.assertFalse(list(config.WT.glob("land-*")))
@@ -315,7 +312,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
             self.assertTrue(self.review(first, first_url)["merged"])
             land.check_line(self.turn)
             self.assertIn(f"AGENTS.md is {limit + 10} bytes", self.wait(second)["fix"]["line"])
-            with patch.object(run, "wait_for_own_pr", return_value=False):
+            with patch.object(run, "fix_own_pr", return_value=False):
                 failed = self.review(second, second_url)
         self.assertEqual(failed["verdict"], "FAIL")
         self.assertIn(f"AGENTS.md is {limit + 10} bytes", failed["findings"])
@@ -401,7 +398,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
                 self.assertTrue(self.review(directory, url)["merged"])
         self.assertLessEqual(len(run.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
 
-    def test_a_red_tree_goes_back_to_its_seat_and_the_push_is_checked(self):
+    def test_a_red_tree_gets_a_fix_round_and_the_fix_is_checked(self):
         directory, url = self.own_pr("second", 1)
         self.review(directory, url)
         self.advance(**{"first.txt": "first\n"})
@@ -409,14 +406,13 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertIn("fix", self.wait(directory))
         checks = len(self.checks)
 
-        def push(seconds):
-            if seconds != gate.SLOT_POLL:
-                return
-            self.assertTrue(self.notices, "the seat received no landing failure")
-            self.assertIn("final check failed at landing", self.notices[-1])
+        def fixed(cfg, directory, url, state, opts, log):
+            self.assertIn("## Landing failed", state["findings"])
+            self.assertEqual(self.notices, [], "the seat was told of a round it has no part in")
             self.push_fix(url, rename=True)
+            return True
 
-        with patch.object(run.time, "sleep", side_effect=push):
+        with patch.object(run, "fix_own_pr", side_effect=fixed):
             state = self.review(directory, url)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(len(state["round_summaries"]), 2)
@@ -486,7 +482,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(self.prs[url]["head"], state["head_sha"], "nobody pushed")
         land.check_line(self.turn)
-        with patch.object(run, "wait_for_own_pr", return_value=False):
+        with patch.object(run, "fix_own_pr", return_value=False):
             state = self.review(directory, url)
         self.assertTrue(state.get("merged"), (state.get("final_check") or {}).get("line"))
 
@@ -503,7 +499,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
             return git_out(cwd, *args, **kw)
 
         with patch.object(run, "git_out", side_effect=race):
-            with self.assertRaisesRegex(config.Error, "pushing the tested PR head failed"):
+            with self.assertRaisesRegex(config.Error, "pushing to the PR branch failed"):
                 self.review(directory, url)
         self.assertEqual(run.git(self.remote, "rev-parse", self.prs[url]["branch"]), self.prs[url]["head"])
         self.assertEqual(self.merges, [])
@@ -530,12 +526,12 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertEqual(len(self.checks), 1)
         self.assertEqual(len(self.reviews), 1)
 
-    def test_a_failed_required_check_returns_to_the_prs_seat(self):
+    def test_a_failed_required_check_gets_a_fix_round(self):
         directory, url = self.own_pr("first", 1)
         self.review(directory, url)
         land.check_line(self.turn)
         with patch.object(run, "checks", return_value=(False, "required checks failed: fence")), \
-                patch.object(run, "wait_for_own_pr", return_value=False):
+                patch.object(run, "fix_own_pr", return_value=False):
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
         self.assertIn("required checks failed: fence", state["findings"])
@@ -634,7 +630,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         land.check_line(self.turn)
         failed = (nullcontext() if red_suite else
                   patch.object(run, "checks", return_value=(False, "required checks failed: fence")))
-        with failed, patch.object(run, "wait_for_own_pr", return_value=False):
+        with failed, patch.object(run, "fix_own_pr", return_value=False):
             self.assertEqual(self.review(directory, url)["verdict"], "FAIL")
         self.push_fix(url, rename=True)
         newest, fetch = self.prs[url]["head"], run.fetch
@@ -673,7 +669,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
 
         with patch.object(run, "git_out", side_effect=pushed), \
                 patch.object(run, "checks", return_value=(False, "required checks failed: fence")), \
-                patch.object(run, "wait_for_own_pr", return_value=False):
+                patch.object(run, "fix_own_pr", return_value=False):
             earlier = self.review(directory, url)["delivery_sha"]
         run.git(self.repo, "checkout", self.prs[url]["branch"])
         run.git(self.repo, "reset", "--hard", earlier)
@@ -685,7 +681,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         run.git(self.repo, "reset", "--hard", earlier)
         run.git(self.repo, "push", "--force", "origin", self.prs[url]["branch"])
         self.prs[url]["head"] = earlier
-        with patch.object(run, "wait_for_own_pr", return_value=False):
+        with patch.object(run, "fix_own_pr", return_value=False):
             self.review(directory, url)
         self.assertEqual(self.merges, [])
         self.assertEqual(run.git(self.remote, "rev-parse", self.prs[url]["branch"]), earlier)
@@ -730,7 +726,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         with patch.object(run, "gh", return_value=(0, "")), \
                 patch.object(watch, "seat_closed", return_value=False), \
                 patch.object(run, "prepare", side_effect=AssertionError("solo seat started a repair run")), \
-                patch.object(run, "wait_for_own_pr", side_effect=lambda cfg, directory, url, state, log:
+                patch.object(run, "fix_own_pr", side_effect=lambda cfg, directory, url, state, opts, log:
                              self.prs[url]["head"] != state["head_sha"]):
             state = self.review(directory, url)
             if state["state"] == "waiting":

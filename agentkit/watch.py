@@ -2099,8 +2099,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
         def quiet(run_dir, state):
             """How long this run has gone without a write, from one draw's map or from disk."""
-            if run_mod.own_pr_wait_note(state) and run_record.process_active(state):
-                return None
             if silent_map is not None:
                 return silent_map.get(run_dir.name)
             return menu_mod.silent_for_run(run_dir, state, now=at)
@@ -3865,15 +3863,12 @@ def stall_clock(run_dir, state):
     A transient wait is the loop's own -- up to an hour at a time, on a provider that is down,
     writing nothing -- so the clock starts where that wait ends (`run.transient_wait`).  Only
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
-    its silence is its own. A live loop waiting for its seat to push PR fixes or another
-    delivery's repository lock is silent for as long as that takes,
-    so its clock starts now, every tick, until the wait is over.
+    its silence is its own. A live loop waiting for another delivery's repository lock is
+    silent for as long as that takes, so its clock starts now, every tick, until the wait
+    is over.
     """
-    from . import run as run_mod
     delivery_wait = state.get("delivery_wait")
-    if ((run_mod.own_pr_wait_note(state)
-         or (delivery_wait and delivery_wait == state.get("pid")
-             and state.get("state") == "running"))
+    if (delivery_wait and delivery_wait == state.get("pid") and state.get("state") == "running"
             and run_record.process_active(state)):
         return time.time()
     wait = state.get("transient_wait")

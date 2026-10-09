@@ -32,8 +32,8 @@
   `redress_seat`, `run_depth`.
 - `status.py`: `ak run status`: the run table, one run's details and their dim lines
   (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
-  watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
-  `own_pr_wait_note`). Leak: run's private `_cached_providers`.
+  watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`).
+  Leak: run's private `_cached_providers`.
 - `stop.py`: stop/clean a run; records its stop before ending processes and releasing
   its checkout. `stop_owned_runs` and `release_session` for orch, `cmd_stop` for menu,
   `marker_pids` for status. `recorded_ending` decides native and hookless turns;
