@@ -1,7 +1,7 @@
 """Past the size ceilings, ak refuses with `split it`.
 
 A task has at most three per-round checks (`task.MAX_CHECKS`; a `# once` line is the suite's
-where the run lands, a check of its own where it does not), and a seat's own pull request
+where the run lands, and a check preflight counts where it does not), and a seat's own pull request
 gets its first review only up to 400 changed lines (`task.MAX_PR_LINES`), generated files and
 pure deletions aside as `run.diff_lines` counts them.  tests/test_own_pr_rounds.py drives the
 refusal through the review itself.  Offline: a real checkout whose attributes mark a
@@ -9,11 +9,12 @@ generated file.
 """
 
 import os
+import re
 import subprocess
 import unittest
 
 from fixtures.sandbox import Sandbox
-from agentkit import run, task as taskfile
+from agentkit import config, record, run, task as taskfile
 
 
 class SizeGate(Sandbox):
@@ -50,9 +51,14 @@ class SizeGate(Sandbox):
         refused = ("4 done-when checks: a task has at most 3, one behaviour a reviewer holds "
                    "in one read; split it")
         self.assertEqual(taskfile.launch_refusal({}, ["true"] * 4), refused)
-        # without a landing the `# once` line runs every round, and counts
-        self.assertEqual(taskfile.launch_refusal({}, ["true", "true", "true", "bash tests/smoke.sh  # once"],
-                                                 landing=False), refused)
+        # without a landing the `# once` line runs every round, and preflight counts it
+        directory = config.RUNS / "20260102-0900-scratch"
+        directory.mkdir(parents=True)
+        (directory / "task.md").write_text("---\nrepo: none\n---\n# Scratch\n\n## Goal\nx\n\n## Done when\n"
+                                           "```bash\ntrue\ntrue\ntrue\nbash tests/smoke.sh  # once\n```\n")
+        record.save_state(directory, {"run_id": directory.name, "state": "queued"})
+        with self.assertRaisesRegex(config.Error, "^" + re.escape(refused) + "$"):
+            run.preflight(directory, {"--review-pr": None, "--no-merge": False}, lambda _: None)
 
     def test_the_lines_a_first_review_reads_leave_out_generated_files_and_deletions(self):
         self.assertEqual(run.diff_lines(self.repo, self.base, self.head, removed=False), 4)

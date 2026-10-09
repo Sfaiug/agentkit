@@ -224,9 +224,7 @@ def job_create(cfg, task_paths, opts, parallel):
                                "and threads on that basename, so rename one")
         seen[info["name"]] = info["path"]
     for info in infos:
-        refusal = taskfile.launch_refusal(
-            info["meta"], info["cmds"],
-            landing=not opts.get("--no-merge") and run.task_repo(info["meta"], info["path"]) is not None)
+        refusal = taskfile.launch_refusal(info["meta"], info["cmds"])
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
         run.repo_line(info["meta"], info["path"])
@@ -690,9 +688,7 @@ def job_start_task(cfg, job_dir, task, opts, log):
     task_path = Path(task["task_file"])
     meta, body, title = taskfile.parse_task(task_path)
     # the file as it reads now, which may have changed since the job began
-    refusal = taskfile.launch_refusal(
-        meta, taskfile.done_when(body, task_path),
-        landing=not opts.get("--no-merge") and run.task_repo(meta, task_path) is not None)
+    refusal = taskfile.launch_refusal(meta, taskfile.done_when(body, task_path))
     if refusal:
         raise RefusedTask(refusal)
     run_dir = job_allocate_run_dir(title)

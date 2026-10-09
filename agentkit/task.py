@@ -146,15 +146,16 @@ def task_size(body, cmds):
     return task_words(body), task_points(body), len(cmds)
 
 
-def launch_refusal(meta, cmds, landing=True):
+def launch_refusal(meta, cmds):
     """One sentence when a new task file cannot start as written, else None.
 
     A heredoc never works in done-when: each line runs as a command of its own, so the
     opening line reads an empty script and its body lines run as commands.
 
-    A task has at most `MAX_CHECKS` checks a round runs: a `# once` line is the suite's, run
-    at the landing, unless the run has none (a scratch task, `--no-merge`), where it runs
-    every round like any other check and counts as one.
+    A task has at most `MAX_CHECKS` checks a round runs (`checks_refusal`): a `# once` line
+    is the suite's, run at the landing; where the run has none (a scratch task, `--no-merge`)
+    it runs every round like any other check, and preflight, which settles that list, counts
+    it.
     """
     if "after" in meta:
         return ("`after:` is gone: tasks launched together are independent pieces; build work "
@@ -163,12 +164,15 @@ def launch_refusal(meta, cmds, landing=True):
     if heredoc:
         return (f"done-when line {heredoc!r} opens a heredoc, but each line runs as a command of "
                 "its own: put the script in a file the change adds, or on one line")
-    every, once = group_commands(cmds)
-    checks = every if landing else every + once
-    if len(checks) > MAX_CHECKS:
-        return (f"{len(checks)} done-when checks: a task has at most {MAX_CHECKS}, one behaviour a "
+    return checks_refusal(group_commands(cmds)[0]) or rounds_refusal(meta.get("rounds"), "task rounds")
+
+
+def checks_refusal(every):
+    """One sentence when more than `MAX_CHECKS` checks would run each round, else None."""
+    if len(every) > MAX_CHECKS:
+        return (f"{len(every)} done-when checks: a task has at most {MAX_CHECKS}, one behaviour a "
                 "reviewer holds in one read; split it")
-    return rounds_refusal(meta.get("rounds"), "task rounds")
+    return None
 
 
 def opens_heredoc(command):

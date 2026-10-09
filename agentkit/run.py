@@ -9540,6 +9540,9 @@ def preflight(run_dir, opts, log):
             every = [taskfile.split_once(cmd)[0]
                      for cmd in taskfile.done_when(body, run_dir / "task.md")]
             once = []
+        refusal = taskfile.checks_refusal(every)   # here a `# once` line without a landing counts
+        if refusal:
+            raise config.Error(refusal)
         commands = " ; ".join(every)
         if once:
             commands += f"{' ; ' if commands else ''}once: {' ; '.join(once)}"
@@ -11354,8 +11357,7 @@ def main(argv):
         # says to start regardless.  A run's own child launch never runs the
         # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.launch_refusal(
-            meta, cmds, landing=not opts["--no-merge"] and task_repo(meta, task_path) is not None)
+        refusal = taskfile.launch_refusal(meta, cmds)
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2
