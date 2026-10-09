@@ -3903,14 +3903,6 @@ def moved_lines(lp, path, line, since, head):
     return range(line + shift, line + shift + 1), False
 
 
-def moved_line(lp, path, line, since, head):
-    """Where line `line` of `path` at `since` sits on `head`, through the diff between them:
-    a fix above it moves a line it never touched.  None when the diff touched the line
-    itself, which puts it inside the fix delta (`moved_lines`)."""
-    lines, touched = moved_lines(lp, path, line, since, head)
-    return None if touched else lines[0]
-
-
 def placed(lp, row, since, head):
     """Where an earlier finding stands on `head`: (its line there, whether the fix delta since
     `since` touched the line, whether that line is inside the change).  A line the fix left
@@ -3939,8 +3931,8 @@ def line_of(lp, commit, path, line):
 def earlier_sites(lp, head, since):
     """Where the last review's blocking findings can stand on `head` (`moved_lines`: moved, or
     any of the lines the fix put in their place): a finding handed in again there upholds an
-    earlier one, in whatever words, and blocks wherever its line sits now, judged on nothing
-    else."""
+    earlier one, in whatever words, inside the fix delta or not; a line that is base's again
+    is judged on base, as ak's own replay of it is."""
     return {(row["path"], at) for row in earlier_findings(lp)
             for at in moved_lines(lp, row["path"], row["line"], since, head)[0]}
 
@@ -4029,8 +4021,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             elif (since and (row["path"], row["line"]) not in earlier
                     and not changed_line(lp, row, head, since)):
                 kind, outside = "note", True
-            elif (not lp.scratch and (row["path"], row["line"]) not in earlier
-                    and not changed_line(lp, row, head)):
+            elif not lp.scratch and not changed_line(lp, row, head):
                 base = evidence["base"]
                 if hand_in.proof_failed(base):
                     kind = "follow-up"
@@ -4041,8 +4032,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             if (since and (row["path"], row["line"]) not in earlier
                     and not changed_line(lp, row, head, since)):
                 kind, outside = "note", True
-            elif (not lp.scratch and (row["path"], row["line"]) not in earlier
-                    and not changed_line(lp, row, head)):
+            elif not lp.scratch and not changed_line(lp, row, head):
                 kind = "follow-up"
         row = {**row, "kind": kind, "evidence": evidence}
         if outside:
@@ -4391,7 +4381,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         identity != validation or commit_identity(lp.wt) != identity
         or (not lp.state.get("review_pr") and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
     submitted = weigh_review(lp, submitted, identity.get("head_sha"), since=delta, replayed=replayed)
-    upheld = {(row["path"], row["line"]) for row in submitted.findings}
+    upheld = {(row["path"], row["line"]) for row in submitted.findings if not row.get("replayed")}
     for row in disputes.disputes:
         # a dispute's finding is upheld wherever the fix left its line: moved, at the anchor
         # of its removal, or among the lines the fix put in its place
@@ -11062,6 +11052,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     # `own_pr_wait` stays until the new head's checkout is written down below: a fetch that
     # fails or a process that dies before then still lets the next attempt move to that head
     receipt.pop("own_pr_round_typed", None)
+    if advancing:
+        receipt["review_session"] = None   # a new round may pick another reviewer: no conversation of the last one's is resumed
     run_record.save_state(run_dir, receipt)
     owner, name, number = PR_PARTS.match(url).groups()
     repo = checkout_for(f"{owner}/{name}", log)

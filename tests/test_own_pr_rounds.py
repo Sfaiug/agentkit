@@ -66,6 +66,7 @@ class OwnPrRounds(unittest.TestCase):
         (self.run_dir / "log.txt").touch()
         run.capture_launch(self.run_dir, {"--review-pr": URL})
         self.prompts, self.notices, self.events, self.merges, self.waits = [], [], [], [], []
+        self.sessions = []
         self.verdicts = []
         self.close = False
         for name, value in (("viewer_login", "owner"), ("checkout_for", self.repo),
@@ -118,6 +119,7 @@ class OwnPrRounds(unittest.TestCase):
 
     def reviewer(self, cfg, name, body, workspace, out_dir, role, session, **_kw):
         self.prompts.append(body)
+        self.sessions.append(session)
         n = len(self.prompts)
         self.assertLessEqual(n, len(self.verdicts), "reviewed a head twice")
         self.assertEqual(run.git(workspace, "rev-parse", "HEAD"), self.pr["headRefOid"])
@@ -160,6 +162,7 @@ class OwnPrRounds(unittest.TestCase):
     def test_fail_push_pass_in_round_two_merges(self):
         state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])
+        self.assertEqual(self.sessions, [None, None])      # a new round resumes no reviewer's conversation
         self.assertEqual(state["state"], "pass")
         self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "PASS"])
         self.assertEqual(len(self.waits), 1)

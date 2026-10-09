@@ -296,7 +296,7 @@ out = pathlib.Path(sys.argv[6])
         reviewed = self.head
         # a push rebased onto a main that grew above the value: the finding moves with its line
         self.on_main("# top\n# a\n# b\n# c\nvalue = 1\n", "Main grows a line above")
-        self.assertEqual(run.moved_line(self.lp, "api.py", 4, reviewed, self.head), 5)
+        self.assertEqual(run.moved_lines(self.lp, "api.py", 4, reviewed, self.head), (range(5, 6), False))
         self.assertEqual(self.review(), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 5, "still failing; it blocks until its proof passes")])
 
@@ -398,6 +398,16 @@ out = pathlib.Path(sys.argv[6])
         self.assertIn("api.py:2 - flag is misnamed - still fails", prompt)
         self.assertIn("api.py:2 - flag is wrong - disputed by the fixer", prompt)
 
+    def test_a_dispute_nobody_upheld_is_dropped_though_ak_blocks_at_its_site(self):
+        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed),
+                                     finding("api.py:2", "flag is misnamed", self.never)), "FAIL")
+        self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode only")
+        self.dispute("api.py", 2, "flag is wrong", probe("True"))
+        self.assertEqual(self.review(), "FAIL")            # ak's replay of the other finding blocks there
+        self.assertEqual(self.records("finding"), [("api.py", 2, "still failing; it blocks until its proof passes")])
+        [dropped] = self.lp.state["disputes"]
+        self.assertTrue(dropped.startswith("Dropped: api.py:2 - flag is wrong"), dropped)
+
     def test_a_round_after_a_fail_on_the_checks_alone_judges_the_whole_change(self):
         self.assertEqual(self.review(ok=False), "FAIL")           # the checks were red, nothing found
         self.write('mode = "branch"\nflag = "branch"\nextra = 2\n', "Mend the check")
@@ -432,6 +442,10 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.records("follow-up"),
                          [("api.py", 2, "still failing, on base too: a defect from before the task, kept as a follow-up")])
         self.assertEqual(len(self.lp.state["followups"]), 1)
+        # ... and the reviewer handing it in again there is weighed the same: a follow-up
+        self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.never)), "PASS")
+        self.assertEqual(self.records("finding"), [])
+        self.assertEqual([site for site in self.records("follow-up")], [("api.py", 2, "")])
 
     def test_the_prompts_no_longer_ask_for_anything_new_or_every_instance(self):
         for role, text in worker.PREAMBLES.items():
