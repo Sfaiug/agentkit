@@ -246,6 +246,20 @@ class OwnPrFixer(OwnPr):
         self.assertEqual(lagged, [self.heads[1]])
         self.assertEqual([s["head_sha"] for s in state["round_summaries"]], self.heads[:2])
 
+    def test_a_pr_closed_while_its_read_lags_the_push_is_not_reviewed(self):
+        def closing(url):
+            info = self.view(url)
+            if self.pr["state"] == "OPEN" and info["headRefOid"] == (
+                    record.read_state(self.run_dir) or {}).get("delivery_sha"):
+                self.pr["state"] = "CLOSED"                     # the next read shows it closed
+                return {**info, "headRefOid": self.heads[0]}    # this one lags the push
+            return info
+
+        with patch.object(run, "pr_view", side_effect=closing), patch.object(run, "PR_READ_LAG", 0), \
+                self.assertRaisesRegex(config.Error, "is CLOSED, not open"):
+            self.review(["FAIL", "PASS"])
+        self.assertEqual((len(self.prompts), self.merges), (1, []))
+
     def test_the_fixer_is_given_the_whole_pr_description(self):
         self.pr["body"] = "## Summary\nFix the fence\n\n## Test plan\nrun it"
         self.review(["FAIL", "PASS"])
