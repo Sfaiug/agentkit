@@ -17,8 +17,9 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from fixtures.own_pr import OwnPr
-from agentkit import hand_in, run
+from agentkit import hand_in, run, worker
 from agentkit import record
 
 
@@ -150,6 +151,27 @@ class OwnPrFixer(OwnPr):
         self.assertTrue(state["merged"])
         self.assertIn("## What the fixer said\n## Summary\nWHY-MARKER", self.prompts[1])
         self.assertNotIn("fix_summary", state)
+
+    def test_what_the_fixer_said_reaches_a_reviewer_resumed_after_a_cut(self):
+        self.fix = lambda lp: None
+        self.fix_summary = "## Summary\nWHY-MARKER: the flag is read by nobody; nothing to fix."
+        reviewer, cut = self.reviewer, []
+
+        def cut_off(cfg, name, body, *args, **kwargs):
+            if len(self.prompts) == 1 and not cut:        # round two's first reviewer call
+                cut.append(body)
+                raise InterruptedError("the host cut the reviewer off")
+            return reviewer(cfg, name, body, *args, **kwargs)
+
+        with patch.object(worker, "call", side_effect=submitting(cut_off)), \
+                self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        saved = record.read_state(self.run_dir)
+        saved.update(state="queued", pid=999999991)
+        record.save_state(self.run_dir, saved)
+        state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertIn("## What the fixer said\n## Summary\nWHY-MARKER", self.prompts[1])
 
     def test_the_fixer_is_given_the_whole_pr_description(self):
         self.pr["body"] = "## Summary\nFix the fence\n\n## Test plan\nrun it"

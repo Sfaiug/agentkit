@@ -10580,6 +10580,22 @@ def done_when_block(cmds):
     return "## Done when\n```bash\n" + (cmds[0] if cmds else "true   # AGENTS.md declares no tests:") + "\n```\n"
 
 
+def fixer_words(round_dir):
+    """What the fixer turn in that round said, for the reviewer of the head it left: its
+    answer, and the reason of a not-needed it handed in; '' without a turn.  Read where the
+    turn wrote it, so a review resumed after a cut finds it too."""
+    turn = latest_worker_turn(round_dir)
+    if turn is None:
+        return ""
+    answer = turn / "final.md"
+    words = (read_answer(answer) if answer.is_file() else "") or ""
+    submitted = hand_in.read(turn / hand_in.FILE)
+    closing = submitted.closing if submitted is not None else None
+    if closing and closing["kind"] == "not-needed":
+        words = f"{words}\n\nNot needed: {closing['why']}"
+    return words.strip()
+
+
 def fix_body(state, says, cmds, number):
     """What the fixer of a seat's own PR is told to do: make the pull request pass its review,
     with what the PR says (whole, as GitHub holds it) and the checks it must still pass, never
@@ -10678,14 +10694,9 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
                                     + repo_rules(lp.wt, state["base_sha"]))
             fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
             try:
-                # what the fixer said, for the next round's reviewer: its summary, and the
-                # reason of a not-needed it handed in
-                summary = execute(lp, "fixer", fix, name or "executor")
-                turn = latest_worker_turn(lp.round_dir)
-                closing = hand_in.read(turn / hand_in.FILE).closing if turn else None
-                if closing and closing["kind"] == "not-needed":
-                    summary = f"{summary}\n\nNot needed: {closing['why']}"
-                state["fix_summary"] = summary
+                # what the fixer says stays in its turn's directory, where the next round's
+                # reviewer reads it (`fixer_words`), resumed after a cut or not
+                execute(lp, "fixer", fix, name or "executor")
             except Blocked as exc:
                 log(f"BLOCKED {exc}")
                 state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
@@ -10963,9 +10974,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
-        if state.get("fix_summary"):      # the fixer's own words on the head it left
-            summary += f"\n\n## What the fixer said\n{state.pop('fix_summary')}"
-            run_record.save_state(run_dir, state)
+        said = fixer_words(lp.round_dir)        # the fixer's own words on the head it left
+        if said:
+            summary += f"\n\n## What the fixer said\n{said}"
     else:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. agentkit executed nothing; "
                    "review the author's diff.")
