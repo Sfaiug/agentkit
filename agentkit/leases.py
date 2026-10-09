@@ -1,11 +1,12 @@
 """Collisions between the live runs of one repository: the tick's scan, report-only.
 
-A run's lease is its own diff against the base it was cut from, uncommitted edits included;
-no model declares, renews or releases anything.  Each tick, every pair of live runs of a
-repository is merged in memory (`git merge-tree --write-tree`, git's own conflict rule),
-each run's own diff brought onto the newer of their two bases first, so main's movement
-between the bases is nobody's diff and a run that conflicts with main is not a run that
-conflicts with its neighbour.  A pair that cannot merge is written down on the younger run,
+A run's lease is its own diff against the base it was cut from, uncommitted edits included
+as a commit would take them (`run.committable_paths`); no model declares, renews or releases
+anything.  Each tick, every pair of live runs of a repository is merged in memory (`git
+merge-tree --write-tree`, git's own conflict rule), each run's own diff brought onto the
+newer of their two bases first with main's side kept where the run clashes with it, so
+main's movement between the bases is nobody's diff and a run's conflict with main is not
+one with its neighbour.  A pair that cannot merge is written down on the younger run,
 by start, as waiting on the older (wait-die: the older never waits on the younger, so no
 cycle can form).  Nothing is refused here: the record under `~/.agentkit/state/leases/`
 and the tick's log line are what the refusals at ak's commit step, the git shim and the
@@ -80,32 +81,46 @@ def live(repo):
     return sorted(found, key=lambda each: (each["started"], each["run"]))
 
 
+# One identity and moment for every commit the scan writes: a tree compared before hashes to
+# the same commit again, so an unchanged pair writes nothing into the repository
+STAMP = {"GIT_AUTHOR_NAME": "ak", "GIT_AUTHOR_EMAIL": "ak@localhost",
+         "GIT_COMMITTER_NAME": "ak", "GIT_COMMITTER_EMAIL": "ak@localhost",
+         "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z"}
+
+
 def tree(worktree, log=lambda _: None):
-    """The checkout's tree as it stands, uncommitted edits and untracked files included,
-    written to the repository's object store through an index of its own: the checkout's
-    index and files are never touched.  A file git cannot read is left out and said once:
-    one checkout's unreadable file costs no pair its record."""
+    """The checkout's tree as it stands: HEAD with the uncommitted paths a commit would take
+    (`run.committable_paths`: never test sandboxes, dependency trees, run locks or what
+    `.gitignore` names), written to the repository's object store through an index of its
+    own, so the checkout's index and files are never touched.  A file git cannot read is
+    left out and said once: one checkout's unreadable file costs no pair its record."""
     from . import run
     with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
         env = {**os.environ, "GIT_INDEX_FILE": index.name}
         run.git(worktree, "read-tree", "HEAD", env=env)
-        try:
-            run.git(worktree, "add", "--ignore-errors", "-A", "--", ".", env=env)
-        except run.Stopped:
-            raise
-        except config.Error as exc:
-            log(f"WARN lease scan: left unreadable paths of {worktree} out: {exc}")
+        real, _ = run.committable_paths(worktree)
+        if real:
+            try:
+                run.git(worktree, "add", "--ignore-errors", "--", *real, env=env)
+            except run.Stopped:
+                raise
+            except config.Error as exc:
+                log(f"WARN lease scan: left unreadable paths of {worktree} out: {exc}")
         return run.git(worktree, "write-tree", env=env)
 
 
-def merged(repo, base, ours, theirs):
+def merged(repo, base, ours, theirs, ours_wins=False):
     """(the merged tree, the paths that could not be merged) of two trees over the commit
-    `base`, in memory: each tree is held by a commit on `base` for `git merge-tree`, which
-    takes commits on every git ak runs on (bare trees only from 2.45) and finds their base
-    itself."""
+    `base`, in memory: each tree is held by a commit on `base` (`STAMP`ed, so the same tree
+    is the same commit) for `git merge-tree`, which takes commits on every git ak runs on
+    (bare trees only from 2.45) and finds their base itself.  With `ours_wins` a hunk the two
+    sides clash on is `ours`, and nothing is left unmerged."""
     from . import run
-    sides = [run.git(repo, "commit-tree", each, "-p", base, "-m", "lease") for each in (ours, theirs)]
-    code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only", *sides)
+    env = {**os.environ, **STAMP}
+    sides = [run.git(repo, "commit-tree", each, "-p", base, "-m", "lease", env=env)
+             for each in (ours, theirs)]
+    code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only",
+                            *(["-X", "ours"] if ours_wins else []), *sides)
     if code not in (0, 1):
         raise config.Error(f"git merge-tree in {repo}: {out}")
     # the merged tree's id, then one conflicted path per line, a blank line, git's messages
@@ -117,14 +132,14 @@ def collide(repo, older, younger, log=lambda _: None):
     """The paths the younger run's own diff cannot be merged with the older's: git's own
     conflict rule, run in memory, each diff against the base its run was cut from.  With
     bases that differ, the run on the older base has its change brought onto the newer base
-    first; a path where that clashes is that run's conflict with main, not with its
-    neighbour, and is left out while the rest is compared.  Runs cut from bases that never
-    met (a `base:` branch and main) collide with nobody here: there is no one line of history
-    to lay both diffs on.  Empty when they merge."""
+    first, main's side kept at the hunks where it clashes -- that run's conflict with main,
+    not with its neighbour -- and the rest of its diff compared.  Runs cut from bases that
+    never met (a `base:` branch and main) collide with nobody here: there is no one line of
+    history to lay both diffs on.  Empty when they merge."""
     from . import run
     trees = {name: tree(each["worktree"], log) for name, each in (("older", older), ("younger", younger))}
     bases = {"older": older["base"], "younger": younger["base"]}
-    base, left_out = older["base"], set()
+    base = older["base"]
     if bases["older"] != bases["younger"]:
         older_first = run.git_out(repo, "merge-base", "--is-ancestor", older["base"], younger["base"])[0] == 0
         if not older_first and run.git_out(repo, "merge-base", "--is-ancestor",
@@ -132,13 +147,9 @@ def collide(repo, older, younger, log=lambda _: None):
             return []
         behind, ahead = ("older", "younger") if older_first else ("younger", "older")
         base = bases[ahead]
-        # main as the run ahead saw it, with the run behind's change on it: where that
-        # clashes, the merged tree carries the markers, and that path is left out below
-        trees[behind], clash = merged(repo, bases[behind], run.git(repo, "rev-parse", f"{base}^{{tree}}"),
-                                      trees[behind])
-        left_out = set(clash)
-    return [path for path in merged(repo, base, trees["older"], trees["younger"])[1]
-            if path not in left_out]
+        trees[behind], _ = merged(repo, bases[behind], run.git(repo, "rev-parse", f"{base}^{{tree}}"),
+                                  trees[behind], ours_wins=True)
+    return merged(repo, base, trees["older"], trees["younger"])[1]
 
 
 def scan(repo, log=lambda _: None, now=None):

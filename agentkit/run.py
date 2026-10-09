@@ -1914,15 +1914,7 @@ def commit_leftovers(wt, log, artifacts, state):
     commit is built in an index of its own: `git commit -- venv` would add the link back
     from the worktree, and the real index keeps whatever else the executor staged.
     """
-    paths = [p for p in dirty_paths(wt) if p not in artifacts]
-    real, sandbox = [], []
-    for path in paths:
-        if leftover_junk(path):
-            sandbox.append(path)
-        elif git_out(wt, "check-ignore", "-q", "--", path)[0] == 0:
-            sandbox.append(path)
-        else:
-            real.append(path)
+    real, sandbox = committable_paths(wt, artifacts)
     status = git(wt, "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD",
                  check=False).split("\0")
     staged = dict(zip(status[1::2], status[::2]))
@@ -1958,6 +1950,22 @@ def commit_leftovers(wt, log, artifacts, state):
         log(f"WARN could not commit the executor's uncommitted changes: {exc}")
         return
     log("WARN committed uncommitted executor changes: " + ", ".join(real + gone))
+
+
+def committable_paths(wt, artifacts=()):
+    """(the dirty paths a commit of the checkout would take, the leftover junk it leaves): the
+    one rule of what a run's uncommitted work is.  Test sandboxes, run locks and dependency
+    trees (`leftover_junk`), whatever the repository's `.gitignore` names, and what the
+    done-when generated (`artifacts`) are left."""
+    real, sandbox = [], []
+    for path in dirty_paths(wt):
+        if path in artifacts:
+            continue
+        if leftover_junk(path) or git_out(wt, "check-ignore", "-q", "--", path)[0] == 0:
+            sandbox.append(path)
+        else:
+            real.append(path)
+    return real, sandbox
 
 
 def ignored_sandbox_paths(wt, artifacts):
