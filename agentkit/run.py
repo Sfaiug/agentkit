@@ -6594,15 +6594,15 @@ def changed_files(state):
     return [found for found in out.split("\0") if found]
 
 
-def diff_lines(repo, base, head="HEAD", removed=True):
-    """Added plus deleted text lines, excluding files Git marks linguist-generated; without
-    `removed`, the files the change deletes whole are left out too: what a reviewer reads.
+def diff_lines(repo, base, head="HEAD", added_only=False):
+    """Added plus deleted text lines, excluding files Git marks linguist-generated; with
+    `added_only`, the added lines alone, what a reviewer reads: nothing deleted counts.
 
     Deleted files read their attributes at the base; their directory's attributes may
     have been deleted too. NUL records preserve unusual filenames and rename pairs.
     """
     total = 0
-    for selector, source in (("d", head), *((("D", base),) if removed else ())):
+    for selector, source in (("d", head), *(() if added_only else (("D", base),))):
         parts = iter(git(repo, "diff", "--numstat", "-z", "--find-renames",
                          f"--diff-filter={selector}", f"{base}...{head}").split("\0"))
         changes = []
@@ -6614,7 +6614,7 @@ def diff_lines(repo, base, head="HEAD", removed=True):
                 next(parts)  # the old name; surviving files use their new attributes
                 name = next(parts)
             if added != "-":
-                changes.append((name, int(added) + int(deleted)))
+                changes.append((name, int(added) if added_only else int(added) + int(deleted)))
         if changes:
             # Older Git has no check-attr --source; a private index reads the same tree.
             with tempfile.TemporaryDirectory(dir=config.TMP) as tmp:
@@ -10289,12 +10289,12 @@ def gh_json(cwd, *args, timeout=None):
 
 
 def pr_size_refusal(number, lines):
-    """One sentence when a pull request changes more lines than a first review takes at once
-    (`task.MAX_PR_LINES`), else None: `lines` as `diff_lines` counts them without the files
-    the change deletes whole, what a reviewer reads."""
+    """One sentence when a pull request adds more lines than a first review takes at once
+    (`task.MAX_PR_LINES`), else None: `lines` as `diff_lines` counts the added ones, what a
+    reviewer reads; nothing deleted counts."""
     if lines <= taskfile.MAX_PR_LINES:
         return None
-    return (f"PR #{number} changes {lines} lines (generated files and pure deletions aside): "
+    return (f"PR #{number} adds {lines} lines (generated files aside; deletions never count): "
             f"a first review takes at most {taskfile.MAX_PR_LINES}; split it")
 
 
@@ -10850,7 +10850,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         # a first review takes at most MAX_PR_LINES at once: past it, the run ends blocked
         # with the reason before any reviewer is picked, and the PR is split; a later round
         # reviews whatever the fix left
-        why = pr_size_refusal(number, diff_lines(repo, base_sha, head, removed=False))
+        why = pr_size_refusal(number, diff_lines(repo, base_sha, head, added_only=True))
         if why:
             return review_blocked(run_dir, state, cmds, log, cfg, Blocked(why, f"## Blocked\n\n{why}"))
     providers = collect_usage(cfg)

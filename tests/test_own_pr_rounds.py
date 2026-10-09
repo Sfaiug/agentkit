@@ -158,11 +158,11 @@ class OwnPrRounds(unittest.TestCase):
                              {"--review": None, "--review-pr": URL}, lambda _: None)
 
     def test_an_own_prs_first_review_is_refused_past_the_ceiling(self):
-        self.pr["headRefOid"] = self.heads[1]           # 5001 changed lines of fence.txt
+        self.pr["headRefOid"] = self.heads[1]           # 5000 added lines of fence.txt
         with patch.object(run, "ready_order", return_value=[]):     # decided from git alone: no reviewer is picked first
             state = self.review([])
         self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
-        self.assertIn("PR #7 changes 5001 lines", state["error"])
+        self.assertIn("PR #7 adds 5000 lines", state["error"])
         self.assertIn("split it", state["blocked"])
         self.assertEqual((self.prompts, self.merges), ([], []))
 

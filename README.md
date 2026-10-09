@@ -6,7 +6,7 @@ One command installs it. One word opens it. You tell one orchestrator what you w
 
 Jobs keep your words since the seat's previous job, capped at the newest 64 KiB, from Claude, Codex or Grok records. ak's notices are excluded; relayed owner replies count. Delivery checks will use them.
 
-A seat's own `ak run --review-pr` sends FAIL findings back to the seat and waits for its push, for up to three review rounds; PASS merges with green checks. A seat's own pull request's first review takes at most 400 changed lines (generated files and pure deletions aside) and a task at most three per-round checks: past either, ak refuses with `split it`; size is recorded. `ak run status --history` compares the last two weeks of products and ak: runs ended, first-round merges, endings without a merge, median hours to merge and tokens per merged run, plus ak's share of tokens and its code lines and README words now and seven days ago. The scoreboard never picks a model or changes a limit.
+A seat's own `ak run --review-pr` sends FAIL findings back to the seat and waits for its push, for up to three review rounds; PASS merges with green checks. A seat's own pull request's first review takes at most 400 added lines (generated files aside; what it deletes never counts) and a task at most three per-round checks: past either, ak refuses with `split it`; size is recorded. `ak run status --history` compares the last two weeks of products and ak: runs ended, first-round merges, endings without a merge, median hours to merge and tokens per merged run, plus ak's share of tokens and its code lines and README words now and seven days ago. The scoreboard never picks a model or changes a limit.
 
 ## Install
 

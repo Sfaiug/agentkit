@@ -2,8 +2,8 @@
 
 A task has at most three per-round checks (`task.MAX_CHECKS`; a `# once` line is the suite's
 where the run lands, and a check preflight counts where it does not), and a seat's own pull request
-gets its first review only up to 400 changed lines (`task.MAX_PR_LINES`), generated files and
-pure deletions aside as `run.diff_lines` counts them.  tests/test_own_pr_rounds.py drives the
+gets its first review only up to 400 added lines (`task.MAX_PR_LINES`), generated files aside
+and nothing deleted counted, as `run.diff_lines` counts them.  tests/test_own_pr_rounds.py drives the
 refusal through the review itself.  Offline: a real checkout whose attributes mark a
 generated file.
 """
@@ -61,11 +61,16 @@ class SizeGate(Sandbox):
             run.preflight(directory, {"--review-pr": None, "--no-merge": False}, lambda _: None)
 
     def test_the_lines_a_first_review_reads_leave_out_generated_files_and_deletions(self):
-        self.assertEqual(run.diff_lines(self.repo, self.base, self.head, removed=False), 4)
-        self.assertEqual(run.diff_lines(self.repo, self.base, self.head), 8)     # old.py's four
+        self.assertEqual(run.diff_lines(self.repo, self.base, self.head, added_only=True), 2)
+        self.assertEqual(run.diff_lines(self.repo, self.base, self.head), 8)     # the recorded size: old.py's four too
+        # a change that only deletes adds nothing: a first review takes it whatever its size
+        self.write({"api.py": "a\n"}, "Delete two lines")
+        head = self.git("rev-parse", "HEAD")
+        self.assertEqual(run.diff_lines(self.repo, self.base, head, added_only=True), 0)
+        self.assertEqual(run.diff_lines(self.repo, self.base, head), 6)
         self.assertIsNone(run.pr_size_refusal(7, taskfile.MAX_PR_LINES))
         self.assertEqual(run.pr_size_refusal(7, taskfile.MAX_PR_LINES + 1),
-                         "PR #7 changes 401 lines (generated files and pure deletions aside): "
+                         "PR #7 adds 401 lines (generated files aside; deletions never count): "
                          "a first review takes at most 400; split it")
 
 
