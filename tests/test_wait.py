@@ -315,6 +315,27 @@ class Wait(Sandbox):
         self.assertEqual(self.tick(), [ENDED])
         self.assertEqual(self.tick(), [])
 
+    def test_j_a_wait_from_before_waits_named_a_pull_request_or_run_is_over_at_once(self):
+        # the record `ak wait <session>` left behind: no fact can end it, so it is over, and
+        # nothing is typed, told or not
+        for old in ({"on": OTHER, "at": NOW - 300}, {"on": OTHER, "at": NOW - 100, "told": NOW - 50}):
+            with self.subTest(old=old):
+                watch.seat_write(SEAT, wait=old)
+                self.assertIsNone(watch.waiting_on(SEAT))
+                self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+                self.assertIn('"block"', self.hook())
+                self.assertEqual(self.tick(), [])
+                self.assertEqual(self.tick(), [])
+                self.assertIsNone(watch.waiting_on(SEAT))
+        self.assertTrue(watch.seat_read(SEAT)["wait"]["told"])
+
+    def test_k_a_pull_request_gh_cannot_view_is_refused(self):
+        self.gh = None
+        code, out, err = self.wait(PR)
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn(f"gh cannot view {PR}", err)
+        self.assertNotIn("wait", watch.seat_read(SEAT))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

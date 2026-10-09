@@ -41,7 +41,6 @@ import sys
 import tempfile
 import termios
 import time
-import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -638,7 +637,6 @@ def screen(harness):
     built = {"composer": _pattern(block.get("composer"), path),
              "footer": _pattern(f"(?:{footer})$" if footer else None, path, re.I),
              "ruled": bool(block.get("ruled")),
-             "queues": bool(block.get("queues_typing")),
              "folds_over": block.get("folds_over") if isinstance(block.get("folds_over"), int)
              else None,
              "folded": _pattern(block.get("folded"), path),
@@ -1924,8 +1922,7 @@ def plan_progress(name):
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
-                  previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False,
-                  waits=True):
+                  previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False):
     """`working`, `needs you` or `done` -- why, and since when.  The one decision.
 
     Every screen reads this and says one of those three words: the menu row, the project
@@ -1970,8 +1967,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
     `jobs` is the cards' alone: a job's `all N tasks finished` is `done` to its card, the way it
-    always was, and no word of the seat's to every screen.  `waits` is `waiting_on`'s alone:
-    whether the seat's own `ak wait` still holds.
+    always was, and no word of the seat's to every screen.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -1999,7 +1995,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
             harness = None
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out, jobs,
-                            menu_mod, run_mod, terminal_mod, waits)
+                            menu_mod, run_mod, terminal_mod)
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
     # because a fact older than the change is not when the word began.  Only the first
@@ -2093,7 +2089,7 @@ def hook_look(launched, heard=None, answered_at=None, said=""):
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
                    found, harness, auth_out, gh_out, token_out, jobs, menu_mod, run_mod,
-                   terminal_mod, waits=True):
+                   terminal_mod):
     """The ladder itself, top rung first, from the facts its caller gathered.
 
     The seat's own runs are gathered before the first rung, because a login the top rung
@@ -2207,8 +2203,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "working", "reason": reason,
                 "since": min(starts) if starts else None}
     # 2a. ... or it ended its turn on `ak wait`, and what it named is not over yet
-    wait = waiting_on(name, records, at, cfg) if waits else None
-    if wait and wait["word"] == "working":
+    wait = waiting_on(name, records, at, cfg)
+    if wait:
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
     # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
     # somebody is still in has a screen to read.  The parked run below keeps its
@@ -2277,12 +2273,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         told = " ".join(restart.split()) if isinstance(restart, str) else ""
         return {"word": "needs you", "since": None,
                 "reason": f"{reason} · {told}" if told else reason}
-    # 4a. ... or its `ak wait` holds through the other session's question to him: his answer
-    # moves this one too.  Below its own turn, its own parked runs and its own closed seat,
-    # which are each news of its own.
-    if wait:
-        return {"word": "needs you", "since": wait["since"],
-                "reason": f"waiting on {wait['on']}, which asks you: {wait['reason']}"}
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
     # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
     # seat's own standing until a newer notice, but a question on its screen, or typed text
@@ -2342,13 +2332,6 @@ def too_long(line):
     return None
 
 
-def flat(text):
-    """`text` as one typed line: each run of whitespace or control characters is one space, so
-    no key in it but the line's own Enter acts on the composer."""
-    return " ".join("".join(" " if unicodedata.category(ch) == "Cc" else ch
-                            for ch in text).split())
-
-
 def waiting_on(name, records=None, now=None, cfg=None):
     """That seat's own `ak wait`, while the pull request or run it names is not yet over; else
     None.
@@ -2361,11 +2344,11 @@ def waiting_on(name, records=None, now=None, cfg=None):
     nothing afterwards, and only a new `ak wait` is a new wait.
     """
     wait = seat_read(name).get("wait")
-    if not isinstance(wait, dict) or wait.get("over") or not isinstance(wait.get("on"), str):
+    if (not isinstance(wait, dict) or wait.get("over") or wait.get("kind") not in ("pr", "run")
+            or not isinstance(wait.get("on"), str)):
         return None
     at = _stamp(wait.get("at"))
-    return {"on": wait["on"], "kind": wait.get("kind"), "at": at, "word": "working",
-            "reason": f"waiting on {wait['on']}", "since": at}
+    return {"on": wait["on"], "kind": wait["kind"], "at": at, "since": at}
 
 
 def wait_fact(wait):
@@ -2418,6 +2401,14 @@ def wait_over(cfg, log):
         wait = waiting.get(name)
         if wait is None or any(session.get(key) for key in orch.CLOSED):
             continue
+        if wait.get("kind") not in ("pr", "run"):
+            # the record `ak wait <session>` wrote before waits named a pull request or run:
+            # no fact can end it, so it is over, and there is nothing to type
+            if wait_mark(name, wait, over="a wait on a session, from before ak wait named a "
+                         "pull request or run", told=time.time()):
+                log(f"{name}: its wait on {wait['on']} named a session; ended, as ak waits only "
+                    "on a pull request or run")
+            continue
         if not wait.get("over"):
             over, reason = wait_fact(wait)
             if over is None:
@@ -2455,6 +2446,10 @@ def wait_main(argv):
     on = argv[0].strip()
     pull = PR_URL.match(on)
     if pull:
+        data, why = gh_json(config.RUNS, "pr", "view", on, "--json", "state")
+        if not isinstance(data, dict):
+            print(f"ak wait: gh cannot view {on}: {why}", file=sys.stderr)
+            return 1
         kind, shown = "pr", f"PR #{pull.group(1)}"
     elif on not in (".", "..") and "/" not in on and (config.RUNS / on).is_dir():
         kind, shown = "run", f"run {on}"
@@ -3052,11 +3047,9 @@ def at_prompt(session, cfg=None, pane=None):
     return found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
 
 
-def takes_line(session, cfg=None, pane=None, midturn=False):
-    """May a line be typed into that seat now: at its own prompt; stopped on background work,
-    whose composer stays open and sends a typed line at once (`background` on that hook event);
-    or -- `midturn` -- during a turn whose harness holds a typed line for its model's next step
-    (`[screen] queues_typing`)."""
+def takes_line(session, cfg=None, pane=None):
+    """May a line be typed into that seat now: at its own prompt, or stopped on background work,
+    whose composer stays open and sends a typed line at once (`background` on that hook event)."""
     if at_prompt(session, cfg=cfg, pane=pane):
         return True
     if any(session.get(key) for key in orch.CLOSED):
@@ -3071,15 +3064,12 @@ def takes_line(session, cfg=None, pane=None, midturn=False):
         found = live_state(session, harness, pane=pane, cfg=cfg)
     except (config.Error, OSError):
         return False
-    if found.get("hooked_event") in _background_stops(harness):
-        return True
-    return midturn and screen(harness)["queues"] and _turn_in_flight(harness, found)[0]
+    return found.get("hooked_event") in _background_stops(harness)
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
-                   source="ak", stale=lambda held: False, midturn=False):
-    """One line into a seat, and only while its harness sits at its own prompt -- or, with
-    `midturn`, while a turn runs where its harness holds the line for its next step.
+                   source="ak", stale=lambda held: False):
+    """One line into a seat, and only while its harness sits at its own prompt.
 
     The prompt is tested twice: once here, and once more inside the send lock, because two
     runs ending together would both find the seat free and the second would then type into
@@ -3118,7 +3108,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                 kept_asked_first(dict(session, name=held))
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
-    if not takes_line(session, cfg=cfg, midturn=midturn):
+    if not takes_line(session, cfg=cfg):
         return False
     composed = []
 
@@ -3136,7 +3126,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             harness = seat_model(config.load() if cfg is None else cfg, held)[0]
         except (config.Error, OSError):
             return True
-        return not (harness and takes_line(session, cfg=cfg, pane=pane, midturn=midturn)
+        return not (harness and takes_line(session, cfg=cfg, pane=pane)
                     and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
     return (type_checked(session, text, log, None,
@@ -3385,7 +3375,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
     `done`, as it holds the hook's.  A wait that is over is wait_over's to end, with
-    the line saying what that session is now and why: a bare keystroke typed first would take
+    the line saying what ended it: a bare keystroke typed first would take
     the prompt that line waits for, and leave the seat deciding without it.
 
     Every `continue` is a new turn, so the hook's two blocks a turn cannot be counted here: a

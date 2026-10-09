@@ -517,7 +517,7 @@ def progress(session, capture, seat_harness):
     Capture under the notice lock: output sampled before an open or a newer notify cannot
     resolve it. Empty captures and viewport resizing are not evidence of resumed work, and
     neither is output once ak has typed a line of its own into the seat since the open -- a
-    hand-back, a told line, an idle `/compact`: the seat's turn, not the owner's answer, which
+    hand-back, a wait's end, an idle `/compact`: the seat's turn, not the owner's answer, which
     its harness's prompt hook then reports.  A line typed before the open is history, and so is
     one typed where no prompt hook reports anything: there this output is the only answer.
     Nor is any output the answer to the seat's own question where `seat_harness`, its harness
