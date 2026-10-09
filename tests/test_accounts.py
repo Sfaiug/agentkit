@@ -97,7 +97,7 @@ def script(path, text):
 
 class Accounts(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix="ak-accounts-")
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-accounts-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = root = Path(tmp.name)
         self.fake, bin, adapters = root / "fake", root / "bin", root / "adapters"
@@ -109,7 +109,11 @@ class Accounts(unittest.TestCase):
         script(bin / "security", "#!/usr/bin/env bash\nexit 1\n")
         script(adapters / "other.sh", FAKE_OTHER)
         (adapters / "claude.sh").symlink_to(REPO / "adapters/claude.sh")
-        stateful(adapters / "claude.sh", root, ("claude", "other"))
+        # Keep the real adapter's writable paths; the fake command also writes its call log.
+        manifest = (REPO / "adapters/claude.toml").read_text()
+        (adapters / "claude.toml").write_text(
+            manifest.replace("state = [", "state = [" + json.dumps(str(self.fake)) + ", ", 1))
+        stateful(adapters / "other.sh", self.fake)
         home = root / ".agentkit"
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)

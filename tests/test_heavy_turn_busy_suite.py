@@ -98,6 +98,7 @@ class BusySuite(unittest.TestCase):
         self.marks = self.root / "marks"
         self.marks.touch()
         self.lock = self.root / "suite.lock"
+        self.lock.touch()
         self.go = self.root / "go"
         (self.root / "suite.py").write_text(SUITE)
 
