@@ -488,6 +488,17 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(len(lines()), 2)
         self.assertEqual(len(self.spawns), 2)
 
+    def test_a_stop_during_the_launches_still_writes_every_line_owed(self):
+        other = "python3 -c 'from other import ratio; ratio(0)'"
+        directory, state = self.source("stopped", followups=[DEFECT, OTHER],
+                                       followup_checks={DEFECT: CHECK, OTHER: other})
+        with patch.object(run, "prepare", side_effect=record.StopRequested("stop")):
+            self.assertEqual(self.start(directory, state), [])
+        lines = [line for line in config.plan_path("seat").read_text().splitlines() if line.startswith("- [ ]")]
+        self.assertEqual([plan.deferred(line) for line in lines], [False, False])
+        self.assertEqual(len(record.read_state(directory)["followup_plan"]), 2)
+        self.assertEqual(self.spawns, [])
+
     def test_a_followup_whose_run_could_not_start_keeps_its_line_owed(self):
         other = "python3 -c 'from other import ratio; ratio(0)'"
         directory, state = self.source("items", followups=[DEFECT, OTHER],

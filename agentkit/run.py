@@ -3366,10 +3366,11 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     """A merge hands its follow-ups on, once, under the same lock that closes the seat.
 
     A review follow-up becomes a line in the seat's own plan, checked by its failing command,
-    and a fix run of its own with that command as its done-when: the line is written once the
-    item's run is settled, deferred, holding no done, where a run took it (started here, or
-    already open with that check), and the seat's own to build where none did -- the session
-    marks no executor, or the launch failed.  Anything else on the list (a flaky check's
+    and a fix run of its own with that command as its done-when: every planned item's line is
+    written in one place, once the runs are settled, however the loop ended -- deferred,
+    holding no done, where a run took the item (started here, or already open with that
+    check), and the seat's own to build where none did: the session marks no executor, the
+    launch failed, or a stop cut the loop short.  Anything else on the list (a flaky check's
     evidence) starts an ordinary run with a regression test of its own.  The receipt is
     written once the list is handed
     on: a process cut off before that hands it on again, and each item finds what the cut-off
@@ -3412,19 +3413,19 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         record = config.session_records().get(config.resolve_session(session), {})
         fixers = record.get("workers") != []      # a run can take a line; else the seat does
         handed = {"followup_runs": [], "followup_plan": []}
+        taken = set()       # the items a run has: started here, or already open with the check
 
-        def plan_line(item, taken):
-            """The item's plan line once its run is settled: deferred where one took it, the
-            seat's own to build otherwise."""
-            if item in planned:
-                handed["followup_plan"].append(plan_followup(
-                    session, repo, item, checks[item], commits.get(item) or state.get("base_sha"),
-                    log, deferred=taken))
+        def plan_lines():
+            """Every planned item's line, once, however the loop ended: deferred where a run
+            took it, the seat's own to build otherwise."""
+            handed["followup_plan"] = [
+                plan_followup(session, repo, item, checks[item],
+                              commits.get(item) or state.get("base_sha"), log, deferred=item in taken)
+                for item in planned]
 
         cfg = report_config(cfg)
         if not fixers:
-            for item in items:
-                plan_line(item, False)
+            plan_lines()
             return None if request else followups_handed(run_dir, state, handed)
         repo = repo or main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
@@ -3437,7 +3438,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             started = None if request else started_by(run_dir, item)
             if started:
                 handed["followup_runs"].append(started)
-                plan_line(item, True)
+                taken.add(item)
                 continue
             source = {**state, "repo": str(repo)}
             opened = open_followup(source, item, key, repair and repair["sha"],
@@ -3445,7 +3446,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             if opened and request:
                 return opened
             if opened:
-                plan_line(item, True)
+                taken.add(item)
                 continue
             title = ("Split the slow test suite" if split else
                      f"Make {target} pass `{repair['command']}` again" if repair
@@ -3533,8 +3534,10 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 spawn_bg(directory, [str(directory / "task.md")])
             except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
-                plan_line(item, False)
-                return None if request else followups_handed(run_dir, state, handed)
+                if request:
+                    return None
+                plan_lines()        # the lines of every item, this one and the rest owed
+                return followups_handed(run_dir, state, handed)
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 if split:
@@ -3544,13 +3547,13 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                     # tick starts that: it is the repair all the same
                     return directory.name if repair_open(run_record.read_state(directory) or {},
                                                          repair["sha"]) else None
-                plan_line(item, False)
                 continue
             if request:
                 return directory.name
             handed["followup_runs"].append(directory.name)
-            plan_line(item, True)
+            taken.add(item)
         if not request:
+            plan_lines()
             return followups_handed(run_dir, state, handed)
 
 
