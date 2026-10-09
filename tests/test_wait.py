@@ -356,12 +356,20 @@ class Wait(Sandbox):
 
     def test_n_a_wait_gh_cannot_read_is_the_owners_login_or_ends_said_after_three_ticks(self):
         self.wait(PR)
-        self.gh = None                                      # gh: no route to GitHub
-        for _ in range(watch.UNREAD_TICKS - 1):
-            self.assertEqual(self.tick(), [])
-            self.assertEqual(self.decide(), ("working", f"waiting on {PR}"))
-        self.assertEqual(self.tick(), [f"your wait on {PR} cannot be read (gh: no route to GitHub); "
-                                       "your wait is over. Decide the next step."])
+        down = (None, "error connecting to api.github.com\ncheck your internet connection or "
+                      "https://githubstatus.com")
+        with patch.object(watch, "gh_json", return_value=down):
+            for _ in range(watch.UNREAD_TICKS - 1):
+                self.assertEqual(self.tick(), [])
+        self.assertEqual(self.tick(), [])              # read again, and open: the misses were blips
+        with patch.object(watch, "gh_json", return_value=down):
+            for _ in range(watch.UNREAD_TICKS - 1):
+                self.assertEqual(self.tick(), [])
+                self.assertEqual(self.decide(), ("working", f"waiting on {PR}"))
+            # ... UNREAD_TICKS ticks running end it, said in one line whatever gh said over two
+            self.assertEqual(self.tick(), [f"your wait on {PR} cannot be read (error connecting to "
+                                           "api.github.com check your internet connection or "
+                                           "https://githubstatus.com); your wait is over. Decide the next step."])
         self.assertEqual(self.decide(), ("needs you", "waiting for you"))
         # a logged-out gh is the owner's to fix: the wait holds, and the seat is held up by gh
         # like one with a push to make (rung 1b), however many ticks it takes

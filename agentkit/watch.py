@@ -2314,9 +2314,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
 
 MAX_BYTES = 8000        # tmux refuses one command past 16 KiB, and a typed line goes in whole
-PR_URL = re.compile(r"^https://github\.com/[^/\s]+/[^/\s]+/pull/(\d+)/?$")
-
-
 def longest(cfg):
     """The most characters a typed line may hold: one every harness a seat can run shows whole
     in its composer (`[screen] folds_over`), so the line read back there is the line typed."""
@@ -2428,17 +2425,22 @@ def wait_over(cfg, log):
                 if unread < UNREAD_TICKS:
                     wait_mark(name, wait, unread=unread)
                     continue
-                # a fact nobody could read for this long ends the wait, said: no seat stands
-                # on it for good
+                # a fact nobody could read for this many ticks running ends the wait, said:
+                # no seat stands on it for good
                 over, reason = True, f"your wait on {wait['on']} cannot be read ({reason})"
-            if not over or not wait_mark(name, wait, over=reason):
+            elif not over:
+                if wait.get("unread"):
+                    wait_mark(name, wait, unread=0)     # read again: the misses were blips
+                continue
+            if not wait_mark(name, wait, over=reason):
                 continue
             wait = seat_read(name).get("wait")
             if not isinstance(wait, dict) or wait.get("told"):
                 continue
         if closed:
             continue
-        line = f"{wait['over']}; your wait is over. Decide the next step."
+        # one line, whatever gh said over several: a newline typed is a key of its own
+        line = f"{' '.join(str(wait['over']).split())}; your wait is over. Decide the next step."
         if type_at_prompt(session, line, log, cfg=cfg, typed=wait.get("typed"),
                           receipt=lambda mark, name=name, wait=wait:
                           wait_mark(name, wait, typed=mark)):
@@ -2462,14 +2464,15 @@ def wait_main(argv):
     if not seat:
         print("ak wait: no seat: run it inside an orchestrator session", file=sys.stderr)
         return 1
+    from . import run as run_mod   # here, not at the top: run imports this module
     on = argv[0].strip()
-    pull = PR_URL.match(on)
+    pull = run_mod.PR_PARTS.match(on)      # the one pattern of a GitHub pull request URL
     if pull:
         data, why = gh_json(config.RUNS, "pr", "view", on, "--json", "state")
         if not isinstance(data, dict):
             print(f"ak wait: gh cannot view {on}: {why}", file=sys.stderr)
             return 1
-        kind, shown = "pr", f"PR #{pull.group(1)}"
+        kind, shown = "pr", f"PR #{pull.group(3)}"
     elif on not in (".", "..") and "/" not in on and (config.RUNS / on).is_dir():
         kind, shown = "run", f"run {on}"
     else:
