@@ -63,7 +63,8 @@ name = "UserPromptSubmit"
 state = "working"
 
 # What hooks/orchestrator-stop.sh prints as `systemMessage` -- the question a turn ends on --
-# is drawn under the turn's last message, cut after its first lines with `[+N chars]` (1.0.46).
+# is drawn under the turn's last message: its first 256 characters, the rest cut as
+# `… [+N chars]` (1.0.46).
 [[hooks.event]]
 name = "Stop"
 state = "at_prompt"
