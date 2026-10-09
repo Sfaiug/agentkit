@@ -485,7 +485,7 @@ sys.exit(p.returncode)
             result = self.cli("done", f"Finished anyway after {status}")   # a job apiece
             self.assertEqual((result.stdout, result.stderr), ("", ""))
             self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
-            self.assertEqual(notify.last("seat")["open_needs"], [])
+            self.assertEqual(bool(notify.last("seat")["open_needs"]), status != 404)
         self.cli("needs", "A changed webhook?")
         count = len(self.requests)
         changed = self.url.replace("/hook", "/new")
