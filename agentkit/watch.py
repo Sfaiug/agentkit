@@ -1949,6 +1949,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * an error it launched is parked with no scheduled resume and still needs his
       attention -- recent, unacknowledged, not handed back or superseded -- or a run
       is stalled, or a merge wait only its age turned away;
+    * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
+      so the seat is working;
     * nobody is in the seat any more and its number is the way back in;
     * it said it was done itself, a job never says it for it, and nothing on its screen asks him
       -- unless a run of its own still sits parked and undecided, which is him;
@@ -2208,15 +2210,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     wait = waiting_on(name)
     if wait:
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
-    # 2b. ... or a run of its own merged and its project has yet to prove itself live: ak's
-    # own probe, read every tick (`awaiting_live`), so the stop hook, this word and the card
-    # it decides agree that nothing here is his
-    pending = [state for _, state in mine if awaiting_live(state, now=at)]
-    if pending:
-        newest = max(pending, key=lambda state: state.get("finished_at") or 0)
-        title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
-        return {"word": "working", "reason": f"waiting on the live check · {title}".rstrip(" ·"),
-                "since": min(state["finished_at"] for state in pending)}
     # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
     # somebody is still in has a screen to read.  The parked run below keeps its
     # word for the quiet prompt, but a turn answering him outranks it: the other
@@ -2263,6 +2256,16 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                 reason = (status_mod.parked_line(first, name, now=at)
                           or f"run {name} parked: {reason}")
             return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
+    # 3a. ... or, with none parked, a run of its own merged and its project has yet to prove
+    # itself live: ak's own probe, read every tick (`awaiting_live`), so the stop hook, this
+    # word and the card it decides agree that nothing here is his -- in the hook's order too,
+    # where a parked run comes first
+    pending = [state for _, state in mine if awaiting_live(state, now=at)]
+    if pending:
+        newest = max(pending, key=lambda state: state.get("finished_at") or 0)
+        title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
+        return {"word": "working", "reason": f"waiting on the live check · {title}".rstrip(" ·"),
+                "since": min(state["finished_at"] for state in pending)}
     # 4. nobody is in it: its number is the way back into the conversation.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.

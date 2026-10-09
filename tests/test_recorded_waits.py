@@ -242,6 +242,13 @@ class RecordedWaits(unittest.TestCase):
                 self.setUp()
                 self.merged(name, **how)
                 self.assertNotEqual(self.word()["word"], "working")
+        # ... and a run parked undecided outranks it, in the stop hook's order: its card goes out
+        self.setUp()
+        self.merged("awaits")
+        self.parked_exhausted()
+        answer = self.word()
+        self.assertEqual(answer["word"], "needs you", answer)
+        self.assertIn("parked-exhausted", answer["reason"])
 
     def test_a_done_this_turn_ends_it_with_work_open(self):
         self.owes()
