@@ -4,8 +4,10 @@ Before the reviewer runs, ak replays each earlier blocking finding's proof on th
 one still failing blocks whatever the reviewer hands in, one fixed is a note.  The reviewer is
 given the diff since the commit the last review judged, and a new finding outside that delta is
 kept as a note, never a blocker: it was judged in an earlier round.  A review of the same commit
-again replays nothing and judges the whole change, as before.  Offline: a real git repository, a
-scripted reviewer that hands in through `ak hand-in`.
+again (a fixer turn that left no commit) judges the whole change and still replays them: a
+finding ak proved failing on that very commit blocks until its proof passes.  A replayed proof
+on a line the fix put back as base has it is judged on base, as any finding there is.  Offline:
+a real git repository, a scripted reviewer that hands in through `ak hand-in`.
 """
 
 from contextlib import ExitStack
@@ -211,6 +213,7 @@ out = pathlib.Path(sys.argv[6])
         # ... rejected in the reviewer's own words, at the line the flag sits on now
         self.assertEqual(self.review(finding("api.py:3", "the flag still reads branch", self.flag_fixed)), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 3, "")])
+        self.assertEqual(self.lp.state.get("disputes", []), [])      # the dispute lost: nothing dropped
         prompt = self.prompt()
         self.assertIn("api.py:2 - flag is wrong - disputed by the fixer", prompt)
         self.assertNotIn("still fails", prompt)
@@ -304,11 +307,23 @@ out = pathlib.Path(sys.argv[6])
         self.assertIn(("api.py", 2, f"the fix delta since {self.lp.state['round_summaries'][0]['head_sha'][:12]}; "
                                     "judged in an earlier round"), self.records("note"))
 
-    def test_a_review_of_the_same_commit_again_replays_nothing(self):
+    def test_a_review_of_the_same_commit_again_still_replays_the_earlier_findings(self):
         self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed)), "FAIL")
+        self.assertEqual(self.review(), "FAIL")           # nothing fixed, nothing handed in: it blocks
+        prompt = self.prompt()
+        self.assertNotIn("## Fix delta", prompt)
+        self.assertIn("## Earlier findings, re-proven by ak on this commit\n- api.py:1 - mode is wrong - still fails", prompt)
+        self.assertIn("the commit the last review judged, again", prompt)
+        self.assertEqual(self.records("finding"), [("api.py", 1, "still failing; it blocks until its proof passes")])
+
+    def test_a_replayed_proof_failing_on_base_too_is_a_follow_up_once_its_line_is_base_s(self):
+        self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.never)), "FAIL")
+        self.write('mode = "branch"\nflag = "base"\nextra = 1\n', "Put the flag back as base has it")
         self.assertEqual(self.review(), "PASS")
-        self.assertNotIn("## Fix delta", self.prompt())
-        self.assertEqual(self.records("note"), [])
+        self.assertEqual(self.records("finding"), [])
+        self.assertEqual(self.records("follow-up"),
+                         [("api.py", 2, "still failing, on base too: a defect from before the task, kept as a follow-up")])
+        self.assertEqual(len(self.lp.state["followups"]), 1)
 
     def test_the_prompts_no_longer_ask_for_anything_new_or_every_instance(self):
         for role, text in worker.PREAMBLES.items():

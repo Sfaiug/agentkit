@@ -3934,8 +3934,10 @@ def replay_section(replayed, left, since):
             + ("\n\n## Earlier findings left to you\n" + "\n".join(yours) if yours else "")
             + "\nA finding still failing blocks whatever you hand in; one fixed needs no word. "
               "One you hand in again at its site blocks wherever its line sits now. "
-              f"A new finding blocks only inside the fix delta since {since[:12]}; "
-              "outside it, it is kept as a note.")
+            + (f"A new finding blocks only inside the fix delta since {since[:12]}; "
+               "outside it, it is kept as a note." if since else
+               "This is the commit the last review judged, again: a new finding blocks "
+               "wherever it is in the change."))
 
 
 def weigh_review(lp, submitted, head=None, since=None, replayed=()):
@@ -4017,20 +4019,36 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
         # never handed back to the reviewer's words
         proofs = {row["evidence"].get("run") for row in records if row["kind"] == "finding"}
         extra = []
-        for row, now, failing in replayed:
+        for n, (row, now, failing) in enumerate(replayed, 1):
             # where the fix moved its line, when the delta is known and left the line itself
             # alone; a line the fix touched keeps its number and says so
             line = moved_line(lp, row["path"], row["line"], since, head) if since else row["line"]
             row = {**row, "line": line if line is not None else row["line"]}
             where = ("" if line is not None
                      else "; the fix changed its line, and the proof says where it stands now")
-            if failing and now["run"] not in proofs:
-                extra.append({**row, "kind": "finding", "evidence": now,
-                              "replayed": "still failing; it blocks until its proof passes" + where})
-                lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit")
-            elif not failing:
+            if not failing:
                 extra.append({**row, "kind": "note", "evidence": now,
                               "replayed": "fixed; its proof passes now"})
+                continue
+            if now["run"] in proofs:
+                continue
+            kind, replayed_word = "finding", "still failing; it blocks until its proof passes" + where
+            if not lp.scratch and not changed_line(lp, row, head):
+                # the fix put its line back as base has it: judged on base, as any failing
+                # proof on a line the change did not touch is
+                base = {"sha": lp.base_sha, **proof_on(
+                    lp, now["run"], lp.round_dir / f"replay-{n}-base.log", lp.base_sha, head)}
+                now = {**now, "base": base}
+                if hand_in.proof_failed(base):
+                    kind = "follow-up"
+                    row["before"] = f"base {lp.base_sha}: the proof fails there too"
+                    replayed_word = ("still failing, on base too: a defect from before the task, "
+                                     "kept as a follow-up")
+                elif base["returncode"] != 0 or base["killed"]:
+                    kind, replayed_word = "note", "still failing, and base cannot run its proof"
+            extra.append({**row, "kind": kind, "evidence": now, "replayed": replayed_word})
+            lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit"
+                   + ("" if kind == "finding" else f" ({kind})"))
         closing = records.pop() if records and records[-1]["kind"] in hand_in.CLOSING else None
         records.extend(extra)
         if closing is not None:
@@ -4108,9 +4126,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         # a landing re-review (`record` off) judges the whole change: the repair that brought
         # it here is nobody's fix round
         delta = reviewed_before(lp, delta_from, at) if record else None
-        if delta:
-            changed = capped(lp, git(lp.wt, "diff", delta, head, check=False))
-            # a finding the fixer disputed is the reviewer's to weigh, and a quote is no failing
+        if record and delta_from and earlier:
+            # a later round: ak re-proves the earlier findings itself on the commit under
+            # review, a new one or the same again (a fixer turn that left no commit).  A
+            # finding the fixer disputed is the reviewer's to weigh, and a quote is no failing
             # proof (the quoted lines can stay while the defect goes): both are listed for the
             # reviewer, not replayed
             disputed = {(row["finding"]["path"], row["finding"]["line"]) for row in dispute_rows(lp)}
@@ -4121,8 +4140,12 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                      else "a quote, which ak cannot re-prove: hand it in again if it still stands")
                     for row in earlier if row not in proven]
             replayed = replay_findings(lp, proven, at)
-            work = (f"## Fix delta ({delta[:12]}...HEAD in {lp.wt}; what changed since the last "
-                    f"review)\n```diff\n{changed}\n```\n\n{replay_section(replayed, left, delta)}")
+            if delta:
+                changed = capped(lp, git(lp.wt, "diff", delta, head, check=False))
+                work = (f"## Fix delta ({delta[:12]}...HEAD in {lp.wt}; what changed since the "
+                        f"last review)\n```diff\n{changed}\n```\n\n{replay_section(replayed, left, delta)}")
+            else:
+                work = f"{whole}\n\n{replay_section(replayed, left, None)}"
         paths = changed_test_paths(lp, head)
         if paths:
             # Leave room for full names, including git's quoted non-ASCII paths.
@@ -4309,7 +4332,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     submitted = weigh_review(lp, submitted, identity.get("head_sha"), since=delta, replayed=replayed)
     upheld = {(row["path"], row["line"]) for row in submitted.findings}
     for row in disputes.disputes:
-        if (row["path"], row["line"]) not in upheld:
+        # a dispute's finding is upheld at the line the fix moved it to
+        site = (row["path"], (moved_line(lp, row["path"], row["line"], delta, identity.get("head_sha"))
+                              if delta else None) or row["line"])
+        if site not in upheld:
             dropped = lp.state.setdefault("disputes", [])
             text_dispute = "Dropped: " + hand_in.item_text(row)
             if text_dispute not in dropped:
