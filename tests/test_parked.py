@@ -788,6 +788,8 @@ class Parked(unittest.TestCase):
         directory = self.receipt("20260923-1216-hook", error_retry_at=self.now + 60)
         original = record.read_state(directory)
         payload = json.dumps({"last_assistant_message": "I will carry on later."})
+        # the seat owes work: an open line in its plan, which a stop is judged against
+        (config.STATE / "plan-seat.md").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")
         for word in ("error", "waiting"):
             for extra in ({}, {"finished_at": self.now - 25 * 3600},
                           {"handed_back": self.now - 30}, {"recovery_notified": "discord"},

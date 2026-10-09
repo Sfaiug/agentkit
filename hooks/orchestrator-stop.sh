@@ -256,7 +256,9 @@ def asked_owner(seat, said):
     """A third stop with work open and nothing recorded is a seat that cannot go on: its last
     words become the question the owner is paged with, so the card says what it is stuck on."""
     words = " ".join((said or "").split())
-    notify.record(seat, "needs", f"Stopped three times with work open: {words[:200]}")
+    if len(words) > 200:
+        words = "\u2026" + words[-199:]        # the end, where what it is stuck on is said
+    notify.record(seat, "needs", f"Stopped three times with work open: {words}")
 
 
 def held(launched, payload):
