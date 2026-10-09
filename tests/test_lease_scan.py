@@ -32,7 +32,7 @@ class LeaseScan(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
-        for key in ("HOME", "RUNS", "WT", "STATE", "TMP", "WORK", "CODE"):
+        for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         config.ensure_dirs()
         self.repo = self.root / "acme"
@@ -118,6 +118,22 @@ class LeaseScan(unittest.TestCase):
         self.assertEqual({name: each["waits_on"] for name, each in found.items()},
                          {"20260101-0900-second": "20260101-0800-first",
                           "20260101-1000-third": "20260101-0800-first"})
+
+    def test_mains_own_movement_between_two_bases_is_nobodys_diff(self):
+        first = self.run_on("20260101-0800-first", 800)
+        self.edit(first, "other.py", 1, "first's other", commit=True)   # what main then changes too
+        self.edit(self.repo, "other.py", 1, "main moved on", commit=True)
+        self.edit(self.repo, "api.py", 1, "main's line 1", commit=True)
+        moved = self.git(self.repo, "rev-parse", "HEAD")
+        second = self.run_on("20260101-0900-second", 900, base=moved)
+        self.edit(second, "api.py", 15, "second's line 15")
+        # the first run conflicts with main, not with the second, which changed none of it;
+        # and main's own change to api.py:1 is not the second run's diff either
+        self.assertEqual(leases.scan(self.repo, now=2000), {})
+        third = self.run_on("20260101-1000-third", 1000)                 # cut from the old base
+        self.edit(third, "api.py", 15, "third's line 15")
+        self.assertEqual(leases.scan(self.repo, now=2100)["20260101-1000-third"]["waits_on"],
+                         "20260101-0900-second")
 
     def test_only_going_runs_with_a_checkout_of_their_own_count(self):
         gone = self.run_on("20260101-0900-gone", 900, state="fail")
