@@ -80,15 +80,21 @@ def live(repo):
     return sorted(found, key=lambda each: (each["started"], each["run"]))
 
 
-def tree(worktree):
+def tree(worktree, log=lambda _: None):
     """The checkout's tree as it stands, uncommitted edits and untracked files included,
     written to the repository's object store through an index of its own: the checkout's
-    index and files are never touched."""
+    index and files are never touched.  A file git cannot read is left out and said once:
+    one checkout's unreadable file costs no pair its record."""
     from . import run
     with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
         env = {**os.environ, "GIT_INDEX_FILE": index.name}
         run.git(worktree, "read-tree", "HEAD", env=env)
-        run.git(worktree, "add", "-A", env=env)
+        try:
+            run.git(worktree, "add", "--ignore-errors", "-A", "--", ".", env=env)
+        except run.Stopped:
+            raise
+        except config.Error as exc:
+            log(f"WARN lease scan: left unreadable paths of {worktree} out: {exc}")
         return run.git(worktree, "write-tree", env=env)
 
 
@@ -107,30 +113,32 @@ def merged(repo, base, ours, theirs):
     return lines[0], (sorted(set(lines[1:])) if code == 1 else [])
 
 
-def collide(repo, older, younger):
+def collide(repo, older, younger, log=lambda _: None):
     """The paths the younger run's own diff cannot be merged with the older's: git's own
     conflict rule, run in memory, each diff against the base its run was cut from.  With
     bases that differ, the run on the older base has its change brought onto the newer base
-    first; a conflict there is that run's with main, not with its neighbour, and counts for
-    nothing here.  Empty when they merge."""
+    first; a path where that clashes is that run's conflict with main, not with its
+    neighbour, and is left out while the rest is compared.  Runs cut from bases that never
+    met (a `base:` branch and main) collide with nobody here: there is no one line of history
+    to lay both diffs on.  Empty when they merge."""
     from . import run
-    trees = {name: tree(each["worktree"]) for name, each in (("older", older), ("younger", younger))}
+    trees = {name: tree(each["worktree"], log) for name, each in (("older", older), ("younger", younger))}
     bases = {"older": older["base"], "younger": younger["base"]}
-    base = older["base"]
+    base, left_out = older["base"], set()
     if bases["older"] != bases["younger"]:
-        behind, ahead = (("older", "younger") if run.git_out(
-            repo, "merge-base", "--is-ancestor", older["base"], younger["base"])[0] == 0
-            else ("younger", "older"))
+        older_first = run.git_out(repo, "merge-base", "--is-ancestor", older["base"], younger["base"])[0] == 0
+        if not older_first and run.git_out(repo, "merge-base", "--is-ancestor",
+                                           younger["base"], older["base"])[0] != 0:
+            return []
+        behind, ahead = ("older", "younger") if older_first else ("younger", "older")
         base = bases[ahead]
-        if run.git_out(repo, "merge-base", "--is-ancestor", bases[behind], base)[0] != 0:
-            base = run.git(repo, "merge-base", older["base"], younger["base"])   # bases apart
-        else:
-            # main as the run ahead saw it, with the run behind's change on it
-            trees[behind], clash = merged(repo, bases[behind], run.git(repo, "rev-parse", f"{base}^{{tree}}"),
-                                          trees[behind])
-            if clash:
-                return []
-    return merged(repo, base, trees["older"], trees["younger"])[1]
+        # main as the run ahead saw it, with the run behind's change on it: where that
+        # clashes, the merged tree carries the markers, and that path is left out below
+        trees[behind], clash = merged(repo, bases[behind], run.git(repo, "rev-parse", f"{base}^{{tree}}"),
+                                      trees[behind])
+        left_out = set(clash)
+    return [path for path in merged(repo, base, trees["older"], trees["younger"])[1]
+            if path not in left_out]
 
 
 def scan(repo, log=lambda _: None, now=None):
@@ -143,7 +151,7 @@ def scan(repo, log=lambda _: None, now=None):
     waits = {}
     for at, younger in enumerate(runs):
         for older in runs[:at]:
-            files = collide(repo, older, younger)
+            files = collide(repo, older, younger, log)
             if not files:
                 continue
             kept = before.get(younger["run"]) or {}
@@ -167,5 +175,9 @@ def scan_all(log=lambda _: None, now=None):
         if repo and not any(same_repo(repo, seen) for seen in repos):
             repos.append(repo)
     for repo in repos:
-        if Path(repo).is_dir():
+        if not Path(repo).is_dir():
+            continue
+        try:
             scan(repo, log, now)
+        except config.Error as exc:
+            log(f"WARN lease scan of {repo} did not finish: {exc}")   # the next repository still runs
