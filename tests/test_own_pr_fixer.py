@@ -193,7 +193,9 @@ class OwnPrFixer(OwnPr):
         with self.assertRaises(InterruptedError):
             self.review(["FAIL", "PASS"])
         saved = record.read_state(self.run_dir)
-        saved.update(state="queued", pid=999999991)
+        # as after a landing delivery whose required check went red: the delivery of the
+        # reviewed head is on the record, and is no push of this round's fix
+        saved.update(state="queued", pid=999999991, delivery_sha=saved["head_sha"])
         record.save_state(self.run_dir, saved)
         state = self.review(["FAIL", "PASS"])
         self.assertEqual(state["state"], "fail")

@@ -10744,6 +10744,10 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
     if current.get("state") != "open":
         return ended(f"{url} is {current.get('state', '?')}, not open")
     remote, pushed = current["head"], state.get("delivery_sha")
+    if pushed == reviewed:
+        # the landing's own delivery of the reviewed head, recorded before a required check
+        # went red: no fix of this round was pushed
+        pushed = None
     head = git(lp.wt, "rev-parse", "HEAD")
     if remote["sha"] != reviewed and remote["sha"] != pushed:
         if latest_worker_turn(lp.round_dir) is not None and not pushed:
