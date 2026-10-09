@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, job as jobs, notify, orch, run, tell, update  # noqa: E402
-from agentkit import usage, watch  # noqa: E402
+from agentkit import leases, usage, watch  # noqa: E402
 
 # Every pass of the tick, in its order, and whether a dry run runs it too.
 PASSES = (
@@ -23,7 +23,8 @@ PASSES = (
     (watch, "finish_own_lines", False),
     (watch, "continue_turns", False), (watch, "health", True),
     (watch, "resume_dead_loops", True), (watch, "resume_dead_jobs", True),
-    (watch, "recover_runs", True), (watch, "save_state", False), (usage, "collect", False),
+    (watch, "recover_runs", True), (leases, "scan_all", False), (watch, "save_state", False),
+    (usage, "collect", False),
     (run, "_cached_providers", True), (watch, "resume_exhausted", True),
     (watch, "resume_waiting_login", True), (watch, "resume_errored", True),
     (watch, "resume_waiting", True), (watch, "sweep_preexisting", False),

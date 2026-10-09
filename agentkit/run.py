@@ -1666,14 +1666,16 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         transient_wait(out_dir, delay)
 
 
-def dirty_paths(wt):
+def dirty_paths(wt, env=None):
     """Every uncommitted path: tracked edits (staged or not) and untracked files, no ignored ones.
 
     Two plumbing calls rather than `status --porcelain`, whose output would have to be
-    un-quoted and split off its status column; `-z` hands back the raw paths.
+    un-quoted and split off its status column; `-z` hands back the raw paths.  `env` is the
+    reader's: an index of its own (`GIT_INDEX_FILE`) for a checkout another process works in,
+    whose own index is then neither locked nor rewritten.
     """
-    tracked = git(wt, "diff", "--name-only", "-z", "HEAD", check=False)
-    untracked = git(wt, "ls-files", "--others", "--exclude-standard", "-z", check=False)
+    tracked = git(wt, "diff", "--name-only", "-z", "HEAD", check=False, env=env)
+    untracked = git(wt, "ls-files", "--others", "--exclude-standard", "-z", check=False, env=env)
     return [p for p in f"{tracked}\0{untracked}".split("\0") if p]
 
 
@@ -1914,15 +1916,7 @@ def commit_leftovers(wt, log, artifacts, state):
     commit is built in an index of its own: `git commit -- venv` would add the link back
     from the worktree, and the real index keeps whatever else the executor staged.
     """
-    paths = [p for p in dirty_paths(wt) if p not in artifacts]
-    real, sandbox = [], []
-    for path in paths:
-        if leftover_junk(path):
-            sandbox.append(path)
-        elif git_out(wt, "check-ignore", "-q", "--", path)[0] == 0:
-            sandbox.append(path)
-        else:
-            real.append(path)
+    real, sandbox = committable_paths(wt, artifacts)
     status = git(wt, "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD",
                  check=False).split("\0")
     staged = dict(zip(status[1::2], status[::2]))
@@ -1958,6 +1952,22 @@ def commit_leftovers(wt, log, artifacts, state):
         log(f"WARN could not commit the executor's uncommitted changes: {exc}")
         return
     log("WARN committed uncommitted executor changes: " + ", ".join(real + gone))
+
+
+def committable_paths(wt, artifacts=(), env=None):
+    """(the dirty paths a commit of the checkout would take, the leftover junk it leaves): the
+    one rule of what a run's uncommitted work is.  Test sandboxes, run locks and dependency
+    trees (`leftover_junk`), whatever the repository's `.gitignore` names, and what the
+    done-when generated (`artifacts`) are left.  `env` goes to every git read."""
+    real, sandbox = [], []
+    for path in dirty_paths(wt, env):
+        if path in artifacts:
+            continue
+        if leftover_junk(path) or git_out(wt, "check-ignore", "-q", "--", path, env=env)[0] == 0:
+            sandbox.append(path)
+        else:
+            real.append(path)
+    return real, sandbox
 
 
 def ignored_sandbox_paths(wt, artifacts):
@@ -2223,6 +2233,9 @@ class Loop:
         refused by `record`'s guard as a whole save refused it.  Every save a live loop makes
         ends here; the merge pipeline's and a PR review's change neither seats nor history.
         """
+        # what the done-when generated, on the record for readers outside the loop: the lease
+        # scan leaves it out of the run's diff as a commit does
+        self.state["artifacts"] = sorted(self.artifacts)
         if not (self.run_dir / "run.json").exists():
             run_record.save_state(self.run_dir, self.state)
         else:
