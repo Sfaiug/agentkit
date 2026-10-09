@@ -157,6 +157,31 @@ class OwnPrRounds(unittest.TestCase):
         return run.review_pr(self.cfg, self.run_dir, URL,
                              {"--review": None, "--review-pr": URL}, lambda _: None)
 
+    def test_an_own_prs_first_review_is_refused_past_the_ceiling(self):
+        self.pr["headRefOid"] = self.heads[1]           # 5001 changed lines of fence.txt
+        state = self.review([])
+        self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
+        self.assertIn("PR #7 changes 5001 lines", state["error"])
+        self.assertIn("split it", state["blocked"])
+        self.assertEqual((self.prompts, self.merges), ([], []))
+
+    def test_somebody_elses_pr_is_reviewed_whatever_its_size(self):
+        self.pr.update(author="stranger", headRefOid=self.heads[1])
+        state = self.review(["PASS"])
+        self.assertEqual(state["verdict"], "PASS")
+        self.assertEqual(len(self.prompts), 1)
+
+    def test_an_own_pr_of_text_only_lands_whatever_its_size(self):
+        self.git("checkout", "-qb", "notes", "main")
+        (self.repo / "notes.md").write_text("note\n" * 500)
+        self.git("add", "notes.md")
+        self.git("commit", "-qm", "Notes")
+        self.pr["headRefOid"] = self.git("rev-parse", "HEAD")
+        state = self.review([])
+        self.assertTrue(state["merged"])
+        self.assertEqual(state["round_summaries"][0]["summary"], "Text and translation files only; review skipped.")
+        self.assertEqual(self.prompts, [])
+
     def test_fail_push_pass_in_round_two_merges(self):
         state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])

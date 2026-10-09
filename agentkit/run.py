@@ -6594,14 +6594,15 @@ def changed_files(state):
     return [found for found in out.split("\0") if found]
 
 
-def diff_lines(repo, base, head="HEAD"):
-    """Added plus deleted text lines, excluding files Git marks linguist-generated.
+def diff_lines(repo, base, head="HEAD", removed=True):
+    """Added plus deleted text lines, excluding files Git marks linguist-generated; without
+    `removed`, the files the change deletes whole are left out too: what a reviewer reads.
 
     Deleted files read their attributes at the base; their directory's attributes may
     have been deleted too. NUL records preserve unusual filenames and rename pairs.
     """
     total = 0
-    for selector, source in (("d", head), ("D", base)):
+    for selector, source in (("d", head), *((("D", base),) if removed else ())):
         parts = iter(git(repo, "diff", "--numstat", "-z", "--find-renames",
                          f"--diff-filter={selector}", f"{base}...{head}").split("\0"))
         changes = []
@@ -9520,11 +9521,6 @@ def preflight(run_dir, opts, log):
         if is_own and not orch:
             raise config.Error(f"no session record names the writer of this PR; "
                                f"review of the seat's own PR needs its orchestrator")
-        if is_own:
-            # a first review takes at most MAX_PR_LINES at once: past it, the PR is split
-            why = pr_size_refusal(info, owner, name, number, log)
-            if why:
-                raise config.Error(why)
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
         if is_own:
             method, action = ("squash",
@@ -10289,50 +10285,19 @@ def gh_json(cwd, *args, timeout=None):
         return None, f"gh printed no JSON ({exc}): {out[-200:]}"
 
 
-def pr_size_refusal(info, owner, name, number, log):
-    """One sentence when a pull request is more than a first review takes at once, else None.
-
-    GitHub's own totals (`pr_view`) settle most pull requests at once; one past the ceiling
-    by them is counted file by file, generated files and pure deletions aside."""
-    if int(info.get("additions") or 0) + int(info.get("deletions") or 0) <= taskfile.MAX_PR_LINES:
+def pr_size_refusal(number, lines):
+    """One sentence when a pull request changes more lines than a first review takes at once
+    (`task.MAX_PR_LINES`), else None: `lines` as `diff_lines` counts them without the files
+    the change deletes whole, what a reviewer reads."""
+    if lines <= taskfile.MAX_PR_LINES:
         return None
-    changed = pr_changed_lines(checkout_for(f"{owner}/{name}", log), owner, name, number)
-    if changed > taskfile.MAX_PR_LINES:
-        return (f"PR #{number} changes {changed} lines (generated files and pure deletions "
-                f"aside): a first review takes at most {taskfile.MAX_PR_LINES}; split it")
-    return None
-
-
-def pr_changed_lines(repo, owner, name, number):
-    """The lines a pull request changes, as GitHub counts them file by file, generated files
-    (`linguist-generated` in the checkout's attributes) and pure deletions aside: what a
-    reviewer reads."""
-    files, page = [], 1
-    while True:
-        found, why = gh_json(config.RUNS, "api",
-                             f"repos/{owner}/{name}/pulls/{number}/files?per_page=100&page={page}")
-        if not isinstance(found, list):
-            raise config.Error(f"cannot read the files of PR #{number}: {why}")
-        files += [each for each in found if isinstance(each, dict) and each.get("filename")]
-        if len(found) < 100:
-            break
-        page += 1
-    kept = [each for each in files if each.get("status") != "removed"]
-    if not kept:
-        return 0
-    attributes = git(repo, "check-attr", "-z", "linguist-generated", "--",
-                     *(each["filename"] for each in kept), check=False)
-    fields = attributes.split("\0")
-    generated = {fields[at] for at in range(0, len(fields) - 2, 3)
-                 if fields[at + 2] in ("true", "set")}
-    return sum(int(each.get("additions") or 0) + int(each.get("deletions") or 0)
-               for each in kept if each["filename"] not in generated)
+    return (f"PR #{number} changes {lines} lines (generated files and pure deletions aside): "
+            f"a first review takes at most {taskfile.MAX_PR_LINES}; split it")
 
 
 def pr_view(url):
     data, why = gh_json(config.RUNS, "pr", "view", url, "--json",
-                        "number,title,body,author,baseRefName,headRefOid,url,state,isDraft,"
-                        "additions,deletions")
+                        "number,title,body,author,baseRefName,headRefOid,url,state,isDraft")
     if not isinstance(data, dict):
         raise config.Error(f"gh pr view {url} failed: {why}")
     author = data.get("author") or {}
@@ -10944,6 +10909,12 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         summary = (f"PR #{number} by {info['author']}: {info['title']}. agentkit executed nothing; "
                    "review the author's diff.")
     try:
+        if is_own and not summaries:
+            # a first review takes at most MAX_PR_LINES at once: past it, the run ends blocked
+            # with the reason and the PR is split; a later round reviews whatever the fix left
+            why = pr_size_refusal(number, diff_lines(repo, base_sha, head, removed=False))
+            if why:
+                raise Blocked(why, f"## Blocked\n\n{why}")
         if summaries:
             preface = ("## Previous review findings\nIn this re-review, first rule on each previous "
                        "finding: fixed, upheld or dropped, and why; then report anything new.\n\n"
@@ -10952,8 +10923,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         else:
             verdict = review(lp, summary, ok, dw_log)
     except Blocked as exc:
-        # No reviewer's harness can run: the review ends `blocked` on the harness's own line,
-        # as a task run does, and not in an `error` the tick would retry into that harness.
+        # No reviewer's harness can run, or the PR is more than a first review takes: the
+        # review ends `blocked` with the reason, as a task run does, and not in an `error`
+        # the tick would retry into that harness.
         log(f"BLOCKED {exc}")
         state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
                       "blocked": exc.section, "finished_at": time.time()})
@@ -11382,7 +11354,8 @@ def main(argv):
         # says to start regardless.  A run's own child launch never runs the
         # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.launch_refusal(meta, cmds)
+        refusal = taskfile.launch_refusal(
+            meta, cmds, landing=not opts["--no-merge"] and task_repo(meta, task_path) is not None)
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2
