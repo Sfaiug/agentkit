@@ -6512,11 +6512,11 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
 
     # Recover an interrupted probe before reading the checkout's suite and worker rules.
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, "", spares)
+    target = state.get("target") or state.get("base")
     if state.get("scratch"):
         where = (f"Workspace: {wt}\nThere is no git repository here: nothing to commit, no branch "
                  "and no PR. What you leave in the workspace is the deliverable.")
     else:
-        target = state.get("target") or state["base"]
         where = (f"Repo checkout: {wt}\nBranch: {state['branch']} (based on {state['base']}"
                  + (f", to be merged into {target}" if target != state["base"] else "") + ")")
     cmds = round_commands(cmds, wt, target, scratch=state.get("scratch"), landing=not state.get("no_merge"))
@@ -10718,8 +10718,19 @@ def push_pr_branch(lp, remote, lease):
 
 
 def pr_review_blocked(lp, exc):
-    """A PR review's blocked ending from a round or its fixer turn (`review_blocked`)."""
-    return review_blocked(lp.run_dir, lp.state, lp.cmds, lp.log, lp.cfg, exc)
+    """A PR review's blocked ending, from a round, its fixer turn or the size gate before any
+    reviewer is picked: no reviewer's harness can run, the task cannot be done as written, or
+    the PR is more than a first review takes.  Recorded as a task run's is, its result
+    written, its wait for a push and its pending round over; never an `error` the tick would
+    retry into the same harness."""
+    lp.log(f"BLOCKED {exc}")
+    lp.state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
+                     "blocked": exc.section, "finished_at": time.time()})
+    for key in ("own_pr_wait", "own_pr_round_pending"):
+        lp.state.pop(key, None)
+    lp.write()
+    write_result(lp.run_dir, lp.state, lp.cmds or ["(none declared)"], lp.log, lp.cfg)
+    return lp.state
 
 
 def fix_own_pr(cfg, run_dir, url, state, opts, log):
@@ -11016,13 +11027,14 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
         lp.rnd += 1
         return settle_pr_round(lp, url, info)
-    if is_own and not summaries:
-        # a first review takes at most MAX_PR_LINES at once: past it, the run ends blocked
-        # with the reason before any reviewer is picked, and the PR is split; a later round
-        # reviews whatever the fix left
+    if is_own and not summaries and not rounds_spent_elsewhere(pr=url, exclude=run_dir)[0]:
+        # the PR's first review, in this run or any, takes at most MAX_PR_LINES at once: past
+        # it, the run ends blocked with the reason before any reviewer is picked, and the PR
+        # is split; a later round reviews whatever the fix left
         why = pr_size_refusal(number, diff_lines(repo, base_sha, head, added_only=True))
         if why:
-            return review_blocked(run_dir, state, cmds, log, cfg, Blocked(why, f"## Blocked\n\n{why}"))
+            lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
+            return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
     # orchestrator, and every model a fixer turn ran on or was handed to; none comes first
@@ -11103,22 +11115,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     except Blocked as exc:
         return pr_review_blocked(lp, exc)
     return settle_pr_round(lp, url, info)
-
-
-def review_blocked(run_dir, state, cmds, log, cfg, exc):
-    """A PR review's blocked ending, from a round, its fixer turn or the size gate before any
-    reviewer is picked: no reviewer's harness can run, the task cannot be done as written, or
-    the PR is more than a first review takes.  Recorded with the reason, as a task run's is,
-    its wait for a push and its pending round over, and never in an `error` the tick would
-    retry into that harness."""
-    log(f"BLOCKED {exc}")
-    state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
-                  "blocked": exc.section, "finished_at": time.time()})
-    for key in ("own_pr_wait", "own_pr_round_pending"):
-        state.pop(key, None)
-    run_record.save_state(run_dir, state)
-    write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
-    return state
 
 
 def settle_pr_round(lp, url, info):
