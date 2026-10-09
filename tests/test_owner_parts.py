@@ -372,6 +372,22 @@ class OwnerParts(Sandbox):
         with self.assertRaisesRegex(config.Error, "complete Git ancestry"):
             self.touched()
 
+    def test_verified_merge_base_does_not_inherit_the_callers_git_repository(self):
+        self.write("score.py", "y = 2\n")
+        head = self.commit("owner score change")
+        gitdir = self.wt / ".git"
+        before = {path.relative_to(gitdir): path.read_bytes()
+                  for path in gitdir.rglob("*") if path.is_file()}
+        # Hooks export these valid repository addresses; the protected scratch Git must use its own.
+        with patch.dict(os.environ, {"GIT_DIR": str(gitdir), "GIT_COMMON_DIR": str(gitdir),
+                                     "GIT_OBJECT_DIRECTORY": str(gitdir / "objects"),
+                                     "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(gitdir / "objects"),
+                                     "GIT_WORK_TREE": str(self.wt),
+                                     "GIT_INDEX_FILE": str(gitdir / "index")}):
+            self.assertEqual(run.owner_base(self.wt, self.base, head), self.base)
+        self.assertEqual(before, {path.relative_to(gitdir): path.read_bytes()
+                                  for path in gitdir.rglob("*") if path.is_file()})
+
     def test_a_replace_ref_does_not_hide_a_change(self):
         old = self.base
         sh(self.wt, "checkout", "-q", "-B", "change", self.base)
