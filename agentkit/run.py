@@ -3872,11 +3872,17 @@ def weigh_review(lp, submitted, head=None):
             continue
         evidence = row["evidence"]
         kind = row["kind"]
+        # a follow-up from before the task is proven on base; one of this change, deferred
+        # to a run of its own (no `before`), on this commit
+        deferred = kind == "follow-up" and "before" not in row
         if kind == "follow-up":
             if not lp.scratch and "run" in evidence:
                 command = evidence["run"]
-                evidence = {"run": command, "commit": lp.base_sha, **proof_on(
-                    lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
+                evidence = ({"run": command, "commit": head or "workspace", **proof_on(
+                                lp, command, lp.round_dir / f"proof-{index}-commit.log", head)}
+                            if deferred else
+                            {"run": command, "commit": lp.base_sha, **proof_on(
+                                lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)})
         elif index in sites and sites[index] is None:
             kind = "note"
         elif "run" in evidence:
@@ -3900,16 +3906,18 @@ def weigh_review(lp, submitted, head=None):
                 kind = "follow-up"
         row = {**row, "kind": kind, "evidence": evidence}
         if kind == "follow-up":
-            if "before" not in row:
+            if "before" not in row and not deferred:
                 row["before"] = f"base {lp.base_sha}: " + (
                     "the proof fails there too" if "run" in evidence
                     else "quoted lines outside the change")
             reason = ("no base commit" if lp.scratch else
-                      "needs a --run proof that fails on base" if "run" not in evidence else
-                      "the command did not fail on base" if not hand_in.proof_failed(
+                      "needs a --run proof" + ("" if deferred else " that fails on base")
+                      if "run" not in evidence else
+                      ("the command did not fail on this commit" if deferred
+                       else "the command did not fail on base") if not hand_in.proof_failed(
                           evidence.get("base", evidence)) else
-                      "--before names no commit in base's history or quote present at base" if not before_at_base(lp, row)
-                      else "")
+                      "--before names no commit in base's history or quote present at base"
+                      if not deferred and not before_at_base(lp, row) else "")
             if reason:
                 row.update(kind="note", dropped=reason)
                 lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
@@ -4187,8 +4195,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.log(f"WARN {overridden}; overriding to FAIL")
     record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
-    lp.state["followups"] = submitted.followups if verdict == "PASS" else []
-    lp.state["followup_checks"] = submitted.followup_checks if verdict == "PASS" else {}
+    # kept whatever the verdict, every round's: a run of its own fixes each after the merge
+    kept = lp.state.get("followups") or []
+    lp.state["followups"] = kept + [item for item in submitted.followups if item not in kept]
+    lp.state["followup_checks"] = {**(lp.state.get("followup_checks") or {}), **submitted.followup_checks}
+    lp.state["followup_commits"] = {**(lp.state.get("followup_commits") or {}), **submitted.followup_commits}
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)
         # A landing re-review with a pending suite keeps the task's probe base.
@@ -4210,7 +4221,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     lp.save()
     history.record_review(lp.state.get("run_id"), str(out),
                           harness=review_harness, model=review_model,
-                          blocking=len(submitted.findings), followup=len(submitted.followups),
+                          blocking=len(submitted.findings), followup=len(submitted.preexisting),
                           note=len(submitted.notes), log=lp.log)
     return verdict
 
