@@ -26,7 +26,7 @@ RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 SPENT = "three rounds spent: split or re-scope the task"
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
           "declaring done with ak notify done, "
-          "or waiting on a run. Continue: decide the next step and do it.")
+          "or waiting on a run or pull request with ak wait. Continue: decide the next step and do it.")
 
 
 class StopParked(unittest.TestCase):

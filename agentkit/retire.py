@@ -3,36 +3,36 @@
 A production project names its switches with one command, `features:` in its AGENTS.md. A row
 its `list` prints with `everyone` on and `everyone_since` (when it last went on for everyone,
 ISO 8601 UTC) at least PROVEN ago is proven. Once every EVERY the tick reads the list of each
-checkout under ~/code that declares one, and tells the open seats filed under it every switch
-that list shows proven, longest first, through the queue `ak tell` fills, and every switch on
-for everyone that it cannot prove because its row gives no `everyone_since`. A switch goes to
-the newest seat whose open plan already names it, since that seat has it in hand; the rest go to
-the newest seat. Each seat gets one line.
-The line names the project, so it holds wherever it lands. A checkout is told again AGAIN
-after, while any is still listed so, until the project's own deploy drops each from the list
-once the code no longer reads it. What a seat was told stands: a switch turned off after is
-still taken out, since turning a proven switch off is a code change (the owner, 5 Oct 2026);
-the list just no longer names it. A list that cannot be read, or a checkout with no open seat,
-is tried again at the next read.
+checkout under ~/code that declares one, and writes an open line into the plan of a seat filed
+under it for every switch that list shows proven, and for every switch on for everyone that it
+cannot prove because its row gives no `everyone_since`. A switch goes to the newest seat whose
+open plan already names it, since that seat has it in hand; the rest go to the newest seat.
+The line's check is the project's own switch list: it fails while the list still shows the
+switch (or, for an unproven one, shows it without an `everyone_since`), and the plan ticks it by
+itself once the project's deploy drops the row, which happens once the code no longer reads it.
+An open line that already holds that check is not written twice (`plan.add`), so a seat is told
+nothing again. What a plan line says stands: a switch turned off after is still taken out,
+since turning a proven switch off is a code change (the owner, 5 Oct 2026); the list just no
+longer names it. A list that cannot be read, or a checkout with no open seat, is tried again at
+the next read. Nothing is typed into a seat: a plan line is read when the seat looks at its plan.
 
-All that is kept is when each checkout was last told, so nothing here can go stale: what is
-told is what the list shows that moment. A checkout is a project, as everywhere in ak, and
-nothing guesses which are one: one project checked out twice, with open seats filed under both,
-is told in each.
+All that is kept is when each checkout's lines were last written, so nothing here can go
+stale: what is written is what the list shows that moment. A checkout is a project, as
+everywhere in ak, and nothing guesses which are one: one project checked out twice, with open
+seats filed under both, gets its lines in each.
 """
 
 from datetime import datetime, timezone
-import hashlib
 import json
-from pathlib import Path
 import re
+import shlex
 import time
 
-from . import config, orch, plan, tell
+from . import config, orch, plan
 
 PROVEN = 14 * 86400    # the owner's two weeks: on for everyone this long, a switch is proven
 EVERY = 3600           # how often the lists are read for this
-AGAIN = 86400          # a checkout told is told again this long after, while any is still listed
+AGAIN = 86400          # a checkout whose lines were written is read again this long after
 
 
 def path():
@@ -40,9 +40,9 @@ def path():
 
 
 def read():
-    """When the lists were last read ("asked") and each checkout last told; {} before the first,
-    and for a record that is not one, which costs at most a line told again, as does a time in
-    it that is not past."""
+    """When the lists were last read ("asked") and each checkout's lines last written; {} before
+    the first, and for a record that is not one, which costs at most a list read again, as does
+    a time in it that is not past."""
     try:
         data = json.loads(path().read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError):
@@ -86,38 +86,27 @@ def undated(rows):
     return [row for row in rows if row.get("everyone") is True and since(row) is None]
 
 
-def line(project, proven, unproven=()):
-    """What a seat on that project is told: the proven rows to take out of the code, and the rows
-    its list cannot prove for want of `everyone_since`. One longer than a told line may hold, or
-    one a typed line would change (a switch or project named with a run of spaces or a control
-    character, which `tell.flat` folds), is written to a file the line names instead, as `ak tell`
-    asks of a longer line, so every name reaches the seat exactly as listed."""
-    told = []
+def outcome(project, row, proven):
+    """The plan line's words for that switch: what the seat is to make true.  Plain words, as a
+    plan line holds them: no backtick and no `·`."""
+    name = " ".join(str(row["id"]).split())
     if proven:
-        named = ", ".join(f"`{row['id']}` since "
-                          f"{time.strftime('%-d %b', time.localtime(since(row)))}" for row in proven)
-        told.append(f"In {project}, these switches have been on for everyone two weeks or more, "
-                    f"so they are proven: {named}. Take each out of {project}'s code, so everyone "
-                    "keeps the feature for good.")
-    if unproven:
-        named = ", ".join(f"`{row['id']}`" for row in unproven)
-        told.append(f"{project}'s switch list does not say since when these are on for everyone: "
-                    f"{named}. Have its features list give each row an everyone_since (when it last "
-                    "went on for everyone, ISO 8601 UTC, or null while it is not), so ak can tell "
-                    "when each is proven.")
-    text = (f"[from ak, not the owner] {' '.join(told)} ak says this again each day while it "
-            "holds.")
-    if not tell.too_long(text) and tell.flat(text) == text:
-        return text
-    whole = config.STATE / "retire" / f"{hashlib.sha256(text.encode()).hexdigest()[:16]}.txt"
-    whole.parent.mkdir(parents=True, exist_ok=True)
-    whole.write_text(text + "\n", encoding="utf-8")
-    try:
-        shown = f"~/{whole.relative_to(Path.home())}"   # as long however deep the home is
-    except ValueError:
-        shown = whole
-    return (f"[from ak, not the owner] Feature switches on your project need work: {shown} says "
-            "which, and where.")
+        day = time.strftime("%-d %b", time.localtime(since(row)))
+        return (f"{project}'s switch {name} is out of the code: on for everyone since {day}, "
+                "so proven, and everyone keeps the feature for good")
+    return (f"{project}'s switch list gives {name} an everyone_since (when it last went on for "
+            "everyone, ISO 8601 UTC, or null while it is not), so ak can tell when it is proven")
+
+
+def check(command, row, proven):
+    """The line's check, one shell line over the project's own switch list: it fails while the
+    list still shows that switch, or shows it with no `everyone_since`."""
+    test = ("sys.exit(1 if any(str(r.get('id')) == sys.argv[1] for r in rows) else 0)" if proven
+            else "sys.exit(0 if any(str(r.get('id')) == sys.argv[1] and "
+                 "isinstance(r.get('everyone_since'), str) for r in rows) else 1)")
+    body = ("import json, sys; rows = [r for r in json.load(sys.stdin) if isinstance(r, dict)]; "
+            + test)
+    return f"{command} list | python3 -c \"{body}\" {shlex.quote(str(row['id']))}"
 
 
 def seats_for(checkout):
@@ -153,7 +142,8 @@ def owners(seats, rows):
 
 
 def hand(log, now=None):
-    """The tick's pass: each checkout not told for AGAIN is told what its list shows proven."""
+    """The tick's pass: each checkout not written for AGAIN gets a plan line per switch its list
+    shows proven or cannot prove, in a seat filed under it."""
     from . import menu   # here, not at the top: the menu is the whole screen
     now = time.time() if now is None else now
     record = read()
@@ -162,12 +152,13 @@ def hand(log, now=None):
     record["asked"] = now
     for checkout in orch.checkouts():
         key = str(checkout)
-        if 0 <= now - record.get(key, 0) < AGAIN or not menu.switches_command(checkout):
+        command = menu.switches_command(checkout)
+        if 0 <= now - record.get(key, 0) < AGAIN or not command:
             continue
         answer, why = menu.features_run(checkout, "list")
         rows = menu.switch_rows(answer)
         if rows is None:
-            log(f"WARN {checkout.name}: its switches are unread, so none was told "
+            log(f"WARN {checkout.name}: its switches are unread, so none was planned "
                 f"({why or 'no list'})")
             continue
         proven, unproven = due(rows, now), undated(rows)
@@ -178,19 +169,25 @@ def hand(log, now=None):
             if found)
         seats = seats_for(checkout)
         if not seats:
-            log(f"{checkout.name}: {about}; no open seat to tell")
+            log(f"{checkout.name}: {about}; no open seat to plan it in")
             continue
         owner = owners(seats, proven + unproven)
-        told = {}
-        for rows_of, kind in ((proven, 0), (unproven, 1)):
+        written, refused = [], []
+        for rows_of, is_proven in ((proven, True), (unproven, False)):
             for row in rows_of:
-                told.setdefault(owner[str(row["id"])], ([], []))[kind].append(row)
-        refused = [f"{name}: {why}" for name, (mine, unproven_mine) in told.items()
-                   if (why := tell.queue(name, line(checkout.name, mine, unproven_mine)))]
+                name = owner[str(row["id"])]
+                try:
+                    plan.add(name, outcome(checkout.name, row, is_proven),
+                             check(command, row, is_proven), repo=checkout)
+                except config.Error as exc:
+                    refused.append(f"{name}: {row['id']}: {exc}")
+                    continue
+                if name not in written:
+                    written.append(name)
         if refused:
-            log(f"WARN {checkout.name}: {about}; not told: {'; '.join(refused)}")
+            log(f"WARN {checkout.name}: {about}; not planned: {'; '.join(refused)}")
             continue
         record[key] = now
         write(record)
-        log(f"{checkout.name}: {about}; told {', '.join(told)}")
+        log(f"{checkout.name}: {about}; planned in {', '.join(written)}")
     write(record)

@@ -13,7 +13,6 @@ from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, watch
-from agentkit.told import heading
 
 SEAT = "fix-api"
 QUESTION = "Which schema should acme use?"
@@ -303,13 +302,6 @@ class AnswerClosesQuestion(Sandbox):
         self.wait_look(self.looks[-1])
         self.assert_open()
 
-    def test_a_line_another_seat_told_leaves_it_open(self):
-        self.notice()
-        for field in ("prompt", "message"):
-            with self.subTest(field=field):
-                self.prompt(**{field: heading("acme", time.time()) + "Ready."})
-                self.assert_open()
-
     def test_task_notification_leaves_it_open(self):
         self.notice()
         for field in ("prompt", "message"):
@@ -341,12 +333,6 @@ class AnswerClosesQuestion(Sandbox):
     def test_no_prompt_leaves_it_open(self):
         self.notice()
         self.assert_open()
-
-    def test_a_peer_prompt_cannot_reopen_an_answered_question(self):
-        self.notice()
-        self.prompt()
-        self.prompt(prompt=heading("acme", time.time()) + "Ready.")
-        self.assert_answered()
 
     def test_a_failed_card_edit_is_retried(self):
         self.notice()
