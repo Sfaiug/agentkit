@@ -137,6 +137,16 @@ class RecordedWaits(unittest.TestCase):
         self.merged("tree-only", health=False, tree=with_health)
         self.assertFalse(stop.awaiting_live(json.loads((self.runs / "tree-only" / "run.json").read_text())))
 
+    def test_a_recorded_command_never_probed_is_no_failure_past_the_window(self):
+        self.merged("late", health=True, age=watch.AFTER_MERGE_WINDOW + 60)
+        directory = self.runs / "late"
+        st = json.loads((directory / "run.json").read_text())
+        verdict = watch.after_merge_health(directory, st, "k", "0" * 40, st["pr"], time.time(), False,
+                                           lambda _: None, {})
+        self.assertEqual(verdict, ("ignored", None, None))             # nothing failed: nothing ran
+        self.assertNotIn("health", json.loads((directory / "run.json").read_text()))
+        self.assertNotIn("health", st)
+
     def test_a_reply_stands_while_nothing_is_owed_whatever_the_prompt_said(self):
         for opened in ("Which parser does it use?", "Merge the parser now", "is main green"):
             with self.subTest(opened=opened):
@@ -157,6 +167,21 @@ class RecordedWaits(unittest.TestCase):
         notice = self.notice()                           # ... as a question to the owner
         self.assertEqual(notice["kind"], "needs")
         self.assertEqual(notice["text"], "Stopped three times with work open: " + SAID)
+
+    def test_the_third_stops_question_carries_the_owners_earlier_answer(self):
+        # recorded as `ak notify needs` records one: the owner's answer to the question it
+        # replaces rides along, so that question's card closes as answered
+        self.owes()
+        (self.state / f"notify-{SEAT}.json").write_text(json.dumps({            # answered before this turn
+            "session": SEAT, "kind": "done", "text": "Finished the parser", "time": time.time() - 60,
+            "answered_at": 1234.5}) + "\n")
+        self.prompt("Carry on")
+        for _ in range(2):
+            self.assertEqual(json.loads(self.stop())["decision"], "block")
+        self.assertEqual(self.stop(), "")
+        notice = self.notice()
+        self.assertEqual(notice["text"], "Stopped three times with work open: " + SAID)
+        self.assertEqual(notice["earlier_answer_at"], 1234.5)
 
     def test_a_merged_run_not_yet_live_is_a_wait_where_its_project_proves_itself_live(self):
         self.owes()

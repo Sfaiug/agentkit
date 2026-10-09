@@ -258,7 +258,8 @@ def asked_owner(seat, said):
     words = " ".join((said or "").split())
     if len(words) > 200:
         words = "\u2026" + words[-199:]        # the end, where what it is stuck on is said
-    notify.record(seat, "needs", f"Stopped three times with work open: {words}")
+    with notify.session_lock(seat):       # as `ak notify needs` records: the answer to the question it replaces, and that question's open cards, carried over
+        notify._said(seat, "needs", f"Stopped three times with work open: {words}")
 
 
 def held(launched, payload):
