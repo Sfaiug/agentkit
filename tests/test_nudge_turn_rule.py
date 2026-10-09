@@ -306,6 +306,24 @@ class NudgeTurnRule(Sandbox):
                 self.assertEqual(notify.last(SEAT)["text"], "Which account should I use?")
                 self.assertEqual(self.sent, [])
 
+    def test_i_a_line_typed_where_the_turn_ended_asks_the_kept_question_first(self):
+        """A run ending at the quiet prompt types its hand-back before any tick looks: the
+        typer asks the question first, so the turn the line opens leaves it his."""
+        question = "Which account should I use?"
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.pane = self.screen("working")
+                self.assertEqual(notify.main(["needs", question]), 0)
+                self.pane = self.screen("prompt")       # its turn ends; no hook says so here
+                self.assertTrue(watch.type_at_prompt(
+                    self.seat, "run acme-parser finished PASS merged.", lambda line: None,
+                    cfg=self.cfg))
+                answer = watch.announce_state(dict(self.seat), cfg=self.cfg, look=True,
+                                              auth_out={}, gh_out={}, token_out={})
+                self.assertEqual((answer["word"], answer["reason"]), ("needs you", question))
+
 
 if __name__ == "__main__":
     unittest.main()

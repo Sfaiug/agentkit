@@ -1791,21 +1791,28 @@ def keeps_back(name):
     return bool(harness) and not owner_question(notify.last(name))
 
 
-def ask_kept_back(name, harness, found):
+def ask_kept_back(name, harness, found, held=False):
     """A fresh look found that seat's turn ended: the question it kept back is asked now.
 
     Ended is a prompt, a draft there, or a Stop on background work -- never a dialog, which is
-    a turn waiting.  Its callers have just looked: `look_at`, and the health pass after its
-    own look.  `live_state` is read under the seat's typing lock, which is the notice's own,
-    so it asks nothing, and whatever cannot be recorded now is asked by the next look.
+    a turn waiting.  Its callers have just looked: `look_at`, the health pass after its own
+    look, and every typer under the seat's typing lock (`type_checked`, `held`), so no line
+    ak types opens a turn on a seat that stopped on a question before that question is asked.
+    `live_state` is itself read under that lock, which is the notice's own, so it asks
+    nothing; a look that finds the lock taken leaves the question to the typer holding it.
     """
     kept = seat_read(name).get("unasked") if harness and found else None
-    if (not isinstance(kept, dict) or not isinstance(kept.get("text"), str)
-            or found.get("state") == "asking" or not _composer_open(harness, found)):
+    if (not isinstance(kept, dict) or found.get("state") == "asking"
+            or not _composer_open(harness, found)):
         return
     try:
-        notify.shaped("needs", kept["text"], session=name, kept=True)
-    except config.Error:
+        if held:
+            notify.ask_kept(name)
+            return
+        with notify.session_lock(name, wait=False) as current:
+            if current:
+                notify.ask_kept(current)
+    except (config.Error, OSError):
         pass
 
 
@@ -2623,6 +2630,14 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             confirm = any(pattern.search(strip_sgr(line))
                           for line in pane_tail(pane_text(seat)).splitlines())
     with guard() as held:
+        # a line typed where the seat's turn has ended opens a new one: a question it kept
+        # back for that end is asked first, and the veto reads it as it always did
+        if harness is not None and seat_read(name).get("unasked"):
+            try:
+                ask_kept_back(name, harness, live_state(seat, harness, cfg=None),
+                              held=held is not None)
+            except (config.Error, OSError):
+                pass
         if veto(held if held is not None else name):
             return False
         if not pending:

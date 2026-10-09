@@ -241,6 +241,26 @@ class QuestionWaitsForTheStop(Sandbox):
         self.assertEqual((answer["word"], answer["reason"]), ("needs you", QUESTION))
         self.assertIsNone(watch.seat_read(SEAT).get("unasked"))
 
+    def test_a_hand_back_typed_before_any_look_asks_it_first(self):
+        """The Stop's own look may not have run yet when a run hands back at the prompt."""
+        self.hook("UserPromptSubmit", prompt="Build the acme parser.")
+        self.asks()
+        fact = self.stop()
+        with patch.object(watch, "hook_facts", return_value=fact), \
+                patch.object(watch, "pane_text", return_value=PROMPT), \
+                patch.object(watch, "_send_line", return_value=True), \
+                patch.object(watch, "_send_enter", return_value=True), \
+                patch.object(watch, "_wait_sent", return_value=True), \
+                patch.object(watch, "pane_unread", return_value=False):
+            watch.type_at_prompt({"name": SEAT, "attached": False},
+                                 "run acme-parser finished PASS merged.", lambda line: None,
+                                 cfg=self.cfg)
+        self.assertEqual(notify.last(SEAT)["text"], QUESTION)
+        self.assertIsNone(watch.seat_read(SEAT).get("unasked"))
+        fact = self.hook("UserPromptSubmit", prompt="run acme-parser finished PASS merged.")
+        answer = self.looked(WORKING, fact, after=60)
+        self.assertEqual((answer["word"], answer["reason"]), ("needs you", QUESTION))
+
     def test_a_conversation_ak_forgets_takes_its_kept_question_with_it(self):
         """`ak orch stop`, a model switch and a new seat under the name retire the old
         conversation's question (`watch.forget`): the next one never asks it."""
