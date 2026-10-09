@@ -120,28 +120,30 @@ def tree(worktree, artifacts, log=lambda _: None):
 
 
 def staged(worktree, paths, env, log):
-    """`paths` added to the index `env` names: in one call, or, when a listed file vanished
-    meanwhile (a working executor's temp file), one by one with the gone ones left out."""
+    """`paths` added to the index `env` names, in one call, the ones that vanished since they
+    were listed (a working executor's temp file) left out; when the add still fails, one by
+    one, so a file git cannot read costs only itself, said once.  Decided by what is on disk
+    and git's exit, never by its words, which it says in the host's language."""
     from . import run
-    gone = "did not match any files"
+    present = [path for path in paths if os.path.lexists(worktree / path)]
     try:
-        run.git(worktree, "add", "--ignore-errors", "--", *paths, env=env)
+        if present:
+            run.git(worktree, "add", "--ignore-errors", "--", *present, env=env)
         return
     except run.Stopped:
         raise
-    except config.Error as exc:
-        if gone not in str(exc):
-            log(f"WARN lease scan: left unreadable paths of {worktree} out: {exc}")
-            return
+    except config.Error:
+        pass
     unreadable = []
-    for path in paths:
+    for path in present:
+        if not os.path.lexists(worktree / path):
+            continue
         try:
             run.git(worktree, "add", "--ignore-errors", "--", path, env=env)
         except run.Stopped:
             raise
         except config.Error as exc:
-            if gone not in str(exc):
-                unreadable.append(str(exc))
+            unreadable.append(str(exc))
     if unreadable:
         log(f"WARN lease scan: left unreadable paths of {worktree} out: {unreadable[0]}")
 
