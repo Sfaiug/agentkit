@@ -269,7 +269,10 @@ def collide(repo, older, younger, trees):
 def scan(repo, log=lambda _: None, now=None):
     """One repository's pass: each younger run that collides with an older one is written
     down as waiting on the oldest such holder, with the paths and since when; the rest of
-    the record is cleared.  Returns the record."""
+    the record is cleared.  A holder counts only while its record, read again, says it is
+    going: one this scan parked, or one that ended while it ran, holds no diff.  Returns the
+    record."""
+    from . import run
     now = time.time() if now is None else now
     home.cache_clear()          # repository identity is read afresh each scan
     before = read(repo)
@@ -279,7 +282,7 @@ def scan(repo, log=lambda _: None, now=None):
     for at, younger in enumerate(runs):
         for older in runs[:at]:
             files = collide(repo, older, younger, trees)
-            if not files:
+            if not files or not run.going(run_record.read_state(config.RUNS / older["run"]) or {}):
                 continue
             kept = before.get(younger["run"]) or {}
             since = kept.get("since") if kept.get("waits_on") == older["run"] else None
