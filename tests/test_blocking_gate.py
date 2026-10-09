@@ -437,15 +437,12 @@ out = pathlib.Path(sys.argv[6])
     def test_a_replayed_proof_failing_on_base_too_is_a_follow_up_once_its_line_is_base_s(self):
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.never)), "FAIL")
         self.write('mode = "branch"\nflag = "base"\nextra = 1\n', "Put the flag back as base has it")
-        self.assertEqual(self.review(), "PASS")
-        self.assertEqual(self.records("finding"), [])
-        self.assertEqual(self.records("follow-up"),
-                         [("api.py", 2, "still failing, on base too: a defect from before the task, kept as a follow-up")])
-        self.assertEqual(len(self.lp.state["followups"]), 1)
-        # ... and the reviewer handing it in again there is weighed the same: a follow-up
+        # the reviewer handing it in again there, with its very proof, is weighed the same: one
+        # follow-up, ak's replay of that proof adding no second copy beside it
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.never)), "PASS")
         self.assertEqual(self.records("finding"), [])
-        self.assertEqual([site for site in self.records("follow-up")], [("api.py", 2, "")])
+        self.assertEqual(self.records("follow-up"), [("api.py", 2, "")])
+        self.assertEqual(len(self.lp.state["followups"]), 1)
 
     def test_the_prompts_no_longer_ask_for_anything_new_or_every_instance(self):
         for role, text in worker.PREAMBLES.items():

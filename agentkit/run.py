@@ -3985,8 +3985,9 @@ def replay_section(replayed, left, since):
     return (f"## Earlier findings, re-proven by ak on this commit\n"
             + ("\n".join(lines) if lines else "(none)")
             + ("\n\n## Earlier findings left to you\n" + "\n".join(yours) if yours else "")
-            + "\nA finding still failing blocks whatever you hand in; one fixed needs no word. "
-              "One you hand in again at its site blocks wherever its line sits now. "
+            + "\nA finding still failing blocks whatever you hand in, and one you hand in again at its "
+              "site is weighed as ak's replay is: on base where its line is base's again, a follow-up "
+              "there; one fixed needs no word. "
             + (f"A new finding blocks only inside the fix delta since {since[:12]}; "
                "outside it, it is kept as a note." if since else
                "This is the commit the last review judged, again: a new finding blocks "
@@ -3998,7 +3999,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
 
     In a later round (`since` names the commit the last review judged) a new finding blocks
     only inside the fix delta; one handed in again at an earlier finding's site upholds it (a
-    dispute the reviewer rejects) and blocks wherever it is.  ak's own replay of the earlier
+    dispute the reviewer rejects) and is weighed as ak's replay is.  ak's own replay of the earlier
     findings (`replayed`) is weighed with the reviewer's: one still failing blocks whether or
     not the reviewer handed it in again, one fixed is a note."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
@@ -4070,7 +4071,8 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
         # upheld, and ak's replay adds no second copy beside it; any other finding at its site
         # is another check, and ak's own still blocks beside it: what ak can prove itself is
         # never handed back to the reviewer's words
-        proofs = {row["evidence"].get("run") for row in records if row["kind"] == "finding"}
+        proofs = {row["evidence"].get("run") for row in records
+                  if isinstance(row.get("evidence"), dict)}       # however the hand-in was weighed
         extra = []
         for n, (row, now, failing) in enumerate(replayed, 1):
             line, touched, inside = placed(lp, row, since, head)
