@@ -286,9 +286,12 @@ def held(launched, payload):
     if last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
     # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
-    # a hand-back or a told line opens turns on a seat while it stands (`watch.stop_nudge`)
+    # a hand-back or a told line opens turns on a seat while it stands (`watch.stop_nudge`),
+    # and one this seat kept back for its turn's end (`notify.release`) was asked in this turn,
+    # whatever line was queued into it since
+    unasked = (notify.last(seat, include_seen=True) or {}).get("unasked") is True
     ends, undecided = recorded_ending(
-        seat, question=(questioned(payload) or told(seat, turn, "needs")
+        seat, question=(questioned(payload) or told(seat, turn, "needs") or unasked
                         or owner_question(notify.last(seat))),
         completion=lambda: told(seat, turn, "done", peer), answer=asked and not peer, since=turn)
     if ends:

@@ -6,8 +6,9 @@ last notification, which is what the menu shows as that session's state. `ak not
 the reason or declaration; the session-state transition sends the card.
 
 Workers are silent by construction. A needs episode is sent once after it has stood for a minute
-with no attached client input since it began; a seat's own question begins one when the turn
-that asked has ended. A done episode is sent once when the session state
+with no attached client input since it began. A question a seat asks during its own turn is
+kept back, off every screen and card, until that turn has ended (`release`): only then is the
+seat waiting for the answer. A done episode is sent once when the session state
 becomes done, and a declaration once whatever episodes, or versions, it turns up in. Seat input
 or finishing edits outstanding questions without pinging. Nothing is sent, or retried, for a
 seat the owner closed himself, or an episode begun before this agentkit was installed.
@@ -417,7 +418,8 @@ def last(session, include_seen=False):
     except (OSError, ValueError, config.Error):
         return None
     if (not isinstance(data, dict) or data.get("kind") not in TITLES
-            or not isinstance(data.get("text"), str) or (resolved(data) and not include_seen)):
+            or not isinstance(data.get("text"), str)
+            or ((resolved(data) or data.get("unasked")) and not include_seen)):
         return None
     return data
 
@@ -469,6 +471,26 @@ def answered(session, at):
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
     from . import watch    # here, not at the top: watch imports this module
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
+
+
+def release(session):
+    """The turn in which that seat asked has ended: the question it kept back is asked now.
+
+    A seat runs `ak notify needs` during its own turn, and may work on.  Until that turn ends
+    its screen shows no question and it waits for nobody, so the notice is `unasked`: `last`
+    keeps it off every screen and card, nothing typed meanwhile answers it, and the seat reads
+    as its turn and runs say.  Here it becomes what the command always recorded, dated now.
+    """
+    if not (last(session, include_seen=True) or {}).get("unasked"):
+        return False
+    with session_lock(session) as session:
+        previous = last(session, include_seen=True)
+        if not previous or not previous.get("unasked"):
+            return False
+        record(session, previous["kind"], previous["text"],
+               **{k: v for k, v in previous.items()
+                  if k not in ("session", "kind", "text", "time", "unasked")})
+    return True
 
 
 def job_done(notice):
@@ -1052,7 +1074,7 @@ def needs_transition(session, card, answer, now, seat=None):
     # The seat's own question stands until he answers it: input in its seat once the card is
     # out is him looking, and a seat that asked and works on shows no question on its screen.
     asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
-             and not resolved(declared))
+             and not resolved(declared) and not declared.get("unasked"))
     if ((_attached(session, card["since"], seat) and not (asked and card.get("sent")))
             or answered_here):
         if not card.get("closed") or card.get("open_needs") or answered_here:
@@ -1339,6 +1361,15 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
             raise Refused(str(exc)) from None
         gate = lambda current: plan.still_done(current, proven)   # and still, as recorded
     try:
+        # The command run in the seat it speaks for is that seat asking during its own turn,
+        # which ak can see end where it knows the seat's harness: kept back until then
+        # (`release`), the question begins no episode here.
+        unasked = kind == "needs" and event_id is None and name == config.current_session()
+        if unasked:
+            try:
+                unasked = bool(watch.seat_model(config.load(), name)[0])
+            except config.Error:
+                unasked = False     # a config nobody can read names no harness
         with session_lock(name) as name:
             if gate:
                 try:
@@ -1350,6 +1381,8 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                 extra = {"source": event_id, "pr": pr,
                          "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:")),
                          "open_needs": previous.get("open_needs", []) if previous else []}
+                if unasked:
+                    extra["unasked"] = True
                 earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
                 if earlier:
                     # The answer ends its card's episode at the next tick; the newer notice
@@ -1365,6 +1398,8 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                 record(name, kind, text, **extra)
                 if event_id is None:
                     watch.seat_write(name, wait=None)   # the seat's newer word ends its `ak wait`
+        if unasked:
+            return 0
         # A command is the visible start of the episode. Decide from now's facts, and
         # evaluate a hold later, so the recorder's own question is not left waiting
         # for the three-minute watcher tick; deciding at the later clock would date
