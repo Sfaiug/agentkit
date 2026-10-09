@@ -5,7 +5,7 @@ screen moves and shows no question.  Its owner switching into it, or opening it 
 and watching it work, answers nothing: the Discord card stays `Needs you`, and the row stays
 `needs you`, until his prompt (`notify.answered`, which the harness's prompt hook reports).
 Where a harness reports no prompts, output after an open is still the only answer there is,
-and a watcher's alert, or a needs you only the screen said, keeps the rules it had.
+as it is for a watcher's alert.
 """
 
 from contextlib import ExitStack
@@ -80,17 +80,17 @@ class QuestionStands(unittest.TestCase):
         self.needs_you(now=660)
         self.assertEqual(self.closed, ["Answered"])
 
-    def test_a_watchers_alert_still_closes_on_input_in_its_seat(self):
-        self.sent_card(watcher=True)
-        self.client = (0, "seat\t170")
-        self.needs_you(now=180)
-        self.assertEqual(self.closed, ["Answered"])
-
-    def test_a_needs_you_only_the_screen_said_still_closes_on_input(self):
-        self.sent_card()                      # a dialog on its screen, no notice at all
-        self.client = (0, "seat\t170")
-        self.needs_you(now=180)
-        self.assertEqual(self.card()["closed"], "Answered")
+    def test_switching_in_leaves_a_watchers_alert_and_a_dialogs_card_open_too(self):
+        """A card that is out says what its seat says (tests/test_card_agrees_with_the_seat.py):
+        while the seat reads `needs you`, his keys there close none of them."""
+        for notice in ({"watcher": True}, {}):      # {}: a dialog on its screen, no notice
+            with self.subTest(notice=notice):
+                self.setUp()
+                self.sent_card(**notice)
+                self.client = (0, "seat\t170")
+                self.needs_you(now=180)
+                self.assertEqual(self.closed, [])
+                self.assertNotIn("closed", self.card())
 
     def test_output_after_an_open_answers_nothing_where_prompts_are_reported(self):
         notify.record("seat", "needs", "Ship the acme parser today?", time=100)
