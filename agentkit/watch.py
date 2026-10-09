@@ -1949,6 +1949,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * an error it launched is parked with no scheduled resume and still needs his
       attention -- recent, unacknowledged, not handed back or superseded -- or a run
       is stalled, or a merge wait only its age turned away;
+    * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
+      so the seat is working;
     * nobody is in the seat any more and its number is the way back in;
     * it said it was done itself, a job never says it for it, and nothing on its screen asks him
       -- unless a run of its own still sits parked and undecided, which is him;
@@ -2252,6 +2254,16 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                 reason = (status_mod.parked_line(first, name, now=at)
                           or f"run {name} parked: {reason}")
             return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
+    # 3a. ... or, with none parked, a run of its own merged and its project has yet to prove
+    # itself live: ak's own probe, read every tick (`awaiting_live`), so the stop hook, this
+    # word and the card it decides agree that nothing here is his -- in the hook's order too,
+    # where a parked run comes first
+    pending = [state for _, state in mine if awaiting_live(state, now=at)]
+    if pending:
+        newest = max(pending, key=lambda state: state.get("finished_at") or 0)
+        title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
+        return {"word": "working", "reason": f"waiting on the live check · {title}".rstrip(" ·"),
+                "since": min(state["finished_at"] for state in pending)}
     # 4. nobody is in it: its number is the way back into the conversation.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.
@@ -5698,6 +5710,21 @@ def health_command(repo, sha, command):
         return False, str(exc)
 
 
+def awaiting_live(state, now=None):
+    """A merged run whose project proves itself live (`health:`) and has not yet: ak's own
+    probe, read every tick, so its seat has nothing to do but wait on it -- the stop hook lets
+    the turn end on it and the seat's ladder reads it as working.  Whether the project proves
+    itself is the one record the merge left (`run.merge_record`) and the tick keeps until it
+    passes (`after_merge_health`); nothing is read again here."""
+    now = time.time() if now is None else now
+    finished = state.get("finished_at")
+    if (not state.get("merged") or state.get("live_at") or not state.get("repo")
+            or not isinstance(finished, (int, float)) or isinstance(finished, bool)
+            or not 0 <= now - finished <= AFTER_MERGE_WINDOW):
+        return False
+    return bool((state.get("health") or {}).get("command"))
+
+
 def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes):
     """Follow the merge's declaration in its original checkout, stopping at its first pass."""
     from . import history, run
@@ -6026,7 +6053,9 @@ def after_merge_checks(state, dry_run, log, now=None):
         if (not isinstance(finished, (int, float)) or isinstance(finished, bool)
                 or not 0 <= now - finished):
             continue
-        if (now - finished > AFTER_MERGE_WINDOW and not st.get("health")
+        # past the window, only a probe that failed inside it is followed further: the
+        # `health:` a merge recorded and no probe ever ran is let go, the merge commit unasked
+        if (now - finished > AFTER_MERGE_WINDOW and "output" not in (st.get("health") or {})
                 and not (st.get("live_at") and not st.get("live_notified"))):
             continue
         pr_url = st.get("pr")

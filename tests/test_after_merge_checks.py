@@ -237,6 +237,15 @@ class AfterMerge(unittest.TestCase):
         self.assertEqual(self.typed, [])
         self.assertEqual(state["after_merge"][key]["notified"], old)
 
+    def test_a_health_the_merge_recorded_and_no_probe_ran_is_let_go_past_the_window(self):
+        directory = self.merged("run-late", age=watch.AFTER_MERGE_WINDOW + 60)
+        record.save_state(directory, {**record.read_state(directory), "health": {"command": "true"}})
+        self.set_prs({PR: "__FAIL__"})          # a merge commit gh can never name
+        self.rows = [self.live(SEAT)]
+        self.follow()
+        self.assertEqual(self.typed, [])
+        self.assertFalse(any("merge commit" in line for line in self.logs), self.logs)
+
     def test_unreadable_merge_commit_keeps_the_told_break(self):
         sha = "a" * 40
         self.merged("run-old")
