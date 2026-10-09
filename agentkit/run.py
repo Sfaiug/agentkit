@@ -11071,13 +11071,14 @@ def change_on(branch, repo, exclude=None):
 
 def rounds_spent(state):
     """The review rounds a run spent: those with a verdict recorded (`round_summaries`), and
-    the one under way (`review_pending` past them, on a run still going), spent the moment it
+    the one under way on a run still going -- from its first step (`step_round`, which
+    `Loop.step` records as the round begins) or its pending review -- spent the moment it
     starts so no other run of the change takes it too."""
     recorded = len(state.get("round_summaries") or [])
     pending = state.get("review_pending")
-    under_way = (isinstance(pending, dict) and (pending.get("round") or 0) > recorded
-                 and going(state))
-    return recorded + (1 if under_way else 0)
+    begun = max(state.get("step_round") or 0,
+                (pending.get("round") or 0) if isinstance(pending, dict) else 0)
+    return recorded + (1 if begun > recorded and going(state) else 0)
 
 
 def spent_line(spent, runs, what):
@@ -11114,22 +11115,29 @@ def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
     return spent, runs
 
 
-def round_budget(asked, *, pr=None, change=None, exclude=None, what):
-    """(the rounds this run may have in all, None), or (0, why) once the change's budget is
+def round_budget(asked, *, pr=None, change=None, exclude=None, what, own=0):
+    """(the rounds this run may still have, None), or (0, why) once the change's budget is
     spent: `asked` less what the other runs (`exclude` names this one) spent on the same pull
-    request or change, `taskfile.TASK_MAX_ROUNDS` in all.  The one reading of the budget:
-    a launch, a resume, the way on from a FAIL and every round as it is spent read it here."""
+    request or change and less this run's `own`, `taskfile.TASK_MAX_ROUNDS` in all.  The one
+    reading of the budget: a launch, a resume, the way on from a FAIL and every round as it
+    is spent read it here."""
     spent, runs = rounds_spent_elsewhere(pr=pr, change=change, exclude=exclude)
-    left = min(asked, taskfile.TASK_MAX_ROUNDS - spent)
+    left = min(asked, taskfile.TASK_MAX_ROUNDS - spent - own)
     if left < 1:
-        return 0, spent_line(spent, runs, what)
+        return 0, spent_line(spent + own, runs + (1 if own else 0), what)
     return left, None
 
 
+def change_budget(state, run_dir, asked, own=0):
+    """`round_budget` for a run's own pull request or change: the one place a record is
+    read into its arguments."""
+    return round_budget(asked, pr=state.get("pr") or state.get("review_pr"),
+                        change=change_of(state), exclude=run_dir, what="this change", own=own)
+
+
 def lineage_cap(state, run_dir):
-    """The rounds that run may have in all: `round_budget` for its own pull request or change."""
-    return round_budget(taskfile.TASK_MAX_ROUNDS, pr=state.get("pr") or state.get("review_pr"),
-                        change=change_of(state), exclude=run_dir, what="this change")[0]
+    """The rounds that run may have in all: the change's budget less what other runs spent."""
+    return change_budget(state, run_dir, taskfile.TASK_MAX_ROUNDS)[0]
 
 
 def allowed_rounds(lp):
@@ -11141,15 +11149,14 @@ def allowed_rounds(lp):
 
 def round_allowed(lp):
     """Whether this run may spend another round: one of its own left, and one left on its
-    change across its runs.  Past the change's with rounds of its own left, the run ends
-    blocked with the reason, so its seat hears it: the task is what changes, split or
-    redesigned, and nothing a resume could spend."""
+    change across its runs (`change_budget`, counting the rounds it spent itself).  Past the
+    change's with rounds of its own left, the run ends blocked with the reason, so its seat
+    hears it: the task is what changes, split or redesigned, and nothing a resume could
+    spend."""
     if lp.rnd >= lp.rounds:
         return False
-    others, runs = rounds_spent_elsewhere(pr=lp.state.get("pr") or lp.state.get("review_pr"),
-                                          change=change_of(lp.state), exclude=lp.run_dir)
-    if lp.rnd + others >= taskfile.TASK_MAX_ROUNDS:
-        why = spent_line(lp.rnd + others, runs + (1 if lp.rnd else 0), "this change")
+    left, why = change_budget(lp.state, lp.run_dir, lp.rounds, own=lp.rnd)
+    if left < 1:
         lp.log(f"BLOCKED {why}")
         raise Blocked(why, f"## Blocked\n\n{why}")
     return True

@@ -123,12 +123,19 @@ class RoundsPerPr(Sandbox):
         with self.assertRaisesRegex(run.Blocked, "3 review rounds spent on this change across 1 run:"):
             run.round_allowed(lp)                         # ... so this run ends blocked, with the reason
         self.assertEqual(run.lineage_cap(lp.state, b), 0)
-        # a round under way counts from its start, on a run still going; a dead run's does not
+        # a round under way counts from its first step, on a run still going; a dead run's
+        # does not
+        self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1), state="running",
+                     step="executor", step_round=3)
+        self.assertEqual(run.allowed_rounds(lp), 0)
+        with self.assertRaisesRegex(run.Blocked, "3 review rounds spent on this change across 1 run:"):
+            run.round_allowed(lp)
+        self.assertEqual(run.round_budget(3, change="20260101-0600-a", what="x")[0], 0)   # a launch sees it too
         self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1), state="running",
                      review_pending={"round": 3, "summary": ""})
         self.assertEqual(run.allowed_rounds(lp), 0)
         self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1),
-                     review_pending={"round": 3, "summary": ""})
+                     step="executor", step_round=3, review_pending={"round": 3, "summary": ""})
         self.assertEqual(run.allowed_rounds(lp), 1)
 
     def test_the_budget_is_what_earlier_runs_left_of_three(self):
