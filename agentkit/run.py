@@ -6209,7 +6209,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 raise config.Error(f"{task_path}: from: needs a repository; "
                                    "a scratch run has no branch to start from")
             base = target = base_sha = branch = None
-            from_branch = ""
+            from_branch, change = "", None
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
@@ -6241,6 +6241,15 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
             base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
             from_branch = (meta.get("from") or "").strip()
+            change = None
+            if from_branch:
+                # the change continues on that branch: the run the branch belongs to names it,
+                # and the rounds earlier runs spent on it are spent
+                change = change_on(from_branch, repo, exclude=run_dir)
+                n_rounds, why = round_budget(n_rounds, change=change, exclude=run_dir,
+                                             what=f"branch {from_branch}")
+                if why:
+                    raise config.Error(f"{task_path}: {why}")
             if from_branch and opts["--no-worktree"]:
                 raise config.Error(f"{task_path}: from: needs a worktree; "
                                    "drop --no-worktree so the run gets its own checkout")
@@ -6276,6 +6285,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                  "task_checks": sized_checks})
         if from_branch:
             state["from"] = from_branch
+        if change:
+            state["change"] = change
         if scratch:
             log(f"scratch workspace {wt}: no repository, so no branch, no PR and no merge")
         elif not opts["--no-worktree"]:
@@ -6743,6 +6754,14 @@ def mark_state(run_dir, name, error=None, log=None):
     return state
 
 
+def over_lineage(state, run_dir, n_rounds):
+    """Refuse a `--rounds` above what the change has left across its runs."""
+    cap = lineage_cap(state, run_dir)
+    if n_rounds > cap:
+        raise config.Error(f"--rounds {n_rounds} is over this change's budget: {cap} of "
+                           f"{taskfile.TASK_MAX_ROUNDS} rounds across its runs; split or redesign the task")
+
+
 def failed_at_budget(state):
     """A FAIL that ran out of rounds rather than out of work, so more rounds carry it on.
 
@@ -6853,9 +6872,12 @@ def continue_line(state, run_dir=None):
     if (state.get("state") == "exhausted" and state.get("review_pending")
             and "gave no verdict twice" in (state.get("error") or "")):
         return f"continue: ak run resume {state['run_id']}"
-    if failed_at_budget(state) and state["rounds"] < taskfile.TASK_MAX_ROUNDS:
-        # up to the budget and no further: past it the task is split or re-scoped instead
-        return f"continue: ak run resume {state['run_id']} --rounds {taskfile.TASK_MAX_ROUNDS}"
+    if failed_at_budget(state):
+        # up to the change's budget across its runs and no further: past it the task is
+        # split or redesigned instead
+        cap = lineage_cap(state, run_dir or config.RUNS / state["run_id"])
+        return (f"continue: ak run resume {state['run_id']} --rounds {cap}"
+                if state["rounds"] < cap else "")
     if failed_in_integration(state, run_dir):
         return f"continue: ak run resume {state['run_id']}"
     if judged_in_integration(state, run_dir):
@@ -9520,6 +9542,12 @@ def preflight(run_dir, opts, log):
         if is_own and not orch:
             raise config.Error(f"no session record names the writer of this PR; "
                                f"review of the seat's own PR needs its orchestrator")
+        if is_own:
+            # the budget is the pull request's: earlier runs' rounds on it are spent
+            _, why = round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, exclude=run_dir,
+                                  what=f"PR #{number}")
+            if why:
+                raise config.Error(why)
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
         if is_own:
             method, action = ("squash",
@@ -9885,6 +9913,7 @@ def resume_run(argv):
         if n_rounds is not None:
             if n_rounds < (state.get("rounds") or 0):
                 raise config.Error("--rounds cannot reduce the saved round budget")
+            over_lineage(state, run_dir, n_rounds)
             state["rounds"] = n_rounds
         state.pop("pickup", None)
         state.setdefault("merge_method", "squash")
@@ -9949,6 +9978,11 @@ def resume_run(argv):
         # the whole budget is spent: no --rounds carries it on, so the task is what changes
         raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
                            f"{taskfile.TASK_MAX_ROUNDS} rounds is the budget, so split or re-scope the task")
+    if at_budget and state["rounds"] >= lineage_cap(state, run_dir):
+        # ... and so is the change's budget, counted across its runs
+        raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
+                           f"{lineage_cap(state, run_dir)} rounds is this change's budget across its runs, "
+                           "so split or redesign the task")
     if at_budget and (n_rounds is None or n_rounds <= state["rounds"]):
         raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
                            f"give --rounds N above it, at most {taskfile.TASK_MAX_ROUNDS}, to continue")
@@ -9992,6 +10026,7 @@ def resume_run(argv):
     if n_rounds is not None:
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
+        over_lineage(state, run_dir, n_rounds)
         state["rounds"] = n_rounds
     # A failed review or aborted integration carries a stale pending review. A
     # landing gate wait keeps its non-task review so recovery first updates the
@@ -10718,9 +10753,18 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         raise config.Error("no session record names the writer of this PR; "
                            "review of the seat's own PR needs its orchestrator")
     summaries = prior.get("round_summaries", []) if is_own else []
-    n_rounds = taskfile.TASK_MAX_ROUNDS if is_own else 1
-    if is_own and len(summaries) >= n_rounds:
-        raise config.Error("three review rounds spent; split or re-scope the PR")
+    n_rounds = 1
+    if is_own:
+        # the pull request's budget, less what earlier runs spent on it: this run's rounds
+        # are what is left, and a fourth round is refused whichever run would spend it
+        number = PR_PARTS.match(url).group(3)
+        n_rounds, why = round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, exclude=run_dir,
+                                     what=f"PR #{number}")
+        if why:
+            raise config.Error(why)
+        if len(summaries) >= n_rounds:
+            raise config.Error(f"{taskfile.TASK_MAX_ROUNDS} review rounds spent on PR #{number}; "
+                               "split or redesign it")
     advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
                                    or prior.get("own_pr_wait"))
                      and prior.get("head_sha") != info["headRefOid"])
@@ -10984,6 +11028,94 @@ def settle_pr_round(lp, url, info):
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
     return state
+
+
+def pr_key(url):
+    """One pull request's identity, however its URL was spelled: owner and repository
+    case-folded, a trailing slash ignored; None for no pull request URL."""
+    found = PR_PARTS.match((url or "").strip()) if isinstance(url, str) else None
+    return (found.group(1).lower(), found.group(2).lower(), found.group(3)) if found else None
+
+
+def same_repo(a, b):
+    """Whether two recorded checkouts name the same repository."""
+    try:
+        return bool(a) and bool(b) and Path(a).resolve() == Path(b).resolve()
+    except OSError:
+        return False
+
+
+def change_of(state):
+    """The change a run belongs to: the id it inherited at a `from:` launch, else its own."""
+    return state.get("change") or state.get("run_id")
+
+
+def change_on(branch, repo, exclude=None):
+    """The change a launch `from:` that branch continues: the change of the newest run of that
+    repository that ak cut the branch for and whose branch is still there, or None when the
+    name is free and the launch is a new change.  A branch name is not a change: a merge, a
+    stop without `--keep` or a session's end takes the branch (`record.branch_gone`) and the
+    next task of that title gets the name back, and a run working in the repository itself
+    (`--no-worktree`) is on whatever branch was checked out and owns none."""
+    owner = None
+    for run_dir in run_record.run_dirs():
+        if exclude is not None and run_dir.name == Path(exclude).name:
+            continue
+        state = run_record.read_state(run_dir)
+        if (state and state.get("branch") == branch and state.get("worktree") and state.get("repo")
+                and Path(state["worktree"]) != Path(state["repo"]) and same_repo(state["repo"], repo)
+                and not run_record.branch_gone(state)
+                and (owner is None or run_dir.name > owner["run_id"])):
+            owner = {**state, "run_id": run_dir.name}
+    return change_of(owner) if owner else None
+
+
+def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
+    """(the review rounds earlier runs spent on that pull request or on that change, how many
+    runs spent them): the budget is the change's, not the run's, so a relaunch inherits what
+    was spent on it.
+
+    A round counts once its verdict was recorded (`round_summaries`).  A run is on the change
+    it carries (`change_of`), so every run launched `from:` a branch of the change, however
+    far down, owes the rounds of every other; and on its pull request, whatever the spelling
+    of its URL.  The run itself (`exclude`) counts for nothing.  Read-only.
+    """
+    wanted = pr_key(pr)
+    spent = runs = 0
+    for run_dir in run_record.run_dirs():
+        if exclude is not None and run_dir.name == Path(exclude).name:
+            continue
+        state = run_record.read_state(run_dir)
+        if not state:
+            continue
+        on_pr = wanted is not None and wanted in (pr_key(state.get("pr")), pr_key(state.get("review_pr")))
+        on_change = change is not None and change_of(state) == change
+        rounds = len(state.get("round_summaries") or [])
+        if (on_pr or on_change) and rounds:
+            spent += rounds
+            runs += 1
+    return spent, runs
+
+
+def lineage_cap(state, run_dir):
+    """The rounds that run may have in all: the change's budget less what other runs on its
+    pull request or change spent."""
+    spent, _ = rounds_spent_elsewhere(pr=state.get("pr") or state.get("review_pr"),
+                                      change=change_of(state), exclude=run_dir)
+    return max(0, taskfile.TASK_MAX_ROUNDS - spent)
+
+
+def round_budget(asked, *, pr=None, change=None, exclude=None, what):
+    """(the rounds this run may still spend, None), or (0, why) once the change's budget is
+    spent: `asked` less what earlier runs spent on the same pull request or change,
+    `taskfile.TASK_MAX_ROUNDS` in all."""
+    spent, runs = rounds_spent_elsewhere(pr=pr, change=change, exclude=exclude)
+    left = min(asked, taskfile.TASK_MAX_ROUNDS - spent)
+    if left < 1:
+        return 0, (f"{spent} review rounds spent on {what} across {runs} earlier "
+                   f"run{'s' if runs != 1 else ''}: {taskfile.TASK_MAX_ROUNDS} per pull request "
+                   "is the budget; split or redesign it")
+    return left, None
 
 
 def already_under_way(task_path, meta, title, cmds, exclude=None):
