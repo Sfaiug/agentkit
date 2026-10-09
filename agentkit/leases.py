@@ -2,10 +2,12 @@
 
 A run's lease is its own diff against the base it was cut from, uncommitted edits included;
 no model declares, renews or releases anything.  Each tick, every pair of live runs of a
-repository is merged in memory (`git merge-tree --write-tree`, git's own conflict rule, over
-the merge base of their bases), and a pair that cannot merge is written down on the younger
-run, by start, as waiting on the older (wait-die: the older never waits on the younger, so
-no cycle can form).  Nothing is refused here: the record under `~/.agentkit/state/leases/`
+repository is merged in memory (`git merge-tree --write-tree`, git's own conflict rule),
+each run's own diff brought onto the newer of their two bases first, so main's movement
+between the bases is nobody's diff and a run that conflicts with main is not a run that
+conflicts with its neighbour.  A pair that cannot merge is written down on the younger run,
+by start, as waiting on the older (wait-die: the older never waits on the younger, so no
+cycle can form).  Nothing is refused here: the record under `~/.agentkit/state/leases/`
 and the tick's log line are what the refusals at ak's commit step, the git shim and the
 lander, and the restart on the newest main, stand on.  A diff counts only while its run is
 going (`run.going`) and its checkout is there; a record whose pair no longer collides, or
@@ -17,7 +19,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import subprocess
 import tempfile
 import time
 
@@ -25,15 +26,6 @@ from . import config
 from . import record as run_record
 
 DIR = "leases"
-
-
-def git(cwd, *args, env=None):
-    """One git call in `cwd`; its stdout stripped, or an error with git's words."""
-    done = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True,
-                          env=env)
-    if done.returncode:
-        raise config.Error(f"git {args[0]} in {cwd}: {done.stderr.strip() or done.stdout.strip()}")
-    return done.stdout.strip()
 
 
 def same_repo(a, b):
@@ -92,26 +84,53 @@ def tree(worktree):
     """The checkout's tree as it stands, uncommitted edits and untracked files included,
     written to the repository's object store through an index of its own: the checkout's
     index and files are never touched."""
+    from . import run
     with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
         env = {**os.environ, "GIT_INDEX_FILE": index.name}
-        git(worktree, "read-tree", "HEAD", env=env)
-        git(worktree, "add", "-A", env=env)
-        return git(worktree, "write-tree", env=env)
+        run.git(worktree, "read-tree", "HEAD", env=env)
+        run.git(worktree, "add", "-A", env=env)
+        return run.git(worktree, "write-tree", env=env)
+
+
+def merged(repo, base, ours, theirs):
+    """(the merged tree, the paths that could not be merged) of two trees over the commit
+    `base`, in memory: each tree is held by a commit on `base` for `git merge-tree`, which
+    takes commits on every git ak runs on (bare trees only from 2.45) and finds their base
+    itself."""
+    from . import run
+    sides = [run.git(repo, "commit-tree", each, "-p", base, "-m", "lease") for each in (ours, theirs)]
+    code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only", *sides)
+    if code not in (0, 1):
+        raise config.Error(f"git merge-tree in {repo}: {out}")
+    # the merged tree's id, then one conflicted path per line, a blank line, git's messages
+    lines = out.split("\n\n", 1)[0].splitlines()
+    return lines[0], (sorted(set(lines[1:])) if code == 1 else [])
 
 
 def collide(repo, older, younger):
-    """The paths two runs' trees cannot be merged on, over the merge base of the bases they
-    were cut from: git's own conflict rule, run in memory.  Empty when they merge."""
-    base = git(repo, "merge-base", older["base"], younger["base"])
-    done = subprocess.run(["git", "-C", str(repo), "merge-tree", "--write-tree", "--name-only",
-                           f"--merge-base={base}", tree(older["worktree"]),
-                           tree(younger["worktree"])], capture_output=True, text=True)
-    if done.returncode == 0:
-        return []
-    if done.returncode != 1:
-        raise config.Error(f"git merge-tree in {repo}: {done.stderr.strip() or done.stdout.strip()}")
-    # the merged tree's id, then one conflicted path per line, a blank line, git's messages
-    return sorted(set(done.stdout.split("\n\n", 1)[0].splitlines()[1:]))
+    """The paths the younger run's own diff cannot be merged with the older's: git's own
+    conflict rule, run in memory, each diff against the base its run was cut from.  With
+    bases that differ, the run on the older base has its change brought onto the newer base
+    first; a conflict there is that run's with main, not with its neighbour, and counts for
+    nothing here.  Empty when they merge."""
+    from . import run
+    trees = {name: tree(each["worktree"]) for name, each in (("older", older), ("younger", younger))}
+    bases = {"older": older["base"], "younger": younger["base"]}
+    base = older["base"]
+    if bases["older"] != bases["younger"]:
+        behind, ahead = (("older", "younger") if run.git_out(
+            repo, "merge-base", "--is-ancestor", older["base"], younger["base"])[0] == 0
+            else ("younger", "older"))
+        base = bases[ahead]
+        if run.git_out(repo, "merge-base", "--is-ancestor", bases[behind], base)[0] != 0:
+            base = run.git(repo, "merge-base", older["base"], younger["base"])   # bases apart
+        else:
+            # main as the run ahead saw it, with the run behind's change on it
+            trees[behind], clash = merged(repo, bases[behind], run.git(repo, "rev-parse", f"{base}^{{tree}}"),
+                                          trees[behind])
+            if clash:
+                return []
+    return merged(repo, base, trees["older"], trees["younger"])[1]
 
 
 def scan(repo, log=lambda _: None, now=None):
