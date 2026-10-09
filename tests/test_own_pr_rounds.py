@@ -26,7 +26,8 @@ class OwnPrRounds(OwnPr):
         self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "PASS"])
         self.assertEqual(len(self.fixes), 1)
         self.assertIn("defect 1", self.prompts[1])
-        self.assertIn("first rule on each previous finding", self.prompts[1])
+        self.assertIn("re-proven by ak", self.prompts[1])
+        self.assertEqual(self.sessions, [None, None])      # a new round resumes no reviewer's conversation
         self.assertEqual(self.events, ["event=COMMENT", "event=COMMENT"])
         self.assertEqual(len(self.merges), 1)
         self.assertEqual(self.merges[0][-1], self.heads[1])
@@ -241,7 +242,6 @@ class OwnPrRounds(OwnPr):
         self.assertEqual([(s["round"], s["head_sha"]) for s in state["round_summaries"]],
                          list(enumerate(self.heads[:3], 1)))
         self.assertEqual(len(self.prompts), 3)
-        self.assertIn("first rule on each previous finding", self.prompts[2])
         self.assertEqual(self.events, ["event=COMMENT", "event=COMMENT"])
         self.assertEqual(len(self.merges), 1)
         self.assertEqual(self.merges[0][-1], self.heads[2])
@@ -258,7 +258,8 @@ class OwnPrRounds(OwnPr):
         with patch.object(worker, "call", side_effect=submitting(moved)):
             state = self.review(["FAIL", "FAIL", "PASS"])
         self.assert_moved_round_merges(state)
-        self.assertIn("defect 2", self.prompts[2])
+        self.assertIn("defect 2", self.prompts[2])          # round two's finding, re-proven on the pushed head
+        self.assertIn("re-proven by ak", self.prompts[2])
 
     def test_a_push_by_hand_during_a_pass_is_reviewed_before_merging(self):
         def moved(*args, **kw):
