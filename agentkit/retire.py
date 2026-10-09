@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 import json
 import re
 import shlex
+import sys
 import time
 
 from . import config, orch, plan
@@ -99,15 +100,22 @@ def outcome(project, row, proven):
 
 
 def check(command, row, proven):
-    """The line's check, one shell line over the project's own switch list: it fails while the
-    list still shows that switch (proven: until its row is gone), or shows it on for everyone
-    with no `everyone_since` (unproven: until the row is stamped, off for everyone, or gone)."""
-    test = ("sys.exit(1 if any(str(r.get('id')) == sys.argv[1] for r in rows) else 0)" if proven
-            else "sys.exit(1 if any(str(r.get('id')) == sys.argv[1] and r.get('everyone') is True "
-                 "and not isinstance(r.get('everyone_since'), str) for r in rows) else 0)")
-    body = ("import json, sys; rows = [r for r in json.load(sys.stdin) if isinstance(r, dict)]; "
-            + test)
-    return f"{command} list | python3 -c \"{body}\" {shlex.quote(str(row['id']))}"
+    """The line's check, one shell line over the project's own switch list, judged by this
+    module's own reading of a row (`check_main`), so the line and the pass agree: it fails
+    while the list still shows that switch (proven: until its row is gone), or shows it on for
+    everyone with no readable `everyone_since` (unproven: until the row is stamped, off for
+    everyone, or gone)."""
+    return (f"{command} list | python3 -c \"import sys; sys.path.insert(0, {str(config.REPO)!r}); "
+            f"from agentkit import retire; retire.check_main()\" "
+            f"{shlex.quote(str(row['id']))} {'proven' if proven else 'unproven'}")
+
+
+def check_main():
+    """A plan line's check: the switch list on stdin, the switch id and `proven` or `unproven`
+    on the command line; exit 1 while the line's outcome is not yet true."""
+    rows = [r for r in json.load(sys.stdin) if isinstance(r, dict)]
+    listed = [r for r in rows if str(r.get("id")) == sys.argv[1]]
+    sys.exit(1 if (listed if sys.argv[2] == "proven" else undated(listed)) else 0)
 
 
 def seats_for(checkout):
