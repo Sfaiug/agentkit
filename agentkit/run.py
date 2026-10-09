@@ -3587,7 +3587,7 @@ def plan_followup(session, repo, item, check, proven, log, deferred=True):
     outcome = "Fix " + item.splitlines()[0].replace("·", "-")
     try:
         plan.add(session, outcome, check, repo, proven=proven, deferred=deferred)
-        entry = {"outcome": outcome}
+        entry = {"outcome": outcome, "deferred": deferred}
     except (config.Error, OSError) as exc:
         entry = {"outcome": outcome, "refused": str(exc)}
     log(f"follow-up for {session}: {outcome}" + (f" (not planned: {entry['refused']})"
@@ -7569,14 +7569,21 @@ def failed_check(state):
 
 
 def planned_followups(state):
-    """The review follow-ups a merge handed to its seat, as the ending's sentence about them."""
+    """The review follow-ups a merge handed to its seat, as the ending's sentence about them:
+    the lines a fix run took (deferred, holding no done), the lines that are the seat's own
+    to build, and the lines its plan refused."""
     entries = state.get("followup_plan") or []
-    planned = [entry["outcome"] for entry in entries if "refused" not in entry]
+    planned = [entry for entry in entries if "refused" not in entry]
+    deferred = [entry["outcome"] for entry in planned if entry.get("deferred")]
+    owed = [entry["outcome"] for entry in planned if not entry.get("deferred")]
     refused = [f"{entry['outcome']} ({entry['refused']})" for entry in entries
                if "refused" in entry]
-    return ((f"Review follow-ups now deferred in your plan: {'; '.join(planned)}, each checked "
-             "by the reviewer's probe until its fix is on the default branch or `ak plan check N` "
-             "puts your own test in its place. " if planned else "")
+    checked = ("checked by the reviewer's probe until its fix is on the default branch or "
+               "`ak plan check N` puts your own test in its place. ")
+    return ((f"Review follow-ups now deferred in your plan: {'; '.join(deferred)}, each fixed "
+             f"by a run of its own and {checked}" if deferred else "")
+            + (f"Review follow-ups now in your plan, yours to build: {'; '.join(owed)}, each "
+               f"{checked}" if owed else "")
             + (f"Review follow-ups your plan refused, yours to judge: {'; '.join(refused)}. "
                if refused else ""))
 

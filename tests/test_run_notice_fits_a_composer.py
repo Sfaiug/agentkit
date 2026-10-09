@@ -116,12 +116,13 @@ class RunNotice(Sandbox):
             self.assertIn("- " + name + "\n", result)
 
     def test_a_fitting_ending_is_unchanged_including_at_the_bound(self):
-        directory, state = self.result(followup_plan=[{"outcome": "Fix api.py:1"}])
+        directory, state = self.result(followup_plan=[{"outcome": "Fix api.py:1", "deferred": True}])
         expected = (f"run {directory.name} finished PASS merged: {state['pr']}. "
                     f"Result: {directory / 'result.md'}. "
-                    "Review follow-ups now deferred in your plan: Fix api.py:1, each checked "
-                    "by the reviewer's probe until its fix is on the default branch or "
-                    "`ak plan check N` puts your own test in its place. Decide the next step.")
+                    "Review follow-ups now deferred in your plan: Fix api.py:1, each fixed by a "
+                    "run of its own and checked by the reviewer's probe until its fix is on the "
+                    "default branch or `ak plan check N` puts your own test in its place. "
+                    "Decide the next step.")
         self.assertEqual(run.handback_line(state, directory, self.cfg), expected)
         with patch.object(tell, "longest", return_value=len(expected)):
             self.assertEqual(run.handback_line(state, directory, self.cfg), expected)

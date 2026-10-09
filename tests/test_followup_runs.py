@@ -496,8 +496,13 @@ class FollowupRuns(unittest.TestCase):
             self.assertEqual(self.start(directory, state), [])
         lines = [line for line in config.plan_path("seat").read_text().splitlines() if line.startswith("- [ ]")]
         self.assertEqual([plan.deferred(line) for line in lines], [False, False])
-        self.assertEqual(len(record.read_state(directory)["followup_plan"]), 2)
+        ended = record.read_state(directory)
+        self.assertEqual(len(ended["followup_plan"]), 2)
         self.assertEqual(self.spawns, [])
+        # ... and the ending says so: the lines are the seat's own to build, not deferred
+        ending = run.handback_line(ended, directory, self.cfg)
+        self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
+        self.assertNotIn("deferred", ending)
 
     def test_a_followup_whose_run_could_not_start_keeps_its_line_owed(self):
         other = "python3 -c 'from other import ratio; ratio(0)'"

@@ -60,10 +60,12 @@ class ProofMustRun(unittest.TestCase):
                     proof.finding("legacy.py:1", "missing base proof", base_only),
                     proof.finding("api.py:2", "missing follow-up proof", command,
                                   kind="follow-up", before=self.base)), "FAIL")
-                self.assertEqual(self.lp.state["followups"], [])
-                self.assertEqual(self.lp.state["notes"], [])
                 rows = self.lp.state["review_records"]
                 self.assertEqual([row["kind"] for row in rows], ["finding", "follow-up", "follow-up", "done"])
+                # the follow-ups are kept whatever the verdict, this round's after the earlier ones
+                self.assertEqual(self.lp.state["followups"][-2:],
+                                 [hand_in.item_text(row) for row in rows if row["kind"] == "follow-up"])
+                self.assertEqual(self.lp.state["notes"], [])
                 self.assertEqual(rows[0]["evidence"]["returncode"], code)
                 self.assertEqual(rows[1]["evidence"]["base"]["returncode"], code)
                 for row in rows[:-1]:
