@@ -229,6 +229,23 @@ class OwnPrFixer(OwnPr):
         self.assertIn("the PR head moved while the fix was made", state["error"])
         self.assertEqual((len(self.prompts), self.merges, self.remote_head()), (1, [], self.heads[2]))
 
+    def test_a_round_after_the_fix_reads_the_pr_until_github_shows_the_pushed_head(self):
+        lagged = []
+
+        def lagging(url):
+            info = self.view(url)
+            pushed = (record.read_state(self.run_dir) or {}).get("delivery_sha")
+            if pushed and info["headRefOid"] == pushed and not lagged:
+                lagged.append(pushed)
+                return {**info, "headRefOid": self.heads[0]}    # GitHub still shows the head before the push
+            return info
+
+        with patch.object(run, "pr_view", side_effect=lagging), patch.object(run, "PR_READ_LAG", 0):
+            state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(lagged, [self.heads[1]])
+        self.assertEqual([s["head_sha"] for s in state["round_summaries"]], self.heads[:2])
+
     def test_the_fixer_is_given_the_whole_pr_description(self):
         self.pr["body"] = "## Summary\nFix the fence\n\n## Test plan\nrun it"
         self.review(["FAIL", "PASS"])
