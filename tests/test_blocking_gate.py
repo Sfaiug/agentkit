@@ -300,6 +300,18 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 5, "still failing; it blocks until its proof passes")])
 
+    def test_a_line_only_the_base_changed_after_the_fork_is_not_the_changes(self):
+        # a base ahead of the branch's fork point: a `from:` launch whose merge of the target
+        # conflicted, a run on a branch behind origin
+        run.git(self.wt, "checkout", "-q", "main")
+        (self.wt / "api.py").write_text('mode = "base"\nflag = "base"\nextra = 3\n')
+        self.commit("Main changes extra")
+        self.lp.state["base_sha"] = run.git(self.wt, "rev-parse", "main")
+        run.git(self.wt, "checkout", "-q", "ak/fix-api")
+        self.assertTrue(run.changed_line(self.lp, {"path": "api.py", "line": 1}, self.head))
+        self.assertFalse(run.changed_line(self.lp, {"path": "api.py", "line": 3}, self.head))
+        self.assertEqual(self.review(quoted("api.py:3", "extra is odd", "extra = 1")), "PASS")
+
     def test_a_touched_line_still_failing_is_one_finding_with_the_reviewers_own(self):
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
         # the fix rewrites the flag's line, still wrongly, and adds a line above it

@@ -48,6 +48,7 @@ class ProofMustRun(unittest.TestCase):
             ("head", 1, "head: cannot open 'absent' for reading: No such file or directory"))
         for name, code, diagnostic in diagnostics:
             with self.subTest(program=name):
+                self.setUp()    # a run of its own: a later round would replay the last one's findings
                 # Keep diagnostic text independent of installed interpreters and locale.
                 program = self.root / name
                 program.write_text(f"#!{sys.executable}\nimport sys\n"
@@ -105,7 +106,10 @@ class ProofMustRun(unittest.TestCase):
         self.assertEqual([role for role, _ in calls], ["executor", "fixer"])
         self.assertIn("[exit 2]", calls[1][1])
         self.assertEqual(self.lp.state["verdict"], "PASS")
-        self.assertEqual(self.lp.state["followups"], [])
+        # round two re-proves it: the fix put its line back as base has it, where the missing
+        # script fails too, so it is kept as a defect from before the task
+        [kept] = self.lp.state["followups"]
+        self.assertIn("still failing, on base too", kept)
 
     def test_a_proof_that_cannot_start_on_base_does_not_prove_an_old_defect(self):
         for command, code in (("./keep.txt", 126), ("./absent", 127)):

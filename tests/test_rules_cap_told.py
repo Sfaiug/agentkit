@@ -77,7 +77,8 @@ class RulesCapTold(unittest.TestCase):
             text = f"VERDICT: {verdict}\n## Findings\n- {finding}\n{self.review_extra}"
         else:
             text = "## Summary\nAcme work.\n"
-        (workspace / "deliverable").write_text("acme\n")
+        # a fix changes the file the finding cites, as a fix does
+        (workspace / "deliverable").write_text("acme fixed\n" if role.startswith("fixer") else "acme\n")
         return 0, text, "acme-session", False
 
     def launch(self, prior=None):

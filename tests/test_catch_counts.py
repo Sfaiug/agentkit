@@ -124,7 +124,11 @@ class CatchCounts(unittest.TestCase):
                               "FROM reviews").fetchall()
         self.assertEqual(rows, [("fix-api", "test", "judge-1", 1, 1, 1)])
         self.assertEqual(history.path(), self.root / ".agentkit/history.db")
-        # The run row changes reviewer; its earlier review still belongs to judge-1.
+        # The run row changes reviewer; its earlier review still belongs to judge-1, and ak's
+        # replay of it on the fix is nobody's catch.
+        (self.repo / "api.txt").write_text("good\nold defect\n")
+        self.commit("Fix the regression")
+        lp.validation = run.commit_identity(self.repo)
         lp.rnd = 2
         lp.reviewer = "spare"
         self.assertEqual(self.review(lp), "PASS")

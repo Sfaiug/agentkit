@@ -3753,12 +3753,14 @@ TEST_NAMES = ("*_test.*", "*_spec.*", "*.test.*", "*.spec.*")
 
 
 def hunks(lp, path, since, head):
-    """The hunks of `path` from the commit `since` to `head`, no context, as git reads a
-    conflict: (old start, old count, new start, new count) each, in order.  Two commits'
-    trees, not their merge base's: after a rebased push the coordinates are the reviewed
-    commit's own, and the base is already the merge base."""
+    """The hunks of `path` to `head`, no context, as git reads a conflict: (old start, old
+    count, new start, new count) each, in order.  From the commit `since`, the two commits'
+    trees: after a rebased push the coordinates are the reviewed commit's own.  Without one,
+    the change's own, from its merge base with the base: what the base gained after the fork
+    is never the change's."""
     diff = git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
-               "--unified=0", since, head, "--", f":(literal){path}")
+               "--unified=0", *([since, head] if since else [f"{lp.base_sha}...{head}"]),
+               "--", f":(literal){path}")
     return [(int(hunk[1]), int(hunk[2] or 1), int(hunk[3]), int(hunk[4] or 1))
             for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", diff, re.M)]
 
@@ -3771,9 +3773,9 @@ def in_hunks(line, found):
 
 
 def changed_line(lp, row, head, since=None):
-    """Whether the finding's line is inside the diff to `head` from `since`: the base, or the
-    commit the last review judged, for a later round."""
-    return in_hunks(row["line"], hunks(lp, row["path"], since or lp.base_sha, head))
+    """Whether the finding's line is inside the diff to `head`: the change's own, or the one
+    from `since`, the commit the last review judged, for a later round."""
+    return in_hunks(row["line"], hunks(lp, row["path"], since, head))
 
 
 def capped(lp, diff):
@@ -3931,8 +3933,7 @@ def placed(lp, row, since, head):
         now = git(lp.wt, "show", f"{head}:{row['path']}", check=False).splitlines()
         line = max(lines, key=lambda at: (difflib.SequenceMatcher(
             None, was, now[at - 1] if at <= len(now) else "").ratio(), -at))
-    changed = [] if lp.scratch else hunks(lp, row["path"], lp.base_sha, head)
-    return line, touched, in_hunks(line, changed), lines
+    return line, touched, not lp.scratch and changed_line(lp, {**row, "line": line}, head), lines
 
 
 def line_of(lp, commit, path, line):
@@ -3995,6 +3996,35 @@ def replay_section(replayed, left, since):
                "wherever it is in the change."))
 
 
+def on_base(base):
+    """What a proof failing on the reviewed commit, at a line the change did not touch, is by
+    how it went on base: a defect from before the task where it fails there too, a note where
+    base could not run it or it did not finish, else the change's own regression.  One rule
+    for a reviewer's finding and ak's replay of an earlier one."""
+    if hand_in.proof_failed(base):
+        return "follow-up"
+    if base["returncode"] != 0 or base["killed"]:
+        return "note"
+    return "finding"
+
+
+def kept_followup(lp, row):
+    """A follow-up as ak keeps it, a reviewer's or ak's replay's: its `before` said where none
+    was named, else dropped to a note saying why."""
+    evidence = row["evidence"]
+    row.setdefault("before", f"base {lp.base_sha}: " + (
+        "the proof fails there too" if "run" in evidence else "quoted lines outside the change"))
+    reason = ("no base commit" if lp.scratch else
+              "needs a --run proof that fails on base" if "run" not in evidence else
+              "the command did not fail on base" if not hand_in.proof_failed(
+                  evidence.get("base", evidence)) else
+              "--before names no commit in base's history or quote present at base" if not before_at_base(lp, row)
+              else "")
+    if reason:
+        row.update(kind="note", dropped=reason)
+        lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
+
+
 def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     """The reviewer's editable copy cannot decide what blocks the reviewed commit.
 
@@ -4036,11 +4066,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                     and not changed_line(lp, row, head, since)):
                 kind, outside = "note", True
             elif not lp.scratch and not changed_line(lp, row, head):
-                base = evidence["base"]
-                if hand_in.proof_failed(base):
-                    kind = "follow-up"
-                elif base["returncode"] != 0 or base["killed"]:
-                    kind = "note"
+                kind = on_base(evidence["base"])
         else:
             row = {**row, **sites[index]}
             if (since and (row["path"], row["line"]) not in earlier
@@ -4053,19 +4079,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             row["outside"] = f"the fix delta since {since[:12]}; judged in an earlier round"
             lp.log(f"Kept as a note {row['path']}:{row['line']}: outside the fix delta")
         if kind == "follow-up":
-            if "before" not in row:
-                row["before"] = f"base {lp.base_sha}: " + (
-                    "the proof fails there too" if "run" in evidence
-                    else "quoted lines outside the change")
-            reason = ("no base commit" if lp.scratch else
-                      "needs a --run proof that fails on base" if "run" not in evidence else
-                      "the command did not fail on base" if not hand_in.proof_failed(
-                          evidence.get("base", evidence)) else
-                      "--before names no commit in base's history or quote present at base" if not before_at_base(lp, row)
-                      else "")
-            if reason:
-                row.update(kind="note", dropped=reason)
-                lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
+            kept_followup(lp, row)
         records.append(row)
     if replayed:
         handed = [row for row in records if isinstance(row.get("evidence"), dict)]
@@ -4078,31 +4092,30 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                 extra.append({**row, "kind": "note", "evidence": now,
                               "replayed": "fixed; its proof passes now"})
                 continue
-            kind, replayed_word = "finding", "still failing; it blocks until its proof passes" + where
+            kind = "finding"
             if not lp.scratch and not inside:
                 # its line is base's now (put back, or never the change's): judged on base,
                 # as any failing proof on a line the change did not touch is
-                base = {"sha": lp.base_sha, **proof_on(
-                    lp, now["run"], lp.round_dir / f"replay-{n}-base.log", lp.base_sha, head)}
-                now = {**now, "base": base}
-                if hand_in.proof_failed(base):
-                    kind = "follow-up"
-                    row["before"] = f"base {lp.base_sha}: the proof fails there too"
-                    replayed_word = ("still failing, on base too: a defect from before the task, "
-                                     "kept as a follow-up")
-                elif base["returncode"] != 0 or base["killed"]:
-                    kind, replayed_word = "note", "still failing, and base cannot run its proof"
+                now = {**now, "base": {"sha": lp.base_sha, **proof_on(
+                    lp, now["run"], lp.round_dir / f"replay-{n}-base.log", lp.base_sha, head)}}
+                kind = on_base(now["base"])
+            row = {**row, "kind": kind, "evidence": now, "replayed": {
+                "finding": "still failing; it blocks until its proof passes" + where,
+                "follow-up": "still failing, on base too: a defect from before the task, kept as a follow-up",
+                "note": "still failing, and base cannot run its proof"}[kind]}
+            if kind == "follow-up":
+                kept_followup(lp, row)
             # the reviewer's own hand-in carrying this finding's very proof, at its site and
             # weighed as ak weighs it here, is this finding upheld, and ak adds no second copy
             # beside it; handed in anywhere else, or weighed down to a note, it is the
             # reviewer's words, and ak's own copy stands beside them: what ak can prove
             # itself is never handed back to the reviewer's words
-            if any(each["evidence"].get("run") == now["run"] and each["kind"] == kind
+            if any(each["evidence"].get("run") == now["run"] and each["kind"] == row["kind"]
                    and each["path"] == row["path"] and each["line"] in sites for each in handed):
                 continue
-            extra.append({**row, "kind": kind, "evidence": now, "replayed": replayed_word})
+            extra.append(row)
             lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit"
-                   + ("" if kind == "finding" else f" ({kind})"))
+                   + ("" if row["kind"] == "finding" else f" ({row['kind']})"))
         closing = records.pop() if records and records[-1]["kind"] in hand_in.CLOSING else None
         records.extend(extra)
         if closing is not None:
@@ -4453,10 +4466,12 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     if validation.get("head_sha"):
         lp.state["delta_from"] = validation["head_sha"]     # every review, recorded or not
     lp.save()
+    # what the reviewer caught, never ak's own replay of the earlier findings
+    caught = hand_in.Review([row for row in submitted.records if not row.get("replayed")])
     history.record_review(lp.state.get("run_id"), str(out),
                           harness=review_harness, model=review_model,
-                          blocking=len(submitted.findings), followup=len(submitted.followups),
-                          note=len(submitted.notes), log=lp.log)
+                          blocking=len(caught.findings), followup=len(caught.followups),
+                          note=len(caught.notes), log=lp.log)
     return verdict
 
 
