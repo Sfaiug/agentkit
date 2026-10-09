@@ -137,16 +137,6 @@ class RecordedWaits(unittest.TestCase):
         self.merged("tree-only", health=False, tree=with_health)
         self.assertFalse(stop.awaiting_live(json.loads((self.runs / "tree-only" / "run.json").read_text())))
 
-    def test_a_recorded_command_never_probed_is_no_failure_past_the_window(self):
-        self.merged("late", health=True, age=watch.AFTER_MERGE_WINDOW + 60)
-        directory = self.runs / "late"
-        st = json.loads((directory / "run.json").read_text())
-        verdict = watch.after_merge_health(directory, st, "k", "0" * 40, st["pr"], time.time(), False,
-                                           lambda _: None, {})
-        self.assertEqual(verdict, ("ignored", None, None))             # nothing failed: nothing ran
-        self.assertNotIn("health", json.loads((directory / "run.json").read_text()))
-        self.assertNotIn("health", st)
-
     def test_a_reply_stands_while_nothing_is_owed_whatever_the_prompt_said(self):
         for opened in ("Which parser does it use?", "Merge the parser now", "is main green"):
             with self.subTest(opened=opened):

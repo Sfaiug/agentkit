@@ -5744,14 +5744,6 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 st.update(current)
             if not passed:
                 return "pending", None, None
-        elif "output" not in health:
-            # declared at the merge and never probed inside the window (a tick that never ran,
-            # a merge named late): nothing failed, and nothing is followed further
-            if not dry_run:
-                with run_record.record(run_dir) as current:
-                    current.pop("health", None)
-                st.pop("health", None)
-            return "ignored", None, None
         else:
             return "failed", f"health: {command}", (
                 f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
@@ -6039,7 +6031,9 @@ def after_merge_checks(state, dry_run, log, now=None):
         if (not isinstance(finished, (int, float)) or isinstance(finished, bool)
                 or not 0 <= now - finished):
             continue
-        if (now - finished > AFTER_MERGE_WINDOW and not st.get("health")
+        # past the window, only a probe that failed inside it is followed further: the
+        # `health:` a merge recorded and no probe ever ran is let go, the merge commit unasked
+        if (now - finished > AFTER_MERGE_WINDOW and "output" not in (st.get("health") or {})
                 and not (st.get("live_at") and not st.get("live_notified"))):
             continue
         pr_url = st.get("pr")
