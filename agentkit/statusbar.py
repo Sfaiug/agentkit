@@ -215,18 +215,25 @@ def live(runs, cfg, now):
 
 def seats():
     """(session id, name, word) of every seat on ak's own server, the word the one it last
-    announced: what each bar's right end counts.  A session under a name no seat can have
-    (`orch.session_name`) is no seat, so every name drawn is the plain ASCII a seat's is, whose
-    cells `others` counts as tmux draws them."""
+    announced: what each bar's right end counts.  What `orch.seated` does not hold is no seat,
+    whatever word a record under its name says: a watcher an orchestrator started, or a
+    session whose agent has left.  A session under a name no seat can have
+    (`orch.session_name`) is none either, so every name drawn is the plain ASCII a seat's is,
+    whose cells `others` counts as tmux draws them."""
     from . import watch   # here, not at the top: the watch announces seats, which write this bar
-    rc, out = orch.tmux_out("list-sessions", "-F", "#{session_id}\t#{session_name}",
+    rc, out = orch.tmux_out("list-sessions", "-F",
+                            f"#{{session_id}}\t#{{session_name}}\t#{{{orch.MARK}}}",
                             socket=orch.socket_name())
-    found = []
+    rows = []
     for line in out.splitlines() if rc == 0 else ():
-        sid, _, name = line.partition("\t")
-        if sid.startswith("$") and name and orch.session_name(name) == name:
-            found.append((sid, name, watch.seat_read(name).get("word")))
-    return found
+        parts = line.split("\t")
+        if len(parts) == 2:
+            parts.append("")   # no mark: the last line's empty field went with the output's strip
+        if len(parts) == 3:
+            rows.append(parts)
+    held = orch.seated(orch.socket_name(), {name: mark for _, name, mark in rows})
+    return [(sid, name, watch.seat_read(name).get("word")) for sid, name, _ in rows
+            if sid.startswith("$") and name in held and orch.session_name(name) == name]
 
 
 def others(found, name):
