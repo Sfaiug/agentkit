@@ -9520,6 +9520,11 @@ def preflight(run_dir, opts, log):
         if is_own and not orch:
             raise config.Error(f"no session record names the writer of this PR; "
                                f"review of the seat's own PR needs its orchestrator")
+        if is_own:
+            # a first review takes at most MAX_PR_LINES at once: past it, the PR is split
+            why = pr_size_refusal(info, owner, name, number, log)
+            if why:
+                raise config.Error(why)
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
         if is_own:
             method, action = ("squash",
@@ -10284,9 +10289,50 @@ def gh_json(cwd, *args, timeout=None):
         return None, f"gh printed no JSON ({exc}): {out[-200:]}"
 
 
+def pr_size_refusal(info, owner, name, number, log):
+    """One sentence when a pull request is more than a first review takes at once, else None.
+
+    GitHub's own totals (`pr_view`) settle most pull requests at once; one past the ceiling
+    by them is counted file by file, generated files and pure deletions aside."""
+    if int(info.get("additions") or 0) + int(info.get("deletions") or 0) <= taskfile.MAX_PR_LINES:
+        return None
+    changed = pr_changed_lines(checkout_for(f"{owner}/{name}", log), owner, name, number)
+    if changed > taskfile.MAX_PR_LINES:
+        return (f"PR #{number} changes {changed} lines (generated files and pure deletions "
+                f"aside): a first review takes at most {taskfile.MAX_PR_LINES}; split it")
+    return None
+
+
+def pr_changed_lines(repo, owner, name, number):
+    """The lines a pull request changes, as GitHub counts them file by file, generated files
+    (`linguist-generated` in the checkout's attributes) and pure deletions aside: what a
+    reviewer reads."""
+    files, page = [], 1
+    while True:
+        found, why = gh_json(config.RUNS, "api",
+                             f"repos/{owner}/{name}/pulls/{number}/files?per_page=100&page={page}")
+        if not isinstance(found, list):
+            raise config.Error(f"cannot read the files of PR #{number}: {why}")
+        files += [each for each in found if isinstance(each, dict) and each.get("filename")]
+        if len(found) < 100:
+            break
+        page += 1
+    kept = [each for each in files if each.get("status") != "removed"]
+    if not kept:
+        return 0
+    attributes = git(repo, "check-attr", "-z", "linguist-generated", "--",
+                     *(each["filename"] for each in kept), check=False)
+    fields = attributes.split("\0")
+    generated = {fields[at] for at in range(0, len(fields) - 2, 3)
+                 if fields[at + 2] in ("true", "set")}
+    return sum(int(each.get("additions") or 0) + int(each.get("deletions") or 0)
+               for each in kept if each["filename"] not in generated)
+
+
 def pr_view(url):
     data, why = gh_json(config.RUNS, "pr", "view", url, "--json",
-                        "number,title,body,author,baseRefName,headRefOid,url,state,isDraft")
+                        "number,title,body,author,baseRefName,headRefOid,url,state,isDraft,"
+                        "additions,deletions")
     if not isinstance(data, dict):
         raise config.Error(f"gh pr view {url} failed: {why}")
     author = data.get("author") or {}

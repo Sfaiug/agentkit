@@ -11,6 +11,13 @@ from . import config
 TASK_KEYS = ("after", "base", "done_when_minutes", "files", "from", "merge", "repo",
              "rounds", "stall_minutes", "target", "turn_hours")
 TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re-scope
+# Ceilings on what one review takes at once, from the measured round-1 pass rate by size
+# (9 Oct 2026: pull requests of 50 changed lines or fewer passed round 1 94% of the time,
+# 201-400 lines 43%, over 1,000 lines 20%): a task has at most this many per-round checks,
+# one behaviour a reviewer holds in one read, and a pull request's first review this many
+# changed lines, generated files and pure deletions aside.  Past either, split it.
+MAX_CHECKS = 3
+MAX_PR_LINES = 400
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
 FENCE = re.compile(r"```(?:bash|sh)?\n(.*?)```", re.S)
 ONCE_MARKER = re.compile(r"#\s*once\s*$")
@@ -152,6 +159,10 @@ def launch_refusal(meta, cmds):
     if heredoc:
         return (f"done-when line {heredoc!r} opens a heredoc, but each line runs as a command of "
                 "its own: put the script in a file the change adds, or on one line")
+    every, _ = group_commands(cmds)
+    if len(every) > MAX_CHECKS:
+        return (f"{len(every)} done-when checks: a task has at most {MAX_CHECKS}, one behaviour a "
+                "reviewer holds in one read; split it")
     return rounds_refusal(meta.get("rounds"), "task rounds")
 
 

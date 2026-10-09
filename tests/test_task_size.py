@@ -1,6 +1,6 @@
-"""A task of any size starts; its round budget is three, and the loop refuses more.
+"""A task of any size starts, up to three per-round checks; its round budget is three.
 
-Size never refuses work: a goal of many numbered points, a long body or many checks
+Size refuses only past the ceilings: a goal of many numbered points or a long body
 starts, alone or in a job.  A round budget over three -- a task's
 `rounds`, or `--rounds` at launch or on resume -- is refused before anything starts, in
 one sentence naming the rule.  When a run fails at its round budget the hand-back line
@@ -91,7 +91,7 @@ class Sandbox(unittest.TestCase):
 
     def test_a_task_of_any_size_starts(self):
         goal = self.points(40) + "\n\n" + " ".join(["word"] * 6000)
-        task = self.task("big.md", goal, cmds=[f"true # {n}" for n in range(70)])
+        task = self.task("big.md", goal, cmds=[f"true # {n}" for n in range(3)])
 
         def started(cfg, directory, opts, log, **_kw):
             with patch.object(gc, "disk_pressure", return_value=False), \
@@ -107,12 +107,12 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(len(record.run_dirs()), 1)
         row = history.get(record.run_dirs()[0].name)
         self.assertEqual((row["task_words"], row["task_points"], row["task_checks"]),
-                         (6128, 40, 70))
+                         (6128, 40, 3))
 
     def test_a_job_takes_a_task_of_any_size(self):
         small = self.task("small.md", "One thing.")
         goal = self.points(40) + "\n\n" + " ".join(["word"] * 6000)
-        big = self.task("big.md", goal, cmds=[f"true # {n}" for n in range(70)])
+        big = self.task("big.md", goal, cmds=[f"true # {n}" for n in range(3)])
         cfg = config.load()
         directory, job = jobs.job_create(cfg, [str(small), str(big)], {"--anyway": False}, None)
         self.assertEqual(len(list(config.JOBS.iterdir())), 1)
