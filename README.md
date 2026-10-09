@@ -28,7 +28,7 @@ c       change the config and the session's models
 esc     leave
 ```
 
-From a seat, `ak run stop` and `ak orch stop` refuse another seat's work and say to message its owner. Your own runs and runs launched outside a seat still stop; the owner's menu and plain terminal can stop any work.
+From a seat, `ak run stop` and `ak orch stop` refuse another seat's work (`owned by seat X; a seat stops only its own runs`). Your own runs and runs launched outside a seat still stop; the owner's menu and plain terminal can stop any work.
 
 Seats keep terminal input and redraws flowing independently, even when both buffers fill; the shared transport applies to every wrapped harness. Each relay poll writes newly read input as far as the harness terminal accepts it, without waiting for another poll.
 

@@ -24,6 +24,7 @@ seats filed under both, gets its lines in each.
 
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 import re
 import shlex
 import sys
@@ -99,21 +100,26 @@ def outcome(project, row, proven):
             "everyone, ISO 8601 UTC, or null while it is not), so ak can tell when it is proven")
 
 
-def check(command, row, proven):
-    """The line's check, one shell line over the project's own switch list, judged by this
-    module's own reading of a row (`check_main`), so the line and the pass agree: it fails
-    while the list still shows that switch (proven: until its row is gone), or shows it on for
-    everyone with no readable `everyone_since` (unproven: until the row is stamped, off for
-    everyone, or gone)."""
-    return (f"{command} list | python3 -c \"import sys; sys.path.insert(0, {str(config.REPO)!r}); "
+def check(row, proven):
+    """The line's check, one shell line run in the project's checkout, reading its switch list
+    as the pass reads it (`check_main`), so the line and the pass agree: it fails while the
+    list still shows that switch (proven: until its row is gone), or shows it on for everyone
+    with no readable `everyone_since` (unproven: until the row is stamped, off for everyone, or
+    gone), or while the list cannot be read at all."""
+    return (f"python3 -c \"import sys; sys.path.insert(0, {str(config.REPO)!r}); "
             f"from agentkit import retire; retire.check_main()\" "
             f"{shlex.quote(str(row['id']))} {'proven' if proven else 'unproven'}")
 
 
 def check_main():
-    """A plan line's check: the switch list on stdin, the switch id and `proven` or `unproven`
-    on the command line; exit 1 while the line's outcome is not yet true."""
-    rows = [r for r in json.load(sys.stdin) if isinstance(r, dict)]
+    """A plan line's check, in the project's checkout: the switch id and `proven` or `unproven`
+    on the command line, the list read through its one home (`menu.features_run`,
+    `menu.switch_rows`: a command that fails or answers no list is no list); exit 1 while the
+    line's outcome is not yet true."""
+    from . import menu
+    rows = menu.switch_rows(menu.features_run(Path.cwd(), "list")[0])
+    if rows is None:
+        sys.exit(1)
     listed = [r for r in rows if str(r.get("id")) == sys.argv[1]]
     sys.exit(1 if (listed if sys.argv[2] == "proven" else undated(listed)) else 0)
 
@@ -187,7 +193,7 @@ def hand(log, now=None):
                 name = owner[str(row["id"])]
                 try:
                     plan.add(name, outcome(checkout.name, row, is_proven),
-                             check(command, row, is_proven), repo=checkout)
+                             check(row, is_proven), repo=checkout)
                 except config.Error as exc:
                     refused.append(f"{name}: {row['id']}: {exc}")
                     continue
