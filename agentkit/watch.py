@@ -5809,16 +5809,24 @@ def after_merge_target(run_state):
     return target.removeprefix("origin/") or "main"
 
 
+def recorded_merge_sha(run_state):
+    """The merge commit a merged run's record names, or None."""
+    for key in ("merge_sha", "merge_commit", "merge_commit_sha"):
+        sha = run_state.get(key)
+        if isinstance(sha, str) and sha.strip():
+            return sha.strip()
+    return None
+
+
 def after_merge_sha(pr_url, run_state, log):
     """The merge commit to follow: the record's own, else the PR's on GitHub, else None.
 
     A `gh` that cannot say costs this tick for this run, never a notice: the next tick
     asks again.
     """
-    for key in ("merge_sha", "merge_commit", "merge_commit_sha"):
-        sha = run_state.get(key)
-        if isinstance(sha, str) and sha.strip():
-            return sha.strip()
+    sha = recorded_merge_sha(run_state)
+    if sha:
+        return sha
     data, why = gh_json(config.RUNS, "pr", "view", pr_url, "--json", "mergeCommit")
     oid = None
     if isinstance(data, dict) and isinstance(data.get("mergeCommit"), dict):

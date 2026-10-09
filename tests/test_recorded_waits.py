@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, watch
+from agentkit import stop, config, watch
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
@@ -92,18 +92,47 @@ class RecordedWaits(unittest.TestCase):
         with patch.object(config, "STATE", self.state):
             return watch.hook_state("claude", watch.hook_facts(SEAT))[:2]
 
-    def merged(self, name, *, health=True, live=False, age=600):
-        """A merged run of the seat's, its project declaring `health:` or not."""
+    def merged(self, name, *, health=True, live=False, age=600, tree=None, recorded=False):
+        """A merged run of the seat's, its merge commit declaring `health:` or not; `tree`
+        puts another AGENTS.md in the checkout's working tree, which decides nothing;
+        `recorded` is the tick's own record of the command, with no merge commit at hand."""
         repo = self.home / f"code-{name}"
         repo.mkdir()
-        (repo / "AGENTS.md").write_text("---\nusers: real\n" + ("health: curl -fsS https://acme.test/ok\n" if health else "") + "---\n# acme\n")
+        declared = "---\nusers: real\n" + ("health: curl -fsS https://acme.test/ok\n" if health else "") + "---\n# acme\n"
+        sha = None
+        if not recorded:
+            env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+            git = lambda *args: subprocess.run(["git", "-C", str(repo), *args], check=True, env=env,
+                                               capture_output=True, text=True).stdout.strip()
+            git("init", "-q", "-b", "main")
+            (repo / "AGENTS.md").write_text(declared)
+            git("add", "AGENTS.md")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "merge")
+            sha = git("rev-parse", "HEAD")
+        if tree is not None:
+            (repo / "AGENTS.md").write_text(tree)
         directory = self.runs / name
         directory.mkdir()
         (directory / "run.json").write_text(json.dumps({
             "run_id": name, "launched_session": SEAT, "state": "pass", "verdict": "PASS",
             "merged": True, "repo": str(repo), "pr": "https://github.com/acme/widget/pull/7",
             "started_at": time.time() - age - 3600, "finished_at": time.time() - age,
+            **({"merge_sha": sha} if sha else {}),
+            **({"health": {"command": "curl -fsS https://acme.test/ok"}} if recorded else {}),
             **({"live_at": time.time() - 10} if live else {})}) + "\n")
+
+    def test_a_merged_runs_health_is_read_as_the_tick_reads_it(self):
+        bare = "---\nusers: real\n---\n# acme\n"
+        with_health = "---\nusers: real\nhealth: curl -fsS https://acme.test/ok\n---\n# acme\n"
+        # the merge commit declares it, whatever the checkout's own file says now
+        self.merged("committed", health=True, tree=bare)
+        self.assertTrue(stop.awaiting_live(json.loads((self.runs / "committed" / "run.json").read_text())))
+        # ... and a checkout that declares it with a merge commit that does not is no wait
+        self.merged("tree-only", health=False, tree=with_health)
+        self.assertFalse(stop.awaiting_live(json.loads((self.runs / "tree-only" / "run.json").read_text())))
+        # the tick's own record of the command is the fact once it has read it, commit at hand or not
+        self.merged("recorded", recorded=True)
+        self.assertTrue(stop.awaiting_live(json.loads((self.runs / "recorded" / "run.json").read_text())))
 
     def test_a_reply_stands_while_nothing_is_owed_whatever_the_prompt_said(self):
         for opened in ("Which parser does it use?", "Merge the parser now", "is main green"):

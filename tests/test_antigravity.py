@@ -9,6 +9,7 @@ on the host.  Never print or copy a real OAuth token here; the only tokens in th
 the stub's blanks and dummies.
 """
 
+from contextlib import ExitStack
 import json
 import os
 import re
@@ -514,13 +515,17 @@ class Antigravity(unittest.TestCase):
         # owner has typed and not sent, or the chooser a `/` opened, nothing is.
         now = time.time()
         live = {"state": "at_prompt", "stop_said_at": now - 3600, "turn_began": now - 7200}
-        (self.root / "state").mkdir(exist_ok=True)
-        (self.root / "state" / "plan-seat.md").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")    # the seat owes work: the nudge is due
+        # the plan the nudge is judged against lives in ak's state: every path of it sandboxed
+        sandbox = ExitStack()
+        self.addCleanup(sandbox.close)
+        sandbox.enter_context(patch.object(config, "HOME", self.root))
+        for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
+            sandbox.enter_context(patch.object(config, name, self.root / "ak" / name.lower()))
+        config.ensure_dirs()
+        config.plan_path("seat").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")    # the seat owes work: the nudge is due
         for kind, typed in (("prompt", 1), ("draft", 0), ("chooser", 0)):
             pane = self.pane(kind)
             with self.subTest(kind=kind), \
-                    patch.object(config, "HOME", self.root), \
-                    patch.object(config, "STATE", self.root / "state"), \
                     patch.object(watch, "seat_read", return_value=dict(live)), \
                     patch.object(watch, "hook_facts", return_value={}), \
                     patch.object(watch, "pane_text", return_value=pane), \

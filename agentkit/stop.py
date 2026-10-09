@@ -49,14 +49,21 @@ def owed(name):
 
 def awaiting_live(state, now=None):
     """A merged run of the seat's whose project proves itself live (`health:`) and has not yet:
-    ak's own step, read every tick, so the seat has nothing to do but wait on it."""
+    ak's own step, read every tick, so the seat has nothing to do but wait on it.  Whether
+    the project proves itself is read as the tick reads it (`watch.after_merge_health`): the
+    command the tick recorded, else the merge commit's own front matter, by the commit the
+    record names; a merge only GitHub has yet is the tick's to read first."""
     now = time.time() if now is None else now
     finished = state.get("finished_at")
     if (not state.get("merged") or state.get("live_at") or not state.get("repo")
             or not isinstance(finished, (int, float)) or isinstance(finished, bool)
             or not 0 <= now - finished <= watch.AFTER_MERGE_WINDOW):
         return False
-    return bool(run.declared(state["repo"], "health"))
+    if (state.get("health") or {}).get("command"):
+        return True
+    sha = watch.recorded_merge_sha(state)
+    return bool(sha and run.git_out(state["repo"], "cat-file", "-e", f"{sha}^{{commit}}")[0] == 0
+                and run.declared_at(state["repo"], sha, "health"))
 
 
 def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
