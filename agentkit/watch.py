@@ -2399,14 +2399,12 @@ def wait_over(cfg, log):
             waiting[name] = wait
     if not waiting:
         return
-    for session in orch.sessions():
-        name = session["name"]
-        wait = waiting.get(name)
-        if wait is None:
-            continue
-        # a closed seat's wait still ends on its fact, which its ladder reads; only the line
-        # has nowhere to go
-        closed = any(session.get(key) for key in orch.CLOSED)
+    # every seat with a record: a closed seat's wait, or one tmux no longer lists, still ends
+    # on its fact, which its ladder reads; only the line has nowhere to go
+    live = {session["name"]: session for session in orch.sessions()}
+    for name, wait in waiting.items():
+        session = live.get(name)
+        closed = session is None or any(session.get(key) for key in orch.CLOSED)
         if wait.get("kind") not in ("pr", "run"):
             # the record `ak wait <session>` wrote before waits named a pull request or run:
             # no fact can end it, so it is over, and there is nothing to type

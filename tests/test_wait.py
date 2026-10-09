@@ -343,6 +343,17 @@ class Wait(Sandbox):
         self.assertEqual(self.tick(), ["run 20260101-1100-stalled stalled: resume it with ak run "
                                        "resume 20260101-1100-stalled; your wait is over. Decide the next step."])
 
+    def test_m_a_seat_tmux_no_longer_lists_has_its_wait_ended_on_its_fact(self):
+        # its resume failed after a reboot, the server died, or a pause ended it: only the
+        # record is left, and the wait still ends so the ladder never reads working forever
+        self.receipt(THEIRS, OTHER)
+        self.wait(THEIRS)
+        self.ended()
+        self.seats.pop(SEAT)
+        self.assertEqual(self.tick(), [])
+        self.assertIsNone(watch.waiting_on(SEAT))
+        self.assertTrue(watch.seat_read(SEAT)["wait"]["over"])
+
     def test_k_a_pull_request_gh_cannot_view_is_refused(self):
         self.gh = None
         code, out, err = self.wait(PR)
