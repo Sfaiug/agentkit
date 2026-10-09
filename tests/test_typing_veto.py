@@ -3,8 +3,9 @@
 The prompt is read once before the lock and once more inside it, off one capture, right
 before the first key: a draft the owner started meanwhile, a dialog that came up, or a
 screen whose composer cannot be read gets no key at all, and the line waits for the next
-pass.  Driven through the wait line the tick types (`watch.wait_over`, `fixtures.seats`),
-the same path every hand-back takes.  Offline.
+pass.  Grok Build keeps its composer drawn under its trust question, so there only the
+asking guard keeps an Enter from answering it.  Driven through the wait line the tick types
+(`watch.wait_over`, `fixtures.seats`), the same path every hand-back takes.  Offline.
 """
 
 from contextlib import contextmanager
@@ -15,13 +16,18 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.seats import Seats
-from agentkit import orch, watch
+from fixtures.seats import SEAT, Seats
+from agentkit import config, orch, watch
 
 DIALOG = (REPO / "tests/fixtures/claude-dialog-pane.txt").read_text(encoding="utf-8")
+GROK_PROMPT = (REPO / "tests/fixtures/grok-prompt-pane.txt").read_text(encoding="utf-8")
+GROK_DIALOG = (REPO / "tests/fixtures/grok-dialog-pane.txt").read_text(encoding="utf-8")
 
 
-class TypingVeto(Seats):
+class Veto(Seats):
+    """A seat whose keys are counted, and a pane that changes between the first read and the
+    capture under the typing lock."""
+
     def setUp(self):
         super().setUp()
         self.keys = []
@@ -36,10 +42,6 @@ class TypingVeto(Seats):
         self.stack.start()
         self.addCleanup(self.stack.stop)
 
-    def composed(self, text):
-        """The seat's pane with that text in its composer."""
-        return self.base.replace(self.empty, "❯ " + text + "\n")
-
     def changed_after_the_first_read(self, later):
         """The pane changes to `later` between the first read and the capture under the typing
         lock: the lock is taken, and the screen is already something else."""
@@ -52,6 +54,12 @@ class TypingVeto(Seats):
                 yield held
 
         return patch.object(watch, "seat_held", side_effect=taken_then_changed)
+
+
+class TypingVeto(Veto):
+    def composed(self, text):
+        """The seat's pane with that text in its composer."""
+        return self.base.replace(self.empty, "❯ " + text + "\n")
 
     def test_a_draft_the_owner_starts_after_the_first_read_is_never_typed_onto(self):
         self.wait_line()
@@ -71,6 +79,37 @@ class TypingVeto(Seats):
                     self.tick()
                 self.assertEqual((self.typed, self.keys), ([], []))
                 self.assertFalse(self.told())
+        # ... and the line goes in on the next pass, once the screen is its empty prompt again
+        self.pane = self.base
+        self.tick()
+        self.assertTrue(self.told())
+
+
+class GrokTypingVeto(Veto):
+    """Grok Build's composer stays drawn, and empty, under its trust question: an Enter there
+    answers it, and no draft guard sees anything amiss."""
+
+    def setUp(self):
+        super().setUp()
+        config.update_session(SEAT, orchestrator="grok")
+        self.assertEqual(orch.seat_plugin(config.session_records()[SEAT]).name, "grokbuild")
+        self.pane = self.base = GROK_PROMPT
+        self.row = next(row for row in GROK_PROMPT.split("\n") if "│ ❯" in row)
+
+    def tmux(self, *args, **kwargs):
+        """Grok's composer row holds the typed text."""
+        if args[0] == "send-keys" and "-l" in args:
+            self.typed.append(args[-1])
+            self.pane = self.base.replace(self.row, ("  │ ❯ " + args[-1]).ljust(len(self.row) - 1) + "│")
+            return 0, ""
+        return super().tmux(*args, **kwargs)
+
+    def test_no_enter_answers_a_question_drawn_over_an_empty_composer(self):
+        self.wait_line()
+        with self.changed_after_the_first_read(GROK_DIALOG):
+            self.tick()
+        self.assertEqual((self.typed, self.keys), ([], []))
+        self.assertFalse(self.told())
         # ... and the line goes in on the next pass, once the screen is its empty prompt again
         self.pane = self.base
         self.tick()
