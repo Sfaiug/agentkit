@@ -3867,20 +3867,29 @@ def dispute_rows(lp):
     return rows
 
 
-def moved_line(lp, path, line, since, head):
-    """Where line `line` of `path` at `since` sits on `head`, through the diff between them:
-    a fix above it moves a line it never touched.  None when the diff touched the line
-    itself, which puts it inside the fix delta."""
+def moved_lines(lp, path, line, since, head):
+    """(the lines on `head` where line `line` of `path` at `since` can sit, whether the diff
+    between them touched the line): one line where a fix above it moved a line it never
+    touched; the lines the fix put in its place where it rewrote it, none where it deleted
+    it; the line itself where there is no delta."""
     shift = 0
-    for start, old, _, new in hunks(lp, path, since, head):
+    for start, old, now, new in hunks(lp, path, since, head):
         if old == 0:
             start += 1      # lines were added after `start`: what follows it moves
         if line < start:
             break
         if line < start + old:
-            return None
+            return range(now, now + new), True
         shift += new - old
-    return line + shift
+    return range(line + shift, line + shift + 1), False
+
+
+def moved_line(lp, path, line, since, head):
+    """Where line `line` of `path` at `since` sits on `head`, through the diff between them:
+    a fix above it moves a line it never touched.  None when the diff touched the line
+    itself, which puts it inside the fix delta (`moved_lines`)."""
+    lines, touched = moved_lines(lp, path, line, since, head)
+    return None if touched else lines[0]
 
 
 def earlier_sites(lp, head, since):
@@ -4020,12 +4029,15 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
         proofs = {row["evidence"].get("run") for row in records if row["kind"] == "finding"}
         extra = []
         for n, (row, now, failing) in enumerate(replayed, 1):
-            # where the fix moved its line, when the delta is known and left the line itself
-            # alone; a line the fix touched keeps its number and says so
-            line = moved_line(lp, row["path"], row["line"], since, head) if since else row["line"]
-            row = {**row, "line": line if line is not None else row["line"]}
-            where = ("" if line is not None
-                     else "; the fix changed its line, and the proof says where it stands now")
+            # where the fix left its line: moved, untouched, to one place; rewritten, among
+            # the lines the fix put there, at the first the change still touches, or at the
+            # first of them where the fix put base's text there
+            lines, touched = (moved_lines(lp, row["path"], row["line"], since, head) if since
+                              else (range(row["line"], row["line"] + 1), False))
+            inside = ([] if lp.scratch
+                      else [at for at in lines if changed_line(lp, {**row, "line": at}, head)])
+            row = {**row, "line": inside[0] if inside else lines[0] if lines else row["line"]}
+            where = "; the fix changed its line" if touched else ""
             if not failing:
                 extra.append({**row, "kind": "note", "evidence": now,
                               "replayed": "fixed; its proof passes now"})
@@ -4033,9 +4045,9 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             if now["run"] in proofs:
                 continue
             kind, replayed_word = "finding", "still failing; it blocks until its proof passes" + where
-            if not lp.scratch and not changed_line(lp, row, head):
-                # the fix put its line back as base has it: judged on base, as any failing
-                # proof on a line the change did not touch is
+            if not lp.scratch and not inside:
+                # its line is base's now (put back, or never the change's): judged on base,
+                # as any failing proof on a line the change did not touch is
                 base = {"sha": lp.base_sha, **proof_on(
                     lp, now["run"], lp.round_dir / f"replay-{n}-base.log", lp.base_sha, head)}
                 now = {**now, "base": base}
@@ -4332,10 +4344,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     submitted = weigh_review(lp, submitted, identity.get("head_sha"), since=delta, replayed=replayed)
     upheld = {(row["path"], row["line"]) for row in submitted.findings}
     for row in disputes.disputes:
-        # a dispute's finding is upheld at the line the fix moved it to
-        site = (row["path"], (moved_line(lp, row["path"], row["line"], delta, identity.get("head_sha"))
-                              if delta else None) or row["line"])
-        if site not in upheld:
+        # a dispute's finding is upheld wherever the fix left its line: moved, or among the
+        # lines the fix put in its place
+        lines, _ = (moved_lines(lp, row["path"], row["line"], delta, identity.get("head_sha"))
+                    if delta else ((row["line"],), False))
+        if not any((row["path"], at) in upheld for at in (lines or (row["line"],))):
             dropped = lp.state.setdefault("disputes", [])
             text_dispute = "Dropped: " + hand_in.item_text(row)
             if text_dispute not in dropped:

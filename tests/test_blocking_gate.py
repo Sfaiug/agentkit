@@ -217,6 +217,15 @@ out = pathlib.Path(sys.argv[6])
         prompt = self.prompt()
         self.assertIn("api.py:2 - flag is wrong - disputed by the fixer", prompt)
         self.assertNotIn("still fails", prompt)
+        # ... and where the fix rewrote the disputed line and added one above it: upheld at the
+        # line the fix put in its place
+        self.setUp()
+        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
+        self.write('import os\nmode = "fixed"\nflag = "still wrong"\nextra = 1\n', "Rewrite the flag, add an import")
+        self.dispute("api.py", 2, "flag is wrong", probe("True"))
+        self.assertEqual(self.review(finding("api.py:3", "the flag still reads wrong", self.flag_fixed)), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 3, "")])
+        self.assertEqual(self.lp.state.get("disputes", []), [])
 
     def test_a_round_after_a_landing_re_review_gets_the_delta_and_the_replay(self):
         # a landing re-review judges the whole change and records nothing of its own ...
@@ -315,6 +324,19 @@ out = pathlib.Path(sys.argv[6])
         self.assertIn("## Earlier findings, re-proven by ak on this commit\n- api.py:1 - mode is wrong - still fails", prompt)
         self.assertIn("the commit the last review judged, again", prompt)
         self.assertEqual(self.records("finding"), [("api.py", 1, "still failing; it blocks until its proof passes")])
+
+    def test_a_rewritten_line_is_placed_among_what_the_fix_put_there(self):
+        self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
+        # the fix adds a line above and rewrites the flag, still wrongly: it blocks where it is now
+        self.write('import os\nmode = "branch"\nflag = "still wrong"\nextra = 1\n', "Rewrite the flag, add an import")
+        self.assertEqual(self.review(), "FAIL")
+        self.assertEqual(self.records("finding"),
+                         [("api.py", 3, "still failing; it blocks until its proof passes; the fix changed its line")])
+        # ... and rewritten to base's text, it is base's: judged there, a follow-up
+        self.write('import os\nmode = "branch"\nflag = "base"\nextra = 1\n', "Put the flag back as base has it")
+        self.assertEqual(self.review(), "PASS")
+        self.assertEqual(self.records("follow-up"),
+                         [("api.py", 3, "still failing, on base too: a defect from before the task, kept as a follow-up")])
 
     def test_a_replayed_proof_failing_on_base_too_is_a_follow_up_once_its_line_is_base_s(self):
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.never)), "FAIL")

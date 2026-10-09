@@ -469,7 +469,10 @@ class MergeStep(unittest.TestCase):
 
         def fixer(lp2, role, text, name):
             turns.append((name, text))
-            return resolve(wt) if name == "rebase-fixer" else "## Summary\nFixed the findings."
+            if name == "rebase-fixer":
+                return resolve(wt)
+            (wt / "shared").write_text("both intents, mended\n")      # the fix changes the cited file
+            return "## Summary\nFixed the findings."
 
         verdicts = iter(["FAIL", "PASS"])
 
