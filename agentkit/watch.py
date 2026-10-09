@@ -2120,7 +2120,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "working", "reason": reason,
                 "since": min(starts) if starts else None}
     # 2a. ... or it ended its turn on `ak wait`, and what it named is not over yet
-    wait = waiting_on(name, records, at, cfg)
+    wait = waiting_on(name)
     if wait:
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
     # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
@@ -2249,7 +2249,7 @@ def too_long(line):
     return None
 
 
-def waiting_on(name, records=None, now=None, cfg=None):
+def waiting_on(name):
     """That seat's own `ak wait`, while the pull request or run it names is not yet over; else
     None.
 
@@ -2279,6 +2279,9 @@ def wait_fact(wait):
         if not state:
             return True, f"run {on} is gone"
         from . import run as run_mod
+        if state.get("state") == "stalled":
+            # going to the ladder, but nothing moves it except the seat: the wait is over
+            return True, f"run {on} stalled: resume it with ak run resume {on}"
         if run_mod.going(state):
             return False, ""
         ended = state.get("verdict") or state.get("state") or "ended"
@@ -2316,8 +2319,11 @@ def wait_over(cfg, log):
     for session in orch.sessions():
         name = session["name"]
         wait = waiting.get(name)
-        if wait is None or any(session.get(key) for key in orch.CLOSED):
+        if wait is None:
             continue
+        # a closed seat's wait still ends on its fact, which its ladder reads; only the line
+        # has nowhere to go
+        closed = any(session.get(key) for key in orch.CLOSED)
         if wait.get("kind") not in ("pr", "run"):
             # the record `ak wait <session>` wrote before waits named a pull request or run:
             # no fact can end it, so it is over, and there is nothing to type
@@ -2336,6 +2342,8 @@ def wait_over(cfg, log):
             wait = seat_read(name).get("wait")
             if not isinstance(wait, dict) or wait.get("told"):
                 continue
+        if closed:
+            continue
         line = f"{wait['over']}; your wait is over. Decide the next step."
         if type_at_prompt(session, line, log, cfg=cfg, typed=wait.get("typed"),
                           receipt=lambda mark, name=name, wait=wait:
