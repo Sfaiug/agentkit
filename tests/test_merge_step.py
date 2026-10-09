@@ -265,6 +265,7 @@ class MergeStep(unittest.TestCase):
         def fixer(lp2, role, text, name):
             turns.append((name, lp2.rnd, text))
             (wt / f"fix{len(turns)}.txt").write_text("fixed\n")
+            (wt / "fix1.txt").write_text(f"fixed {len(turns)}\n")   # the cited file changes too
             run.git(wt, "add", ".")
             run.git(wt, "commit", "-m", "fix")
             return "## Summary\nFixed."

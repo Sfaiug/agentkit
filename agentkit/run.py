@@ -3839,25 +3839,19 @@ def earlier_findings(lp):
 def replay_findings(lp, rows, head):
     """Each earlier finding proven again on `head`: (the row, its evidence now, still failing).
 
-    A `--run` proof is replayed on the head; a quote stands while its lines are still in the
-    file there.  What ak can prove itself is never left to the reviewer to find again, and a
-    finding whose proof still fails blocks whatever the reviewer hands in."""
+    Only a `--run` proof is replayed: a quote is no failing proof, since the quoted lines
+    can stay while the defect goes, so a quoted finding is the reviewer's to raise again.
+    What ak can prove itself is never left to the reviewer to find again, and a finding
+    whose proof still fails blocks whatever the reviewer hands in."""
+    rows = [row for row in rows if "run" in (row.get("evidence") or {})]
     replayed = []
     if rows:
         lp.round_dir.mkdir(parents=True, exist_ok=True)   # the replay logs come before the turn
     for index, row in enumerate(rows, 1):
-        evidence = row.get("evidence") or {}
-        if "run" in evidence:
-            command = evidence["run"]
-            now = {"run": command, "commit": head,
-                   **proof_on(lp, command, lp.round_dir / f"replay-{index}.log", head)}
-            failing = hand_in.proof_failed(now)
-        else:
-            quote = evidence.get("quote") or ""
-            text = git(lp.wt, "show", f"{head}:{row['path']}", check=False)
-            failing = bool(quote) and quote in text
-            now = evidence
-        replayed.append((row, now, failing))
+        command = row["evidence"]["run"]
+        now = {"run": command, "commit": head,
+               **proof_on(lp, command, lp.round_dir / f"replay-{index}.log", head)}
+        replayed.append((row, now, hand_in.proof_failed(now)))
     return replayed
 
 
@@ -3865,8 +3859,7 @@ def replay_section(replayed, since):
     """What the reviewer is told of the earlier findings: ak's own replay, not a question."""
     lines = []
     for row, now, failing in replayed:
-        how = (f"still fails ({'exit ' + str(now['returncode']) if 'run' in now else 'the quoted lines are still there'})"
-               if failing else "fixed (the proof passes now)")
+        how = f"still fails (exit {now['returncode']})" if failing else "fixed (the proof passes now)"
         lines.append(f"- {row['path']}:{row['line']} - {row['what']} - {how}")
     return (f"## Earlier findings, re-proven by ak on this commit\n"
             + ("\n".join(lines) if lines else "(none)")
@@ -3879,13 +3872,15 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     """The reviewer's editable copy cannot decide what blocks the reviewed commit.
 
     In a later round (`since` names the commit the last review judged) a new finding blocks
-    only inside the fix delta, and ak's own replay of the earlier findings (`replayed`) is
-    weighed with the reviewer's: one still failing blocks whether or not the reviewer handed
-    it in again, one fixed is a note."""
+    only inside the fix delta; one handed in again at an earlier finding's site upholds it (a
+    dispute the reviewer rejects) and blocks wherever it is.  ak's own replay of the earlier
+    findings (`replayed`) is weighed with the reviewer's: one still failing blocks whether or
+    not the reviewer handed it in again, one fixed is a note."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
     sites = quoted_sites(lp, submitted, head)
+    earlier = {(row["path"], row["line"]) for row in earlier_findings(lp)} if since else set()
     records = []
     for index, row in enumerate(submitted.records, 1):
         if row["kind"] not in ("finding", "follow-up"):
@@ -3910,7 +3905,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                     lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
             if not hand_in.proof_failed(evidence):
                 kind = "note"
-            elif since and not changed_line(lp, row, head, since):
+            elif since and (row["path"], row["line"]) not in earlier and not changed_line(lp, row, head, since):
                 kind, outside = "note", True
             elif not lp.scratch and not changed_line(lp, row, head):
                 base = evidence["base"]
@@ -3920,7 +3915,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                     kind = "note"
         else:
             row = {**row, **sites[index]}
-            if since and not changed_line(lp, row, head, since):
+            if since and (row["path"], row["line"]) not in earlier and not changed_line(lp, row, head, since):
                 kind, outside = "note", True
             elif not lp.scratch and not changed_line(lp, row, head):
                 kind = "follow-up"
@@ -4017,7 +4012,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     else:
         lp.state.update(step="reviewer", step_at=time.time())
         lp.save()
-    checks, since, replayed = "", None, []
+    checks, delta, replayed = "", None, []
     if lp.scratch:
         work = whole = f"## Workspace ({lp.wt})\n```\n{listing(lp.wt)}\n```"
     else:
@@ -4034,14 +4029,23 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         # a later round judges what changed since the last review, and ak re-proves the
         # earlier findings itself: the reviewer re-finds nothing
         at = git(lp.wt, "rev-parse", head)
-        since = reviewed_before(lp, delta_from, at)
-        if since:
-            delta = git(lp.wt, "diff", f"{since}...{head}", check=False)
-            if len(delta) > DIFF_CAP:
-                delta = delta[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
-            replayed = replay_findings(lp, earlier_findings(lp), at)
-            work = (f"## Fix delta ({since[:12]}...HEAD in {lp.wt}; what changed since the last "
-                    f"review)\n```diff\n{delta}\n```\n\n{replay_section(replayed, since)}")
+        # a landing re-review (`record` off) judges the whole change: the repair that brought
+        # it here is nobody's fix round
+        delta = reviewed_before(lp, delta_from, at) if record else None
+        if delta:
+            changed = git(lp.wt, "diff", f"{delta}...{head}", check=False)
+            if len(changed) > DIFF_CAP:
+                changed = changed[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
+            # a finding the fixer disputed is the reviewer's to weigh, not ak's to re-prove
+            disputed = set()
+            for file in lp.state.get("dispute_files", []):
+                found = hand_in.read(file)
+                disputed.update((row["finding"]["path"], row["finding"]["line"])
+                                for row in (found.disputes if found is not None else ()))
+            replayed = replay_findings(lp, [row for row in earlier_findings(lp)
+                                            if (row["path"], row["line"]) not in disputed], at)
+            work = (f"## Fix delta ({delta[:12]}...HEAD in {lp.wt}; what changed since the last "
+                    f"review)\n```diff\n{changed}\n```\n\n{replay_section(replayed, delta)}")
         paths = changed_test_paths(lp, head)
         if paths:
             # Leave room for full names, including git's quoted non-ASCII paths.
@@ -4085,7 +4089,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         return checks + text
     rbody = body_with(work)
     # a conversation that resumes holds the whole change already; one that cannot gets it too
-    rbody_whole = body_with(f"{whole}\n\n{work}") if since else rbody
+    rbody_whole = body_with(f"{whole}\n\n{work}") if delta else rbody
     # A review cut off mid-turn is continued where it was, fallback model and all: the
     # attempt after a fallback wrote under `reviewer-<model>`, and asking `reviewer` for
     # it would start the review over in a directory beside the one holding its session.
@@ -4150,7 +4154,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             note = {"at": time.time(), "role": "reviewer", "restarted": True}
             lp.state["resume_notice"] = note
         else:
-            resume = {"previous": review_turn(rd, lp.review_sid, since)}
+            # a conversation that cannot resume after all starts fresh on the whole change
+            resume = {"previous": review_turn(rd, lp.review_sid, since), "fresh_body": rbody_whole}
         why, ending = "died on API/transport errors", Exhausted
         model = lp.reviewer     # a fallback below moves on from it before its tokens are read
         reviewed = config.model(lp.cfg, model)
@@ -4224,7 +4229,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     checkout_changed = not lp.scratch and (
         identity != validation or commit_identity(lp.wt) != identity
         or (not lp.state.get("review_pr") and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
-    submitted = weigh_review(lp, submitted, identity.get("head_sha"), since=since, replayed=replayed)
+    submitted = weigh_review(lp, submitted, identity.get("head_sha"), since=delta, replayed=replayed)
     upheld = {(row["path"], row["line"]) for row in submitted.findings}
     for row in disputes.disputes:
         if (row["path"], row["line"]) not in upheld:
@@ -4273,6 +4278,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                           "returncode": code, "verdict": verdict, "done_when": ok, **validation, **passed,
                           **({"overridden": overridden} if overridden else {})}
     lp.state.pop("review_pending", None)
+    if record and validation.get("head_sha"):
+        lp.state["delta_from"] = validation["head_sha"]
     lp.save()
     history.record_review(lp.state.get("run_id"), str(out),
                           harness=review_harness, model=review_model,
@@ -11006,7 +11013,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                    "review the author's diff.")
     try:
         if summaries:
-            verdict = review(lp, summary, ok, dw_log, preface="Re-review after a push.")
+            verdict = review(lp, summary, ok, dw_log,
+                             preface=f"Re-review after a push.\n\n## The last round\n{previous}")
         else:
             verdict = review(lp, summary, ok, dw_log)
     except Blocked as exc:
