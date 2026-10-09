@@ -120,12 +120,18 @@ def tree(worktree, artifacts, log=lambda _: None):
 
 
 def staged(worktree, paths, env, log):
-    """`paths` added to the index `env` names, in one call, the ones that vanished since they
-    were listed (a working executor's temp file) left out; when the add still fails, one by
-    one, so a file git cannot read costs only itself, said once.  Decided by what is on disk
-    and git's exit, never by its words, which it says in the host's language."""
+    """`paths` staged in the index `env` names (HEAD's, `tree` read it so): a path gone from
+    disk that HEAD has is a deletion a commit would take, one HEAD has not vanished since it
+    was listed (a working executor's temp file) and is left out; the rest added in one call,
+    or, when that still fails, one by one, so a file git cannot read costs only itself, said
+    once.  Decided by what is on disk, what the index holds and git's exit, never by its
+    words, which it says in the host's language."""
     from . import run
     present = [path for path in paths if os.path.lexists(worktree / path)]
+    tracked = set(run.git(worktree, "ls-files", "-z", env=env).split("\0"))
+    deleted = [path for path in paths if path not in present and path in tracked]
+    if deleted:
+        run.git(worktree, "update-index", "--force-remove", "--", *deleted, env=env)
     try:
         if present:
             run.git(worktree, "add", "--ignore-errors", "--", *present, env=env)

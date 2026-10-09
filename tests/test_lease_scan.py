@@ -226,6 +226,13 @@ class LeaseScan(unittest.TestCase):
         lp.write()
         self.assertEqual(record.read_state(directory)["artifacts"], ["checks.log"])
 
+    def test_an_uncommitted_deletion_is_the_runs_lease_too(self):
+        older = self.run_on("20260101-0900-older", 900)
+        younger = self.run_on("20260101-1000-younger", 1000)
+        self.edit(older, "other.py", 1, "older's other", commit=True)
+        (younger / "other.py").unlink()                 # deleted, uncommitted: a commit would take it
+        self.assertEqual(leases.scan(self.repo, now=2000)["20260101-1000-younger"]["files"], ["other.py"])
+
     def test_a_file_that_vanishes_between_listing_and_adding_costs_only_itself(self):
         older = self.run_on("20260101-0900-older", 900)
         younger = self.run_on("20260101-1000-younger", 1000)
