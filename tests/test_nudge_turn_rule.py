@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, host, job as jobs, menu, notify, orch, plan, run, watch
+from agentkit import config, host, job as jobs, menu, notify, orch, plan, run, stop, watch
 from agentkit import record
 
 SEAT, OTHER = "acme-api", "fix-api"
@@ -333,6 +333,45 @@ class NudgeTurnRule(Sandbox):
                 watch.seat_write(SEAT, turn_began=time.time() + 1, stop_nudged=None)
                 self.assertTrue(self.hook_holds())
                 self.assertEqual(self.tick(), ["continue"])
+
+    def test_a_late_working_look_keeps_this_turns_quiet_answer(self):
+        for harness in HARNESSES:
+            for observed in ("during checks", "after command"):
+                with self.subTest(harness=harness, observed=observed):
+                    self.setUp()
+                    self.harness = harness
+                    self.stopped()
+                    watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=9990)
+
+                    def working():
+                        watch.live_state(self.seat, harness, pane=self.screen("working"),
+                                         cfg=self.cfg, now=10001)
+
+                    require_done = plan.require_done
+
+                    def checked(name):
+                        proven = require_done(name)
+                        if observed == "during checks":
+                            working()
+                        return proven
+
+                    with patch.object(plan, "require_done", side_effect=checked):
+                        self.assertEqual(notify.shaped("done", "Explained the API", session=SEAT,
+                                                       quiet=True), 0)
+                    if observed == "after command":
+                        working()
+                    watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10002)
+                    with patch.object(watch.time, "time", return_value=10002 + watch.STALL_WAIT + 10):
+                        self.assertEqual(self.tick(), [])
+                        answer = watch.session_state(
+                            SEAT, session=self.seat, cfg=self.cfg, harness=harness,
+                            live={"state": "at_prompt"}, records=[],
+                            auth_out={}, gh_out={}, token_out={})
+                        self.assertEqual(answer["word"], "done")
+                        self.assertTrue(answer.get("quiet"))
+                        # An actual new prompt retires the answer even without a later look.
+                        stop.prompted(SEAT, time.time())
+                        self.assertEqual(self.tick(), ["continue"])
 
     def test_new_open_work_holds_a_previously_quiet_answer(self):
         for harness in HARNESSES:

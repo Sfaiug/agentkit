@@ -217,6 +217,30 @@ class Notifications(unittest.TestCase):
                 self.cli("done", "Export shipped")
                 self.assertEqual(len(self.cards("done")), 1)
 
+    def test_failed_quiet_question_edits_survive_repeated_card_loss(self):
+        self.cli("needs", "Which export format?")
+        notify.answered("seat", time.time())
+        self.cli("done", "Explained the format", "--quiet")
+        events = list(notify.outbox().glob("*.json"))
+        self.edit_status = 503
+        for _ in range(2):
+            self.assertEqual(notify.transition("seat"), 0)
+            self.assertTrue(notify._card_read("seat")["open_needs"])
+            config.card_path("seat").unlink()
+        before = len(self.requests)
+        self.edit_status = 200
+        for _ in range(2):
+            self.assertEqual(notify.transition("seat"), 0)
+            notify.retry_pending(log=lambda _: None)
+        self.assertTrue(any(method == "PATCH" and payload["embeds"][0]["title"]
+                            == "Answered · seat" for method, _, payload in self.requests[before:]))
+        self.assertEqual(notify.last("seat", include_seen=True)["open_needs"], [])
+        self.assertEqual(notify._card_read("seat")["open_needs"], [])
+        self.assertEqual(self.cards("done"), [])
+        self.assertEqual(list(notify.outbox().glob("*.json")), events)
+        self.cli("done", "Export shipped")
+        self.assertEqual(len(self.cards("done")), 1)
+
     def test_quiet_dry_runs_and_workers_change_no_state(self):
         self.cli("done", "Explained the schema", "--quiet", "--dry-run")
         self.cli("done", "Explained the schema", "--quiet", env={"AK_RUN_ROLE": "worker"})
