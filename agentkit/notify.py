@@ -6,7 +6,9 @@ last notification, which is what the menu shows as that session's state. `ak not
 the reason or declaration; the session-state transition sends the card.
 
 Workers are silent by construction. A needs episode is sent once after it has stood for a minute
-with no attached client input since it began. A done episode is sent once when the session state
+with no attached client input since it began; a seat's own question begins one when the turn
+that asked has ended, and its card stands through the turns a hand-back opens until the owner
+answers. A done episode is sent once when the session state
 becomes done, and a declaration once whatever episodes, or versions, it turns up in. Seat input
 or finishing edits outstanding questions without pinging. Nothing is sent, or retried, for a
 seat the owner closed himself, or an episode begun before this agentkit was installed.
@@ -1080,6 +1082,8 @@ def needs_transition(session, card, answer, now, seat=None):
     from . import watch
     if _history(card) or watch.seat_closed_by_owner(session):
         return 0
+    if answer.get("asked") is not None:
+        card["asked"] = answer["asked"]    # the question it goes out for, which `transition` reads
     return _send_card(session, "needs", card, answer)
 
 
@@ -1169,6 +1173,13 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 since = max(since, asked)
                 if began is not None:
                     began = max(began, asked)
+            # The card that went out for the question still standing stays as it is while a
+            # turn a hand-back opens runs: that turn neither closes it nor, ending, sends
+            # another.  His answer closes it, and a newer question is a new episode.
+            if (word == "working" and asked is not None and card.get("asked") == asked
+                    and card.get("word") == "needs you" and card.get("sent")
+                    and not card.get("closed")):
+                return 0
             completion = declared.get("completion") if declared and declared["kind"] == "done" else None
             if card.get("word") != word or (
                     word == "done" and completion and card.get("completed") and card.get("sent")
