@@ -149,7 +149,7 @@ class StopParked(unittest.TestCase):
 
     def test_an_ak_wait_does_not_end_the_turn_while_a_run_sits_parked(self):
         (self.state / f"seat-{SEAT}.json").write_text(json.dumps(
-            {"session": SEAT, "wait": {"on": OTHER, "at": self.turn}}) + "\n")
+            {"session": SEAT, "wait": {"on": "theirs-going", "kind": "run", "at": self.turn}}) + "\n")
         self.run_json("theirs-going", owner=OTHER, state="running",
                       started_at=self.turn - 9000)
         sockets = self.home / "sockets"

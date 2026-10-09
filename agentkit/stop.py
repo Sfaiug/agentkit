@@ -68,7 +68,7 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
                 stamp = watch._stamp(state.get(key))
                 if stamp is not None and stamp >= since:
                     return True, []
-    if jobs.job_waiting(name) or watch.waiting_on(name, supplied):
+    if jobs.job_waiting(name) or watch.waiting_on(name):
         return True, []
     return bool(answer() if callable(answer) else answer), []
 

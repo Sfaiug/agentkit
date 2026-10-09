@@ -449,7 +449,7 @@ def resolved(data):
 def answered(session, at):
     """The owner submitted a prompt; only the seat's question already standing is answered.
 
-    The hook owns this fact. Keep it on the notice so a later peer prompt or a rename
+    The hook owns this fact. Keep it on the notice so a later line of ak's own or a rename
     cannot reopen it. The background look checks the pane and waits for this lock; card
     delivery stays with the tick. Watcher alerts end through their own recovery rules.
     With no question notice standing, the needs you only the screen said -- a dialog, a

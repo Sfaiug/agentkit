@@ -200,6 +200,9 @@ class Retire(unittest.TestCase):
         self.switches(row("unstamped", 3))
         self.assertEqual(subprocess.run(["bash", "-c", proven]).returncode, 0)
         self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 0)
+        # ... a stamp ak cannot read is none, as `undated` reads it
+        self.switches({**row("unstamped"), "everyone_since": "20 Sep 2026"})
+        self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 1)
         # ... and a row off for everyone, or gone, has nothing left to prove: the line ticks
         self.switches({**row("unstamped", everyone=False), "everyone_since": None})
         self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 0)

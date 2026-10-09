@@ -329,6 +329,20 @@ class Wait(Sandbox):
                 self.assertIsNone(watch.waiting_on(SEAT))
         self.assertTrue(watch.seat_read(SEAT)["wait"]["told"])
 
+    def test_l_a_closed_seats_wait_ends_on_its_fact_and_a_stalled_run_ends_one(self):
+        self.receipt(THEIRS, OTHER)
+        self.wait(THEIRS)
+        self.seats[SEAT]["exited"] = True        # nobody in the seat: nothing to type into
+        self.ended()
+        self.assertEqual(self.tick(), [])
+        self.assertIsNone(watch.waiting_on(SEAT))   # ... yet its wait is over, as its ladder reads
+        self.assertTrue(watch.seat_read(SEAT)["wait"]["over"])
+        self.seats[SEAT]["exited"] = False
+        self.receipt("20260101-1100-stalled", OTHER, state="stalled")
+        self.wait("20260101-1100-stalled")
+        self.assertEqual(self.tick(), ["run 20260101-1100-stalled stalled: resume it with ak run "
+                                       "resume 20260101-1100-stalled; your wait is over. Decide the next step."])
+
     def test_k_a_pull_request_gh_cannot_view_is_refused(self):
         self.gh = None
         code, out, err = self.wait(PR)
