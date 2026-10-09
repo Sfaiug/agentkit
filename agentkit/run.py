@@ -10548,10 +10548,7 @@ def merge_own_pr(lp, url):
     upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
 
     def deliver():
-        api, owner, repo, number = pr_parts(url)
-        current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
-        if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
-            raise config.Error(f"cannot verify the PR before delivery: {why}")
+        current = pr_head(lp, url)
         remote = current["head"]
         expected = own_pr_heads(lp.state)
         ours = (remote["sha"] in expected
@@ -10592,6 +10589,16 @@ def pr_context(state, body):
             f"based on origin/{state['target']})\n\n{body}")
 
 
+def pr_head(lp, url):
+    """The pull request as GitHub describes it now, its head named, or an error: what a push
+    to its branch and a merge of it stand on."""
+    api, owner, repo, number = pr_parts(url)
+    current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
+    if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
+        raise config.Error(f"cannot read the PR: {why}")
+    return current
+
+
 def push_pr_branch(lp, remote, lease):
     """The checkout's HEAD onto the PR branch GitHub describes (`remote`, the PR's head), over
     `lease` and nothing else: a push made by hand meanwhile is never overwritten."""
@@ -10619,7 +10626,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
     pushed over somebody's commit.  Returns whether the next round may run.
     """
     reviewed = state["head_sha"]
-    api, owner, name, number = pr_parts(url)
+    number = PR_PARTS.match(url).group(3)
     lp = pr_loop(cfg, run_dir, state, opts, log)
     lp.rnd = len(state.get("round_summaries") or []) + 1
     state.update(state="running", **run_record.process_owner(), finished_at=None)
@@ -10633,9 +10640,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         log(f"FAIL {why}")
         return False
 
-    current, why = gh_json(run_dir, *api, f"repos/{owner}/{name}/pulls/{number}")
-    if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
-        raise config.Error(f"cannot read the PR before fixing it: {why}")
+    current = pr_head(lp, url)
     if current.get("state") != "open":
         return ended(f"{url} is {current.get('state', '?')}, not open")
     remote, pushed = current["head"], state.get("delivery_sha")
@@ -10645,26 +10650,31 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         log(f"the PR head moved to {remote['sha'][:12]} since the review; reviewing it")
         return True
     if not (pushed and pushed != reviewed and head == pushed):
-        if head != reviewed:
-            # the line or a crash left the checkout elsewhere; the fix starts from what was reviewed
-            git(lp.wt, "reset", "--hard", reviewed)
-        if not lp.executor:
-            lp.executor = state["executor"] = pick_fixer(cfg, state, log)
+        # the round's fixer turn, as its directory records it: one that closed did its work
+        # and HEAD is what it left; one the host cut off is resumed by execute on the checkout
+        # as it left it; none yet starts from the reviewed head
+        rd = lp.dir("executor").parent
+        turned = latest_turn(rd, "executor") is not None
+        if not (turned and open_turn(rd, "executor")[0] is None):
+            if not turned and head != reviewed:
+                git(lp.wt, "reset", "--hard", reviewed)     # the line left the checkout elsewhere
             if not lp.executor:
-                raise QuotaDry("no executor can fix this PR: every worker has a gate meter at 100% used")
-        log(f"--- round {lp.rnd}/{lp.rounds}: fixer {lp.executor} (findings on PR #{number})")
-        lp.context = pr_context(state, lp.body + repo_rules(lp.wt, state["base_sha"]))
-        fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
-        try:
-            execute(lp, "fixer", fix, "executor")
-        except Blocked as exc:
-            log(f"BLOCKED {exc}")
-            state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
-                          "blocked": exc.section, "finished_at": time.time()})
-            state.pop("own_pr_wait", None)
-            lp.write()
-            write_result(run_dir, state, lp.cmds or ["(none declared)"], log, cfg)
-            return False
+                lp.executor = state["executor"] = pick_fixer(cfg, state, log)
+                if not lp.executor:
+                    raise QuotaDry("no executor can fix this PR: every worker has a gate meter at 100% used")
+            log(f"--- round {lp.rnd}/{lp.rounds}: fixer {lp.executor} (findings on PR #{number})")
+            lp.context = pr_context(state, lp.body + repo_rules(lp.wt, state["base_sha"]))
+            fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
+            try:
+                execute(lp, "fixer", fix, "executor")
+            except Blocked as exc:
+                log(f"BLOCKED {exc}")
+                state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
+                              "blocked": exc.section, "finished_at": time.time()})
+                state.pop("own_pr_wait", None)
+                lp.write()
+                write_result(run_dir, state, lp.cmds or ["(none declared)"], log, cfg)
+                return False
         commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
         head = git(lp.wt, "rev-parse", "HEAD")
         if head == reviewed:
@@ -10673,9 +10683,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
             return True
         state["delivery_sha"] = head
         lp.write()
-        current, why = gh_json(run_dir, *api, f"repos/{owner}/{name}/pulls/{number}")
-        if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
-            raise config.Error(f"cannot read the PR before pushing the fix: {why}")
+        current = pr_head(lp, url)
         remote = current["head"]
         if current.get("state") != "open":
             return ended(f"{url} is {current.get('state', '?')}, not open")

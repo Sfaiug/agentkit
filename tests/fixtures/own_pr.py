@@ -8,6 +8,7 @@ a known head; a test that wants another fix overrides `fix`.
 
 from contextlib import ExitStack, nullcontext, redirect_stdout
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -20,7 +21,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import gate, host, config, gc, orch, run, status, watch, worker
+from agentkit import gate, hand_in, host, config, gc, orch, run, status, watch, worker
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -148,15 +149,24 @@ class OwnPr(unittest.TestCase):
         return 0, text, f"review-{n}", False
 
     def fix(self, lp):
-        """What the fixer leaves in the checkout: the next prepared commit, by default."""
+        """What the fixer leaves in the checkout: the next prepared commit, by default, on the
+        reviewed head it was given."""
+        self.assertEqual(run.git(lp.wt, "rev-parse", "HEAD"), lp.state["head_sha"])
         run.git(lp.wt, "reset", "--hard", self.heads[len(self.fixes)])
 
     def fixer(self, lp, role, text, name):
+        """The turn as execute() records it: its directory opened before the work, closed after."""
         self.assertEqual((role, name), ("fixer", "executor"))
-        self.assertEqual(run.git(lp.wt, "rev-parse", "HEAD"), lp.state["head_sha"])
         self.assertEqual(record.read_state(self.run_dir)["state"], "running")
+        out = run.free_dir(lp, name)
+        out.mkdir(parents=True)
+        (out / hand_in.FILE).write_text(json.dumps(
+            {"kind": "turn", "workspace": str(lp.wt), "role": role, "findings": []}) + "\n")
         self.fixes.append(text)
-        self.fix(lp)
+        self.fix(lp)                    # may raise: the host cut the turn off
+        with (out / hand_in.FILE).open("a") as handle:
+            handle.write(json.dumps({"kind": "done"}) + "\n")
+        (out / "final.md").write_text("## Summary\nFixed.")
         return "## Summary\nFixed."
 
     def review(self, verdicts):

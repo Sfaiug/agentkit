@@ -94,6 +94,49 @@ class OwnPrFixer(OwnPr):
         self.assertEqual((len(self.prompts), len(self.fixes)), (1, 1))
         self.assertNotIn("own_pr_wait", state)
 
+    def test_a_fixer_turn_cut_off_after_its_commit_keeps_that_commit(self):
+        fix = self.fix
+
+        def cut_off(lp):
+            if len(self.fixes) == 1:
+                fix(lp)                 # the commit lands ...
+                raise InterruptedError("... and the host cuts the turn off before ak records it")
+            # resumed on the checkout as it was left: nothing reset it to the reviewed head
+            self.assertEqual(run.git(lp.wt, "rev-parse", "HEAD"), self.heads[1])
+
+        self.fix = cut_off
+        with self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        saved = record.read_state(self.run_dir)
+        self.assertEqual(run.git(saved["worktree"], "rev-parse", "HEAD"), self.heads[1])
+        saved.update(state="queued", pid=999999991)
+        record.save_state(self.run_dir, saved)
+        state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(self.remote_head(), self.heads[1])
+        self.assertEqual((len(self.fixes), len(self.prompts)), (2, 2))    # the turn resumed, once
+
+    def test_a_finished_fixer_turn_is_never_run_again(self):
+        self.fix = lambda lp: None      # it handed in a dispute and committed nothing
+        moves = []
+
+        def moved(lp, **_kw):
+            moves.append(lp.rnd)
+            if len(moves) == 1:
+                raise InterruptedError("the process moved onto new code right after the fix")
+            return False
+
+        with patch.object(run, "pickup_new_code", side_effect=moved), \
+                self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        saved = record.read_state(self.run_dir)
+        saved.update(state="queued", pid=999999991)
+        record.save_state(self.run_dir, saved)
+        state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual((len(self.fixes), len(self.prompts)), (1, 2))    # no second turn
+        self.assertEqual([s["head_sha"] for s in state["round_summaries"]], [self.heads[0]] * 2)
+
     def test_a_crash_after_the_push_pushes_nothing_again_and_reviews(self):
         pushes = []
         git_out = run.git_out
