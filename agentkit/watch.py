@@ -2473,7 +2473,7 @@ def wait_main(argv):
             print(f"ak wait: gh cannot view {on}: {why}", file=sys.stderr)
             return 1
         kind, shown = "pr", f"PR #{pull.group(3)}"
-    elif on not in (".", "..") and "/" not in on and (config.RUNS / on).is_dir():
+    elif on and on not in (".", "..") and "/" not in on and (config.RUNS / on).is_dir():
         kind, shown = "run", f"run {on}"
     else:
         print(f"ak wait: {on!r} is neither a pull request URL nor a run id; ak waits on a "

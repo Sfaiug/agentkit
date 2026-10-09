@@ -386,6 +386,13 @@ class Wait(Sandbox):
         self.assertEqual((found["word"], found["reason"]),
                          ("needs you", "gh login expired: run `gh auth login`"))
 
+    def test_o_an_empty_argument_names_no_run(self):
+        for on in ("", " "):
+            code, out, err = self.wait(on)
+            self.assertEqual((code, out), (1, ""))
+            self.assertIn("neither a pull request URL nor a run id", err)
+            self.assertNotIn("wait", watch.seat_read(SEAT))
+
     def test_k_a_pull_request_gh_cannot_view_is_refused(self):
         self.gh = None
         code, out, err = self.wait(PR)
