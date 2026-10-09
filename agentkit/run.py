@@ -4011,9 +4011,10 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                 lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
         records.append(row)
     if replayed:
-        # the reviewer's own hand-in of an earlier finding, at its site now or by the same
-        # proof, is that finding upheld: ak's replay adds no second copy beside it
-        upheld = {(row["path"], row["line"]) for row in records if row["kind"] == "finding"}
+        # the reviewer's own hand-in carrying an earlier finding's very proof is that finding
+        # upheld, and ak's replay adds no second copy beside it; any other finding at its site
+        # is another check, and ak's own still blocks beside it: what ak can prove itself is
+        # never handed back to the reviewer's words
         proofs = {row["evidence"].get("run") for row in records if row["kind"] == "finding"}
         extra = []
         for row, now, failing in replayed:
@@ -4023,7 +4024,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             row = {**row, "line": line if line is not None else row["line"]}
             where = ("" if line is not None
                      else "; the fix changed its line, and the proof says where it stands now")
-            if failing and (row["path"], row["line"]) not in upheld and now["run"] not in proofs:
+            if failing and now["run"] not in proofs:
                 extra.append({**row, "kind": "finding", "evidence": now,
                               "replayed": "still failing; it blocks until its proof passes" + where})
                 lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit")

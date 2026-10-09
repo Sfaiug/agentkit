@@ -287,6 +287,14 @@ out = pathlib.Path(sys.argv[6])
         self.write('mode = "fixed"\nimport os\nflag = "still wrong"\nextra = 1\n', "Rewrite the flag, badly")
         self.assertEqual(self.review(finding("api.py:3", "the flag still reads wrong", self.flag_fixed)), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 3, "")])      # no copy beside it
+        # ... while another check at that site leaves ak's own replay blocking beside it
+        self.write('mode = "fixed"\nimport os\nflag = "still wrong"\nextra = 2\n', "Still wrong")
+        self.assertEqual(self.review(finding("api.py:3", "another defect", self.never)), "FAIL")
+        self.assertEqual(sorted(self.records("finding")),
+                         [("api.py", 3, ""), ("api.py", 3, "still failing; it blocks until its proof passes")])
+        self.write('mode = "fixed"\nimport os\nflag = "fixed"\nextra = 2\n', "Fix the flag")
+        self.assertEqual(self.review(finding("api.py:3", "another defect", self.never)), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 3, "")])      # the flag's proof passes now
         # ... and a new finding at the old number, on a line the fix never touched, is a note
         self.setUp()
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
