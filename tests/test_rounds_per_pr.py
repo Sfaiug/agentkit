@@ -16,6 +16,8 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
+from types import SimpleNamespace
+
 from agentkit import config, record, run, task as taskfile
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -75,7 +77,8 @@ class RoundsPerPr(Sandbox):
         for n, (name, fields) in enumerate((
                 ("20260101-0100-merged", {"merged": True, "pr": "https://github.com/acme/widget/pull/3"}),
                 ("20260101-0200-stopped", {"state": "stopped"}),         # without --keep
-                ("20260101-0300-closed", {"branch_removed": True}))):     # its session stopped
+                ("20260101-0300-closed", {"branch_removed": True}),       # its session stopped
+                ("20260101-0350-done", {"state": "not_needed"}))):
             self.earlier(name, 3, branch="ak/fix-parser", **self.own(repo, n), **fields)
         # a run in the repository itself is on whatever branch was checked out and owns none
         self.earlier("20260101-0400-plain", 3, branch="ak/fix-parser", repo=str(repo), worktree=str(repo))
@@ -101,6 +104,18 @@ class RoundsPerPr(Sandbox):
         state = {"run_id": "20260101-0700-docs", "repo": str(repo), "worktree": str(repo), "branch": "main"}
         self.assertEqual(run.lineage_cap(state, config.RUNS / "20260101-0700-docs"), 3)
 
+    def test_a_round_is_refused_as_it_is_spent_once_another_run_of_the_change_took_it(self):
+        repo = self.root / "acme"
+        repo.mkdir()
+        self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1))
+        b = self.earlier("20260101-0700-b", 0, branch="ak/b", **self.own(repo, 2),
+                         change="20260101-0600-a", **{"from": "ak/a"})
+        lp = SimpleNamespace(rounds=3, state=record.read_state(b), run_dir=b)
+        self.assertEqual(run.allowed_rounds(lp), 1)       # one round left on the change ...
+        self.earlier("20260101-0600-a", 3, branch="ak/a", **self.own(repo, 1))
+        self.assertEqual(run.allowed_rounds(lp), 0)       # ... spent meanwhile by its sibling
+        self.assertEqual(run.lineage_cap(lp.state, b), 0)
+
     def test_the_budget_is_what_earlier_runs_left_of_three(self):
         self.assertEqual(run.round_budget(3, pr=URL, what="PR #7"), (3, None))
         self.earlier("20260101-0900-review-pr-widget-7", 1, review_pr=URL, pr=URL)
@@ -109,7 +124,7 @@ class RoundsPerPr(Sandbox):
         self.earlier("20260101-0800-review-pr-widget-7", 2, review_pr=URL, pr=URL)
         left, why = run.round_budget(3, pr=URL, what="PR #7")
         self.assertEqual(left, 0)
-        self.assertEqual(why, "3 review rounds spent on PR #7 across 2 earlier runs: "
+        self.assertEqual(why, "3 review rounds spent on PR #7 across 2 runs: "
                               f"{taskfile.TASK_MAX_ROUNDS} per pull request is the budget; "
                               "split or redesign it")
 
@@ -129,7 +144,7 @@ class RoundsPerPr(Sandbox):
                 patch.object(run, "own_pr_orchestrator", return_value=(True, "opus")):
             with self.assertRaises(config.Error) as refused:
                 run.preflight(launch, {"--review-pr": URL, "--no-merge": False}, logs.append)
-            self.assertIn("3 review rounds spent on PR #7 across 2 earlier runs", str(refused.exception))
+            self.assertIn("3 review rounds spent on PR #7 across 2 runs", str(refused.exception))
             # ... and inside the round, where a resumed run reads its own earlier rounds too
             with self.assertRaises(config.Error) as refused:
                 run.review_pr_round(self.cfg, launch, URL, {"--review-pr": URL}, logs.append)
@@ -156,7 +171,7 @@ class RoundsPerPr(Sandbox):
                                        "round_summaries": [{"round": 1, "verdict": "FAIL", "summary": ""}]})
             with self.assertRaises(config.Error) as refused:
                 run.review_pr_round(self.cfg, launch, URL, {"--review-pr": URL}, logs.append)
-            self.assertIn("3 review rounds spent on PR #7; split or redesign it", str(refused.exception))
+            self.assertIn("3 review rounds spent on PR #7 across 2 runs", str(refused.exception))
 
     def test_a_resume_cannot_spend_past_the_changes_budget(self):
         repo = self.root / "acme"
@@ -177,7 +192,7 @@ class RoundsPerPr(Sandbox):
         with patch.object(run.box, "check"), patch.object(run, "place_here", return_value=None):
             with self.assertRaises(config.Error) as refused:
                 run.resume_run(["20260101-0700-b", "--rounds", "3"])
-        self.assertIn("1 rounds is this change's budget across its runs", str(refused.exception))
+        self.assertIn("1 rounds is the budget of this change across its runs", str(refused.exception))
         # with one round left on the change, the resume may take exactly that much
         record.save_state(config.RUNS / "20260101-0600-a", {
             **record.read_state(config.RUNS / "20260101-0600-a"),
@@ -218,7 +233,7 @@ class RoundsPerPr(Sandbox):
         logs = []
         with self.assertRaises(config.Error) as refused:
             run.loop(self.cfg, launch, task, opts, logs.append)
-        self.assertIn("3 review rounds spent on branch ak/fix-parser across 2 earlier runs",
+        self.assertIn("3 review rounds spent on branch ak/fix-parser across 2 runs",
                       str(refused.exception))
         self.assertEqual([p.name for p in config.WT.iterdir()] if config.WT.exists() else [], [])
         # a task that names no `from:` is a new change, whatever the branch a slug lands on

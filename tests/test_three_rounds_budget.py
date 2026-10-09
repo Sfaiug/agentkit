@@ -524,8 +524,8 @@ sys.exit(1)
         for argv in ([directory.name], [directory.name, "--rounds", "3"], [directory.name, "--bg"]):
             with self.subTest(argv=argv):
                 with self.assertRaisesRegex(config.Error, r"FAILed at its round budget \(3\); "
-                                                          r"3 rounds is the budget, so split or "
-                                                          r"re-scope the task"):
+                                                          r"3 rounds is the budget of this change across "
+                                                          r"its runs, so split or redesign the task"):
                     run.cmd_resume(argv)
         self.assertEqual(len(self.calls()), spent)
         self.assertEqual(record.read_state(directory)["state"], "fail")
