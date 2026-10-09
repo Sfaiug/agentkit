@@ -10650,12 +10650,13 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         log(f"the PR head moved to {remote['sha'][:12]} since the review; reviewing it")
         return True
     if not (pushed and pushed != reviewed and head == pushed):
-        # the round's fixer turn, as its directory records it: one that closed did its work
-        # and HEAD is what it left; one the host cut off is resumed by execute on the checkout
-        # as it left it; none yet starts from the reviewed head
-        rd = lp.dir("executor").parent
-        turned = latest_turn(rd, "executor") is not None
-        if not (turned and open_turn(rd, "executor")[0] is None):
+        # the round's fixer turn, as its directory records it (`latest_worker_turn`, which
+        # sees a turn handed to another model too): one that closed did its work and HEAD is
+        # what it left; one the host cut off is resumed by execute on the checkout as it
+        # left it, under its own name; none yet starts from the reviewed head
+        turned = latest_worker_turn(lp.round_dir) is not None
+        name = open_worker(lp)[0]
+        if not (turned and name is None):
             if not turned and head != reviewed:
                 git(lp.wt, "reset", "--hard", reviewed)     # the line left the checkout elsewhere
             if not lp.executor:
@@ -10666,7 +10667,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
             lp.context = pr_context(state, lp.body + repo_rules(lp.wt, state["base_sha"]))
             fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
             try:
-                execute(lp, "fixer", fix, "executor")
+                execute(lp, "fixer", fix, name or "executor")
             except Blocked as exc:
                 log(f"BLOCKED {exc}")
                 state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),

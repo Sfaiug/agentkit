@@ -8,6 +8,7 @@ is what the next round reviews; one pushed while the fix was made ends the run. 
 the `fixtures.own_pr` stage.
 """
 
+import json
 from pathlib import Path
 import sys
 import time
@@ -17,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.own_pr import OwnPr
-from agentkit import run
+from agentkit import hand_in, run
 from agentkit import record
 
 
@@ -115,6 +116,30 @@ class OwnPrFixer(OwnPr):
         self.assertTrue(state["merged"])
         self.assertEqual(self.remote_head(), self.heads[1])
         self.assertEqual((len(self.fixes), len(self.prompts)), (2, 2))    # the turn resumed, once
+
+    def test_a_turn_handed_to_another_model_mid_way_is_read_where_it_finished(self):
+        fix = self.fix
+
+        def handed_over(lp):
+            fix(lp)                                     # the fix lands under the second model ...
+            out = run.free_dir(lp, "executor-astra")     # ... whose turn closed under its own name
+            out.mkdir(parents=True)
+            (out / hand_in.FILE).write_text("".join(json.dumps(row) + "\n" for row in (
+                {"kind": "turn", "workspace": str(lp.wt), "role": "fixer", "findings": []},
+                {"kind": "done"})))
+            (out / "final.md").write_text("## Summary\nFixed.")
+            raise InterruptedError("the run died before recording the fix; the first dir stays open")
+
+        self.fix = handed_over
+        with self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        saved = record.read_state(self.run_dir)
+        saved.update(state="queued", pid=999999991)
+        record.save_state(self.run_dir, saved)
+        state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(self.remote_head(), self.heads[1])
+        self.assertEqual((len(self.fixes), len(self.prompts)), (1, 2))    # no turn run again
 
     def test_a_finished_fixer_turn_is_never_run_again(self):
         self.fix = lambda lp: None      # it handed in a dispute and committed nothing
