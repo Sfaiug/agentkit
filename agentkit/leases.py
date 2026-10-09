@@ -10,13 +10,12 @@ one with its neighbour.  A pair that cannot merge is written down on the younger
 by start, as waiting on the older (wait-die: the older never waits on the younger, so no
 cycle can form).  A younger run still before its review -- its executor turn, or ak's
 commit step, which runs this scan itself -- is stopped there with its branch kept, waiting
-on the holder (`park`): what it built cannot land as it is, and its task is to be made
-again on the holder's result, so the two changes are made one after the other.  A younger
-run past that point, the review of a pull request and a job's task are only written down:
-the lander orders their landings.  The record under
-`~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
-only while its run is going (`run.going`) and its checkout is there; a record whose pair no
-longer collides, or whose holder is gone, is cleared on the next scan.
+on the holder (`park`): what it built cannot land as it is.  A younger run past that point,
+the review of a pull request and a job's task are only written down: the lander orders
+their landings.  The record under `~/.agentkit/state/leases/` holds the collisions as the
+last scan saw them.  A diff counts only while its run is going (`run.going`) and its
+checkout is there; a record whose pair no longer collides, or whose holder is gone, is
+cleared on the next scan.
 """
 
 import fcntl
