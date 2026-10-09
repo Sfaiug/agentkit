@@ -11,6 +11,7 @@ probe is pending (`watch.awaiting_live`).  Offline: fake records in a throwaway 
 import json
 from pathlib import Path
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
@@ -71,6 +72,29 @@ class LiveCheckWait(MergedRuns):
         self.setUp()
         self.merged("awaits")
         self.assertEqual(self.word({"name": SEAT, "exited": True})["word"], "working")
+
+    def test_what_is_his_below_outranks_the_wait(self):
+        """A handed-back run left undecided, a run failed after the seat's done, a watcher's
+        alert: each is his, so each keeps the word it reads without the wait."""
+        undecided = {"state": "interrupted", "interruption_reason": "the host restarted",
+                     "recovery_pending": True}
+        for name, run_state, notice in (
+                ("undecided", undecided, {"kind": "done", "text": "all shipped"}),
+                ("failed", {"state": "fail", "verdict": "FAIL"}, {"kind": "done", "text": "all shipped"}),
+                ("alert", None, {"kind": "needs", "text": "acme is stuck", "watcher": True})):
+            with self.subTest(name):
+                self.setUp()
+                self.merged("awaits")
+                if run_state:
+                    (self.runs / name).mkdir()
+                    (self.runs / name / "run.json").write_text(json.dumps(
+                        {"run_id": name, "launched_session": SEAT, "handed_back": True,
+                         "started_at": time.time() - 900, "finished_at": time.time() - 10,
+                         **run_state}) + "\n")
+                with patch.object(config, "STATE", self.state):
+                    config.notify_path(SEAT).write_text(json.dumps(
+                        {"session": SEAT, "time": time.time() - 30, **notice}))
+                self.assertEqual(self.word()["word"], "needs you")
 
 
 if __name__ == "__main__":

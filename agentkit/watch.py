@@ -1950,7 +1950,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       attention -- recent, unacknowledged, not handed back or superseded -- or a run
       is stalled, or a merge wait only its age turned away;
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
-      so the seat is working;
+      so the seat is working, unless a run below or a watcher's alert is his;
     * nobody is in the seat any more and its number is the way back in;
     * it said it was done itself, a job never says it for it, and nothing on its screen asks him
       -- unless a run of its own still sits parked and undecided, which is him;
@@ -2253,11 +2253,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             reason = (status_mod.parked_line(first, name, now=at)
                       or f"run {name} parked: {reason}")
         return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
-    # 3a. ... or, with none parked, a run of its own merged and its project has yet to prove
-    # itself live: ak's own probe, read every tick (`awaiting_live`), so the stop hook, this
-    # word and the card it decides agree that nothing here is his -- in the hook's order too,
-    # where a parked run comes first -- in a closed seat, as the number below
-    pending = [] if parked else [state for _, state in mine if awaiting_live(state, now=at)]
+    # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
+    # probe, read every tick (`awaiting_live`), so the stop hook, this word and the card it
+    # decides agree that nothing here is his.  Only where nothing below is his either: a run
+    # parked or undecided (the hook's `unfinished`, which it puts first), a declaration a
+    # failed run dropped, or a watcher's alert keeps the word the rungs below give it
+    held = (parked or any(run_mod.unfinished(state, index=index) for _, state in mine)
+            or (last and (last["kind"] != "done" or notify.failed_declaration(last, mine, index))))
+    pending = [] if held else [state for _, state in mine if awaiting_live(state, now=at)]
     if pending:
         newest = max(pending, key=lambda state: state.get("finished_at") or 0)
         title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
