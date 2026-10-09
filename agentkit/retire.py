@@ -8,7 +8,7 @@ under it for every switch that list shows proven, and for every switch on for ev
 cannot prove because its row gives no `everyone_since`. A switch goes to the newest seat whose
 open plan already names it, since that seat has it in hand; the rest go to the newest seat.
 The line's check is the project's own switch list: it fails while the list still shows the
-switch (or, for an unproven one, shows it without an `everyone_since`), and the plan ticks it by
+switch (or, for an unproven one, shows it on for everyone without an `everyone_since`), and the plan ticks it by
 itself once the project's deploy drops the row, which happens once the code no longer reads it.
 An open line that already holds that check is not written twice (`plan.add`), so a seat is told
 nothing again. What a plan line says stands: a switch turned off after is still taken out,
@@ -100,10 +100,11 @@ def outcome(project, row, proven):
 
 def check(command, row, proven):
     """The line's check, one shell line over the project's own switch list: it fails while the
-    list still shows that switch, or shows it with no `everyone_since`."""
+    list still shows that switch (proven: until its row is gone), or shows it on for everyone
+    with no `everyone_since` (unproven: until the row is stamped, off for everyone, or gone)."""
     test = ("sys.exit(1 if any(str(r.get('id')) == sys.argv[1] for r in rows) else 0)" if proven
-            else "sys.exit(0 if any(str(r.get('id')) == sys.argv[1] and "
-                 "isinstance(r.get('everyone_since'), str) for r in rows) else 1)")
+            else "sys.exit(1 if any(str(r.get('id')) == sys.argv[1] and r.get('everyone') is True "
+                 "and not isinstance(r.get('everyone_since'), str) for r in rows) else 0)")
     body = ("import json, sys; rows = [r for r in json.load(sys.stdin) if isinstance(r, dict)]; "
             + test)
     return f"{command} list | python3 -c \"{body}\" {shlex.quote(str(row['id']))}"

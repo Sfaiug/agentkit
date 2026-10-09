@@ -200,6 +200,11 @@ class Retire(unittest.TestCase):
         self.switches(row("unstamped", 3))
         self.assertEqual(subprocess.run(["bash", "-c", proven]).returncode, 0)
         self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 0)
+        # ... and a row off for everyone, or gone, has nothing left to prove: the line ticks
+        self.switches({**row("unstamped", everyone=False), "everyone_since": None})
+        self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 0)
+        self.switches()
+        self.assertEqual(subprocess.run(["bash", "-c", unproven]).returncode, 0)
         # ... and a check that already passes on the default branch is no line: the switch
         # is gone from the list between the read and the write
         self.seat("acme", self.acme, created=10)
