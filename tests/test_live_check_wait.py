@@ -21,14 +21,14 @@ from agentkit import config, run, watch
 
 
 class LiveCheckWait(MergedRuns):
-    def word(self):
+    def word(self, session=None):
         """The seat's word off its own records alone, as every screen and the card pass read it."""
         records = [(directory, json.loads((directory / "run.json").read_text()))
                    for directory in sorted(self.runs.iterdir())]
         with patch.object(config, "STATE", self.state), patch.object(config, "RUNS", self.runs):
-            return watch.session_state(SEAT, records=records, session={"name": SEAT},
-                                       harness="claude", live={}, auth_out={}, gh_out={},
-                                       token_out=None)
+            return watch.session_state(SEAT, records=records, session=session or {"name": SEAT},
+                                       number=1, harness="claude", live={}, auth_out={},
+                                       gh_out={}, token_out=None)
 
     def test_a_merge_records_the_health_its_delivered_commit_declares_and_the_wait_reads_that(self):
         bare = "---\nusers: real\n---\n# acme\n"
@@ -63,6 +63,14 @@ class LiveCheckWait(MergedRuns):
         answer = self.word()
         self.assertEqual(answer["word"], "needs you", answer)
         self.assertIn("parked-exhausted", answer["reason"])
+        # ... in a closed seat too, where its number is the way back to it
+        answer = self.word({"name": SEAT, "exited": True})
+        self.assertEqual(answer["word"], "needs you", answer)
+        self.assertIn("press 1 to reopen", answer["reason"])
+        # ... while with none parked, a closed seat waits on the live check all the same
+        self.setUp()
+        self.merged("awaits")
+        self.assertEqual(self.word({"name": SEAT, "exited": True})["word"], "working")
 
 
 if __name__ == "__main__":

@@ -2232,33 +2232,32 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # nothing but him will move it.
     # A gone seat still names its own number below instead: the number
     # is the way back to the run, never the run itself.
-    if not gone:
-        if index is None:
-            index = run_mod.supersession_index(records)
-        parked = [(run_dir, state) for run_dir, state in mine
-                  if (state.get("state") in ("error", "exhausted")
-                      and menu_mod.v5o_needs_look(state, index=index, now=at))
-                  or (state.get("state") == "stalled" and run_mod.unfinished(state, index=index))
-                  or (state.get("state") == "waiting" and not run_mod.going(state, now=at)
-                      and run_mod.tick_admission({**state, "finished_at": at}, now=at)
-                      and not run_mod.is_superseded(state, None, index, merged_only=True))]
-        if parked:
-            run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
-            name, reason = run_dir.name, run_mod.handback_reason(first)
-            if first.get("state") == "stalled":
-                # from its id, never its error: a long step cuts the command in that one short
-                reason = f"run {name} stalled: resume it with `ak run resume {name}`"
-            elif first.get("state") == "waiting":
-                reason = f"run {name} waits to merge: {reason}"
-            else:
-                reason = (status_mod.parked_line(first, name, now=at)
-                          or f"run {name} parked: {reason}")
-            return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
+    if index is None:
+        index = run_mod.supersession_index(records)
+    parked = [(run_dir, state) for run_dir, state in mine
+              if (state.get("state") in ("error", "exhausted")
+                  and menu_mod.v5o_needs_look(state, index=index, now=at))
+              or (state.get("state") == "stalled" and run_mod.unfinished(state, index=index))
+              or (state.get("state") == "waiting" and not run_mod.going(state, now=at)
+                  and run_mod.tick_admission({**state, "finished_at": at}, now=at)
+                  and not run_mod.is_superseded(state, None, index, merged_only=True))]
+    if parked and not gone:
+        run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
+        name, reason = run_dir.name, run_mod.handback_reason(first)
+        if first.get("state") == "stalled":
+            # from its id, never its error: a long step cuts the command in that one short
+            reason = f"run {name} stalled: resume it with `ak run resume {name}`"
+        elif first.get("state") == "waiting":
+            reason = f"run {name} waits to merge: {reason}"
+        else:
+            reason = (status_mod.parked_line(first, name, now=at)
+                      or f"run {name} parked: {reason}")
+        return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 3a. ... or, with none parked, a run of its own merged and its project has yet to prove
     # itself live: ak's own probe, read every tick (`awaiting_live`), so the stop hook, this
     # word and the card it decides agree that nothing here is his -- in the hook's order too,
-    # where a parked run comes first
-    pending = [state for _, state in mine if awaiting_live(state, now=at)]
+    # where a parked run comes first -- in a closed seat, as the number below
+    pending = [] if parked else [state for _, state in mine if awaiting_live(state, now=at)]
     if pending:
         newest = max(pending, key=lambda state: state.get("finished_at") or 0)
         title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
