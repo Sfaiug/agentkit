@@ -10670,7 +10670,15 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
     remote, pushed = current["head"], state.get("delivery_sha")
     head = git(lp.wt, "rev-parse", "HEAD")
     if remote["sha"] != reviewed and remote["sha"] != pushed:
-        # pushed by hand since the review: that head is what the next round judges
+        if latest_worker_turn(lp.round_dir) is not None and not pushed:
+            # the seat pushed while the fix was made (the turn cut off before its push):
+            # never pushed over its commit, never reviewed as if it were the seat's
+            return ended("the PR head moved while the fix was made; review it with a new run")
+        # pushed by hand before the fix started, or after the fix was pushed: that head is
+        # what the next round judges, from a checkout the round accepts, the reviewed head
+        # or the fix it pushed (`own_pr_heads`)
+        if not pushed and head != reviewed:
+            git(lp.wt, "reset", "--hard", reviewed)
         log(f"the PR head moved to {remote['sha'][:12]} since the review; reviewing it")
         return True
     if not (pushed and pushed != reviewed and head == pushed):
@@ -10808,8 +10816,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if prior.get("worktree"):
         at = git(prior["worktree"], "rev-parse", "HEAD")
         recorded = (prior.get("review") or {}).get("head_sha") or prior.get("head_sha")
-        # a reset to the head this round moves to may have finished just before a crash
-        moved = advancing and at == info["headRefOid"]
+        # a reset to the head this round moves to may have finished just before a crash;
+        # the checkout stands on the fix the run pushed when the seat pushed over it
+        moved = advancing and at in (info["headRefOid"], *own_pr_heads(prior))
         if ((at != recorded and not moved)
                 or (prior.get("head_sha") != info["headRefOid"] and not advancing)):
             raise config.Error("the PR head or review checkout changed; existing work is kept "

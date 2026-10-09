@@ -173,6 +173,39 @@ class OwnPrFixer(OwnPr):
         self.assertTrue(state["merged"])
         self.assertIn("## What the fixer said\n## Summary\nWHY-MARKER", self.prompts[1])
 
+    def test_a_push_while_the_cut_off_fix_was_made_ends_the_run_fail(self):
+        fix = self.fix
+
+        def pushed_over(lp):
+            fix(lp)                     # the fix committed ...
+            self.hand_push(2)           # ... the seat pushed meanwhile ...
+            raise InterruptedError("the host cut the fixer off before its push")
+
+        self.fix = pushed_over
+        with self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        saved = record.read_state(self.run_dir)
+        saved.update(state="queued", pid=999999991)
+        record.save_state(self.run_dir, saved)
+        state = self.review(["FAIL", "PASS"])
+        self.assertEqual(state["state"], "fail")
+        self.assertIn("the PR head moved while the fix was made", state["error"])
+        self.assertEqual((len(self.prompts), self.merges, self.remote_head()), (1, [], self.heads[2]))
+
+    def test_a_push_right_after_the_fix_was_pushed_is_what_the_next_round_reviews(self):
+        push = run.push_pr_branch
+
+        def then_the_seat(lp, remote, reviewed):
+            push(lp, remote, reviewed)
+            self.hand_push(2)
+            self.assertEqual(run.git(lp.wt, "rev-parse", "HEAD"), self.heads[1])   # the fix, not the seat's head
+
+        with patch.object(run, "push_pr_branch", side_effect=then_the_seat):
+            state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(len(self.prompts), 2)
+        self.assertEqual(self.merges[0][-1], self.heads[2])
+
     def test_the_fixer_is_given_the_whole_pr_description(self):
         self.pr["body"] = "## Summary\nFix the fence\n\n## Test plan\nrun it"
         self.review(["FAIL", "PASS"])
