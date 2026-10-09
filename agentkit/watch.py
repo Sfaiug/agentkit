@@ -1040,12 +1040,21 @@ def seat_model(cfg, name):
     return (entry["harness"], entry["provider"]) if entry else (None, None)
 
 
+class _CapturedPane(str):
+    """Keep the start of a capture with its text, including when a caller caches it."""
+    def __new__(cls, text, at):
+        pane = super().__new__(cls, text)
+        pane.captured_at = at
+        return pane
+
+
 def pane_text(session):
     """The whole pane: output above the tail must reset the quiet clock too."""
     # `=name:` -- that session exactly, and its current pane, which is what a pane target wants
+    at = time.time()
     rc, out = orch.tmux_out("capture-pane", "-p", "-e", "-J", "-t", f"={session['name']}:",
                             socket=orch.seat_socket(session))
-    return out if rc == 0 else ""
+    return _CapturedPane(out if rc == 0 else "", at)
 
 
 def strip_sgr(text):
@@ -1722,11 +1731,13 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
     """
     name = session["name"]
     previous = seat_read(name)
+    at = time.time() if now is None else now
     if harness is None:
         harness = seat_model(cfg if cfg is not None else config.load(), name)[0]
     if pane is None:
         pane = pane_text(session)
-    at = time.time() if now is None else now
+    if now is None:
+        at = getattr(pane, "captured_at", at)
     fact = hook_facts(name)
     try:
         # only a turn its hooks say runs, or asked in, can have ended unreported; and a prompt
@@ -2219,8 +2230,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             not jobs and notify.job_done(last))):
         last = None
     from . import stop
+    observed = seat_read(name)
     quiet = stop.quiet_ending(name, state=found.get("state", "at_prompt"),
-                              said=seat_read(name).get("stop_said"), at=at)
+                              said=observed.get("stop_said"), at=at,
+                              captured_at=observed.get("stop_said_at"))
     # 5. it said it was done, and nothing above it is still going. A run a later
     # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.
     if last and last["kind"] == "done":
@@ -3317,6 +3330,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
             return      # that session has stopped: tell_waits says so, and why, instead
     ends, undecided = stop.recorded_ending(
         name, records, question=question, said=said,
+        captured_at=getattr(pane, "captured_at", None),
         answer=lambda: bool(notice and notice["kind"] == "done" and done_holds(
             name, live, notice, began, said, dry_run)))
     if ends:

@@ -56,7 +56,19 @@ def quiet_done(name, text):
             return True
 
 
-def quiet_ending(name, *, state="at_prompt", said=None, at=None, observe=False):
+def _quiet_matches(bound, output):
+    """A native message must still finish the visible output before binding that pane."""
+    if isinstance(bound, dict) and isinstance(output, dict):
+        return bound == output
+    if isinstance(bound, dict):
+        return isinstance(output, str) and output.endswith(bound["message"])
+    if isinstance(output, dict):
+        return isinstance(bound, str) and bound.endswith(output["message"])
+    return bound == output
+
+
+def quiet_ending(name, *, state="at_prompt", said=None, message=None, at=None,
+                 captured_at=None, observe=False):
     """One quiet lifecycle for a look and every acceptance, under the same seat lock.
 
     A first working look can be late. Once stopped or accepted, later work or changed
@@ -64,6 +76,8 @@ def quiet_ending(name, *, state="at_prompt", said=None, at=None, observe=False):
     must not reject the next command that already began. No job coverage is recorded.
     """
     at = time.time() if at is None else at
+    captured_at = at if captured_at is None else captured_at
+    output = {"message": " ".join(message.split())} if message is not None else said
     if not watch.seat_read(name).get("quiet_done"):
         return None
     with watch.seat_lock(name):
@@ -76,17 +90,23 @@ def quiet_ending(name, *, state="at_prompt", said=None, at=None, observe=False):
             return None
         stopped = quiet.get("stopped")
         if stopped is not None:
-            if at < stopped[0]:
-                return None     # an older capture cannot replace a newer acceptance
-            if at > stopped[0] and (state == "working" or (
-                    state == "at_prompt" and said is not None and stopped[1] is not None
-                    and stopped[1] != said)):
-                watch._seat_put(name, live, {"quiet_done": {"time": stamp, "stopped": stopped}})
-                return None
+            if captured_at < stopped[0]:
+                if observe:
+                    return None  # an older capture cannot replace a newer acceptance
+            else:
+                if captured_at > stopped[0] and (state == "working" or (
+                        state == "at_prompt" and output is not None and stopped[1] is not None
+                        and not _quiet_matches(stopped[1], output))):
+                    watch._seat_put(name, live, {"quiet_done": {"time": stamp, "stopped": stopped}})
+                    return None
+                if isinstance(stopped[1], dict) and isinstance(output, str) and \
+                        _quiet_matches(stopped[1], output):
+                    quiet = {**quiet, "stopped": [stopped[0], output]}
+                    watch._seat_put(name, live, {"quiet_done": quiet})
         if state != "at_prompt":
             return None
-        if stopped is None or stopped[1] is None and said is not None:
-            quiet = {**quiet, "stopped": [at, said]}
+        if stopped is None or stopped[1] is None and output is not None:
+            quiet = {**quiet, "stopped": [at, output]}
             watch._seat_put(name, live, {"quiet_done": quiet})
         if not observe:
             try:
@@ -98,7 +118,7 @@ def quiet_ending(name, *, state="at_prompt", said=None, at=None, observe=False):
 
 
 def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
-                    since=None, said=None, at=None):
+                    since=None, said=None, message=None, at=None, captured_at=None):
     """(the turn may end, parked records), from the evidence its caller can see.
 
     The native hook reads parked work, then completion, then fresh wait receipts; the tick
@@ -116,7 +136,7 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
               and run.unfinished(state, records)]
     if parked:
         return False, parked
-    if quiet_ending(name, said=said, at=at):
+    if quiet_ending(name, said=said, message=message, at=at, captured_at=captured_at):
         return True, []
     if completion() if callable(completion) else completion:
         return True, []

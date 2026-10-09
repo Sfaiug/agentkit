@@ -283,14 +283,16 @@ def held(launched, payload):
     peer = record.get("peer") is True    # another session's message opened the turn
     asked = record.get("asked") is True    # the prompt that opened the turn asked something
     seat = resolve(launched)
-    if last_message(payload) is None:
+    said = last_message(payload)
+    if said is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
     # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
     # a hand-back or a told line opens turns on a seat while it stands (`watch.stop_nudge`)
     ends, undecided = recorded_ending(
         seat, question=(questioned(payload) or told(seat, turn, "needs")
                         or owner_question(notify.last(seat))),
-        completion=lambda: told(seat, turn, "done", peer), answer=asked and not peer, since=turn)
+        completion=lambda: told(seat, turn, "done", peer), answer=asked and not peer, since=turn,
+        message=said)
     if ends:
         return ""
     blocks = record.get("blocks")

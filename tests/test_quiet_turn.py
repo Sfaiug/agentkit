@@ -115,6 +115,77 @@ class QuietTurn(unittest.TestCase):
                 self.assertEqual(answer["word"], "needs you")
                 self.assertEqual(case.blocked(case.stop())["reason"], native_test.REASON)
 
+    def test_the_first_native_look_must_still_show_the_accepted_answer(self):
+        for showing in ("same answer", "changed answer", "appended work"):
+            with self.subTest(showing=showing), fixture(native_test.StopAnswer) as case, \
+                    native_home(case):
+                case.prompt("Explain the schema")
+                quiet_native(case)
+                text = "The schema has two tables."
+                self.assertEqual(case.stop(said=text, background_tasks=[]), "")
+                accepted = watch.seat_read(native_test.SEAT)["quiet_done"]["stopped"][0]
+                pane = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
+                output = "● The schema has\n  two tables."
+                if showing == "changed answer":
+                    output = "A changed unfinished export"
+                elif showing == "appended work":
+                    output += "\nA changed unfinished export"
+                footer = "                                                                                  ● high"
+                pane = pane.replace(footer, output + "\n" + footer)
+                watch.live_state({"name": native_test.SEAT}, "claude", pane=pane, cfg={},
+                                 now=accepted + 1)
+                answer = watch.session_state(
+                    native_test.SEAT, now=accepted + 2, session={"name": native_test.SEAT},
+                    cfg={}, records=[], harness="claude", live={"state": "at_prompt"},
+                    auth_out={}, gh_out={}, token_out={})
+                self.assertEqual(bool(answer.get("quiet")), showing == "same answer")
+                self.assertIsNone(notify.last(native_test.SEAT, include_seen=True))
+                self.assertFalse(config.card_path(native_test.SEAT).exists())
+
+    def test_a_delayed_capture_cannot_retire_an_answer_accepted_after_it_started(self):
+        for harness in nudge_test.HARNESSES:
+            for accepted_by in ("nudge", "row", "look"):
+                for captured in ("working", "old stopped output"):
+                    for cached in (False, True):
+                        with self.subTest(harness=harness, accepted_by=accepted_by,
+                                          captured=captured, cached=cached), \
+                                fixture(nudge_test.NudgeTurnRule) as case:
+                            case.harness = harness
+                            case.stopped()
+                            quiet_nudge(case)
+                            clock = [10000]
+
+                            def capture(*args, **kwargs):
+                                old = (case.screen("working") if captured == "working" else
+                                       "Older unfinished output\n" + case.pane)
+                                clock[0] = 10010
+                                if accepted_by == "nudge":
+                                    self.assertEqual(case.tick(), [])
+                                elif accepted_by == "row":
+                                    self.assertTrue(row(case).get("quiet"))
+                                else:
+                                    watch.live_state(case.seat, harness, pane=case.pane,
+                                                     cfg=case.cfg)
+                                clock[0] = 10020
+                                return (0, old) if cached else old
+
+                            with patch.object(watch.time, "time", side_effect=lambda: clock[0]):
+                                if cached:
+                                    # health and typing gates pass along their one captured pane.
+                                    with patch.object(nudge_test.orch, "tmux_out", side_effect=capture):
+                                        old = watch.pane_text(case.seat)
+                                    watch.live_state(case.seat, harness, pane=old, cfg=case.cfg)
+                                else:
+                                    with patch.object(watch, "pane_text", side_effect=capture):
+                                        watch.live_state(case.seat, harness, cfg=case.cfg)
+                                if captured == "old stopped output":
+                                    self.assertTrue(row(case).get("quiet"))
+                                clock[0] = 10030
+                                watch.live_state(case.seat, harness, pane=case.pane, cfg=case.cfg)
+                                clock[0] = 10400
+                                self.assertTrue(row(case).get("quiet"))
+                                self.assertEqual(case.tick(), [])
+
     def test_acceptance_after_the_last_capture_binds_before_another_turn(self):
         for harness in nudge_test.HARNESSES:
             for accepted_by in ("nudge", "row", "look"):
