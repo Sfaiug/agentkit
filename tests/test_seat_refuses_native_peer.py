@@ -1,4 +1,4 @@
-"""A Claude seat refuses Claude Code's own messages from other sessions; seats use `ak tell`.
+"""A Claude seat refuses Claude Code's own messages from other sessions; seats never message one another.
 
 The launch writes it into the login's user settings, which Claude Code reads again when
 they change, so a seat opened before the launch refuses them too. Offline: a temporary

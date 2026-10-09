@@ -61,7 +61,7 @@ class StopOwnRunsOnly(Sandbox):
         with redirect_stdout(io.StringIO()), self.assertRaises(config.Error) as refused:
             command()
         self.assertIn(owner, str(refused.exception))
-        self.assertIn(f"ak tell {owner}", str(refused.exception))
+        self.assertIn("a seat stops only its own runs", str(refused.exception))
         for path, contents in before.items():
             self.assertEqual(path.read_bytes(), contents, path)
         for action in (self.systemctl, self.tmux, self.card, self.tabs, self.checkout, self.kill):

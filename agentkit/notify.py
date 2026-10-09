@@ -449,7 +449,7 @@ def resolved(data):
 def answered(session, at):
     """The owner submitted a prompt; only the seat's question already standing is answered.
 
-    The hook owns this fact. Keep it on the notice so a later peer prompt or a rename
+    The hook owns this fact. Keep it on the notice so a later line of ak's own or a rename
     cannot reopen it. The background look checks the pane and waits for this lock; card
     delivery stays with the tick. Watcher alerts end through their own recovery rules.
     With no question notice standing, the needs you only the screen said -- a dialog, a
@@ -517,7 +517,7 @@ def progress(session, capture, seat_harness):
     Capture under the notice lock: output sampled before an open or a newer notify cannot
     resolve it. Empty captures and viewport resizing are not evidence of resumed work, and
     neither is output once ak has typed a line of its own into the seat since the open -- a
-    hand-back, a told line, an idle `/compact`: the seat's turn, not the owner's answer, which
+    hand-back, a wait's end, an idle `/compact`: the seat's turn, not the owner's answer, which
     its harness's prompt hook then reports.  A line typed before the open is history, and so is
     one typed where no prompt hook reports anything: there this output is the only answer.
     Nor is any output the answer to the seat's own question where `seat_harness`, its harness

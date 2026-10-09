@@ -750,11 +750,13 @@ SEAT_FILES = {
     "stop": "json",      # this turn's start, for the stop hook's rule
     "title": "json",     # the title last read from its conversation
     "input": "jsonl",    # each line ak typed, with its source and conversation
-    "tell": "json",      # what other seats sent it with `ak tell`, until ak types it there
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
     "rules": "md",       # the rulebook its prompt names once that one is out of date
     "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
+    # written by nothing since seats stopped messaging one another: named so a stop and the daily collector still
+    # take the queues a host holds from before, as they take every other file of a gone seat
+    "tell": "json",
 }
 
 
@@ -853,7 +855,7 @@ def check_stop_owner(owner):
     if caller and isinstance(owner, str) and owner:
         owner = resolve_session(owner)
         if owner != caller:
-            raise Error(f"owned by seat {owner}; tell it instead: ak tell {owner} \"...\"")
+            raise Error(f"owned by seat {owner}; a seat stops only its own runs")
 
 
 def _validate_session(cfg, name, data):

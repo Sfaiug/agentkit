@@ -26,7 +26,7 @@ RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 SPENT = "three rounds spent: split or re-scope the task"
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
           "declaring done with ak notify done, "
-          "or waiting on a run. Continue: decide the next step and do it.")
+          "or waiting on a run or pull request with ak wait. Continue: decide the next step and do it.")
 
 
 class StopParked(unittest.TestCase):
@@ -149,7 +149,7 @@ class StopParked(unittest.TestCase):
 
     def test_an_ak_wait_does_not_end_the_turn_while_a_run_sits_parked(self):
         (self.state / f"seat-{SEAT}.json").write_text(json.dumps(
-            {"session": SEAT, "wait": {"on": OTHER, "at": self.turn}}) + "\n")
+            {"session": SEAT, "wait": {"on": "theirs-going", "kind": "run", "at": self.turn}}) + "\n")
         self.run_json("theirs-going", owner=OTHER, state="running",
                       started_at=self.turn - 9000)
         sockets = self.home / "sockets"
