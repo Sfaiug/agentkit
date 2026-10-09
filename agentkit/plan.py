@@ -32,8 +32,10 @@ from . import command_help, config, terminal
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 EYE = "your eye"
 LINE = re.compile(r"^- \[(?P<mark>[ x])\] (?P<what>.+?) · (?:check: `(?P<check>[^`]+)`|"
-                  + EYE + r") · (?P<project>.+?) · written (?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
+                  + EYE + r") · (?P<project>.+?)(?P<deferred> · deferred)? · written "
+                  r"(?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
                   r"(?: on (?P<base>[0-9a-f]{7,40}))?(?: · done (?P<done>.+))?$")
+DEFERRED = " · deferred"
 
 
 def seat():
@@ -349,6 +351,18 @@ def is_open(line):
     return bool(BOX.match(line))
 
 
+def deferred(line):
+    """A line deferred to a run of its own (a review follow-up): open until its check passes,
+    yet never what the seat owes, so it holds no `ak notify done`."""
+    found = LINE.match(line.strip())
+    return bool(found and found["deferred"])
+
+
+def owed_lines(name):
+    """The plan's open lines that are the seat's own to finish: `open_lines` less the deferred."""
+    return [line for line in open_lines(name) if not deferred(line)]
+
+
 def undone(line, found):
     """The stripped line without its trailing done field: the one `LINE` parsed, never a
     ` · done ` that a check command itself holds."""
@@ -372,6 +386,8 @@ def outcomes(name):
     for line in lines(name):
         line = line.strip()
         found = LINE.match(line)
+        if found and found["deferred"]:
+            continue        # a run's to fix, never this done's work
         if found:
             result.append((found["project"], found["what"]))
         elif line.startswith("- [x] ") and not is_open(line):
@@ -441,6 +457,7 @@ def require_done(name):
     """Refuse a done while the plan still has open lines, after running every check once more;
     the check lines those checks proved, for `still_done`."""
     left, results = _verify(name, every=True)
+    left = [line for line in left if not deferred(line)]
     if left:
         raise config.Error(f"{len(left)} plan line(s) still open, first: {left[0]}; "
                            "a check line is done when its check passes on the default branch "
@@ -453,18 +470,19 @@ def still_done(name, proven):
     """Run under the seat's lock as its done is recorded: the plan as it reads now has no
     open line and no check line the done's own checks did not prove -- one added or ticked
     while they ran is not done."""
-    left = [line.strip() for line in lines(name) if is_open(line)
-            or (identity(line) and identity(line) not in proven)]
+    left = [line.strip() for line in lines(name) if not deferred(line)
+            and (is_open(line) or (identity(line) and identity(line) not in proven))]
     if left:
         raise config.Error(f"{len(left)} plan line(s) open or unproven since the checks ran, "
                            f"first: {left[0]}; run `ak notify done` again")
 
 
-def add(name, what, check=None, repo=None, proven=None):
+def add(name, what, check=None, repo=None, proven=None, deferred=False):
     """Append an open line to the seat's plan, or return the open line that already holds this
-    check in this project.  A review follow-up names the run's project as `repo`, and as
-    `proven` the commit its check already failed on (the review's base): the check is not run
-    again first, and that commit's history names the repository, whatever is checked out."""
+    check in this project.  A review follow-up names the run's project as `repo`, as `proven`
+    the commit its check already failed on (the review's base): the check is not run again
+    first, and that commit's history names the repository, whatever is checked out; and it is
+    `deferred`, a run's to fix, so the line holds no done."""
     what = " ".join(what.split())
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")
@@ -488,7 +506,8 @@ def add(name, what, check=None, repo=None, proven=None):
         raise config.Error(f"{where}: a project a line names holds no `·`")
     stamp = time.strftime("%Y-%m-%d %H:%M")
     proof = f"check: `{check}`" if check is not None else EYE
-    line = f"- [ ] {what} · {proof} · {where} · written {stamp}" + (f" on {base}" if base else "")
+    line = (f"- [ ] {what} · {proof} · {where}" + (DEFERRED if deferred else "")
+            + f" · written {stamp}" + (f" on {base}" if base else ""))
     with held(name) as current:
         text = lines(current)
         for old in text:

@@ -55,7 +55,7 @@ def item_text(row):
         text += proof_text(evidence)
         if "base" in evidence:
             text += f"\nBase {evidence['base']['sha']}:\n" + proof_text(evidence["base"])
-    if row["kind"] == "follow-up" or row.get("dropped"):
+    if row.get("before"):
         text += "\nBefore the task: " + row["before"]
     if row.get("dropped"):
         text += "\nDropped follow-up: " + row["dropped"]
@@ -205,12 +205,14 @@ def checked(argv, workspace, role="reviewer", findings=()):
     for i in range(0, len(args), 2):
         flag = args[i]
         if flag not in ("--run", "--quote", "--before") or flag in flags or i + 1 == len(args):
-            raise config.Error("use one evidence flag, --run COMMAND or --quote LINES, and --before PROOF for a follow-up")
+            raise config.Error("use one evidence flag, --run COMMAND or --quote LINES, and --before PROOF for a follow-up that predates the task")
         flags[flag] = args[i + 1]
     if ("--run" in flags) == ("--quote" in flags) or not (flags.get("--run") or flags.get("--quote") or "").strip():
         raise config.Error("supply evidence with exactly one of --run COMMAND or --quote LINES")
-    if kind == "follow-up" and not flags.get("--before", "").strip():
-        raise config.Error("add --before with the base or an ancestor commit, or verbatim lines from the named file at base")
+    if kind == "follow-up" and "--before" in flags and not flags["--before"].strip():
+        raise config.Error("--before names the base or an ancestor commit, or verbatim lines from the named file at base")
+    if kind == "follow-up" and "--before" not in flags and "--run" not in flags:
+        raise config.Error("a follow-up without --before needs --run: its command becomes the check that fixes it")
     if kind != "follow-up" and "--before" in flags:
         raise config.Error("use follow-up for a defect that existed before the task")
     root, path, line = checked_site(site, workspace, flags.get("--quote"))
@@ -234,13 +236,15 @@ def checked(argv, workspace, role="reviewer", findings=()):
             text = output_excerpt(output)
         if kind == "finding" and result.returncode == 0:
             raise config.Error("the command exited 0; write it to fail while the defect exists, or use --quote")
+        if kind == "follow-up" and "--before" not in flags and result.returncode == 0:
+            raise config.Error("the command exited 0; write it to fail while the defect exists")
         if kind == "dispute" and result.returncode != 0:
             raise config.Error("a dispute's command must exit 0 to show the behaviour is right")
         evidence = {"run": flags["--run"], "returncode": result.returncode,
                     "output": text}
     row = {"kind": kind, "path": str(path.relative_to(root)), "line": line,
            "what": what, "why": why, "evidence": evidence}
-    if kind == "follow-up":
+    if kind == "follow-up" and "--before" in flags:
         row["before"] = flags["--before"]
     if kind == "dispute":
         row["finding"] = finding

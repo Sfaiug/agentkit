@@ -9,7 +9,7 @@ NOTIFY_DONE = ('ak notify done "SUMMARY" [--pr URL] '
 NOTIFY_USAGE = (f"usage: {NOTIFY_NEEDS}\n       {NOTIFY_DONE}\n"
                 "       ak notify --check")
 HAND_IN_FINDING = 'ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES)'
-HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES) --before PROOF'
+HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES) [--before PROOF]'
 HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND | --quote LINES)'
 
 # Each entry is (usage, description, example). Model selections remain in config.toml;
@@ -42,8 +42,9 @@ COMMANDS = {
                         "Hand in a finding for ak to weigh, with a failing command or quoted evidence.",
                         'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py"'),
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
-                          "Hand in a proven defect that existed before the task; it cannot fail this review.\n"
-                          "Its command becomes the check on a line in the plan of the session that owns the work.",
+                          "Hand in a defect that cannot fail this review: one that existed before the task (--before proves it),\n"
+                          "or a smaller one of this change that need not hold it (no --before; --run must fail now).\n"
+                          "Its command becomes the check of a deferred line in the owning session's plan and the done-when of the run that fixes it.",
                           'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py" --before "return None"'),
     "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",
                         "Dispute a blocking finding handed to this fixer, with a passing command or quoted evidence.",

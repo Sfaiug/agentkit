@@ -3416,8 +3416,6 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 return previous
         key = repair and {"target": target, "command": repair["command"]}
         for item in items:
-            if item in planned:
-                continue
             started = None if request else started_by(run_dir, item)
             if started:
                 handed["followup_runs"].append(started)
@@ -3447,6 +3445,15 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                         f"# {title}\n\n{item}\n\n")
                 if split:
                     task += f"## Done when\n```bash\n{split['check']}\n```\n"
+                elif item in checks:
+                    # a review follow-up: the reviewer's own failing command is the check
+                    task += (
+                        "First fetch the target branch and run the command below on its tip. If it "
+                        'passes there now, run `ak hand-in not-needed "<why>"`, with no edits or PR. '
+                        "Otherwise fix the root cause so it passes, and show it failing before the "
+                        "fix and passing afterwards in your summary. If only the owner can decide, "
+                        'run `ak hand-in blocked "<question>"`.\n\n'
+                        f"## Done when\n```bash\n{checks[item]}\n```\n")
                 elif repair:
                     task += (
                         "First fetch the target branch and run the command on its tip. If it "
@@ -3488,9 +3495,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                            **({"repair": key, "repair_tip": repair["sha"],
                                "base_proof": "at landing"} if repair else {}),
                            **({"split_suite": split["command"]} if split else {}),
-                           # a fix run is proven by its own regression.sh
-                           # (`regression_fails_before`), not by its checks on base
-                           **({} if repair or split else {"base_proof": "regression.sh"}),
+                           # a fix run with no check of the reviewer's is proven by its own
+                           # regression.sh (`regression_fails_before`), not by its checks on base
+                           **({} if repair or split or item in checks else {"base_proof": "regression.sh"}),
                            "launched_session": session, "repo": str(repo),
                            **{role: list(lists[role]) for role in ("workers", "reviewers")
                               if isinstance(lists.get(role), list) and lists[role]},
@@ -3550,7 +3557,7 @@ def plan_followup(session, repo, item, check, proven, log):
     from . import plan   # here, not at the top: a seat's small verb, this the loop
     outcome = "Fix " + item.splitlines()[0].replace("·", "-")
     try:
-        plan.add(session, outcome, check, repo, proven=proven)
+        plan.add(session, outcome, check, repo, proven=proven, deferred=True)
         entry = {"outcome": outcome}
     except (config.Error, OSError) as exc:
         entry = {"outcome": outcome, "refused": str(exc)}
@@ -3834,11 +3841,17 @@ def weigh_review(lp, submitted, head=None):
             continue
         evidence = row["evidence"]
         kind = row["kind"]
+        # a follow-up from before the task is proven on base; one of this change, deferred
+        # to a run of its own (no `before`), on this commit
+        deferred = kind == "follow-up" and "before" not in row
         if kind == "follow-up":
             if not lp.scratch and "run" in evidence:
                 command = evidence["run"]
-                evidence = {"run": command, "commit": lp.base_sha, **proof_on(
-                    lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
+                evidence = ({"run": command, "commit": head or "workspace", **proof_on(
+                                lp, command, lp.round_dir / f"proof-{index}-commit.log", head)}
+                            if deferred else
+                            {"run": command, "commit": lp.base_sha, **proof_on(
+                                lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)})
         elif index in sites and sites[index] is None:
             kind = "note"
         elif "run" in evidence:
@@ -3862,16 +3875,18 @@ def weigh_review(lp, submitted, head=None):
                 kind = "follow-up"
         row = {**row, "kind": kind, "evidence": evidence}
         if kind == "follow-up":
-            if "before" not in row:
+            if "before" not in row and not deferred:
                 row["before"] = f"base {lp.base_sha}: " + (
                     "the proof fails there too" if "run" in evidence
                     else "quoted lines outside the change")
             reason = ("no base commit" if lp.scratch else
-                      "needs a --run proof that fails on base" if "run" not in evidence else
-                      "the command did not fail on base" if not hand_in.proof_failed(
+                      "needs a --run proof" + ("" if deferred else " that fails on base")
+                      if "run" not in evidence else
+                      ("the command did not fail on this commit" if deferred
+                       else "the command did not fail on base") if not hand_in.proof_failed(
                           evidence.get("base", evidence)) else
-                      "--before names no commit in base's history or quote present at base" if not before_at_base(lp, row)
-                      else "")
+                      "--before names no commit in base's history or quote present at base"
+                      if not deferred and not before_at_base(lp, row) else "")
             if reason:
                 row.update(kind="note", dropped=reason)
                 lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
@@ -7527,9 +7542,9 @@ def planned_followups(state):
     planned = [entry["outcome"] for entry in entries if "refused" not in entry]
     refused = [f"{entry['outcome']} ({entry['refused']})" for entry in entries
                if "refused" in entry]
-    return ((f"Review follow-ups now in your plan, yours to build: {'; '.join(planned)}. "
-             "Each is checked by the reviewer's probe until `ak plan check N` puts your fix's "
-             "own test in its place. " if planned else "")
+    return ((f"Review follow-ups now deferred in your plan: {'; '.join(planned)}, each checked "
+             "by the reviewer's probe until its fix is on the default branch or `ak plan check N` "
+             "puts your own test in its place. " if planned else "")
             + (f"Review follow-ups your plan refused, yours to judge: {'; '.join(refused)}. "
                if refused else ""))
 

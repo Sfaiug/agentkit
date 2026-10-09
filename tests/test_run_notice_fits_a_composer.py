@@ -119,9 +119,9 @@ class RunNotice(Sandbox):
         directory, state = self.result(followup_plan=[{"outcome": "Fix api.py:1"}])
         expected = (f"run {directory.name} finished PASS merged: {state['pr']}. "
                     f"Result: {directory / 'result.md'}. "
-                    "Review follow-ups now in your plan, yours to build: Fix api.py:1. "
-                    "Each is checked by the reviewer's probe until `ak plan check N` puts "
-                    "your fix's own test in its place. Decide the next step.")
+                    "Review follow-ups now deferred in your plan: Fix api.py:1, each checked "
+                    "by the reviewer's probe until its fix is on the default branch or "
+                    "`ak plan check N` puts your own test in its place. Decide the next step.")
         self.assertEqual(run.handback_line(state, directory, self.cfg), expected)
         with patch.object(tell, "longest", return_value=len(expected)):
             self.assertEqual(run.handback_line(state, directory, self.cfg), expected)
