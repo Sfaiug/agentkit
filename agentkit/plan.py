@@ -463,8 +463,9 @@ def still_done(name, proven):
 def add(name, what, check=None, repo=None, proven=None):
     """Append an open line to the seat's plan, or return the open line that already holds this
     check in this project.  A review follow-up names the run's project as `repo`, and as
-    `proven` the commit its check already failed on (the review's base): the check is not run
-    again first, and that commit's history names the repository, whatever is checked out."""
+    `proven` the commit its check already failed on (the review's base, or the reviewed commit
+    for a defect of the change): the check is not run again first, and that commit's history
+    names the repository, whatever is checked out."""
     what = " ".join(what.split())
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")

@@ -99,8 +99,8 @@ class Review:
 
     @property
     def followup_commits(self):
-        """Each follow-up's command by its text with the commit it was proven to fail on: the
-        base for one from before the task, the reviewed commit for one of this change."""
+        """Each follow-up's text with the commit its command was proven to fail on, which its plan
+        line names: the base for one handed in with --before, the reviewed commit otherwise."""
         return {item_text(row): row["evidence"]["commit"] for row in self.records
                 if row["kind"] == "follow-up" and "commit" in row["evidence"]}
 

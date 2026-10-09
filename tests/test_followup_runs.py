@@ -263,6 +263,21 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(config.plan_path("seat").read_text(), text)
         self.assertEqual(len(self.spawns), 1)
 
+    def test_a_followup_of_the_change_names_the_reviewed_commit_its_check_failed_on(self):
+        self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        config.update_session("seat", repo=str(self.repo))
+        base = self.git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "other.py").write_text("def ratio(value):\n    return 2 / value\n")
+        self.git(self.repo, "commit", "-qam", "The change brings a smaller defect")
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        doubled = "python3 -c 'from other import ratio; assert ratio(1) == 1'"
+        item = "other.py:2 - ratio doubles - callers get 2"
+        self.start(*self.source(followups=[item], followup_checks={item: doubled},
+                                followup_commits={item: head}, base_sha=base))
+        [line] = plan.lines("seat")
+        self.assertEqual(plan.LINE.match(line)["base"], head[:12])
+        plan.recheck("seat", 1, doubled)   # a test failing on the change takes the line's check
+
     def test_a_followup_its_plan_refuses_is_named_for_the_seat_to_judge(self):
         directory, state = self.source(followup_checks={DEFECT: "false\nfalse"})
         self.assertEqual(self.start(directory, state), [])

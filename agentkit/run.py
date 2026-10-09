@@ -3439,8 +3439,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         items = [request["text"]] if request else state["followups"]
         planned = [item for item in items if item in checks]   # the seat's own, executors or not
         repo = main_checkout(Path(state["repo"])) if planned else None
+        proven = state.get("followup_commits") or {}
         handed = {"followup_runs": [], "followup_plan": [
-            plan_followup(session, repo, item, checks[item], state.get("base_sha"), log)
+            plan_followup(session, repo, item, checks[item], proven.get(item, state.get("base_sha")), log)
             for item in planned]}
         cfg = report_config(cfg)
         record = config.session_records().get(config.resolve_session(session), {})
@@ -3872,8 +3873,8 @@ def weigh_review(lp, submitted, head=None):
             continue
         evidence = row["evidence"]
         kind = row["kind"]
-        # a follow-up from before the task is proven on base; one of this change, deferred
-        # to a run of its own (no `before`), on this commit
+        # a follow-up from before the task is proven on base; one of this change (no `before`)
+        # on this commit
         deferred = kind == "follow-up" and "before" not in row
         if kind == "follow-up":
             if not lp.scratch and "run" in evidence:
@@ -4195,7 +4196,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.log(f"WARN {overridden}; overriding to FAIL")
     record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
-    # kept whatever the verdict, every round's: a run of its own fixes each after the merge
+    # kept whatever the verdict, every round's, with the commit each was proven on for its plan line
     kept = lp.state.get("followups") or []
     lp.state["followups"] = kept + [item for item in submitted.followups if item not in kept]
     lp.state["followup_checks"] = {**(lp.state.get("followup_checks") or {}), **submitted.followup_checks}

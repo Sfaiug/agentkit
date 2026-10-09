@@ -3,9 +3,8 @@
 A reviewer hands one in with `--before` for a defect from before the task, or without it
 for a smaller defect of this change that need not hold it: then its `--run` must fail on
 the reviewed commit, where ak re-proves it.  The round's verdict never turns on one, and the
-run keeps every round's, for the fix runs and plan lines a merge starts
-(tests/test_followup_runs.py).  Offline: a real repository; proofs run in a clone of the
-reviewed commit.
+run keeps every round's, for the plan lines a merge writes (tests/test_followup_runs.py).
+Offline: a real repository; proofs run in a clone of the reviewed commit.
 """
 
 from contextlib import ExitStack
