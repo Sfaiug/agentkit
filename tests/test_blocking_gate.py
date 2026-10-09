@@ -24,7 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, run, stop, worker
+from agentkit import config, hand_in, run, stop, worker
 from fixtures.hand_in import scripted, stateful
 
 
@@ -145,6 +145,12 @@ out = pathlib.Path(sys.argv[6])
              "evidence": {"run": command, "returncode": 0, "output": ""}, "finding": finding})))
         self.lp.state.setdefault("dispute_files", []).append(str(file))
 
+    def records_text(self):
+        """What the next turn is handed: the earlier findings where they stand now."""
+        listed = self.directory / f"round-{self.lp.rnd}" / "earlier.json"
+        return "" if not listed.is_file() else "\n".join(
+            f"{row['path']}:{row['line']} - {row['what']}" for row in json.loads(listed.read_text()))
+
     def records(self, kind):
         return [(row["path"], row["line"], row.get("replayed") or row.get("outside") or "")
                 for row in self.lp.state["review_records"] if row["kind"] == kind]
@@ -205,7 +211,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.records("finding"), [("api.py", 3, "")])
         prompt = self.prompt()
         self.assertIn("## Earlier findings left to you", prompt)
-        self.assertIn("api.py:2 - flag is wrong - a quote, which ak cannot re-prove", prompt)
+        self.assertIn("api.py:3 - flag is wrong - a quote, which ak cannot re-prove", prompt)   # listed where it stands
         # ... and after a dispute: the --run finding is the reviewer's to weigh, not ak's
         self.setUp()
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
@@ -216,7 +222,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.records("finding"), [("api.py", 3, "")])
         self.assertEqual(self.lp.state.get("disputes", []), [])      # the dispute lost: nothing dropped
         prompt = self.prompt()
-        self.assertIn("api.py:2 - flag is wrong - disputed by the fixer", prompt)
+        self.assertIn("api.py:3 - flag is wrong - disputed by the fixer", prompt)
         self.assertNotIn("still fails", prompt)
         # ... and where the fix rewrote the disputed line and added one above it: upheld at the
         # line the fix put in its place
@@ -343,12 +349,43 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
         self.write('mode = "branch"\nextra = 1\n', "Delete the flag")
         self.assertEqual(self.review(), "FAIL")
-        deleted = [("api.py", 2, "still failing; it blocks until its proof passes; the fix deleted its line")]
-        self.assertEqual(self.records("finding"), deleted)
-        # ... and in every round after, though its old number names base's own line by now
+        # it stands at the removal's anchor, the line before where it was, inside the change
+        anchored = [("api.py", 1, "still failing; it blocks until its proof passes; the fix changed its line")]
+        self.assertEqual(self.records("finding"), anchored)
+        # ... in every round after
         self.write('mode = "branch"\nextra = 1\n# noted\n', "Note something else")
         self.assertEqual(self.review(), "FAIL")
-        self.assertEqual(self.records("finding"), deleted)
+        self.assertEqual(self.records("finding"), [("api.py", 1, "still failing; it blocks until its proof passes")])
+
+    def test_a_deleted_lines_finding_is_disputed_and_upheld_at_its_anchor(self):
+        self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
+        self.write('mode = "branch"\nextra = 1\n', "Delete the flag")
+        self.dispute("api.py", 2, "the flag is wrong", probe("True"))
+        self.assertEqual(self.review(finding("api.py:1", "the flag is gone, not fixed", self.flag_fixed)), "FAIL")
+        self.assertIn("api.py:1 - the flag is wrong", self.records_text())      # listed where it stands
+        self.assertEqual(self.records("finding"), [("api.py", 1, "")])
+        self.assertEqual(self.lp.state.get("disputes", []), [])
+        self.assertIn("api.py:1 - the flag is wrong - disputed by the fixer", self.prompt())
+
+    def test_a_finding_on_a_deleted_file_is_the_fixers_to_dispute_and_the_reviewers_to_uphold(self):
+        self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
+        [handed] = [row for row in self.lp.state["review_records"] if row["kind"] == "finding"]
+        (self.wt / "api.py").unlink()
+        self.commit("Delete api.py")
+        self.head = run.git(self.wt, "rev-parse", "HEAD")
+        self.lp.validation = run.commit_identity(self.wt)
+        # the fixer disputes the finding at the site it was handed, though the file is gone
+        row = hand_in.checked(["dispute", "api.py:2", "the file was dead code", "--run", "true"],
+                              self.wt, role="fixer", findings=[handed])
+        self.assertEqual((row["kind"], row["path"], row["line"]), ("dispute", "api.py", 2))
+        with self.assertRaisesRegex(config.Error, "exists inside this checkout"):
+            hand_in.checked(["finding", "api.py:2", "x", "y", "--run", "false"], self.wt)    # unlisted: as ever
+        self.dispute("api.py", 2, "the flag is wrong", "true")
+        # ... and the reviewer upholds it where it stands, the removal's anchor, file or no file
+        self.assertEqual(self.review(finding("api.py:1", "the flag went with the file", self.flag_fixed)), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 1, "")])
+        self.assertEqual(self.lp.state.get("disputes", []), [])
+        self.assertIn("api.py:1 - the flag is wrong - disputed by the fixer", self.prompt())
 
     def test_a_dispute_silences_only_the_finding_it_names(self):
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed),
