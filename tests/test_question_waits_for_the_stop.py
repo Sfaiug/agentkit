@@ -284,6 +284,21 @@ class QuestionWaitsForTheStop(Sandbox):
         answer = self.looked(WORKING, fact, after=60)
         self.assertEqual((answer["word"], answer["reason"]), ("needs you", QUESTION))
 
+    def test_an_enter_that_sends_a_line_left_in_the_composer_asks_it_first(self):
+        """The tick finishes a line of ak's own that sat unsent: that Enter opens a turn too."""
+        self.hook("UserPromptSubmit", prompt="Build the acme parser.")
+        self.asks()
+        fact, line, asked = self.stop(), "run acme-parser finished PASS merged.", []
+        seat = {"name": SEAT, "attached": False, "created": 1}
+        with patch.object(watch, "hook_facts", return_value=fact), \
+                patch.object(watch, "pane_text", return_value=PROMPT), \
+                patch.object(watch, "composer_holds", return_value="line"), \
+                patch.object(watch, "_send_enter", side_effect=lambda *_a, **_k: asked.append(
+                    (notify.last(SEAT) or {}).get("text"))):
+            watch.type_at_prompt(seat, line, lambda _line: None, cfg=self.cfg,
+                                 typed={"line": line, "seat": 1})
+        self.assertEqual(asked, [QUESTION])
+
     def test_a_conversation_ak_forgets_takes_its_kept_question_with_it(self):
         """`ak orch stop`, a model switch and a new seat under the name retire the old
         conversation's question (`watch.forget`): the next one never asks it."""

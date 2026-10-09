@@ -2616,6 +2616,22 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None
     return True
 
 
+def kept_asked_first(session, harness=None, held=True):
+    """Before a key goes into that seat: a line or an Enter sent where its turn has ended
+    opens a new one, so a question it kept back for that end is asked first, on a look of
+    the typer's own, and what the typer reads next is the question as it always stood.
+    `held` says the caller holds the seat's typing lock, which is the notice's own."""
+    name = session["name"]
+    if not seat_read(name).get("unasked"):
+        return
+    try:
+        harness = harness or seat_model(config.load(), name)[0]
+        if harness:
+            ask_kept_back(name, harness, live_state(session, harness), held=held)
+    except (config.Error, OSError):
+        pass
+
+
 def type_checked(session, text, log, harness=None, guard=nullcontext,
                  veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak",
                  ready=lambda name: True):
@@ -2663,14 +2679,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             confirm = any(pattern.search(strip_sgr(line))
                           for line in pane_tail(pane_text(seat)).splitlines())
     with guard() as held:
-        # a line typed where the seat's turn has ended opens a new one: a question it kept
-        # back for that end is asked first, and the veto reads it as it always did
-        if harness is not None and seat_read(name).get("unasked"):
-            try:
-                ask_kept_back(name, harness, live_state(seat, harness, cfg=None),
-                              held=held is not None)
-            except (config.Error, OSError):
-                pass
+        kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):
             return False
         if not pending:
@@ -3071,6 +3080,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             if holds == "empty":
                 return not pane_unread(session)
             if holds == "line":
+                kept_asked_first(dict(session, name=held))
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
