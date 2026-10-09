@@ -12,6 +12,7 @@ import subprocess
 import sys
 from types import SimpleNamespace
 import unittest
+import zlib
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -313,6 +314,63 @@ class OwnerParts(Sandbox):
         self.commit("change owner file")
         sh(self.wt, "gc", "--prune=now")
         self.assertEqual(self.touched(), ["./gate//check.py"])
+
+    def test_sha256_objects_keep_byte_exact_sections_and_reject_substitution(self):
+        self.wt = self.root / "sha256"
+        self.wt.mkdir()
+        sh(self.wt, "init", "-q", "-b", "main", "--object-format=sha256")
+        sh(self.wt, "config", "user.email", "acme@localhost")
+        sh(self.wt, "config", "user.name", "acme")
+        self.write("AGENTS.md", "---\nowner: policy.md#Vision\n---\n# acme\n")
+        self.write("policy.md", "## Vision\nlocked\udc80\n")
+        target = self.commit("SHA-256 owner policy")
+        self.target(target)
+        sh(self.wt, "remote", "add", "origin", str(self.wt))
+        sh(self.wt, "checkout", "-qb", "change")
+        self.write("policy.md", "## Vision\nopen\udc80\n")
+        head = self.commit("change SHA-256 policy")
+        self.assertEqual(len(head), 64)
+        self.assertEqual(self.touched(), ["policy.md#Vision"])
+        original, changed = (sh(self.wt, "rev-parse", rev + ":policy.md") for rev in (target, head))
+        objects = self.wt / ".git/objects"
+        fake = (objects / original[:2] / original[2:]).read_bytes()
+        destination = objects / changed[:2] / changed[2:]
+        destination.unlink()
+        destination.write_bytes(fake)
+        with self.assertRaises(config.Error):
+            self.touched()
+
+    def test_merge_base_uses_verified_bytes_after_shared_ancestry_is_replaced(self):
+        self.write("score.py", "y = 2\n")
+        target = self.commit("target owner score")
+        self.target(target)
+        self.write("app.py", "z = 2\n")
+        ancestor = self.commit("ordinary app change")
+        self.write("score.py", "y = 1\n")
+        head = self.commit("revert owner score")
+        read = run.owner_objects
+
+        def replace_after_read(wt, ids):
+            objects = read(wt, ids)
+            body = objects[ancestor][1].replace(b"parent " + target.encode(),
+                                                 b"parent " + self.base.encode())
+            path = self.wt / ".git/objects" / ancestor[:2] / ancestor[2:]
+            path.unlink()
+            path.write_bytes(zlib.compress(b"commit " + str(len(body)).encode() + b"\0" + body))
+            return objects
+
+        with patch.object(run, "owner_objects", side_effect=replace_after_read):
+            self.assertEqual(run.owner_base(self.wt, target, head), target)
+        self.assertEqual(sh(self.wt, "merge-base", target, head), self.base)
+
+    def test_a_planted_shallow_boundary_cannot_hide_owner_ancestry(self):
+        self.write("app.py", "z = 2\n")
+        self.commit("ordinary app change")
+        self.write("score.py", "y = 2\n")
+        head = self.commit("owner score change")
+        (self.wt / ".git/shallow").write_text(head + "\n")
+        with self.assertRaisesRegex(config.Error, "complete Git ancestry"):
+            self.touched()
 
     def test_a_replace_ref_does_not_hide_a_change(self):
         old = self.base

@@ -528,7 +528,9 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertEqual(run.git(remote, "show", head + ":" + path), after.strip())
                 state = {"run_id": case, "delivery_sha": head, "target": "main",
                          "merge_method": "rebase", "review": {"head_sha": head},
-                         "waiting_on": {"line": True}, "worktree": str(repo), "repo": str(repo)}
+                         "worktree": str(repo), "repo": str(repo)}
+                if "commit" not in case:
+                    state["waiting_on"] = {"line": True}    # retain the proof's real fetch
                 lp = SimpleNamespace(wt=repo, run_dir=out, state=state, cfg={},
                                      log=lambda *_: None, write=lambda: None)
                 with patch.object(run, "gh_json", return_value=(
