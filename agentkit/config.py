@@ -754,6 +754,9 @@ SEAT_FILES = {
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
     "rules": "md",       # the rulebook its prompt names once that one is out of date
     "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
+    # written by nothing since `ak tell` went: named so a stop and the daily collector still
+    # take the queues a host holds from before, as they take every other file of a gone seat
+    "tell": "json",
 }
 
 
