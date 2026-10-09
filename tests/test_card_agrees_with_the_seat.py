@@ -4,7 +4,7 @@ The owner got a card for a dialog, opened the seat to read it, and the card turn
 while the dialog was still up: any key in an attached terminal since the episode began closed
 a card, sent or not.  Input in the seat still holds back a card that is not out yet -- he is
 there.  One that is out stays `Needs you` for as long as its seat does, and reads `Answered`
-once he answered or the seat needs him no more.
+once he answered or the seat works again, `Done` once it declared its job done.
 Offline: fake tmux and card delivery, and a temporary HOME.
 """
 
@@ -70,12 +70,20 @@ class CardAgreesWithTheSeat(unittest.TestCase):
             self.assertNotIn("closed", self.says("needs you", 100, now=now))
         self.assertEqual((self.posts, self.closed), (["Needs you · seat"], []))
 
-    def test_it_reads_answered_once_the_seat_needs_him_no_more(self):
+    def test_it_reads_answered_once_the_seat_works_again(self):
         self.says("needs you", 100, now=160)
         self.client = (0, "seat\t170")
         self.says("needs you", 100, now=180)
         self.says("working", 200, now=360, reason="")       # the dialog came down
         self.assertEqual(self.closed, ["Answered"])
+
+    def test_it_reads_done_once_the_seat_declared_its_job_done(self):
+        self.says("needs you", 100, now=160)
+        self.client = (0, "seat\t170")
+        self.says("needs you", 100, now=180)
+        notify.record("seat", "done", "Shipped", time=300)
+        self.says("done", 300, now=360, reason="Shipped")
+        self.assertEqual(self.closed, ["Done"])
 
     def test_his_prompt_closes_it_while_the_seat_still_reads_needs_you(self):
         self.says("needs you", 100, now=160, reason="waiting for you")
