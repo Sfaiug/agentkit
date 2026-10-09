@@ -5243,9 +5243,19 @@ def merge_body(lp, head, url=None):
     return []
 
 
+def merge_record(wt, sha):
+    """What a merge leaves on the run's record beside `merged`, for the tick and the stop hook
+    to read alike: the `health:` the delivered commit declares, which proving the product live
+    stands on (`watch.after_merge_health` reads it first; `stop.awaiting_live` reads nothing
+    else).  Nothing where no checkout has the commit: the tick reads GitHub's then."""
+    command = declared_at(wt, sha, "health") if wt and sha and Path(wt).is_dir() else None
+    return {"health": {"command": command}} if command else {}
+
+
 def merged(lp, url, method):
-    """Record the PR as merged; True, for the merge step to return."""
-    lp.state["merged"] = True
+    """Record the PR as merged, with what proving it live stands on; True, for the merge step
+    to return."""
+    lp.state.update(merged=True, **merge_record(lp.wt, lp.state.get("delivery_sha")))
     lp.write()
     lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
     return True
@@ -7114,7 +7124,7 @@ def record_decision(run_dir, state, reason, merged=False):
     """
     state["merge_note"] = note = " ".join(reason.split())
     if merged:
-        state["merged"] = True
+        state.update(merged=True, **merge_record(state.get("worktree"), state.get("delivery_sha")))
     run_record.save_state(run_dir, state)
     if merged:
         history_finish(state)
@@ -10607,7 +10617,7 @@ def merge_own_pr(lp, url):
         ours = (remote["sha"] in expected
                 and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
         if current.get("merged") and ours:
-            lp.state["merged"] = True
+            lp.state.update(merged=True, **merge_record(lp.wt, remote["sha"]))
             lp.write()
             return True
         if current.get("state") != "open" or not ours:
