@@ -467,6 +467,22 @@ class NudgeTurnRule(Sandbox):
                     self.assertEqual(word["word"], "done")
                     self.assertEqual(word["reason"], "Explained the current API")
 
+    def test_an_older_working_capture_cannot_retire_an_observed_quiet_answer(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.stopped()
+                watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=9990)
+                self.assertEqual(notify.shaped("done", "Explained the API",
+                                               session=SEAT, quiet=True), 0)
+                watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10005)
+                watch.live_state(self.seat, harness, pane=self.screen("working"),
+                                 cfg=self.cfg, now=10003)
+                watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10006)
+                with patch.object(watch.time, "time", return_value=10006 + watch.STALL_WAIT + 10):
+                    self.assertEqual(self.tick(), [])
+
     def test_g_a_current_question_stands_past_parked_work(self):
         for harness in HARNESSES:
             with self.subTest(harness=harness):

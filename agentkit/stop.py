@@ -62,7 +62,8 @@ def observe_turn(name, state, said, at):
         if stopped is None:
             if state == "at_prompt":
                 watch._seat_put(name, live, {"quiet_done": {**quiet, "stopped": [at, said]}})
-        elif state == "working" or (state == "at_prompt" and stopped[1] != said):
+        elif at > stopped[0] and (state == "working" or (
+                state == "at_prompt" and stopped[1] != said)):
             watch._seat_put(name, live, {"quiet_done": {"time": stopped[0], "stopped": stopped}})
 
 
