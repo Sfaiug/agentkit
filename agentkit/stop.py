@@ -230,12 +230,13 @@ def stop_line(run_id, branch, kept):
     return f"stopped {run_id}: branch {branch} kept; relaunch with from: {branch}"
 
 
-def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False):
+def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=None):
     """End that run: its record first (`stopped`, under the lock, `why` its error and `extra`
     on it), then its loop and everything it started, then its checkout unless `keep`.  The
     state as recorded; a run already stopped as it stands; None where the run had ended
-    already, so there was nothing to stop.  `owner_check` is the command's: only the seat a
-    run belongs to stops it by hand, while ak's own stops (`leases.park`) are anybody's."""
+    already, or where `only_if` no longer holds of the record read under the lock, so there
+    was nothing to stop.  `owner_check` is the command's: only the seat a run belongs to stops
+    it by hand, while ak's own stops (`leases.park`) are anybody's."""
     run_id = run_dir.name
     log = log or run.note_in(run_dir / "log.txt")
     with run_record.recovery_lock(run_dir):
@@ -244,7 +245,7 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False):
             config.check_stop_owner(current.get("launched_session") or current.get("session"))
         if current.get("state") == "stopped":
             return current
-        if not stoppable(current):
+        if not stoppable(current) or (only_if and not only_if(current)):
             return None
         kept = bool(keep or not worktrees.checkout_removable(current))
         current.update(state="stopped", verdict="STOPPED", finished_at=time.time(),

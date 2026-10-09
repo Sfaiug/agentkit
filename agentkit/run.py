@@ -3094,7 +3094,7 @@ def verify_work(lp, cmds=None):
             # older live run's is parked here, before anything of it is reviewed, and the
             # save below raises the stop the scan recorded (`leases.park`)
             from . import leases
-            leases.scan(Path(lp.state["repo"]), lp.log)
+            leases.scan_safely(Path(lp.state["repo"]), lp.log)
             lp.save()
         commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
     checks = (files_scope(lp), rules_check(lp))
@@ -3468,12 +3468,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                      else "Fix " + item.splitlines()[0])
             if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
                 title = title[:255] + "…"
-            name = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
-            directory = config.RUNS / name
-            number = 1
-            while directory.exists():
-                number += 1
-                directory = config.RUNS / f"{name}-{number}"
+            directory = free_run_dir(slugify(title))
             try:
                 directory.mkdir(parents=True)
                 check = shlex.quote(str(directory / REGRESSION))
@@ -3507,36 +3502,20 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                     (directory / REGRESSION.parent).mkdir()
                 (directory / "task.md").write_text(task)
                 (directory / "log.txt").touch()
-                # A fix run is a new launch: the session's lists now, the discovering
-                # run's only for a seat with no record of its own.  The record is checked
-                # against the config now: the discovering run's may predate a model it names.
-                try:
-                    lists = config.load_session(config.load(), session, required=False) or state
-                except config.Error:
-                    lists = state
-                receipt = {"followup": {"run": run_dir.name, "text": item,
-                                        "place": followup_place(item)},
-                           # a repair's only check is the target's own, run at landing: its
-                           # before is the lander's run of it on the target tip, where it did
-                           # not pass, and no round has a check of its own to replay on base
-                           **({"repair": key, "repair_tip": repair["sha"],
-                               "base_proof": "at landing"} if repair else {}),
-                           **({"split_suite": split["command"]} if split else {}),
-                           # a fix run is proven by its own regression.sh
-                           # (`regression_fails_before`), not by its checks on base
-                           **({} if repair or split else {"base_proof": "regression.sh"}),
-                           "launched_session": session, "repo": str(repo),
-                           **{role: list(lists[role]) for role in ("workers", "reviewers")
-                              if isinstance(lists.get(role), list) and lists[role]},
-                           **({"notify_sink": state["notify_sink"]}
-                              if state.get("notify_sink") else {})}
-                opts = {"--rounds": None, "--exec": None, "--review": None,
-                        "--review-pr": None, "--no-worktree": False, "--no-merge": False,
-                        "--bg": True, **({"--first": True} if request else {})}
                 if split:
                     gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
-                prepare(directory, opts, logger(directory), cfg, receipt=receipt)
-                spawn_bg(directory, [str(directory / "task.md")])
+                launch_for_seat(directory, state, {
+                    "followup": {"run": run_dir.name, "text": item, "place": followup_place(item)},
+                    # a repair's only check is the target's own, run at landing: its
+                    # before is the lander's run of it on the target tip, where it did
+                    # not pass, and no round has a check of its own to replay on base
+                    **({"repair": key, "repair_tip": repair["sha"],
+                        "base_proof": "at landing"} if repair else {}),
+                    **({"split_suite": split["command"]} if split else {}),
+                    # a fix run is proven by its own regression.sh
+                    # (`regression_fails_before`), not by its checks on base
+                    **({} if repair or split else {"base_proof": "regression.sh"}),
+                    "repo": str(repo)}, cfg, opts={"--first": True} if request else {})
             except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 return None if request else followups_handed(run_dir, state, handed)
@@ -9091,10 +9070,13 @@ def going(state, now=None):
     an old stamp cannot keep a seat working after its retry stopped being allowed,
     and an exhausted run keeps one working only while the tick can resume it
     (`exhausted_wait`): one that waits on nobody is his, not going. Line members
-    stay going until the lander ends them.
+    stay going until the lander ends them, and a run stopped to wait on an older run's
+    change (`leases.park`) until the tick has started its task again.
     """
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
         return True  # the line is unfinished work, not an ending with timed recovery
+    if state.get("state") == "stopped":
+        return bool(state.get("lease_wait")) and not state.get("lease_restarted")
     if state.get("state") in ("error", "waiting") and not tick_admission(state, now=now):
         return False
     if state.get("state") == "exhausted":
@@ -9231,41 +9213,44 @@ def queued(run_dir):
         return False
 
 
-def restart_run(run_dir, state, why):
-    """A new run of that run's task on the newest base, for a run stopped waiting on another's
-    change once that change is in (`leases.restart`): its seat's, with the lists the seat has
-    now, launched with the options it had, and its log opening on why and on the branch its
-    earlier attempt is kept on.  The new run's directory."""
-    slug = run_dir.name.split("-", 2)[2] if run_dir.name.count("-") >= 2 else run_dir.name
+def free_run_dir(slug):
+    """The run directory this minute's stamp and `slug` name, `-2`, `-3` on where it is taken."""
     name = f"{datetime.now():%Y%m%d-%H%M}-{slug}"
     directory = config.RUNS / name
-    n = 1
+    number = 1
     while directory.exists():
-        n += 1
-        directory = config.RUNS / f"{name}-{n}"
-    directory.mkdir(parents=True)
-    shutil.copyfile(run_dir / "task.md", directory / "task.md")
-    (directory / "log.txt").touch()
-    logger(directory)(f"started again for {run_dir.name}: {why}; its earlier attempt is kept on "
-                      f"branch {state.get('branch')}")
+        number += 1
+        directory = config.RUNS / f"{name}-{number}"
+    return directory
+
+
+def seat_launch(state):
+    """Whether the tick launched that run for a seat (`launch_for_seat`): a fix run
+    (`followup`) or a task started again (`restarted`), whose receipt names the seat and its
+    lists, and which descends from nothing that launched it."""
+    return bool(state.get("followup") or state.get("restarted"))
+
+
+def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None):
+    """Launch the task.md in that new run directory as the tick does for a seat, the one `state`
+    was launched from: `origin` on its receipt says why (`seat_launch`), with the seat's lists
+    now, the given run's only for a seat with no record of its own -- checked against the
+    config now, as that run's may predate a model it names -- and `opts` over the defaults."""
     session = launched_session(state)
-    cfg = config.load()
     try:
-        lists = (config.load_session(cfg, session, required=False) if session else None) or state
+        lists = (config.load_session(config.load(), session, required=False) if session
+                 else None) or state
     except config.Error:
         lists = state
-    receipt = {"restarted": {"run": run_dir.name, "why": why},
-               "launched_session": session, "repo": state.get("repo"),
+    receipt = {**origin, "launched_session": session,
                **{role: list(lists[role]) for role in ("workers", "reviewers")
                   if isinstance(lists.get(role), list) and lists[role]},
                **({"notify_sink": state["notify_sink"]} if state.get("notify_sink") else {})}
     opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
-            "--no-worktree": False, "--no-merge": False,
-            **{key: value for key, value in (state.get("launch_opts") or {}).items()
-               if key != "--first"}, "--bg": True}
-    prepare(directory, opts, logger(directory), cfg, task_file=state.get("task_file"), receipt=receipt)
+            "--no-worktree": False, "--no-merge": False, **(opts or {}), "--bg": True}
+    prepare(directory, opts, logger(directory), report_config(cfg), task_file=task_file,
+            receipt=receipt)
     spawn_bg(directory, [str(directory / "task.md")])
-    return directory
 
 
 def spawn_bg(run_dir, argv, expected=None, park_as=False):
@@ -9280,7 +9265,7 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
     child = [sys.executable, str(config.REPO / "bin" / "ak"), "run"] + [a for a in argv if a != "--bg"]
     with gate.slot_lock(), run_record.recovery_lock(run_dir):
         previous = run_record.read_state(run_dir) or {}
-        if previous.get("followup") or previous.get("restarted"):
+        if seat_launch(previous):
             # These are siblings owned by the seat, not descendants for the ending's
             # process sweep to kill or tests sharing its admission slot.
             for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_SCOPE",
@@ -9429,15 +9414,14 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
     where the file lives is what files a scratch run's seat under a project (`run_project`).
     """
     receipt = (run_record.read_state(run_dir) or {}) if receipt is None else receipt
-    followup = receipt.get("followup")
-    # a fix run and a run started again (`restart_run`) are launched by the tick for a seat:
-    # the receipt says whose, and which lists, and no slot is reserved before the launch
-    bound = bool(followup or receipt.get("restarted"))
+    # launched by the tick for a seat: the receipt says whose, and which lists, and no slot
+    # is reserved before the launch
+    bound = seat_launch(receipt)
     session_at_launch = receipt["launched_session"] if bound else config.current_session()
     workers = (receipt.get("workers") if bound else
                config.workers(cfg) if cfg is not None and session_at_launch else None)
     if bound:
-        # A fix run keeps the lists start_followups bound when it wrote the receipt.
+        # It keeps the lists launch_for_seat bound when it wrote the receipt.
         groups = {role: list(receipt[role]) for role in ("workers", "reviewers")
                   if isinstance(receipt.get(role), list) and receipt[role]}
     else:

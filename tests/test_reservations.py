@@ -4,12 +4,16 @@ with its branch kept, and started again on the newest base once the older has la
 The scan the tick runs, and ak's commit step runs itself, parks the younger run
 (`leases.park`): its record reads `stopped`, waiting on the holder, its checkout and branch
 stay as they are.  Once the holder has landed or is over, the tick's restart pass launches
-the task again as a new run of the same seat, named on the stopped run and never twice.  A
-younger run past its executor turn is only written down.  Offline: the lease stage
+the task again as a new run of the same seat, named on the stopped run and never twice, even
+when that launch was refused.  Until then the stopped run is going: a seat's wait on it holds,
+and goes on with the run started again.  A younger run past its executor turn, or one that
+reached its review while the scan ran, and a pull request's review are only written down.  A
+scan that cannot finish costs the commit step nothing.  Offline: the lease stage
 (`fixtures.leases`), a fake launch.
 """
 
 from pathlib import Path
+import shutil
 import sys
 import unittest
 from unittest.mock import patch
@@ -17,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.leases import LiveRuns
-from agentkit import config, leases, run
+from agentkit import config, leases, run, watch
 from agentkit import record
 
 OLDER, YOUNGER = "20260101-0900-older", "20260101-1000-younger"
@@ -31,8 +35,9 @@ class Step:
     scratch, every = False, []
 
     def __init__(self, run_dir, log):
-        self.run_dir, self.log, self.steps = run_dir, log, []
+        self.run_dir, self.log, self.steps, self.artifacts = run_dir, log, [], set()
         self.state = record.read_state(run_dir)
+        self.wt = Path(self.state["worktree"])
 
     def step(self, name):
         self.steps.append(name)
@@ -54,6 +59,15 @@ class Reservations(LiveRuns):
 
     def state(self, name):
         return record.read_state(config.RUNS / name)
+
+    def land(self, name):
+        holder = config.RUNS / name
+        record.save_state(holder, {**record.read_state(holder), "state": "pass", "merged": True})
+
+    def started_again(self):
+        """The runs started again for the younger one."""
+        return sorted(d for d in config.RUNS.iterdir()
+                      if ((record.read_state(d) or {}).get("restarted") or {}).get("run") == YOUNGER)
 
     def test_the_younger_run_in_its_executor_turn_is_stopped_with_its_branch_kept(self):
         _, younger = self.collide()
@@ -80,6 +94,28 @@ class Reservations(LiveRuns):
         self.assertEqual(self.state(YOUNGER)["state"], "running")
         self.assertIn("the younger lands after the older", self.logs[-1])
 
+    def test_a_pull_requests_review_is_only_written_down(self):
+        self.collide(step="done-when")
+        directory = config.RUNS / YOUNGER
+        record.save_state(directory, {**record.read_state(directory),
+                                      "review_pr": "https://github.com/acme/acme/pull/7"})
+        found = leases.scan(self.repo, self.logs.append, now=2000)
+        self.assertEqual(found[YOUNGER]["waits_on"], OLDER)
+        self.assertEqual(self.state(YOUNGER)["state"], "running")
+
+    def test_a_run_that_reached_its_review_during_the_scan_is_not_stopped(self):
+        self.collide(step="done-when")
+        directory, real = config.RUNS / YOUNGER, leases.tree
+
+        def tree_while_the_loop_moves_on(worktree, artifacts, log=lambda _: None):
+            record.save_state(directory, {**record.read_state(directory), "step": "reviewer"})
+            return real(worktree, artifacts, log)
+
+        with patch.object(leases, "tree", tree_while_the_loop_moves_on):
+            leases.scan(self.repo, self.logs.append, now=2000)
+        self.assertEqual(self.state(YOUNGER)["state"], "running")
+        self.assertIn("the younger lands after the older", self.logs[-1])
+
     def test_the_commit_step_stops_a_run_the_tick_has_not_seen_yet(self):
         _, younger = self.collide()
         lp = Step(config.RUNS / YOUNGER, self.logs.append)
@@ -89,6 +125,26 @@ class Reservations(LiveRuns):
         state = self.state(YOUNGER)
         self.assertEqual((state["state"], state["lease_wait"]["on"]), ("stopped", OLDER))
         self.assertEqual(self.git(younger, "status", "--porcelain"), "M api.py")   # nothing committed
+
+    def test_a_scan_that_cannot_finish_leaves_the_commit_step_going(self):
+        older, _ = self.collide()
+        real = leases.live
+
+        def live_then_the_older_ends(repo):
+            found = real(repo)
+            shutil.rmtree(older)            # its run ended and took its checkout meanwhile
+            return found
+
+        class Reached(Exception):
+            pass
+
+        lp = Step(config.RUNS / YOUNGER, self.logs.append)
+        with patch.object(leases, "live", live_then_the_older_ends), \
+                patch.object(run, "commit_leftovers", side_effect=Reached):
+            with self.assertRaises(Reached):
+                run.verify_work(lp)
+        self.assertIn("WARN lease scan of", self.logs[-1])
+        self.assertEqual(self.state(YOUNGER)["state"], "running")
 
     def test_the_tick_starts_the_task_again_once_the_holder_has_landed(self):
         self.collide(session="seat-a")
@@ -100,11 +156,7 @@ class Reservations(LiveRuns):
                 patch.object(run, "spawn_bg", side_effect=lambda d, argv: launched.append((d, argv))):
             leases.restart(log=self.logs.append, now=3000)                  # the holder still going
             self.assertEqual(launched, [])
-            holder = config.RUNS / OLDER
-            record.save_state(holder, {**record.read_state(holder), "state": "pass", "merged": True})
-            leases.restart(dry_run=True, log=self.logs.append, now=3100)    # a dry tick starts nothing
-            self.assertEqual(launched, [])
-            self.assertIn(f"{YOUNGER} would start again: {OLDER} has landed", self.logs[-1])
+            self.land(OLDER)
             leases.restart(log=self.logs.append, now=3200)
             leases.restart(log=self.logs.append, now=3300)                  # never twice
         self.assertEqual(len(launched), 1)
@@ -119,6 +171,39 @@ class Reservations(LiveRuns):
         self.assertIn(f"its earlier attempt is kept on branch ak/{YOUNGER}",
                       (fresh / "log.txt").read_text())
         self.assertIn(f"{YOUNGER} started again as {fresh.name}: {OLDER} has landed", self.logs[-1])
+
+    def test_a_restart_whose_launch_was_refused_is_not_launched_again(self):
+        self.collide()
+        (config.RUNS / YOUNGER / "task.md").write_text(TASK)
+        leases.scan(self.repo, now=2000)
+        self.land(OLDER)
+        with patch.object(run, "preflight", side_effect=config.Error("the launch was refused")), \
+                patch.object(run, "spawn_bg", side_effect=AssertionError("launched")):
+            for now in (3000, 3060, 3120):                                  # three ticks
+                leases.restart(log=self.logs.append, now=now)
+        again = self.started_again()
+        self.assertEqual(len(again), 1, again)
+        self.assertEqual(self.state(YOUNGER)["lease_restarted"], again[0].name)
+        self.assertEqual(record.read_state(again[0])["state"], "error")      # its own ending, told
+        self.assertIn(f"WARN {YOUNGER} could not start again as {again[0].name}: "
+                      "the launch was refused", self.logs)
+
+    def test_a_wait_on_a_stopped_run_goes_on_with_the_run_started_again(self):
+        self.collide()
+        (config.RUNS / YOUNGER / "task.md").write_text(TASK)
+        leases.scan(self.repo, now=2000)
+        wait = {"kind": "run", "on": YOUNGER}
+        self.assertTrue(run.going(self.state(YOUNGER)))                   # its seat is working
+        self.assertEqual(watch.wait_fact(wait), (False, ""))
+        self.land(OLDER)
+        with patch.object(run, "preflight"), patch.object(run, "spawn_bg"):
+            leases.restart(log=self.logs.append, now=3000)
+        fresh, = self.started_again()
+        self.assertFalse(run.going(self.state(YOUNGER)))
+        self.assertEqual(watch.wait_fact(wait), (False, ""))
+        record.save_state(fresh, {**record.read_state(fresh), "state": "pass", "verdict": "PASS",
+                                  "merged": True})
+        self.assertEqual(watch.wait_fact(wait), (True, f"run {fresh.name} ended PASS, merged"))
 
     def test_a_holder_that_ended_with_nothing_landed_frees_the_wait_too(self):
         self.collide()
