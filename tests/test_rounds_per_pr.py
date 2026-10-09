@@ -110,11 +110,26 @@ class RoundsPerPr(Sandbox):
         self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1))
         b = self.earlier("20260101-0700-b", 0, branch="ak/b", **self.own(repo, 2),
                          change="20260101-0600-a", **{"from": "ak/a"})
-        lp = SimpleNamespace(rounds=3, state=record.read_state(b), run_dir=b)
+        lp = SimpleNamespace(rounds=3, state=record.read_state(b), run_dir=b, rnd=0, log=lambda _: None)
         self.assertEqual(run.allowed_rounds(lp), 1)       # one round left on the change ...
+        self.assertTrue(run.round_allowed(lp))
+        lp.rnd = 1                                        # ... and this run spent it
+        with self.assertRaisesRegex(run.Blocked, "3 review rounds spent on this change across 2 runs: "
+                                                 "3 per pull request is the budget; split or redesign it"):
+            run.round_allowed(lp)
+        lp.rnd = 0
         self.earlier("20260101-0600-a", 3, branch="ak/a", **self.own(repo, 1))
-        self.assertEqual(run.allowed_rounds(lp), 0)       # ... spent meanwhile by its sibling
+        self.assertEqual(run.allowed_rounds(lp), 0)       # spent meanwhile by its sibling ...
+        with self.assertRaisesRegex(run.Blocked, "3 review rounds spent on this change across 1 run:"):
+            run.round_allowed(lp)                         # ... so this run ends blocked, with the reason
         self.assertEqual(run.lineage_cap(lp.state, b), 0)
+        # a round under way counts from its start, on a run still going; a dead run's does not
+        self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1), state="running",
+                     review_pending={"round": 3, "summary": ""})
+        self.assertEqual(run.allowed_rounds(lp), 0)
+        self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1),
+                     review_pending={"round": 3, "summary": ""})
+        self.assertEqual(run.allowed_rounds(lp), 1)
 
     def test_the_budget_is_what_earlier_runs_left_of_three(self):
         self.assertEqual(run.round_budget(3, pr=URL, what="PR #7"), (3, None))
