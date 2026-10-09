@@ -434,7 +434,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     for store in sorted(stores):              # the last mount touching the excluded subtree
         if not store.is_dir():
             continue
-        cmd.extend(["--tmpfs", str(store), "--remount-ro", str(store)])
+        cmd.extend(["--perms", "0700", "--tmpfs", str(store), "--remount-ro", str(store)])
     if out_dir is None:
         cmd[at:at] = _bind({}, writable, homes, stores)
         yield [*cmd, "--", *argv], clean, {}

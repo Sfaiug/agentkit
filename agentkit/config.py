@@ -1408,4 +1408,6 @@ def ensure_dirs():
     # point even where its parent is read-only, and no boxed check meets it absent and creates it.
     for d in (HOME, RUNS, WT, STATE, STATE / OWNER_YES, SECRETS, TMP, ENV, WORK, HOME / "jobs"):
         d.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(d, 0o700)   # a dir someone else created stays 0700 too
+        # A box keeps consent's ancestors read-only; already-private directories need no write.
+        if d.stat().st_mode & 0o7777 != 0o700:
+            os.chmod(d, 0o700)   # a dir someone else created stays 0700 too

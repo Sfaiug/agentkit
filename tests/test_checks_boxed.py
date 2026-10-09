@@ -318,6 +318,37 @@ class ChecksBoxed(unittest.TestCase):
             self.assertEqual(run_json.read_text(), "real-yes")   # the real yes is untouched
             self.assertFalse(moved.exists())                     # an ancestor cannot be renamed away
 
+    def test_existing_private_directories_allow_nested_setup_beside_readonly_consent(self):
+        home = self.root / ".agentkit"
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(config, "HOME", home))
+            for key in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
+                stack.enter_context(patch.object(config, key, home / key.lower()))
+            home.mkdir(mode=0o755)
+            config.ensure_dirs()
+            store = config.STATE / config.OWNER_YES
+            yes = store / "acme.json"
+            yes.write_text('{"digest":"real-yes"}')
+            out = self.fixture / "out"
+            out.mkdir()
+            source = ("import sys\nfrom pathlib import Path\n"
+                      f"sys.path.insert(0, {str(REPO)!r})\n"
+                      "from agentkit import config\nconfig.ensure_dirs()\n"
+                      "(config.WORK / 'nested').write_text('setup passed')\n"
+                      "assert config.HOME.stat().st_mode & 0o7777 == 0o700\n"
+                      "try:\n (config.STATE / config.OWNER_YES / 'acme.json').write_text('forged')\n"
+                      "except OSError:\n pass\nelse:\n raise AssertionError('forged yes')\n")
+            for overlay in (False, True):
+                with self.subTest(home_overlay=overlay), box.command(
+                        [sys.executable, "-c", source], dict(os.environ), out, cwd=self.root,
+                        state=(str(home),), home_overlay=overlay) as (argv, env, spawn):
+                    spawn.pop("stop")
+                    result = subprocess.run(argv, env=env, cwd=self.root, capture_output=True,
+                                            text=True, timeout=30, **spawn)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((config.WORK / "nested").read_text(), "setup passed")
+                self.assertEqual(run.owner_said("acme"), "real-yes")
+
     def test_writable_state_and_places_never_cover_the_owner_store(self):
         state = self.root / ".agentkit/state"
         store = state / config.OWNER_YES
