@@ -10374,6 +10374,23 @@ def pr_view(url):
     return data
 
 
+PR_READ_LAG = 2.0       # seconds between reads of a PR whose head GitHub does not show yet
+PR_READ_TRIES = 5       # reads after the first, before the last one is taken as it stands
+
+
+def pr_view_showing(url, sha):
+    """The PR as GitHub shows it with `sha` as its head: read again, PR_READ_TRIES times
+    PR_READ_LAG apart, while it still shows a head before this run's own push of `sha`;
+    the last read when it never does, for the caller to judge as it would."""
+    info = pr_view(url)
+    for _ in range(PR_READ_TRIES):
+        if info.get("headRefOid") == sha or info.get("state") != "OPEN":
+            break
+        time.sleep(PR_READ_LAG)
+        info = pr_view(url)
+    return info
+
+
 def text_only_pr(repo, base, head):
     """Does every change between `base` and `head` touch only a prose or translation file?
 
@@ -10889,6 +10906,12 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if info.get("state") != "OPEN":
         raise config.Error(f"{url} is {info.get('state', '?')}, not open")
     prior = run_record.read_state(run_dir) or {}
+    pushed = prior.get("delivery_sha")
+    if (prior.get("own_pr") and pushed and pushed != prior.get("head_sha")
+            and info.get("headRefOid") == prior.get("head_sha")):
+        # GitHub's read lags the fix this run just pushed: read again until it shows it,
+        # never taking the head this run reviewed for the PR having moved under it
+        info = pr_view_showing(url, pushed)
     if "own_pr" in prior:
         # The writer was captured at launch, in preflight or the first attempt: a
         # session record rewritten since must not replace it, or the reviewer's
