@@ -25,7 +25,7 @@ class BarInOneCall(Sandbox):
     def tmux(self, *args, **_kw):
         self.calls.append(args)
         if args[0] == "list-sessions":
-            return 0, "\n".join(f"${n}\t{name}" for n, name in enumerate(self.seats))
+            return 0, "\n".join(f"${n}\t{name}\t1" for n, name in enumerate(self.seats))
         return 0, ""
 
     def test_a_seats_bar_is_one_call_with_its_title_last(self):
@@ -104,6 +104,7 @@ class SeatGoneMidWrite(Sandbox):
     def test_every_other_seats_bar_is_still_told(self):
         for name in ("acme", "web", "zeta"):
             self.assertEqual(self.tmux("new-session", "-d", "-s", name, "sleep 600")[0], 0)
+            self.assertEqual(self.tmux("set-option", "-t", f"={name}:", orch.MARK, "1")[0], 0)
         listed = statusbar.seats()
         self.assertEqual([name for _, name, _ in listed], ["acme", "web", "zeta"])
         self.assertEqual(self.tmux("kill-session", "-t", "=web")[0], 0)

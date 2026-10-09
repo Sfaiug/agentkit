@@ -34,6 +34,9 @@ class LineOne(Sandbox):
         self.addCleanup(orch.tmux_out, "kill-server")
         for name in ("fix-api", "atlas-proxies"):
             self.assertEqual(orch.tmux_out("new-session", "-d", "-s", name, "sleep 600")[0], 0)
+            # the mark ak's own start leaves on a seat: a session without it and with no agent
+            # in it is nobody's, and no bar names it
+            self.assertEqual(orch.tmux_out("set-option", "-t", f"={name}:", orch.MARK, "1")[0], 0)
         watch.seat_write("atlas-proxies", word="needs you", reason="", word_since=None)
         watch.seat_write("fix-api", word="working", reason="", word_since=None)
         self.dress(1, 4, [{"task": "gh2", "doing": "building", "step": "building", "since": 0,

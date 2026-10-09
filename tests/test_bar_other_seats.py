@@ -52,7 +52,7 @@ class OtherSeats(Sandbox):
     def tmux(self, *args, socket=None, **_kw):
         self.calls.append((args, socket))
         if args[:2] == ("list-sessions", "-F"):
-            return 0, "\n".join(f"{sid}\t{name}" for name, sid in self.ids.items())
+            return 0, "\n".join(f"{sid}\t{name}\t1" for name, sid in self.ids.items())
         if args[0] == "kill-session":
             del self.ids[args[-1].lstrip("=")]
         command = []
@@ -256,6 +256,7 @@ class OnTmux(Sandbox):
         for name in ("fix-api", "atlas-proxies"):
             self.tmux("new-window", "-d", "-t", f"={name}:", "sleep 600")
         for name, word in WORDS.items():
+            self.tmux("set-option", "-t", f"={name}:", orch.MARK, "1")
             watch.seat_write(name, word=word, reason="", word_since=None)
         config.save_session(self.cfg, "fix-api", "fable", ["astra"])
         with patch.object(orch, "tmux_out", side_effect=self.tmux):

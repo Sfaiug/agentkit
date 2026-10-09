@@ -1214,8 +1214,10 @@ def agentless(socket, names):
     """Of those sessions, the ones with no interactive harness under a live pane of theirs.
 
     An ak worker and everything under it belong to a run, not an interactive seat.
-    A pane the reading has not seen is newer than it, and says nothing yet; neither does
-    anything tmux or `ps` could not answer, and nothing is called agentless on it.
+    A pane the reading has not seen is newer than it, so the table is read again: a session
+    just started is judged by what it runs, and a watcher is no seat for as long as a reading
+    is kept.  A pane that reading has not seen either has ended, and runs nothing.
+    What tmux or `ps` could not answer says nothing, and nothing is called agentless on it.
     """
     if not names:
         return set()
@@ -1229,6 +1231,9 @@ def agentless(socket, names):
         if len(parts) == 3 and parts[0] in panes and parts[1].isdigit() and parts[2] != "1":
             panes[parts[0]].append(int(parts[1]))
     table = processes()
+    if table is not None and any(pid not in table for pids in panes.values() for pid in pids):
+        _PROCESSES.pop("table", None)
+        table = processes()
     if table is None:
         return set()
     children = {}
@@ -1237,9 +1242,7 @@ def agentless(socket, names):
     patterns = agent_programs()
     found = set()
     for name, pids in panes.items():
-        if any(pid not in table for pid in pids):
-            continue
-        stack, seen = list(pids), set()
+        stack, seen = [pid for pid in pids if pid in table], set()
         while stack:
             pid = stack.pop()
             if pid in seen:
@@ -1333,20 +1336,27 @@ def owns_hook(session, pid, is_client):
     return False
 
 
-def server_sessions(socket, marked_only, legacy):
-    """The seats one tmux server is holding: name, path, created, attached, exited.
+def seated(socket, marks):
+    """Of one tmux server's sessions, each name with its mark, the names that are seats.
 
-    On agentkit's own server a session agentkit did not start -- no mark and no record -- is a
-    seat only while an agent runs in it: somebody's `tmux new` with a harness in it is one, and
-    a watcher loop an orchestrator left there is nobody's, so it is never listed, carded or
-    counted.  The process table is read only when there is such a session to ask about.
+    A session agentkit did not start -- no mark and no record -- is a seat only while an agent
+    runs in it: somebody's `tmux new` with a harness in it is one, and a watcher loop an
+    orchestrator left there is nobody's, so it is never listed, carded or counted, on any
+    screen or bar.  The process table is read only when there is such a session to ask about.
     """
+    strangers = {name for name, mark in marks.items() if mark != "1"}
+    idle = agentless(socket, strangers - set(config.session_records())) if strangers else set()
+    return set(marks) - idle
+
+
+def server_sessions(socket, marked_only, legacy):
+    """The seats one tmux server is holding (`seated`): name, path, created, attached, exited."""
     rc, out = tmux_out("list-sessions", "-F",
                        f"#{{session_name}}\t#{{session_path}}\t#{{session_created}}\t"
                        f"#{{session_attached}}\t#{{{MARK}}}", socket=socket)
     if rc != 0:
         return []
-    found, strangers = [], set()
+    found, marks = [], {}
     for line in out.splitlines():
         parts = line.split("\t")
         if len(parts) == 4:
@@ -1360,11 +1370,9 @@ def server_sessions(socket, marked_only, legacy):
         found.append({"name": parts[0], "path": parts[1], "created": created,
                       "attached": parts[3] not in ("", "0"), "exited": False,
                       "legacy": legacy, "resumable": False})
-        if parts[4] != "1":
-            strangers.add(parts[0])
-    if strangers:
-        idle = agentless(socket, strangers - set(config.session_records()))
-        found = [session for session in found if session["name"] not in idle]
+        marks[parts[0]] = parts[4]
+    seats = seated(socket, marks)
+    found = [session for session in found if session["name"] in seats]
     exited = dead(socket) if found else set()   # a second ask, and only where there is a seat
     for session in found:
         session["exited"] = session["name"] in exited
