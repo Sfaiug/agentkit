@@ -758,7 +758,9 @@ class SessionState(unittest.TestCase):
         return 0
 
     def notice(self, kind, text):
-        with redirect_stdout(io.StringIO()):
+        # said for the seat from outside it: a question the seat asks itself is kept back
+        # until its turn ends (tests/test_question_waits_for_the_stop.py)
+        with redirect_stdout(io.StringIO()), patch.dict(os.environ, {config.SESSION_ENV: ""}):
             self.assertEqual(notify.shaped(kind, text, session=self.seat["name"]), 0)
 
     def open(self):
