@@ -6,10 +6,14 @@ last notification, which is what the menu shows as that session's state. `ak not
 the reason or declaration; the session-state transition sends the card.
 
 Workers are silent by construction. A needs episode is sent once after it has stood for a minute
-with no attached client input since it began. A done episode is sent once when the session state
-becomes done, and a declaration once whatever episodes, or versions, it turns up in. Seat input
-or finishing edits outstanding questions without pinging. Nothing is sent, or retried, for a
-seat the owner closed himself, or an episode begun before this agentkit was installed.
+with no attached client input since it began. A question a seat asks during its own turn is
+kept back in its record, apart from every notice, until a look finds that turn ended
+(`watch.ask_kept_back`): only then is the seat waiting for the answer. A done episode is sent
+once when the session state becomes done, and a declaration once whatever episodes, or versions,
+it turns up in. The owner's answer, the seat needing him no more or its finishing edits
+outstanding cards without pinging; his looking at the seat edits none. Nothing is sent, or
+retried, for a seat the owner closed himself, or an episode begun before this agentkit was
+installed.
 
 A run stays quiet while the orchestrator that launched it is alive to report it -- a job that
 fans out into a dozen runs must not fan out into a dozen pings -- and speaks for itself only
@@ -451,8 +455,11 @@ def answered(session, at):
     With no question notice standing, the needs you only the screen said -- a dialog, a
     waiting prompt -- is what was answered, and its card keeps the answer.  An answered
     question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
+    A question the seat kept back for its turn's end, that end on record, is the one he read
+    at its stop and answers: it is asked here first, whoever held this lock when it ended.
     """
     with session_lock(session) as session:
+        ask_kept(session, ended=True)
         previous = last(session)
         if previous and previous.get("watcher") is True:
             return
@@ -588,8 +595,12 @@ def close_needs(previous, status):
 
 
 def clear(session, *, notice=None):
-    """Retire a conversation's notice, or retract only the watcher's matching alert."""
+    """Retire a conversation's notice and the question it kept back for its turn's end, or
+    retract only the watcher's matching alert."""
     with session_lock(session) as session:
+        if notice is None:
+            from . import watch    # here, not at the top: watch imports this module
+            watch.seat_write(session, unasked=None)
         previous = last(session, include_seen=True)
         if not previous or previous.get("seen"):
             return
@@ -1037,7 +1048,8 @@ def _carded(session, declared):
 
 
 def needs_transition(session, card, answer, now, seat=None):
-    """One amber card after a minute of needs you without attached client input since it began.
+    """One amber card after a minute of needs you without attached client input since it began,
+    which stays `Needs you` for as long as the seat does.
 
     Never for an episode that is history, nor for a seat the owner closed himself -- `x`,
     `ak orch stop` or a pause script: its row says so and its number reopens it, and nobody
@@ -1048,12 +1060,13 @@ def needs_transition(session, card, answer, now, seat=None):
     answered_at = max(card.get("answered_at") or 0, declared.get("earlier_answer_at") or 0,
                       (declared.get("answered_at") or 0) if resolved(declared) else 0)
     answered_here = answered_at > card["since"]
-    # The seat's own question stands until he answers it: input in its seat once the card is
-    # out is him looking, and a seat that asked and works on shows no question on its screen.
     asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
              and not resolved(declared))
-    if ((_attached(session, card["since"], seat) and not (asked and card.get("sent")))
-            or answered_here):
+    # Input in the seat holds back a card that is not out yet: he is there.  One that is out
+    # says what its seat says: input there is him looking, at a dialog as at a question the
+    # seat asked, and it closes on his answer or when the seat needs him no more, which is
+    # the word changing (`transition`).
+    if (_attached(session, card["since"], seat) and not card.get("sent")) or answered_here:
         if not card.get("closed") or card.get("open_needs") or answered_here:
             if card.get("sent"):
                 _close_card(session, card, "Answered")
@@ -1310,6 +1323,10 @@ def _completion(session):
 def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
     """Record the question or declaration, then evaluate the same transition latch.
 
+    A question the seat itself asks waits for its turn's end where `watch.keeps_back` says so:
+    nothing is recorded here but the question, in the seat's record, which `ask_kept` turns
+    into this notice when that turn has ended.
+
     A done, whoever declares it, waits for every line of the seat's plan: its checks run
     first (`plan.require_done`), and the plan is read once more under the seat's lock right
     before the record (`plan.still_done`); a refusal records nothing and is raised as
@@ -1329,7 +1346,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         return 0
     if not name:
         raise config.Error("notify needs a session: use --session NAME")
-    from . import menu, plan, run, watch
+    from . import plan, watch
     gate = None
     if kind == "done":
         try:
@@ -1338,32 +1355,22 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
             raise Refused(str(exc)) from None
         gate = lambda current: plan.still_done(current, proven)   # and still, as recorded
     try:
+        own = name == config.current_session()      # the seat's own word
+        if kind == "needs" and own and event_id is None and watch.keeps_back(name):
+            # the seat's newer word ends its `ak wait` here as it does below
+            watch.seat_write(name, unasked={"text": text, "at": time.time()}, wait=None)
+            return 0
         with session_lock(name) as name:
             if gate:
                 try:
                     gate(name)
                 except config.Error as exc:
                     raise Refused(str(exc)) from None
-            previous = last(name, include_seen=True)
-            if not (event_id and previous and previous.get("source") == event_id):
-                extra = {"source": event_id, "pr": pr,
-                         "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:")),
-                         "open_needs": previous.get("open_needs", []) if previous else []}
-                earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
-                if earlier:
-                    # The answer ends its card's episode at the next tick; the newer notice
-                    # carries it there, in a field of its own: it answered only the one replaced.
-                    extra["earlier_answer_at"] = earlier
-                if kind == "done":
-                    completion = _completion(name)
-                    if completion:
-                        extra["completion"] = completion
-                    extra["runs"] = [directory.name for directory, state in menu.run_records()
-                                     if run.launched_session(state) == name and
-                                     (run.going(state) or run.unfinished(state))]
-                record(name, kind, text, **extra)
-                if event_id is None:
-                    watch.seat_write(name, wait=None)   # the seat's newer word ends its `ak wait`
+            previous = _said(name, kind, text, pr, event_id)
+            if event_id is None:
+                # the seat's newer word ends its `ak wait`, and its own word is said in place
+                # of a question it kept back
+                watch.seat_write(name, wait=None, **({"unasked": None} if own else {}))
         # A command is the visible start of the episode. Decide from now's facts, and
         # evaluate a hold later, so the recorder's own question is not left waiting
         # for the three-minute watcher tick; deciding at the later clock would date
@@ -1389,6 +1396,56 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
     except (OSError, ValueError, config.Error) as exc:
         print(f"notify: record could not be persisted ({type(exc).__name__}); retry required", file=sys.stderr)
         return 1
+
+
+def _said(name, kind, text, pr=None, event_id=None, at=None):
+    """Record what that session said, under its notice lock, which the caller holds; the
+    notice it replaced, or None.  A watcher's repeated event re-records nothing.  `at` dates
+    it where it was said before now."""
+    from . import menu, run
+    previous = last(name, include_seen=True)
+    if event_id and previous and previous.get("source") == event_id:
+        return previous
+    extra = {"source": event_id, "pr": pr,
+             "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:")),
+             "open_needs": previous.get("open_needs", []) if previous else []}
+    earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
+    if earlier:
+        # The answer ends its card's episode at the next tick; the newer notice carries it
+        # there, in a field of its own: it answered only the one replaced.
+        extra["earlier_answer_at"] = earlier
+    if kind == "done":
+        completion = _completion(name)
+        if completion:
+            extra["completion"] = completion
+        extra["runs"] = [directory.name for directory, state in menu.run_records()
+                         if run.launched_session(state) == name and
+                         (run.going(state) or run.unfinished(state))]
+    if at is not None:
+        extra["time"] = at
+    record(name, kind, text, **extra)
+    return previous
+
+
+def ask_kept(name, ended=False):
+    """The turn that seat asked in has ended: the question it kept back becomes its notice,
+    as the command would have recorded it, dated at that end (`watch.turn_ended`).
+
+    The caller holds `session_lock(name)`.  With `ended` it asks only a question whose turn's
+    end is already on record: the caller has not looked at the seat itself.  The tick's card
+    pass sends the card, like any other's.
+    """
+    from . import watch
+    kept = watch.seat_read(name).get("unasked")
+    if not isinstance(kept, dict) or not isinstance(kept.get("text"), str):
+        return False
+    at = kept.get("ended")
+    at = at if isinstance(at, (int, float)) and not isinstance(at, bool) else None
+    if ended and at is None:
+        return False
+    _said(name, "needs", kept["text"], at=at)
+    watch.kept_asked(name, kept)
+    return True
 
 
 def check():

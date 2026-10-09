@@ -295,14 +295,12 @@ def workspace_location(state, present):
     """`present`, or what a missing checkout still leaves behind.
 
     Every other cleanup keeps the local branch, so `removed; branch/PR retained`
-    is the whole story -- except a stop without `--keep`, a merged run, and a
-    branch a session stop took, which say `removed; branch removed` instead.
+    is the whole story -- except the exits `record.branch_gone` names, which say
+    `removed; branch removed` instead.
     """
     if present:
         return "present"
-    if state.get("state") == "stopped" and not state.get("stop_kept"):
-        return "removed; branch removed"
-    if state.get("merged") or state.get("branch_removed"):
+    if run_record.branch_gone(state):
         return "removed; branch removed"
     return "removed; branch/PR retained"
 

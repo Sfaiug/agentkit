@@ -168,8 +168,8 @@ class Sandbox(unittest.TestCase):
         record.save_state(run_dir, state)
         self.assertEqual(run.continue_line(state), "")
         with self.assertRaisesRegex(config.Error, r"^run-1 FAILed at its round budget \(3\); "
-                                                  r"3 rounds is the budget, so split or "
-                                                  r"re-scope the task$"):
+                                                  r"3 review rounds spent on this change across 1 run: "
+                                                  r"3 per pull request is the budget; split or redesign it$"):
             run.cmd_resume([run_dir.name, "--rounds", "3"])
         self.assertEqual(record.read_state(run_dir)["state"], "fail")
         # a budget set below three may still be raised to it, and no further
