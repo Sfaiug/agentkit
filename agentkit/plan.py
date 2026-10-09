@@ -358,11 +358,6 @@ def deferred(line):
     return bool(found and found["deferred"])
 
 
-def owed_lines(name):
-    """The plan's open lines that are the seat's own to finish: `open_lines` less the deferred."""
-    return [line for line in open_lines(name) if not deferred(line)]
-
-
 def undone(line, found):
     """The stripped line without its trailing done field: the one `LINE` parsed, never a
     ` · done ` that a check command itself holds."""

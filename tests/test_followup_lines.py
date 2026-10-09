@@ -184,13 +184,11 @@ class Planned(Sandbox):
         self.assertIn(f" · {plan.named(self.repo)} · deferred · written ", line)
         self.assertTrue(plan.deferred(line))
         self.assertEqual(plan.open_lines(SEAT), [line])
-        self.assertEqual(plan.owed_lines(SEAT), [])
         self.assertEqual(plan.outcomes(SEAT), [])
         proven = plan.require_done(SEAT)            # nothing owed: a done may be recorded ...
         plan.still_done(SEAT, proven)
         self.assertEqual(plan.open_lines(SEAT), [line])    # ... while the line stays open
-        own = plan.add(SEAT, "the hero looks calm", None)
-        self.assertEqual(plan.owed_lines(SEAT), [own])
+        plan.add(SEAT, "the hero looks calm", None)          # ... and an owed line still holds it
         with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open"):
             plan.require_done(SEAT)
         # its fix lands: the check passes on the default branch and the line ticks
