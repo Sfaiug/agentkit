@@ -130,10 +130,37 @@ class LeaseScan(unittest.TestCase):
         # the first run conflicts with main, not with the second, which changed none of it;
         # and main's own change to api.py:1 is not the second run's diff either
         self.assertEqual(leases.scan(self.repo, now=2000), {})
+        # ... yet the rest of its diff is still compared: a line both change is a collision
+        self.edit(first, "api.py", 15, "first's line 15", commit=True)
+        self.assertEqual(leases.scan(self.repo, now=2050)["20260101-0900-second"],
+                         {"waits_on": "20260101-0800-first", "files": ["api.py"], "since": 2050})
         third = self.run_on("20260101-1000-third", 1000)                 # cut from the old base
         self.edit(third, "api.py", 15, "third's line 15")
         self.assertEqual(leases.scan(self.repo, now=2100)["20260101-1000-third"]["waits_on"],
-                         "20260101-0900-second")
+                         "20260101-0800-first")
+
+    def test_runs_cut_from_bases_that_never_met_collide_with_nobody(self):
+        self.git(self.repo, "checkout", "-qb", "feature")
+        self.edit(self.repo, "api.py", 5, "the feature's line 5", commit=True)
+        feature = self.git(self.repo, "rev-parse", "HEAD")
+        self.git(self.repo, "checkout", "-q", "main")
+        self.edit(self.repo, "api.py", 5, "main's line 5", commit=True)
+        moved = self.git(self.repo, "rev-parse", "HEAD")
+        self.run_on("20260101-0800-feature", 800, base=feature)        # changes nothing ...
+        self.run_on("20260101-0900-main", 900, base=moved)             # ... and neither does this
+        self.assertEqual(leases.scan(self.repo, now=2000), {})
+
+    def test_an_unreadable_file_in_one_checkout_costs_no_pair_its_record(self):
+        older = self.run_on("20260101-0900-older", 900)
+        younger = self.run_on("20260101-1000-younger", 1000)
+        self.edit(older, "api.py", 5, "older's line 5", commit=True)
+        self.edit(younger, "api.py", 5, "younger's line 5")
+        (younger / "secret.txt").write_text("unreadable\n")
+        (younger / "secret.txt").chmod(0)
+        self.addCleanup((younger / "secret.txt").chmod, 0o600)
+        found = leases.scan(self.repo, self.logs.append, now=2000)
+        self.assertEqual(found["20260101-1000-younger"]["files"], ["api.py"])
+        self.assertTrue(any("left unreadable paths" in line for line in self.logs), self.logs)
 
     def test_only_going_runs_with_a_checkout_of_their_own_count(self):
         gone = self.run_on("20260101-0900-gone", 900, state="fail")
