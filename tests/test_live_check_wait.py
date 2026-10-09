@@ -72,6 +72,19 @@ class LiveCheckWait(MergedRuns):
         self.setUp()
         self.merged("awaits")
         self.assertEqual(self.word({"name": SEAT, "exited": True})["word"], "working")
+        # ... and a job's `all N tasks finished` is no word of the seat's: beside a run of its
+        # own failed after it, the seat still waits on the live check, and no card goes out
+        self.setUp()
+        self.merged("awaits")
+        (self.runs / "failed").mkdir()
+        (self.runs / "failed" / "run.json").write_text(json.dumps(
+            {"run_id": "failed", "launched_session": SEAT, "state": "fail", "verdict": "FAIL",
+             "handed_back": True, "started_at": time.time() - 900, "finished_at": time.time() - 10}) + "\n")
+        with patch.object(config, "STATE", self.state):
+            config.notify_path(SEAT).write_text(json.dumps(
+                {"session": SEAT, "kind": "done", "text": "all 3 tasks finished", "source": "job:acme",
+                 "time": time.time() - 30}))
+        self.assertEqual(self.word()["word"], "working")
 
     def test_what_is_his_below_outranks_the_wait(self):
         """A handed-back run left undecided, a run failed after the seat's done, a watcher's

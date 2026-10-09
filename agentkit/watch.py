@@ -2253,6 +2253,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             reason = (status_mod.parked_line(first, name, now=at)
                       or f"run {name} parked: {reason}")
         return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
+    # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
+    # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
+    # seat's own standing until a newer notice, but a question on its screen, or typed text
+    # nobody sent, outranks it.  Read here, once, for the live-check wait below and for rung 5.
+    if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or (
+            not jobs and notify.job_done(last))):
+        last = None
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
     # probe, read every tick (`awaiting_live`), so the stop hook, this word and the card it
     # decides agree that nothing here is his.  Only where nothing below is his either: a run
@@ -2287,13 +2294,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         told = " ".join(restart.split()) if isinstance(restart, str) else ""
         return {"word": "needs you", "since": None,
                 "reason": f"{reason} · {told}" if told else reason}
-    # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
-    # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
-    # seat's own standing until a newer notice, but a question on its screen, or typed text
-    # nobody sent, outranks it.
-    if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or (
-            not jobs and notify.job_done(last))):
-        last = None
     # 5. it said it was done, and nothing above it is still going. A run a later
     # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.
     if last and last["kind"] == "done":
