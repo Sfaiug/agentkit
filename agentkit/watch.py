@@ -499,7 +499,13 @@ def prompted_since(name, at):
     hooks/seat-state.sh stamps each prompt's moment into the seat's stop file, whichever
     harness it came from, and a turn that has since finished keeps that stamp.
     """
-    for alias in {name, *config.session_aliases(name)}:
+    try:
+        current = config.resolve_session(name)
+        names = [current, *(old for old, target in config.session_aliases().items()
+                            if target == current)]
+    except config.Error:
+        return False
+    for alias in names:
         try:
             turn = json.loads(config.stop_path(alias).read_text(encoding="utf-8")).get("turn")
         except (OSError, ValueError, AttributeError, config.Error):
