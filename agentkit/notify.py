@@ -9,9 +9,11 @@ Workers are silent by construction. A needs episode is sent once after it has st
 with no attached client input since it began. A question a seat asks during its own turn is
 kept back in its record, apart from every notice, until a look finds that turn ended
 (`watch.ask_kept_back`): only then is the seat waiting for the answer. A done episode is sent
-once when the session state becomes done, and a declaration once whatever episodes, or versions, it turns up in. Seat input
-or finishing edits outstanding questions without pinging. Nothing is sent, or retried, for a
-seat the owner closed himself, or an episode begun before this agentkit was installed.
+once when the session state becomes done, and a declaration once whatever episodes, or versions,
+it turns up in. The owner's answer, the seat needing him no more or its finishing edits
+outstanding cards without pinging; his looking at the seat edits none. Nothing is sent, or
+retried, for a seat the owner closed himself, or an episode begun before this agentkit was
+installed.
 
 A run stays quiet while the orchestrator that launched it is alive to report it -- a job that
 fans out into a dozen runs must not fan out into a dozen pings -- and speaks for itself only
@@ -1046,7 +1048,8 @@ def _carded(session, declared):
 
 
 def needs_transition(session, card, answer, now, seat=None):
-    """One amber card after a minute of needs you without attached client input since it began.
+    """One amber card after a minute of needs you without attached client input since it began,
+    which stays `Needs you` for as long as the seat does.
 
     Never for an episode that is history, nor for a seat the owner closed himself -- `x`,
     `ak orch stop` or a pause script: its row says so and its number reopens it, and nobody
@@ -1057,12 +1060,13 @@ def needs_transition(session, card, answer, now, seat=None):
     answered_at = max(card.get("answered_at") or 0, declared.get("earlier_answer_at") or 0,
                       (declared.get("answered_at") or 0) if resolved(declared) else 0)
     answered_here = answered_at > card["since"]
-    # The seat's own question stands until he answers it: input in its seat once the card is
-    # out is him looking, and a seat that asked and works on shows no question on its screen.
     asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
              and not resolved(declared))
-    if ((_attached(session, card["since"], seat) and not (asked and card.get("sent")))
-            or answered_here):
+    # Input in the seat holds back a card that is not out yet: he is there.  One that is out
+    # says what its seat says: input there is him looking, at a dialog as at a question the
+    # seat asked, and it closes on his answer or when the seat needs him no more, which is
+    # the word changing (`transition`).
+    if (_attached(session, card["since"], seat) and not card.get("sent")) or answered_here:
         if not card.get("closed") or card.get("open_needs") or answered_here:
             if card.get("sent"):
                 _close_card(session, card, "Answered")
