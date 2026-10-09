@@ -2208,6 +2208,15 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     wait = waiting_on(name)
     if wait:
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
+    # 2b. ... or a run of its own merged and its project has yet to prove itself live: ak's
+    # own probe, read every tick (`awaiting_live`), so the stop hook, this word and the card
+    # it decides agree that nothing here is his
+    pending = [state for _, state in mine if awaiting_live(state, now=at)]
+    if pending:
+        newest = max(pending, key=lambda state: state.get("finished_at") or 0)
+        title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
+        return {"word": "working", "reason": f"waiting on the live check · {title}".rstrip(" ·"),
+                "since": min(state["finished_at"] for state in pending)}
     # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
     # somebody is still in has a screen to read.  The parked run below keeps its
     # word for the quiet prompt, but a turn answering him outranks it: the other
@@ -5701,6 +5710,21 @@ def health_command(repo, sha, command):
             return not timed_out and proc.returncode == 0, tail.strip()
     except OSError as exc:
         return False, str(exc)
+
+
+def awaiting_live(state, now=None):
+    """A merged run whose project proves itself live (`health:`) and has not yet: ak's own
+    probe, read every tick, so its seat has nothing to do but wait on it -- the stop hook lets
+    the turn end on it and the seat's ladder reads it as working.  Whether the project proves
+    itself is the one record the merge left (`run.merge_record`) and the tick keeps until it
+    passes (`after_merge_health`); nothing is read again here."""
+    now = time.time() if now is None else now
+    finished = state.get("finished_at")
+    if (not state.get("merged") or state.get("live_at") or not state.get("repo")
+            or not isinstance(finished, (int, float)) or isinstance(finished, bool)
+            or not 0 <= now - finished <= AFTER_MERGE_WINDOW):
+        return False
+    return bool((state.get("health") or {}).get("command"))
 
 
 def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes):

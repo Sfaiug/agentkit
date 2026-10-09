@@ -5246,7 +5246,7 @@ def merge_body(lp, head, url=None):
 def merge_record(wt, sha):
     """What a merge leaves on the run's record beside `merged`, for the tick and the stop hook
     to read alike: the `health:` the delivered commit declares, which proving the product live
-    stands on (`watch.after_merge_health` reads it first; `stop.awaiting_live` reads nothing
+    stands on (`watch.after_merge_health` reads it first; `watch.awaiting_live` reads nothing
     else).  Nothing where no checkout has the commit: the tick reads GitHub's then."""
     command = declared_at(wt, sha, "health") if wt and sha and Path(wt).is_dir() else None
     return {"health": {"command": command}} if command else {}
@@ -9775,7 +9775,9 @@ def cmd_merge(argv):
             if info.get("headRefOid") != head or info.get("baseRefName") != lp.target.removeprefix("origin/"):
                 note(lp, "PR head or target changed since PASS; a new run is required", failed=True)
             elif info.get("state") == "MERGED":
-                state["merged"] = True
+                # a delivery whose merge went through before its record did: what proving
+                # it live stands on is recorded here as on every merge path
+                state.update(merged=True, **merge_record(lp.wt, head))
             elif info.get("state") != "OPEN":
                 note(lp, "PR is closed without a merge", failed=True)
         if not state.get("merged") and not state.get("merge_failed"):

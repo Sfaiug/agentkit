@@ -133,9 +133,9 @@ class RecordedWaits(unittest.TestCase):
         self.assertEqual(run.merge_record(None, sha), {})           # no checkout at hand: the tick reads GitHub's
         # the hook reads that record and nothing else: a checkout's own file decides nothing
         self.merged("recorded", health=True, tree=bare)
-        self.assertTrue(stop.awaiting_live(json.loads((self.runs / "recorded" / "run.json").read_text())))
+        self.assertTrue(watch.awaiting_live(json.loads((self.runs / "recorded" / "run.json").read_text())))
         self.merged("tree-only", health=False, tree=with_health)
-        self.assertFalse(stop.awaiting_live(json.loads((self.runs / "tree-only" / "run.json").read_text())))
+        self.assertFalse(watch.awaiting_live(json.loads((self.runs / "tree-only" / "run.json").read_text())))
 
     def test_a_reply_stands_while_nothing_is_owed_whatever_the_prompt_said(self):
         for opened in ("Which parser does it use?", "Merge the parser now", "is main green"):
@@ -189,6 +189,27 @@ class RecordedWaits(unittest.TestCase):
                 self.prompt("go")
                 self.merged(name, **kwargs)
                 self.assertEqual(json.loads(self.stop())["decision"], "block")
+
+    def word(self):
+        """The seat's word off its own records alone, as every screen and the card pass read it."""
+        records = [(directory, json.loads((directory / "run.json").read_text()))
+                   for directory in sorted(self.runs.iterdir())]
+        with patch.object(config, "STATE", self.state), patch.object(config, "RUNS", self.runs):
+            return watch.session_state(SEAT, records=records, session={"name": SEAT},
+                                       harness="claude", live={}, auth_out={}, gh_out={},
+                                       token_out=None)
+
+    def test_the_seat_reads_working_while_its_merged_run_awaits_live(self):
+        self.merged("awaits")
+        answer = self.word()
+        self.assertEqual(answer["word"], "working", answer)
+        self.assertIn("waiting on the live check", answer["reason"])
+        # ... and once the project is live, or the window is over, that run holds no word
+        for name, how in (("live", {"live": True}), ("old", {"age": watch.AFTER_MERGE_WINDOW + 60})):
+            with self.subTest(name):
+                self.setUp()
+                self.merged(name, **how)
+                self.assertNotEqual(self.word()["word"], "working")
 
     def test_a_done_this_turn_ends_it_with_work_open(self):
         self.owes()
