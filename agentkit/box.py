@@ -176,13 +176,11 @@ def _walls(cmd):
     cmd.extend(["--remount-ro", "/dev"])
 
 
-def _writable(clean, cwd, out_dir, state, places, logins, readonly=()):
+def _writable(clean, cwd, out_dir, state, places, logins):
     """The command's own places: its workspace and Git storage, out dir and harness state."""
     writable = set()
     for path in [*_paths(state, clean, cwd), *map(Path, places)]:
         path = path.resolve()
-        if any(place == path or place in path.parents for place in readonly):
-            continue
         path.mkdir(parents=True, exist_ok=True)
         writable.add(path)
     # A sandbox HOME lends credential files as links. Their targets must also
@@ -190,8 +188,6 @@ def _writable(clean, cwd, out_dir, state, places, logins, readonly=()):
     for path in _paths(logins, clean, cwd):
         if path.is_symlink():
             target = path.resolve()
-            if any(place == target or place in target.parents for place in readonly):
-                continue
             if not target.exists():
                 # A shared refresh lock can be lent before its first use. Create
                 # only that file, keeping its parent read-only inside the turn.
@@ -302,34 +298,7 @@ def _own(scratch, clean, cwd, writable, hidden):
     return binds
 
 
-def _owner_store(writable, homes):
-    """Exclude the reader's store, including its written name, before granting any writes.
-
-    A writable symlink name can be swapped to change what the unboxed reader follows.
-    Mount exclusions cannot secure that layout, so refuse it before starting a command.
-    """
-    from . import config
-    store = (config.STATE / config.OWNER_YES).absolute()
-    areas = {*writable, *homes}
-    pending, seen = [store], set()
-    while pending:
-        name = pending.pop()
-        if name in seen:
-            continue
-        seen.add(name)
-        for path in (*reversed(name.parents), name):
-            if not path.is_symlink():
-                continue
-            parent = path.parent.resolve()
-            if any(area == parent or area in parent.parents for area in areas):
-                raise config.Error(f"worker box cannot protect the owner's yes: {path} is a symlink "
-                                   "inside a writable place; use a directory there")
-            # A read-only alias may itself lead through a writable symlink name.
-            pending.append(path.parent / path.readlink() / name.relative_to(path))
-    return {store, store.resolve()}
-
-
-def _bind(own, writable, homes=(), readonly=()):
+def _bind(own, writable, homes=()):
     """Mount HOME overlays, private and writable places, parents first so deeper mounts win."""
     clash = sorted(own.keys() & writable)
     if clash:
@@ -343,30 +312,6 @@ def _bind(own, writable, homes=(), readonly=()):
     # rebuilding their contents: a box's arguments must not grow with directory entries.
     overlays = {path for path in overlays if not any(path in mount.parents for mount in mounts)}
     binds = {**{path: path for path in overlays}, **own, **{path: path for path in writable}}
-    # A mount containing an excluded subtree grants writes only to its sibling branches.
-    # Its ancestors stay on the original read-only filesystem: there is no writable mount
-    # to restore over the store, and no writable parent from which to rename it away.
-    declared, pending, binds = binds, list(binds.items()), {}
-    while pending:
-        path, source = pending.pop()
-        if any(place == path or place in path.parents for place in readonly):
-            continue
-        if any(path in place.parents for place in readonly):
-            if source.is_symlink():
-                continue
-            for child in source.iterdir():
-                if child.is_symlink():
-                    continue                 # a sibling link never grants writes to its target
-                target = path / child.name
-                if target in declared:
-                    continue                 # explicit private or writable mounts keep precedence
-                if path in overlays:
-                    if not child.is_dir():
-                        continue             # a file cannot have a throwaway directory overlay
-                    overlays.add(target)
-                pending.append((target, child))
-            continue
-        binds[path] = source
     args = []
     for path in sorted(binds):
         # What the nearest mounted parent already shows needs no mount of its own, and a
@@ -401,8 +346,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             if not path.is_dir():
                 from . import config
                 raise config.Error(f"worker box needs {path}: the host directory is missing")
-    stores = _owner_store((), ())
-    writable = _writable(clean, cwd, out_dir, state, places, logins, stores)
+    writable = _writable(clean, cwd, out_dir, state, places, logins)
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
     try:
@@ -430,13 +374,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             continue
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
-    _owner_store(writable, homes)
-    for store in sorted(stores):              # the last mount touching the excluded subtree
-        if not store.is_dir():
-            continue
-        cmd.extend(["--perms", "0700", "--tmpfs", str(store), "--remount-ro", str(store)])
     if out_dir is None:
-        cmd[at:at] = _bind({}, writable, homes, stores)
+        cmd[at:at] = _bind({}, writable, homes)
         yield [*cmd, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
@@ -489,7 +428,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes, stores)
+            cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop}

@@ -159,10 +159,6 @@ def scripted(body):
 
 def stateful(adapter, directory, harnesses=()):
     """Fake adapters keep their plans and call logs as their declared harness state."""
-    directory = Path(directory)
-    directory.mkdir(parents=True, exist_ok=True)
-    # Consent pins a containing directory read-only; an existing log can still be bound writable.
-    (directory / "calls.jsonl").touch(exist_ok=True)
     adapter = Path(adapter)
     names = harnesses or ([adapter.stem] if adapter.suffix == ".sh" else [])
     for name in names:

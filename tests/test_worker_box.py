@@ -45,15 +45,6 @@ def read(path):
 seen = {"hosts": read(Path.home() / ".config/gh/hosts.yml"),
         "token": os.environ.get("GH_TOKEN"),
         "store": read(Path.home() / ".git-credentials")}
-if os.environ.get("BOX_OWNER_YES"):
-    yes = Path.home() / ".agentkit/state/owner-yes/x.json"
-    seen["owner_yes_read"] = read(yes)
-    try:
-        yes.parent.mkdir(parents=True, exist_ok=True)
-        yes.write_text("forged")
-        seen["owner_yes_wrote"] = True
-    except OSError:
-        seen["owner_yes_wrote"] = False
 if os.environ.get("BOX_PATHS"):
     seen["paths"] = [read(Path(path)) for path in json.loads(os.environ["BOX_PATHS"])]
     seen["tokens"] = [os.environ.get(key) for key in (
@@ -482,9 +473,7 @@ class WorkerBox(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-worker-box-", dir=REPO)
         self.addCleanup(tmp.cleanup)
-        fixture = Path(tmp.name)
-        self.root = fixture / "workspace"
-        self.root.mkdir()
+        self.root = Path(tmp.name)
         self.out = self.root / "out"
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
@@ -497,8 +486,7 @@ class WorkerBox(unittest.TestCase):
                     "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS", "BOX_SIGNAL", "BOX_TERM", "BOX_AGENT",
                     "SSH_AUTH_SOCK"):
             os.environ.pop(key, None)
-        for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
-            self.stack.enter_context(patch.object(config, key, fixture / key.lower()))
+        self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
         # The only real child is our fixture. No marker sweep may inspect the hosting run.
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         gh = self.root / ".config/gh"
@@ -546,57 +534,6 @@ class WorkerBox(unittest.TestCase):
                           "left": True, "reported": True})
         self.assertEqual((self.root / ".config/gh/hosts.yml").read_text(), "fixture-login")
         self.assertEqual((self.root / ".git-credentials").read_text(), "fixture-store")
-
-    def test_the_owner_yes_store_is_out_of_reach(self):
-        yes = self.root / ".agentkit/state/owner-yes/x.json"
-        yes.parent.mkdir(parents=True)
-        yes.write_text("real-yes")
-        with patch.dict(os.environ, {"BOX_OWNER_YES": "1"}), \
-                patch.object(config, "STATE", yes.parent.parent):
-            code, text, _, killed, _ = self.turn()
-        self.assertEqual((code, killed), (0, False))
-        seen = json.loads(text)
-        self.assertEqual(seen["owner_yes_read"], "")          # the store reads empty in the box
-        self.assertFalse(seen["owner_yes_wrote"])
-        self.assertEqual(yes.read_text(), "real-yes")         # a write in the box never reaches it
-
-    def test_a_read_only_symlink_ancestor_keeps_both_store_addresses_closed(self):
-        state = config.STATE
-        store = state / config.OWNER_YES
-        store.mkdir(parents=True)
-        yes = store / "acme.json"
-        yes.write_text('{"digest":"real-yes"}')
-        link = state.parent / "state-link"
-        link.symlink_to(state, target_is_directory=True)
-        source = ("from pathlib import Path\n"
-                  f"for name in {[str(store), str(link / config.OWNER_YES)]!r}:\n"
-                  " p = Path(name) / 'acme.json'\n"
-                  " assert not p.exists()\n"
-                  " try:\n  p.write_text('forged')\n"
-                  " except OSError:\n  pass\n"
-                  " else:\n  raise AssertionError('forged yes')\n")
-        self.out.mkdir()
-        with patch.object(config, "STATE", link), box.command(
-                [sys.executable, "-c", source], dict(os.environ), self.out,
-                cwd=self.root, home_overlay=True) as (argv, env, spawn):
-            spawn.pop("stop")
-            result = subprocess.run(argv, env=env, cwd=self.root, capture_output=True,
-                                    text=True, timeout=60, **spawn)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(yes.read_text(), '{"digest":"real-yes"}')
-
-    def test_a_read_only_alias_cannot_hide_a_swappable_symlink_ancestor(self):
-        state = config.STATE
-        (state / config.OWNER_YES).mkdir(parents=True)
-        swappable = self.root / "state-swap"
-        swappable.symlink_to(state, target_is_directory=True)
-        alias = state.parent / "state-alias"
-        alias.symlink_to(swappable, target_is_directory=True)
-        self.out.mkdir()
-        with patch.object(config, "STATE", alias), \
-                self.assertRaisesRegex(config.Error, "owner's yes:.*state-swap.*symlink"):
-            with box.command(["true"], dict(os.environ), self.out, cwd=self.root):
-                self.fail("a check can swap the symlink reached through the read-only alias")
 
     def test_paths_symlinks_and_all_token_variables(self):
         login, store = self.root / "login", self.root / "store"

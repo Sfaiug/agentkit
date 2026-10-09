@@ -431,7 +431,7 @@ class Lander(LanderFixture, unittest.TestCase):
         self.wake.assert_not_called()
 
     def test_a_busy_suite_gives_back_and_retakes_the_checkers_heavy_turn(self):
-        flag = config.TMP / "busy"
+        flag = self.root / "busy"
         cmd = (f"test -f '{flag}' || {{ touch '{flag}'; exit 75; }}; "
                'test "$AK_HEAVY_TURN" = 1')
         directory = self.member(once=cmd)
@@ -455,7 +455,7 @@ class Lander(LanderFixture, unittest.TestCase):
         self.wake.assert_called_once()
 
     def test_a_sharded_suite_holds_derived_turns_without_claiming_its_member(self):
-        pieces = config.TMP / "pieces"
+        pieces = self.root / "pieces"
         suite = f'printf "%s\\n" "$AK_SHARD" >> "{pieces}" && {SUITE}'
         directory = self.member()
         original = record.read_state(directory)

@@ -5324,7 +5324,7 @@ def owner_commit(body, oid):
 
 
 def owner_base(wt, target, head):
-    """Let Git select its merge base from copied, verified commit bytes in the protected store.
+    """Let Git select its merge base from copied, verified commit bytes in the owner-yes store.
 
     The shared rev-list is only a candidate inventory: every linked parent must be present.
     This keeps an altered commit, shallow boundary or commit graph from truncating ancestry.
@@ -5495,7 +5495,7 @@ def owner_said(run_id):
 
 
 def owner_say(run_id, fingerprint):
-    """Keep the owner's yes to that content, where a worker's box cannot write."""
+    """Keep the owner's yes to that content in ak's state folder, none of a box's writable places."""
     path = config.STATE / config.OWNER_YES / f"{run_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}")

@@ -178,8 +178,6 @@ class Limits(unittest.TestCase):
 
     def plan(self, plan):
         (self.root / "plan.json").write_text(json.dumps(plan))
-        if plan.get("arm_git"):
-            (self.root / "slow-git").touch()
 
     def calls(self, role=None):
         path = self.root / "calls.jsonl"
@@ -261,7 +259,6 @@ class Limits(unittest.TestCase):
     def test_v5f_done_when_past_its_limit_fails_the_round_and_leaves_no_children(self):
         self.repo()
         child = self.root / "child.lock"
-        child.touch()
         hang = f"flock -x {shlex.quote(str(child))} bash -c 'echo begun; exec sleep 600' & wait"
         self.stack.enter_context(patch.object(run_record, "SILENCE_MINUTES", 0.05))
         task = self.task([hang])
@@ -1115,7 +1112,6 @@ class Limits(unittest.TestCase):
         lock = self.root / "suite.lock"
         lock.touch()
         taken = self.root / "taken"
-        taken.touch()
         hang = (f"echo ok 8g; (flock -x {shlex.quote(str(lock))} "
                 f"bash -c 'echo taken > {shlex.quote(str(taken))}; sleep 600') & "
                 "sleep 600")

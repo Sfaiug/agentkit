@@ -26,14 +26,12 @@ class InterruptedRuns(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-recover-runs-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
-        (self.root / "calls").touch()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(config, "HOME", self.root / ".agentkit"))
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
             self.stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         self.stack.enter_context(patch.object(config, "CODE", self.root / "code"))
-        self.hold = config.TMP / "hold"
         sockets = self.root / "sockets"
         sockets.mkdir(mode=0o700)
         self.bin = self.root / "bin"
@@ -44,11 +42,9 @@ class InterruptedRuns(unittest.TestCase):
             "HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
             "AK_RUN_LOG": "", "AGENTKIT_DISCORD_WEBHOOK": "off",
-            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(sockets),
             "TMUX": "", "NO_COLOR": "1", "PYTHONDONTWRITEBYTECODE": "1",
             config.ADAPTER_DIR_ENV: str(adapters), "RECOVERY_FIXTURE": str(self.root),
-            "RECOVERY_HOLD": str(self.hold),
             "AK_SLOT_POLL": ".05",
             "AK_HOST_READINGS": json.dumps({"free_mb": 4096, "mem_total_mb": 16384,
                                             "load": 1, "cpus": 8,
@@ -102,7 +98,7 @@ with (root / "calls").open("a") as calls:
     calls.write(role + "\\n")
 if role == "executor":
     deadline = time.monotonic() + 15
-    while pathlib.Path(os.environ["RECOVERY_HOLD"]).exists():
+    while (root / "hold").exists():
         assert time.monotonic() < deadline, "fixture was not released"
         time.sleep(.02)
     pathlib.Path(sys.argv[4], "deliverable").write_text("fixture work\\n")
@@ -123,7 +119,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         stateful(path, self.root)
 
     def finish_children(self):
-        self.hold.unlink(missing_ok=True)
+        (self.root / "hold").unlink(missing_ok=True)
         for child in self.children:
             try:
                 child.wait(timeout=20)
@@ -212,12 +208,12 @@ if role == "reviewer" and (root / "fail-review").exists():
     def test_legacy_live_run_identity_and_stale_menu_snapshot_do_not_interrupt_work(self):
         source = self.root / "task.md"
         source.write_text(self.task)
-        self.hold.touch()
+        (self.root / "hold").touch()
         with self.track_background(), redirect_stdout(io.StringIO()):
             self.assertEqual(run.main([str(source), "--exec", self.executor,
                                        "--review", self.reviewer, "--bg"]), 0)
         directory = run_record.run_dirs()[0]
-        self.wait_for(lambda: (self.root / "calls").read_text())
+        self.wait_for(lambda: (self.root / "calls").exists())
         active = run_record.read_state(directory)
         self.assertTrue(run_record.process_active(active))
         active.pop("process_identity")
@@ -225,7 +221,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.assertTrue(run_record.process_active(active), active)
         stale = {**active, "pid": 99999999}
         self.assertEqual(run.reap(directory, stale)["state"], "running")
-        self.hold.unlink()
+        (self.root / "hold").unlink()
         self.finish_children()
         self.assertEqual(run_record.read_state(directory)["state"], "pass")
         self.notified.assert_not_called()
@@ -344,11 +340,11 @@ if role == "reviewer" and (root / "fail-review").exists():
 
     def test_numeric_resume_reuses_scratch_workspace_and_active_resume_cannot_be_started_twice(self):
         directory = self.scratch_receipt("scratch-resume")
-        self.hold.touch()
+        (self.root / "hold").touch()
         with self.track_background():
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(run.cmd_resume([directory.name, "--bg"]), 0)
-        self.wait_for(lambda: (self.root / "calls").read_text())
+        self.wait_for(lambda: (self.root / "calls").exists())
         state = run_record.read_state(directory)
         self.assertEqual(state["state"], "running")
         self.assertTrue(run_record.process_active(state))
@@ -426,7 +422,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.assertIn("loop process", state["deaths"][0]["reason"])
         self.notified.assert_not_called()
         self.assertEqual(watch.settled({"run": directory.name}), "pending")
-        self.assertEqual((self.root / "calls").read_text(), "")
+        self.assertFalse((self.root / "calls").exists())
 
     def dead_job(self, name, seat="owner", tasks=None, **fields):
         """A job receipt whose launcher is gone: a pid no process has, and no identity."""
@@ -502,9 +498,12 @@ if role == "reviewer" and (root / "fail-review").exists():
                                                                config.SESSION_ENV)}), \
                 patch.object(run, "task_repo", side_effect=lambda meta, path, *rest: (
                     looked.append(Path.cwd()) or task_repo(meta, path, *rest))), \
+                patch.dict(os.environ, {"AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}), \
                 patch.object(jobs, "JOB_TICK", 0.05), \
                 patch.object(jobs, "JOB_PICKER_INTERVAL", 0), \
                 redirect_stdout(io.StringIO()):
+            for key in ("AGENTKIT_RUN", "AK_PARENT_RUN"):
+                os.environ.pop(key, None)
             self.assertEqual(run.cmd_resume([job_dir.name]), 0)
         job = jobs.read_job(job_dir)
         by_name = {task["name"]: task for task in job["tasks"]}

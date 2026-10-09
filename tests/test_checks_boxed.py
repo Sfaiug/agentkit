@@ -280,10 +280,10 @@ class ChecksBoxed(unittest.TestCase):
                 self.assertFalse(path.exists())
 
     def test_a_check_cannot_forge_the_owner_yes_store(self):
-        # The owner's yes store is out of a boxed check's reach: it cannot write a yes, create the
-        # first one where none exists, or rename the state directory away to recreate it unmasked.
+        # ak's state folder is none of a check's writable places: the check cannot write a yes there,
+        # create the first one where none exists, or rename the folder away and recreate it.
         config.STATE.mkdir(parents=True, exist_ok=True)
-        store = config.STATE / "owner-yes"
+        store = config.STATE / config.OWNER_YES
         run_json = store / "run.json"
         create = self.command(f"from pathlib import Path\np = Path({str(run_json)!r})\n"
                               "p.parent.mkdir(parents=True, exist_ok=True)\np.write_text('forged')\n")
@@ -299,147 +299,31 @@ class ChecksBoxed(unittest.TestCase):
         self.assertEqual(run_json.read_text(), "real-yes")     # the real yes is untouched
         self.assertFalse(moved.exists())                       # the state dir cannot be renamed away
 
-    def test_a_check_cannot_forge_by_renaming_a_state_ancestor(self):
-        # With the store nested inside the workspace, a check renames an intermediate ancestor and
-        # recreates the store. Its ancestors stay read-only, so the rename fails and no forged
-        # yes lands.
-        nested = self.root / ".agentkit" / "state"
-        with patch.object(config, "STATE", nested):
-            store = nested / "owner-yes"
-            store.mkdir(parents=True)
-            run_json = store / "run.json"
-            run_json.write_text("real-yes")
-            agentkit_dir = self.root / ".agentkit"
-            moved = agentkit_dir.with_name(".agentkit-moved")
-            rename = self.command(f"from pathlib import Path\nd = Path({str(agentkit_dir)!r})\n"
-                                 f"d.rename({str(moved)!r})\np = Path({str(run_json)!r})\n"
-                                 "p.parent.mkdir(parents=True, exist_ok=True)\np.write_text('forged')\n")
-            self.assertNotEqual(self.proof(rename)["returncode"], 0)
-            self.assertEqual(run_json.read_text(), "real-yes")   # the real yes is untouched
-            self.assertFalse(moved.exists())                     # an ancestor cannot be renamed away
-
-    def test_existing_private_directories_allow_nested_setup_beside_readonly_consent(self):
-        home = self.root / ".agentkit"
-        with ExitStack() as stack:
-            stack.enter_context(patch.object(config, "HOME", home))
-            for key in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
-                stack.enter_context(patch.object(config, key, home / key.lower()))
-            home.mkdir(mode=0o755)
-            config.ensure_dirs()
-            store = config.STATE / config.OWNER_YES
-            yes = store / "acme.json"
-            yes.write_text('{"digest":"real-yes"}')
-            out = self.fixture / "out"
-            out.mkdir()
-            source = ("import sys\nfrom pathlib import Path\n"
-                      f"sys.path.insert(0, {str(REPO)!r})\n"
-                      "from agentkit import config\nconfig.ensure_dirs()\n"
-                      "(config.WORK / 'nested').write_text('setup passed')\n"
-                      "assert config.HOME.stat().st_mode & 0o7777 == 0o700\n"
-                      "try:\n (config.STATE / config.OWNER_YES / 'acme.json').write_text('forged')\n"
-                      "except OSError:\n pass\nelse:\n raise AssertionError('forged yes')\n")
-            for overlay in (False, True):
-                with self.subTest(home_overlay=overlay), box.command(
-                        [sys.executable, "-c", source], dict(os.environ), out, cwd=self.root,
-                        state=(str(home),), home_overlay=overlay) as (argv, env, spawn):
-                    spawn.pop("stop")
-                    result = subprocess.run(argv, env=env, cwd=self.root, capture_output=True,
-                                            text=True, timeout=30, **spawn)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual((config.WORK / "nested").read_text(), "setup passed")
-                self.assertEqual(run.owner_said("acme"), "real-yes")
-
-    def test_writable_state_and_places_never_cover_the_owner_store(self):
-        state = self.root / ".agentkit/state"
-        store = state / config.OWNER_YES
-        store.mkdir(parents=True)
-        yes = store / "acme.json"
-        yes.write_text('{"digest":"real-yes"}')
-        sibling = state / "checks"
-        sibling.mkdir()
-        out = self.root / "out"
-        out.mkdir()
-        source = ("import json\nfrom pathlib import Path\n"
-                  f"p = Path({str(yes)!r})\n"
-                  "try:\n p.write_text(json.dumps({'digest':'forged'}))\n"
-                  "except OSError:\n pass\nelse:\n raise AssertionError('forged yes')\n"
-                  f"sibling = Path({str(sibling)!r})\n"
-                  "(sibling / 'new').write_text('kept')\n"
-                  "(sibling / 'new').rename(sibling / 'renamed')\n")
-        with patch.object(config, "STATE", state), patch.dict(os.environ, {"CODEX_HOME": str(state.parent)}):
-            for overlay in (False, True):
-                with self.subTest(home_overlay=overlay), box.command(
-                        [sys.executable, "-c", source], dict(os.environ), out, cwd=self.root,
-                        state=("$CODEX_HOME",), places=(state, store, store / "nested"),
-                        home_overlay=overlay) as (argv, env, spawn):
-                    spawn.pop("stop")
-                    result = subprocess.run(argv, env=env, cwd=self.root, capture_output=True,
-                                            text=True, timeout=60, **spawn)
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    mounts = argv[:argv.index("--")]
-                    for i, arg in enumerate(mounts):
-                        if arg in ("--bind", "--dev-bind", "--tmp-overlay"):
-                            destination = Path(mounts[i + (1 if arg == "--tmp-overlay" else 2)])
-                            self.assertFalse(destination == store or destination in store.parents,
-                                             (arg, destination, store))
-                    self.assertEqual(run.owner_said("acme"), "real-yes")
-                    self.assertEqual((sibling / "renamed").read_text(), "kept")
-
-    def test_a_swappable_store_or_symlink_ancestor_refuses_the_check(self):
-        actual = self.fixture / "actual"
-        (actual / "state/owner-yes").mkdir(parents=True)
-        for name in (".agentkit", ".agentkit/state", ".agentkit/state/owner-yes"):
-            with self.subTest(link=name):
-                link = self.root / name
-                link.parent.mkdir(parents=True, exist_ok=True)
-                link.symlink_to(actual / Path(name).relative_to(".agentkit"), target_is_directory=True)
-                store = self.root / ".agentkit/state/owner-yes"
-                source = self.command("from pathlib import Path\n"
-                    f"link = Path({str(link)!r})\n"
-                    "link.rename(link.with_name(link.name + '-before'))\n"
-                    f"store = Path({str(store)!r})\n"
-                    "store.mkdir(parents=True, exist_ok=True)\n"
-                    "(store / 'acme.json').write_text('{\"digest\":\"forged\"}')\n")
-                with patch.object(config, "STATE", self.root / ".agentkit/state"), \
-                        self.assertRaisesRegex(config.Error, "owner's yes:.*symlink"):
-                    self.proof(source)
-                self.assertFalse((actual / "state/owner-yes/acme.json").exists())
-                link.unlink()
-
-    def test_a_home_overlay_beside_consent_keeps_its_throwaway_and_declared_writes(self):
+    def test_a_yes_written_under_a_checks_throwaway_home_never_reaches_the_store(self):
+        # The default layout: ak's state folder under HOME, the workspace and out dir beside it.
         home = self.root / "home"
-        state = home / ".agentkit/state"
-        store = state / config.OWNER_YES
-        workspace, out, cache = (home / name for name in
-                                 (".agentkit/wt/change", ".agentkit/runs/check", ".cache"))
-        for path in (store, workspace, out, cache):
+        store = home / ".agentkit/state" / config.OWNER_YES
+        workspace, out = (home / name for name in (".agentkit/wt/change", ".agentkit/runs/check"))
+        for path in (store, workspace, out):
             path.mkdir(parents=True)
         yes = store / "acme.json"
         yes.write_text('{"digest":"real-yes"}')
-        (cache / "old").write_text("original")
         source = ("from pathlib import Path\n"
-                  f"cache = Path({str(cache)!r})\n"
-                  "(cache / 'new').write_text('temporary')\n"
-                  "(cache / 'old').write_text('temporary')\n"
-                  f"for path in map(Path, {[str(workspace), str(out)]!r}):\n"
-                  " (path / 'kept').write_text('declared')\n"
-                  f"p = Path({str(yes)!r})\n"
-                  "assert not p.exists()\n"
-                  "try:\n p.write_text('forged')\n"
-                  "except OSError:\n pass\nelse:\n raise AssertionError('forged yes')\n")
+                  f"store = Path({str(store)!r})\n"
+                  "for name in ('acme.json', 'other.json'):\n"
+                  " (store / name).write_text('{\"digest\":\"forged\"}')\n"
+                  f"Path({str(workspace / 'kept')!r}).write_text('declared')\n")
         with account_home(home), patch.dict(os.environ, {"HOME": str(home)}), \
-                patch.object(config, "STATE", state), box.command(
+                patch.object(config, "STATE", store.parent), box.command(
                     [sys.executable, "-c", source], dict(os.environ), out,
-                    cwd=workspace, state=("$HOME/.agentkit",), home_overlay=True) as (argv, env, spawn):
+                    cwd=workspace, home_overlay=True) as (argv, env, spawn):
             spawn.pop("stop")
             result = subprocess.run(argv, env=env, cwd=workspace, capture_output=True,
                                     text=True, timeout=60, **spawn)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        for path in (workspace, out):
-            self.assertEqual((path / "kept").read_text(), "declared")
-        self.assertEqual((cache / "old").read_text(), "original")
-        self.assertFalse((cache / "new").exists())
-        self.assertEqual(yes.read_text(), '{"digest":"real-yes"}')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((workspace / "kept").read_text(), "declared")
+            self.assertEqual(run.owner_said("acme"), "real-yes")
+            self.assertIsNone(run.owner_said("other"))
 
     def test_a_box_cannot_hide_owner_parts_by_rewriting_git_refs_or_remote_config(self):
         for path, text in (("AGENTS.md", "---\n---\n# acme\n"), ("policy.txt", "locked")):

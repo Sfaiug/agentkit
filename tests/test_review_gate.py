@@ -286,7 +286,7 @@ sys.exit(1)
                                     r"a run goes back to its orchestrator to split or re-scope$"):
             self.launch(None, "--rounds", "5")
         self.assertEqual(record.run_dirs(), [])
-        self.assertEqual((self.root / "calls.jsonl").read_text(), "")
+        self.assertFalse((self.root / "calls.jsonl").exists())
 
     def test_task_template_defaults_to_three_rounds(self):
         path = REPO / "templates" / "task.md"
