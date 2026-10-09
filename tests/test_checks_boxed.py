@@ -3,6 +3,7 @@
 from contextlib import ExitStack
 import errno
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -505,7 +506,7 @@ class ChecksBoxed(unittest.TestCase):
                     current, original = {
                         "section": (head + ":" + path, target + ":" + path),
                         "target-commit": (target, earlier),
-                        "head-commit": (head, earlier),
+                        "head-commit": (head, head),
                         "root-tree": (target + "^{tree}", earlier + "^{tree}"),
                         "parent-tree": (head + ":policy", target + ":policy"),
                         "ancestor-commit": (ancestor, ancestor)}[case]
@@ -513,6 +514,11 @@ class ChecksBoxed(unittest.TestCase):
                     fake = zlib.decompress((repo / ".git/objects" / original[:2] / original[2:]).read_bytes())
                     if case == "ancestor-commit":
                         fake = fake.replace(b"parent " + target.encode(), b"parent " + earlier.encode())
+                    if case == "head-commit":
+                        current_tree, target_tree = (run.git(repo, "rev-parse", rev + "^{tree}")
+                                                     for rev in (head, target))
+                        fake = fake.replace(b"tree " + current_tree.encode(), b"tree " + target_tree.encode())
+                self.assertNotEqual(hashlib.sha1(fake).hexdigest(), oid)
                 object_path = repo / ".git/objects" / oid[:2] / oid[2:]
                 source = ("from pathlib import Path; import zlib; "
                           f"p = Path({str(object_path)!r}); p.unlink(); "
