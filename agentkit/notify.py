@@ -907,7 +907,7 @@ def _close_card(session, card, status):
     previous = last(session, include_seen=True)
     if previous and previous.get("open_needs"):
         extra = {k: v for k, v in previous.items() if k not in ("session", "kind", "text", "open_needs")}
-        record(session, previous["kind"], previous["text"], **extra, open_needs=[])
+        record(session, previous["kind"], previous["text"], **extra, open_needs=left)
     return left
 
 

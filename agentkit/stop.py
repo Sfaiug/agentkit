@@ -40,7 +40,8 @@ def _ending_work(name, records):
 
 def prompted(name, at):
     """A new prompt begins a turn and retires its previous quiet answer."""
-    watch.seat_write(name, turn_began=at, quiet_done=None)
+    # Its text-free stamp also prevents older checks from publishing after this prompt.
+    watch.seat_write(name, turn_began=at, quiet_done={"time": at})
 
 
 def quiet_done(name, text):
@@ -52,10 +53,10 @@ def quiet_done(name, text):
         with watch.seat_lock(current):
             live = watch.seat_read(current)
             previous = live.get("quiet_done")
-            # Plan checks can outlive the prompt or a newer answer's checks.
-            newer = [watch._stamp(live.get("turn_began")),
-                     watch._stamp(previous.get("time")) if isinstance(previous, dict) else None]
-            if any(stamp is not None and stamp > at for stamp in newer):
+            # A screen's first working look can arrive late; only a real prompt or answer
+            # retires these checks, and both leave their stamp in this private fact.
+            newer = watch._stamp(previous.get("time")) if isinstance(previous, dict) else None
+            if newer is not None and newer > at:
                 return False
             if not watch._seat_put(current, live, {"quiet_done": {"time": at, "text": text}}):
                 raise config.Error(f"could not record the quiet answer for {current}")
@@ -85,13 +86,13 @@ def recorded_ending(name, records=None, *, question=False, completion=None, sinc
         quiet = watch.seat_read(name).get("quiet_done")
         for kind, declared in (("quiet", quiet), ("done", notify.last(name))):
             stamp = watch._stamp(declared.get("time")) if isinstance(declared, dict) else None
-            if (stamp is None or not math.isfinite(stamp)
-                    or (since is not None and stamp < since)):
+            if stamp is None or not math.isfinite(stamp):
                 continue
             if kind == "quiet":
                 if not isinstance(declared.get("text"), str) or watch.prompted_since(name, stamp):
                     continue
-            elif (declared["kind"] != "done" or notify.failed_declaration(
+            elif ((since is not None and stamp < since) or declared["kind"] != "done"
+                  or notify.failed_declaration(
                     declared, mine, run.supersession_index(records))):
                 continue
             try:
