@@ -37,6 +37,28 @@ def _ending_work(name, records):
     return records, mine
 
 
+def owed(name):
+    """Whether the seat owes work: an open line in its plan, or a plan nothing can read, which
+    proves nothing done."""
+    from . import plan
+    try:
+        return bool(plan.open_lines(name))
+    except config.Error:
+        return True
+
+
+def awaiting_live(state, now=None):
+    """A merged run of the seat's whose project proves itself live (`health:`) and has not yet:
+    ak's own step, read every tick, so the seat has nothing to do but wait on it."""
+    now = time.time() if now is None else now
+    finished = state.get("finished_at")
+    if (not state.get("merged") or state.get("live_at") or not state.get("repo")
+            or not isinstance(finished, (int, float)) or isinstance(finished, bool)
+            or not 0 <= now - finished <= watch.AFTER_MERGE_WINDOW):
+        return False
+    return bool(run.declared(state["repo"], "health"))
+
+
 def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
                     since=None):
     """(the turn may end, parked records), from the evidence its caller can see.
@@ -56,12 +78,14 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
               and run.unfinished(state, records)]
     if parked:
         return False, parked
+    if not owed(name):
+        return True, []     # nothing is owed: no open line in the plan, so the stop stands
     if completion() if callable(completion) else completion:
         return True, []
     if supplied is None:
         _, mine = _ending_work(name, None)
     for _, state in mine:
-        if run.going(state):
+        if run.going(state) or awaiting_live(state):
             return True, []
         if since is not None and state.get("state") not in ("error", "waiting"):
             for key in ("started_at", "queued_at"):

@@ -25,9 +25,9 @@ from agentkit import config, host, job as jobs, menu, notify, orch, watch
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "stop-seat"
-REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
-          "declaring done with ak notify done, "
-          "or waiting on a run or pull request with ak wait. Continue: decide the next step and do it.")
+REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
+          "prompt or ak notify needs, no ak notify done, no run or pull request you are waiting on. "
+          "Continue: decide the next step and do it.")
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 STOOD = 300     # longer than watch.STALL_WAIT: how long a tick lets a screen stand
 # The screen a Muse seat opens on, captured: its update notice, its banner and an empty
@@ -36,6 +36,7 @@ BANNER = (REPO / "tests/fixtures/muse-prompt-pane.txt").read_text()
 # A real Claude Code 2.1.280 Stop payload with a background command and a background agent in
 # flight; tests/fixtures/README.md says how it was captured.
 BACKGROUND = REPO / "tests/fixtures/claude-stop-background.json"
+OWED = '- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n'      # an open plan line: the seat owes work
 
 
 def launched(task):
@@ -72,6 +73,8 @@ class StopHook(unittest.TestCase):
         self.runs.mkdir(parents=True)
         self.turn = time.time() - 60
         self.latch(self.turn)
+        # the seat owes work: an open line in its plan, the one thing a stop is judged against
+        (self.state / f"plan-{SEAT}.md").write_text(OWED)
 
     # --- the fixtures a turn is judged from ---------------------------------
 
@@ -161,7 +164,7 @@ class StopHook(unittest.TestCase):
                       "- Parser fixed.\n- Tests pass.\nShall I go on?",
                       "The parser is fixed. Should we proceed?"):
             with self.subTest(asked=asked):
-                self.latch(self.turn)
+                self.setUp()        # the third stop before asked the owner; that question is gone
                 for _ in range(2):
                     self.assertEqual(self.blocked(self.stop(
                         f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]))["reason"], REASON)
@@ -432,6 +435,8 @@ Path.iterdir, Path.read_text = during_census, during_completion
         record = json.loads((self.state / f"stop-{SEAT}.json").read_text())
         self.assertEqual(record["blocks"], 0)
         self.assertGreater(record["turn"], self.turn)
+        # the third stop asked the owner; their prompt answered it (test_answer_closes_question)
+        (self.state / f"notify-{SEAT}.json").unlink()
         self.assertEqual(self.blocked(self.stop())["decision"], "block")
 
     # --- who this hook may never speak for ----------------------------------
@@ -497,6 +502,7 @@ class StopNudge(unittest.TestCase):
         self.stack.enter_context(redirect_stdout(io.StringIO()))
         self.stack.enter_context(redirect_stderr(io.StringIO()))
         config.ensure_dirs()
+        config.plan_path(SEAT).write_text(OWED)     # the seat owes work
         self.now = 100000.0
         self.stack.enter_context(patch.object(watch.time, "time", lambda: self.now))
         self.harness, self.records = "muse", []
