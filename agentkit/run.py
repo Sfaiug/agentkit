@@ -547,6 +547,16 @@ def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
     return kept + [f"{suite}  # once"]
 
 
+def round_checks(cmds, repo, target=None, *, landing):
+    """The checks a round runs, as the loop settles them: without a landing (a scratch task,
+    `--no-merge`) every done-when line, `# once` marks stripped; with one, the task's own
+    lines less the repository's suite, which runs once at landing however the task names
+    it (`with_suite`).  What the check ceiling counts (`task.checks_refusal`)."""
+    if not landing:
+        return [taskfile.split_once(cmd)[0] for cmd in cmds]
+    return taskfile.group_commands(with_suite(cmds, repo, target, landing=True))[0]
+
+
 def slugify(title):
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40].strip("-")
     return slug or "task"
@@ -9534,13 +9544,12 @@ def preflight(run_dir, opts, log):
         state = run_record.read_state(run_dir) or {}
         state["title"] = title
         run_record.save_state(run_dir, state)
-        every, once = taskfile.done_when_groups(body, run_dir / "task.md")
+        cmds = taskfile.done_when(body, run_dir / "task.md")
         repo = task_repo(meta, run_dir / "task.md", state.get("task_file"))
-        if opts["--no-merge"] or repo is None:
-            every = [taskfile.split_once(cmd)[0]
-                     for cmd in taskfile.done_when(body, run_dir / "task.md")]
-            once = []
-        refusal = taskfile.checks_refusal(every)   # here a `# once` line without a landing counts
+        landing = not (opts["--no-merge"] or repo is None)
+        every = round_checks(cmds, repo, meta.get("target"), landing=landing)
+        once = taskfile.group_commands(cmds)[1] if landing else []
+        refusal = taskfile.checks_refusal(every)   # the checks a round runs, as settled here
         if refusal:
             raise config.Error(refusal)
         commands = " ; ".join(every)

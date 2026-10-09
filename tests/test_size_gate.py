@@ -1,7 +1,8 @@
 """Past the size ceilings, ak refuses with `split it`.
 
-A task has at most three per-round checks (`task.MAX_CHECKS`; a `# once` line is the suite's
-where the run lands, and a check preflight counts where it does not), and a seat's own pull request
+A task has at most three checks a round runs (`task.MAX_CHECKS`, counted by preflight on the
+list the loop settles: the repository's suite line, however the task names it, runs once at
+landing and never counts; a `# once` line counts where the run has no landing), and a seat's own pull request
 gets its first review only up to 400 added lines (`task.MAX_PR_LINES`), generated files aside
 and nothing deleted counted, as `run.diff_lines` counts them.  tests/test_own_pr_rounds.py drives the
 refusal through the review itself.  Offline: a real checkout whose attributes mark a
@@ -46,12 +47,19 @@ class SizeGate(Sandbox):
         self.git("commit", "-qm", message)
 
     def test_a_task_has_at_most_three_per_round_checks(self):
-        self.assertIsNone(taskfile.launch_refusal({}, ["true", "true", "true"]))
-        self.assertIsNone(taskfile.launch_refusal({}, ["true", "true", "true", "bash tests/smoke.sh  # once"]))
         refused = ("4 done-when checks: a task has at most 3, one behaviour a reviewer holds "
                    "in one read; split it")
-        self.assertEqual(taskfile.launch_refusal({}, ["true"] * 4), refused)
-        # without a landing the `# once` line runs every round, and preflight counts it
+        (self.repo / "AGENTS.md").write_text("---\ntests: python3 tests/suite.py 2>&1 | tee suite.log\n---\n# widget\n")
+        three, suite = ["true", "true", "true"], "python3 tests/suite.py"
+        # the list a round runs: the suite line, bare or whole, runs once at landing and never counts
+        self.assertEqual(run.round_checks(three + [suite], self.repo, landing=True), three)
+        self.assertEqual(run.round_checks(three + ["bash tests/smoke.sh  # once"], self.repo, landing=True), three)
+        self.assertIsNone(taskfile.checks_refusal(run.round_checks(three + [suite], self.repo, landing=True)))
+        self.assertEqual(taskfile.checks_refusal(run.round_checks(three + ["false"], self.repo, landing=True)), refused)
+        # without a landing every line runs each round, `# once` or the suite's
+        self.assertEqual(taskfile.checks_refusal(run.round_checks(three + [suite], self.repo, landing=False)), refused)
+        self.assertIsNone(taskfile.launch_refusal({}, ["true"] * 4))         # the ceiling is preflight's
+        # ... which preflight applies: here a scratch task's `# once` line
         directory = config.RUNS / "20260102-0900-scratch"
         directory.mkdir(parents=True)
         (directory / "task.md").write_text("---\nrepo: none\n---\n# Scratch\n\n## Goal\nx\n\n## Done when\n"
