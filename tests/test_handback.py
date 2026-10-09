@@ -238,7 +238,7 @@ class HandBack(Sandbox):
     def test_a_hand_back_reaches_a_seat_stopped_on_background_work(self):
         """ak-merge-speed, 6 Oct 22:54: a Claude turn that stopped with a background shell
         still running reads working, though its composer is open and a line typed there goes
-        in at once; an ak tell line reached it, and a failed run's hand-back waited two hours."""
+        in at once; an ak wait line reached it, and a failed run's hand-back waited two hours."""
         directory = self.ended("run-bg", owner=SEAT, no_merge=True)
         self.rows = [self.live()]
         self.screen, self.hooked_event = "working", "Stop/background"

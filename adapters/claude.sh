@@ -157,7 +157,7 @@ interactive)
   printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 %s ' \
       "$OWN_RULES_OFF"
   # Seat preparation runs in the seat's actual cwd before the TUI, on either login: bypass
-  # permissions, Claude's own messages between sessions refused (seats talk through `ak tell`),
+  # permissions, Claude's own messages between sessions refused (seats never message one another),
   # and the first-run questions answered, trust in this directory among them.
   printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
   # Remote Control on, named after the seat: the owner follows his seats from the Claude

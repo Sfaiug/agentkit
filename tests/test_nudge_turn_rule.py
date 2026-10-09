@@ -3,7 +3,7 @@
 Muse, OpenCode and Antigravity declare `[stop] enforce = "nudge"`, and the tick types the
 continue keystroke at a stop hooks/orchestrator-stop.sh would send back.  A run of the seat's
 own parked and undecided holds the stop past a run going, an `ak wait` and a `done` there just
-as the hook holds it, and a seat whose `ak wait` names a session that has stopped is told so,
+as the hook holds it, and a seat whose `ak wait` names a run that has ended is told so,
 with its reason, before any bare `continue`.  Offline: a fake tmux, fake adapters for the three
 harnesses, fake run receipts and a throwaway HOME; the hook runs as its harness runs it, JSON on
 stdin.  The seat's turn began once, long ago, and never moves: what is decided here is read off
@@ -33,8 +33,7 @@ TYPED = {"muse": ("\n\u276f\n", "\n\u276f {}\n"), "antigravity": ("\n>\n", "\n> 
 SAID = "Here is my recommendation. Let me know if I should continue."
 PARKED, THEIRS = "20260101-0800-parked", "20260101-0900-schema"
 LATER = "20260101-1000-parked"
-TOLD = (f"{OTHER} is now needs you: session closed: press its number to reopen. "
-        "Decide the next step.")
+TOLD = f"run {THEIRS} ended pass; your wait is over. Decide the next step."
 
 
 class NudgeTurnRule(Sandbox):
@@ -99,7 +98,7 @@ class NudgeTurnRule(Sandbox):
         before = len(self.sent)
         watch.stop_nudge(self.seat, self.harness, self.pane, notify.last(SEAT),
                          menu.run_records(), False, lambda line: None)
-        watch.tell_waits(self.cfg, lambda line: None)
+        watch.wait_over(self.cfg, lambda line: None)
         return self.sent[before:]
 
     def receipt(self, name, owner, state, **extra):
@@ -116,7 +115,7 @@ class NudgeTurnRule(Sandbox):
 
     def wait(self):
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(watch.wait_main([OTHER]), 0)
+            self.assertEqual(watch.wait_main([THEIRS]), 0)
 
     def hook_holds(self, blocks=0):
         """Does hooks/orchestrator-stop.sh send this same stop back, where a harness runs it,

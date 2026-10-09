@@ -68,16 +68,11 @@
   and `waiting_on` decide state; hookless stops use stop.recorded_ending.
   For run, job, orch, menu, notify, update, usage, worker and hooks.
   Leaks: run.json writes and run state groups.
-- `retire.py`: the tick's pass that tells a project's seats, once a day via `tell.queue`,
-  each feature switch on for everyone two weeks, to take out of the code: the seat whose plan
-  names it, else the newest. `retire.json` under STATE. For watch. Leak: menu's `features_run`,
-  `switch_rows`, `switches_command`; plan's `open_lines`, `LINE`.
-- `tell.py`: `ak tell`, one seat's message to another for every harness: queued in the
-  receiver's `tell` seat file under the seat's own lock, typed only by the tick through
-  `watch.type_at_prompt`, its receipt naming `seat:<sender>`, or `ak` for ak's own line
-  (`queue`), ak's own never waiting twice. For bin/ak, retire and the tick.
-- `told.py`: the heading of an `ak tell` line, the one home its words have: tell.py writes it,
-  hooks/seat-state.sh knows a prompt by it. Imports nothing of agentkit, for the hook's speed.
+- `retire.py`: the tick's pass that writes, once a day, a plan line for each feature switch
+  on for everyone two weeks, to take out of the code, in the seat whose plan names it, else
+  the newest, with the project's own switch list as the line's check. `retire.json` under
+  STATE. For watch. Leak: menu's `features_run`, `switch_rows`, `switches_command`; plan's
+  `open_lines`, `LINE`, `add`.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
