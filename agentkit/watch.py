@@ -495,14 +495,23 @@ def resume_after_boot(cfg, dry_run=False, log=print):
 def prompted_since(name, at):
     """Has a prompt gone into that seat since `at` -- the line, or his own?
 
-    hooks/seat-state.sh stamps each prompt's moment into the seat's stop file, whichever
-    harness it came from, and a turn that has since finished keeps that stamp.
+    Hooks keep the prompt latch under the harness launch name through a rename. Read all
+    names leading to this seat: its live-state move cannot overwrite that prompt evidence.
     """
     try:
-        turn = json.loads(config.stop_path(name).read_text(encoding="utf-8")).get("turn")
-    except (OSError, ValueError, AttributeError, config.Error):
+        current = config.resolve_session(name)
+        names = [current, *(old for old, target in config.session_aliases().items()
+                            if target == current)]
+    except config.Error:
         return False
-    return isinstance(turn, (int, float)) and not isinstance(turn, bool) and turn > at
+    for each in names:
+        try:
+            turn = json.loads(config.stop_path(each).read_text(encoding="utf-8")).get("turn")
+        except (OSError, ValueError, AttributeError, config.Error):
+            continue
+        if isinstance(turn, (int, float)) and not isinstance(turn, bool) and turn > at:
+            return True
+    return False
 
 
 def continue_turns(cfg, log, accounts=False):
@@ -1713,6 +1722,9 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
     fields = dict(found, **stop_marks(harness, pane, found, previous, at))
     if any(previous.get(key) != value for key, value in fields.items()):
         seat_write(name, **fields)
+    if stop_enforced(harness):
+        from . import stop
+        stop.observe_turn(name, found["state"], progress_output(harness, pane_tail(pane)), at)
     return found
 
 

@@ -44,6 +44,28 @@ def prompted(name, at):
     watch.seat_write(name, turn_began=at, quiet_done={"time": at})
 
 
+def observe_turn(name, state, said, at):
+    """Bind a hookless quiet answer's first stopped look, then retire it on another turn.
+
+    A first working look alone can be late. Work after an observed stop, or changed stopped
+    output, does prove another turn. Its barrier is the prior stop, before a new command,
+    rather than the late working look that might arrive during that command's checks.
+    """
+    with watch.seat_lock(name):
+        live = watch.seat_read(name)
+        quiet = live.get("quiet_done")
+        stamp = watch._stamp(quiet.get("time")) if isinstance(quiet, dict) else None
+        if (stamp is None or not math.isfinite(stamp) or stamp > at
+                or not isinstance(quiet.get("text"), str)):
+            return
+        stopped = quiet.get("stopped")
+        if stopped is None:
+            if state == "at_prompt":
+                watch._seat_put(name, live, {"quiet_done": {**quiet, "stopped": [at, said]}})
+        elif state == "working" or (state == "at_prompt" and stopped[1] != said):
+            watch._seat_put(name, live, {"quiet_done": {"time": stopped[0], "stopped": stopped}})
+
+
 def quiet_done(name, text):
     """Record an information answer as a turn ending, without announcing a job."""
     at = time.time()
@@ -53,10 +75,11 @@ def quiet_done(name, text):
         with watch.seat_lock(current):
             live = watch.seat_read(current)
             previous = live.get("quiet_done")
-            # A screen's first working look can arrive late; only a real prompt or answer
-            # retires these checks, and both leave their stamp in this private fact.
+            # Real prompts and observed stop/turn boundaries survive late working looks.
             newer = watch._stamp(previous.get("time")) if isinstance(previous, dict) else None
-            if newer is not None and newer > at:
+            if ((newer is not None and (newer > at or (
+                    newer == at and previous.get("stopped") and "text" not in previous)))
+                    or watch.prompted_since(current, at)):
                 return False
             if not watch._seat_put(current, live, {"quiet_done": {"time": at, "text": text}}):
                 raise config.Error(f"could not record the quiet answer for {current}")
