@@ -36,6 +36,9 @@ class AsWritten(Sandbox):
         self.addCleanup(self.view, "kill-server")
         self.assertEqual(orch.tmux_out("new-session", "-d", "-s", "fix-api", "-x", "120", "-y",
                                        "8", "sleep 600")[0], 0)
+        # the mark ak's own start leaves on a seat: without it a session with no agent in it is
+        # nobody's, and no bar's right end is written on it
+        self.assertEqual(orch.tmux_out("set-option", "-t", "=fix-api:", orch.MARK, "1")[0], 0)
         attach = f"env -u TMUX tmux -L {orch.socket_name()} attach-session -t =fix-api:"
         self.view("-f", "/dev/null", "new-session", "-d", "-s", "view", "-x", "120", "-y", "8",
                   attach)
@@ -87,11 +90,14 @@ class AsWritten(Sandbox):
     def test_d_line_one_s_end_names_seats_and_no_session_made_by_hand(self):
         # sessions made by hand under names no seat can have -- tmux reads the name it is given as
         # a format, and keeps these -- are no seats: never named, never counted, so no cell of
-        # theirs can stand where tmux draws another's; the seat beside them is named as it is
+        # theirs can stand where tmux draws another's; the seat beside them is named as it is.
+        # Each carries a seat's mark, so its name alone is what keeps it off the bar.
         for name in ("## web #{session_name} 50% %H", "z-\U0001F468\u200d\U0001F469-0",
                      "web_2-api"):
-            self.assertEqual(orch.tmux_out("new-session", "-d", "-s", orch.tmux_text(name),
-                                           "sleep 600")[0], 0)
+            rc, sid = orch.tmux_out("new-session", "-d", "-P", "-F", "#{session_id}", "-s",
+                                    orch.tmux_text(name), "sleep 600")
+            self.assertEqual(rc, 0, sid)
+            self.assertEqual(orch.tmux_out("set-option", "-t", sid, orch.MARK, "1")[0], 0)
             watch.seat_write(name, word="needs you", reason="", word_since=None)
         statusbar._write("fix-api", "fable", "working", None, self.cfg)
         said = "! web_2-api needs you"
