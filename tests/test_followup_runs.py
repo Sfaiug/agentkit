@@ -504,6 +504,20 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
         self.assertNotIn("deferred", ending)
 
+    def test_the_ending_names_a_line_as_the_plan_holds_it(self):
+        # the seat's own line, from a merge no executor was marked for ...
+        line = plan.add("seat", "Fix " + DEFECT, CHECK, self.repo,
+                        proven=self.git(self.repo, "rev-parse", "origin/main"), deferred=False)
+        self.assertEqual(plan.open_lines("seat"), [line])
+        self.assertFalse(plan.deferred(line))
+        # ... stands as it was when a later merge's fix run takes the same check
+        later, state = self.source("later", followup_checks={DEFECT: CHECK})
+        self.assertEqual(len(self.start(later, state)), 1)
+        self.assertEqual(plan.open_lines("seat"), [line])
+        ending = run.handback_line(record.read_state(later), later, self.cfg)
+        self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
+        self.assertNotIn("deferred", ending)
+
     def test_a_followup_whose_run_could_not_start_keeps_its_line_owed(self):
         other = "python3 -c 'from other import ratio; ratio(0)'"
         directory, state = self.source("items", followups=[DEFECT, OTHER],

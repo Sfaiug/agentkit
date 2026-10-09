@@ -3582,12 +3582,13 @@ def plan_followup(session, repo, item, check, proven, log, deferred=True):
     """Write one review follow-up into the seat's plan, unless an open line already holds its
     check in this project; the entry the run's ending names it by, or why the plan refused it.
     `proven` is the commit the check failed on, which the line names; the line is `deferred`
-    where a fix run takes it."""
+    where a fix run takes it.  The entry says how the plan holds the line: an open line that
+    already held the check stands as it was, whatever this merge asked."""
     from . import plan   # here, not at the top: a seat's small verb, this the loop
     outcome = "Fix " + item.splitlines()[0].replace("·", "-")
     try:
-        plan.add(session, outcome, check, repo, proven=proven, deferred=deferred)
-        entry = {"outcome": outcome, "deferred": deferred}
+        line = plan.add(session, outcome, check, repo, proven=proven, deferred=deferred)
+        entry = {"outcome": outcome, "deferred": plan.deferred(line)}
     except (config.Error, OSError) as exc:
         entry = {"outcome": outcome, "refused": str(exc)}
     log(f"follow-up for {session}: {outcome}" + (f" (not planned: {entry['refused']})"
