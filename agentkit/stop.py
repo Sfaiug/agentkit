@@ -57,19 +57,20 @@ def quiet_done(name, text):
 
 
 def _quiet_matches(bound, output):
-    """A native message must still finish the visible output before binding that pane."""
+    """A visible tail can omit the start of a native answer; its end must still match."""
     if isinstance(bound, dict) and isinstance(output, dict):
         return bound == output
     if isinstance(bound, dict):
-        return isinstance(output, str) and output.endswith(bound["message"])
+        return isinstance(output, str) and bool(output) and (
+            output.endswith(bound["message"]) or bound["message"].endswith(output))
     if isinstance(output, dict):
-        return isinstance(bound, str) and bound.endswith(output["message"])
+        return _quiet_matches(output, bound)
     return bound == output
 
 
 def quiet_ending(name, *, state="at_prompt", said=None, message=None, at=None,
                  captured_at=None, observe=False):
-    """One quiet lifecycle for a look and every acceptance, under the same seat lock.
+    """One quiet lifecycle for a look and every acceptance, serialized against rename.
 
     A first working look can be late. Once stopped or accepted, later work or changed
     output retires the answer. Keep its command stamp as the barrier: a delayed look
@@ -78,44 +79,60 @@ def quiet_ending(name, *, state="at_prompt", said=None, message=None, at=None,
     at = time.time() if at is None else at
     captured_at = at if captured_at is None else captured_at
     output = {"message": " ".join(message.split())} if message is not None else said
-    if not watch.seat_read(name).get("quiet_done"):
+    from . import notify
+    while True:
+        # Rename holds this same lock while moving the record. A native hook must not
+        # wait on a delivery that is itself waiting for the harness to accept its input.
+        lock = (notify.session_lock(name) if message is None else
+                notify.session_lock(name, wait=False))
+        with lock as current:
+            if current is None:
+                return None
+            with watch.seat_lock(current):
+                answer = _quiet_ending(current, state, output, at, captured_at, observe)
+            if config.resolve_session(current) == current:
+                return answer
+            name = current       # a rename performed inside this writer moves its fact too
+
+
+def _quiet_ending(name, state, output, at, captured_at, observe):
+    live = watch.seat_read(name)
+    quiet = live.get("quiet_done")
+    stamp = watch._stamp(quiet.get("time")) if isinstance(quiet, dict) else None
+    if (stamp is None or not math.isfinite(stamp) or stamp > at
+            or not isinstance(quiet.get("text"), str)
+            or watch.prompted_since(name, stamp)):
         return None
-    with watch.seat_lock(name):
-        live = watch.seat_read(name)
-        quiet = live.get("quiet_done")
-        stamp = watch._stamp(quiet.get("time")) if isinstance(quiet, dict) else None
-        if (stamp is None or not math.isfinite(stamp) or stamp > at
-                or not isinstance(quiet.get("text"), str)
-                or watch.prompted_since(name, stamp)):
-            return None
-        stopped = quiet.get("stopped")
-        if stopped is not None:
-            if captured_at < stopped[0]:
-                if observe:
-                    return None  # an older capture cannot replace a newer acceptance
-            else:
-                if captured_at > stopped[0] and (state == "working" or (
-                        state == "at_prompt" and output is not None and stopped[1] is not None
-                        and not _quiet_matches(stopped[1], output))):
-                    watch._seat_put(name, live, {"quiet_done": {"time": stamp, "stopped": stopped}})
-                    return None
-                if isinstance(stopped[1], dict) and isinstance(output, str) and \
-                        _quiet_matches(stopped[1], output):
-                    quiet = {**quiet, "stopped": [stopped[0], output]}
-                    watch._seat_put(name, live, {"quiet_done": quiet})
-        if state != "at_prompt":
-            return None
-        if stopped is None or (stopped[1] is None and output is not None
-                               and captured_at >= stopped[0]):
-            quiet = {**quiet, "stopped": [stopped[0] if stopped else at, output]}
-            watch._seat_put(name, live, {"quiet_done": quiet})
-        if not observe:
-            try:
-                if not plan.unfinished(name):
-                    return {"time": stamp, "text": quiet["text"]}
-            except config.Error:
-                pass            # an unread plan proves no completed answer
+    if captured_at < stamp:
+        output = None            # the last row capture can predate this answer's command
+    stopped = quiet.get("stopped")
+    if stopped is not None:
+        if captured_at < stopped[0]:
+            if observe:
+                return None      # an older capture cannot replace a newer acceptance
+        else:
+            if captured_at > stopped[0] and (state == "working" or (
+                    state == "at_prompt" and output is not None and stopped[1] is not None
+                    and not _quiet_matches(stopped[1], output))):
+                watch._seat_put(name, live, {"quiet_done": {"time": stamp, "stopped": stopped}})
+                return None
+            if isinstance(stopped[1], dict) and isinstance(output, str) and \
+                    _quiet_matches(stopped[1], output):
+                quiet = {**quiet, "stopped": [stopped[0], output]}
+                watch._seat_put(name, live, {"quiet_done": quiet})
+    if state != "at_prompt":
         return None
+    if stopped is None or (stopped[1] is None and output is not None
+                           and captured_at >= stopped[0]):
+        quiet = {**quiet, "stopped": [stopped[0] if stopped else at, output]}
+        watch._seat_put(name, live, {"quiet_done": quiet})
+    if not observe:
+        try:
+            if not plan.unfinished(name):
+                return {"time": stamp, "text": quiet["text"]}
+        except config.Error:
+            pass                 # an unread plan proves no completed answer
+    return None
 
 
 def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,

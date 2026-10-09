@@ -35,10 +35,9 @@
   watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`,
   `own_pr_wait_note`). Leak: run's private `_cached_providers`.
 - `stop.py`: stop/clean runs before releasing processes and checkouts. `recorded_ending`
-  decides native and hookless turns; `quiet_done` records a private answer and
-  `quiet_ending` binds and retires it for every look and acceptance. `ways_out` names
-  parked-run choices. For watch, notify, hooks, orch, menu and status.
-  Leak: run lifecycle helpers.
+  decides native and hookless turns; `quiet_done` records a private answer.
+  `quiet_ending` binds and retires it under rename's lock. `ways_out` names parked-run
+  choices. For watch, notify, hooks, orch, menu and status. Leak: run lifecycle helpers.
 - `worktrees.py`: a run's worktree and local branch: whether they may go (final run, gone
   loop, never ~/code, held for a resume) and the one way they go, `stop_checkout`: the
   repo's `cleanup:` line, git, the directory, the branch. Stop, clean, endings and gc call
@@ -106,8 +105,9 @@
   and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
   `adapters/muse-usage.sh`). Leak: Muse's names.
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
-  Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
-  up into menu, run, watch and orch.
+  Offers `shaped`, `record`, `transition`; `session_lock` reuses its own thread's ownership
+  for nested classification. Used by run, job, orch, watch, menu and Stop.
+  Leak: calls up into menu, run, watch and orch.
 - `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
 - `history.py`: SQLite `history.db` of runs and steps; `ended_runs` for the scoreboard.

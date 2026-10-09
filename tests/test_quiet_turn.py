@@ -4,6 +4,7 @@ Drive real hooks and captured hookless panes in the existing private fixtures. N
 model, host pane, credentials, process or notification sink outside these homes.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, ExitStack, redirect_stdout
 import io
 import json
@@ -17,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, plan, stop, watch
+from agentkit import config, menu, notify, orch, plan, stop, watch
 import test_notify as notification_test
 import test_nudge_turn_rule as nudge_test
 import test_stop_answer as native_test
@@ -141,6 +142,138 @@ class QuietTurn(unittest.TestCase):
                 self.assertEqual(bool(answer.get("quiet")), showing == "same answer")
                 self.assertIsNone(notify.last(native_test.SEAT, include_seen=True))
                 self.assertFalse(config.card_path(native_test.SEAT).exists())
+
+    def test_a_native_answer_stays_quiet_when_only_its_tail_is_visible(self):
+        for harness in ("claude", "codex", "grokbuild"):
+            with self.subTest(harness=harness), fixture(native_test.StopAnswer) as case, \
+                    native_home(case):
+                case.prompt("Explain the schema")
+                quiet_native(case)
+                text = "\n".join(f"Table {i} has its own primary key." for i in range(20))
+                self.assertEqual(case.stop(said=text, background_tasks=[]), "")
+                accepted = watch.seat_read(native_test.SEAT)["quiet_done"]["stopped"][0]
+                file = "grok" if harness == "grokbuild" else harness
+                pane = (REPO / f"tests/fixtures/{file}-prompt-pane.txt").read_text()
+                footer = {"claude": "                                                                                  ● high",
+                          "codex": "› Ask Codex", "grokbuild": "  ╭──"}[harness]
+                pane = pane.replace(footer, text + "\n" + footer, 1)
+                watch.live_state({"name": native_test.SEAT}, harness, pane=pane, cfg={},
+                                 now=accepted + 1)
+                answer = watch.session_state(
+                    native_test.SEAT, now=accepted + 2, session={"name": native_test.SEAT},
+                    cfg={}, records=[], harness=harness, live={"state": "at_prompt"},
+                    auth_out={}, gh_out={}, token_out={})
+                self.assertTrue(answer.get("quiet"))
+        with fixture(native_test.StopAnswer) as case, native_home(case):
+            case.prompt("Reply with the single word ok2.")
+            quiet_native(case)
+            self.assertEqual(case.stop(said="ok2", background_tasks=[]), "")
+            accepted = watch.seat_read(native_test.SEAT)["quiet_done"]["stopped"][0]
+            pane = (REPO / "tests/fixtures/grok-prompt-pane.txt").read_text()
+            watch.live_state({"name": native_test.SEAT}, "grokbuild", pane=pane, cfg={},
+                             now=accepted + 1)
+            answer = watch.session_state(
+                native_test.SEAT, now=accepted + 2, session={"name": native_test.SEAT},
+                cfg={}, records=[], harness="grokbuild", live={"state": "at_prompt"},
+                auth_out={}, gh_out={}, token_out={})
+            self.assertTrue(answer.get("quiet"))
+
+    def test_acceptance_leaves_a_pre_command_capture_for_the_next_fresh_look(self):
+        for harness in nudge_test.HARNESSES:
+            for accepted_by in ("row", "nudge", "look"):
+                with self.subTest(harness=harness, accepted_by=accepted_by), \
+                        fixture(nudge_test.NudgeTurnRule) as case:
+                    case.harness = harness
+                    case.stopped()
+                    watch.live_state(case.seat, harness, pane=case.pane, cfg=case.cfg, now=9990)
+                    quiet_nudge(case)
+                    empty, _ = nudge_test.TYPED[harness]
+                    case.pane = case.pane.replace(empty, "\nThe schema has two tables.\n" + empty)
+                    with patch.object(watch.time, "time", return_value=10010):
+                        if accepted_by == "row":
+                            self.assertTrue(row(case).get("quiet"))
+                        elif accepted_by == "nudge":
+                            self.assertEqual(case.tick(), [])
+                        else:
+                            watch.live_state(case.seat, harness, pane=case.pane, cfg=case.cfg)
+                    watch.live_state(case.seat, harness, pane=case.pane, cfg=case.cfg, now=10020)
+                    with patch.object(watch.time, "time", return_value=10400):
+                        self.assertTrue(row(case).get("quiet"))
+                        self.assertEqual(case.tick(), [])
+
+    def test_rename_carries_a_binding_or_retirement_even_inside_its_write(self):
+        for harness in nudge_test.HARNESSES:
+            for changed in (False, True):
+                with self.subTest(harness=harness, working=changed), \
+                        fixture(nudge_test.NudgeTurnRule) as case:
+                    case.harness = harness
+                    case.stopped()
+                    quiet_nudge(case)
+                    if changed:
+                        watch.live_state(case.seat, harness, pane=case.pane, cfg=case.cfg, now=10010)
+                    renamed, moved = "acme-schema", []
+                    put = watch._seat_put
+
+                    def write(name, live, fields):
+                        if name == nudge_test.SEAT and "quiet_done" in fields and not moved:
+                            moved.append(True)
+                            self.assertEqual(orch.rename(name, renamed, log=lambda _: None), renamed)
+                        return put(name, live, fields)
+
+                    with patch.object(orch, "find", side_effect=lambda name: {**case.seat, "name": name}), \
+                            patch.object(orch, "on_own_server", return_value=False), \
+                            patch.object(watch, "sync_title", return_value=False), \
+                            patch.object(watch, "_seat_put", side_effect=write):
+                        watch.live_state(case.seat, harness,
+                                         pane=case.screen("working") if changed else case.pane,
+                                         cfg=case.cfg, now=10020)
+                    self.assertTrue(moved)
+                    seat = {**case.seat, "name": renamed}
+                    watch.live_state(seat, harness, pane=case.pane, cfg=case.cfg, now=10030)
+                    answer = watch.session_state(
+                        renamed, now=10400, session=seat, cfg=case.cfg, records=[],
+                        harness=harness, live={"state": "at_prompt"},
+                        auth_out={}, gh_out={}, token_out={})
+                    self.assertEqual(bool(answer.get("quiet")), not changed)
+
+    def test_a_concurrent_rename_waits_for_the_quiet_write_to_finish(self):
+        for harness in nudge_test.HARNESSES:
+            with self.subTest(harness=harness), fixture(nudge_test.NudgeTurnRule) as case:
+                case.harness = harness
+                case.stopped()
+                quiet_nudge(case)
+                watch.live_state(case.seat, harness, pane=case.pane, cfg=case.cfg, now=10010)
+                renamed, attempts = "acme-schema", []
+                put = watch._seat_put
+
+                def try_rename():
+                    # Rename's existing lock, taken by an independent writer. Refusing
+                    # it here proves the move cannot land between Stop's read and write.
+                    with notify.session_lock(nudge_test.SEAT, wait=False) as current:
+                        return None if current is None else orch.rename(current, renamed,
+                                                                       log=lambda _: None)
+
+                def write(name, live, fields):
+                    if "quiet_done" in fields and not attempts:
+                        with ThreadPoolExecutor(max_workers=1) as writers:
+                            attempts.append(writers.submit(try_rename).result(timeout=10))
+                        self.assertEqual(attempts, [None])
+                    return put(name, live, fields)
+
+                with patch.object(orch, "find", side_effect=lambda name: {**case.seat, "name": name}), \
+                        patch.object(orch, "on_own_server", return_value=False), \
+                        patch.object(watch, "sync_title", return_value=False):
+                    with patch.object(watch, "_seat_put", side_effect=write):
+                        watch.live_state(case.seat, harness, pane=case.screen("working"),
+                                         cfg=case.cfg, now=10020)
+                    self.assertEqual(orch.rename(nudge_test.SEAT, renamed, log=lambda _: None), renamed)
+                seat = {**case.seat, "name": renamed}
+                watch.live_state(seat, harness, pane=case.pane, cfg=case.cfg, now=10030)
+                answer = watch.session_state(
+                    renamed, now=10400, session=seat, cfg=case.cfg, records=[],
+                    harness=harness, live={"state": "at_prompt"},
+                    auth_out={}, gh_out={}, token_out={})
+                self.assertFalse(answer.get("quiet"))
 
     def test_a_delayed_capture_cannot_retire_an_answer_accepted_after_it_started(self):
         for harness in nudge_test.HARNESSES:

@@ -31,6 +31,7 @@ import os
 import secrets
 import stat
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -355,16 +356,26 @@ def worker_blocked(kind, dry_run=False):
 # --- the two shapes ---------------------------------------------------------
 
 
+_SESSION_LOCKS = threading.local()
+
+
 @contextmanager
 def session_lock(session, wait=True):
     """Serialize repeat checks, posts, acknowledgement and project votes across concurrent ak processes.
 
     `wait=False` is for a caller that must never wait on it -- a harness hook, which a delivery
     holding this lock may be typing the prompt for: it gets None at once while another has it.
+    Classification inside a transition reuses this thread's lock; a different thread or
+    process still takes the file lock. A fork never inherits its parent's ownership.
     """
     config.ensure_dirs()
     while True:
         session = config.resolve_session(session)
+        held = getattr(_SESSION_LOCKS, "held", set())
+        key = (os.getpid(), session)
+        if key in held:
+            yield session
+            return
         with config.notify_path(session).with_suffix(".lock").open("a") as fh:
             try:
                 fcntl.flock(fh, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -374,9 +385,11 @@ def session_lock(session, wait=True):
             try:
                 if config.resolve_session(session) != session:
                     continue       # a rename won while this writer waited for the lock
+                _SESSION_LOCKS.held = held | {key}
                 yield session
                 return
             finally:
+                _SESSION_LOCKS.held = held
                 fcntl.flock(fh, fcntl.LOCK_UN)
 
 

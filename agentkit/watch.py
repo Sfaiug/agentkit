@@ -651,6 +651,7 @@ def screen(harness):
              else None,
              "folded": _pattern(block.get("folded"), path),
              "scrolled": _pattern(block.get("scrolled"), path),
+             "progress_suffix": _pattern(block.get("progress_suffix"), path),
              "draft": _pattern(block.get("draft"), path, re.M),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
@@ -1271,8 +1272,10 @@ def output_line(lines):
 def progress_output(harness, pane):
     """Comparable output, without composer input, footer repainting or terminal wrapping."""
     lines = content_lines(harness, pane)
-    return " ".join(" ".join(line for line in lines
-                            if not re.match(r"(?:│\s*)?[>›❯⟩]", line)).split())
+    output = " ".join(" ".join(line for line in lines
+                              if not re.match(r"(?:│\s*)?[>›❯⟩]", line)).split())
+    suffix = screen(harness).get("progress_suffix")
+    return suffix.sub("", output) if suffix else output
 
 
 def recorded_error(harness, name):
@@ -2232,7 +2235,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     from . import stop
     observed = seat_read(name)
     quiet = stop.quiet_ending(name, state=found.get("state", "at_prompt"),
-                              said=observed.get("stop_said"), at=at,
+                              said=(observed.get("stop_said") if
+                                    _stamp(observed.get("stop_said_at")) is not None else None), at=at,
                               captured_at=observed.get("stop_said_at"))
     # 5. it said it was done, and nothing above it is still going. A run a later
     # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.

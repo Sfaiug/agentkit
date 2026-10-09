@@ -87,6 +87,9 @@ kinds = ["idle_prompt"]
 queues_typing = true
 composer = '(?:│ ❯\s*│|╰─+ .*─╯)$'
 footer = ['Shift\+Tab:mode.*', 'Enter:send.*']
+# Captured 1.0.46: the last answer's right-hand clock and the duration below it are repainting,
+# not answer text. Match only this tail, preserving any newer output below the answer.
+progress_suffix = '\s+\d{1,2}:\d{2} [AP]M\s+Worked for \d+(?:\.\d+)?s$'
 # A line taller than the box scrolls inside it, the box's last rows showing, with a scrollbar
 # drawn just inside its right edge (captured 1.0.46 at 40 columns): never typed text.  Its
 # thumb ends in whichever block its scroll position needs (`▄` and `▂` captured), so the
