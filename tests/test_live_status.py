@@ -511,6 +511,17 @@ class LiveStatus(unittest.TestCase):
         self.assertEqual(watch.hook_look("herdr")["word"], "working")
         hook("orchestrator-stop.sh", {"hook_event_name": "Stop", "background_tasks": []})
         self.assertEqual(watch.hook_facts("tern")["event"], "Stop")
+        self.assertEqual(watch.hook_facts("tern")["kind"], "held")
+        self.assertEqual(watch.hook_look("herdr")["word"], "working")
+        self.assertIn("● working▌  tern  opus orchestrates", drawn(self.options[statusbar.TOP]))
+        question = self.root / "question.jsonl"
+        question.write_text(json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "AskUserQuestion", "id": "export-format",
+             "input": {"questions": [{"question": "Which export format?"}]}}
+        ]}}) + "\n")
+        hook("orchestrator-stop.sh", {"hook_event_name": "Stop", "background_tasks": [],
+                                      "transcript_path": str(question)})
+        self.assertEqual(watch.hook_facts("tern")["kind"], "")
         self.assertEqual(watch.hook_look("herdr")["word"], "needs you")
         self.assertIn("! needs you▌  tern  opus orchestrates", drawn(self.options[statusbar.TOP]))
 

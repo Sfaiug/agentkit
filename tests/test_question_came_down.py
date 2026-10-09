@@ -71,13 +71,21 @@ class QuestionCameDown(Sandbox):
         self.assertEqual(watch.screen_state("claude", watch.pane_tail(unread))[0], None)
         self.assertEqual(self.looked(unread, fact), ("needs you", False))
 
-    def test_its_turn_still_ends_on_a_stop_or_an_idle_prompt(self):
+    def test_a_recorded_question_ends_its_turn_before_an_idle_prompt(self):
         self.hook("UserPromptSubmit", prompt="Which schema should acme use?")
         self.hook("Notification", notification_type="permission_prompt",
                   message="Claude needs your permission")
         fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
                          last_assistant_message="Which schema should acme use?")
-        self.assertNotEqual(self.looked(PROMPT, fact)[0], "working")
+        self.assertEqual(self.looked(PROMPT, fact), ("working", False))
+        question = self.root / "question.jsonl"
+        question.write_text(json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "AskUserQuestion", "id": "schema-choice",
+             "input": {"questions": [{"question": "Which schema should acme use?"}]}}
+        ]}}) + "\n")
+        fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
+                         transcript_path=str(question))
+        self.assertEqual(self.looked(PROMPT, fact), ("needs you", True))
         self.hook("UserPromptSubmit", prompt="The second one.")
         self.hook("Notification", notification_type="permission_prompt",
                   message="Claude needs your permission")
