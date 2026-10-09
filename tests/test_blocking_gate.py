@@ -444,6 +444,16 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.records("follow-up"), [("api.py", 2, "")])
         self.assertEqual(len(self.lp.state["followups"]), 1)
 
+    def test_a_proof_handed_in_away_from_its_site_leaves_aks_own_replay_blocking(self):
+        self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.never)), "FAIL")
+        self.write('flag = "branch"\nmode = "branch"\nextra = 1\n', "Move the flag up, still wrong")
+        # the reviewer hands the proof in at a line the fix did not touch, outside the fix
+        # delta: a note in its own right, beside which ak's own replay of the proof still blocks
+        self.assertEqual(self.review(finding("api.py:3", "the flag is wrong", self.never)), "FAIL")
+        self.assertEqual(self.records("finding"),       # ak's replay, where the fix moved the line
+                         [("api.py", 1, "still failing; it blocks until its proof passes")])
+        self.assertEqual(len(self.records("note")), 1)
+
     def test_the_prompts_no_longer_ask_for_anything_new_or_every_instance(self):
         for role, text in worker.PREAMBLES.items():
             with self.subTest(role=role):

@@ -3917,7 +3917,8 @@ def moved_lines(lp, path, line, since, head):
 
 def placed(lp, row, since, head):
     """Where an earlier finding stands on `head`: (its line there, whether the fix delta since
-    `since` touched the line, whether that line is inside the change).  A line the fix left
+    `since` touched the line, whether that line is inside the change, every line it may stand
+    at: its own, or those the fix put in its place).  A line the fix left
     alone moved with it; one the fix rewrote stands at the line the fix put in its place that
     reads most like it (a tie goes to the first); one the fix deleted stands at the removal's
     anchor, which the change's own diff reads as inside (`in_hunks`).  The site a finding is
@@ -3931,7 +3932,7 @@ def placed(lp, row, since, head):
         line = max(lines, key=lambda at: (difflib.SequenceMatcher(
             None, was, now[at - 1] if at <= len(now) else "").ratio(), -at))
     changed = [] if lp.scratch else hunks(lp, row["path"], lp.base_sha, head)
-    return line, touched, in_hunks(line, changed)
+    return line, touched, in_hunks(line, changed), lines
 
 
 def line_of(lp, commit, path, line):
@@ -4067,22 +4068,15 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                 lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
         records.append(row)
     if replayed:
-        # the reviewer's own hand-in carrying an earlier finding's very proof is that finding
-        # upheld, and ak's replay adds no second copy beside it; any other finding at its site
-        # is another check, and ak's own still blocks beside it: what ak can prove itself is
-        # never handed back to the reviewer's words
-        proofs = {row["evidence"].get("run") for row in records
-                  if isinstance(row.get("evidence"), dict)}       # however the hand-in was weighed
+        handed = [row for row in records if isinstance(row.get("evidence"), dict)]
         extra = []
         for n, (row, now, failing) in enumerate(replayed, 1):
-            line, touched, inside = placed(lp, row, since, head)
+            line, touched, inside, sites = placed(lp, row, since, head)
             row = {**row, "line": line}
             where = "; the fix changed its line" if touched else ""
             if not failing:
                 extra.append({**row, "kind": "note", "evidence": now,
                               "replayed": "fixed; its proof passes now"})
-                continue
-            if now["run"] in proofs:
                 continue
             kind, replayed_word = "finding", "still failing; it blocks until its proof passes" + where
             if not lp.scratch and not inside:
@@ -4098,6 +4092,14 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                                      "kept as a follow-up")
                 elif base["returncode"] != 0 or base["killed"]:
                     kind, replayed_word = "note", "still failing, and base cannot run its proof"
+            # the reviewer's own hand-in carrying this finding's very proof, at its site and
+            # weighed as ak weighs it here, is this finding upheld, and ak adds no second copy
+            # beside it; handed in anywhere else, or weighed down to a note, it is the
+            # reviewer's words, and ak's own copy stands beside them: what ak can prove
+            # itself is never handed back to the reviewer's words
+            if any(each["evidence"].get("run") == now["run"] and each["kind"] == kind
+                   and each["path"] == row["path"] and each["line"] in sites for each in handed):
+                continue
             extra.append({**row, "kind": kind, "evidence": now, "replayed": replayed_word})
             lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit"
                    + ("" if kind == "finding" else f" ({kind})"))
