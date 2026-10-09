@@ -74,7 +74,8 @@ class OwnPr(unittest.TestCase):
         (self.run_dir / "log.txt").touch()
         run.capture_launch(self.run_dir, {"--review-pr": URL})
         self.prompts, self.fixes, self.notices, self.events, self.merges = [], [], [], [], []
-        self.reviewers = []
+        self.reviewers, self.fix_names = [], []
+        self.fix_summary = "## Summary\nFixed."
         self.verdicts = []
         for name, value in (("viewer_login", "owner"), ("checkout_for", self.repo),
                             ("fetch", (0, "")),
@@ -128,6 +129,7 @@ class OwnPr(unittest.TestCase):
     def gh_json(self, _cwd, *args, **_kw):
         if args[:2] == ("api", "repos/acme/widget/pulls/7"):
             return {"state": self.pr["state"].lower(), "merged": self.pr["state"] == "MERGED",
+                    "body": self.pr["body"],
                     "head": {"sha": self.remote_head(), "ref": BRANCH,
                              "repo": {"clone_url": str(self.remote)}},
                     "base": {"ref": "main"}}, ""
@@ -158,8 +160,9 @@ class OwnPr(unittest.TestCase):
 
     def fixer(self, lp, role, text, name):
         """The turn as execute() records it: its directory opened before the work, closed after."""
-        self.assertEqual((role, name), ("fixer", "executor"))
+        self.assertEqual(role, "fixer")
         self.assertEqual(record.read_state(self.run_dir)["state"], "running")
+        self.fix_names.append(name)
         out = run.free_dir(lp, name)
         out.mkdir(parents=True)
         (out / hand_in.FILE).write_text(json.dumps(
@@ -168,8 +171,8 @@ class OwnPr(unittest.TestCase):
         self.fix(lp)                    # may raise: the host cut the turn off
         with (out / hand_in.FILE).open("a") as handle:
             handle.write(json.dumps({"kind": "done"}) + "\n")
-        (out / "final.md").write_text("## Summary\nFixed.")
-        return "## Summary\nFixed."
+        (out / "final.md").write_text(self.fix_summary)
+        return self.fix_summary
 
     def review(self, verdicts):
         self.verdicts = verdicts

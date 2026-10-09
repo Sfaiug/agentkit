@@ -10575,15 +10575,19 @@ def merge_own_pr(lp, url):
     return join_line(lp, upstream, deliver)
 
 
-def fix_body(state, body, number):
+def done_when_block(cmds):
+    """The `## Done when` section a PR review's task and its fixer's share."""
+    return "## Done when\n```bash\n" + (cmds[0] if cmds else "true   # AGENTS.md declares no tests:") + "\n```\n"
+
+
+def fix_body(state, says, cmds, number):
     """What the fixer of a seat's own PR is told to do: make the pull request pass its review,
-    with what the PR says and the checks it must still pass, never the reviewer's goal."""
-    says = re.search(r"## The PR says\n.*?(?=\n## |\Z)", body, re.S)
-    done = re.search(r"## Done when\n.*", body, re.S)
+    with what the PR says (whole, as GitHub holds it) and the checks it must still pass, never
+    the reviewer's goal."""
     return (f"# Fix PR #{number}: {state['title'].partition(': ')[2]}\n\n## Goal\nThe pull "
             "request passes its review: fix each finding below with the least change, on this "
             "branch, and keep its checks passing.\n\n"
-            + (says.group(0) + "\n\n" if says else "") + (done.group(0) if done else ""))
+            f"## The PR says\n{(says or '(no description)').strip()}\n\n{done_when_block(cmds)}")
 
 
 def pr_context(state, body):
@@ -10663,15 +10667,25 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         if not (turned and name is None):
             if not turned and head != reviewed:
                 git(lp.wt, "reset", "--hard", reviewed)     # the line left the checkout elsewhere
-            # the seat's own model, headless: a fix to the orchestrator's PR is its work, and
-            # the next round's reviewer is picked against it as the first round's was
-            lp.executor = state["executor"] = state["own_orchestrator"]
+            if name is None:
+                # a fresh turn is the seat's own model, headless: a fix to the orchestrator's
+                # PR is its work; one cut off is resumed by the model it was handed to, which
+                # execute recorded, and the next round's reviewer is picked against whoever
+                # wrote the fix
+                lp.executor = state["executor"] = state["own_orchestrator"]
             log(f"--- round {lp.rnd}/{lp.rounds}: fixer {lp.executor} (findings on PR #{number})")
-            lp.context = pr_context(state, fix_body(state, lp.body, number)
+            lp.context = pr_context(state, fix_body(state, current.get("body"), lp.cmds, number)
                                     + repo_rules(lp.wt, state["base_sha"]))
             fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
             try:
-                execute(lp, "fixer", fix, name or "executor")
+                # what the fixer said, for the next round's reviewer: its summary, and the
+                # reason of a not-needed it handed in
+                summary = execute(lp, "fixer", fix, name or "executor")
+                turn = latest_worker_turn(lp.round_dir)
+                closing = hand_in.read(turn / hand_in.FILE).closing if turn else None
+                if closing and closing["kind"] == "not-needed":
+                    summary = f"{summary}\n\nNot needed: {closing['why']}"
+                state["fix_summary"] = summary
             except Blocked as exc:
                 log(f"BLOCKED {exc}")
                 state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
@@ -10832,8 +10846,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     body = (f"# {title}\n\n## Goal\nJudge {url} by {info['author']} against this repository: "
             f"its AGENTS.md, README, tests and conventions, and the intent the PR states. {wrote}\n\n"
             f"## The PR says\n{(info.get('body') or '(no description)').strip()}\n\n"
-            + planned
-            + "## Done when\n```bash\n" + (cmds[0] if cmds else "true   # AGENTS.md declares no tests:") + "\n```\n")
+            + planned + done_when_block(cmds))
     (run_dir / "task.md").write_text(f"---\nrepo: {repo}\nrounds: {n_rounds}\n---\n{body}")
     state = stamp_origin({**(run_record.read_state(run_dir) or {}), "run_id": run_dir.name,
              "title": title, "task": str(run_dir / "task.md"),
@@ -10888,7 +10901,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         lp.rnd += 1
         return settle_pr_round(lp, url, info)
     providers = collect_usage(cfg)
-    exec_for_rule = orchestrator if is_own else None
+    # the reviewer is picked against whoever wrote the head under review: the orchestrator,
+    # or the model a fixer turn was handed to
+    exec_for_rule = (prior.get("executor") or orchestrator) if is_own else None
     order = reviewer_order(cfg, exec_for_rule, ready_order(cfg, providers,
                                                            reviewers, log,
                                                            role="reviewer"))
@@ -10948,6 +10963,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
+        if state.get("fix_summary"):      # the fixer's own words on the head it left
+            summary += f"\n\n## What the fixer said\n{state.pop('fix_summary')}"
+            run_record.save_state(run_dir, state)
     else:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. agentkit executed nothing; "
                    "review the author's diff.")

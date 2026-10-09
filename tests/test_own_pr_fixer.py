@@ -1,7 +1,7 @@
 """A FAIL on a seat's own pull request is fixed by ak, never handed to the seat.
 
 With rounds left, the run takes a fixer turn on its own checkout of the reviewed head -- the
-session's executor, else the seat's own orchestrator model -- commits what the turn left,
+seat's own orchestrator model, headless -- commits what the turn left,
 pushes it to the PR branch over the reviewed head and reviews it in the next round.  Nothing
 is typed into the seat and no process waits for a push.  A head pushed by hand before the fix
 is what the next round reviews; one pushed while the fix was made ends the run.  Offline, on
@@ -114,6 +114,48 @@ class OwnPrFixer(OwnPr):
         self.assertTrue(state["merged"])
         self.assertEqual(self.remote_head(), self.heads[1])
         self.assertEqual((len(self.fixes), len(self.prompts)), (2, 2))    # the turn resumed, once
+
+    def test_a_turn_handed_to_another_model_is_resumed_by_it_and_reviewed_against_it(self):
+        fix = self.fix
+
+        def handed_over(lp):
+            if len(self.fixes) == 1:
+                # execute handed the turn to astra, which the host then cut off mid-way
+                out = run.free_dir(lp, "executor-astra")
+                out.mkdir(parents=True)
+                (out / hand_in.FILE).write_text(json.dumps(
+                    {"kind": "turn", "workspace": str(lp.wt), "role": "fixer", "findings": []}) + "\n")
+                lp.executor = lp.state["executor"] = "astra"
+                lp.save()
+                raise InterruptedError("the host cut astra's turn off")
+            self.assertEqual((self.fix_names[-1], lp.executor), ("executor-astra", "astra"))
+            fix(lp)
+
+        self.fix = handed_over
+        with self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        saved = record.read_state(self.run_dir)
+        saved.update(state="queued", pid=999999991)
+        record.save_state(self.run_dir, saved)
+        with patch.object(run, "ready_order", return_value=["astra", "opus"]):
+            state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(state["executor"], "astra")
+        self.assertEqual(self.reviewers, ["astra", "opus"])    # never the model that wrote the fix
+
+    def test_what_the_fixer_said_reaches_the_next_reviewer(self):
+        self.fix = lambda lp: None
+        self.fix_summary = "## Summary\nWHY-MARKER: the flag is read by nobody; nothing to fix."
+        state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertIn("## What the fixer said\n## Summary\nWHY-MARKER", self.prompts[1])
+        self.assertNotIn("fix_summary", state)
+
+    def test_the_fixer_is_given_the_whole_pr_description(self):
+        self.pr["body"] = "## Summary\nFix the fence\n\n## Test plan\nrun it"
+        self.review(["FAIL", "PASS"])
+        [fix] = self.fixes
+        self.assertIn("## The PR says\n## Summary\nFix the fence\n\n## Test plan\nrun it", fix)
 
     def test_a_turn_handed_to_another_model_mid_way_is_read_where_it_finished(self):
         fix = self.fix
