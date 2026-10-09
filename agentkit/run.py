@@ -3724,17 +3724,30 @@ TEST_DIRS = ("tests", "test", "spec", "specs", "__tests__")
 TEST_NAMES = ("*_test.*", "*_spec.*", "*.test.*", "*.spec.*")
 
 
+def hunks(lp, path, since, head):
+    """The hunks of `path` between `since` and `head`, no context, as git reads a conflict:
+    (old start, old count, new start, new count) each, in order."""
+    diff = git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
+               "--unified=0", f"{since}...{head}", "--", f":(literal){path}")
+    return [(int(hunk[1]), int(hunk[2] or 1), int(hunk[3]), int(hunk[4] or 1))
+            for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", diff, re.M)]
+
+
 def changed_line(lp, row, head, since=None):
     """Whether the finding's line is inside the diff to `head` from `since`: the base, or the
     commit the last review judged, for a later round."""
-    diff = git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
-               "--unified=0", f"{since or lp.base_sha}...{head}", "--", f":(literal){row['path']}")
-    for hunk in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", diff, re.M):
-        start, count = int(hunk[1]), int(hunk[2] or 1)
+    for _, _, start, count in hunks(lp, row["path"], since or lp.base_sha, head):
         # A pure removal leaves an anchor between the two surviving neighbouring lines.
         if (start <= row["line"] < start + count if count else row["line"] in (start, start + 1)):
             return True
     return False
+
+
+def capped(lp, diff):
+    """A diff cut at DIFF_CAP, saying where the rest is."""
+    if len(diff) > DIFF_CAP:
+        return diff[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
+    return diff
 
 
 def proof_on(lp, command, log_path, revision=None, tests_from=None):
@@ -3831,21 +3844,33 @@ def reviewed_before(lp, before, head):
 
 
 def earlier_findings(lp):
-    """The blocking findings the last review of this run handed in, as weighed then."""
+    """The blocking findings the last review of this run handed in, as weighed then: the
+    record this review took of them when it started (`review_pending`), which an attempt
+    that died or gave no verdict cannot overwrite, else the last review's records."""
+    pending = lp.state.get("review_pending")
+    if isinstance(pending, dict) and isinstance(pending.get("earlier"), list):
+        return [row for row in pending["earlier"] if isinstance(row, dict)]
     return [row for row in (lp.state.get("review_records") or [])
             if isinstance(row, dict) and row.get("kind") == "finding"]
+
+
+def dispute_rows(lp):
+    """The disputes the round's fixer handed in, each once."""
+    rows = []
+    for file in lp.state.get("dispute_files", []):
+        submitted = hand_in.read(file)
+        for row in submitted.disputes if submitted is not None else ():
+            if row not in rows:
+                rows.append(row)
+    return rows
 
 
 def moved_line(lp, path, line, since, head):
     """Where line `line` of `path` at `since` sits on `head`, through the diff between them:
     a fix above it moves a line it never touched.  None when the diff touched the line
     itself, which puts it inside the fix delta."""
-    diff = git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
-               "--unified=0", f"{since}...{head}", "--", f":(literal){path}")
     shift = 0
-    for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,(\d+))? @@", diff, re.M):
-        start, old = int(hunk[1]), int(hunk[2] or 1)
-        new = int(hunk[3] or 1)
+    for start, old, _, new in hunks(lp, path, since, head):
         if old == 0:
             start += 1      # lines were added after `start`: what follows it moves
         if line < start:
@@ -3870,9 +3895,10 @@ def earlier_sites(lp, head, since):
 
 
 def replay_findings(lp, rows, head):
-    """Each earlier `--run` finding proven again on `head`: (the row, its evidence now, still
-    failing).  What ak can prove itself is never left to the reviewer to find again, and a
-    finding whose proof still fails blocks whatever the reviewer hands in."""
+    """Each earlier `--run` finding proven again on `head`: (the row, its evidence now, not
+    fixed).  Fixed means the proof passed: one still failing, or one that could not run or
+    did not finish, proves no fix and blocks whatever the reviewer hands in.  What ak can
+    prove itself is never left to the reviewer to find again."""
     replayed = []
     if rows:
         lp.round_dir.mkdir(parents=True, exist_ok=True)   # the replay logs come before the turn
@@ -3880,15 +3906,25 @@ def replay_findings(lp, rows, head):
         command = row["evidence"]["run"]
         now = {"run": command, "commit": head,
                **proof_on(lp, command, lp.round_dir / f"replay-{index}.log", head)}
-        replayed.append((row, now, hand_in.proof_failed(now)))
+        replayed.append((row, now, not (now["returncode"] == 0 and not now.get("killed"))))
     return replayed
+
+
+def replay_word(now, failing):
+    """How a replayed proof went, for the reviewer and the record."""
+    if not failing:
+        return "fixed (the proof passes now)"
+    if now.get("killed"):
+        return "did not finish; it blocks until its proof passes"
+    if now["returncode"] in (126, 127):
+        return f"could not run (exit {now['returncode']}); it blocks until its proof passes"
+    return f"still fails (exit {now['returncode']})"
 
 
 def replay_section(replayed, left, since):
     """What the reviewer is told of the earlier findings: ak's own replay of the proven ones,
     and the ones it leaves to the reviewer (`left`: each with why), never a question."""
-    lines = [f"- {row['path']}:{row['line']} - {row['what']} - "
-             + (f"still fails (exit {now['returncode']})" if failing else "fixed (the proof passes now)")
+    lines = [f"- {row['path']}:{row['line']} - {row['what']} - {replay_word(now, failing)}"
              for row, now, failing in replayed]
     yours = [f"- {row['path']}:{row['line']} - {row['what']} - {why}" for row, why in left]
     return (f"## Earlier findings, re-proven by ak on this commit\n"
@@ -3976,6 +4012,9 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
         upheld = {(row["path"], row["line"]) for row in records if row["kind"] == "finding"}
         extra = []
         for row, now, failing in replayed:
+            # where the fix moved its line, when the delta is known and left the line itself alone
+            line = moved_line(lp, row["path"], row["line"], since, head) if since else None
+            row = {**row, "line": line if line is not None else row["line"]}
             if failing and (row["path"], row["line"]) not in upheld:
                 extra.append({**row, "kind": "finding", "evidence": now,
                               "replayed": "still failing; it blocks until its proof passes"})
@@ -3992,14 +4031,8 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
 
 def review_disputes(lp, head):
     """Keep the finding snapshot the fixer received; replay its dispute on the reviewed work."""
-    rows = []
-    for file in lp.state.get("dispute_files", []):
-        submitted = hand_in.read(file)
-        for row in submitted.disputes if submitted is not None else ():
-            if row not in rows:
-                rows.append(row)
     disputes = []
-    for index, row in enumerate(rows, 1):
+    for index, row in enumerate(dispute_rows(lp), 1):
         evidence = row["evidence"]
         if "run" in evidence:
             command = evidence["run"]
@@ -4032,10 +4065,14 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     since = pending["since"] if "since" in pending else str(
         review_turn(lp.dir("reviewer").parent, lp.review_sid) or "")
     # the commit the last review judged, whatever that review recorded (`delta_from`, written
-    # at the end of every review): what a later round's delta and replay stand on
+    # at the end of every review), and the findings it handed in: what a later round's delta
+    # and replay stand on, kept on the pending record so no attempt of this review, dying or
+    # giving no verdict, overwrites them
     delta_from = lp.state.get("delta_from")
+    earlier = earlier_findings(lp)
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd, "summary": summary, "since": since,
+                                    "earlier": earlier,
                                     **({"passed_head_sha": passed_head} if passed_head else {})})
     if not record:
         lp.state["review_pending"]["record"] = False
@@ -4054,9 +4091,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             restore_review_checkout(lp, "tests")
         else:
             commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
-        diff = git(lp.wt, "diff", f"{lp.base_sha}...{head}", check=False)
-        if len(diff) > DIFF_CAP:
-            diff = diff[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
+        diff = capped(lp, git(lp.wt, "diff", f"{lp.base_sha}...{head}", check=False))
         work = whole = f"## Diff ({lp.base}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
         # a later round judges what changed since the last review, and ak re-proves the
         # earlier findings itself: the reviewer re-finds nothing
@@ -4065,18 +4100,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         # it here is nobody's fix round
         delta = reviewed_before(lp, delta_from, at) if record else None
         if delta:
-            changed = git(lp.wt, "diff", f"{delta}...{head}", check=False)
-            if len(changed) > DIFF_CAP:
-                changed = changed[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
+            changed = capped(lp, git(lp.wt, "diff", f"{delta}...{head}", check=False))
             # a finding the fixer disputed is the reviewer's to weigh, and a quote is no failing
             # proof (the quoted lines can stay while the defect goes): both are listed for the
             # reviewer, not replayed
-            disputed = set()
-            for file in lp.state.get("dispute_files", []):
-                found = hand_in.read(file)
-                disputed.update((row["finding"]["path"], row["finding"]["line"])
-                                for row in (found.disputes if found is not None else ()))
-            earlier = earlier_findings(lp)
+            disputed = {(row["finding"]["path"], row["finding"]["line"]) for row in dispute_rows(lp)}
             proven = [row for row in earlier if "run" in (row.get("evidence") or {})
                       and (row["path"], row["line"]) not in disputed]
             left = [(row, "disputed by the fixer: hand it in again to uphold it"

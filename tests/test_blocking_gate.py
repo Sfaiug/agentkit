@@ -228,6 +228,33 @@ out = pathlib.Path(sys.argv[6])
         self.assertIn("## Fix delta", prompt)
         self.assertIn("api.py:1 - mode is wrong - fixed (the proof passes now)", prompt)
 
+    def test_a_replay_that_cannot_run_or_finish_proves_no_fix(self):
+        (self.wt / "probe.sh").write_text('python3 -c \'import api; raise SystemExit(0 if api.flag == "fixed" else 7)\'\n')
+        self.commit("A probe on the branch")
+        self.head = run.git(self.wt, "rev-parse", "HEAD")
+        self.lp.validation = run.commit_identity(self.wt)
+        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", "bash probe.sh")), "FAIL")
+        (self.wt / "probe.sh").unlink()                  # the fix deletes the probe; the flag stays
+        self.commit("Remove the probe")
+        self.head = run.git(self.wt, "rev-parse", "HEAD")
+        self.lp.validation = run.commit_identity(self.wt)
+        self.assertEqual(self.review(), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 2, "still failing; it blocks until its proof passes")])
+        self.assertIn("api.py:2 - flag is wrong - could not run (exit 127); it blocks until its proof passes",
+                      self.prompt())
+
+    def test_a_still_failing_finding_is_weighed_where_the_fix_moved_its_line(self):
+        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
+        self.write('mode = "fixed"\nimport os\nflag = "branch"\nextra = 1\n', "Fix the mode, add an import")
+        self.assertEqual(self.review(), "FAIL")           # the reviewer hands in nothing
+        self.assertEqual(self.records("finding"), [("api.py", 3, "still failing; it blocks until its proof passes")])
+        # the record this review took of the earlier findings outlives an attempt that
+        # overwrote the last review's records before giving a verdict
+        self.lp.state["review_pending"] = {"earlier": [{"kind": "finding", "path": "api.py", "line": 3,
+                                                        "what": "flag is wrong", "evidence": {"run": self.flag_fixed}}]}
+        self.lp.state["review_records"] = []
+        self.assertEqual([row["line"] for row in run.earlier_findings(self.lp)], [3])
+
     def test_a_review_of_the_same_commit_again_replays_nothing(self):
         self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed)), "FAIL")
         self.assertEqual(self.review(), "PASS")
