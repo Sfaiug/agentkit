@@ -102,15 +102,16 @@ STAMP = {"GIT_AUTHOR_NAME": "ak", "GIT_AUTHOR_EMAIL": "ak@localhost",
 def tree(worktree, log=lambda _: None):
     """The checkout's tree as it stands: HEAD with the uncommitted paths a commit would take
     (`run.committable_paths`: never test sandboxes, dependency trees, run locks or what
-    `.gitignore` names), written to the repository's object store through an index of its
-    own and read without the checkout's own lock, which the run's git may hold: the
-    checkout's index and files are never touched.  A file git cannot read is left out and
-    said once: one checkout's unreadable file costs no pair its record."""
+    `.gitignore` names), read and written through an index of its own in the repository's
+    object store: the checkout's own index is neither read, locked nor rewritten (`git diff`
+    refreshes and rewrites the index it reads, optional locks or not), and its files are
+    never touched.  A file git cannot read is left out and said once: one checkout's
+    unreadable file costs no pair its record."""
     from . import run
     with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
         env = {**os.environ, "GIT_INDEX_FILE": index.name}
         run.git(worktree, "read-tree", "HEAD", env=env)
-        real, _ = run.committable_paths(worktree, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+        real, _ = run.committable_paths(worktree, env=env)
         if real:
             try:
                 run.git(worktree, "add", "--ignore-errors", "--", *real, env=env)
@@ -131,12 +132,13 @@ def merged(repo, base, ours, theirs, ours_wins=False):
     env = {**os.environ, **STAMP}
     sides = [run.git(repo, "commit-tree", each, "-p", base, "-m", "lease", env=env)
              for each in (ours, theirs)]
-    code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only", *sides)
+    code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only", "-z", *sides)
     if code not in (0, 1):
         raise config.Error(f"git merge-tree in {repo}: {out}")
-    # the merged tree's id, then one conflicted path per line, a blank line, git's messages
-    lines = out.split("\n\n", 1)[0].splitlines()
-    tree, clashes = lines[0], (sorted(set(lines[1:])) if code == 1 else [])
+    # the merged tree's id, then each conflicted path raw and NUL-ended (never quoted), an
+    # empty field, then git's messages
+    parts = out.split("\0")
+    tree, clashes = parts[0], (sorted(set(parts[1:parts.index("", 1)])) if code == 1 else [])
     if ours_wins and clashes:
         return favour_ours(repo, base, ours, theirs, tree, clashes), []
     return tree, clashes
@@ -182,16 +184,17 @@ def favour_ours(repo, base, ours, theirs, tree, clashes):
         return run.git(repo, "write-tree", env=env)
 
 
-def collide(repo, older, younger, log=lambda _: None):
+def collide(repo, older, younger, trees):
     """The paths the younger run's own diff cannot be merged with the older's: git's own
-    conflict rule, run in memory, each diff against the base its run was cut from.  With
-    bases that differ, the run on the older base has its change brought onto the newer base
-    first, main's side kept at the hunks where it clashes -- that run's conflict with main,
-    not with its neighbour -- and the rest of its diff compared.  Runs cut from bases that
-    never met (a `base:` branch and main) collide with nobody here: there is no one line of
-    history to lay both diffs on.  Empty when they merge."""
+    conflict rule, run in memory, each diff against the base its run was cut from (`trees`
+    holds each run's tree by its name).  With bases that differ, the run on the older base
+    has its change brought onto the newer base first, main's side kept at the hunks where it
+    clashes -- that run's conflict with main, not with its neighbour -- and the rest of its
+    diff compared.  Runs cut from bases that never met (a `base:` branch and main) collide
+    with nobody here: there is no one line of history to lay both diffs on.  Empty when they
+    merge."""
     from . import run
-    trees = {name: tree(each["worktree"], log) for name, each in (("older", older), ("younger", younger))}
+    trees = {"older": trees[older["run"]], "younger": trees[younger["run"]]}
     bases = {"older": older["base"], "younger": younger["base"]}
     base = older["base"]
     if bases["older"] != bases["younger"]:
@@ -214,10 +217,11 @@ def scan(repo, log=lambda _: None, now=None):
     home.cache_clear()          # repository identity is read afresh each scan
     before = read(repo)
     runs = live(repo)
+    trees = {each["run"]: tree(each["worktree"], log) for each in runs}     # each checkout read once
     waits = {}
     for at, younger in enumerate(runs):
         for older in runs[:at]:
-            files = collide(repo, older, younger, log)
+            files = collide(repo, older, younger, trees)
             if not files:
                 continue
             kept = before.get(younger["run"]) or {}

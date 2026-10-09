@@ -181,11 +181,27 @@ class LeaseScan(unittest.TestCase):
         self.git(younger, "status", "--porcelain")                     # its index fresh
         found = self.git(younger, "rev-parse", "--git-path", "index")
         index = Path(found) if Path(found).is_absolute() else younger / found
+        time.sleep(1.1)                                                 # a later second, as any real save
         (younger / "other.py").write_text((younger / "other.py").read_text())   # rewritten unchanged, as a formatter does
         self.edit(younger, "api.py", 5, "younger's line 5")
         before = (index.stat().st_mtime_ns, index.read_bytes())
         self.assertIn("20260101-1000-younger", leases.scan(self.repo, now=2000))
         self.assertEqual((index.stat().st_mtime_ns, index.read_bytes()), before)
+
+    def test_a_name_git_would_quote_is_read_raw(self):
+        (self.repo / "café.py").write_text("".join(f"line {n}\n" for n in range(1, 6)))
+        self.git(self.repo, "add", ".")
+        self.git(self.repo, "commit", "-qm", "A name git quotes")
+        start = self.git(self.repo, "rev-parse", "HEAD")
+        first = self.run_on("20260101-0800-first", 800, base=start)
+        self.edit(first, "café.py", 1, "first's line 1", commit=True)
+        self.edit(self.repo, "café.py", 1, "main's line 1", commit=True)     # the clash with main
+        moved = self.git(self.repo, "rev-parse", "HEAD")
+        second = self.run_on("20260101-0900-second", 900, base=moved)
+        self.edit(second, "café.py", 5, "second's line 5")
+        self.assertEqual(leases.scan(self.repo, now=2000), {})
+        self.edit(first, "café.py", 5, "first's line 5", commit=True)
+        self.assertEqual(leases.scan(self.repo, now=2100)["20260101-0900-second"]["files"], ["café.py"])
 
     def test_paths_a_commit_would_leave_are_no_lease_and_an_unchanged_pair_writes_nothing(self):
         older = self.run_on("20260101-0900-older", 900)
