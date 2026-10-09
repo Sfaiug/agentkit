@@ -73,6 +73,16 @@ class Reservations(LiveRuns):
         self.assertEqual(leases.scan(self.repo, self.logs.append, now=2300), {})
         self.assertEqual(self.state(YOUNGER)["finished_at"], state["finished_at"])
 
+    def test_a_holder_the_scan_parked_holds_no_diff_for_the_next_run(self):
+        _, younger = self.collide()
+        third = "20260101-1100-third"
+        self.edit(younger, "api.py", 15, "younger's line 15")
+        self.edit(self.run_on(third, 1100, step="executor", rounds=0), "api.py", 15, "third's line 15")
+        found = leases.scan(self.repo, self.logs.append, now=2000)
+        self.assertEqual(list(found), [YOUNGER])
+        self.assertEqual(self.state(YOUNGER)["state"], "stopped")
+        self.assertEqual(self.state(third)["state"], "running")
+
     def test_a_run_past_its_executor_turn_is_only_written_down(self):
         self.collide(step="reviewer", rounds=1)
         found = leases.scan(self.repo, self.logs.append, now=2000)
