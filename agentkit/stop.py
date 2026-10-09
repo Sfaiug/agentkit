@@ -286,7 +286,12 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
     # so a scope that refused to stop still loses its processes, and a plain start loses
     # nothing by the scope attempt missing.  The record already says stopped, so whatever
     # notices the dead children aborts instead of replacing them.
-    if orch.user_manager():
+    pid = state.get("pid")
+    if orch.user_manager() and pid == os.getpid():
+        # this process is the run's loop, parking itself at its commit step (`leases.park`):
+        # a waited stop of its own unit would end it here, before its save raises the stop
+        orch.stop_scope(f"agentkit-run-{run_id}", log, wait=False)
+    elif orch.user_manager():
         unit = f"agentkit-run-{run_id}"
         for suffix in (".scope", ".service"):
             try:
@@ -295,7 +300,6 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
                                env=orch.bus_env(), timeout=orch.SLICE_WAIT)
             except (OSError, subprocess.SubprocessError):
                 pass
-    pid = state.get("pid")
     # Only a run of its own is ended by its tree: a task whose pid is still its live
     # scheduler's is ended by its marker below, and a task resumed by hand -- a new
     # pid under an old stamp -- is ended by its tree like any run of its own.

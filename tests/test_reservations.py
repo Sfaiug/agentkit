@@ -3,36 +3,38 @@ its branch kept, waiting on it.
 
 The scan the tick runs, and ak's commit step runs itself, parks the younger run
 (`leases.park`): its record reads `stopped`, waiting on the holder, its checkout and branch
-stay as they are, for its task to be made again on the holder's result.  A younger run past
-its executor turn, or one that reached its review while the scan ran, a pull request's
-review and a job's task are only written down.  A scan that cannot finish costs the commit
-step nothing.  Offline: the lease stage (`fixtures.leases`).
+stay as they are.  A younger run past its executor turn, or one that reached its review
+while the scan ran, a pull request's review and a job's task are only written down.  A scan
+that cannot finish costs the commit step nothing.  Offline: the lease stage
+(`fixtures.leases`).
 """
 
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.leases import LiveRuns
-from agentkit import config, leases, run
+from agentkit import config, leases, orch, run
 from agentkit import record
 
 OLDER, YOUNGER = "20260101-0900-older", "20260101-1000-younger"
 
 
 class Step:
-    """The loop at its commit step, as `run.verify_work` reads it: a run's record, its log,
-    the step it announces and the save after the scan."""
+    """The loop at its commit step, as `run.verify_work` reads it: a run's record, owned by
+    this process as the loop's own is, its log, the step it announces and the save after the
+    scan."""
 
     scratch, every = False, []
 
     def __init__(self, run_dir, log):
         self.run_dir, self.log, self.steps, self.artifacts = run_dir, log, [], set()
-        self.state = record.read_state(run_dir)
+        self.state = {**record.read_state(run_dir), **record.process_owner()}
         self.wt = Path(self.state["worktree"])
 
     def step(self, name):
@@ -116,8 +118,22 @@ class Reservations(LiveRuns):
     def test_the_commit_step_stops_a_run_the_tick_has_not_seen_yet(self):
         _, younger = self.collide()
         lp = Step(config.RUNS / YOUNGER, self.logs.append)
-        with self.assertRaises(record.StopRequested):
-            run.verify_work(lp)
+        real, asked = subprocess.run, []
+
+        def systemctl_recorded(argv, *args, **kw):
+            if argv[0] != "systemctl":
+                return real(argv, *args, **kw)
+            asked.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        # the loop is in its own unit: a waited stop of it would end the loop mid-scan
+        with patch.object(orch, "user_manager", return_value=True), \
+                patch.object(orch, "stop_scope") as stop_scope, \
+                patch.object(subprocess, "run", systemctl_recorded):
+            with self.assertRaises(record.StopRequested):
+                run.verify_work(lp)
+        self.assertEqual([argv for argv in asked if "stop" in argv], [])
+        stop_scope.assert_called_once_with(f"agentkit-run-{YOUNGER}", ANY, wait=False)
         self.assertEqual(lp.steps, ["done-when"])
         state = self.state(YOUNGER)
         self.assertEqual((state["state"], state["lease_wait"]["on"]), ("stopped", OLDER))
