@@ -499,11 +499,14 @@ def prompted_since(name, at):
     hooks/seat-state.sh stamps each prompt's moment into the seat's stop file, whichever
     harness it came from, and a turn that has since finished keeps that stamp.
     """
-    try:
-        turn = json.loads(config.stop_path(name).read_text(encoding="utf-8")).get("turn")
-    except (OSError, ValueError, AttributeError, config.Error):
-        return False
-    return isinstance(turn, (int, float)) and not isinstance(turn, bool) and turn > at
+    for alias in {name, *config.session_aliases(name)}:
+        try:
+            turn = json.loads(config.stop_path(alias).read_text(encoding="utf-8")).get("turn")
+        except (OSError, ValueError, AttributeError, config.Error):
+            continue
+        if isinstance(turn, (int, float)) and not isinstance(turn, bool) and turn > at:
+            return True
+    return False
 
 
 def continue_turns(cfg, log, accounts=False):
@@ -1739,6 +1742,9 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         return {"state": "at_prompt", "since": None, "began": None, "hooked": None,
                 "hooked_at": None, "hooked_event": None, "authority": "", "rule": "none",
                 "evidence": str(exc)[:160]}
+    from . import stop
+    stop.quiet_ending(name, state=found["state"],
+                      said=progress_output(harness, pane_tail(pane)), at=at, observe=True)
     fields = dict(found, **stop_marks(harness, pane, found, previous, at))
     if any(previous.get(key) != value for key, value in fields.items()):
         seat_write(name, **fields)
@@ -1888,10 +1894,10 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     always was, and no word of the seat's to every screen.  `waits` is `waiting_on`'s alone: it
     asks about the session a wait names with that session's own wait left out.
 
-    Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
-    option or tells anybody -- not even through a lookup, which is why the seat and its
-    number are read from `orch.listing(reconcile=False)` and never from the reconciling one.
-    `look_at` does the looking and `announce_state` the remembering and the publishing.
+    Nothing here captures a pane, sets an option or tells anybody. Only accepting a private
+    quiet answer binds its observed output, through Stop; ordinary classification writes
+    nothing. `look_at` does the looking and `announce_state` the publishing. The seat and
+    its number come from `orch.listing(reconcile=False)`, never the reconciling one.
     """
     from . import menu as menu_mod    # here, not at the top: the menu imports this module
     from . import run as run_mod
@@ -2206,6 +2212,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or (
             not jobs and notify.job_done(last))):
         last = None
+    from . import stop
+    quiet = stop.quiet_ending(name, state=found.get("state", "at_prompt"),
+                              said=seat_read(name).get("stop_said"), at=at)
     # 5. it said it was done, and nothing above it is still going. A run a later
     # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.
     if last and last["kind"] == "done":
@@ -2230,6 +2239,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if last:
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time")}
+    if quiet:
+        return {"word": "done", "reason": quiet["text"], "since": quiet["time"], "quiet": True}
     # A question on its screen, and typed text nobody sent, are both him: the fact is a
     # reason for the word, never a word of its own.
     asked = found.get("evidence") if found.get("state") in ("asking", "draft") else ""
@@ -3299,7 +3310,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         if found is not None and not wait_holds(found):
             return      # that session has stopped: tell_waits says so, and why, instead
     ends, undecided = stop.recorded_ending(
-        name, records, question=question,
+        name, records, question=question, said=said,
         answer=lambda: bool(notice and notice["kind"] == "done" and done_holds(
             name, live, notice, began, said, dry_run)))
     if ends:

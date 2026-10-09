@@ -5,12 +5,13 @@ the checkout unless kept. `ways_out` names the commands that settle a parked run
 `recorded_ending` decides whether recorded work lets a seat's turn end.
 """
 
+import math
 import os
 import subprocess
 import time
 from pathlib import Path
 
-from . import config, orch, run, watch, worker, worktrees
+from . import config, orch, plan, run, watch, worker, worktrees
 from . import job as jobs
 from . import record as run_record
 
@@ -37,8 +38,67 @@ def _ending_work(name, records):
     return records, mine
 
 
+def quiet_done(name, text):
+    """Record an information answer privately, leaving job notifications untouched."""
+    at = time.time()
+    proven = plan.require_done(name)
+    with plan.held(name) as current:
+        plan.still_done(current, proven)
+        with watch.seat_lock(current):
+            live = watch.seat_read(current)
+            previous = live.get("quiet_done")
+            newer = watch._stamp(previous.get("time")) if isinstance(previous, dict) else None
+            if ((newer is not None and (newer > at or (
+                    newer == at and "text" not in previous)))
+                    or watch.prompted_since(current, at)):
+                return False
+            watch._seat_put(current, live, {"quiet_done": {"time": at, "text": text}})
+            return True
+
+
+def quiet_ending(name, *, state="at_prompt", said=None, at=None, observe=False):
+    """One quiet lifecycle for a look and every acceptance, under the same seat lock.
+
+    A first working look can be late. Once stopped or accepted, later work or changed
+    output retires the answer. Keep its command stamp as the barrier: a delayed look
+    must not reject the next command that already began. No job coverage is recorded.
+    """
+    at = time.time() if at is None else at
+    if not watch.seat_read(name).get("quiet_done"):
+        return None
+    with watch.seat_lock(name):
+        live = watch.seat_read(name)
+        quiet = live.get("quiet_done")
+        stamp = watch._stamp(quiet.get("time")) if isinstance(quiet, dict) else None
+        if (stamp is None or not math.isfinite(stamp) or stamp > at
+                or not isinstance(quiet.get("text"), str)
+                or watch.prompted_since(name, stamp)):
+            return None
+        stopped = quiet.get("stopped")
+        if stopped is not None:
+            if at < stopped[0]:
+                return None     # an older capture cannot replace a newer acceptance
+            if at > stopped[0] and (state == "working" or (
+                    state == "at_prompt" and said is not None and stopped[1] is not None
+                    and stopped[1] != said)):
+                watch._seat_put(name, live, {"quiet_done": {"time": stamp, "stopped": stopped}})
+                return None
+        if state != "at_prompt":
+            return None
+        if stopped is None or stopped[1] is None and said is not None:
+            quiet = {**quiet, "stopped": [at, said]}
+            watch._seat_put(name, live, {"quiet_done": quiet})
+        if not observe:
+            try:
+                if not plan.unfinished(name):
+                    return {"time": stamp, "text": quiet["text"]}
+            except config.Error:
+                pass            # an unread plan proves no completed answer
+        return None
+
+
 def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
-                    since=None):
+                    since=None, said=None, at=None):
     """(the turn may end, parked records), from the evidence its caller can see.
 
     The native hook reads parked work, then completion, then fresh wait receipts; the tick
@@ -56,6 +116,8 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
               and run.unfinished(state, records)]
     if parked:
         return False, parked
+    if quiet_ending(name, said=said, at=at):
+        return True, []
     if completion() if callable(completion) else completion:
         return True, []
     if supplied is None:

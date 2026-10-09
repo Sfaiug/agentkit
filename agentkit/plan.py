@@ -118,6 +118,11 @@ def open_lines(name):
                 if LINE.match(line.strip()) and is_open(line)]
 
 
+def unfinished(name):
+    """Read current open outcomes, including hand-kept lines, without taking a writer lock."""
+    return any(is_open(line) for line in lines(name))
+
+
 def write(name, text_lines):
     path_ = path(name)
     path_.parent.mkdir(parents=True, exist_ok=True)
