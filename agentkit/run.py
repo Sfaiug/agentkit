@@ -25,6 +25,7 @@ import sys
 import tempfile
 import threading
 import time
+import zlib
 from collections import Counter
 from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import datetime
@@ -32,7 +33,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 from . import (box, command_help, config, gate, gc, hand_in, history, host, job as jobs,
-               land as landing, notify, orch, record as run_record, retention, status,
+               land as landing, notify, orch, owner, record as run_record, retention, status,
                stop, task as taskfile, update, usage, watch, worker, worktrees)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
@@ -136,7 +137,7 @@ NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
 # The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
-FRONT_KEYS = ("tests", "health", "cleanup", "users", "features")
+FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "owner")
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
 NOTES = re.compile(r"^(#+)[ \t]*Notes\b[^\n]*$", re.M | re.I)
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
@@ -5263,6 +5264,283 @@ def merged_anyway(lp, url, upstream):
             and merged(lp, url, lp.state["merge_method"]))
 
 
+def owner_env():
+    """git with replacement objects and grafts off, so a replace ref or an info/grafts line a
+    worker left in the shared repository cannot show base content or bend the merge base."""
+    return {"GIT_NO_REPLACE_OBJECTS": "1", "GIT_GRAFT_FILE": os.devnull}
+
+
+def owner_objects(wt, ids):
+    """Read and hash the exact raw objects consumed, even from packed or alternate storage.
+
+    Git can read different bytes planted under a loose object's filename without checking its
+    hash. A separate fsck followed by another read would leave the same substitution race.
+    """
+    if any(not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", oid) for oid in ids):
+        raise config.Error("cannot verify Git object names for the owner's parts")
+    raw = git_bytes(wt, "cat-file", "--batch", input="\n".join(ids).encode() + b"\n",
+                    env=owner_env()).encode("utf-8", "surrogateescape")
+    objects, at = {}, 0
+    for oid in ids:
+        try:
+            end = raw.index(b"\n", at)
+            found, kind, size = raw[at:end].decode("ascii").split()
+            size = int(size)
+            body = raw[end + 1:end + 1 + size]
+            framed = kind.encode() + b" " + str(size).encode() + b"\0" + body
+            hashed = hashlib.new("sha1" if len(oid) == 40 else "sha256", framed).hexdigest()
+            if (found != oid or size < 0 or len(body) != size or hashed != oid
+                    or raw[end + 1 + size:end + 2 + size] != b"\n"):
+                raise ValueError
+        except (ValueError, UnicodeError):
+            raise config.Error(f"cannot verify Git object {oid} for the owner's parts") from None
+        objects[oid] = kind, body
+        at = end + 2 + size
+    if at != len(raw):
+        raise config.Error("cannot verify Git object output for the owner's parts")
+    return objects
+
+
+def owner_object(wt, kind, oid):
+    actual, body = owner_objects(wt, [oid])[oid]
+    if actual != kind:
+        raise config.Error(f"Git object {oid} is not a {kind} for the owner's parts")
+    return body
+
+
+def owner_commit(body, oid):
+    """The tree and parents linked by an authenticated commit, without grafts or cached graphs."""
+    headers = body.partition(b"\n\n")[0].split(b"\n")
+    try:
+        tree = headers[0].removeprefix(b"tree ").decode("ascii")
+        parents = [line[7:].decode("ascii") for line in headers if line.startswith(b"parent ")]
+        if (not headers[0].startswith(b"tree ") or any(
+                not re.fullmatch(r"[0-9a-f]{" + str(len(oid)) + r"}", value)
+                for value in [tree, *parents])):
+            raise ValueError
+    except (ValueError, UnicodeError):
+        raise config.Error(f"cannot read verified commit {oid} for the owner's parts") from None
+    return tree, parents
+
+
+def owner_base(wt, target, head):
+    """Let Git select its merge base from copied, verified commit bytes in the owner-yes store.
+
+    The shared rev-list is only a candidate inventory: every linked parent must be present.
+    This keeps an altered commit, shallow boundary or commit graph from truncating ancestry.
+    """
+    ids = git_bytes(wt, "rev-list", target, head, env=owner_env()).splitlines()
+    commits = owner_objects(wt, ids)
+    if target not in commits or head not in commits or any(
+            kind != "commit" or any(parent not in commits for parent in owner_commit(body, oid)[1])
+            for oid, (kind, body) in commits.items()):
+        raise config.Error("cannot verify complete Git ancestry for the owner's parts")
+    store = config.STATE / config.OWNER_YES
+    store.mkdir(parents=True, exist_ok=True)
+    # A hook's Git addresses and config cannot redirect this copy back into the shared repository.
+    env = {name: None for name in tool_env() if name.startswith("GIT_")}
+    env.update(owner_env(), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    with tempfile.TemporaryDirectory(prefix=".git-", dir=store) as directory:
+        git_bytes(directory, "init", "--bare", "--template=",
+                  "--object-format=" + ("sha1" if len(target) == 40 else "sha256"), env=env)
+        for oid, (_, body) in commits.items():
+            path = Path(directory, "objects", oid[:2], oid[2:])
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(zlib.compress(b"commit " + str(len(body)).encode() + b"\0" + body))
+        return git_bytes(directory, "merge-base", target, head, env=env).strip()
+
+
+def owner_target(wt, upstream, pr=None):
+    """Pin the target independently of writable tracking refs and fetch configuration.
+
+    Delivery names the repository by its PR URL, never by worker-writable remote URLs.
+    Standalone Git readers verify an explicit remote branch; all tree reads use its SHA.
+    """
+    if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", upstream):
+        return upstream
+    branch = upstream.removeprefix("origin/")
+    if pr:
+        parts = pr_parts(pr)
+        if parts is None:
+            raise config.Error("cannot locate the target repository for the owner's parts")
+        api, account, repo, _ = parts
+        data, why = gh_json(config.RUNS, *api,
+                            f"repos/{account}/{repo}/git/ref/heads/{quote(branch, safe='')}")
+        entry = data.get("object", {}) if isinstance(data, dict) else {}
+        sha = entry.get("sha") if entry.get("type") == "commit" else None
+    else:
+        ref = f"refs/heads/{branch}"
+        rows = git_bytes(wt, "ls-remote", "--exit-code", "origin", ref).splitlines()
+        sha = next((row.split()[0] for row in rows if row.split()[1:] == [ref]), None)
+        why = "the remote did not name that branch"
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
+        raise config.Error(f"cannot verify the target for the owner's parts: {why}")
+    return sha
+
+
+def front_has_key(text, key):
+    """Does AGENTS.md's front matter carry this key at all, even with an empty or block value?"""
+    match = FRONT.match(text or "")
+    return bool(match) and any(
+        ":" in line and line.strip().partition(":")[0].strip() == key
+        for line in match.group(1).splitlines())
+
+
+def owner_declaration(wt, upstream):
+    """The target's `owner:` value as written (a trailing `# comment` removed), from the
+    verified target commit, or None when the target has no AGENTS.md or names no owner key.
+
+    An AGENTS.md whose entry is in the tree but whose content git cannot read, or whose tree
+    cannot be read at all, stops delivery rather than quietly dropping the guard: its owner parts
+    are unknown, not absent.  A read that stops raises on its own."""
+    rev = owner_target(wt, upstream)
+    entry = owner_entry(wt, rev, "AGENTS.md")
+    if entry is None:
+        return None                      # the target has no AGENTS.md entry: it names no owner
+    # Parsing follows the text reader's universal newlines; content comparisons keep raw bytes.
+    text = owner_object(wt, "blob", entry[1]).decode("utf-8", "surrogateescape")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not front_has_key(text, "owner"):
+        return None
+    return re.sub(r"\s#.*$", "", front_value(text, "owner") or "").strip()
+
+
+def owner_target_parts(wt, upstream):
+    """[(path, heading)] the target names as the owner's, or [] when it names none.  An owner key
+    present but naming no flat path -- a block list, an empty or unparseable value -- fails closed
+    on the front matter, so the owner is asked rather than the guard quietly dropped."""
+    declaration = owner_declaration(wt, upstream)
+    if declaration is None:
+        return []
+    return owner.parts(declaration) or [("AGENTS.md", owner.FRONT)]
+
+
+def owner_entry(wt, rev, path):
+    """(entry mode, object id) for `path` in `rev`'s tree, None when it is absent in a readable
+    tree, raising config.Error when the tree that would hold it cannot be read.
+
+    Follow only authenticated commit and tree bytes, matching names byte for byte. Modes remain
+    part of the identity, including symlinks and executable bits. An unreadable or forged tree
+    stops delivery rather than being mistaken for an absent entry."""
+    parent, _, base = path.rpartition("/")
+    tree, _ = owner_commit(owner_object(wt, "commit", rev), rev)
+    names = [name for name in parent.split("/") if name not in ("", ".")] + [base]
+    for depth, name in enumerate(names):
+        data = owner_object(wt, "tree", tree)
+        at, entry = 0, None
+        while at < len(data):
+            try:
+                space, end = data.index(b" ", at), data.index(b"\0", at)
+                mode = data[at:space].decode("ascii").zfill(6)
+                oid = data[end + 1:end + 1 + len(rev) // 2]
+                if len(oid) != len(rev) // 2:
+                    raise ValueError
+            except (ValueError, UnicodeError):
+                raise config.Error(f"cannot read verified tree {tree} for the owner's parts") from None
+            if data[space + 1:end] == name.encode("utf-8", "surrogateescape"):
+                entry = mode, oid.hex()
+                break
+            at = end + 1 + len(oid)
+        if entry is None:
+            return None
+        if depth == len(names) - 1:
+            return entry
+        if entry[0] != "040000":
+            raise config.Error(f"the target's {path} has a non-directory parent")
+        tree = entry[1]
+
+
+def owner_contents(wt, rev, parts):
+    """[(path, heading, text|None)] for each owner part at `rev`; None where the path is absent.
+    A whole file or folder is its entry mode and object id (byte-exact, mode included); a section
+    is its entry mode and its own section text, kept byte-lossless (surrogateescape)."""
+    out = []
+    for path, heading in parts:
+        entry = owner_entry(wt, rev, path)
+        if entry is None:
+            out.append((path, heading, None))
+            continue
+        mode, oid = entry
+        if heading is None:              # a whole file or folder: mode and object id are its identity
+            out.append((path, heading, f"{mode} {oid}"))
+        else:                            # a section: its mode and its own text
+            text = owner.piece(owner_object(wt, "blob", oid).decode("utf-8", "surrogateescape"), heading)
+            out.append((path, heading, None if text is None else f"{mode}\0{text}"))
+    return out
+
+
+def owner_digest(wt, rev, parts):
+    return owner.digest(owner_contents(wt, rev, parts))
+
+
+def owner_parts(wt, upstream, sha):
+    """(the owner parts the target names, the names of those the change at `sha` touches)."""
+    target = owner_target(wt, upstream)
+    parts = owner_target_parts(wt, target)
+    if not parts:
+        return [], []
+    base = owner_base(wt, target, sha)
+    before = owner_contents(wt, base, parts)
+    after = owner_contents(wt, sha, parts)
+    hit = [owner.name(p, h) for (p, h, a), (_, _, b) in zip(before, after) if a != b]
+    return parts, hit
+
+
+def owner_said(run_id):
+    """The fingerprint the owner said yes to for that run, or None."""
+    try:
+        return json.loads((config.STATE / config.OWNER_YES / f"{run_id}.json").read_text()).get("digest")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def owner_say(run_id, fingerprint):
+    """Keep the owner's yes to that content in ak's state folder, none of a box's writable places."""
+    path = config.STATE / config.OWNER_YES / f"{run_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}")
+    tmp.write_text(json.dumps({"digest": fingerprint}) + "\n")
+    os.replace(tmp, path)
+
+
+def post_owner_question(run_dir, state, hit, head):
+    """Put this run's owner-approval question in the inbox.  Factored so a second run still waiting
+    on the owner can be resurfaced after the first is answered, since a session carries one notice
+    at a time."""
+    run_id = run_dir.name
+    yes, no = f"ak run yes {run_id} {head[:12]}", f"ak run no {run_id}"
+    line = (f"Run {run_id} changes {', '.join(hit)}, which land only on your yes. "
+            f"Review it, then `{yes}` to land or `{no}` to keep it unmerged.")
+    with speaking_for(state):
+        # The question already names its commands; only the ordinary owner notice is owed,
+        # never ask_inbox's instructions for merging somebody else's PR from the seat.
+        watch.ask_inbox({}, line, f"owner:{run_id}", head, print, asked=True)
+
+
+def owner_block(lp, upstream, pr=None):
+    """True, having parked the run and asked the owner, when its change touches owner parts with
+    no yes of theirs for that content.  The question goes to the owner, never a self-serve note to
+    the seat that wrote the change, so an improvement loop cannot approve its own.  On a shared
+    host the orchestrator seat has a shell ak cannot tell from the owner's, so this stops the loop
+    merging owner parts in its normal run, not a seat that means to forge the owner's yes."""
+    head = lp.state.get("delivery_sha") or git(lp.wt, "rev-parse", "HEAD")
+    target = owner_target(lp.wt, upstream, pr or lp.state.get("pr"))
+    parts, hit = owner_parts(lp.wt, target, head)
+    if not hit or owner_said(lp.run_dir.name) == owner_digest(lp.wt, head, parts):
+        return False
+    key, run_id = head[:12], lp.run_dir.name      # the key names this content: a stale yes misses
+    yes, no = f"ak run yes {run_id} {key}", f"ak run no {run_id}"
+    reason = f"it changes {', '.join(hit)}, which land only on the owner's yes ({yes}, or {no})"
+    note(lp, reason, failed=False)
+    lp.state.update(state="waiting", error=reason, waiting_on={"owner": head},
+                    merge_failed=False, merged=False, finished_at=None)
+    lp.state.pop("recovery_pending", None)
+    lp.write()
+    post_owner_question(lp.run_dir, lp.state, hit, head)
+    lp.log(f"--- merge: parked for the owner's yes; asked {config.inbox()} about {', '.join(hit)}")
+    return True
+
+
 def do_merge(lp, url, upstream):
     """Merge the PR, integrating once more if origin moved under it while the checks ran.
 
@@ -5291,6 +5569,10 @@ def do_merge(lp, url, upstream):
                     fetch(lp.wt, "origin", "--prune", check=True)
                     if not integrated(lp.wt, upstream):
                         return rejoin_line(lp, upstream, "the PR's target moved")
+                # The owner's yes is checked for THIS delivered head, each attempt: an integration
+                # that changed owner content under the run parks for a fresh yes rather than merging.
+                if owner_block(lp, upstream, url):
+                    return False
                 body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
                              "--match-head-commit", lp.state["delivery_sha"], *body)
@@ -9833,6 +10115,96 @@ def cmd_resume(argv):
         raise
 
 
+def owner_waiting(argv, verb):
+    """(run_dir, worktree, upstream, head) for a run parked on the owner's yes, or raise.
+
+    `ak run yes ID KEY` names the content with KEY (the head's short id): a late or repeated
+    answer to an earlier question, after the head moved on, names a key that no longer matches
+    and lands nothing.  `ak run no` takes the id alone."""
+    want_key = verb == "yes"
+    if not (1 <= len(argv) <= (2 if want_key else 1)) or Path(argv[0]).name != argv[0] \
+            or argv[0] in (".", ".."):
+        raise config.Error(f"usage: ak run {verb} <runid>{' <key>' if want_key else ''}")
+    if os.environ.get(worker.RUN_MARKER):
+        raise config.Error(f"`ak run {verb}` is the owner's word; a run cannot give it")
+    caller = config.current_session()
+    if caller and caller != config.resolve_session(config.inbox()):
+        raise config.Error(f"`ak run {verb}` is the owner's word; only the inbox seat may relay it")
+    run_dir = config.RUNS / argv[0]
+    state = (run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None) or {}
+    head = (state.get("waiting_on") or {}).get("owner")
+    target = state.get("target") or state.get("base")
+    wt = next((path for path in (state.get("worktree"), state.get("repo"))
+               if path and Path(path).is_dir()), None)
+    if not (head and target and wt):
+        raise config.Error(f"{argv[0]} is not waiting for the owner's yes")
+    if want_key and (len(argv) != 2 or argv[1] != head[:12]):
+        raise config.Error(f"{argv[0]} is waiting on key {head[:12]}; `ak run yes {argv[0]} {head[:12]}`")
+    upstream = target if target.startswith("origin/") else f"origin/{target}"
+    return run_dir, wt, upstream, head
+
+
+def owner_answered(run_dir):
+    """Retire the owner question `owner_block` raised for this run, on the session it asked, then
+    resurface another run still waiting on the owner for that session, so a second pending approval
+    is never hidden behind the one just answered.  `ak run yes`/`no` answer from the CLI, outside
+    the seat, where its prompt hook never acknowledges them, and the tick never re-asks an
+    owner-parked run on its own; a session also carries one notice at a time."""
+    session = config.resolve_session(config.inbox())
+    notice = notify.last(session, include_seen=True)
+    if notice and str(notice.get("source") or "").startswith(f"inbox:owner:{run_dir.name}:"):
+        watch.forget(session, resolve=False, notice=notice.get("text"))
+    for other in run_record.run_dirs():
+        if other.name == run_dir.name:
+            continue
+        said = run_record.read_state(other) or {}
+        head = (said.get("waiting_on") or {}).get("owner")
+        if said.get("state") != "waiting" or not head:
+            continue
+        wt = next((p for p in (said.get("worktree"), said.get("repo")) if p and Path(p).is_dir()),
+                  None)
+        target = said.get("target") or said.get("base")
+        if not (wt and target):
+            continue
+        upstream = target if target.startswith("origin/") else f"origin/{target}"
+        try:
+            _, hit = owner_parts(Path(wt), owner_target(wt, upstream, said.get("pr")), head)
+        except config.Error:
+            continue
+        if hit:
+            post_owner_question(other, said, hit, head)
+            break
+
+
+def cmd_yes(argv):
+    """`ak run yes ID`: the owner's yes to the content a run changes in their parts, then its
+    delivery once more.  A later change to those parts asks again."""
+    run_dir, wt, upstream, head = owner_waiting(argv, "yes")
+    state = run_record.read_state(run_dir) or {}
+    parts, hit = owner_parts(wt, owner_target(wt, upstream, state.get("pr")), head)
+    if not hit:
+        raise config.Error(f"{argv[0]} changes none of the owner's parts; nothing waits for a yes")
+    owner_say(run_dir.name, owner_digest(wt, head, parts))
+    with run_record.record(run_dir) as state:
+        state.pop("waiting_on", None)
+    owner_answered(run_dir)
+    print(f"the owner's yes to {', '.join(hit)} at {head[:12]} is kept; delivering {argv[0]} again")
+    return cmd_resume([argv[0], "--bg"])
+
+
+def cmd_no(argv):
+    """`ak run no ID`: the owner declines the change to their parts; the run ends, its branch kept."""
+    run_dir, wt, upstream, head = owner_waiting(argv, "no")
+    with run_record.record(run_dir) as state:
+        state.update(state="blocked", verdict="BLOCKED", finished_at=time.time(),
+                     error="the owner said no to the change to their parts; the branch is kept")
+        state.pop("waiting_on", None)
+        state.pop("recovery_pending", None)
+    owner_answered(run_dir)
+    print(f"{argv[0]} is left unmerged and its branch kept; the owner said no")
+    return 0
+
+
 def resume_run(argv):
     ids = [arg for arg in argv if not arg.startswith("-") and arg != "--bg"]
     if ids and jobs.receipt_path(config.JOBS / ids[0]).exists():
@@ -10343,12 +10715,16 @@ def text_blob(repo, ref, path):
         return False
 
 
-def git_bytes(repo, *args):
+def git_bytes(repo, *args, env=None, input=None):
     """git's output with every byte kept (surrogateescape), names included: a carriage return or
-    a byte that is not UTF-8 stays itself, and handed back to git names the same file."""
+    a byte that is not UTF-8 stays itself, and handed back to git names the same file.
+    An env value of None drops that variable, as in tool_run."""
     try:
         proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
-                              stdin=subprocess.DEVNULL, timeout=TOOL_CAP, env=tool_env())
+                              **({"stdin": subprocess.DEVNULL} if input is None else {"input": input}),
+                              timeout=TOOL_CAP,
+                              env={key: value for key, value in {**tool_env(), **(env or {})}.items()
+                                   if value is not None})
     except subprocess.TimeoutExpired:
         raise Stopped(f"git {' '.join(args[:2])} ran past {TOOL_CAP:g}s in {repo}")
     if proc.returncode:
@@ -11234,6 +11610,10 @@ def main(argv):
         return gc.cmd_gc(argv[1:])
     if argv[:1] == ["resume"]:
         return cmd_resume(argv[1:])
+    if argv[:1] == ["yes"]:
+        return cmd_yes(argv[1:])
+    if argv[:1] == ["no"]:
+        return cmd_no(argv[1:])
     if argv[:1] == ["merge"]:
         return cmd_merge(argv[1:])
     if argv[:1] == ["stop"]:

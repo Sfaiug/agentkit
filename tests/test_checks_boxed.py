@@ -3,6 +3,7 @@
 from contextlib import ExitStack
 import errno
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 import unittest
+import zlib
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -27,7 +29,9 @@ class ChecksBoxed(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-checks-boxed-", dir=REPO)
         self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name)
+        self.fixture = Path(tmp.name)
+        self.root = self.fixture / "workspace"
+        self.root.mkdir()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(account_home(self.root))
@@ -37,8 +41,8 @@ class ChecksBoxed(unittest.TestCase):
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
-        for key in ("HOME", "RUNS", "STATE"):
-            self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
+        for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+            self.stack.enter_context(patch.object(config, key, self.fixture / key.lower()))
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(gate, "derived_heavy_limit", return_value=2))
@@ -274,6 +278,192 @@ class ChecksBoxed(unittest.TestCase):
                     self.assertFalse(ok, text)
                 self.assertIn("Read-only file system", text)
                 self.assertFalse(path.exists())
+
+    def test_a_check_cannot_forge_the_owner_yes_store(self):
+        # ak's state folder is none of a check's writable places: the check cannot write a yes there,
+        # create the first one where none exists, or rename the folder away and recreate it.
+        config.STATE.mkdir(parents=True, exist_ok=True)
+        store = config.STATE / config.OWNER_YES
+        run_json = store / "run.json"
+        create = self.command(f"from pathlib import Path\np = Path({str(run_json)!r})\n"
+                              "p.parent.mkdir(parents=True, exist_ok=True)\np.write_text('forged')\n")
+        self.assertNotEqual(self.proof(create)["returncode"], 0)
+        self.assertFalse(store.exists())                       # no first yes was created
+        store.mkdir()
+        run_json.write_text("real-yes")
+        moved = config.STATE.with_name("state-moved")
+        rename = self.command(f"from pathlib import Path\nstate = Path({str(config.STATE)!r})\n"
+                             f"state.rename({str(moved)!r})\np = Path({str(run_json)!r})\n"
+                             "p.parent.mkdir(parents=True, exist_ok=True)\np.write_text('forged')\n")
+        self.assertNotEqual(self.proof(rename)["returncode"], 0)
+        self.assertEqual(run_json.read_text(), "real-yes")     # the real yes is untouched
+        self.assertFalse(moved.exists())                       # the state dir cannot be renamed away
+
+    def test_a_yes_written_under_a_checks_throwaway_home_never_reaches_the_store(self):
+        # The default layout: ak's state folder under HOME, the workspace and out dir beside it.
+        home = self.root / "home"
+        store = home / ".agentkit/state" / config.OWNER_YES
+        workspace, out = (home / name for name in (".agentkit/wt/change", ".agentkit/runs/check"))
+        for path in (store, workspace, out):
+            path.mkdir(parents=True)
+        yes = store / "acme.json"
+        yes.write_text('{"digest":"real-yes"}')
+        source = ("from pathlib import Path\n"
+                  f"store = Path({str(store)!r})\n"
+                  "for name in ('acme.json', 'other.json'):\n"
+                  " (store / name).write_text('{\"digest\":\"forged\"}')\n"
+                  f"Path({str(workspace / 'kept')!r}).write_text('declared')\n")
+        with account_home(home), patch.dict(os.environ, {"HOME": str(home)}), \
+                patch.object(config, "STATE", store.parent), box.command(
+                    [sys.executable, "-c", source], dict(os.environ), out,
+                    cwd=workspace, home_overlay=True) as (argv, env, spawn):
+            spawn.pop("stop")
+            result = subprocess.run(argv, env=env, cwd=workspace, capture_output=True,
+                                    text=True, timeout=60, **spawn)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((workspace / "kept").read_text(), "declared")
+            self.assertEqual(run.owner_said("acme"), "real-yes")
+            self.assertIsNone(run.owner_said("other"))
+
+    def test_a_box_cannot_hide_owner_parts_by_rewriting_git_refs_or_remote_config(self):
+        for path, text in (("AGENTS.md", "---\n---\n# acme\n"), ("policy.txt", "locked")):
+            (self.root / path).write_text(text)
+        run.git(self.root, "init", "-q", "-b", "main")
+        run.git(self.root, "config", "user.name", "acme")
+        run.git(self.root, "config", "user.email", "acme@localhost")
+        run.git(self.root, "add", "AGENTS.md", "policy.txt")
+        run.git(self.root, "commit", "-qm", "before owner declaration")
+        earlier = run.git(self.root, "rev-parse", "HEAD")
+        (self.root / "AGENTS.md").write_text("---\nowner: policy.txt\n---\n# acme\n")
+        run.git(self.root, "commit", "-qam", "protect the policy")
+        target = run.git(self.root, "rev-parse", "HEAD")
+        remote, decoy = (self.fixture / name for name in ("origin.git", "decoy.git"))
+        for destination in (remote, decoy):
+            run.git(self.root, "clone", "--bare", "-q", str(self.root), str(destination))
+        run.git(decoy, "update-ref", "refs/heads/main", earlier)
+        run.git(self.root, "remote", "add", "origin", str(remote))
+        run.git(self.root, "checkout", "-qb", "change")
+        (self.root / "policy.txt").write_text("open")
+        run.git(self.root, "commit", "-qam", "change owner policy")
+        head = run.git(self.root, "rev-parse", "HEAD")
+        directory = self.fixture / "delivery"
+        directory.mkdir()
+        for redirect_url in (False, True):
+            with self.subTest(redirect_url=redirect_url):
+                run.git(self.root, "remote", "set-url", "origin", str(remote))
+                run.git(self.root, "update-ref", "refs/remotes/origin/main", target)
+                source = ("import subprocess\n"
+                    "subprocess.run(['git','config','remote.origin.fetch',"
+                    "'+refs/heads/main:refs/remotes/origin/elsewhere'], check=True)\n"
+                    f"subprocess.run(['git','update-ref','refs/remotes/origin/main',{earlier!r}], check=True)\n")
+                if redirect_url:
+                    source += f"subprocess.run(['git','remote','set-url','origin',{str(decoy)!r}], check=True)\n"
+                result = self.proof(self.command(source))
+                self.assertEqual(result["returncode"], 0, result)
+                state = {"run_id": directory.name, "state": "running", "verdict": "PASS",
+                         "delivery_sha": head, "target": "main", "merge_method": "rebase",
+                         "review": {"head_sha": head}, "waiting_on": {"line": True},
+                         "session": "seat-acme", "worktree": str(self.root), "repo": str(self.root)}
+                lp = SimpleNamespace(wt=self.root, run_dir=directory, state=state, cfg={},
+                    log=lambda *_: None, write=lambda: None)
+                with patch.object(run, "require_review_pass"), \
+                        patch.object(run, "gh_json", return_value=({"object": {"type": "commit", "sha": target}}, "")), \
+                        patch.object(run.notify, "shaped", return_value=0), \
+                        patch.object(run, "merged", return_value=True), \
+                        patch.object(run, "gh", return_value=(0, "")) as merge:
+                    self.assertFalse(run.do_merge(lp, "https://github.com/acme/widget/pull/1", "origin/main"))
+                merge.assert_not_called()
+                self.assertEqual(lp.state["waiting_on"], {"owner": head})
+                self.assertEqual(run.git(remote, "rev-parse", "refs/heads/main"), target)
+
+    def test_boxed_object_overwrites_cannot_bypass_verified_target_consent(self):
+        for case in ("declaration", "section", "target-commit", "head-commit", "root-tree",
+                     "parent-tree", "ancestor-commit"):
+            with self.subTest(case=case):
+                repo, remote, out = (self.root / (case + suffix) for suffix in ("", ".git", "-out"))
+                repo.mkdir()
+                path = "policy/rules.md" if case == "parent-tree" else "policy.md"
+                owned = path + ("#Vision" if case == "section" else "")
+                agents = f"---\nowner: {owned}\n---\n# acme\n"
+                before, after = "## Vision\nlocked\n", "## Vision\nopen\n"
+                (repo / "AGENTS.md").write_text(agents)
+                policy = repo / path
+                policy.parent.mkdir(parents=True, exist_ok=True)
+                policy.write_text(after)
+                run.git(repo, "init", "-q", "-b", "main")
+                run.git(repo, "config", "user.name", "acme")
+                run.git(repo, "config", "user.email", "acme@localhost")
+
+                def commit(message):
+                    run.git(repo, "add", "-A")
+                    run.git(repo, "commit", "-qm", message)
+                    return run.git(repo, "rev-parse", "HEAD")
+
+                earlier = commit("earlier owner policy")
+                policy.write_text(before)
+                target = commit("target locks the policy")
+                run.git(repo, "clone", "--bare", "--no-hardlinks", "-q", str(repo), str(remote))
+                run.git(repo, "remote", "add", "origin", str(remote))
+                run.git(repo, "fetch", "-q", "origin")
+                run.git(repo, "checkout", "-qb", "change")
+                (repo / "app.py").write_text("x = 1\n")
+                ancestor = commit("ordinary app change")
+                policy.write_text(after)
+                head = commit("change protected policy")
+                run.git(repo, "push", "-q", "origin", "HEAD:refs/heads/change")
+                self.assertEqual(run.owner_parts(repo, target, head)[1], [owned])
+
+                if case == "declaration":
+                    oid = run.git(repo, "rev-parse", target + ":AGENTS.md")
+                    body = b"---\n---\n# acme\n"
+                    fake = b"blob " + str(len(body)).encode() + b"\0" + body
+                else:
+                    current, original = {
+                        "section": (head + ":" + path, target + ":" + path),
+                        "target-commit": (target, earlier),
+                        "head-commit": (head, head),
+                        "root-tree": (target + "^{tree}", earlier + "^{tree}"),
+                        "parent-tree": (head + ":policy", target + ":policy"),
+                        "ancestor-commit": (ancestor, ancestor)}[case]
+                    oid, original = (run.git(repo, "rev-parse", name) for name in (current, original))
+                    fake = zlib.decompress((repo / ".git/objects" / original[:2] / original[2:]).read_bytes())
+                    if case == "ancestor-commit":
+                        fake = fake.replace(b"parent " + target.encode(), b"parent " + earlier.encode())
+                    if case == "head-commit":
+                        current_tree, target_tree = (run.git(repo, "rev-parse", rev + "^{tree}")
+                                                     for rev in (head, target))
+                        fake = fake.replace(b"tree " + current_tree.encode(), b"tree " + target_tree.encode())
+                self.assertNotEqual(hashlib.sha1(fake).hexdigest(), oid)
+                object_path = repo / ".git/objects" / oid[:2] / oid[2:]
+                source = ("from pathlib import Path; import zlib; "
+                          f"p = Path({str(object_path)!r}); p.unlink(); "
+                          f"p.write_bytes(zlib.compress({fake!r}))")
+                out.mkdir()
+                with box.command([sys.executable, "-c", source], dict(os.environ), out,
+                                 cwd=repo, home_overlay=True) as (argv, env, spawn):
+                    spawn.pop("stop")
+                    result = subprocess.run(argv, env=env, cwd=repo, capture_output=True,
+                                            text=True, timeout=60, **spawn)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(run.git(remote, "show", target + ":AGENTS.md"), agents.strip())
+                self.assertEqual(run.git(remote, "show", head + ":" + path), after.strip())
+                state = {"run_id": case, "delivery_sha": head, "target": "main",
+                         "merge_method": "rebase", "review": {"head_sha": head},
+                         "worktree": str(repo), "repo": str(repo)}
+                if "commit" not in case:
+                    state["waiting_on"] = {"line": True}    # retain the proof's real fetch
+                lp = SimpleNamespace(wt=repo, run_dir=out, state=state, cfg={},
+                                     log=lambda *_: None, write=lambda: None)
+                with patch.object(run, "gh_json", return_value=(
+                        {"object": {"type": "commit", "sha": target}}, "")), \
+                        patch.object(run, "require_review_pass"), \
+                        patch.object(run, "post_owner_question"), \
+                        patch.object(run, "merged", return_value=True), \
+                        patch.object(run, "gh", return_value=(0, "")) as merge:
+                    with self.assertRaises(config.Error):
+                        run.do_merge(lp, "https://github.com/acme/widget/pull/1", "origin/main")
+                merge.assert_not_called()
+                self.assertIsNone(run.owner_said(out.name))
 
     def test_a_nested_check_starts_beside_a_crowded_folder(self):
         home = self.root / "home with space"

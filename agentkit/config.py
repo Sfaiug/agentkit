@@ -21,6 +21,7 @@ REPO = Path(__file__).resolve().parent.parent
 HOME = Path.home() / ".agentkit"
 RUNS, WT, STATE, SECRETS, TMP, ENV, WORK = (
     HOME / n for n in ("runs", "wt", "state", "secrets", "tmp", "env", "work"))
+OWNER_YES = "owner-yes"          # the one name of the owner-yes store, under STATE
 
 
 # Python calls __getattr__ for config.JOBS: it follows HOME wherever a test or a checkout

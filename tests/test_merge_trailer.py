@@ -76,6 +76,8 @@ class MergeTrailer(unittest.TestCase):
         return ok, text
 
     def gh(self, cwd, *args, **_kw):
+        if args[0] == "api" and args[-1] == "repos/acme/widget/git/ref/heads/main":
+            return 0, json.dumps({"object": {"type": "commit", "sha": self.git("rev-parse", "main")}})
         if args[0] == "api" and "repos/acme/widget/pulls/7" in args:
             return 0, json.dumps({"state": "open", "head": {"sha": self.git("rev-parse", "HEAD")},
                                   "base": {"ref": "main"}})
