@@ -6,7 +6,7 @@ tests: export AK_SHARD AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --use
 
 ## What ak is for
 
-ak builds whatever you want. You state an intent and get the finished result, live. It always takes one path: intent → alignment → build → review → live, and what breaks live comes back in as a new intent. ak does the work, asks the user only what only they can answer, and keeps running review rounds until the work passes.
+ak builds whatever you want. You state an intent and get the finished result, live. It always takes one path: intent → alignment → build → review → live, and what breaks live comes back in as a new intent. ak does the work, asks the user only what only they can answer, and runs review rounds until the work passes, three per change at most.
 
 Every change to ak is judged by what it does for what you build with it, and by these four rules:
 
@@ -94,7 +94,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - The landing line may test several waiting runs together and land them all when that one test passes; only main's tip after the batch must be tested. [5 Oct]
 - `ak run --first` puts a loop repair first to start; suite turns go to landing runs first, then to whoever waited longest. A landing suite gets its pieces before any new build or round check is admitted: finished work waiting to land goes first. [25 Sep, 2 Oct, 3 Oct, 5 Oct]
 - The orchestrator builds, whatever the size; marked executors take only independent pieces sharing no file with its work, and ak moves no work for quota. A behaviour change needs a test that fails on the old code; ak proves it wherever it can and records why when it cannot, never failing a round for a missing proof, as no path tells every project's tests from its code [7 Oct]. The orchestrator's own PRs get review rounds, findings back to its session, and land through the same line as every change; review follow-ups become checked lines in its plan. [1 Oct, 2 Oct, 3 Oct, 4 Oct]
-- Size never refuses work (no cap on PR lines or task points, words or checks, nor on the docs' words or `AGENTS.md`'s size: changes that fit alone went red together in the landing line); it is recorded and shown. Nothing ak hands a model is cut; `AGENTS.md`'s only ceiling is the most a harness reads of it on its own, which its adapter declares. Review rounds stay three. [3 Oct, 4 Oct]
+- Size never refuses work (no cap on PR lines or task points, words or checks, nor on the docs' words or `AGENTS.md`'s size: changes that fit alone went red together in the landing line); it is recorded and shown. Nothing ak hands a model is cut; `AGENTS.md`'s only ceiling is the most a harness reads of it on its own, which its adapter declares. Review rounds stay three per pull request, counted across runs. [3 Oct, 4 Oct, 9 Oct]
 - The owner's own words are what a job is measured against: ak keeps them with the job from the seat's own record, never from a summary. [2 Oct]
 - The normal way in is a session: open it, pick who orchestrates, executes and reviews, type the prompt. A notes intake, if built, is an optional add-on on top of ak, on the ak screen, using the providers ak already has. [1 Oct]
 - No `ak trial`, leaderboard or in-house skill test of models: public benchmarks judge general strength. [28 Sep, 29 Sep]
