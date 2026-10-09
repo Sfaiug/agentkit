@@ -1,8 +1,8 @@
 """Collisions between the live runs of one repository: the tick's scan, report-only.
 
 A run's lease is its own diff against the base it was cut from, uncommitted edits included
-as a commit would take them (`run.committable_paths`); no model declares, renews or releases
-anything.  Each tick, every pair of live runs of a repository is merged in memory (`git
+as a commit would take them (`run.committable_paths`; what its checks generated is written
+down by the run and left out); no model declares, renews or releases anything.  Each tick, every pair of live runs of a repository is merged in memory (`git
 merge-tree --write-tree`, git's own conflict rule), each run's own diff brought onto the
 newer of their two bases first with main's side kept where the run clashes with it, so
 main's movement between the bases is nobody's diff and a run's conflict with main is not
@@ -88,7 +88,8 @@ def live(repo):
                 or worktree.resolve() == Path(state["repo"]).resolve()):
             continue        # a run working in the checkout it was launched from holds no diff of its own
         found.append({"run": run_dir.name, "worktree": worktree, "base": state["base_sha"],
-                      "started": state.get("started_at") or 0})
+                      "started": state.get("started_at") or 0,
+                      "artifacts": state.get("artifacts") or []})
     return sorted(found, key=lambda each: (each["started"], each["run"]))
 
 
@@ -99,27 +100,50 @@ STAMP = {"GIT_AUTHOR_NAME": "ak", "GIT_AUTHOR_EMAIL": "ak@localhost",
          "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z"}
 
 
-def tree(worktree, log=lambda _: None):
+def tree(worktree, artifacts, log=lambda _: None):
     """The checkout's tree as it stands: HEAD with the uncommitted paths a commit would take
-    (`run.committable_paths`: never test sandboxes, dependency trees, run locks or what
-    `.gitignore` names), read and written through an index of its own in the repository's
-    object store: the checkout's own index is neither read, locked nor rewritten (`git diff`
-    refreshes and rewrites the index it reads, optional locks or not), and its files are
-    never touched.  A file git cannot read is left out and said once: one checkout's
-    unreadable file costs no pair its record."""
+    (`run.committable_paths`: never test sandboxes, dependency trees, run locks, what
+    `.gitignore` names or what the run's checks generated, its `artifacts`), read and written
+    through an index of its own in the repository's object store: the checkout's own index is
+    neither read, locked nor rewritten (`git diff` refreshes and rewrites the index it reads,
+    optional locks or not), and its files are never touched.  A file that vanished since it
+    was listed, or one git cannot read, is left out, the latter said once: neither costs a
+    pair its record."""
     from . import run
     with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
         env = {**os.environ, "GIT_INDEX_FILE": index.name}
         run.git(worktree, "read-tree", "HEAD", env=env)
-        real, _ = run.committable_paths(worktree, env=env)
+        real, _ = run.committable_paths(worktree, artifacts, env=env)
         if real:
-            try:
-                run.git(worktree, "add", "--ignore-errors", "--", *real, env=env)
-            except run.Stopped:
-                raise
-            except config.Error as exc:
-                log(f"WARN lease scan: left unreadable paths of {worktree} out: {exc}")
+            staged(worktree, real, env, log)
         return run.git(worktree, "write-tree", env=env)
+
+
+def staged(worktree, paths, env, log):
+    """`paths` added to the index `env` names: in one call, or, when a listed file vanished
+    meanwhile (a working executor's temp file), one by one with the gone ones left out."""
+    from . import run
+    gone = "did not match any files"
+    try:
+        run.git(worktree, "add", "--ignore-errors", "--", *paths, env=env)
+        return
+    except run.Stopped:
+        raise
+    except config.Error as exc:
+        if gone not in str(exc):
+            log(f"WARN lease scan: left unreadable paths of {worktree} out: {exc}")
+            return
+    unreadable = []
+    for path in paths:
+        try:
+            run.git(worktree, "add", "--ignore-errors", "--", path, env=env)
+        except run.Stopped:
+            raise
+        except config.Error as exc:
+            if gone not in str(exc):
+                unreadable.append(str(exc))
+    if unreadable:
+        log(f"WARN lease scan: left unreadable paths of {worktree} out: {unreadable[0]}")
 
 
 def merged(repo, base, ours, theirs, ours_wins=False):
@@ -217,7 +241,7 @@ def scan(repo, log=lambda _: None, now=None):
     home.cache_clear()          # repository identity is read afresh each scan
     before = read(repo)
     runs = live(repo)
-    trees = {each["run"]: tree(each["worktree"], log) for each in runs}     # each checkout read once
+    trees = {each["run"]: tree(each["worktree"], each["artifacts"], log) for each in runs}   # each read once
     waits = {}
     for at, younger in enumerate(runs):
         for older in runs[:at]:

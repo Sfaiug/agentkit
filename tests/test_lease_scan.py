@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, leases, watch
+from agentkit import config, leases, run, watch
 from agentkit import record
 
 
@@ -52,16 +52,17 @@ class LeaseScan(unittest.TestCase):
         return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
                               text=True).stdout.strip()
 
-    def run_on(self, name, started, state="running", base=None, repo=None):
+    def run_on(self, name, started, state="running", base=None, repo=None, artifacts=()):
         """A live run of the repository with a checkout of its own, cut from `base`; `repo` is
-        the checkout it was launched from, the main one unless given."""
+        the checkout it was launched from, the main one unless given; `artifacts` what its
+        checks generated, as it writes them down."""
         worktree = config.WT / name
         self.git(self.repo, "worktree", "add", "-q", "-b", f"ak/{name}", str(worktree), base or self.base)
         directory = config.RUNS / name
         directory.mkdir(parents=True)
         record.save_state(directory, {"run_id": name, "state": state, "repo": str(repo or self.repo),
                                       "worktree": str(worktree), "base_sha": base or self.base,
-                                      "started_at": started})
+                                      "started_at": started, "artifacts": list(artifacts)})
         return worktree
 
     def edit(self, worktree, path, line, text, commit=False):
@@ -202,6 +203,46 @@ class LeaseScan(unittest.TestCase):
         self.assertEqual(leases.scan(self.repo, now=2000), {})
         self.edit(first, "café.py", 5, "first's line 5", commit=True)
         self.assertEqual(leases.scan(self.repo, now=2100)["20260101-0900-second"]["files"], ["café.py"])
+
+    def test_what_the_checks_generated_is_no_lease(self):
+        older = self.run_on("20260101-0900-older", 900, artifacts=["checks.log"])
+        younger = self.run_on("20260101-1000-younger", 1000, artifacts=["checks.log"])
+        for worktree in (older, younger):
+            (worktree / "checks.log").write_text(f"checks ran in {worktree}\n")   # un-ignored, uncommitted
+        self.edit(older, "api.py", 5, "older's line 5", commit=True)
+        self.edit(younger, "other.py", 1, "younger's other")
+        self.assertEqual(leases.scan(self.repo, now=2000), {})
+        # ... and a loop writes them down as it writes anything
+        directory = config.RUNS / "20260101-1100-loop"
+        directory.mkdir()
+        state = {"run_id": directory.name, "title": "Loop", "state": "running", "repo": str(self.repo),
+                 "worktree": str(younger), "base": "main", "base_sha": self.base,
+                 "branch": "ak/20260101-1000-younger", "rounds": 3, "executor": "opus",
+                 "reviewer": "astra", "round_summaries": []}
+        record.save_state(directory, state)
+        lp = run.Loop(config.load(), directory, state, {}, lambda _: None, younger, "# Fixture",
+                      ["true"], "context", [])
+        lp.artifacts.add("checks.log")
+        lp.write()
+        self.assertEqual(record.read_state(directory)["artifacts"], ["checks.log"])
+
+    def test_a_file_that_vanishes_between_listing_and_adding_costs_only_itself(self):
+        older = self.run_on("20260101-0900-older", 900)
+        younger = self.run_on("20260101-1000-younger", 1000)
+        self.edit(older, "api.py", 5, "older's line 5", commit=True)
+        self.edit(younger, "api.py", 5, "younger's line 5")
+        self.assertEqual(leases.scan(self.repo, self.logs.append, now=2000)["20260101-1000-younger"]["since"], 2000)
+        listed = run.committable_paths
+
+        def with_a_temp_file_gone(worktree, artifacts=(), env=None):
+            real, junk = listed(worktree, artifacts, env=env)
+            return real + ["gone.tmp"], junk          # written and removed under the scan's feet
+
+        with patch.object(run, "committable_paths", side_effect=with_a_temp_file_gone):
+            found = leases.scan(self.repo, self.logs.append, now=2100)
+        self.assertEqual(found["20260101-1000-younger"], {"waits_on": "20260101-0900-older",
+                                                           "files": ["api.py"], "since": 2000})
+        self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
 
     def test_paths_a_commit_would_leave_are_no_lease_and_an_unchanged_pair_writes_nothing(self):
         older = self.run_on("20260101-0900-older", 900)

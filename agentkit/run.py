@@ -2233,6 +2233,9 @@ class Loop:
         refused by `record`'s guard as a whole save refused it.  Every save a live loop makes
         ends here; the merge pipeline's and a PR review's change neither seats nor history.
         """
+        # what the done-when generated, on the record for readers outside the loop: the lease
+        # scan leaves it out of the run's diff as a commit does
+        self.state["artifacts"] = sorted(self.artifacts)
         if not (self.run_dir / "run.json").exists():
             run_record.save_state(self.run_dir, self.state)
         else:
