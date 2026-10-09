@@ -1,0 +1,94 @@
+"""Past the size ceilings, ak refuses with `split it`.
+
+A task has at most three checks a round runs (`task.MAX_CHECKS`, counted by preflight on the
+list the loop settles: the repository's suite line, however the task names it, runs once at
+landing and never counts; a `# once` line counts where the run has no landing), and a seat's own pull request
+gets its first review only up to 400 added lines (`task.MAX_PR_LINES`), generated files aside
+and nothing deleted counted, as `run.diff_lines` counts them.  tests/test_own_pr_rounds.py drives the
+refusal through the review itself.  Offline: a real checkout whose attributes mark a
+generated file.
+"""
+
+import os
+import re
+import subprocess
+import unittest
+
+from fixtures.sandbox import Sandbox
+from agentkit import config, record, run, task as taskfile
+
+
+class SizeGate(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.repo = self.root / "widget"
+        self.repo.mkdir()
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.name", "Fixture")
+        self.git("config", "user.email", "fixture@localhost")
+        (self.repo / ".gitattributes").write_text("dist/* linguist-generated\n")
+        (self.repo / "dist").mkdir()
+        self.write({"api.py": "a\nb\nc\n", "dist/app.js": "built\n", "old.py": "1\n2\n3\n4\n"}, "Base")
+        self.base = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-qb", "fix-api")
+        (self.repo / "old.py").unlink()
+        self.write({"api.py": "a\nB\nC\n", "dist/app.js": "rebuilt\n" * 900}, "Change")
+        self.head = self.git("rev-parse", "HEAD")
+
+    def git(self, *args):
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True, env=env,
+                              capture_output=True, text=True).stdout.strip()
+
+    def write(self, files, message):
+        for name, content in files.items():
+            (self.repo / name).write_text(content)
+        self.git("add", "-A")
+        self.git("commit", "-qm", message)
+
+    def test_a_task_has_at_most_three_per_round_checks(self):
+        refused = ("4 done-when checks: a task has at most 3, one behaviour a reviewer holds "
+                   "in one read; split it")
+        (self.repo / "AGENTS.md").write_text("---\ntests: python3 tests/suite.py 2>&1 | tee suite.log\n---\n# widget\n")
+        three, suite = ["true", "true", "true"], "python3 tests/suite.py"
+        checks = lambda cmds, **how: taskfile.group_commands(run.round_commands(
+            cmds, self.repo, "main", scratch=False, **how))[0]
+        # the list a round runs: the suite line, bare or whole, runs once at landing and never counts
+        self.assertEqual(checks(three + [suite], landing=True), three)
+        self.assertEqual(checks(three + ["bash tests/smoke.sh  # once"], landing=True), three)
+        self.assertIsNone(taskfile.checks_refusal(checks(three + [suite], landing=True)))
+        self.assertEqual(taskfile.checks_refusal(checks(three + ["false"], landing=True)), refused)
+        # without a landing every line runs each round, `# once` or the suite's
+        self.assertEqual(taskfile.checks_refusal(checks(three + [suite], landing=False)), refused)
+        # the target's `tests:` line wins over the checkout's, as the loop reads it
+        self.git("add", "AGENTS.md")
+        self.git("commit", "-qm", "Declare the suite")
+        self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
+        (self.repo / "AGENTS.md").write_text("---\n---\n# widget, behind origin\n")
+        self.assertEqual(checks(three + [suite], landing=True), three)
+        self.assertIsNone(taskfile.launch_refusal({}, ["true"] * 4))         # the ceiling is preflight's
+        # ... which preflight applies: here a scratch task's `# once` line
+        directory = config.RUNS / "20260102-0900-scratch"
+        directory.mkdir(parents=True)
+        (directory / "task.md").write_text("---\nrepo: none\n---\n# Scratch\n\n## Goal\nx\n\n## Done when\n"
+                                           "```bash\ntrue\ntrue\ntrue\nbash tests/smoke.sh  # once\n```\n")
+        record.save_state(directory, {"run_id": directory.name, "state": "queued"})
+        with self.assertRaisesRegex(config.Error, "^" + re.escape(refused) + "$"):
+            run.preflight(directory, {"--review-pr": None, "--no-merge": False}, lambda _: None)
+
+    def test_the_lines_a_first_review_reads_leave_out_generated_files_and_deletions(self):
+        self.assertEqual(run.diff_lines(self.repo, self.base, self.head, added_only=True), 2)
+        self.assertEqual(run.diff_lines(self.repo, self.base, self.head), 8)     # the recorded size: old.py's four too
+        # a change that only deletes adds nothing: a first review takes it whatever its size
+        self.write({"api.py": "a\n"}, "Delete two lines")
+        head = self.git("rev-parse", "HEAD")
+        self.assertEqual(run.diff_lines(self.repo, self.base, head, added_only=True), 0)
+        self.assertEqual(run.diff_lines(self.repo, self.base, head), 6)
+        self.assertIsNone(run.pr_size_refusal(7, taskfile.MAX_PR_LINES))
+        self.assertEqual(run.pr_size_refusal(7, taskfile.MAX_PR_LINES + 1),
+                         "PR #7 adds 401 lines (generated files aside; deletions never count): "
+                         "a first review takes at most 400; split it")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

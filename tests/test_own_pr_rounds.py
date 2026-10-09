@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from fixtures.own_pr import OwnPr, URL
+from fixtures.own_pr import BRANCH, OwnPr, URL
 from agentkit import config, run, worker, worktrees
 from agentkit import record
 
@@ -377,6 +377,52 @@ class OwnPrRounds(OwnPr):
         state = self.review(["FAIL", "PASS"])
         self.assertEqual(state["head_sha"], self.heads[1])
         self.assertTrue(state["merged"])
+
+    def test_an_own_prs_first_review_is_refused_past_the_ceiling(self):
+        self.hand_push(1)                               # 5000 added lines of fence.txt
+        with patch.object(run, "ready_order", return_value=[]):     # decided from git alone: no reviewer is picked first
+            state = self.review([])
+        self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
+        self.assertIn("PR #7 adds 5000 lines", state["error"])
+        self.assertIn("split it", state["blocked"])
+        self.assertEqual((self.prompts, self.merges), ([], []))
+
+    def test_a_later_review_of_the_pr_in_a_new_run_reviews_what_the_fix_left(self):
+        earlier = config.RUNS / "own-pr-earlier"        # an earlier run spent round 1 on this PR
+        earlier.mkdir()
+        record.save_state(earlier, {"run_id": earlier.name, "state": "blocked", "review_pr": URL, "pr": URL,
+                                    "launched_session": "fix-api", "own_pr": True,
+                                    "round_summaries": [{"round": 1, "verdict": "FAIL", "summary": ""}]})
+        self.hand_push(1)                               # the fix left 5000 added lines
+        self.assertEqual(self.review(["PASS"])["verdict"], "PASS")
+
+    def test_a_seat_renamed_mid_review_keeps_its_name_through_a_blocked_ending(self):
+        def blocked(lp, *_a, **_kw):
+            with record.record(lp.run_dir) as current:      # the seat is renamed during the review
+                current["launched_session"] = "fix-api-renamed"
+            raise run.Blocked("no reviewer can run", "## Blocked\n\nno reviewer can run")
+        with patch.object(run, "review", side_effect=blocked):
+            self.review([])
+        state = record.read_state(self.run_dir)
+        self.assertEqual((state["state"], state["launched_session"]), ("blocked", "fix-api-renamed"))
+
+    def test_somebody_elses_pr_is_reviewed_whatever_its_size(self):
+        self.pr.update(author="stranger")
+        self.hand_push(1)
+        state = self.review(["PASS"])
+        self.assertEqual(state["verdict"], "PASS")
+        self.assertEqual(len(self.prompts), 1)
+
+    def test_an_own_pr_of_text_only_lands_whatever_its_size(self):
+        self.git("checkout", "-qb", "notes", "main")
+        (self.repo / "notes.md").write_text("note\n" * 500)
+        self.git("add", "notes.md")
+        self.git("commit", "-qm", "Notes")
+        self.git("push", "-q", "--force", "origin", f"{self.git('rev-parse', 'HEAD')}:refs/heads/{BRANCH}")
+        state = self.review([])
+        self.assertTrue(state["merged"])
+        self.assertEqual(state["round_summaries"][0]["summary"], "Text and translation files only; review skipped.")
+        self.assertEqual(self.prompts, [])
 
 
 if __name__ == "__main__":

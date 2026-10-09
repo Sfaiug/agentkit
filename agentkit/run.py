@@ -547,6 +547,17 @@ def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
     return kept + [f"{suite}  # once"]
 
 
+def round_commands(cmds, wt, target, *, scratch, landing):
+    """The done-when as a round runs it, in one reading for preflight, which counts its checks
+    (`task.checks_refusal`), and the loop, which runs them: a scratch task's lines with their
+    `# once` marks stripped; else the task's lines with the target's suite as the one `# once`
+    line when landing, however the task names it, and every line each round without a landing
+    (`with_suite`, which reads `origin/<target>`'s `tests:` line, else the checkout's)."""
+    if scratch:
+        return [taskfile.split_once(cmd)[0] for cmd in cmds]
+    return with_suite(cmds, wt, target, landing=landing)
+
+
 def slugify(title):
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40].strip("-")
     return slug or "task"
@@ -6501,17 +6512,14 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
 
     # Recover an interrupted probe before reading the checkout's suite and worker rules.
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, "", spares)
+    target = state.get("target") or state.get("base")
     if state.get("scratch"):
         where = (f"Workspace: {wt}\nThere is no git repository here: nothing to commit, no branch "
                  "and no PR. What you leave in the workspace is the deliverable.")
     else:
-        target = state.get("target") or state["base"]
         where = (f"Repo checkout: {wt}\nBranch: {state['branch']} (based on {state['base']}"
                  + (f", to be merged into {target}" if target != state["base"] else "") + ")")
-    if state.get("scratch"):
-        cmds = [taskfile.split_once(cmd)[0] for cmd in cmds]
-    else:
-        cmds = with_suite(cmds, wt, target, landing=not state.get("no_merge"))
+    cmds = round_commands(cmds, wt, target, scratch=state.get("scratch"), landing=not state.get("no_merge"))
     every, once = taskfile.group_commands(cmds)
     body += repo_rules(wt, state.get("base_sha"))
     run_record.save_state(run_dir, state)
@@ -6633,14 +6641,15 @@ def changed_files(state):
     return [found for found in out.split("\0") if found]
 
 
-def diff_lines(repo, base, head="HEAD"):
-    """Added plus deleted text lines, excluding files Git marks linguist-generated.
+def diff_lines(repo, base, head="HEAD", added_only=False):
+    """Added plus deleted text lines, excluding files Git marks linguist-generated; with
+    `added_only`, the added lines alone, what a reviewer reads: nothing deleted counts.
 
     Deleted files read their attributes at the base; their directory's attributes may
     have been deleted too. NUL records preserve unusual filenames and rename pairs.
     """
     total = 0
-    for selector, source in (("d", head), ("D", base)):
+    for selector, source in (("d", head), *(() if added_only else (("D", base),))):
         parts = iter(git(repo, "diff", "--numstat", "-z", "--find-renames",
                          f"--diff-filter={selector}", f"{base}...{head}").split("\0"))
         changes = []
@@ -6652,7 +6661,7 @@ def diff_lines(repo, base, head="HEAD"):
                 next(parts)  # the old name; surviving files use their new attributes
                 name = next(parts)
             if added != "-":
-                changes.append((name, int(added) + int(deleted)))
+                changes.append((name, int(added) if added_only else int(added) + int(deleted)))
         if changes:
             # Older Git has no check-attr --source; a private index reads the same tree.
             with tempfile.TemporaryDirectory(dir=config.TMP) as tmp:
@@ -9587,12 +9596,16 @@ def preflight(run_dir, opts, log):
         state = run_record.read_state(run_dir) or {}
         state["title"] = title
         run_record.save_state(run_dir, state)
-        every, once = taskfile.done_when_groups(body, run_dir / "task.md")
+        cmds = taskfile.done_when(body, run_dir / "task.md")
         repo = task_repo(meta, run_dir / "task.md", state.get("task_file"))
-        if opts["--no-merge"] or repo is None:
-            every = [taskfile.split_once(cmd)[0]
-                     for cmd in taskfile.done_when(body, run_dir / "task.md")]
-            once = []
+        base = (meta.get("base") or default_base(repo, log)) if repo else "none"
+        target, method = meta.get("target") or base, meta.get("merge") or "squash"
+        # the checks a round runs, settled as the loop settles them, against the same target
+        every, once = taskfile.group_commands(round_commands(
+            cmds, repo, target, scratch=repo is None, landing=not opts["--no-merge"]))
+        refusal = taskfile.checks_refusal(every)
+        if refusal:
+            raise config.Error(refusal)
         commands = " ; ".join(every)
         if once:
             commands += f"{' ; ' if commands else ''}once: {' ; '.join(once)}"
@@ -9609,8 +9622,6 @@ def preflight(run_dir, opts, log):
                              "no_merge": bool(opts["--no-merge"]) or repo is None,
                              "project": str(checkout) if checkout else None})
         join_session_project(state.get("launched_session"))
-        base = (meta.get("base") or default_base(repo, log)) if repo else "none"
-        target, method = meta.get("target") or base, meta.get("merge") or "squash"
         branch = (git(repo, "rev-parse", "--abbrev-ref", "HEAD") if repo and opts["--no-worktree"]
                   else f"new ak/{slugify(title)} branch (unique suffix if needed)")
         action = (f"push {branch} to origin (fork if needed); PR into {target}; merge after PASS"
@@ -10343,6 +10354,16 @@ def gh_json(cwd, *args, timeout=None):
         return None, f"gh printed no JSON ({exc}): {out[-200:]}"
 
 
+def pr_size_refusal(number, lines):
+    """One sentence when a pull request adds more lines than a first review takes at once
+    (`task.MAX_PR_LINES`), else None: `lines` as `diff_lines` counts the added ones, what a
+    reviewer reads; nothing deleted counts."""
+    if lines <= taskfile.MAX_PR_LINES:
+        return None
+    return (f"PR #{number} adds {lines} lines (generated files aside; deletions never count): "
+            f"a first review takes at most {taskfile.MAX_PR_LINES}; split it")
+
+
 def pr_view(url):
     data, why = gh_json(config.RUNS, "pr", "view", url, "--json",
                         "number,title,body,author,baseRefName,headRefOid,url,state,isDraft")
@@ -10697,8 +10718,9 @@ def push_pr_branch(lp, remote, lease):
 
 
 def pr_review_blocked(lp, exc):
-    """A PR review's blocked ending, from a round or its fixer turn: no reviewer's harness can
-    run, or the task cannot be done as written.  Recorded as a task run's is, its result
+    """A PR review's blocked ending, from a round, its fixer turn or the size gate before any
+    reviewer is picked: no reviewer's harness can run, the task cannot be done as written, or
+    the PR is more than a first review takes.  Recorded as a task run's is, its result
     written, its wait for a push and its pending round over; never an `error` the tick would
     retry into the same harness."""
     lp.log(f"BLOCKED {exc}")
@@ -11005,6 +11027,14 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
         lp.rnd += 1
         return settle_pr_round(lp, url, info)
+    if is_own and not summaries and not rounds_spent_elsewhere(pr=url, exclude=run_dir)[0]:
+        # the PR's first review, in this run or any, takes at most MAX_PR_LINES at once: past
+        # it, the run ends blocked with the reason before any reviewer is picked, and the PR
+        # is split; a later round reviews whatever the fix left
+        why = pr_size_refusal(number, diff_lines(repo, base_sha, head, added_only=True))
+        if why:
+            lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
+            return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
     # orchestrator, and every model a fixer turn ran on or was handed to; none comes first

@@ -590,7 +590,7 @@ class Limits(unittest.TestCase):
 
     def test_v5f_done_when_never_starts_a_command_past_the_deadline(self):
         self.repo()
-        commands = [f"echo step {n}; sleep 0.4" for n in range(1, 6)]
+        commands = [f"echo step {n}; sleep 0.4" for n in range(1, 4)]
         self.stack.enter_context(patch.object(run_record, "CEILING_HOURS", 0.6 / 3600))
         task = self.task(commands)
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra",
@@ -601,7 +601,7 @@ class Limits(unittest.TestCase):
         self.assertIn("h ceiling: ", log)
         # the whole list shares the limit: no command gets a slice of its own after it is spent
         self.assertLess(log.count("[exit 0]"), len(commands))
-        self.assertNotIn("step 5", log)
+        self.assertNotIn("step 3", log)
         # and a limit that runs out between two commands never starts the second
         spent = directory / "spent.log"
         real = worker.limited

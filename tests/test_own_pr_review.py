@@ -1,4 +1,4 @@
-"""A seat's own PR is reviewed whatever its size, and its size is recorded; inbox PRs run freely.
+"""A seat's own PR within the first-review ceiling is reviewed and its size recorded (tests/test_size_gate.py has the ceiling); inbox PRs run freely.
 
 Offline: local git fixtures, a temporary HOME, and fake GitHub and reviewer calls.
 """
@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, gc, history, notify, plan, run, status, watch
+from agentkit import gate, config, gc, history, notify, plan, run, status, watch, task as taskfile
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -114,8 +114,8 @@ class OwnPrReview(unittest.TestCase):
                 state = reviewed(directory)
         return state, reviewer, usage, inbox
 
-    def test_an_own_pr_of_any_size_is_reviewed(self):
-        self.change(5000)
+    def test_an_own_pr_within_the_ceiling_is_reviewed_and_its_size_recorded(self):
+        self.change(taskfile.MAX_PR_LINES)          # the ceiling itself, generated files aside
         (self.repo / "output.generated").write_text("generated\n" * 1000)
         self.commit()
         for background in (False, True):
@@ -127,7 +127,7 @@ class OwnPrReview(unittest.TestCase):
                 reviewer.assert_called_once()
                 self.assertEqual(usage.call_count, 2 if background else 1)
                 run.history_finish(state)
-                self.assertEqual(history.get(state["run_id"])["changed_lines"], 5000)
+                self.assertEqual(history.get(state["run_id"])["changed_lines"], taskfile.MAX_PR_LINES)
 
     def test_an_own_pr_review_carries_the_seats_open_plan_lines(self):
         here = plan.named(self.repo)
