@@ -74,6 +74,7 @@ class OwnPr(unittest.TestCase):
         (self.run_dir / "log.txt").touch()
         run.capture_launch(self.run_dir, {"--review-pr": URL})
         self.prompts, self.fixes, self.notices, self.events, self.merges = [], [], [], [], []
+        self.reviewers = []
         self.verdicts = []
         for name, value in (("viewer_login", "owner"), ("checkout_for", self.repo),
                             ("fetch", (0, "")),
@@ -138,6 +139,7 @@ class OwnPr(unittest.TestCase):
 
     def reviewer(self, cfg, name, body, workspace, out_dir, role, session, **_kw):
         self.prompts.append(body)
+        self.reviewers.append(name)
         n = len(self.prompts)
         self.assertLessEqual(n, len(self.verdicts), "reviewed a head twice")
         self.assertEqual(run.git(workspace, "rev-parse", "HEAD"), self.remote_head())

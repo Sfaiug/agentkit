@@ -30,16 +30,23 @@ class OwnPrFixer(OwnPr):
         self.fix = leaves_a_fix
         clock = self.stack.enter_context(patch.object(run, "time", wraps=time))
         clock.sleep.side_effect = lambda _seconds: self.fail("the run slept instead of fixing")
-        with patch.object(run, "ready_order", return_value=["astra"]):
+        with patch.object(run, "ready_order", return_value=["astra", "opus"]):
             state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])
         self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "PASS"])
-        self.assertEqual(state["executor"], "astra")        # the session's executor fixes
+        # the seat's own model fixes its PR, and the reviewer is picked against it both rounds
+        self.assertEqual((state["executor"], self.reviewers), ("opus", ["astra", "astra"]))
         [fix] = self.fixes
         self.assertIn("## Reviewer findings to fix", fix)
         self.assertIn("defect 1", fix)
         self.assertIn(f"Repo checkout: {state['worktree']}", fix)
         self.assertIn("# acme", fix)                        # the repository's rules ride along
+        # ... told to fix, with what the PR says and its checks, never the reviewer's goal
+        self.assertIn("# Fix PR #7: Mend the fence\n\n## Goal\nThe pull request passes its review", fix)
+        self.assertIn("## The PR says\nFix the fence", fix)
+        self.assertIn("## Done when", fix)
+        self.assertNotIn("Judge https://", fix)
+        self.assertNotIn("is a finding", fix)
         fixed = state["round_summaries"][1]["head_sha"]
         self.assertNotEqual(fixed, self.heads[0])
         self.assertEqual(self.remote_head(), fixed)         # pushed to the PR branch
@@ -47,15 +54,6 @@ class OwnPrFixer(OwnPr):
         self.assertEqual(self.notices, [])                  # nothing typed into the seat
         self.kill.assert_not_called()
         self.resume.assert_not_called()
-
-    def test_with_no_executor_the_seats_own_model_fixes(self):
-        def by_role(cfg, providers, workers=None, log=None, **kw):
-            return ["astra"] if kw.get("role") == "reviewer" else []
-
-        with patch.object(run, "ready_order", side_effect=by_role):
-            state = self.review(["FAIL", "PASS"])
-        self.assertTrue(state["merged"])
-        self.assertEqual(state["executor"], "opus")
 
     def test_a_fixer_that_commits_nothing_has_the_same_head_reviewed_again(self):
         self.fix = lambda lp: None

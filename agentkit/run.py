@@ -10575,11 +10575,15 @@ def merge_own_pr(lp, url):
     return join_line(lp, upstream, deliver)
 
 
-def pick_fixer(cfg, state, log):
-    """The model that fixes a seat's own PR: the session's executor, picked as every executor
-    is, else the seat's own orchestrator model, run headless."""
-    order = ready_order(cfg, collect_usage(cfg), run_workers(cfg, state), log, role="executor")
-    return order[0] if order else state.get("own_orchestrator")
+def fix_body(state, body, number):
+    """What the fixer of a seat's own PR is told to do: make the pull request pass its review,
+    with what the PR says and the checks it must still pass, never the reviewer's goal."""
+    says = re.search(r"## The PR says\n.*?(?=\n## |\Z)", body, re.S)
+    done = re.search(r"## Done when\n.*", body, re.S)
+    return (f"# Fix PR #{number}: {state['title'].partition(': ')[2]}\n\n## Goal\nThe pull "
+            "request passes its review: fix each finding below with the least change, on this "
+            "branch, and keep its checks passing.\n\n"
+            + (says.group(0) + "\n\n" if says else "") + (done.group(0) if done else ""))
 
 
 def pr_context(state, body):
@@ -10659,12 +10663,12 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         if not (turned and name is None):
             if not turned and head != reviewed:
                 git(lp.wt, "reset", "--hard", reviewed)     # the line left the checkout elsewhere
-            if not lp.executor:
-                lp.executor = state["executor"] = pick_fixer(cfg, state, log)
-                if not lp.executor:
-                    raise QuotaDry("no executor can fix this PR: every worker has a gate meter at 100% used")
+            # the seat's own model, headless: a fix to the orchestrator's PR is its work, and
+            # the next round's reviewer is picked against it as the first round's was
+            lp.executor = state["executor"] = state["own_orchestrator"]
             log(f"--- round {lp.rnd}/{lp.rounds}: fixer {lp.executor} (findings on PR #{number})")
-            lp.context = pr_context(state, lp.body + repo_rules(lp.wt, state["base_sha"]))
+            lp.context = pr_context(state, fix_body(state, lp.body, number)
+                                    + repo_rules(lp.wt, state["base_sha"]))
             fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
             try:
                 execute(lp, "fixer", fix, name or "executor")
