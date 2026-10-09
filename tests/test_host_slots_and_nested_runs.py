@@ -413,6 +413,7 @@ class Slots(unittest.TestCase):
         self.launch("one")
         first, _ = self.started("one")
         beside = Path(tempfile.mkdtemp(prefix=".v5am-", dir=self.root))
+        (beside / "calls.jsonl").touch()
         (beside / "release-all").touch()
         other = self.start(self.task("one", root=beside), "--exec", self.executor,
                            "--review", self.reviewer,
