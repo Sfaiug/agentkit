@@ -406,7 +406,9 @@ class NudgeTurnRule(Sandbox):
                         watch.live_state(self.seat, harness, pane=self.screen("working"),
                                          cfg=self.cfg, now=10010)
                         if not same_output:
-                            self.pane = self.screen("prompt").replace("recommendation", "next change")
+                            empty = TYPED[harness][0]
+                            self.pane = self.screen("prompt").replace(
+                                empty, "A new unfinished change.\n" + empty)
                         watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10011)
                         with patch.object(watch.time, "time", return_value=10011 + watch.STALL_WAIT + 10):
                             word = watch.session_state(
@@ -426,7 +428,9 @@ class NudgeTurnRule(Sandbox):
                 self.assertEqual(notify.shaped("done", "Explained the old API",
                                                session=SEAT, quiet=True), 0)
                 watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10001)
-                self.pane = self.screen("prompt").replace("recommendation", "next change")
+                empty = TYPED[harness][0]
+                self.pane = self.screen("prompt").replace(
+                    empty, "A new unfinished change.\n" + empty)
                 watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10011)
                 with patch.object(watch.time, "time", return_value=10011 + watch.STALL_WAIT + 10):
                     self.assertEqual(self.tick(), ["continue"])
