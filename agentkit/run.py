@@ -6241,6 +6241,13 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
             base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
             from_branch = (meta.get("from") or "").strip()
+            if from_branch:
+                # the change continues on that branch: the rounds earlier runs spent on it,
+                # and on branches cut from it, are spent
+                n_rounds, why = round_budget(n_rounds, branches=(from_branch,),
+                                             exclude=run_dir, what=f"branch {from_branch}")
+                if why:
+                    raise config.Error(f"{task_path}: {why}")
             if from_branch and opts["--no-worktree"]:
                 raise config.Error(f"{task_path}: from: needs a worktree; "
                                    "drop --no-worktree so the run gets its own checkout")
@@ -9520,6 +9527,12 @@ def preflight(run_dir, opts, log):
         if is_own and not orch:
             raise config.Error(f"no session record names the writer of this PR; "
                                f"review of the seat's own PR needs its orchestrator")
+        if is_own:
+            # the budget is the pull request's: earlier runs' rounds on it are spent
+            _, why = round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, exclude=run_dir,
+                                  what=f"PR #{number}")
+            if why:
+                raise config.Error(why)
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
         if is_own:
             method, action = ("squash",
@@ -10718,9 +10731,18 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         raise config.Error("no session record names the writer of this PR; "
                            "review of the seat's own PR needs its orchestrator")
     summaries = prior.get("round_summaries", []) if is_own else []
-    n_rounds = taskfile.TASK_MAX_ROUNDS if is_own else 1
-    if is_own and len(summaries) >= n_rounds:
-        raise config.Error("three review rounds spent; split or re-scope the PR")
+    n_rounds = 1
+    if is_own:
+        # the pull request's budget, less what earlier runs spent on it: this run's rounds
+        # are what is left, and a fourth round is refused whichever run would spend it
+        number = PR_PARTS.match(url).group(3)
+        n_rounds, why = round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, exclude=run_dir,
+                                     what=f"PR #{number}")
+        if why:
+            raise config.Error(why)
+        if len(summaries) >= n_rounds:
+            raise config.Error(f"{taskfile.TASK_MAX_ROUNDS} review rounds spent on PR #{number}; "
+                               "split or redesign it")
     advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
                                    or prior.get("own_pr_wait"))
                      and prior.get("head_sha") != info["headRefOid"])
@@ -10984,6 +11006,55 @@ def settle_pr_round(lp, url, info):
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
     return state
+
+
+def rounds_spent_elsewhere(*, pr=None, branches=(), exclude=None):
+    """(the review rounds earlier runs spent on that pull request or on those branches, how
+    many runs spent them): the budget is the change's, not the run's, so a relaunch inherits
+    what was spent on it.
+
+    A round counts once its verdict was recorded (`round_summaries`).  A branch's lineage
+    follows `from:`: a run cut from a branch continues that branch's change, so the rounds
+    spent on either count.  A run on another pull request and branch, and the run itself
+    (`exclude`), count for nothing.  Read-only.
+    """
+    states = []
+    for run_dir in run_record.run_dirs():
+        if exclude is not None and run_dir.name == Path(exclude).name:
+            continue
+        state = run_record.read_state(run_dir)
+        if state:
+            states.append(state)
+    names = {name for name in branches if name}
+    grown = True
+    while grown:     # a branch cut from a branch of the lineage is the lineage's too
+        grown = False
+        for state in states:
+            if state.get("from") in names and state.get("branch") not in names:
+                names.add(state["branch"])
+                grown = True
+    spent = runs = 0
+    for state in states:
+        on_pr = bool(pr) and pr in (state.get("pr"), state.get("review_pr"))
+        on_branch = bool(names) and (state.get("branch") in names or state.get("from") in names)
+        rounds = len(state.get("round_summaries") or [])
+        if (on_pr or on_branch) and rounds:
+            spent += rounds
+            runs += 1
+    return spent, runs
+
+
+def round_budget(asked, *, pr=None, branches=(), exclude=None, what):
+    """(the rounds this run may still spend, None), or (0, why) once the change's budget is
+    spent: `asked` less what earlier runs spent on the same pull request or branch lineage,
+    `taskfile.TASK_MAX_ROUNDS` in all."""
+    spent, runs = rounds_spent_elsewhere(pr=pr, branches=branches, exclude=exclude)
+    left = min(asked, taskfile.TASK_MAX_ROUNDS - spent)
+    if left < 1:
+        return 0, (f"{spent} review rounds spent on {what} across {runs} earlier "
+                   f"run{'s' if runs != 1 else ''}: {taskfile.TASK_MAX_ROUNDS} per pull request "
+                   "is the budget; split or redesign it")
+    return left, None
 
 
 def already_under_way(task_path, meta, title, cmds, exclude=None):

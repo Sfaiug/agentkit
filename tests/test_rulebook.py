@@ -28,7 +28,7 @@ PHRASES = ("the best part is no part", "Less is more", "brutal elimination", "th
            "nothing callers must do that a module could", "what the change makes dead deleted")
 RULES = (("Understand first", "unknown knowns, "),
          ("Understand first", "show options or a small prototype and let them react"),
-         ("Decide and delegate", "Three rounds is the budget; ak refuses more."),
+         ("Decide and delegate", "Three review rounds per change is the budget, counted across runs"),
          ("Decide and delegate", "only when a default is wrong (`repo`, `from`)"),
          ("Decide and delegate", "never `done_when_minutes`"),
          ("Decide and delegate", "Asked to improve an existing codebase, map it first"),
