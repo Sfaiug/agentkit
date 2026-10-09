@@ -6,8 +6,10 @@ last notification, which is what the menu shows as that session's state. `ak not
 the reason or declaration; the session-state transition sends the card.
 
 Workers are silent by construction. A needs episode is sent once after it has stood for a minute
-with no attached client input since it began. A done episode is sent once when the session state
-becomes done, and a declaration once whatever episodes, or versions, it turns up in. Seat input
+with no attached client input since it began. A question a seat asks during its own turn is
+kept back in its record, apart from every notice, until a look finds that turn ended
+(`watch.ask_kept_back`): only then is the seat waiting for the answer. A done episode is sent
+once when the session state becomes done, and a declaration once whatever episodes, or versions, it turns up in. Seat input
 or finishing edits outstanding questions without pinging. Nothing is sent, or retried, for a
 seat the owner closed himself, or an episode begun before this agentkit was installed.
 
@@ -1307,8 +1309,14 @@ def _completion(session):
     return {"created": created, "outcomes": [list(outcome) for outcome in sorted(work | pending | covered)]}
 
 
-def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
+def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None,
+           kept=False):
     """Record the question or declaration, then evaluate the same transition latch.
+
+    A question the seat itself asks waits for its turn's end where `watch.keeps_back` says so:
+    nothing is recorded here but the question, in the seat's record.  `kept` is that question
+    asked at that end, by a look: recorded only if the notice lock is free, since a look never
+    waits on a delivery, and carded by the tick's pass like any word a look finds.
 
     A done, whoever declares it, waits for every line of the seat's plan: its checks run
     first (`plan.require_done`), and the plan is read once more under the seat's lock right
@@ -1338,7 +1346,15 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
             raise Refused(str(exc)) from None
         gate = lambda current: plan.still_done(current, proven)   # and still, as recorded
     try:
-        with session_lock(name) as name:
+        own = kept or name == config.current_session()   # the seat's own word, now or kept back
+        if kind == "needs" and own and not kept and event_id is None and watch.keeps_back(name):
+            # the seat's newer word ends its `ak wait` here as it does below
+            watch.seat_write(name, unasked={"text": text, "at": time.time()}, wait=None)
+            return 0
+        with session_lock(name, wait=not kept) as name:
+            if name is None or (kept and (watch.seat_read(name).get("unasked") or {}).get(
+                    "text") != text):
+                return 1 if name is None else 0   # asked by another look, or dropped since
             if gate:
                 try:
                     gate(name)
@@ -1363,7 +1379,12 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                                      (run.going(state) or run.unfinished(state))]
                 record(name, kind, text, **extra)
                 if event_id is None:
-                    watch.seat_write(name, wait=None)   # the seat's newer word ends its `ak wait`
+                    # the seat's newer word ends its `ak wait`, which a kept question's command
+                    # already did, and its own word is said in place of a question it kept back
+                    watch.seat_write(name, **({} if kept else {"wait": None}),
+                                     **({"unasked": None} if own else {}))
+        if kept:
+            return 0
         # A command is the visible start of the episode. Decide from now's facts, and
         # evaluate a hold later, so the recorder's own question is not left waiting
         # for the three-minute watcher tick; deciding at the later clock would date

@@ -66,7 +66,7 @@ sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
 from agentkit.run import handback_reason
 from agentkit.stop import recorded_ending, ways_out
-from agentkit.watch import owner_question
+from agentkit.watch import owner_question, seat_read
 
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
@@ -286,9 +286,11 @@ def held(launched, payload):
     if last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
     # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
-    # a hand-back or a told line opens turns on a seat while it stands (`watch.stop_nudge`)
+    # a hand-back or a told line opens turns on a seat while it stands (`watch.stop_nudge`),
+    # and one the seat kept back for this turn's end (`watch.keeps_back`) is in its record
+    kept = isinstance(seat_read(seat).get("unasked"), dict)
     ends, undecided = recorded_ending(
-        seat, question=(questioned(payload) or told(seat, turn, "needs")
+        seat, question=(questioned(payload) or told(seat, turn, "needs") or kept
                         or owner_question(notify.last(seat))),
         completion=lambda: told(seat, turn, "done", peer), answer=asked and not peer, since=turn)
     if ends:

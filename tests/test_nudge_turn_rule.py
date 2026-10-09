@@ -290,6 +290,22 @@ class NudgeTurnRule(Sandbox):
                 notify.record(SEAT, "needs", "Which account should I use?")
                 self.assertEqual(self.judged(), (False, []))
 
+    def test_h_a_question_the_seat_kept_back_is_asked_by_the_ticks_own_look(self):
+        """No hook reports these seats' stops: the health pass's look finds the turn over and
+        asks the question (tests/test_question_waits_for_the_stop.py), so its end-of-turn rule
+        reads a seat that stopped on one."""
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.assertEqual(notify.main(["needs", "Which account should I use?"]), 0)
+                self.assertIsNone(notify.last(SEAT))        # kept back: its turn was running
+                self.stopped()
+                with patch.object(notify, "progress", return_value=None):
+                    watch.health(self.cfg, {"stalls": {}}, False, lambda line: None)
+                self.assertEqual(notify.last(SEAT)["text"], "Which account should I use?")
+                self.assertEqual(self.sent, [])
+
 
 if __name__ == "__main__":
     unittest.main()
