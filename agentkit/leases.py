@@ -1,4 +1,4 @@
-"""Collisions between the live runs of one repository: the tick's scan, report-only.
+"""Collisions between the live runs of one repository: the tick's scan, and what it enforces.
 
 A run's lease is its own diff against the base it was cut from, uncommitted edits included
 as a commit would take them (`run.committable_paths`; what its checks generated is written
@@ -8,11 +8,15 @@ newer of their two bases first with main's side kept where the run clashes with 
 main's movement between the bases is nobody's diff and a run's conflict with main is not
 one with its neighbour.  A pair that cannot merge is written down on the younger run,
 by start, as waiting on the older (wait-die: the older never waits on the younger, so no
-cycle can form).  Nothing is refused here: the record under `~/.agentkit/state/leases/`
-and the tick's log line are what the refusals at ak's commit step, the git shim and the
-lander, and the restart on the newest main, stand on.  A diff counts only while its run is
-going (`run.going`) and its checkout is there; a record whose pair no longer collides, or
-whose holder is gone, is cleared on the next scan.
+cycle can form).  A younger run still before its review -- its executor turn, or ak's
+commit step, which runs this scan itself -- is stopped there with its branch kept, waiting
+on the holder (`park`): what it built cannot land as it is, and the tick starts its task
+again on the newest base once the holder has landed or is over (`restart`), so the two
+changes are made one after the other, the later on the earlier's result.  A younger run
+past that point is only written down: the lander orders their landings.  The record under
+`~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
+only while its run is going (`run.going`) and its checkout is there; a record whose pair no
+longer collides, or whose holder is gone, is cleared on the next scan.
 """
 
 import fcntl
@@ -89,8 +93,24 @@ def live(repo):
             continue        # a run working in the checkout it was launched from holds no diff of its own
         found.append({"run": run_dir.name, "worktree": worktree, "base": state["base_sha"],
                       "started": state.get("started_at") or 0,
-                      "artifacts": state.get("artifacts") or []})
+                      "artifacts": state.get("artifacts") or [], "state": state})
     return sorted(found, key=lambda each: (each["started"], each["run"]))
+
+
+def before_review(state):
+    """Whether the run has nothing reviewed yet: no round with a verdict, and its loop in its
+    executor turn or at ak's commit step, where what it built can still be set aside."""
+    return not state.get("round_summaries") and state.get("step") in (None, "executor", "done-when")
+
+
+def park(entry, holder, files, now):
+    """Stop that run before its review, its branch and checkout kept, waiting on the holder:
+    the record says what it waits on (`lease_wait`), for `restart` to read.  The state as
+    stopped, or None where the run had ended meanwhile."""
+    from . import stop
+    why = f"waits on {holder}: both change {', '.join(files)}"
+    return stop.end(config.RUNS / entry["run"], keep=True, why=why,
+                    extra={"lease_wait": {"on": holder, "files": files, "since": now}})
 
 
 # One identity and moment for every commit the scan writes: a tree compared before hashes to
@@ -260,8 +280,11 @@ def scan(repo, log=lambda _: None, now=None):
             since = kept.get("since") if kept.get("waits_on") == older["run"] else None
             waits[younger["run"]] = {"waits_on": older["run"], "files": files,
                                      "since": since if isinstance(since, (int, float)) else now}
+            stopped = before_review(younger["state"]) and park(younger, older["run"], files, now)
             log(f"collision: {younger['run']} and {older['run']} change the same lines of "
-                f"{', '.join(files)}; the younger would wait")
+                f"{', '.join(files)}; the younger "
+                + ("is stopped, its branch kept, to start again once the older has landed"
+                   if stopped else "lands after the older"))
             break
     if waits or before:
         write(repo, waits)
@@ -284,3 +307,34 @@ def scan_all(log=lambda _: None, now=None):
             scan(repo, log, now)
         except config.Error as exc:
             log(f"WARN lease scan of {repo} did not finish: {exc}")   # the next repository still runs
+
+
+def restart(dry_run=False, log=print, now=None):
+    """The tick's pass: a run stopped waiting on a holder (`park`) is started again once the
+    holder has landed or is no longer going -- its task as written, a new run of its seat on
+    the newest base (`run.restart_run`), which the stopped run then names
+    (`lease_restarted`), so none is started twice.  A holder stopped or failed with nothing
+    landed is over too: its diff no longer counts."""
+    from . import run
+    for run_dir in run_record.run_dirs():
+        state = run_record.read_state(run_dir)
+        wait = (state or {}).get("lease_wait")
+        if (not state or state.get("state") != "stopped" or not isinstance(wait, dict)
+                or state.get("lease_restarted") or not isinstance(wait.get("on"), str)):
+            continue
+        holder_dir = config.RUNS / wait["on"]
+        holder = run_record.read_state(holder_dir) if holder_dir.is_dir() else None
+        if holder and run.going(holder, now=now):
+            continue
+        why = f"{wait['on']} {'has landed' if holder and holder.get('merged') else 'is over'}"
+        if dry_run:
+            log(f"{run_dir.name} would start again: {why}")
+            continue
+        try:
+            fresh = run.restart_run(run_dir, state, why)
+        except (config.Error, OSError, run_record.StopRequested) as exc:
+            log(f"WARN {run_dir.name} could not start again: {exc}")
+            continue
+        with run_record.record(run_dir) as current:
+            current["lease_restarted"] = fresh.name
+        log(f"{run_dir.name} started again as {fresh.name}: {why}")

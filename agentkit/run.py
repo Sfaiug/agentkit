@@ -3089,6 +3089,13 @@ def verify_work(lp, cmds=None):
         cmds = lp.every
     lp.step("done-when")
     if not lp.scratch and not lp.state.get("review_pr"):
+        if lp.state.get("repo"):
+            # ak's commit step runs the lease scan itself: a diff that cannot merge with an
+            # older live run's is parked here, before anything of it is reviewed, and the
+            # save below raises the stop the scan recorded (`leases.park`)
+            from . import leases
+            leases.scan(Path(lp.state["repo"]), lp.log)
+            lp.save()
         commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
     checks = (files_scope(lp), rules_check(lp))
     lp.validation = {} if lp.scratch else commit_identity(lp.wt)
@@ -9224,6 +9231,43 @@ def queued(run_dir):
         return False
 
 
+def restart_run(run_dir, state, why):
+    """A new run of that run's task on the newest base, for a run stopped waiting on another's
+    change once that change is in (`leases.restart`): its seat's, with the lists the seat has
+    now, launched with the options it had, and its log opening on why and on the branch its
+    earlier attempt is kept on.  The new run's directory."""
+    slug = run_dir.name.split("-", 2)[2] if run_dir.name.count("-") >= 2 else run_dir.name
+    name = f"{datetime.now():%Y%m%d-%H%M}-{slug}"
+    directory = config.RUNS / name
+    n = 1
+    while directory.exists():
+        n += 1
+        directory = config.RUNS / f"{name}-{n}"
+    directory.mkdir(parents=True)
+    shutil.copyfile(run_dir / "task.md", directory / "task.md")
+    (directory / "log.txt").touch()
+    logger(directory)(f"started again for {run_dir.name}: {why}; its earlier attempt is kept on "
+                      f"branch {state.get('branch')}")
+    session = launched_session(state)
+    cfg = config.load()
+    try:
+        lists = (config.load_session(cfg, session, required=False) if session else None) or state
+    except config.Error:
+        lists = state
+    receipt = {"restarted": {"run": run_dir.name, "why": why},
+               "launched_session": session, "repo": state.get("repo"),
+               **{role: list(lists[role]) for role in ("workers", "reviewers")
+                  if isinstance(lists.get(role), list) and lists[role]},
+               **({"notify_sink": state["notify_sink"]} if state.get("notify_sink") else {})}
+    opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
+            "--no-worktree": False, "--no-merge": False,
+            **{key: value for key, value in (state.get("launch_opts") or {}).items()
+               if key != "--first"}, "--bg": True}
+    prepare(directory, opts, logger(directory), cfg, task_file=state.get("task_file"), receipt=receipt)
+    spawn_bg(directory, [str(directory / "task.md")])
+    return directory
+
+
 def spawn_bg(run_dir, argv, expected=None, park_as=False):
     """Start `ak run <argv>` detached, from the record it reads under the recovery lock.
 
@@ -9236,13 +9280,17 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
     child = [sys.executable, str(config.REPO / "bin" / "ak"), "run"] + [a for a in argv if a != "--bg"]
     with gate.slot_lock(), run_record.recovery_lock(run_dir):
         previous = run_record.read_state(run_dir) or {}
-        if previous.get("followup"):
+        if previous.get("followup") or previous.get("restarted"):
             # These are siblings owned by the seat, not descendants for the ending's
             # process sweep to kill or tests sharing its admission slot.
             for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_SCOPE",
                         config.UNATTENDED_ENV, config.JOB_DIR_ENV, "AK_RUN_ROLE"):
                 env.pop(key, None)
-            env[config.SESSION_ENV] = launched_session(previous)
+            seat = launched_session(previous)
+            if seat:
+                env[config.SESSION_ENV] = seat
+            else:
+                env.pop(config.SESSION_ENV, None)
         if expected is not None and previous != expected:
             raise config.Error("the run changed while choosing recovery; select it again")
         if previous.get("state") == "stopped":
@@ -9382,10 +9430,13 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
     """
     receipt = (run_record.read_state(run_dir) or {}) if receipt is None else receipt
     followup = receipt.get("followup")
-    session_at_launch = receipt["launched_session"] if followup else config.current_session()
-    workers = (receipt.get("workers") if followup else
+    # a fix run and a run started again (`restart_run`) are launched by the tick for a seat:
+    # the receipt says whose, and which lists, and no slot is reserved before the launch
+    bound = bool(followup or receipt.get("restarted"))
+    session_at_launch = receipt["launched_session"] if bound else config.current_session()
+    workers = (receipt.get("workers") if bound else
                config.workers(cfg) if cfg is not None and session_at_launch else None)
-    if followup:
+    if bound:
         # A fix run keeps the lists start_followups bound when it wrote the receipt.
         groups = {role: list(receipt[role]) for role in ("workers", "reviewers")
                   if isinstance(receipt.get(role), list) and receipt[role]}
@@ -9399,8 +9450,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         state = stamp_origin({**receipt, "run_id": run_dir.name, "state": "queued", "verdict": None,
                          "launched_session": session_at_launch, "started_at": time.time(),
                          "queued_at": time.time(), "slot_waiting": True,
-                         "run_depth": 0 if followup else run_depth(),
-                         "parent_run": None if followup else os.environ.get("AK_PARENT_RUN"),
+                         "run_depth": 0 if bound else run_depth(),
+                         "parent_run": None if bound else os.environ.get("AK_PARENT_RUN"),
                          "reservation_pending": True,
                          "unattended": not session_at_launch and config.unattended(),
                          **run_record.process_owner(), "launch_opts": opts or {},
@@ -9417,7 +9468,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
             state["task_file"] = str(task_file)
         if (opts or {}).get("--first"):
             state["first"] = True
-        if not followup:
+        if not bound:
             # A fix run waits for its slot from its first record on: whatever cuts its handoff
             # off before the launch, it is a slot wait, which the tick resumes.
             gate.reserve_slot(state, limit)

@@ -6333,10 +6333,11 @@ def local_passes(state, dry_run, log):
         # Silent runs are recovered from outside the loop, whatever it is doing: nothing new
         # has to be started.
         ("the stall pass did not run", lambda: recover_runs(config.load(), dry_run, log), True),
-        # which live runs of a repository change the same lines, written down on the younger
-        # (`leases`): what the refusals and restarts to come stand on; it changes no checkout,
-        # and a dry run, which writes nothing, skips it
+        # which live runs of a repository change the same lines: the younger, before its
+        # review, is stopped with its branch kept, and starts again once the older has
+        # landed (`leases`); a dry run, which writes nothing, skips both
         ("the lease scan did not run", lambda: leases.scan_all(log), False),
+        ("the lease restart pass did not run", lambda: leases.restart(dry_run, log), False),
         ("the tick's watch.json was not saved", lambda: save_state(state), False),
         ("the usage refresh did not finish", read_usage, True),
         # An exhausted run waits for a provider window and resumes itself when one refills, on

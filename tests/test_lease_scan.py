@@ -4,74 +4,25 @@ A run's lease is its own diff, uncommitted edits included; no model declares any
 live runs whose trees cannot be merged over the base they share are a collision, written on
 the younger as waiting on the older with the paths and since when; runs changing different
 lines of the same file are none.  A record outlives neither the collision nor the holder's
-run.  Offline: a real repository with one checkout per run, run records in a throwaway HOME.
+run.  Offline: the lease stage (`fixtures.leases`), a real repository with one checkout per run.
 """
 
-from contextlib import ExitStack
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
-import tempfile
 import time
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.leases import LiveRuns
 from agentkit import config, leases, run, watch
 from agentkit import record
 
 
-class LeaseScan(unittest.TestCase):
-    def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-lease-scan-", dir=REPO)
-        self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name)
-        self.stack = ExitStack()
-        self.addCleanup(self.stack.close)
-        self.stack.enter_context(patch.dict(os.environ, {
-            "HOME": str(self.root), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
-        for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
-            self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
-        config.ensure_dirs()
-        self.repo = self.root / "acme"
-        self.repo.mkdir()
-        self.git(self.repo, "init", "-qb", "main")
-        self.git(self.repo, "config", "user.name", "Fixture")
-        self.git(self.repo, "config", "user.email", "fixture@example.invalid")
-        (self.repo / "api.py").write_text("".join(f"line {n}\n" for n in range(1, 21)))
-        (self.repo / "other.py").write_text("other\n")
-        self.git(self.repo, "add", ".")
-        self.git(self.repo, "commit", "-qm", "Base")
-        self.base = self.git(self.repo, "rev-parse", "HEAD")
-        self.logs = []
-
-    def git(self, cwd, *args):
-        return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
-                              text=True).stdout.strip()
-
-    def run_on(self, name, started, state="running", base=None, repo=None, artifacts=()):
-        """A live run of the repository with a checkout of its own, cut from `base`; `repo` is
-        the checkout it was launched from, the main one unless given; `artifacts` what its
-        checks generated, as it writes them down."""
-        worktree = config.WT / name
-        self.git(self.repo, "worktree", "add", "-q", "-b", f"ak/{name}", str(worktree), base or self.base)
-        directory = config.RUNS / name
-        directory.mkdir(parents=True)
-        record.save_state(directory, {"run_id": name, "state": state, "repo": str(repo or self.repo),
-                                      "worktree": str(worktree), "base_sha": base or self.base,
-                                      "started_at": started, "artifacts": list(artifacts)})
-        return worktree
-
-    def edit(self, worktree, path, line, text, commit=False):
-        lines = (worktree / path).read_text().splitlines()
-        lines[line - 1] = text
-        (worktree / path).write_text("".join(f"{each}\n" for each in lines))
-        if commit:
-            self.git(worktree, "commit", "-qam", f"edit {path}:{line}")
-
+class LeaseScan(LiveRuns):
     def test_runs_on_the_same_lines_collide_and_the_younger_waits(self):
         older = self.run_on("20260101-0900-older", 900)
         younger = self.run_on("20260101-1000-younger", 1000)
@@ -85,7 +36,7 @@ class LeaseScan(unittest.TestCase):
             "waits_on": "20260101-0900-older", "files": ["api.py"], "since": 2000}})
         self.assertEqual(leases.read(self.repo), found)
         self.assertIn("collision: 20260101-1000-younger and 20260101-0900-older change the same "
-                      "lines of api.py; the younger would wait", self.logs[-1])
+                      "lines of api.py; the younger lands after the older", self.logs[-1])
         # the record keeps its first sighting while the pair stands, and nothing in either
         # checkout was touched by the scan
         self.assertEqual(leases.scan(self.repo, now=2300)["20260101-1000-younger"]["since"], 2000)
