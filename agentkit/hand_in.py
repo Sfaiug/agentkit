@@ -98,6 +98,18 @@ class Review:
                 if row["kind"] == "follow-up" and "run" in row["evidence"]}
 
     @property
+    def followup_commits(self):
+        """Each follow-up's command by its text with the commit it was proven to fail on: the
+        base for one from before the task, the reviewed commit for one of this change."""
+        return {item_text(row): row["evidence"]["commit"] for row in self.records
+                if row["kind"] == "follow-up" and "commit" in row["evidence"]}
+
+    @property
+    def preexisting(self):
+        """The follow-ups from before the task: what the review found already on the base."""
+        return [row for row in self.records if row["kind"] == "follow-up" and row.get("before")]
+
+    @property
     def notes(self):
         return [item_text(row) for row in self.records if row["kind"] == "note"]
 

@@ -131,6 +131,8 @@ class Weighed(unittest.TestCase):
         self.assertNotIn("base", row["evidence"])
         self.assertNotIn("before", row)
         self.assertEqual(submitted.followup_checks, {hand_in.item_text(row): probe('api.mode == "fixed"')})
+        self.assertEqual(submitted.followup_commits, {hand_in.item_text(row): self.head})
+        self.assertEqual(submitted.preexisting, [])
         # one whose command passes on the reviewed commit proves nothing: a note, dropped
         submitted, row = self.weigh(followup("api.py:1", "mode is wrong", probe('api.mode == "branch"')))
         self.assertEqual(submitted.verdict, "PASS")
@@ -142,6 +144,8 @@ class Weighed(unittest.TestCase):
         self.assertEqual(row["kind"], "follow-up")
         self.assertEqual(row["evidence"]["commit"], self.base)
         self.assertIn("Before the task", hand_in.item_text(row))
+        self.assertEqual(submitted.followup_commits, {hand_in.item_text(row): self.base})
+        self.assertEqual(submitted.preexisting, [row])
 
 
 class Planned(Sandbox):

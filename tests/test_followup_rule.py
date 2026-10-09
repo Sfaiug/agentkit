@@ -1,4 +1,4 @@
-"""Only the last passing review and flaky check evidence survive as run follow-ups.
+"""Every round's follow-ups survive as the run's, whatever its verdict; flaky check evidence only a passing round's.
 
 Temporary HOME, stubbed reviewers and GitHub; shell checks run only in the fixture.
 """
@@ -103,30 +103,30 @@ class FollowupRule(unittest.TestCase):
                               "however long the follow-ups list is"):
                     self.assertIn(words, preamble)
 
-    def test_failed_reviews_and_their_flakes_are_not_carried_into_pass(self):
+    def test_a_failed_reviews_follow_ups_are_carried_into_the_pass_its_flakes_not(self):
         output, _ = self.gate()
         self.assertEqual(self.review(DEFECT, verdict="FAIL", output=output), "FAIL")
-        self.assert_followups([])
+        self.assert_followups([DEFECT])
         self.lp.rnd += 1
         self.assertEqual(self.review(OTHER), "PASS")
-        self.assert_followups([OTHER])
+        self.assert_followups([DEFECT, OTHER])
 
-    def test_re_review_replaces_a_previous_pass_including_an_empty_list(self):
+    def test_a_re_review_adds_to_the_list_and_an_empty_one_drops_nothing(self):
         self.review(DEFECT, OTHER)
         self.assert_followups([DEFECT, OTHER])
         updated = DEFECT + "; also reproduced on main before the task"
         self.review(updated, record=False)
-        self.assert_followups([updated])
+        self.assert_followups([DEFECT, OTHER, updated])
         self.review(record=False)
-        self.assert_followups([])
-        self.assertNotIn("## Follow-ups", run.pr_body(self.lp.state))
+        self.assert_followups([DEFECT, OTHER, updated])
+        self.assertIn("## Follow-ups", run.pr_body(self.lp.state))
 
-    def test_a_pass_overridden_by_the_loop_keeps_no_followups(self):
+    def test_a_pass_overridden_by_the_loop_keeps_its_followups_too(self):
+        self.review(OTHER)
         for ok, code in ((False, 0), (True, 1)):
             with self.subTest(ok=ok, code=code):
-                self.lp.state["followups"] = [OTHER]
                 self.assertEqual(self.review(DEFECT, ok=ok, code=code), "FAIL")
-                self.assert_followups([])
+                self.assert_followups([OTHER, DEFECT])
 
     def test_no_number_limit_or_cross_item_deduplication(self):
         items = [f"{DEFECT}; case {n}" for n in range(30)]
@@ -186,12 +186,12 @@ class FollowupRule(unittest.TestCase):
         self.assert_followups([DEFECT, flake])
         self.assertIn(flake.replace("\n", "\n  "), run.pr_body(self.lp.state))
 
-    def test_existing_pr_drops_the_old_list_and_retries_a_failed_update(self):
+    def test_existing_pr_carries_the_grown_list_and_retries_a_failed_update(self):
         url = "https://github.com/acme/project/pull/7"
         self.review(DEFECT)
         with patch.object(run, "gh", return_value=(0, url)):
             run.open_pr(self.lp, "main")
-        self.review(record=False)
+        self.review(OTHER, record=False)          # the list grew: the description follows
         bodies = []
 
         def gh(_cwd, *args):
@@ -211,7 +211,8 @@ class FollowupRule(unittest.TestCase):
             self.assertEqual(run.open_pr(self.lp, "main"), url)
         self.assertEqual(len(bodies), 2)
         self.assertEqual(bodies[0], bodies[1])
-        self.assertNotIn("## Follow-ups", bodies[1])
+        self.assertIn("## Follow-ups", bodies[1])
+        self.assertIn("b.py:2 - zero divisor crashes", bodies[1])
         self.assertEqual((self.lp.run_dir / "pr-body.md").read_text(), bodies[1])
 
 

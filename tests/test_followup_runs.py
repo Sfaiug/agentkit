@@ -243,7 +243,12 @@ class FollowupRuns(unittest.TestCase):
     def test_a_review_followup_becomes_a_deferred_line_in_its_seats_plan_and_a_fix_run(self):
         check = "python3 -c 'from broken import first; first([])'"
         flaky = "flaky: python3 -m unittest passed only on its re-run"
-        directory, state = self.source(followups=[DEFECT, flaky], followup_checks={DEFECT: check})
+        (self.repo / "reviewed.txt").write_text("the reviewed commit\n")   # a defect of this change:
+        self.git(self.repo, "add", ".")                                       # proven on the head
+        self.git(self.repo, "commit", "-qm", "The reviewed head")
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        directory, state = self.source(followups=[DEFECT, flaky], followup_checks={DEFECT: check},
+                                       followup_commits={DEFECT: head})
         children = self.start(directory, state)
         self.assertEqual(len(children), 2)
         fix, other = (children[0] / "task.md").read_text(), (children[1] / "task.md").read_text()
@@ -256,8 +261,9 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(text.count("- [ ] "), 1)
         self.assertIn(f"- [ ] Fix {DEFECT} · check: `{check}` · {plan.named(self.repo)} · deferred · written ", text)
         self.assertTrue(plan.deferred(text.strip()))
-        # it names the commit its check failed on: the review's base
-        self.assertEqual(plan.LINE.match(text.strip())["base"], state["base_sha"][:12])
+        # it names the commit its check failed on: the reviewed head here, the base for a
+        # defect from before the task
+        self.assertEqual(plan.LINE.match(text.strip())["base"], head[:12])
         ending = run.handback_line(state, directory, self.cfg)
         self.assertIn("now deferred in your plan: Fix broken.py:1", ending)
         self.assertIn("until its fix is on the default branch or `ak plan check N` puts your own test in its place", ending)
@@ -288,6 +294,8 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(self.start(directory, record.read_state(directory)), [])
         self.assertIn(f"- [ ] Fix {DEFECT} · check: `{CHECK}` · {plan.named(self.repo)} · ",
                       config.plan_path("seat").read_text())
+        [line] = [each for each in config.plan_path("seat").read_text().splitlines() if each.startswith("- [ ]")]
+        self.assertFalse(plan.deferred(line))        # no run takes it: the seat's own to build
         self.assertEqual(self.spawns, [])
 
     def test_a_handoff_cut_off_before_its_receipt_hands_its_list_on_again(self):

@@ -3362,9 +3362,11 @@ def open_followup(state, text, repair=None, tip=None, split=None):
 def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     """A merge hands its follow-ups on, once, under the same lock that closes the seat.
 
-    A review follow-up becomes a line in the seat's own plan, checked by its failing command:
-    the seat builds it with the context it already has.  Anything else on the list (a flaky
-    check's evidence) starts an ordinary run.  The receipt is written once the list is handed
+    A review follow-up becomes a line in the seat's own plan, checked by its failing command,
+    and a fix run of its own with that command as its done-when: the line is deferred, holding
+    no done, where a run takes it, and the seat's own to build where the session marks no
+    executor.  Anything else on the list (a flaky check's evidence) starts an ordinary run
+    with a regression test of its own.  The receipt is written once the list is handed
     on: a process cut off before that hands it on again, and each item finds what the cut-off
     one already did -- its open plan line, the fix run it started.  A fix run waits for its slot
     from its first record on, so one the cut left before its launch is a slot wait the tick
@@ -3398,15 +3400,18 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             return None
         request = repair or split
         checks = {} if request else state.get("followup_checks") or {}
+        commits = {} if request else state.get("followup_commits") or {}
         items = [request["text"]] if request else state["followups"]
         planned = [item for item in items if item in checks]   # the seat's own, executors or not
         repo = main_checkout(Path(state["repo"])) if planned else None
+        record = config.session_records().get(config.resolve_session(session), {})
+        fixers = record.get("workers") != []      # a run takes each line; else the seat does
         handed = {"followup_runs": [], "followup_plan": [
-            plan_followup(session, repo, item, checks[item], state.get("base_sha"), log)
+            plan_followup(session, repo, item, checks[item],
+                          commits.get(item) or state.get("base_sha"), log, deferred=fixers)
             for item in planned]}
         cfg = report_config(cfg)
-        record = config.session_records().get(config.resolve_session(session), {})
-        if record.get("workers") == []:
+        if not fixers:
             return None if request else followups_handed(run_dir, state, handed)
         repo = repo or main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
@@ -3551,13 +3556,15 @@ def followups_handed(run_dir, state, handed):
         current.update(handed)
 
 
-def plan_followup(session, repo, item, check, proven, log):
+def plan_followup(session, repo, item, check, proven, log, deferred=True):
     """Write one review follow-up into the seat's plan, unless an open line already holds its
-    check in this project; the entry the run's ending names it by, or why the plan refused it."""
+    check in this project; the entry the run's ending names it by, or why the plan refused it.
+    `proven` is the commit the check failed on, which the line names; the line is `deferred`
+    where a fix run takes it."""
     from . import plan   # here, not at the top: a seat's small verb, this the loop
     outcome = "Fix " + item.splitlines()[0].replace("·", "-")
     try:
-        plan.add(session, outcome, check, repo, proven=proven, deferred=True)
+        plan.add(session, outcome, check, repo, proven=proven, deferred=deferred)
         entry = {"outcome": outcome}
     except (config.Error, OSError) as exc:
         entry = {"outcome": outcome, "refused": str(exc)}
@@ -4163,8 +4170,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.log(f"WARN {overridden}; overriding to FAIL")
     record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
-    lp.state["followups"] = submitted.followups if verdict == "PASS" else []
-    lp.state["followup_checks"] = submitted.followup_checks if verdict == "PASS" else {}
+    # kept whatever the verdict, every round's: a run of its own fixes each after the merge
+    kept = lp.state.get("followups") or []
+    lp.state["followups"] = kept + [item for item in submitted.followups if item not in kept]
+    lp.state["followup_checks"] = {**(lp.state.get("followup_checks") or {}), **submitted.followup_checks}
+    lp.state["followup_commits"] = {**(lp.state.get("followup_commits") or {}), **submitted.followup_commits}
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)
         # A landing re-review with a pending suite keeps the task's probe base.
@@ -4186,7 +4196,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     lp.save()
     history.record_review(lp.state.get("run_id"), str(out),
                           harness=review_harness, model=review_model,
-                          blocking=len(submitted.findings), followup=len(submitted.followups),
+                          blocking=len(submitted.findings), followup=len(submitted.preexisting),
                           note=len(submitted.notes), log=lp.log)
     return verdict
 

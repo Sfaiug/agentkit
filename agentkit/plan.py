@@ -31,11 +31,11 @@ from . import command_help, config, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 EYE = "your eye"
+DEFERRED = " · deferred"
 LINE = re.compile(r"^- \[(?P<mark>[ x])\] (?P<what>.+?) · (?:check: `(?P<check>[^`]+)`|"
-                  + EYE + r") · (?P<project>.+?)(?P<deferred> · deferred)? · written "
+                  + EYE + r") · (?P<project>.+?)(?P<deferred>" + re.escape(DEFERRED) + r")? · written "
                   r"(?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
                   r"(?: on (?P<base>[0-9a-f]{7,40}))?(?: · done (?P<done>.+))?$")
-DEFERRED = " · deferred"
 
 
 def seat():
