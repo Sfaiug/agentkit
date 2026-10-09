@@ -122,11 +122,12 @@ out = pathlib.Path(sys.argv[6])
         self.head = run.git(self.wt, "rev-parse", "HEAD")
         self.lp.validation = run.commit_identity(self.wt)
 
-    def review(self, *commands, record=True):
+    def review(self, *commands, record=True, ok=True):
         """One review round: the scripted reviewer hands in `commands`, then done."""
         self.lp.rnd += 1
         self.plan.write_text(json.dumps([{"commands": commands}]))
-        verdict = run.review(self.lp, "## Summary\nFixture", True, "$ true\n[exit 0]", record=record)
+        verdict = run.review(self.lp, "## Summary\nFixture", ok,
+                             "$ true\n[exit 0]" if ok else "$ false\n[exit 1]", record=record)
         self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), self.head)
         self.assertEqual(run.git(self.wt, "status", "--porcelain"), "")
         return verdict
@@ -337,6 +338,50 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(), "PASS")
         self.assertEqual(self.records("follow-up"),
                          [("api.py", 3, "still failing, on base too: a defect from before the task, kept as a follow-up")])
+
+    def test_a_deleted_line_still_failing_blocks(self):
+        self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
+        self.write('mode = "branch"\nextra = 1\n', "Delete the flag")
+        self.assertEqual(self.review(), "FAIL")
+        self.assertEqual(self.records("finding"),
+                         [("api.py", 2, "still failing; it blocks until its proof passes; the fix deleted its line")])
+
+    def test_a_dispute_silences_only_the_finding_it_names(self):
+        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed),
+                                     finding("api.py:2", "flag is misnamed", self.never)), "FAIL")
+        self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode only")
+        self.dispute("api.py", 2, "flag is wrong", probe("True"))
+        self.assertEqual(self.review(), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 2, "still failing; it blocks until its proof passes")])
+        prompt = self.prompt()
+        self.assertIn("api.py:2 - flag is misnamed - still fails", prompt)
+        self.assertIn("api.py:2 - flag is wrong - disputed by the fixer", prompt)
+
+    def test_a_round_after_a_fail_on_the_checks_alone_judges_the_whole_change(self):
+        self.assertEqual(self.review(ok=False), "FAIL")           # the checks were red, nothing found
+        self.write('mode = "branch"\nflag = "branch"\nextra = 2\n', "Mend the check")
+        self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed)), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 1, "")])
+        prompt = self.prompt()
+        self.assertNotIn("## Fix delta", prompt)
+        self.assertEqual(prompt.count("## Diff ("), 1)
+
+    def test_placing_a_finding_on_a_long_rewrite_costs_no_process_per_line(self):
+        self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
+        self.write('mode = "branch"\nflag = "still wrong"\n' + "".join(f"pad_{n} = {n}\n" for n in range(3000)),
+                   "Rewrite the file")
+        real, diffs = run.git, []
+
+        def counting(repo, *args, **kwargs):
+            if args and args[0] == "diff":
+                diffs.append(args)
+            return real(repo, *args, **kwargs)
+
+        with patch.object(run, "git", side_effect=counting):
+            self.assertEqual(self.review(), "FAIL")
+        self.assertLess(len(diffs), 40)
+        self.assertEqual(self.records("finding"),
+                         [("api.py", 2, "still failing; it blocks until its proof passes; the fix changed its line")])
 
     def test_a_replayed_proof_failing_on_base_too_is_a_follow_up_once_its_line_is_base_s(self):
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.never)), "FAIL")

@@ -3750,14 +3750,17 @@ def hunks(lp, path, since, head):
             for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", diff, re.M)]
 
 
+def in_hunks(line, found):
+    """Whether `line` is inside those hunks' new side.  A pure removal leaves an anchor
+    between the two surviving neighbouring lines."""
+    return any(start <= line < start + count if count else line in (start, start + 1)
+               for _, _, start, count in found)
+
+
 def changed_line(lp, row, head, since=None):
     """Whether the finding's line is inside the diff to `head` from `since`: the base, or the
     commit the last review judged, for a later round."""
-    for _, _, start, count in hunks(lp, row["path"], since or lp.base_sha, head):
-        # A pure removal leaves an anchor between the two surviving neighbouring lines.
-        if (start <= row["line"] < start + count if count else row["line"] in (start, start + 1)):
-            return True
-    return False
+    return in_hunks(row["line"], hunks(lp, row["path"], since or lp.base_sha, head))
 
 
 def capped(lp, diff):
@@ -4049,10 +4052,12 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             # first of them where the fix put base's text there
             lines, touched = (moved_lines(lp, row["path"], row["line"], since, head) if since
                               else (range(row["line"], row["line"] + 1), False))
-            inside = ([] if lp.scratch
-                      else [at for at in lines if changed_line(lp, {**row, "line": at}, head)])
+            changed = [] if lp.scratch else hunks(lp, row["path"], lp.base_sha, head)   # read once
+            inside = [at for at in lines if in_hunks(at, changed)]
+            deleted = touched and not lines
             row = {**row, "line": inside[0] if inside else lines[0] if lines else row["line"]}
-            where = "; the fix changed its line" if touched else ""
+            where = ("; the fix deleted its line" if deleted
+                     else "; the fix changed its line" if touched else "")
             if not failing:
                 extra.append({**row, "kind": "note", "evidence": now,
                               "replayed": "fixed; its proof passes now"})
@@ -4060,9 +4065,10 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             if now["run"] in proofs:
                 continue
             kind, replayed_word = "finding", "still failing; it blocks until its proof passes" + where
-            if not lp.scratch and not inside:
+            if not lp.scratch and not inside and not deleted:
                 # its line is base's now (put back, or never the change's): judged on base,
-                # as any failing proof on a line the change did not touch is
+                # as any failing proof on a line the change did not touch is; a line the fix
+                # deleted is neither, and its defect still the change's
                 base = {"sha": lp.base_sha, **proof_on(
                     lp, now["run"], lp.round_dir / f"replay-{n}-base.log", lp.base_sha, head)}
                 now = {**now, "base": base}
@@ -4152,18 +4158,22 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         at = git(lp.wt, "rev-parse", head)
         # a landing re-review (`record` off) judges the whole change: the repair that brought
         # it here is nobody's fix round
-        delta = reviewed_before(lp, delta_from, at) if record else None
+        # a fix delta is judged only where the last review handed in findings for a fix to
+        # answer: after a FAIL on the checks alone, the whole change is judged again
+        delta = reviewed_before(lp, delta_from, at) if record and earlier else None
         if record and delta_from and earlier:
             # a later round: ak re-proves the earlier findings itself on the commit under
             # review, a new one or the same again (a fixer turn that left no commit).  A
             # finding the fixer disputed is the reviewer's to weigh, and a quote is no failing
             # proof (the quoted lines can stay while the defect goes): both are listed for the
             # reviewer, not replayed
-            disputed = {(row["finding"]["path"], row["finding"]["line"]) for row in dispute_rows(lp)}
+            # a dispute names one finding, not every finding at its site
+            disputed = {(row["finding"]["path"], row["finding"]["line"], row["finding"].get("what"))
+                        for row in dispute_rows(lp)}
             proven = [row for row in earlier if "run" in (row.get("evidence") or {})
-                      and (row["path"], row["line"]) not in disputed]
+                      and (row["path"], row["line"], row.get("what")) not in disputed]
             left = [(row, "disputed by the fixer: hand it in again to uphold it"
-                     if (row["path"], row["line"]) in disputed
+                     if (row["path"], row["line"], row.get("what")) in disputed
                      else "a quote, which ak cannot re-prove: hand it in again if it still stands")
                     for row in earlier if row not in proven]
             replayed = replay_findings(lp, proven, at)
