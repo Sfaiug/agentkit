@@ -13,9 +13,10 @@ commit step, which runs this scan itself -- is stopped there with its branch kep
 on the holder (`park`): what it built cannot land as it is, and the tick starts its task
 again on the newest base once the holder has landed or is over (`restart`), so the two
 changes are made one after the other, the later on the earlier's result.  Until then the
-stopped run is going (`run.going`): its seat is working, and a wait on it goes on with the
-run started again.  A younger run past that point, or the review of a pull request, is only
-written down: the lander orders their landings.  The record under
+stopped run is `parked`: going (`run.going`), so its seat is working and a wait on it goes on
+with the run started again, and stoppable, so its owner's stop or its seat's close calls the
+restart off.  A younger run past that point, the review of a pull request and a job's task
+are only written down: the lander orders their landings.  The record under
 `~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
 only while its run is going (`run.going`) and its checkout is there; a record whose pair no
 longer collides, or whose holder is gone, is cleared on the next scan.
@@ -104,9 +105,18 @@ def live(repo):
 def before_review(state):
     """Whether the run is a build with nothing reviewed yet: no round with a verdict, and its
     loop in its executor turn or at ak's commit step, where what it built can still be set
-    aside.  A pull request's review builds nothing to set aside."""
-    return (not state.get("review_pr") and not state.get("round_summaries")
+    aside.  A pull request's review builds nothing to set aside, and a job's task is its
+    job's to settle, as `run.parkable_conflict` leaves it."""
+    return (not state.get("review_pr") and not state.get("job_id")
+            and not state.get("round_summaries")
             and state.get("step") in (None, "executor", "done-when"))
+
+
+def parked(state):
+    """Whether that run is stopped waiting on an older run's change (`park`) and its task is
+    not started again yet (`restart`)."""
+    return (state.get("state") == "stopped" and isinstance(state.get("lease_wait"), dict)
+            and not state.get("lease_restarted"))
 
 
 def park(entry, holder, files, now):
@@ -290,8 +300,8 @@ def scan(repo, log=lambda _: None, now=None):
             stopped = park(younger, older["run"], files, now)
             log(f"collision: {younger['run']} and {older['run']} change the same lines of "
                 f"{', '.join(files)}; the younger "
-                + ("is stopped, its branch kept, to start again once the older has landed"
-                   if stopped else "lands after the older"))
+                + ("is stopped, its branch kept, to start again once the older has landed "
+                   "or is over" if stopped else "is only written down"))
             break
     if waits or before:
         write(repo, waits)
@@ -332,10 +342,9 @@ def restart(log=print, now=None):
     from . import run
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
-        wait = (state or {}).get("lease_wait")
-        if (not state or state.get("state") != "stopped" or not isinstance(wait, dict)
-                or state.get("lease_restarted") or not isinstance(wait.get("on"), str)):
+        if not state or not parked(state) or not isinstance(state["lease_wait"].get("on"), str):
             continue
+        wait = state["lease_wait"]
         holder_dir = config.RUNS / wait["on"]
         holder = run_record.read_state(holder_dir) if holder_dir.is_dir() else None
         if holder and run.going(holder, now=now):

@@ -36,7 +36,7 @@ class LeaseScan(LiveRuns):
             "waits_on": "20260101-0900-older", "files": ["api.py"], "since": 2000}})
         self.assertEqual(leases.read(self.repo), found)
         self.assertIn("collision: 20260101-1000-younger and 20260101-0900-older change the same "
-                      "lines of api.py; the younger lands after the older", self.logs[-1])
+                      "lines of api.py; the younger is only written down", self.logs[-1])
         # the record keeps its first sighting while the pair stands, and nothing in either
         # checkout was touched by the scan
         self.assertEqual(leases.scan(self.repo, now=2300)["20260101-1000-younger"]["since"], 2000)

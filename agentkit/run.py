@@ -9075,8 +9075,9 @@ def going(state, now=None):
     """
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
         return True  # the line is unfinished work, not an ending with timed recovery
-    if state.get("state") == "stopped":
-        return bool(state.get("lease_wait")) and not state.get("lease_restarted")
+    from . import leases
+    if leases.parked(state):
+        return True
     if state.get("state") in ("error", "waiting") and not tick_admission(state, now=now):
         return False
     if state.get("state") == "exhausted":

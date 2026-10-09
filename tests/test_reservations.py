@@ -6,12 +6,14 @@ The scan the tick runs, and ak's commit step runs itself, parks the younger run
 stay as they are.  Once the holder has landed or is over, the tick's restart pass launches
 the task again as a new run of the same seat, named on the stopped run and never twice, even
 when that launch was refused.  Until then the stopped run is going: a seat's wait on it holds,
-and goes on with the run started again.  A younger run past its executor turn, or one that
-reached its review while the scan ran, and a pull request's review are only written down.  A
-scan that cannot finish costs the commit step nothing.  Offline: the lease stage
-(`fixtures.leases`), a fake launch.
+and goes on with the run started again; its owner's stop or its seat's close calls the restart
+off.  A younger run past its executor turn, or one that reached its review while the scan ran,
+a pull request's review and a job's task are only written down.  A scan that cannot finish
+costs the commit step nothing.  Offline: the lease stage (`fixtures.leases`), a fake launch.
 """
 
+from contextlib import redirect_stdout
+import io
 from pathlib import Path
 import shutil
 import sys
@@ -21,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.leases import LiveRuns
-from agentkit import config, leases, run, watch
+from agentkit import config, leases, run, stop, watch
 from agentkit import record
 
 OLDER, YOUNGER = "20260101-0900-older", "20260101-1000-younger"
@@ -82,7 +84,7 @@ class Reservations(LiveRuns):
         self.assertEqual(self.git(younger, "status", "--porcelain"), "M api.py")   # its edit, kept
         self.assertEqual(self.state(OLDER)["state"], "running")
         self.assertIn("the younger is stopped, its branch kept, to start again once the older "
-                      "has landed", self.logs[-1])
+                      "has landed or is over", self.logs[-1])
         # a stopped run holds no diff: the next scan clears the record, and stops nothing again
         self.assertEqual(leases.scan(self.repo, self.logs.append, now=2300), {})
         self.assertEqual(self.state(YOUNGER)["finished_at"], state["finished_at"])
@@ -92,16 +94,17 @@ class Reservations(LiveRuns):
         found = leases.scan(self.repo, self.logs.append, now=2000)
         self.assertEqual(found[YOUNGER]["waits_on"], OLDER)
         self.assertEqual(self.state(YOUNGER)["state"], "running")
-        self.assertIn("the younger lands after the older", self.logs[-1])
+        self.assertIn("the younger is only written down", self.logs[-1])
 
-    def test_a_pull_requests_review_is_only_written_down(self):
+    def test_a_pull_requests_review_and_a_jobs_task_are_only_written_down(self):
         self.collide(step="done-when")
         directory = config.RUNS / YOUNGER
-        record.save_state(directory, {**record.read_state(directory),
-                                      "review_pr": "https://github.com/acme/acme/pull/7"})
-        found = leases.scan(self.repo, self.logs.append, now=2000)
-        self.assertEqual(found[YOUNGER]["waits_on"], OLDER)
-        self.assertEqual(self.state(YOUNGER)["state"], "running")
+        for key, value in (("review_pr", "https://github.com/acme/acme/pull/7"), ("job_id", "job-1")):
+            record.save_state(directory, {**record.read_state(directory), "review_pr": None,
+                                          "job_id": None, key: value})
+            found = leases.scan(self.repo, self.logs.append, now=2000)
+            self.assertEqual(found[YOUNGER]["waits_on"], OLDER)
+            self.assertEqual(self.state(YOUNGER)["state"], "running", key)
 
     def test_a_run_that_reached_its_review_during_the_scan_is_not_stopped(self):
         self.collide(step="done-when")
@@ -114,7 +117,7 @@ class Reservations(LiveRuns):
         with patch.object(leases, "tree", tree_while_the_loop_moves_on):
             leases.scan(self.repo, self.logs.append, now=2000)
         self.assertEqual(self.state(YOUNGER)["state"], "running")
-        self.assertIn("the younger lands after the older", self.logs[-1])
+        self.assertIn("the younger is only written down", self.logs[-1])
 
     def test_the_commit_step_stops_a_run_the_tick_has_not_seen_yet(self):
         _, younger = self.collide()
@@ -204,6 +207,30 @@ class Reservations(LiveRuns):
         record.save_state(fresh, {**record.read_state(fresh), "state": "pass", "verdict": "PASS",
                                   "merged": True})
         self.assertEqual(watch.wait_fact(wait), (True, f"run {fresh.name} ended PASS, merged"))
+
+    def calls_off(self, end):
+        """The younger stopped waiting, then ended by `end`: once the holder lands, nothing
+        starts again."""
+        self.collide(session="seat-a")
+        (config.RUNS / YOUNGER / "task.md").write_text(TASK)
+        leases.scan(self.repo, now=2000)
+        self.assertTrue(stop.stoppable(self.state(YOUNGER)))
+        with patch.object(config, "current_session", return_value=None), \
+                redirect_stdout(io.StringIO()):
+            end()
+        state = self.state(YOUNGER)
+        self.assertEqual((state["state"], state["error"]), ("stopped", "stopped by the user"))
+        self.assertFalse(run.going(state))
+        self.land(OLDER)
+        with patch.object(run, "spawn_bg", side_effect=AssertionError("started again")):
+            leases.restart(log=self.logs.append, now=3000)
+        self.assertEqual(self.started_again(), [])
+
+    def test_the_owners_stop_calls_the_restart_off(self):
+        self.calls_off(lambda: stop.cmd_stop([YOUNGER]))
+
+    def test_closing_its_seat_calls_the_restart_off(self):
+        self.calls_off(lambda: stop.release_session("seat-a"))
 
     def test_a_holder_that_ended_with_nothing_landed_frees_the_wait_too(self):
         self.collide()
