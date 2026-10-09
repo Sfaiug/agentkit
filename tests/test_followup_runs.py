@@ -468,6 +468,46 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(record.read_state(grandchild)["followup"]["run"], child.name)
         self.assertEqual(record.read_state(grandchild)["launched_session"], "seat")
 
+    def test_a_review_followups_run_is_one_per_check_and_its_line_deferred_once_a_run_has_it(self):
+        directory, state = self.source(followup_checks={DEFECT: CHECK})
+        [child] = self.start(directory, state)
+        self.assertEqual(record.read_state(child)["followup"]["check"], CHECK)
+        lines = lambda: [line for line in config.plan_path("seat").read_text().splitlines() if line.startswith("- [ ]")]
+        self.assertEqual([plan.deferred(line) for line in lines()], [True])
+        # the same site with another check is another follow-up: a run and a line of its own
+        other = "python3 -c 'from broken import first; first(None)'"
+        second, later = self.source("later", followups=["`./broken.py:01` - different words"],
+                                    followup_checks={"`./broken.py:01` - different words": other})
+        [again] = self.start(second, later)
+        self.assertNotEqual(again, child)
+        self.assertEqual([plan.deferred(line) for line in lines()], [True, True])
+        # the same check while that run is open: no second run, and the line it already has
+        third, same = self.source("same", followups=[DEFECT + " in other words"],
+                                  followup_checks={DEFECT + " in other words": CHECK})
+        self.assertEqual(self.start(third, same), [])
+        self.assertEqual(len(lines()), 2)
+        self.assertEqual(len(self.spawns), 2)
+
+    def test_a_followup_whose_run_could_not_start_keeps_its_line_owed(self):
+        other = "python3 -c 'from other import ratio; ratio(0)'"
+        directory, state = self.source("items", followups=[DEFECT, OTHER],
+                                       followup_checks={DEFECT: CHECK, OTHER: other})
+        real_prepare = run.prepare
+        calls = []
+
+        def flaky_prepare(d, o, log, cfg, *args, **kwargs):
+            calls.append(d.name)
+            if len(calls) == 1:
+                raise OSError("disk gone")
+            return real_prepare(d, o, log, cfg, *args, **kwargs)
+
+        with patch.object(run, "prepare", side_effect=flaky_prepare):
+            children = self.start(directory, state)
+        self.assertEqual(len(children), 1)
+        lines = [line for line in config.plan_path("seat").read_text().splitlines() if line.startswith("- [ ]")]
+        self.assertEqual([(plan.deferred(line), f"Fix {OTHER.splitlines()[0]}" in line) for line in lines],
+                         [(False, False), (True, True)])     # the one no run took is the seat's own
+
     def test_same_site_suppressed_only_for_an_open_fix_in_the_same_session(self):
         directory, state = self.source()
         child = self.start(directory, state)[0]

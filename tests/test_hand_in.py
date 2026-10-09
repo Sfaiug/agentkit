@@ -59,6 +59,7 @@ class HandIn(unittest.TestCase):
             (("finding", "api.py:1", "what", "why", "--run", " "), "evidence"),
             (("finding", "api.py:1", "", "why", "--quote", "first line"), "what"),
             (("follow-up", "api.py:1", "what", "why", "--quote", "first line"), "--run"),
+            (("follow-up", "api.py:1", "what", "why", "--run", "true"), "exited 0"),
             (("follow-up", "api.py:1", "what", "why", "--run", "false\nfalse", "--before", "base abc"),
              "one shell command"),
             (("follow-up", "api.py:1", "what", "why", "--run", "echo `false`; exit 1",
