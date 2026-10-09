@@ -1856,9 +1856,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a worker token dies within a fortnight or is dead -- every session says so, on any
       harness, because any seat's next turn on it can be the one that fails;
     * a question on its screen is him even during a turn, and so is one it asked with `ak
-      notify needs` that nothing has answered, once the turn that asked has ended; so is
-      typed text nobody sent while no client is attached and no turn is in flight -- the
-      question, or `unsent: <text>` -- whatever its runs do;
+      notify needs` that nothing has answered, from the end of the turn that asked and
+      through any later turn; so is typed text nobody sent while no client is attached and
+      no turn is in flight -- the question, or `unsent: <text>` -- whatever its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
@@ -1952,10 +1952,14 @@ def announce_state(session, cfg=None, look=False, **facts):
             facts["harness"], facts["live"] = look_at(session, cfg=cfg)
         previous = seat_read(name)
         answer = session_state(name, session=session, cfg=cfg, previous=previous, **facts)
+        # The question its turn ended on is his until he answers it, whatever turn a hand-back
+        # opens meanwhile: the record keeps which one that was, by its notice's time.
+        stopped_on = answer.get("asked", previous.get("stopped_on"))
         if (previous.get("word") != answer["word"] or previous.get("reason") != answer["reason"]
-                or previous.get("word_since") != answer["since"]):
+                or previous.get("word_since") != answer["since"]
+                or previous.get("stopped_on") != stopped_on):
             seat_write(name, word=answer["word"], reason=answer["reason"],
-                       word_since=answer["since"])
+                       word_since=answer["since"], stopped_on=stopped_on)
         statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
         if previous.get("word") != answer["word"]:
             statusbar.retell(session)
@@ -2081,15 +2085,17 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
                 "since": found.get("began"), "question": found["state"] == "asking"}
-    # ... and so is a question it asked with `ak notify needs` that nothing has answered, once
-    # its turn has ended: its runs going do not say he was not asked.  While the turn that
-    # asked runs on, the seat is working (rung 2b): its screen shows no question and it is not
-    # waiting for him, and a card sent then called him to a seat he could not answer.  A seat
-    # nobody is in names its number below, and a watcher's own alert about the seat waits for
-    # its prompt (rung 6).
+    # ... and so is a question it asked with `ak notify needs` that nothing has answered, from
+    # the end of the turn that asked: its runs going do not say he was not asked, and neither
+    # does a turn a hand-back opens once the seat has stopped on it (`stopped_on` in its
+    # record, which `announce_state` writes).  While the turn that asked runs on, the seat is
+    # working (rung 2b): its screen shows no question and it is not waiting for him, and a
+    # card sent then called him to a seat he could not answer.  A seat nobody is in names its
+    # number below, and a watcher's own alert about the seat waits for its prompt (rung 6).
     last = notify.last(name)
-    if (not gone and owner_question(last)
-            and not (harness and _turn_in_flight(harness, found)[0])):
+    if not gone and owner_question(last) and (
+            (last.get("time") is not None and seat_read(name).get("stopped_on") == last["time"])
+            or not (harness and _turn_in_flight(harness, found)[0])):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time"), "question": True, "asked": last.get("time")}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`

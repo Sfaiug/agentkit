@@ -144,7 +144,7 @@ class SeatStates(unittest.TestCase):
         self.pane = self.fixture("claude", "prompt")
         self.assertEqual(menu.state(self.seat), "needs you")
         self.pane = self.fixture("claude", "working")
-        self.assertEqual(menu.state(self.seat), "working")     # asked and working on: not his yet
+        self.assertEqual(menu.state(self.seat), "needs you")   # its question is unanswered
         self.pane = self.fixture("claude", "dialog")
         self.assertEqual(menu.state(self.seat), "needs you")
 

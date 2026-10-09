@@ -1,9 +1,8 @@
 """A seat's own question stands until its owner answers it.
 
-A seat asks with `ak notify needs` and its card goes out once its turn has ended
-(tests/test_question_waits_for_the_stop.py); a hand-back opens turns on it meanwhile, so its
-screen moves.  Its owner switching into it, or opening it from the menu and watching it work,
-answers nothing: the Discord card stays `Needs you`, and the row stays
+A seat asks with `ak notify needs` and works on what does not wait for the answer, so its
+screen moves and shows no question.  Its owner switching into it, or opening it from the menu
+and watching it work, answers nothing: the Discord card stays `Needs you`, and the row stays
 `needs you`, until his prompt (`notify.answered`, which the harness's prompt hook reports).
 Where a harness reports no prompts, output after an open is still the only answer there is,
 and a watcher's alert, or a needs you only the screen said, keeps the rules it had.
