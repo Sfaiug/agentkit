@@ -4219,7 +4219,7 @@ def rounds(lp, execv=None):
         # a review finished on a resume is the round's verdict
         if resume_review(lp) == "PASS":
             return
-    while lp.rnd < lp.rounds:
+    while lp.rnd < allowed_rounds(lp):
         pickup_new_code(lp, execv=execv)
         lp.rnd += 1
         cut = continuation(lp)
@@ -4443,7 +4443,7 @@ def fix_after_failed_review(lp, upstream, how):
     if (lp.state.get("waiting_on") or {}).get("line"):
         return False
     what = f"the {how} of {upstream}"
-    while lp.rnd < lp.rounds:
+    while lp.rnd < allowed_rounds(lp):
         fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
         if (lp.state.get("review") or {}).get("done_when") is False:
             # the output the review was given, still in the round directory it ran in
@@ -9974,14 +9974,12 @@ def resume_run(argv):
     # `needs_recovery`, because a resume of its own records `recovery_pending`, and a second
     # FAIL at the same cap must be refused exactly like the first rather than repeat itself.
     at_budget = failed_at_budget(state)
-    if at_budget and state["rounds"] >= taskfile.TASK_MAX_ROUNDS:
-        # the whole budget is spent: no --rounds carries it on, so the task is what changes
+    cap = lineage_cap(state, run_dir) if at_budget else None
+    if at_budget and state["rounds"] >= cap:
+        # the change's budget is spent across its runs: no --rounds carries it on, so the
+        # task is what changes
         raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
-                           f"{taskfile.TASK_MAX_ROUNDS} rounds is the budget, so split or re-scope the task")
-    if at_budget and state["rounds"] >= lineage_cap(state, run_dir):
-        # ... and so is the change's budget, counted across its runs
-        raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
-                           f"{lineage_cap(state, run_dir)} rounds is this change's budget across its runs, "
+                           f"{cap} rounds is the budget of this change across its runs, "
                            "so split or redesign the task")
     if at_budget and (n_rounds is None or n_rounds <= state["rounds"]):
         raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
@@ -10762,9 +10760,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                                      what=f"PR #{number}")
         if why:
             raise config.Error(why)
-        if len(summaries) >= n_rounds:
-            raise config.Error(f"{taskfile.TASK_MAX_ROUNDS} review rounds spent on PR #{number}; "
-                               "split or redesign it")
+        if len(summaries) >= n_rounds:     # this run's rounds counted in
+            raise config.Error(round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, what=f"PR #{number}")[1])
     advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
                                    or prior.get("own_pr_wait"))
                      and prior.get("head_sha") != info["headRefOid"])
@@ -11097,25 +11094,31 @@ def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
     return spent, runs
 
 
-def lineage_cap(state, run_dir):
-    """The rounds that run may have in all: the change's budget less what other runs on its
-    pull request or change spent."""
-    spent, _ = rounds_spent_elsewhere(pr=state.get("pr") or state.get("review_pr"),
-                                      change=change_of(state), exclude=run_dir)
-    return max(0, taskfile.TASK_MAX_ROUNDS - spent)
-
-
 def round_budget(asked, *, pr=None, change=None, exclude=None, what):
-    """(the rounds this run may still spend, None), or (0, why) once the change's budget is
-    spent: `asked` less what earlier runs spent on the same pull request or change,
-    `taskfile.TASK_MAX_ROUNDS` in all."""
+    """(the rounds this run may have in all, None), or (0, why) once the change's budget is
+    spent: `asked` less what the other runs (`exclude` names this one) spent on the same pull
+    request or change, `taskfile.TASK_MAX_ROUNDS` in all.  The one reading of the budget:
+    a launch, a resume, the way on from a FAIL and every round as it is spent read it here."""
     spent, runs = rounds_spent_elsewhere(pr=pr, change=change, exclude=exclude)
     left = min(asked, taskfile.TASK_MAX_ROUNDS - spent)
     if left < 1:
-        return 0, (f"{spent} review rounds spent on {what} across {runs} earlier "
+        return 0, (f"{spent} review rounds spent on {what} across {runs} "
                    f"run{'s' if runs != 1 else ''}: {taskfile.TASK_MAX_ROUNDS} per pull request "
                    "is the budget; split or redesign it")
     return left, None
+
+
+def lineage_cap(state, run_dir):
+    """The rounds that run may have in all: `round_budget` for its own pull request or change."""
+    return round_budget(taskfile.TASK_MAX_ROUNDS, pr=state.get("pr") or state.get("review_pr"),
+                        change=change_of(state), exclude=run_dir, what="this change")[0]
+
+
+def allowed_rounds(lp):
+    """The rounds this run may spend in all, read again as each is spent: its own budget, and
+    never past what its change has left across its runs (`lineage_cap`), which another run of
+    the change may have spent meanwhile."""
+    return min(lp.rounds, lineage_cap(lp.state, lp.run_dir))
 
 
 def already_under_way(task_path, meta, title, cmds, exclude=None):
