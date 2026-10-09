@@ -62,6 +62,8 @@ state = "working"
 # prompt (Codex 0.160): a changed rulebook is named there (`orch.rulebook_news`)
 context = true
 
+# What hooks/orchestrator-stop.sh prints as `systemMessage` -- the question a turn ends on --
+# is drawn whole under the turn's last message, as `Hook · ...` (0.160.1).
 [[hooks.event]]
 name = "Stop"
 state = "at_prompt"

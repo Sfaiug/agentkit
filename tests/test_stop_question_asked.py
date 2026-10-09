@@ -227,9 +227,9 @@ class StopQuestionAsked(unittest.TestCase):
         self.notice(self.turn - 1, answered_at=self.turn - 0.5)
         self.assertEqual(self.stop()["decision"], "block")
         self.notice(self.turn - 1)
-        self.assertIsNone(self.stop())
+        self.assertEqual(self.stop(), {"systemMessage": QUESTION})
         self.notice(self.turn + 1)
-        self.assertIsNone(self.stop())
+        self.assertEqual(self.stop(), {"systemMessage": QUESTION})
 
     def test_a_harness_with_no_transcript_is_told_to_use_notify_needs(self):
         self.assertIn("ak notify needs", self.stop(transcript_path="")["reason"])

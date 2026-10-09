@@ -68,6 +68,8 @@ name = "Stop"
 state = "working"
 kinds = ["held"]
 
+# What hooks/orchestrator-stop.sh prints as `systemMessage` -- the question a turn ends on --
+# is drawn whole under the turn's last message, as `Stop says: ...` (2.1.292).
 [[hooks.event]]
 name = "Stop"
 state = "at_prompt"

@@ -181,7 +181,7 @@ class StopParked(unittest.TestCase):
     def test_needs_background_and_the_third_stop_stand_past_a_parked_run(self):
         self.parked_exhausted()
         self.notified("needs", self.turn + 1)
-        self.assertEqual(self.stop(), "")
+        self.assertEqual(self.stop(), json.dumps({"systemMessage": "something"}) + "\n")
         self.latch(self.turn)
         (self.state / f"notify-{SEAT}.json").unlink()
         self.assertEqual(self.stop(background_tasks=[{"id": "task-1"}]), "")

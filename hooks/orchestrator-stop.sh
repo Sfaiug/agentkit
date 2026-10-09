@@ -24,6 +24,11 @@
 # question prompt or `ak notify needs` alerts the owner, and reading prose is not this hook's
 # to do.
 #
+# A stop that stands while a question this seat asked with `ak notify needs` is unanswered,
+# in this turn or an earlier one, prints it as `systemMessage`, which each of those harnesses
+# draws under the turn's last message (how, its adapter's manifest says beside its Stop): the
+# owner called to the seat reads there what he is asked.
+#
 # A worker is silent here as it is everywhere: no $AGENTKIT_SESSION, or AK_RUN_ROLE=worker,
 # and this decides nothing and exits 0.
 #
@@ -336,6 +341,17 @@ def main():
         written(launched, "background" if background(payload) else "held" if back else "")
     if back:
         print(json.dumps({"decision": "block", "reason": back}))
+        return
+    # The turn has ended with this seat's question to the owner unanswered -- the one it kept
+    # back for this end (`watch.keeps_back`), or one that stands from an earlier turn: the
+    # harness draws it under the turn's last message, as recorded, so what he is asked is on
+    # the screen he answers on however long ago the seat asked it.
+    seat = resolve(launched)
+    kept, standing = seat_read(seat).get("unasked"), notify.last(seat)
+    if isinstance(kept, dict) and isinstance(kept.get("text"), str):
+        print(json.dumps({"systemMessage": kept["text"]}))
+    elif owner_question(standing):
+        print(json.dumps({"systemMessage": standing["text"]}))
 
 
 main()

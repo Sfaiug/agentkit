@@ -195,12 +195,14 @@ class AnswerClosesQuestion(Sandbox):
     def test_a_turn_a_hand_back_opened_ends_on_the_standing_question(self):
         """review 20261007-0336: the seat's question to the owner still stands, unanswered, so
         the turn the hand-back opened may end on it -- as `watch.stop_nudge` lets it -- and is
-        never sent back to ask again."""
+        never sent back to ask again: its stop shows the question once more."""
         self.notice()
         self.assertTrue(self.handback())
         self.prompt(prompt=HANDBACK)
-        self.assertEqual(self.hook("Stop", script="orchestrator-stop.sh",
-                                   last_assistant_message="Parser merged; the schema waits."), "")
+        self.assertEqual(json.loads(self.hook(
+            "Stop", script="orchestrator-stop.sh",
+            last_assistant_message="Parser merged; the schema waits.")),
+            {"systemMessage": QUESTION})
         self.typed = []
         self.assert_open()
 

@@ -172,7 +172,9 @@ class StopHook(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.latch(self.turn)
                 self.notified(kind, self.turn + 1)
-                self.assertEqual(self.stop(), "")
+                # a question is shown where the turn ends on it; a done prints nothing
+                self.assertEqual(self.stop(), "" if kind == "done" else
+                                 json.dumps({"systemMessage": "something"}) + "\n")
 
     def test_a_notification_from_an_earlier_turn_does_not_allow_it(self):
         self.notified("done", self.turn - 600)

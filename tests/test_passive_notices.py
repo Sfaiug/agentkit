@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, watch
+from agentkit import config, notify, watch
 
 SEAT = "fix-api"
 FIX = REPO / "tests/fixtures"
@@ -41,7 +41,10 @@ class PassiveNotices(Sandbox):
             input=json.dumps({"hook_event_name": event, **payload}),
             env=self.env if env is None else env, timeout=20)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(done.stdout, "")
+        # the end-of-turn rule shows the question its turn ends on; nothing else is printed
+        shown = event == "Stop" and script == "orchestrator-stop.sh" and notify.last(SEAT)
+        self.assertEqual(done.stdout, json.dumps({"systemMessage": shown["text"]}) + "\n"
+                         if shown else "")
         path = config.hook_facts_path(self.seat["name"])
         return path.read_bytes() if path.exists() else None
 
