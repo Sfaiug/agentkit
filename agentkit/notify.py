@@ -453,8 +453,11 @@ def answered(session, at):
     With no question notice standing, the needs you only the screen said -- a dialog, a
     waiting prompt -- is what was answered, and its card keeps the answer.  An answered
     question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
+    A question the seat kept back for its turn's end, that end on record, is the one he read
+    at its stop and answers: it is asked here first, whoever held this lock when it ended.
     """
     with session_lock(session) as session:
+        ask_kept(session, ended=True)
         previous = last(session)
         if previous and previous.get("watcher") is True:
             return
@@ -1391,9 +1394,10 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         return 1
 
 
-def _said(name, kind, text, pr=None, event_id=None):
+def _said(name, kind, text, pr=None, event_id=None, at=None):
     """Record what that session said, under its notice lock, which the caller holds; the
-    notice it replaced, or None.  A watcher's repeated event re-records nothing."""
+    notice it replaced, or None.  A watcher's repeated event re-records nothing.  `at` dates
+    it where it was said before now."""
     from . import menu, run
     previous = last(name, include_seen=True)
     if event_id and previous and previous.get("source") == event_id:
@@ -1413,20 +1417,30 @@ def _said(name, kind, text, pr=None, event_id=None):
         extra["runs"] = [directory.name for directory, state in menu.run_records()
                          if run.launched_session(state) == name and
                          (run.going(state) or run.unfinished(state))]
+    if at is not None:
+        extra["time"] = at
     record(name, kind, text, **extra)
     return previous
 
 
-def ask_kept(name):
+def ask_kept(name, ended=False):
     """The turn that seat asked in has ended: the question it kept back becomes its notice,
-    as the command would have recorded it, dated now.  The caller holds `session_lock(name)`
-    and has just seen that turn end; the tick's card pass sends its card like any other's."""
+    as the command would have recorded it, dated at that end (`watch.turn_ended`).
+
+    The caller holds `session_lock(name)`.  With `ended` it asks only a question whose turn's
+    end is already on record: the caller has not looked at the seat itself.  The tick's card
+    pass sends the card, like any other's.
+    """
     from . import watch
     kept = watch.seat_read(name).get("unasked")
     if not isinstance(kept, dict) or not isinstance(kept.get("text"), str):
         return False
-    _said(name, "needs", kept["text"])
-    watch.seat_write(name, unasked=None)
+    at = kept.get("ended")
+    at = at if isinstance(at, (int, float)) and not isinstance(at, bool) else None
+    if ended and at is None:
+        return False
+    _said(name, "needs", kept["text"], at=at)
+    watch.kept_asked(name, kept)
     return True
 
 

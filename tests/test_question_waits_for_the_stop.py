@@ -228,9 +228,32 @@ class QuestionWaitsForTheStop(Sandbox):
         self.assertIsNone(watch.seat_read(SEAT).get("unasked"))
         self.assertEqual(self.looked(PROMPT, self.stop())["word"], "done")
 
+    def test_its_stop_puts_the_turns_end_on_record(self):
+        self.hook("UserPromptSubmit", prompt="Build the acme parser.")
+        self.asks()
+        self.assertNotIn("ended", watch.seat_read(SEAT)["unasked"])
+        self.stop()
+        self.assertIsInstance(watch.seat_read(SEAT)["unasked"]["ended"], float)
+
+    def test_his_prompt_answers_it_though_no_look_could_ask_it_first(self):
+        """The stop's look met the notice lock taken -- the card pass, a delivery -- so the
+        question was still kept when he read the seat's last message and answered."""
+        self.hook("UserPromptSubmit", prompt="Build the acme parser.")
+        self.asks()
+        fact = self.stop()
+        with notify.session_lock(SEAT):
+            self.looked(PROMPT, fact)
+        notify.answered(SEAT, NOW + 100)
+        fact = self.hook("UserPromptSubmit", prompt="Use v2.")
+        self.assertEqual(self.looked(WORKING, fact, after=200)["word"], "working")
+        answer = self.looked(PROMPT, self.stop(), after=300)
+        self.assertNotEqual(answer["reason"], QUESTION)
+        self.assertIsNone(notify.last(SEAT))
+        self.assertIsNone(watch.seat_read(SEAT).get("unasked"))
+
     def test_a_look_under_the_seats_typing_lock_asks_nothing_and_never_waits(self):
         """The typing lock is the notice's own: a look made under it leaves the question for
-        the next look instead of waiting on the lock its own caller holds."""
+        whoever next holds that lock instead of waiting on the one its own caller holds."""
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
         self.asks()
         fact = self.stop()

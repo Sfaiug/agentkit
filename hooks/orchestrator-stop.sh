@@ -66,7 +66,7 @@ sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
 from agentkit.run import handback_reason
 from agentkit.stop import recorded_ending, ways_out
-from agentkit.watch import owner_question, seat_read
+from agentkit.watch import owner_question, seat_read, turn_ended
 
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
@@ -328,6 +328,10 @@ def main():
     launched = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = loads(sys.stdin.read())
     back = held(launched, payload)
+    if not back:
+        # the stop stands: the turn a kept question was asked in has ended, and that is on
+        # record before this harness takes its next prompt (`watch.turn_ended`)
+        turn_ended(resolve(launched))
     if tells(payload):
         written(launched, "background" if background(payload) else "held" if back else "")
     if back:

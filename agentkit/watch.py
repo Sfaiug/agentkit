@@ -1780,15 +1780,45 @@ def keeps_back(name):
     """Does a question that seat asks itself wait for the end of the turn it asks in?
 
     It asks during its own turn, and may work on: until that turn ends its screen shows no
-    question and it waits for nobody.  So it does wherever ak knows the seat's harness, and
-    with it when its turn ends -- unless a question of its own already stands unanswered: the
-    owner is asked already, and a newer one takes that one's place as it always did.
+    question and it waits for nobody.  So it does wherever the seat's harness reports its
+    turns to ak by hook, the moment they end -- a harness whose turns only its screen shows
+    is asked at once, as it always was -- unless a question of its own already stands
+    unanswered: the owner is asked already, and a newer one takes that one's place.
     """
     try:
         harness = seat_model(config.load(), name)[0]
+        hooked = harness and (config.manifest(harness).get("authority") or {}).get(
+            "working") == "hooks"
     except config.Error:
         return False
-    return bool(harness) and not owner_question(notify.last(name))
+    return bool(hooked) and not owner_question(notify.last(name))
+
+
+def turn_ended(name):
+    """Write down that the turn that seat asked in has ended, on the question it kept back:
+    by its stop hook as the stop stands, or by a look that finds it over.  The record's own
+    lock is all it takes, so it is on record whoever holds the notice then."""
+    if not isinstance(seat_read(name).get("unasked"), dict):
+        return      # nothing kept: a stop writes nothing
+    try:
+        with seat_lock(name):
+            data = seat_read(name)
+            kept = data.get("unasked")
+            if isinstance(kept, dict) and _stamp(kept.get("ended")) is None:
+                _seat_put(name, data, {"unasked": dict(kept, ended=time.time())})
+    except (OSError, config.Error):
+        pass
+
+
+def kept_asked(name, kept):
+    """That kept question is a notice now: drop it, unless the seat has kept another since."""
+    try:
+        with seat_lock(name):
+            data = seat_read(name)
+            if data.get("unasked") == kept:
+                _seat_put(name, data, {"unasked": None})
+    except (OSError, config.Error):
+        pass
 
 
 def ask_kept_back(name, harness, found, held=False):
@@ -1799,12 +1829,15 @@ def ask_kept_back(name, harness, found, held=False):
     look, and every typer under the seat's typing lock (`type_checked`, `held`), so no line
     ak types opens a turn on a seat that stopped on a question before that question is asked.
     `live_state` is itself read under that lock, which is the notice's own, so it asks
-    nothing; a look that finds the lock taken leaves the question to the typer holding it.
+    nothing.  The end goes on record first (`turn_ended`): a look that finds the notice lock
+    taken leaves the asking to whoever next holds it -- a typer, the owner's prompt
+    (`notify.answered`) or the next look.
     """
     kept = seat_read(name).get("unasked") if harness and found else None
     if (not isinstance(kept, dict) or found.get("state") == "asking"
             or not _composer_open(harness, found)):
         return
+    turn_ended(name)
     try:
         if held:
             notify.ask_kept(name)
