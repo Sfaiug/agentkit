@@ -444,7 +444,7 @@ sys.exit(1)
         self.assertNotIn("retrying in", self.log(directory))
         quota = {"code": 1, "text": "You have hit your usage limit\n"}
         self.order = [self.reviewer]
-        (self.root / "calls.jsonl").unlink()
+        (self.root / "calls.jsonl").write_text("")
         self.reviews(quota)
         with patch.object(run.time, "sleep"):
             code, directory, state = self.launch(rounds=1)

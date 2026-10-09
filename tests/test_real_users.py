@@ -53,10 +53,10 @@ if role == "reviewer" and plan.exists():
         sys.exit(0)
     answer = "VERDICT: PASS\\n\\n## Findings\\n- none\\n"
 elif role == "reviewer":
-    seen = root / "reviewed"
-    answer = ("VERDICT: PASS\\n\\n## Findings\\n- none\\n" if seen.exists() else
+    reviews = sum(json.loads(line).startswith("You are the reviewer")
+                  for line in (root / "prompts.jsonl").read_text().splitlines())
+    answer = ("VERDICT: PASS\\n\\n## Findings\\n- none\\n" if reviews > 1 else
               "VERDICT: FAIL\\n\\n## Findings\\n- deliverable:1 - fixture - why it matters\\n")
-    seen.touch()
 else:
     front = root / "front.md"
     if front.exists():
@@ -73,7 +73,6 @@ class RealUsers(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-real-users-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
-        (self.root / "prompts.jsonl").touch()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
@@ -121,8 +120,11 @@ sys.exit(1)
     def launch(self, front, plan=None):
         """One scratch run, reviewed FAIL then PASS so a fixer runs, or as `plan` says; every
         prompt it handed out."""
+        (self.root / "prompts.jsonl").write_text("")
         if front is not None:
             (self.root / "front.md").write_text(front)
+        else:
+            (self.root / "front.md").unlink(missing_ok=True)
         if plan is not None:
             (self.root / "review-plan.json").write_text(json.dumps(plan))
         task = self.root / "task.md"
@@ -167,8 +169,6 @@ sys.exit(1)
         for front in ("---\nusers: real\n---\n# Repo\n",
                       "---\nusers: \"real\"  # production users\n---\n# Repo\n"):
             with self.subTest(front=front):
-                for leftover in ("prompts.jsonl", "reviewed"):
-                    (self.root / leftover).unlink(missing_ok=True)
                 reviews, others = self.launch(front)
                 for prompt in reviews:
                     self.assertEqual(prompt.count(worker.REAL_USERS), 1)
@@ -179,8 +179,6 @@ sys.exit(1)
     def test_a_none_or_unasked_repository_s_reviewer_is_not_given_the_rule(self):
         for front in ("---\nusers: none\n---\n# Repo\n", "# Repo\n", None):
             with self.subTest(front=front):
-                for leftover in ("prompts.jsonl", "reviewed", "front.md"):
-                    (self.root / leftover).unlink(missing_ok=True)
                 reviews, others = self.launch(front)
                 for prompt in reviews + others:
                     self.assertNotIn(worker.REAL_USERS, prompt)
@@ -194,7 +192,6 @@ sys.exit(1)
         for mode, ask in (("silent", run.NO_VERDICT_ASK),
                           ("background", f"{run.FINISH_IN_FOREGROUND} {run.NO_VERDICT_ASK}")):
             with self.subTest(mode=mode):
-                (self.root / "prompts.jsonl").unlink(missing_ok=True)
                 reviews, _ = self.launch("---\nusers: real\n---\n# Repo\n", [mode, "pass"])
                 self.assertTrue(reviews[1].endswith(f"\n\n{ask}"), reviews[1][-300:])
                 self.assertNotIn("# Users fixture", reviews[1])
@@ -204,8 +201,6 @@ sys.exit(1)
     def test_executor_and_fixer_prompts_are_the_same_whatever_users_says(self):
         seen = {}
         for users in ("real", "none"):
-            for leftover in ("prompts.jsonl", "reviewed"):
-                (self.root / leftover).unlink(missing_ok=True)
             before = set(record.run_dirs())
             reviews, others = self.launch(f"---\nusers: {users}\n---\n# Repo\n")
             run_id = (set(record.run_dirs()) - before).pop().name
