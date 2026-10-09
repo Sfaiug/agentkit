@@ -175,8 +175,9 @@ class StopAnswer(unittest.TestCase):
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
     def test_a_delayed_quiet_command_cannot_end_a_prompt_during_rename(self):
-        turn = self.prompt("Explain the parser")
+        self.prompt("Explain the parser")
         self.assertEqual(self.quiet().returncode, 0)
+        began = time.time()
         renamed = "acme-schema"
         old_state = self.state / f"seat-{SEAT}.json"
         new_state = self.state / f"seat-{renamed}.json"
@@ -193,7 +194,7 @@ class StopAnswer(unittest.TestCase):
             return set()
 
         with self.local_config(), patch.object(stop.plan, "require_done", side_effect=checked), \
-                patch.object(stop.time, "time", return_value=turn["turn"]):
+                patch.object(stop.time, "time", return_value=began):
             self.assertFalse(stop.quiet_done(SEAT, "Explained the old parser"))
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
