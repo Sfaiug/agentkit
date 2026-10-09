@@ -3836,17 +3836,36 @@ def earlier_findings(lp):
             if isinstance(row, dict) and row.get("kind") == "finding"]
 
 
-def earlier_sites(lp, head):
-    """Where the last review's blocking findings sit on `head`: their recorded site, the site
-    their quote is found at now (a fix above moves a line it never touched), and their path
-    with what they said, so a finding handed in again upholds an earlier one wherever its
-    line went."""
-    rows = earlier_findings(lp)
-    sites = ({(row["path"], row["line"]) for row in rows}
-             | {(row["path"], row["what"]) for row in rows})
-    for site in quoted_sites(lp, hand_in.Review(rows), head).values():
-        if site:
-            sites.add((site["path"], site["line"]))
+def moved_line(lp, path, line, since, head):
+    """Where line `line` of `path` at `since` sits on `head`, through the diff between them:
+    a fix above it moves a line it never touched.  None when the diff touched the line
+    itself, which puts it inside the fix delta."""
+    diff = git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
+               "--unified=0", f"{since}...{head}", "--", f":(literal){path}")
+    shift = 0
+    for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,(\d+))? @@", diff, re.M):
+        start, old = int(hunk[1]), int(hunk[2] or 1)
+        new = int(hunk[3] or 1)
+        if old == 0:
+            start += 1      # lines were added after `start`: what follows it moves
+        if line < start:
+            break
+        if line < start + old:
+            return None
+        shift += new - old
+    return line + shift
+
+
+def earlier_sites(lp, head, since):
+    """Where the last review's blocking findings sit on `head`: their recorded site at `since`
+    and where the diff since then moved it, so a finding handed in again upholds an earlier
+    one wherever its line went, in whatever words."""
+    sites = set()
+    for row in earlier_findings(lp):
+        sites.add((row["path"], row["line"]))
+        now = moved_line(lp, row["path"], row["line"], since, head)
+        if now is not None:
+            sites.add((row["path"], now))
     return sites
 
 
@@ -3893,7 +3912,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
     sites = quoted_sites(lp, submitted, head)
-    earlier = earlier_sites(lp, head) if since else set()
+    earlier = earlier_sites(lp, head, since) if since else set()
     records = []
     for index, row in enumerate(submitted.records, 1):
         if row["kind"] not in ("finding", "follow-up"):
@@ -3919,7 +3938,6 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             if not hand_in.proof_failed(evidence):
                 kind = "note"
             elif (since and (row["path"], row["line"]) not in earlier
-                    and (row["path"], row["what"]) not in earlier
                     and not changed_line(lp, row, head, since)):
                 kind, outside = "note", True
             elif not lp.scratch and not changed_line(lp, row, head):
@@ -3931,7 +3949,6 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
         else:
             row = {**row, **sites[index]}
             if (since and (row["path"], row["line"]) not in earlier
-                    and (row["path"], row["what"]) not in earlier
                     and not changed_line(lp, row, head, since)):
                 kind, outside = "note", True
             elif not lp.scratch and not changed_line(lp, row, head):
