@@ -122,6 +122,7 @@ class LeaseScan(unittest.TestCase):
     def test_mains_own_movement_between_two_bases_is_nobodys_diff(self):
         first = self.run_on("20260101-0800-first", 800)
         self.edit(first, "other.py", 1, "first's other", commit=True)   # what main then changes too
+        self.edit(first, "api.py", 1, "first's line 1", commit=True)     # ... and this
         self.edit(self.repo, "other.py", 1, "main moved on", commit=True)
         self.edit(self.repo, "api.py", 1, "main's line 1", commit=True)
         moved = self.git(self.repo, "rev-parse", "HEAD")
@@ -130,7 +131,8 @@ class LeaseScan(unittest.TestCase):
         # the first run conflicts with main, not with the second, which changed none of it;
         # and main's own change to api.py:1 is not the second run's diff either
         self.assertEqual(leases.scan(self.repo, now=2000), {})
-        # ... yet the rest of its diff is still compared: a line both change is a collision
+        # ... yet the rest of its diff is still compared, in the clashing file too: a line
+        # both change is a collision
         self.edit(first, "api.py", 15, "first's line 15", commit=True)
         self.assertEqual(leases.scan(self.repo, now=2050)["20260101-0900-second"],
                          {"waits_on": "20260101-0800-first", "files": ["api.py"], "since": 2050})
@@ -138,6 +140,23 @@ class LeaseScan(unittest.TestCase):
         self.edit(third, "api.py", 15, "third's line 15")
         self.assertEqual(leases.scan(self.repo, now=2100)["20260101-1000-third"]["waits_on"],
                          "20260101-0800-first")
+
+    def test_paths_a_commit_would_leave_are_no_lease_and_an_unchanged_pair_writes_nothing(self):
+        older = self.run_on("20260101-0900-older", 900)
+        younger = self.run_on("20260101-1000-younger", 1000)
+        for worktree in (older, younger):
+            (worktree / "venv").mkdir()
+            (worktree / "venv" / "pyvenv.cfg").write_text(f"home = {worktree}\n")
+            (worktree / ".ak-test-x").mkdir()
+            (worktree / ".ak-test-x" / "junk").write_text("junk\n")
+        self.assertEqual(leases.scan(self.repo, now=2000), {})
+        self.edit(older, "api.py", 5, "older's line 5", commit=True)
+        self.edit(younger, "api.py", 5, "younger's line 5")
+        self.assertIn("20260101-1000-younger", leases.scan(self.repo, now=2100))
+        objects = lambda: self.git(self.repo, "count-objects", "-v").splitlines()[0]
+        before = objects()
+        self.assertIn("20260101-1000-younger", leases.scan(self.repo, now=2200))
+        self.assertEqual(objects(), before)                 # the same trees, the same commits
 
     def test_runs_cut_from_bases_that_never_met_collide_with_nobody(self):
         self.git(self.repo, "checkout", "-qb", "feature")
