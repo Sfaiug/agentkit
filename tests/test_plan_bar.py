@@ -75,11 +75,10 @@ class PlanBar(Sandbox):
             with self.subTest(step):
                 drawn, _ = self.bar(1, 3, [run(step)], 24)       # slots of eight cells
                 self.assertEqual(sum(ink == WORKING for _, ink, *_ in drawn[8:16]), lit)
-        # a run's step as the loop records it is one of the four, the seat's fixing its review's
+        # a run's step as the loop records it is one of the four
         self.assertEqual([menu.DOING[menu.STEPS[step]][0]
-                          for step in ("executor", "done-when", "reviewer",
-                                       "waiting for the seat's push", "merge")],
-                         ["building", "checks", "review", "review", "landing"])
+                          for step in ("executor", "done-when", "reviewer", "merge")],
+                         ["building", "checks", "review", "landing"])
 
     def test_a_run_on_its_last_round_turns_its_slot_red(self):
         drawn, _ = self.bar(3, 7, [run("review", 3, 3), run("building", 2, 3)], 28)
@@ -177,10 +176,10 @@ class PlanBar(Sandbox):
              "round": 2, "rounds": 3, "model": "opus"}])
 
     def test_a_round_its_summary_closed_is_still_that_round(self):
-        # landing, waiting on the seat's push, or checked and reviewed again on landing: round
-        # two of three is done, and no third has begun, so it is round two and not red
+        # landing, an own PR's verdict owing its post, or checked and reviewed again on landing:
+        # round two of three is done, and no third has begun, so it is round two and not red
         for n, (step, extra) in enumerate((
-                ("merge", {}), ("waiting for the seat's push", {"own_pr_round_pending": 2}),
+                ("merge", {}), ("reviewer", {"own_pr_round_pending": 2}),
                 ("reviewer", {"review_pending": {"round": 2, "record": False}}),
                 ("done-when", {"review_pending": {"round": 2, "record": False}}))):
             with self.subTest(step):

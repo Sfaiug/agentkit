@@ -247,9 +247,9 @@ def refusal(args, tmux="tmux"):
         whose = "another session's seat" if len(others) == 1 else "other sessions' seats"
         if command in TYPES:
             return (f"ak refused `tmux {command}`: it would type into {', '.join(others)}, {whose}. "
-                    f"Tell it instead: `ak tell {others[0]} \"...\"`.")
+                    "Nothing a seat writes is typed into another seat.")
         return (f"ak refused `tmux {command}`: it would end {', '.join(others)}, {whose}. A seat "
-                f"never ends another seat; ask it with `ak tell {others[0]} \"...\"` or ask the owner.")
+                "never ends another seat; ask the owner.")
     return None
 
 

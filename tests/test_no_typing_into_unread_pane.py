@@ -1,6 +1,6 @@
 """Unread input in a pane's own tty holds every ak line, however empty its screen looks.
 
-A real pty pair, a fake tmux naming its slave tty, and test_tell's throwaway seats: no tmux
+A real pty pair, a fake tmux naming its slave tty, and fixtures.seats' throwaway seats: no tmux
 server or real harness. Reading the slave is the program taking its input, never a repaint.
 """
 
@@ -11,8 +11,8 @@ import tty
 import unittest
 from unittest.mock import Mock, patch
 
-from test_tell import NOW, REPO, SEAT, Seats
-from agentkit import config, orch, tell, watch
+from fixtures.seats import LINE, NOW, REPO, SEAT, Seats
+from agentkit import config, orch, watch
 
 
 class UnreadPane(Seats):
@@ -61,37 +61,32 @@ class UnreadPane(Seats):
         self.assertEqual(self.read_input(len(text)), text)
         return super().tmux(*args, **kwargs)
 
-    def tick(self):
-        tell.deliver(self.cfg, lambda _: None)
-
-    def test_a_peer_line_stays_queued_until_the_pane_reads_its_input(self):
+    def test_an_ak_line_stays_untyped_until_the_pane_reads_its_input(self):
         self.frozen = True
         self.put(b"The owner's unread draft")
-        self.tell(SEAT, "Parser merged.")
-        queued = self.waiting()
+        self.wait_line()
         for _ in range(3):
             self.tick()
         self.assertEqual(self.keys, [])
-        self.assertEqual(self.waiting(), queued)
+        self.assertFalse(self.told())
         self.assertEqual(self.receipts(), [])
         self.assertEqual(self.read_input(), b"The owner's unread draft")
         self.frozen = False
         for _ in range(3):
             self.tick()
-        self.assertEqual(self.typed, [self.header() + "Parser merged."])
-        self.assertEqual(self.waiting(), [])
+        self.assertEqual(self.typed, [LINE])
+        self.assertTrue(self.told())
 
     def test_a_send_left_unread_is_never_retyped_while_the_screen_stands_still(self):
         self.frozen = True
-        self.tell(SEAT, "Parser merged.")
-        queued = self.waiting()
+        self.wait_line()
         for _ in range(3):
             self.tick()
-        line = self.header() + "Parser merged."
+        line = LINE
         self.assertEqual(self.typed, [line])
         self.assertEqual(len(self.keys), 1)
         self.assertEqual(len(self.receipts()), 1)
-        self.assertEqual(self.waiting(), queued)
+        self.assertFalse(self.told())
         self.assertEqual(self.read_input(), line.encode())
         self.pane = self.base.replace(self.empty, "❯ " + line + "\n")
         self.frozen = False
@@ -99,7 +94,7 @@ class UnreadPane(Seats):
             self.tick()
         self.assertEqual(self.typed, [line])
         self.assertEqual(self.keys[-1][-1], "Enter")
-        self.assertEqual(self.waiting(), [])
+        self.assertTrue(self.told())
 
     def test_reboot_and_account_notices_keep_their_tries_while_input_is_unread(self):
         for accounts in (False, True):

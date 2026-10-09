@@ -5,18 +5,14 @@
 # harness's question prompt or `ak notify needs`,
 # `ak notify done` because the job is finished, or a run or live job it is waiting on, including
 # background work it started in its own harness while the harness still lists it in flight, and
-# another session's work it said it waits on with `ak wait`, for as long as `watch.waiting_on`
-# says that session is working.  A turn the owner opened with a question ends on its answer too:
+# a pull request or run it said it waits on with `ak wait`, for as long as `watch.waiting_on`
+# says that is not yet over.  A turn the owner opened with a question ends on its answer too:
 # the prompt asked, so a plain reply stands.  A run of its own that sits parked and undecided --
 # `unfinished`, the runs `ak notify done` refuses on, so not one a later merged run replaced --
 # holds the turn past a done, an answer or a run going: the block names each such run, its
 # parked reason and the commands its state takes, and the seat looks at it, resumes it,
 # relaunches it split or on another model, stops it, or asks the owner.  A question, `ak notify
-# needs`, background work and the third stop stand past it, as they always did.  A turn another
-# session's message opened -- a line sent with `ak tell`, under its heading -- keeps a done
-# declared before it: the seat only acknowledged the message, so that standing done ends the
-# turn -- unless `ak notify` dropped it, or a run sits parked.  A peer's message is not the
-# owner asking, so it answers nothing.
+# needs`, background work and the third stop stand past it, as they always did.
 # Anything else is sent back to work with the harness's own block decision, which Claude Code
 # 2.1.263, Codex 0.153.4 and Grok Build 1.0.40 spell the same way: `{"decision": "block",
 # "reason": "..."}` on stdout.  "Here is my recommendation, let me know if I should continue"
@@ -71,7 +67,7 @@ from agentkit.watch import owner_question, seat_read, turn_ended
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
           "declaring done with ak notify done, "
-          "or waiting on a run. Continue: decide the next step and do it.")
+          "or waiting on a run or pull request with ak wait. Continue: decide the next step and do it.")
 HOME = Path(os.path.expanduser("~")) / ".agentkit"
 STATE = HOME / "state"
 def loads(text):
@@ -234,19 +230,11 @@ def background(payload):
         isinstance(task, dict) and task.get("type") != "monitor" for task in tasks)
 
 
-def told(seat, turn, kind, peer=False):
-    """`ak notify <kind>` recorded for this seat during the turn.
-
-    On a turn another session's message opened, a done standing from before it
-    tells too: the seat only acknowledged the message, so it has nothing new to
-    declare.  That done is still its last notice, and one `ak notify` did not
-    drop -- a dropped done tells nothing on any such turn.
-    """
+def told(seat, turn, kind):
+    """`ak notify <kind>` recorded for this seat during the turn."""
     note = read(STATE / f"notify-{seat}.json")
     if note.get("kind") != kind:
         return False
-    if peer and kind == "done":
-        return not note.get("seen") and moment(note.get("time")) is not None
     when = moment(note.get("time"))
     return when is not None and when >= turn
 
@@ -280,19 +268,18 @@ def held(launched, payload):
         return ""    # no turn was written down; nothing here can say what happened during it
     if background(payload):
         return ""
-    peer = record.get("peer") is True    # another session's message opened the turn
     asked = record.get("asked") is True    # the prompt that opened the turn asked something
     seat = resolve(launched)
     if last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
     # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
-    # a hand-back or a told line opens turns on a seat while it stands (`watch.stop_nudge`),
-    # and one the seat kept back for this turn's end (`watch.keeps_back`) is in its record
+    # a hand-back opens turns on a seat while it stands (`watch.stop_nudge`), and one the
+    # seat kept back for this turn's end (`watch.keeps_back`) is in its record
     kept = isinstance(seat_read(seat).get("unasked"), dict)
     ends, undecided = recorded_ending(
         seat, question=(questioned(payload) or told(seat, turn, "needs") or kept
                         or owner_question(notify.last(seat))),
-        completion=lambda: told(seat, turn, "done", peer), answer=asked and not peer, since=turn)
+        completion=lambda: told(seat, turn, "done"), answer=asked, since=turn)
     if ends:
         return ""
     blocks = record.get("blocks")
@@ -300,8 +287,6 @@ def held(launched, payload):
     if blocks > LIMIT:
         return ""    # the third stop stands, and the state function shows it as `needs you`
     kept = {"session": launched, "turn": turn, "blocks": blocks}
-    if peer:
-        kept["peer"] = True    # the turn it counts is still the peer's one
     if asked:
         kept["asked"] = True    # the turn it counts still opened on a question
     tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")

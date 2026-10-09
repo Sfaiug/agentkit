@@ -22,14 +22,13 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, watch
-from agentkit.told import heading
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "answer-seat"
 REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
           "declaring done with ak notify done, "
-          "or waiting on a run. Continue: decide the next step and do it.")
+          "or waiting on a run or pull request with ak wait. Continue: decide the next step and do it.")
 ANSWER = "The parser reads the schema at startup and caches it."
 SPENT = "three rounds spent: split or re-scope the task"
 
@@ -113,7 +112,6 @@ class StopAnswer(unittest.TestCase):
                 self.setUp()
                 latch = self.prompt(opened)
                 self.assertTrue(latch["asked"])
-                self.assertFalse(latch["peer"])
                 self.assertEqual(self.stop(), "")
                 self.assertEqual(self.latch()["blocks"], 0)
 
@@ -172,13 +170,6 @@ class StopAnswer(unittest.TestCase):
         self.assertTrue(self.latch()["asked"])
         self.assertIn("parked-exhausted", self.blocked(self.stop())["reason"])
         self.assertEqual(self.stop(), "")       # the third stop stands, as it always did
-
-    def test_a_peer_message_asking_is_not_the_owner_asking(self):
-        peer = heading("acme-fix-api", time.time()) + "Which parser should I use?"
-        latch = self.prompt(peer)
-        self.assertTrue(latch["peer"])
-        self.assertTrue(latch["asked"])    # only the peer exclusion keeps it held
-        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
 
 if __name__ == "__main__":

@@ -1,14 +1,15 @@
 """A seat's open `ak notify needs` question holds up only its own decision.
 
-The seat works on what does not wait on the answer, so run hand-backs and `ak tell` lines still
-reach it, and the question stays open until the owner's own prompt answers it; a recovery
-nudge waits for that answer.  The fixture is test_tell's: a temporary HOME, a fake tmux and pane.
+The seat works on what does not wait on the answer, so run hand-backs and the line that ends
+its `ak wait` still reach it, and the question stays open until the owner's own prompt answers
+it; a recovery nudge waits for that answer.  The fixture is fixtures.seats: a temporary HOME, a
+fake tmux and pane.
 """
 
 import unittest
 
-from test_tell import SEAT, Seats
-from agentkit import notify, tell, watch
+from fixtures.seats import LINE, SEAT, Seats
+from agentkit import notify, watch
 
 QUESTION = "Which schema should acme use?"
 HANDBACK = "run 20260101-0900-acme-parser finished PASS merged. Decide the next step."
@@ -27,11 +28,11 @@ class QuestionHoldsOnlyItself(Seats):
         self.assertEqual(self.typed, [HANDBACK])
         self.assertEqual(self.asked(), QUESTION)
 
-    def test_a_told_line_reaches_it_too(self):
-        self.assertEqual(self.tell(SEAT, "Parser merged.")[1],
-                         f"{SEAT}: queued; ak types it as soon as it can take a line")
-        tell.deliver(self.cfg, lambda _: None)
-        self.assertEqual(self.typed, [self.header() + "Parser merged."])
+    def test_the_end_of_its_wait_reaches_it_too(self):
+        self.wait_line()
+        self.tick()
+        self.assertEqual(self.typed, [LINE])
+        self.assertTrue(self.told())
         self.assertEqual(self.asked(), QUESTION)
 
     def test_a_recovery_nudge_still_waits_for_the_answer(self):
