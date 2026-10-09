@@ -10,6 +10,7 @@ run.  Offline: a real repository with one checkout per run, run records in a thr
 from contextlib import ExitStack
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -51,13 +52,14 @@ class LeaseScan(unittest.TestCase):
         return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
                               text=True).stdout.strip()
 
-    def run_on(self, name, started, state="running", base=None):
-        """A live run of the repository with a checkout of its own, cut from `base`."""
+    def run_on(self, name, started, state="running", base=None, repo=None):
+        """A live run of the repository with a checkout of its own, cut from `base`; `repo` is
+        the checkout it was launched from, the main one unless given."""
         worktree = config.WT / name
         self.git(self.repo, "worktree", "add", "-q", "-b", f"ak/{name}", str(worktree), base or self.base)
         directory = config.RUNS / name
         directory.mkdir(parents=True)
-        record.save_state(directory, {"run_id": name, "state": state, "repo": str(self.repo),
+        record.save_state(directory, {"run_id": name, "state": state, "repo": str(repo or self.repo),
                                       "worktree": str(worktree), "base_sha": base or self.base,
                                       "started_at": started})
         return worktree
@@ -119,7 +121,8 @@ class LeaseScan(unittest.TestCase):
                          {"20260101-0900-second": "20260101-0800-first",
                           "20260101-1000-third": "20260101-0800-first"})
 
-    def test_mains_own_movement_between_two_bases_is_nobodys_diff(self):
+    def clash_with_main(self):
+        """A run behind main clashing with it in two files, and runs on the newer base."""
         first = self.run_on("20260101-0800-first", 800)
         self.edit(first, "other.py", 1, "first's other", commit=True)   # what main then changes too
         self.edit(first, "api.py", 1, "first's line 1", commit=True)     # ... and this
@@ -140,6 +143,49 @@ class LeaseScan(unittest.TestCase):
         self.edit(third, "api.py", 15, "third's line 15")
         self.assertEqual(leases.scan(self.repo, now=2100)["20260101-1000-third"]["waits_on"],
                          "20260101-0800-first")
+
+    def test_mains_own_movement_between_two_bases_is_nobodys_diff(self):
+        self.clash_with_main()
+
+    def test_the_scan_asks_nothing_of_a_git_newer_than_ak_checks_for(self):
+        """`merge-tree -X` is git 2.43's: the hunks main's side wins at are settled by `git
+        merge-file`, which the 2.39 ak checks for has."""
+        shim = self.root / "shim"
+        shim.mkdir()
+        (shim / "git").write_text("#!/bin/sh\nfor arg in \"$@\"; do\n  [ \"$arg\" = -X ] && "
+                                  "{ echo \"error: unknown switch 'X'\" >&2; exit 129; }\ndone\n"
+                                  f"exec {shutil.which('git')} \"$@\"\n")
+        (shim / "git").chmod(0o755)
+        with patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}):
+            self.clash_with_main()
+
+    def test_a_run_launched_from_a_linked_worktree_is_of_the_repository_it_was_added_from(self):
+        seat = self.root / "seat-checkout"
+        self.git(self.repo, "worktree", "add", "-q", "--detach", str(seat), "main")
+        older = self.run_on("20260101-0900-older", 900, repo=seat)      # recorded from the seat's checkout
+        younger = self.run_on("20260101-1000-younger", 1000)
+        self.edit(older, "api.py", 5, "older's line 5", commit=True)
+        self.edit(younger, "api.py", 5, "younger's line 5")
+        found = leases.scan(seat, now=2000)                              # scanned by either path ...
+        self.assertEqual(found["20260101-1000-younger"]["waits_on"], "20260101-0900-older")
+        self.assertEqual(leases.read(self.repo), found)                 # ... into the one record
+        scanned = []
+        with patch.object(leases, "scan", side_effect=lambda repo, log, now: scanned.append(repo)):
+            leases.scan_all()
+        self.assertEqual(len(scanned), 1)
+
+    def test_the_scan_takes_no_checkouts_index_lock(self):
+        older = self.run_on("20260101-0900-older", 900)
+        younger = self.run_on("20260101-1000-younger", 1000)
+        self.edit(older, "api.py", 5, "older's line 5", commit=True)
+        self.git(younger, "status", "--porcelain")                     # its index fresh
+        found = self.git(younger, "rev-parse", "--git-path", "index")
+        index = Path(found) if Path(found).is_absolute() else younger / found
+        (younger / "other.py").write_text((younger / "other.py").read_text())   # rewritten unchanged, as a formatter does
+        self.edit(younger, "api.py", 5, "younger's line 5")
+        before = (index.stat().st_mtime_ns, index.read_bytes())
+        self.assertIn("20260101-1000-younger", leases.scan(self.repo, now=2000))
+        self.assertEqual((index.stat().st_mtime_ns, index.read_bytes()), before)
 
     def test_paths_a_commit_would_leave_are_no_lease_and_an_unchanged_pair_writes_nothing(self):
         older = self.run_on("20260101-0900-older", 900)

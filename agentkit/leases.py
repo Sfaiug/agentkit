@@ -16,6 +16,7 @@ whose holder is gone, is cleared on the next scan.
 """
 
 import fcntl
+import functools
 import hashlib
 import json
 import os
@@ -29,18 +30,27 @@ from . import record as run_record
 DIR = "leases"
 
 
-def same_repo(a, b):
-    """Whether two recorded checkouts name the same repository."""
+@functools.lru_cache(maxsize=256)
+def home(path):
+    """The main checkout a recorded path is of (`run.main_checkout`, the one reading of a
+    repository's identity): a run launched from inside a linked worktree records that
+    worktree, and is of the repository it was added from.  Remembered for one scan."""
+    from . import run
     try:
-        return bool(a) and bool(b) and Path(a).resolve() == Path(b).resolve()
+        return run.main_checkout(Path(path)).resolve()
     except OSError:
-        return False
+        return Path(path)
+
+
+def same_repo(a, b):
+    """Whether two recorded checkouts are of one repository."""
+    return bool(a) and bool(b) and home(str(a)) == home(str(b))
 
 
 def path(repo):
-    """The record of one repository's collisions, named by its checkout."""
-    key = hashlib.sha256(str(Path(repo).resolve()).encode()).hexdigest()[:16]
-    return config.STATE / DIR / f"{Path(repo).resolve().name}-{key}.json"
+    """The record of one repository's collisions, named by its main checkout."""
+    key = hashlib.sha256(str(home(str(repo))).encode()).hexdigest()[:16]
+    return config.STATE / DIR / f"{home(str(repo)).name}-{key}.json"
 
 
 def read(repo):
@@ -71,11 +81,12 @@ def live(repo):
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
         if (not state or state.get("scratch") or not state.get("base_sha")
-                or not same_repo(state.get("repo"), repo) or not run.going(state)):
+                or not run.going(state) or not same_repo(state.get("repo"), repo)):
             continue
         worktree = Path(state.get("worktree") or "")
-        if not state.get("worktree") or not worktree.is_dir() or same_repo(worktree, repo):
-            continue        # a run working in the repository itself holds no diff of its own
+        if (not state.get("worktree") or not worktree.is_dir()
+                or worktree.resolve() == Path(state["repo"]).resolve()):
+            continue        # a run working in the checkout it was launched from holds no diff of its own
         found.append({"run": run_dir.name, "worktree": worktree, "base": state["base_sha"],
                       "started": state.get("started_at") or 0})
     return sorted(found, key=lambda each: (each["started"], each["run"]))
@@ -92,13 +103,14 @@ def tree(worktree, log=lambda _: None):
     """The checkout's tree as it stands: HEAD with the uncommitted paths a commit would take
     (`run.committable_paths`: never test sandboxes, dependency trees, run locks or what
     `.gitignore` names), written to the repository's object store through an index of its
-    own, so the checkout's index and files are never touched.  A file git cannot read is
-    left out and said once: one checkout's unreadable file costs no pair its record."""
+    own and read without the checkout's own lock, which the run's git may hold: the
+    checkout's index and files are never touched.  A file git cannot read is left out and
+    said once: one checkout's unreadable file costs no pair its record."""
     from . import run
     with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
         env = {**os.environ, "GIT_INDEX_FILE": index.name}
         run.git(worktree, "read-tree", "HEAD", env=env)
-        real, _ = run.committable_paths(worktree)
+        real, _ = run.committable_paths(worktree, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
         if real:
             try:
                 run.git(worktree, "add", "--ignore-errors", "--", *real, env=env)
@@ -114,18 +126,60 @@ def merged(repo, base, ours, theirs, ours_wins=False):
     `base`, in memory: each tree is held by a commit on `base` (`STAMP`ed, so the same tree
     is the same commit) for `git merge-tree`, which takes commits on every git ak runs on
     (bare trees only from 2.45) and finds their base itself.  With `ours_wins` a hunk the two
-    sides clash on is `ours`, and nothing is left unmerged."""
+    sides clash on is `ours` (`favour_ours`), and nothing is left unmerged."""
     from . import run
     env = {**os.environ, **STAMP}
     sides = [run.git(repo, "commit-tree", each, "-p", base, "-m", "lease", env=env)
              for each in (ours, theirs)]
-    code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only",
-                            *(["-X", "ours"] if ours_wins else []), *sides)
+    code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only", *sides)
     if code not in (0, 1):
         raise config.Error(f"git merge-tree in {repo}: {out}")
     # the merged tree's id, then one conflicted path per line, a blank line, git's messages
     lines = out.split("\n\n", 1)[0].splitlines()
-    return lines[0], (sorted(set(lines[1:])) if code == 1 else [])
+    tree, clashes = lines[0], (sorted(set(lines[1:])) if code == 1 else [])
+    if ours_wins and clashes:
+        return favour_ours(repo, base, ours, theirs, tree, clashes), []
+    return tree, clashes
+
+
+def entry(repo, ref, path):
+    """(mode, blob) of the file at `path` in `ref`'s tree, or None."""
+    from . import run
+    for line in run.git(repo, "ls-tree", "-z", ref, "--", path).split("\0"):
+        meta, _, name = line.partition("\t")
+        if name == path and meta.split()[1] == "blob":
+            return meta.split()[0], meta.split()[2]
+    return None
+
+
+def favour_ours(repo, base, ours, theirs, tree, clashes):
+    """`tree`, the merge of the trees `ours` and `theirs` over the commit `base`, with each
+    clashing path settled on `ours`' side hunk by hunk: `git merge-file --ours`, the
+    three-way merge every git has (`merge-tree -X ours` is git 2.43's, and ak runs on 2.39).
+    A path one side has not is as `ours` has it, and so is one `merge-file` cannot merge."""
+    from . import run
+    with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index, \
+            tempfile.TemporaryDirectory(dir=config.TMP, prefix="lease-merge-") as work:
+        env = {**os.environ, "GIT_INDEX_FILE": index.name}
+        run.git(repo, "read-tree", tree, env=env)
+        for path in clashes:
+            mine, old, other = (entry(repo, ref, path) for ref in (ours, base, theirs))
+            if mine is None and other is None:
+                continue
+            if mine and other:
+                files = []
+                for n, side in enumerate((mine, old, other)):
+                    target = Path(work) / str(n)
+                    target.write_bytes(run.git_bytes(repo, "cat-file", "blob", side[1])
+                                       .encode("utf-8", "surrogateescape") if side else b"")
+                    files.append(str(target))
+                if run.git_out(repo, "merge-file", "--ours", *files)[0] == 0:
+                    mine = (mine[0], run.git(repo, "hash-object", "-w", "--", files[0]))
+            if mine:
+                run.git(repo, "update-index", "--add", "--cacheinfo", f"{mine[0]},{mine[1]},{path}", env=env)
+            else:
+                run.git(repo, "update-index", "--force-remove", "--", path, env=env)
+        return run.git(repo, "write-tree", env=env)
 
 
 def collide(repo, older, younger, log=lambda _: None):
@@ -157,6 +211,7 @@ def scan(repo, log=lambda _: None, now=None):
     down as waiting on the oldest such holder, with the paths and since when; the rest of
     the record is cleared.  Returns the record."""
     now = time.time() if now is None else now
+    home.cache_clear()          # repository identity is read afresh each scan
     before = read(repo)
     runs = live(repo)
     waits = {}
@@ -179,6 +234,7 @@ def scan(repo, log=lambda _: None, now=None):
 
 def scan_all(log=lambda _: None, now=None):
     """The tick's pass: every repository a live run works in, scanned once."""
+    home.cache_clear()
     repos = []
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)

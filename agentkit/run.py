@@ -1666,14 +1666,15 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         transient_wait(out_dir, delay)
 
 
-def dirty_paths(wt):
+def dirty_paths(wt, env=None):
     """Every uncommitted path: tracked edits (staged or not) and untracked files, no ignored ones.
 
     Two plumbing calls rather than `status --porcelain`, whose output would have to be
-    un-quoted and split off its status column; `-z` hands back the raw paths.
+    un-quoted and split off its status column; `-z` hands back the raw paths.  `env` is the
+    reader's: `GIT_OPTIONAL_LOCKS=0` for a checkout another process works in.
     """
-    tracked = git(wt, "diff", "--name-only", "-z", "HEAD", check=False)
-    untracked = git(wt, "ls-files", "--others", "--exclude-standard", "-z", check=False)
+    tracked = git(wt, "diff", "--name-only", "-z", "HEAD", check=False, env=env)
+    untracked = git(wt, "ls-files", "--others", "--exclude-standard", "-z", check=False, env=env)
     return [p for p in f"{tracked}\0{untracked}".split("\0") if p]
 
 
@@ -1952,16 +1953,16 @@ def commit_leftovers(wt, log, artifacts, state):
     log("WARN committed uncommitted executor changes: " + ", ".join(real + gone))
 
 
-def committable_paths(wt, artifacts=()):
+def committable_paths(wt, artifacts=(), env=None):
     """(the dirty paths a commit of the checkout would take, the leftover junk it leaves): the
     one rule of what a run's uncommitted work is.  Test sandboxes, run locks and dependency
     trees (`leftover_junk`), whatever the repository's `.gitignore` names, and what the
-    done-when generated (`artifacts`) are left."""
+    done-when generated (`artifacts`) are left.  `env` goes to every git read."""
     real, sandbox = [], []
-    for path in dirty_paths(wt):
+    for path in dirty_paths(wt, env):
         if path in artifacts:
             continue
-        if leftover_junk(path) or git_out(wt, "check-ignore", "-q", "--", path)[0] == 0:
+        if leftover_junk(path) or git_out(wt, "check-ignore", "-q", "--", path, env=env)[0] == 0:
             sandbox.append(path)
         else:
             real.append(path)
