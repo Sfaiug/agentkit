@@ -151,6 +151,52 @@ class StopAnswer(unittest.TestCase):
             stop.quiet_done(SEAT, ANSWER)
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
+    def test_a_prompt_during_rename_retires_the_quiet_answer(self):
+        self.prompt("Explain the parser")
+        self.assertEqual(self.quiet().returncode, 0)
+        renamed = "acme-schema"
+        old_state = self.state / f"seat-{SEAT}.json"
+        new_state = self.state / f"seat-{renamed}.json"
+        replace = Path.replace
+        prompted = []
+
+        def move(path, target):
+            if path == old_state and Path(target) == new_state:
+                prompted.append(self.prompt("Fix the export"))
+            return replace(path, target)
+
+        with self.local_config(), patch.object(Path, "replace", new=move):
+            config.rename_session(SEAT, renamed)
+            self.assertTrue(prompted)
+            word = watch.session_state(
+                renamed, session={"name": renamed}, cfg={}, records=[], harness="claude",
+                live={"state": "at_prompt"}, auth_out={}, gh_out={}, token_out={})
+            self.assertNotEqual(word["word"], "done")
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
+    def test_a_delayed_quiet_command_cannot_end_a_prompt_during_rename(self):
+        turn = self.prompt("Explain the parser")
+        self.assertEqual(self.quiet().returncode, 0)
+        renamed = "acme-schema"
+        old_state = self.state / f"seat-{SEAT}.json"
+        new_state = self.state / f"seat-{renamed}.json"
+        replace = Path.replace
+
+        def move(path, target):
+            if path == old_state and Path(target) == new_state:
+                self.prompt("Fix the export")
+            return replace(path, target)
+
+        def checked(name):
+            with patch.object(Path, "replace", new=move):
+                config.rename_session(SEAT, renamed)
+            return set()
+
+        with self.local_config(), patch.object(stop.plan, "require_done", side_effect=checked), \
+                patch.object(stop.time, "time", return_value=turn["turn"]):
+            self.assertFalse(stop.quiet_done(SEAT, "Explained the old parser"))
+        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+
     def test_a_delayed_quiet_command_keeps_the_newer_answer(self):
         for new_prompt in (False, True):
             with self.subTest(new_prompt=new_prompt):

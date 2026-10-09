@@ -388,6 +388,81 @@ class NudgeTurnRule(Sandbox):
                 self.receipt(PARKED, SEAT, "interrupted", recovery_pending=True)
                 self.assertEqual(self.judged(), (True, ["continue"]))
 
+    def test_a_later_observed_turn_requires_its_own_quiet_answer(self):
+        for harness in HARNESSES:
+            for first_tick in (False, True):
+                for same_output in (False, True):
+                    with self.subTest(harness=harness, bound=first_tick,
+                                      same_output=same_output):
+                        self.setUp()
+                        self.harness = harness
+                        self.stopped()
+                        watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=9990)
+                        self.assertEqual(notify.shaped("done", "Explained the old API",
+                                                       session=SEAT, quiet=True), 0)
+                        watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10000)
+                        if first_tick:
+                            self.assertEqual(self.tick(), [])
+                        watch.live_state(self.seat, harness, pane=self.screen("working"),
+                                         cfg=self.cfg, now=10010)
+                        if not same_output:
+                            self.pane = self.screen("prompt").replace("recommendation", "next change")
+                        watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10011)
+                        with patch.object(watch.time, "time", return_value=10011 + watch.STALL_WAIT + 10):
+                            word = watch.session_state(
+                                SEAT, session=self.seat, cfg=self.cfg, harness=harness,
+                                live={"state": "at_prompt"}, records=[],
+                                auth_out={}, gh_out={}, token_out={})
+                            self.assertNotEqual(word["word"], "done")
+                            self.assertEqual(self.tick(), ["continue"])
+
+    def test_changed_output_without_a_working_look_needs_a_new_ending(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.stopped()
+                watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=9990)
+                self.assertEqual(notify.shaped("done", "Explained the old API",
+                                               session=SEAT, quiet=True), 0)
+                watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10001)
+                self.pane = self.screen("prompt").replace("recommendation", "next change")
+                watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10011)
+                with patch.object(watch.time, "time", return_value=10011 + watch.STALL_WAIT + 10):
+                    self.assertEqual(self.tick(), ["continue"])
+
+    def test_a_new_quiet_answer_survives_a_late_look_after_an_older_answer(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.stopped()
+                watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=9990)
+                self.assertEqual(notify.shaped("done", "Explained the old API",
+                                               session=SEAT, quiet=True), 0)
+                watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10001)
+                require_done = plan.require_done
+
+                def checked(name):
+                    proven = require_done(name)
+                    watch.live_state(self.seat, harness, pane=self.screen("working"),
+                                     cfg=self.cfg, now=10003)
+                    return proven
+
+                with patch.object(watch.time, "time", return_value=10002), \
+                        patch.object(plan, "require_done", side_effect=checked):
+                    self.assertEqual(notify.shaped("done", "Explained the current API",
+                                                   session=SEAT, quiet=True), 0)
+                watch.live_state(self.seat, harness, pane=self.pane, cfg=self.cfg, now=10004)
+                with patch.object(watch.time, "time", return_value=10004 + watch.STALL_WAIT + 10):
+                    self.assertEqual(self.tick(), [])
+                    word = watch.session_state(
+                        SEAT, session=self.seat, cfg=self.cfg, harness=harness,
+                        live={"state": "at_prompt"}, records=[],
+                        auth_out={}, gh_out={}, token_out={})
+                    self.assertEqual(word["word"], "done")
+                    self.assertEqual(word["reason"], "Explained the current API")
+
     def test_g_a_current_question_stands_past_parked_work(self):
         for harness in HARNESSES:
             with self.subTest(harness=harness):
