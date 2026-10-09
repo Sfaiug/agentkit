@@ -6251,7 +6251,7 @@ def local_passes(state, dry_run, log):
     A dry run runs only the passes it can tell `dry_run`, and reads usage off the cache as it
     stands: reading that file probes nothing, and a dry run changes nothing.
     """
-    from . import job as jobs, retire, run, tell
+    from . import job as jobs, leases, retire, run, tell
     providers = {}
 
     def read_usage():
@@ -6288,6 +6288,9 @@ def local_passes(state, dry_run, log):
         # Silent runs are recovered from outside the loop, whatever it is doing: nothing new
         # has to be started.
         ("the stall pass did not run", lambda: recover_runs(config.load(), dry_run, log), True),
+        # which live runs of a repository change the same lines, written down on the younger
+        # (`leases`): what the refusals and restarts to come stand on; it changes no checkout
+        ("the lease scan did not run", lambda: leases.scan_all(log), True),
         ("the tick's watch.json was not saved", lambda: save_state(state), False),
         ("the usage refresh did not finish", read_usage, True),
         # An exhausted run waits for a provider window and resumes itself when one refills, on
