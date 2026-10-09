@@ -681,6 +681,24 @@ class MergeStep(unittest.TestCase):
         self.assertEqual(record.read_state(run_dir)["state"], "waiting")
         self.assertTrue((run_dir / "result.md").read_text().startswith("# WAITING:"))
 
+    def test_cmd_merge_finding_the_pr_merged_records_the_health_it_declared(self):
+        _, owner, wt = make_repos(self.root)
+        (wt / "AGENTS.md").write_text("---\nhealth: curl -fsS https://acme.test/ok\n---\n# Widget\n")
+        run.git(wt, "add", "AGENTS.md")
+        run.git(wt, "commit", "-m", "declare health")
+        lp, run_dir, _ = make_loop(config.RUNS, wt, rounds=1, spent=1)
+        lp.state.update(state="pass", pr=URL)
+        lp.save()
+        (run_dir / "task.md").write_text("# Merge fixture\n\n## Done when\n```bash\ntrue\n```\n")
+        info = {"headRefOid": lp.state["delivery_sha"], "baseRefName": "main", "state": "MERGED"}
+        with patch.object(run, "pr_view", return_value=info), \
+                patch.object(run, "stop_run_tree"), \
+                patch.object(run, "rights", return_value=("acme/widget", "WRITE")):
+            self.assertEqual(run.cmd_merge([run_dir.name]), 0)
+        state = record.read_state(run_dir)
+        self.assertTrue(state["merged"])
+        self.assertEqual(state["health"], {"command": "curl -fsS https://acme.test/ok"})
+
     def test_a_base_race_verifies_and_pushes_the_new_head_before_retrying(self):
         _, owner, wt = make_repos(self.root)
         lp, run_dir, _ = make_loop(self.root, wt)
