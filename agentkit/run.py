@@ -775,12 +775,15 @@ def same_model(cfg, first, second):
     return one["provider"] == two["provider"] and one["model"] == two["model"]
 
 
-def reviewer_order(cfg, executor, order):
-    """Another company's models, then the executor's company's, then its own; budget order
-    within each tier.  A model tends to miss the mistakes it makes, so its own review is
-    the last choice -- but only a choice, never a refusal: one worker reviews itself."""
+def reviewer_order(cfg, writers, order):
+    """Another company's models, then the writers' companies', then the writers' own; budget
+    order within each tier.  `writers` is the model that wrote the work, or every model that
+    wrote part of it: a PR's orchestrator and the fixer its fix was handed to.  A model tends
+    to miss the mistakes it makes, so its own review is the last choice -- but only a choice,
+    never a refusal: one worker reviews itself."""
+    names = [writers] if isinstance(writers, str) else [name for name in (writers or []) if name]
     try:
-        executed = config.model(cfg, executor) if executor else None
+        wrote = [config.model(cfg, name) for name in names]
     except config.Error:
         return []
     cross, same, own = [], [], []
@@ -789,12 +792,12 @@ def reviewer_order(cfg, executor, order):
             reviewed = config.model(cfg, name)
         except config.Error:
             continue
-        if executed is None or reviewed["provider"] != executed["provider"]:
-            cross.append(name)
-        elif name == executor or reviewed["model"] == executed["model"]:
+        if name in names or any(reviewed["model"] == each["model"] for each in wrote):
             own.append(name)
-        else:
+        elif any(reviewed["provider"] == each["provider"] for each in wrote):
             same.append(name)
+        else:
+            cross.append(name)
     return cross + same + own
 
 
@@ -4002,14 +4005,16 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                             role="reviewer", repo=lp.state.get("repo"))
         own = lp.state.get("own_orchestrator") if lp.state.get("own_pr") else None
         exec_for_rule = own or lp.executor
-        spares = reviewer_order(lp.cfg, exec_for_rule,
+        # everyone who wrote the head: a PR's orchestrator, and the fixer its fix went to
+        writers = [name for name in (own, lp.executor) if name]
+        spares = reviewer_order(lp.cfg, writers,
                                 [n for n in order if n in lp.spares and n != lp.reviewer])
         if not allow_self:
             # A flake waits unless another model can review: only a reviewer that cannot
             # come back settles for the executor's own model.  The filter is local, so a
             # later fallback with a real reason still finds it.
             offered = [n for n in spares
-                       if not same_model(lp.cfg, exec_for_rule, n)]
+                       if not any(same_model(lp.cfg, wrote, n) for wrote in writers)]
         else:
             offered = spares
         if not offered:
@@ -10635,6 +10640,21 @@ def push_pr_branch(lp, remote, lease):
         raise config.Error(f"pushing to the PR branch failed: {out[-400:]}")
 
 
+def pr_review_blocked(lp, exc):
+    """A PR review's blocked ending, from a round or its fixer turn: no reviewer's harness can
+    run, or the task cannot be done as written.  Recorded as a task run's is, its result
+    written, its wait for a push and its pending round over; never an `error` the tick would
+    retry into the same harness."""
+    lp.log(f"BLOCKED {exc}")
+    lp.state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
+                     "blocked": exc.section, "finished_at": time.time()})
+    for key in ("own_pr_wait", "own_pr_round_pending"):
+        lp.state.pop(key, None)
+    lp.write()
+    write_result(lp.run_dir, lp.state, lp.cmds or ["(none declared)"], lp.log, lp.cfg)
+    return lp.state
+
+
 def fix_own_pr(cfg, run_dir, url, state, opts, log):
     """The fixer turn a FAIL on a seat's own PR gets while rounds are left.
 
@@ -10706,27 +10726,24 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
                 # reviewer reads it (`fixer_words`), resumed after a cut or not
                 execute(lp, "fixer", fix, name or "executor")
             except Blocked as exc:
-                log(f"BLOCKED {exc}")
-                state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
-                              "blocked": exc.section, "finished_at": time.time()})
-                state.pop("own_pr_wait", None)
-                lp.write()
-                write_result(run_dir, state, lp.cmds or ["(none declared)"], log, cfg)
+                pr_review_blocked(lp, exc)
                 return False
         commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
         head = git(lp.wt, "rev-parse", "HEAD")
-        if head == reviewed:
-            log("the fixer committed nothing; the next round reviews this head with what it handed in")
-            lp.write()
-            return True
-        state["delivery_sha"] = head
-        lp.write()
+        # the PR as it stands after the fix, whatever the fix left: a closed PR or a head
+        # pushed meanwhile ends the run, never a review of what the fixer did not see
         current = pr_head(lp, url)
         remote = current["head"]
         if current.get("state") != "open":
             return ended(f"{url} is {current.get('state', '?')}, not open")
         if remote["sha"] != reviewed:
             return ended("the PR head moved while the fix was made; review it with a new run")
+        if head == reviewed:
+            log("the fixer committed nothing; the next round reviews this head with what it handed in")
+            lp.write()
+            return True
+        state["delivery_sha"] = head
+        lp.write()
     if remote["sha"] != head:
         push_pr_branch(lp, remote, reviewed)
         log(f"--- pushed the fix {head[:12]} to {remote['ref']}")
@@ -10921,10 +10938,10 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         lp.rnd += 1
         return settle_pr_round(lp, url, info)
     providers = collect_usage(cfg)
-    # the reviewer is picked against whoever wrote the head under review: the orchestrator,
-    # or the model a fixer turn was handed to
-    exec_for_rule = (prior.get("executor") or orchestrator) if is_own else None
-    order = reviewer_order(cfg, exec_for_rule, ready_order(cfg, providers,
+    # the reviewer is picked against everyone who wrote the head under review: the
+    # orchestrator, and the model a fixer turn was handed to; neither comes first
+    writers = [name for name in (orchestrator, prior.get("executor")) if name] if is_own else []
+    order = reviewer_order(cfg, writers, ready_order(cfg, providers,
                                                            reviewers, log,
                                                            role="reviewer"))
     # a --bg parent's reviewer, adopted when it is still in the live order
@@ -10998,15 +11015,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         else:
             verdict = review(lp, summary, ok, dw_log)
     except Blocked as exc:
-        # No reviewer's harness can run: the review ends `blocked` on the harness's own line,
-        # as a task run does, and not in an `error` the tick would retry into that harness.
-        log(f"BLOCKED {exc}")
-        state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
-                      "blocked": exc.section, "finished_at": time.time()})
-        state.pop("own_pr_round_pending", None)
-        run_record.save_state(run_dir, state)
-        write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
-        return state
+        return pr_review_blocked(lp, exc)
     return settle_pr_round(lp, url, info)
 
 

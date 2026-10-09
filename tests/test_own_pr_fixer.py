@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import OwnPr
-from agentkit import hand_in, run, worker
+from agentkit import config, hand_in, run, worker
 from agentkit import record
 
 
@@ -133,16 +133,20 @@ class OwnPrFixer(OwnPr):
             fix(lp)
 
         self.fix = handed_over
-        with self.assertRaises(InterruptedError):
+        config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra", "grok"])
+        with patch.object(run, "ready_order", return_value=["opus", "astra", "grok"]), \
+                self.assertRaises(InterruptedError):
             self.review(["FAIL", "PASS"])
         saved = record.read_state(self.run_dir)
         saved.update(state="queued", pid=999999991)
         record.save_state(self.run_dir, saved)
-        with patch.object(run, "ready_order", return_value=["astra", "opus"]):
+        with patch.object(run, "ready_order", return_value=["opus", "astra", "grok"]):
             state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])
         self.assertEqual(state["executor"], "astra")
-        self.assertEqual(self.reviewers, ["astra", "opus"])    # never the model that wrote the fix
+        # round two's reviewer wrote none of the head: neither the PR's orchestrator nor the
+        # model the fix was handed to comes first while another is ready
+        self.assertEqual(self.reviewers, ["astra", "grok"])
 
     def test_what_the_fixer_said_reaches_the_next_reviewer(self):
         self.fix = lambda lp: None
@@ -205,6 +209,19 @@ class OwnPrFixer(OwnPr):
         self.assertTrue(state["merged"])
         self.assertEqual(len(self.prompts), 2)
         self.assertEqual(self.merges[0][-1], self.heads[2])
+
+    def test_a_pr_closed_or_pushed_while_a_fix_without_a_commit_was_made_ends_the_run(self):
+        self.fix = lambda lp: self.pr.update(state="CLOSED")       # closed during the fix, which committed nothing
+        state = self.review(["FAIL", "PASS"])
+        self.assertEqual(state["state"], "fail")
+        self.assertIn("not open", state["error"])
+        self.assertEqual((len(self.prompts), self.merges), (1, []))
+        self.setUp()
+        self.fix = lambda lp: self.hand_push(2)                     # the seat pushed during the fix
+        state = self.review(["FAIL", "PASS"])
+        self.assertEqual(state["state"], "fail")
+        self.assertIn("the PR head moved while the fix was made", state["error"])
+        self.assertEqual((len(self.prompts), self.merges, self.remote_head()), (1, [], self.heads[2]))
 
     def test_the_fixer_is_given_the_whole_pr_description(self):
         self.pr["body"] = "## Summary\nFix the fence\n\n## Test plan\nrun it"
