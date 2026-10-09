@@ -29,9 +29,12 @@ ONE_PASS = ("[worker judgement] Report every finding you can establish in this o
             "pattern with every site listed.\n"
             "[checked by ak: tests/test_dispute_hand_in.py] ak supplies each dispute beside its finding "
             "with ak's proof output; findings handed in again are weighed normally, others are dropped.\n"
+            "[checked by ak: tests/test_findings_re_proven.py] ak also re-proves each undisputed earlier "
+            "finding on this head and shows you which are fixed and which still open.\n"
             "[worker judgement] Uphold a disputed finding by handing it in again with "
-            "`ak hand-in finding`. Drop it by not handing it in "
-            "again. Then say which earlier findings are fixed and which are not, then anything new.")
+            "`ak hand-in finding`. Drop it by not handing it in again. The same rule applies to an "
+            "earlier finding ak re-proved: re-hand it to uphold, leave it out to drop. Then report "
+            "anything new.")
 # A task that cannot be done as written is the task's defect, not the worker's: handing it in ends
 # the run there, and the orchestrator that wrote the task gets the sentence back instead of a
 # reviewer's verdict on work nobody could do.
