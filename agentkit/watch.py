@@ -41,6 +41,7 @@ import sys
 import tempfile
 import termios
 import time
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -1885,8 +1886,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
     `jobs` is the cards' alone: a job's `all N tasks finished` is `done` to its card, the way it
-    always was, and no word of the seat's to every screen.  `waits` is `waiting_on`'s alone: it
-    asks about the session a wait names with that session's own wait left out.
+    always was, and no word of the seat's to every screen.  `waits` is `waiting_on`'s alone:
+    whether the seat's own `ak wait` still holds.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -2122,7 +2123,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                   else " · ".join(parts))
         return {"word": "working", "reason": reason,
                 "since": min(starts) if starts else None}
-    # 2a. ... or it ended its turn on `ak wait`, and the session it named is working
+    # 2a. ... or it ended its turn on `ak wait`, and what it named is not over yet
     wait = waiting_on(name, records, at, cfg) if waits else None
     if wait and wait["word"] == "working":
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
@@ -2237,73 +2238,95 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             "since": found.get("began")}
 
 
+MAX_BYTES = 8000        # tmux refuses one command past 16 KiB, and a typed line goes in whole
+PR_URL = re.compile(r"^https://github\.com/[^/\s]+/[^/\s]+/pull/(\d+)/?$")
+
+
+def longest(cfg):
+    """The most characters a typed line may hold: one every harness a seat can run shows whole
+    in its composer (`[screen] folds_over`), so the line read back there is the line typed."""
+    harnesses = {model.get("harness") for model in (cfg.get("models") or {}).values()}
+    folds = [screen(name)["folds_over"] for name in harnesses if name]
+    return min([fold for fold in folds if fold] or [MAX_BYTES])
+
+
+def too_long(line):
+    """Why `line` is more than a typed line may hold, else None."""
+    most = longest(config.load())
+    if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
+        return (f"{len(line):,} characters is more than a composer shows whole ({most:,}); "
+                "write the rest to a file and name its path")
+    return None
+
+
+def flat(text):
+    """`text` as one typed line: each run of whitespace or control characters is one space, so
+    no key in it but the line's own Enter acts on the composer."""
+    return " ".join("".join(" " if unicodedata.category(ch) == "Cc" else ch
+                            for ch in text).split())
+
+
 def waiting_on(name, records=None, now=None, cfg=None):
-    """That seat's own `ak wait`, while the session it names is working or waits on his answer
-    to its own question (`wait_holds`); else None.
+    """That seat's own `ak wait`, while the pull request or run it names is not yet over; else
+    None.
 
     The wait is the seat's word, kept in its record's `wait` by `ak wait` and dropped by its
-    next `ak notify`, and nothing that looks at a screen ever writes or ends it: this only says
-    whether it holds now.  It holds while the other session's own ladder says `working` --
-    its runs or its turn, under every rung above them, such as a login its run is parked on --
-    or `needs you` on a question it asked him, and never by a wait of its own, so two seats
-    waiting on each other are both his.  Through a question the seat reads `needs you` too,
-    and neither its stop nor the tick wakes it to decide what only his answer decides.  A wait
-    the tick has told the seat the end of (`told`, see `tell_waits`) is over for good, however
-    the other session reads since.  The ladder, the stop hook and the tick's `stop_nudge` all
-    ask this, so the word a seat reads and the stop it is allowed are the same decision.
+    next `ak notify`.  Only the tick's wait pass (`wait_over`) asks GitHub or the run's record
+    whether what it names is over, and writes that down on the wait as `over` the moment it
+    sees it; this reads that mark and nothing else, so the ladder, the stop hook and the
+    tick's `stop_nudge` cost no network and decide the same.  A wait marked over counts for
+    nothing afterwards, and only a new `ak wait` is a new wait.
     """
     wait = seat_read(name).get("wait")
-    if not isinstance(wait, dict) or wait.get("told"):
+    if not isinstance(wait, dict) or wait.get("over") or not isinstance(wait.get("on"), str):
         return None
-    other, found = wait_peer(name, wait, records, now, cfg)
-    if not wait_holds(found):
-        return None
-    return {"on": other, "at": _stamp(wait.get("at")), "word": found["word"],
-            "reason": found.get("reason"), "since": found.get("since")}
+    at = _stamp(wait.get("at"))
+    return {"on": wait["on"], "kind": wait.get("kind"), "at": at, "word": "working",
+            "reason": f"waiting on {wait['on']}", "since": at}
 
 
-def wait_holds(found):
-    """Whether a wait on a session whose own word is `found` holds: while it works, and while
-    it waits on his answer to a question it asked, since the seat waiting on it waits on that
-    same answer.  Any other stop -- done, closed, his for another reason -- ends it."""
-    return bool(found) and (found["word"] == "working" or bool(found.get("question")))
+def wait_fact(wait):
+    """(whether what that wait names is over, the one line saying how): a run once it is no
+    longer going, a pull request once it is merged or closed.  (None, why) where nothing can
+    say yet, which leaves the wait as it is."""
+    on = wait.get("on")
+    if wait.get("kind") == "run":
+        directory = config.RUNS / on
+        state = run_record.read_state(directory) if directory.is_dir() else None
+        if not state:
+            return True, f"run {on} is gone"
+        from . import run as run_mod
+        if run_mod.going(state):
+            return False, ""
+        ended = state.get("verdict") or state.get("state") or "ended"
+        return True, f"run {on} ended {ended}" + (", merged" if state.get("merged") else "")
+    data, why = gh_json(config.RUNS, "pr", "view", on, "--json", "state,number,mergeCommit")
+    if not isinstance(data, dict) or data.get("state") not in ("OPEN", "MERGED", "CLOSED"):
+        return None, why or "GitHub did not answer"
+    number = data.get("number")
+    if data["state"] == "OPEN":
+        return False, ""
+    if data["state"] == "MERGED":
+        sha = str((data.get("mergeCommit") or {}).get("oid") or "")[:12]
+        return True, f"PR #{number} merged" + (f" as {sha}" if sha else "")
+    return True, f"PR #{number} closed without merging"
 
 
-def wait_peer(name, wait, records=None, now=None, cfg=None):
-    """(the session that wait names, its own word) -- (None, None) where it names none."""
-    if not isinstance(wait.get("on"), str):
-        return None, None
-    try:
-        other = config.resolve_session(wait["on"])
-    except config.Error:
-        return None, None
-    if other == name:
-        return None, None
-    # a session no listing holds has nobody in it: the turn its record last showed is no
-    # turn now, though a run of its own still going is still its work
-    seat = next((s for s in orch.listing(reconcile=False) if s["name"] == other),
-                {"name": other, "exited": True})
-    return other, session_state(other, now=now, session=seat, cfg=cfg, records=records,
-                                waits=False)
+def wait_over(cfg, log):
+    """The tick's wait pass: a seat whose `ak wait` names a pull request or run that is now
+    merged, closed or ended is told so, once, and the wait is over.
 
-
-def tell_waits(cfg, log):
-    """Tell a seat the session its `ak wait` names has stopped, once, and end the wait on it.
-
-    The other session's own word off its ladder, the moment the wait no longer holds
-    (`wait_holds`): done, needs you for anything but its own question, or closed, with its
-    reason, so the seat decides on that and never on whether
-    the other remembers to write to it.  One line through the confirmed send, only at the
-    seat's own quiet prompt, the way a run's ending is handed back; a seat mid-turn is tried
-    again next tick.  The send that took the line is written on the wait as `told`, and that
-    is the end of it: the wait counts for nothing afterwards, even when the other session
-    works again, and only a new `ak wait` is a new wait.  Nothing here reads when a turn began.
-    tmux is asked only with something to do, as `revive_seats` asks it: a wait still untold.
+    The fact is asked once per tick here and nowhere else, and written on the wait as `over`
+    the moment it is seen, so every reader of `waiting_on` agrees from then on.  The line goes
+    in through the confirmed send, only at the seat's own quiet prompt, the way a run's ending
+    is handed back; a seat mid-turn is tried again next tick.  It names the fact and nothing
+    else: no other seat's words, no other seat's screen.  The send that took it is written on
+    the wait as `told`, so it is typed once.
     """
     waiting = {}
     for name in config.session_records():
         wait = seat_read(name).get("wait")
-        if isinstance(wait, dict) and not wait.get("told"):
+        if isinstance(wait, dict) and isinstance(wait.get("on"), str) and not wait.get("told"):
             waiting[name] = wait
     if not waiting:
         return
@@ -2312,23 +2335,31 @@ def tell_waits(cfg, log):
         wait = waiting.get(name)
         if wait is None or any(session.get(key) for key in orch.CLOSED):
             continue
-        other, found = wait_peer(name, wait, cfg=cfg)
-        if found is None or wait_holds(found):
-            continue
-        reason = " ".join(str(found.get("reason") or "").split())
-        line = f"{other} is now {found['word']}: {reason}. Decide the next step."
+        if not wait.get("over"):
+            over, reason = wait_fact(wait)
+            if over is None:
+                log(f"WARN {name}: its wait on {wait['on']} cannot be read: {reason}")
+                continue
+            if not over or not wait_mark(name, wait, over=reason):
+                continue
+            wait = seat_read(name).get("wait")
+            if not isinstance(wait, dict) or wait.get("told"):
+                continue
+        line = f"{wait['over']}; your wait is over. Decide the next step."
         if type_at_prompt(session, line, log, cfg=cfg, typed=wait.get("typed"),
                           receipt=lambda mark, name=name, wait=wait:
                           wait_mark(name, wait, typed=mark)):
             if wait_mark(name, wait, told=time.time()):
-                log(f"{name}: told that {other} is now {found['word']}; its wait is over")
+                log(f"{name}: told that {wait['over']}; its wait is over")
 
 
 def wait_main(argv):
-    """`ak wait SESSION`: this seat ends its turn waiting on that session's work.
+    """`ak wait PR_URL|RUN_ID`: this seat ends its turn waiting on that pull request or run.
 
     The seat is the one `ak notify` speaks for, and the wait is written to its own record and
-    nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.
+    nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.  A wait
+    names a fact ak can read, never a session: the tick ends it when the pull request merges
+    or closes or the run ends, and tells the seat so (`wait_over`).
     """
     if command_help.show("wait", argv):
         return 0
@@ -2338,16 +2369,20 @@ def wait_main(argv):
     if not seat:
         print("ak wait: no seat: run it inside an orchestrator session", file=sys.stderr)
         return 1
-    other = config.resolve_session(argv[0])
-    if other == seat:
-        print(f"ak wait: {seat} cannot wait on itself", file=sys.stderr)
+    on = argv[0].strip()
+    pull = PR_URL.match(on)
+    if pull:
+        kind, shown = "pr", f"PR #{pull.group(1)}"
+    elif on not in (".", "..") and "/" not in on and (config.RUNS / on).is_dir():
+        kind, shown = "run", f"run {on}"
+    else:
+        print(f"ak wait: {on!r} is neither a pull request URL nor a run id; ak waits on a "
+              "pull request or a run, never on a session (ak run status lists runs)",
+              file=sys.stderr)
         return 1
-    if other not in config.session_records():
-        print(f"ak wait: no session {argv[0]!r}; `ak orch list` shows them", file=sys.stderr)
+    if not seat_write(seat, wait={"on": on, "kind": kind, "at": time.time()}):
         return 1
-    if not seat_write(seat, wait={"on": other, "at": time.time()}):
-        return 1
-    print(f"{seat}: waiting on {other}")
+    print(f"{seat}: waiting on {shown}")
     return 0
 
 
@@ -3248,7 +3283,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     alone -- so what is left to read is the `done` on record and the runs and jobs.
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
-    `done`, as it holds the hook's.  A wait whose session has stopped is tell_waits' to end, with
+    `done`, as it holds the hook's.  A wait that is over is wait_over's to end, with
     the line saying what that session is now and why: a bare keystroke typed first would take
     the prompt that line waits for, and leave the seat deciding without it.
 
@@ -3294,10 +3329,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     if not said or live.get("stop_nudged") == [began, said]:
         return
     wait = live.get("wait")
-    if not question and isinstance(wait, dict) and not wait.get("told"):
-        found = wait_peer(name, wait, records)[1]
-        if found is not None and not wait_holds(found):
-            return      # that session has stopped: tell_waits says so, and why, instead
+    if not question and isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
+        return      # its wait is over: wait_over says so, and why, before any continue
     ends, undecided = stop.recorded_ending(
         name, records, question=question,
         answer=lambda: bool(notice and notice["kind"] == "done" and done_holds(
@@ -6149,7 +6182,7 @@ def local_passes(state, dry_run, log):
     A dry run runs only the passes it can tell `dry_run`, and reads usage off the cache as it
     stands: reading that file probes nothing, and a dry run changes nothing.
     """
-    from . import job as jobs, retire, run, tell
+    from . import job as jobs, retire, run
     providers = {}
 
     def read_usage():
@@ -6205,15 +6238,13 @@ def local_passes(state, dry_run, log):
         ("the pre-existing sweep did not run", lambda: sweep_preexisting(log), False),
         ("the ending pass did not run", lambda: offer_endings(log), False),
         # A job that finished while its seat was mid-turn hands its line back at the next quiet
-        # prompt, the way one of its runs does; a seat whose `ak wait` names a session that has
-        # stopped is told so, which ends the wait; and what another seat sent one with `ak tell`
-        # is typed into it, oldest first.
+        # prompt, the way one of its runs does; a seat whose `ak wait` names a pull request or
+        # run that is over is told so, which ends the wait.
         ("a finished job was not handed back", lambda: jobs.deliver_job_handbacks(log), False),
-        ("the wait pass did not run", lambda: tell_waits(config.load(), log), False),
-        # Every feature switch on for everyone for two weeks is told to a seat on its project to
-        # take out of the code, queued just before the messages go so this tick types it.
+        ("the wait pass did not run", lambda: wait_over(config.load(), log), False),
+        # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
+        # on its project, to take out of the code.
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
-        ("the message pass did not run", lambda: tell.deliver(config.load(), log), False),
         # Cards are derived from every session's current three-state word, including seats
         # whose panes were not available to the health pass.
         ("the card transition pass did not run", lambda: notify.tick_cards(log=log), False),

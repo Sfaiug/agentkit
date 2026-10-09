@@ -138,25 +138,11 @@ sys.exit(0 if passive else 1)
     look "$seat"
     return 0
   fi
-  # A prompt another session's message opened -- `ak tell` starts it with its heading
-  # (agentkit/told.py) -- keeps the seat's standing done: the seat only acknowledged the
-  # message, so its done from before the turn still tells.
   # A prompt that asks something -- a sentence ending in `?`, the mark followed by
   # whitespace or the end so a URL's `?` is none, or a prompt opening on a question word,
   # since a question is often typed without its mark -- is ended by its answer.  `when`
   # and `do` open instructions as often as questions ("when it lands, merge it"), so they
-  # ask nothing.  The latch says which kind of prompt opened the turn.
-  peer=false
-  if /usr/bin/env python3 -c '
-import json, sys
-from pathlib import Path
-sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
-from agentkit.told import told
-payload = json.load(sys.stdin)
-sys.exit(0 if any(told(payload.get(key)) for key in ("prompt", "message")) else 1)
-' "${BASH_SOURCE[0]}" <<<"$payload" 2>/dev/null; then
-    peer=true
-  fi
+  # ask nothing.  The latch says whether the prompt that opened the turn asked.
   asked=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
                | any(test("\\?([[:space:]]|$)")
@@ -165,17 +151,15 @@ sys.exit(0 if any(told(payload.get(key)) for key in ("prompt", "message")) else 
     asked=true
   fi
   tmp="$dir/stop-$seat.json.tmp.$$"
-  "$jq" -n --arg session "$seat" --argjson turn "$ts" --argjson peer "$peer" \
-    --argjson asked "$asked" \
-    '{session: $session, turn: $turn, blocks: 0, peer: $peer, asked: $asked}' \
+  "$jq" -n --arg session "$seat" --argjson turn "$ts" --argjson asked "$asked" \
+    '{session: $session, turn: $turn, blocks: 0, asked: $asked}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question, once the background look checks its pane.
-  # The launch name still resolves after a rename; messages and slash commands answer nothing.
-  # Background reports keep the normal stop rules, so they must not set the peer latch.
+  # The launch name still resolves after a rename; background reports and slash commands
+  # answer nothing.
   owner=true
-  if [[ $peer = true ]] ||
-    "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
+  if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
                | any(contains("<task-notification") or test("^[[:space:]]*/"))' \
       <<<"$payload" >/dev/null 2>&1; then
     owner=false
