@@ -5337,14 +5337,17 @@ def owner_base(wt, target, head):
         raise config.Error("cannot verify complete Git ancestry for the owner's parts")
     store = config.STATE / config.OWNER_YES
     store.mkdir(parents=True, exist_ok=True)
+    # A hook's Git addresses and config cannot redirect this copy back into the shared repository.
+    env = {name: None for name in tool_env() if name.startswith("GIT_")}
+    env.update(owner_env(), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
     with tempfile.TemporaryDirectory(prefix=".git-", dir=store) as directory:
         git_bytes(directory, "init", "--bare", "--template=",
-                  "--object-format=" + ("sha1" if len(target) == 40 else "sha256"), env=owner_env())
+                  "--object-format=" + ("sha1" if len(target) == 40 else "sha256"), env=env)
         for oid, (_, body) in commits.items():
             path = Path(directory, "objects", oid[:2], oid[2:])
             path.parent.mkdir(exist_ok=True)
             path.write_bytes(zlib.compress(b"commit " + str(len(body)).encode() + b"\0" + body))
-        return git_bytes(directory, "merge-base", target, head, env=owner_env()).strip()
+        return git_bytes(directory, "merge-base", target, head, env=env).strip()
 
 
 def owner_target(wt, upstream, pr=None):
@@ -10714,12 +10717,14 @@ def text_blob(repo, ref, path):
 
 def git_bytes(repo, *args, env=None, input=None):
     """git's output with every byte kept (surrogateescape), names included: a carriage return or
-    a byte that is not UTF-8 stays itself, and handed back to git names the same file."""
+    a byte that is not UTF-8 stays itself, and handed back to git names the same file.
+    An env value of None drops that variable, as in tool_run."""
     try:
         proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
                               **({"stdin": subprocess.DEVNULL} if input is None else {"input": input}),
                               timeout=TOOL_CAP,
-                              env={**tool_env(), **(env or {})})
+                              env={key: value for key, value in {**tool_env(), **(env or {})}.items()
+                                   if value is not None})
     except subprocess.TimeoutExpired:
         raise Stopped(f"git {' '.join(args[:2])} ran past {TOOL_CAP:g}s in {repo}")
     if proc.returncode:
