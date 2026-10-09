@@ -26,6 +26,7 @@ class InterruptedRuns(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-recover-runs-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
+        (self.root / "calls").touch()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(config, "HOME", self.root / ".agentkit"))

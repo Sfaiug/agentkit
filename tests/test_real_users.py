@@ -73,6 +73,7 @@ class RealUsers(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-real-users-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
+        (self.root / "prompts.jsonl").touch()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):

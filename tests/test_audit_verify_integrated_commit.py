@@ -86,6 +86,7 @@ class IntegratedCommit(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-verify-integration-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
+        (self.root / "events.jsonl").touch()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(account_home(self.root, places=(self.root,)))

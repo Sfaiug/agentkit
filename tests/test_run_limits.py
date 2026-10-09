@@ -178,6 +178,8 @@ class Limits(unittest.TestCase):
 
     def plan(self, plan):
         (self.root / "plan.json").write_text(json.dumps(plan))
+        if plan.get("arm_git"):
+            (self.root / "slow-git").touch()
 
     def calls(self, role=None):
         path = self.root / "calls.jsonl"
