@@ -801,6 +801,15 @@ def reviewer_order(cfg, writers, order):
     return cross + same + own
 
 
+def head_writers(state):
+    """Every model that wrote part of the head a review judges: a seat's own PR's orchestrator,
+    the executor or fixer of the moment, and every model a turn was handed from or to
+    (`executor_history`), so none of them is the first choice to review it."""
+    names = [state.get("own_orchestrator") if state.get("own_pr") else None, state.get("executor"),
+             *(entry.get(key) for entry in state.get("executor_history") or [] for key in ("from", "to"))]
+    return list(dict.fromkeys(name for name in names if name))
+
+
 def pair_tier(cfg, executor, reviewer):
     """This pair's tier: 0 another company, 1 the executor's company, 2 its own model.
 
@@ -4020,8 +4029,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                             role="reviewer", repo=lp.state.get("repo"))
         own = lp.state.get("own_orchestrator") if lp.state.get("own_pr") else None
         exec_for_rule = own or lp.executor
-        # everyone who wrote the head: a PR's orchestrator, and the fixer its fix went to
-        writers = [name for name in (own, lp.executor) if name]
+        writers = head_writers(lp.state)        # everyone who wrote part of the head
         spares = reviewer_order(lp.cfg, writers,
                                 [n for n in order if n in lp.spares and n != lp.reviewer])
         if not allow_self:
@@ -10994,9 +11002,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         lp.rnd += 1
         return settle_pr_round(lp, url, info)
     providers = collect_usage(cfg)
-    # the reviewer is picked against everyone who wrote the head under review: the
-    # orchestrator, and the model a fixer turn was handed to; neither comes first
-    writers = [name for name in (orchestrator, prior.get("executor")) if name] if is_own else []
+    # the reviewer is picked against everyone who wrote part of the head under review: the
+    # orchestrator, and every model a fixer turn ran on or was handed to; none comes first
+    writers = head_writers({**prior, "own_orchestrator": orchestrator, "own_pr": True}) if is_own else []
     order = reviewer_order(cfg, writers, ready_order(cfg, providers,
                                                            reviewers, log,
                                                            role="reviewer"))

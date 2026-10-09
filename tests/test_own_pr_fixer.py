@@ -127,9 +127,12 @@ class OwnPrFixer(OwnPr):
                 (out / hand_in.FILE).write_text(json.dumps(
                     {"kind": "turn", "workspace": str(lp.wt), "role": "fixer", "findings": []}) + "\n")
                 lp.executor = lp.state["executor"] = "astra"
+                lp.state.setdefault("executor_history", []).append(
+                    {"at": 1.0, "from": "opus", "to": "astra", "reason": "dry"})
                 lp.save()
                 raise InterruptedError("the host cut astra's turn off")
-            self.assertEqual((self.fix_names[-1], lp.executor), ("executor-astra", "astra"))
+            if len(self.fixes) == 2:
+                self.assertEqual((self.fix_names[-1], lp.executor), ("executor-astra", "astra"))
             fix(lp)
 
         self.fix = handed_over
@@ -141,12 +144,13 @@ class OwnPrFixer(OwnPr):
         saved.update(state="queued", pid=999999991)
         record.save_state(self.run_dir, saved)
         with patch.object(run, "ready_order", return_value=["opus", "astra", "grok"]):
-            state = self.review(["FAIL", "PASS"])
+            state = self.review(["FAIL", "FAIL", "PASS"])
         self.assertTrue(state["merged"])
-        self.assertEqual(state["executor"], "astra")
-        # round two's reviewer wrote none of the head: neither the PR's orchestrator nor the
-        # model the fix was handed to comes first while another is ready
-        self.assertEqual(self.reviewers, ["astra", "grok"])
+        self.assertEqual(state["executor"], "opus")            # round three's fix was the orchestrator's own
+        # from round two on, the reviewer wrote none of the head: neither the PR's orchestrator
+        # nor a model any fix was handed to comes first while another is ready, however many
+        # fixes later
+        self.assertEqual(self.reviewers, ["astra", "grok", "grok"])
 
     def test_what_the_fixer_said_reaches_the_next_reviewer(self):
         self.fix = lambda lp: None
