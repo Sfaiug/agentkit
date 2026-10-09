@@ -3724,9 +3724,11 @@ TEST_DIRS = ("tests", "test", "spec", "specs", "__tests__")
 TEST_NAMES = ("*_test.*", "*_spec.*", "*.test.*", "*.spec.*")
 
 
-def changed_line(lp, row, head):
+def changed_line(lp, row, head, since=None):
+    """Whether the finding's line is inside the diff to `head` from `since`: the base, or the
+    commit the last review judged, for a later round."""
     diff = git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
-               "--unified=0", f"{lp.base_sha}...{head}", "--", f":(literal){row['path']}")
+               "--unified=0", f"{since or lp.base_sha}...{head}", "--", f":(literal){row['path']}")
     for hunk in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", diff, re.M):
         start, count = int(hunk[1]), int(hunk[2] or 1)
         # A pure removal leaves an anchor between the two surviving neighbouring lines.
@@ -3821,9 +3823,66 @@ def before_at_base(lp, row):
     return code == 0 and before in content
 
 
-def weigh_review(lp, submitted, head=None):
-    """The reviewer's editable copy cannot decide what blocks the reviewed commit."""
-    if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records):
+def reviewed_before(lp, before, head):
+    """The commit the last review of this run judged (`before`), when `head` is a later one:
+    the delta from it is what a later round reviews.  None in round 1, in a scratch run, and
+    for a review of that same commit again."""
+    return before if before and not lp.scratch and before != head else None
+
+
+def earlier_findings(lp):
+    """The blocking findings the last review of this run handed in, as weighed then."""
+    return [row for row in (lp.state.get("review_records") or [])
+            if isinstance(row, dict) and row.get("kind") == "finding"]
+
+
+def replay_findings(lp, rows, head):
+    """Each earlier finding proven again on `head`: (the row, its evidence now, still failing).
+
+    A `--run` proof is replayed on the head; a quote stands while its lines are still in the
+    file there.  What ak can prove itself is never left to the reviewer to find again, and a
+    finding whose proof still fails blocks whatever the reviewer hands in."""
+    replayed = []
+    if rows:
+        lp.round_dir.mkdir(parents=True, exist_ok=True)   # the replay logs come before the turn
+    for index, row in enumerate(rows, 1):
+        evidence = row.get("evidence") or {}
+        if "run" in evidence:
+            command = evidence["run"]
+            now = {"run": command, "commit": head,
+                   **proof_on(lp, command, lp.round_dir / f"replay-{index}.log", head)}
+            failing = hand_in.proof_failed(now)
+        else:
+            quote = evidence.get("quote") or ""
+            text = git(lp.wt, "show", f"{head}:{row['path']}", check=False)
+            failing = bool(quote) and quote in text
+            now = evidence
+        replayed.append((row, now, failing))
+    return replayed
+
+
+def replay_section(replayed, since):
+    """What the reviewer is told of the earlier findings: ak's own replay, not a question."""
+    lines = []
+    for row, now, failing in replayed:
+        how = (f"still fails ({'exit ' + str(now['returncode']) if 'run' in now else 'the quoted lines are still there'})"
+               if failing else "fixed (the proof passes now)")
+        lines.append(f"- {row['path']}:{row['line']} - {row['what']} - {how}")
+    return (f"## Earlier findings, re-proven by ak on this commit\n"
+            + ("\n".join(lines) if lines else "(none)")
+            + "\nA finding still failing blocks whatever you hand in; one fixed needs no word. "
+              f"A new finding blocks only inside the fix delta since {since[:12]}; "
+              "outside it, it is kept as a note.")
+
+
+def weigh_review(lp, submitted, head=None, since=None, replayed=()):
+    """The reviewer's editable copy cannot decide what blocks the reviewed commit.
+
+    In a later round (`since` names the commit the last review judged) a new finding blocks
+    only inside the fix delta, and ak's own replay of the earlier findings (`replayed`) is
+    weighed with the reviewer's: one still failing blocks whether or not the reviewer handed
+    it in again, one fixed is a note."""
+    if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
     sites = quoted_sites(lp, submitted, head)
@@ -3834,6 +3893,7 @@ def weigh_review(lp, submitted, head=None):
             continue
         evidence = row["evidence"]
         kind = row["kind"]
+        outside = False
         if kind == "follow-up":
             if not lp.scratch and "run" in evidence:
                 command = evidence["run"]
@@ -3850,6 +3910,8 @@ def weigh_review(lp, submitted, head=None):
                     lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
             if not hand_in.proof_failed(evidence):
                 kind = "note"
+            elif since and not changed_line(lp, row, head, since):
+                kind, outside = "note", True
             elif not lp.scratch and not changed_line(lp, row, head):
                 base = evidence["base"]
                 if hand_in.proof_failed(base):
@@ -3858,9 +3920,14 @@ def weigh_review(lp, submitted, head=None):
                     kind = "note"
         else:
             row = {**row, **sites[index]}
-            if not lp.scratch and not changed_line(lp, row, head):
+            if since and not changed_line(lp, row, head, since):
+                kind, outside = "note", True
+            elif not lp.scratch and not changed_line(lp, row, head):
                 kind = "follow-up"
         row = {**row, "kind": kind, "evidence": evidence}
+        if outside:
+            row["outside"] = f"the fix delta since {since[:12]}; judged in an earlier round"
+            lp.log(f"Kept as a note {row['path']}:{row['line']}: outside the fix delta")
         if kind == "follow-up":
             if "before" not in row:
                 row["before"] = f"base {lp.base_sha}: " + (
@@ -3876,6 +3943,21 @@ def weigh_review(lp, submitted, head=None):
                 row.update(kind="note", dropped=reason)
                 lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
         records.append(row)
+    if replayed:
+        upheld = {(row["path"], row["line"]) for row in records if row["kind"] == "finding"}
+        extra = []
+        for row, now, failing in replayed:
+            if failing and (row["path"], row["line"]) not in upheld:
+                extra.append({**row, "kind": "finding", "evidence": now,
+                              "replayed": "still failing; it blocks until its proof passes"})
+                lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit")
+            elif not failing:
+                extra.append({**row, "kind": "note", "evidence": now,
+                              "replayed": "fixed; its proof passes now"})
+        closing = records.pop() if records and records[-1]["kind"] in hand_in.CLOSING else None
+        records.extend(extra)
+        if closing is not None:
+            records.append(closing)
     return hand_in.Review(records)
 
 
@@ -3920,9 +4002,14 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     pending = lp.state.get("review_pending") or {}
     since = pending["since"] if "since" in pending else str(
         review_turn(lp.dir("reviewer").parent, lp.review_sid) or "")
+    # the commit the last review judged, read before this review replaces that record and
+    # kept on the pending record, so a resumed review still knows its delta
+    last = lp.state.get("review") if isinstance(lp.state.get("review"), dict) else {}
+    delta_from = last.get("head_sha") or pending.get("delta_from") or lp.state.pop("delta_from", None)
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd, "summary": summary, "since": since,
-                                    **({"passed_head_sha": passed_head} if passed_head else {})})
+                                    **({"passed_head_sha": passed_head} if passed_head else {}),
+                                    **({"delta_from": delta_from} if delta_from else {})})
     if not record:
         lp.state["review_pending"]["record"] = False
     if hasattr(lp, "step"):
@@ -3930,9 +4017,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     else:
         lp.state.update(step="reviewer", step_at=time.time())
         lp.save()
-    checks = ""
+    checks, since, replayed = "", None, []
     if lp.scratch:
-        work = f"## Workspace ({lp.wt})\n```\n{listing(lp.wt)}\n```"
+        work = whole = f"## Workspace ({lp.wt})\n```\n{listing(lp.wt)}\n```"
     else:
         head = "HEAD"
         if lp.state.get("review_pr"):
@@ -3943,7 +4030,18 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         diff = git(lp.wt, "diff", f"{lp.base_sha}...{head}", check=False)
         if len(diff) > DIFF_CAP:
             diff = diff[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
-        work = f"## Diff ({lp.base}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
+        work = whole = f"## Diff ({lp.base}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
+        # a later round judges what changed since the last review, and ak re-proves the
+        # earlier findings itself: the reviewer re-finds nothing
+        at = git(lp.wt, "rev-parse", head)
+        since = reviewed_before(lp, delta_from, at)
+        if since:
+            delta = git(lp.wt, "diff", f"{since}...{head}", check=False)
+            if len(delta) > DIFF_CAP:
+                delta = delta[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
+            replayed = replay_findings(lp, earlier_findings(lp), at)
+            work = (f"## Fix delta ({since[:12]}...HEAD in {lp.wt}; what changed since the last "
+                    f"review)\n```diff\n{delta}\n```\n\n{replay_section(replayed, since)}")
         paths = changed_test_paths(lp, head)
         if paths:
             # Leave room for full names, including git's quoted non-ASCII paths.
@@ -3974,15 +4072,20 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         flaky = ("A `flaky:` record is ak's own rule, not a weakened check: a done-when command "
                  "that fails runs once more at once, and it passes if that re-run does.")
     lp.log(f"--- round {lp.rnd}: reviewer {lp.reviewer}")
-    rbody = (f"{lp.body}\n\n{work}\n\n"
-             + (disputes.text + "\n" if disputes.disputes else "")
-             + f"## Executor summary\n{summary}\n\n{heading}\n"
-             + (f"{deferred}\n" if deferred else "")
-             + (f"{flaky}\n" if flaky else "")
-             + f"```\n{dw_log}\n```")
-    if preface:
-        rbody = f"{preface}\n\n{rbody}"
-    rbody = checks + rbody
+
+    def body_with(section):
+        text = (f"{lp.body}\n\n{section}\n\n"
+                + (disputes.text + "\n" if disputes.disputes else "")
+                + f"## Executor summary\n{summary}\n\n{heading}\n"
+                + (f"{deferred}\n" if deferred else "")
+                + (f"{flaky}\n" if flaky else "")
+                + f"```\n{dw_log}\n```")
+        if preface:
+            text = f"{preface}\n\n{text}"
+        return checks + text
+    rbody = body_with(work)
+    # a conversation that resumes holds the whole change already; one that cannot gets it too
+    rbody_whole = body_with(f"{whole}\n\n{work}") if since else rbody
     # A review cut off mid-turn is continued where it was, fallback model and all: the
     # attempt after a fallback wrote under `reviewer-<model>`, and asking `reviewer` for
     # it would start the review over in a directory beside the one holding its session.
@@ -4031,16 +4134,18 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         # The open attempt is read before free_dir creates the next directory.
         turn_kind, turn_sid = open_turn(rd, name)
         out = free_dir(lp, name)
-        asked_body, note, resume = rbody, None, {}
+        body = rbody if lp.review_sid else rbody_whole
+        asked_body, note, resume = body, None, {}
         if ask:
-            asked_body, resume, ask = NO_VERDICT_ASK, {"fresh_body": rbody, "previous": ask}, None
+            asked_body, resume, ask = NO_VERDICT_ASK, {"fresh_body": body, "previous": ask}, None
         elif turn_kind == "resume":
             asked_body = host_ended_prompt(lp.state)
             lp.review_sid = turn_sid
             note = {"at": time.time(), "role": "reviewer", "restarted": False}
             lp.state["resume_notice"] = note
-            resume = {"fresh_body": rbody, "resume_note": note, "previous": latest_turn(rd, name)}
+            resume = {"fresh_body": body, "resume_note": note, "previous": latest_turn(rd, name)}
         elif turn_kind == "fresh":
+            asked_body = rbody_whole
             lp.review_sid = None
             note = {"at": time.time(), "role": "reviewer", "restarted": True}
             lp.state["resume_notice"] = note
@@ -4119,7 +4224,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     checkout_changed = not lp.scratch and (
         identity != validation or commit_identity(lp.wt) != identity
         or (not lp.state.get("review_pr") and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
-    submitted = weigh_review(lp, submitted, identity.get("head_sha"))
+    submitted = weigh_review(lp, submitted, identity.get("head_sha"), since=since, replayed=replayed)
     upheld = {(row["path"], row["line"]) for row in submitted.findings}
     for row in disputes.disputes:
         if (row["path"], row["line"]) not in upheld:
@@ -10744,8 +10849,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     # `own_pr_wait` stays until the new head's checkout is written down below: a fetch that
     # fails or a process that dies before then still lets the next attempt move to that head
     receipt.pop("own_pr_round_typed", None)
-    if advancing:
-        receipt["review_session"] = None
     run_record.save_state(run_dir, receipt)
     owner, name, number = PR_PARTS.match(url).groups()
     repo = checkout_for(f"{owner}/{name}", log)
@@ -10803,7 +10906,11 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         state["own_pr_round_pending"] = len(summaries) + 1
     state.pop("own_pr_wait", None)       # this head is checked out and recorded
     state.pop("delivery_sha", None)      # a push an earlier round meant to make proves nothing here
-    state.pop("review", None)            # nor does its review: this head's comes with this round
+    # nor does its review: this head's comes with this round, and judges what changed since
+    # the commit the last one judged
+    state["delta_from"] = (state.get("review") or {}).get("head_sha") if isinstance(
+        state.get("review"), dict) else None
+    state.pop("review", None)
     run_record.save_state(run_dir, state)
     join_session_project(session_at_launch)     # a review is a launch too, and votes
     history_start(state, log)
@@ -10899,10 +11006,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                    "review the author's diff.")
     try:
         if summaries:
-            preface = ("## Previous review findings\nIn this re-review, first rule on each previous "
-                       "finding: fixed, upheld or dropped, and why; then report anything new.\n\n"
-                       + previous)
-            verdict = review(lp, summary, ok, dw_log, preface=preface)
+            verdict = review(lp, summary, ok, dw_log, preface="Re-review after a push.")
         else:
             verdict = review(lp, summary, ok, dw_log)
     except Blocked as exc:

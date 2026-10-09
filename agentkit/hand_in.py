@@ -59,6 +59,10 @@ def item_text(row):
         text += "\nBefore the task: " + row["before"]
     if row.get("dropped"):
         text += "\nDropped follow-up: " + row["dropped"]
+    if row.get("outside"):
+        text += "\nOutside " + row["outside"]
+    if row.get("replayed"):
+        text += "\nRe-proven by ak on this commit: " + row["replayed"]
     return text.strip()
 
 

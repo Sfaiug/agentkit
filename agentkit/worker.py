@@ -23,15 +23,17 @@ EVERY_INSTANCE = ('[worker judgement] You may dispute a finding instead of chang
                   "[checked by ak: tests/test_dispute_hand_in.py] ak refuses disputes outside the "
                   "handed blocking findings, commands that do not exit 0 and absent quotes.\n"
                   "[worker judgement] For every "
-                  "undisputed finding, fix every instance of that pattern in {work}, not only "
-                  "the cited line, and list the sites you changed in your summary.")
+                  "undisputed finding, fix it with the least change in {work}, and list the "
+                  "sites you changed in your summary.")
 ONE_PASS = ("[worker judgement] Report every finding you can establish in this one pass, grouped by "
             "pattern with every site listed.\n"
             "[checked by ak: tests/test_dispute_hand_in.py] ak supplies each dispute beside its finding "
             "with ak's proof output; findings handed in again are weighed normally, others are dropped.\n"
             "[worker judgement] Uphold a disputed finding by handing it in again with "
-            "`ak hand-in finding`. Drop it by not handing it in "
-            "again. Then say which earlier findings are fixed and which are not, then anything new.")
+            "`ak hand-in finding`. Drop it by not handing it in again.\n"
+            "[checked by ak: tests/test_blocking_gate.py] ak re-proves each earlier finding on the new "
+            "commit itself in a later round: one still failing blocks whatever is handed in, and a "
+            "new finding blocks only inside the fix delta, else it is kept as a note.")
 # A task that cannot be done as written is the task's defect, not the worker's: handing it in ends
 # the run there, and the orchestrator that wrote the task gets the sentence back instead of a
 # reviewer's verdict on work nobody could do.
