@@ -1769,6 +1769,86 @@ def _turn_in_flight(harness, found):
     return False, None
 
 
+def _composer_open(harness, found):
+    """Is that seat's turn over with its composer open: no turn in flight, or a Stop on
+    background work, which its manifest marks and whose composer takes a line at once."""
+    return (not _turn_in_flight(harness, found)[0]
+            or found.get("hooked_event") in _background_stops(harness))
+
+
+def keeps_back(name):
+    """Does a question that seat asks itself wait for the end of the turn it asks in?
+
+    It asks during its own turn, and may work on: until that turn ends its screen shows no
+    question and it waits for nobody.  So it does wherever the seat's harness reports its
+    turns to ak by hook, the moment they end -- a harness whose turns only its screen shows
+    is asked at once, as it always was -- unless a question of its own already stands
+    unanswered: the owner is asked already, and a newer one takes that one's place.
+    """
+    try:
+        harness = seat_model(config.load(), name)[0]
+        hooked = harness and (config.manifest(harness).get("authority") or {}).get(
+            "working") == "hooks"
+    except config.Error:
+        return False
+    return bool(hooked) and not owner_question(notify.last(name))
+
+
+def turn_ended(name):
+    """Write down that the turn that seat asked in has ended, on the question it kept back:
+    by its stop hook as the stop stands, or by a look that finds it over.  The record's own
+    lock is all it takes, so it is on record whoever holds the notice then."""
+    if not isinstance(seat_read(name).get("unasked"), dict):
+        return      # nothing kept: a stop writes nothing
+    try:
+        with seat_lock(name):
+            data = seat_read(name)
+            kept = data.get("unasked")
+            if isinstance(kept, dict) and _stamp(kept.get("ended")) is None:
+                _seat_put(name, data, {"unasked": dict(kept, ended=time.time())})
+    except (OSError, config.Error):
+        pass
+
+
+def kept_asked(name, kept):
+    """That kept question is a notice now: drop it, unless the seat has kept another since."""
+    try:
+        with seat_lock(name):
+            data = seat_read(name)
+            if data.get("unasked") == kept:
+                _seat_put(name, data, {"unasked": None})
+    except (OSError, config.Error):
+        pass
+
+
+def ask_kept_back(name, harness, found, held=False):
+    """A fresh look found that seat's turn ended: the question it kept back is asked now.
+
+    Ended is a prompt, a draft there, or a Stop on background work -- never a dialog, which is
+    a turn waiting.  Its callers have just looked: `look_at`, the health pass after its own
+    look, and every typer under the seat's typing lock (`type_checked`, `held`), so no line
+    ak types opens a turn on a seat that stopped on a question before that question is asked.
+    `live_state` is itself read under that lock, which is the notice's own, so it asks
+    nothing.  The end goes on record first (`turn_ended`): a look that finds the notice lock
+    taken leaves the asking to whoever next holds it -- a typer, the owner's prompt
+    (`notify.answered`) or the next look.
+    """
+    kept = seat_read(name).get("unasked") if harness and found else None
+    if (not isinstance(kept, dict) or found.get("state") == "asking"
+            or not _composer_open(harness, found)):
+        return
+    turn_ended(name)
+    try:
+        if held:
+            notify.ask_kept(name)
+            return
+        with notify.session_lock(name, wait=False) as current:
+            if current:
+                notify.ask_kept(current)
+    except (config.Error, OSError):
+        pass
+
+
 def _background_stops(harness):
     """Hook events the manifest marks as background waits, or ().  No names live here."""
     try:
@@ -1795,7 +1875,8 @@ def look_at(session, cfg=None, pane=None, now=None):
 
     The observation `session_state` decides on, kept apart from it: this captures a pane and
     writes the classifier's own record, and the decision itself does neither.  A seat nobody
-    is in has no screen to read, and answers (None, {}).
+    is in has no screen to read, and answers (None, {}).  A look that finds the seat's turn
+    ended asks the question it kept back during it (`ask_kept_back`).
     """
     if any(session.get(key) for key in orch.CLOSED):
         return None, {}
@@ -1806,9 +1887,11 @@ def look_at(session, cfg=None, pane=None, now=None):
     if not harness:
         return None, {}
     try:
-        return harness, live_state(session, harness, pane=pane, cfg=cfg, now=now)
+        found = live_state(session, harness, pane=pane, cfg=cfg, now=now)
     except (config.Error, OSError):
         return harness, {}
+    ask_kept_back(session["name"], harness, found)
+    return harness, found
 
 
 def plan_text(name):
@@ -1856,7 +1939,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a worker token dies within a fortnight or is dead -- every session says so, on any
       harness, because any seat's next turn on it can be the one that fails;
     * a question on its screen is him even during a turn, and so is one it asked with `ak
-      notify needs` that nothing has answered; so is typed text nobody sent while no client
+      notify needs` that nothing has answered (its own, from the end of the turn it asked
+      in: `keeps_back`); so is typed text nobody sent while no client
       is attached and no turn is in flight -- the question, or `unsent: <text>` -- whatever
       its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
@@ -2074,8 +2158,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     gone = any(session.get(key) for key in orch.CLOSED)
     if (harness and not gone and found.get("state") in ("asking", "draft")
             and (found["state"] == "asking" or not session.get("attached"))
-            and (found["state"] == "asking" or not _turn_in_flight(harness, found)[0]
-                 or found.get("hooked_event") in _background_stops(harness))):
+            and (found["state"] == "asking" or _composer_open(harness, found))):
         asked = " ".join(str(found.get("evidence") or "").split())
         if found.get("state") == "draft":
             asked = f"unsent: {asked}"
@@ -2533,6 +2616,22 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None
     return True
 
 
+def kept_asked_first(session, harness=None, held=True):
+    """Before a key goes into that seat: a line or an Enter sent where its turn has ended
+    opens a new one, so a question it kept back for that end is asked first, on a look of
+    the typer's own, and what the typer reads next is the question as it always stood.
+    `held` says the caller holds the seat's typing lock, which is the notice's own."""
+    name = session["name"]
+    if not seat_read(name).get("unasked"):
+        return
+    try:
+        harness = harness or seat_model(config.load(), name)[0]
+        if harness:
+            ask_kept_back(name, harness, live_state(session, harness), held=held)
+    except (config.Error, OSError):
+        pass
+
+
 def type_checked(session, text, log, harness=None, guard=nullcontext,
                  veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak",
                  ready=lambda name: True):
@@ -2580,6 +2679,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             confirm = any(pattern.search(strip_sgr(line))
                           for line in pane_tail(pane_text(seat)).splitlines())
     with guard() as held:
+        kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):
             return False
         if not pending:
@@ -2980,6 +3080,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             if holds == "empty":
                 return not pane_unread(session)
             if holds == "line":
+                kept_asked_first(dict(session, name=held))
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     if not takes_line(session, cfg=cfg, midturn=midturn):
@@ -3613,6 +3714,7 @@ def health(cfg, state, dry_run, log):
                 # The gates below read this pass's answer and never the last one's.
                 live = ({} if blank or dry_run or session.get("exited")
                         else live_state(session, harness, pane=pane, cfg=cfg))
+                ask_kept_back(name, harness, live)
             at_prompt = (live or seat_read(name)).get("state") == "at_prompt"
             # Whether a login is expired is the `auth` verb's answer and never the pane's: a
             # pane showing that harness's own logout words is a trigger, and makes the verb
