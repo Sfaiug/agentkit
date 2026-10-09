@@ -3126,14 +3126,16 @@ def resume_review(lp, verified=None):
     identity = {} if lp.scratch else commit_identity(lp.wt)
     pending.update(identity)
     lp.save()
-    if pending["round"] > lp.rounds:
+    allowed = allowed_rounds(lp)
+    if pending["round"] > allowed:
         work = f"for commit {identity['head_sha']} (tree {identity['tree_sha']}) " if identity else ""
-        # a larger budget is only for asking up to the rule: past it the next step is the
-        # orchestrator's, and naming a `--rounds` that is refused would send it nowhere
+        # a larger budget is only for asking up to what the change has left: past it the next
+        # step is the orchestrator's, and naming a `--rounds` that is refused would send it nowhere
         onward = (f"resume with ak run resume {lp.run_dir.name} --rounds {pending['round']}"
-                  if pending["round"] <= taskfile.TASK_MAX_ROUNDS else "split or re-scope the task")
+                  if pending["round"] <= lineage_cap(lp.state, lp.run_dir)
+                  else "split or redesign the task")
         reason = (f"{pending.get('reason', 'unfinished review')}; done-when and review are pending "
-                  f"{work}at round {pending['round']}, but the round budget ({lp.rounds}) is spent; "
+                  f"{work}at round {pending['round']}, but the round budget ({allowed}) is spent; "
                   f"{onward}")
         note(lp, reason, failed=True)
         raise Exhausted(reason)
@@ -4219,7 +4221,7 @@ def rounds(lp, execv=None):
         # a review finished on a resume is the round's verdict
         if resume_review(lp) == "PASS":
             return
-    while lp.rnd < allowed_rounds(lp):
+    while round_allowed(lp):
         pickup_new_code(lp, execv=execv)
         lp.rnd += 1
         cut = continuation(lp)
@@ -4443,7 +4445,7 @@ def fix_after_failed_review(lp, upstream, how):
     if (lp.state.get("waiting_on") or {}).get("line"):
         return False
     what = f"the {how} of {upstream}"
-    while lp.rnd < allowed_rounds(lp):
+    while round_allowed(lp):
         fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
         if (lp.state.get("review") or {}).get("done_when") is False:
             # the output the review was given, still in the round directory it ran in
@@ -11067,15 +11069,33 @@ def change_on(branch, repo, exclude=None):
     return change_of(owner) if owner else None
 
 
+def rounds_spent(state):
+    """The review rounds a run spent: those with a verdict recorded (`round_summaries`), and
+    the one under way (`review_pending` past them, on a run still going), spent the moment it
+    starts so no other run of the change takes it too."""
+    recorded = len(state.get("round_summaries") or [])
+    pending = state.get("review_pending")
+    under_way = (isinstance(pending, dict) and (pending.get("round") or 0) > recorded
+                 and going(state))
+    return recorded + (1 if under_way else 0)
+
+
+def spent_line(spent, runs, what):
+    """Why no round is left: the one wording of a spent budget, wherever it is refused."""
+    return (f"{spent} review rounds spent on {what} across {runs} run{'s' if runs != 1 else ''}: "
+            f"{taskfile.TASK_MAX_ROUNDS} per pull request is the budget; split or redesign it")
+
+
 def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
-    """(the review rounds earlier runs spent on that pull request or on that change, how many
+    """(the review rounds other runs spent on that pull request or on that change, how many
     runs spent them): the budget is the change's, not the run's, so a relaunch inherits what
     was spent on it.
 
-    A round counts once its verdict was recorded (`round_summaries`).  A run is on the change
-    it carries (`change_of`), so every run launched `from:` a branch of the change, however
-    far down, owes the rounds of every other; and on its pull request, whatever the spelling
-    of its URL.  The run itself (`exclude`) counts for nothing.  Read-only.
+    A round counts once its verdict was recorded, or from its start on a run still going
+    (`rounds_spent`).  A run is on the change it carries (`change_of`), so every run launched
+    `from:` a branch of the change, however far down, owes the rounds of every other; and on
+    its pull request, whatever the spelling of its URL.  The run itself (`exclude`) counts
+    for nothing.  Read-only.
     """
     wanted = pr_key(pr)
     spent = runs = 0
@@ -11087,7 +11107,7 @@ def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
             continue
         on_pr = wanted is not None and wanted in (pr_key(state.get("pr")), pr_key(state.get("review_pr")))
         on_change = change is not None and change_of(state) == change
-        rounds = len(state.get("round_summaries") or [])
+        rounds = rounds_spent(state)
         if (on_pr or on_change) and rounds:
             spent += rounds
             runs += 1
@@ -11102,9 +11122,7 @@ def round_budget(asked, *, pr=None, change=None, exclude=None, what):
     spent, runs = rounds_spent_elsewhere(pr=pr, change=change, exclude=exclude)
     left = min(asked, taskfile.TASK_MAX_ROUNDS - spent)
     if left < 1:
-        return 0, (f"{spent} review rounds spent on {what} across {runs} "
-                   f"run{'s' if runs != 1 else ''}: {taskfile.TASK_MAX_ROUNDS} per pull request "
-                   "is the budget; split or redesign it")
+        return 0, spent_line(spent, runs, what)
     return left, None
 
 
@@ -11119,6 +11137,22 @@ def allowed_rounds(lp):
     never past what its change has left across its runs (`lineage_cap`), which another run of
     the change may have spent meanwhile."""
     return min(lp.rounds, lineage_cap(lp.state, lp.run_dir))
+
+
+def round_allowed(lp):
+    """Whether this run may spend another round: one of its own left, and one left on its
+    change across its runs.  Past the change's with rounds of its own left, the run ends
+    blocked with the reason, so its seat hears it: the task is what changes, split or
+    redesigned, and nothing a resume could spend."""
+    if lp.rnd >= lp.rounds:
+        return False
+    others, runs = rounds_spent_elsewhere(pr=lp.state.get("pr") or lp.state.get("review_pr"),
+                                          change=change_of(lp.state), exclude=lp.run_dir)
+    if lp.rnd + others >= taskfile.TASK_MAX_ROUNDS:
+        why = spent_line(lp.rnd + others, runs + (1 if lp.rnd else 0), "this change")
+        lp.log(f"BLOCKED {why}")
+        raise Blocked(why, f"## Blocked\n\n{why}")
+    return True
 
 
 def already_under_way(task_path, meta, title, cmds, exclude=None):
