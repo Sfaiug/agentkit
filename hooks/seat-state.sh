@@ -256,19 +256,25 @@ main() {
 
 # A seat's prompt carries where its current rulebook is, as the context its harness adds to
 # that prompt, until the seat says it read it; a harness that takes no context, a worker, a
-# client that is not the seat's own conversation and every other event print nothing.
+# client that is not the seat's own conversation and every other event print nothing.  A
+# compaction (a `SessionStart` from `compact`) leaves the conversation holding its
+# launch's rulebook again, which its next prompt is then told about.
 news() {
   local payload=$1 jq event
   [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || return 0
   jq=$(command -v jq) || return 0
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload")
-  [[ $event = UserPromptSubmit ]] || return 0
+  [[ $event = UserPromptSubmit || $event = SessionStart ]] || return 0
   /usr/bin/env python3 -c '
 import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import orch
 payload = json.loads(sys.stdin.read())
+if payload.get("hook_event_name") == "SessionStart":
+    if payload.get("source") == "compact":
+        orch.rulebook_compacted(sys.argv[2], payload.get("session_id"))
+    sys.exit(0)
 news = orch.rulebook_news(sys.argv[2], payload.get("session_id"))
 if news:
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",

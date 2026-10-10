@@ -2488,6 +2488,17 @@ def rulebook_news(session, conversation):
             f"`ak orch rules {told['code']}` to say you have.")
 
 
+def rulebook_compacted(session, conversation):
+    """A compaction keeps the launch's rulebook, which is in the system prompt, and drops what
+    the conversation read since, so it holds its launch's again: its next prompt tells it what
+    changed since then (`rulebook_news`), never a change it was told from rules it read since.
+    Without the seat's lock, which the typing of that `/compact` may hold: an `ak orch rules`
+    landing between the read and the write only means it is told once more."""
+    current = config.resolve_session(session)
+    if owns(config.session_records().get(current) or {}, conversation):
+        config.update_session(current, rulebook_read=None, rulebook_told=None)
+
+
 def rulebook_ack(name, code):
     """The seat's conversation read the rulebook its prompt named (`ak orch rules CODE`): its
     prompts stop naming it until the rules change again.  The code is the one that prompt
