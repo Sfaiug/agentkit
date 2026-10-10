@@ -341,20 +341,23 @@ def scan_safely(repo, log=lambda _: None, now=None):
 CARRIED = ("followup", "base_proof")
 
 
-def task_naming(path, repo):
-    """The task as written, its front matter naming `repo`, absolute: started again by the
-    tick, a task naming none, or a relative one, would be resolved in the tick's directory."""
+def task_naming(run_dir, directory, repo):
+    """The stopped run's task, started again in that directory: its front matter naming `repo`,
+    absolute -- started again by the tick, a task naming none, or a relative one, would be
+    resolved in the tick's directory -- and the new run where it names the stopped one (a fix
+    run's check, the regression script it may write and the run its search leaves out,
+    `run.start_followups`)."""
     from . import task
-    pairs, body = task.front_matter(path)
+    pairs, body = task.front_matter(run_dir / "task.md")
     return ("---\n" + "".join(f"{key}: {value}\n" for key, value in pairs if key != "repo")
-            + f"repo: {repo}\n---\n" + body)
+            + f"repo: {repo}\n---\n" + body.replace(run_dir.name, directory.name))
 
 
 def restart(log=print, now=None):
     """The tick's pass: a run stopped waiting on a holder (`park`) is started again once the
     holder has landed or is over (stopped or failed: its diff no longer counts) -- its task
-    naming its repository (`task_naming`), with its regression script and a fix run's receipt
-    (`CARRIED`), a new run of its seat (`run.launch_for_seat`).  The stopped run names the
+    naming its repository and the new run (`task_naming`), with a fix run's regression folder and
+    receipt (`CARRIED`), a new run of its seat (`run.launch_for_seat`).  The stopped run names the
     new one first, and the launch follows, under the lock a stop and a seat's close take (as
     `run.start_followups` holds it), so a stop before it calls it off, a closed seat gets none,
     and none starts twice whatever the launch did."""
@@ -381,10 +384,10 @@ def restart(log=print, now=None):
             directory.mkdir(parents=True)
             try:
                 (directory / "task.md").write_text(
-                    task_naming(run_dir / "task.md", state.get("repo")), encoding="utf-8")
-                if (run_dir / run.REGRESSION).is_file():
-                    (directory / run.REGRESSION).parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(run_dir / run.REGRESSION, directory / run.REGRESSION)
+                    task_naming(run_dir, directory, state.get("repo")), encoding="utf-8")
+                if (run_dir / run.REGRESSION.parent).is_dir():      # links kept as links
+                    shutil.copytree(run_dir / run.REGRESSION.parent,
+                                    directory / run.REGRESSION.parent, symlinks=True)
                 (directory / "log.txt").touch()
                 run.logger(directory)(f"started again for {run_dir.name}: {why}; its earlier "
                                       f"attempt is kept on branch {state.get('branch')}")

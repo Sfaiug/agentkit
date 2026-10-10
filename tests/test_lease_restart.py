@@ -160,30 +160,43 @@ class LeaseRestart(LiveRuns):
         self.assertFalse(stop.stoppable(self.state(YOUNGER)))        # nothing left to call off
 
     def test_a_parked_fix_runs_receipt_rides_into_its_restart(self):
-        self.collide(session="seat-a")
-        directory = config.RUNS / YOUNGER
-        (directory / "task.md").write_text(TASK)
-        (directory / run.REGRESSION).parent.mkdir(parents=True)
-        (directory / run.REGRESSION).write_text("exit 1\n")
-        record.save_state(directory, {**record.read_state(directory), "first": True,
-                                      "followup": {"run": "run-0", "text": "api.py:1 - a defect",
-                                                   "place": "api.py:1"},
-                                      "base_proof": "regression.sh"})
-        leases.scan(self.repo, now=2000)
-        # the seat's next merge with evidence at the same site starts no second fix run
-        again = {"run_id": "run-1", "repo": str(self.repo), "launched_session": "seat-a"}
-        self.assertEqual(run.open_followup(again, "api.py:1 - again"), YOUNGER)
-        self.land(OLDER)
-        with patch.object(watch, "seat_closed", return_value=False), \
-                patch.object(run, "preflight"), patch.object(run, "spawn_bg"):
-            leases.restart(log=self.logs.append, now=3000)
-        fresh, = self.started_again()
-        self.assertEqual(run.open_followup(again, "api.py:1 - again"), fresh.name)
-        state = record.read_state(fresh)
-        self.assertEqual(state["followup"], {"run": "run-0", "text": "api.py:1 - a defect",
-                                             "place": "api.py:1"})
-        self.assertEqual((state["base_proof"], state["first"]), ("regression.sh", True))
-        self.assertEqual((fresh / run.REGRESSION).read_text(), "exit 1\n")
+        def naming(name):       # a fix run's task names its run, as `run.start_followups` writes it
+            return (TASK.replace("Change it.", f"Exclude this run ({name}).")
+                    .replace("true", f"bash {config.RUNS / name / run.REGRESSION}"))
+
+        for script in ("exit 1\n", None):          # written already, or not yet
+            with self.subTest(script=script):
+                self.setUp()
+                self.collide(session="seat-a")
+                directory = config.RUNS / YOUNGER
+                (directory / "task.md").write_text(naming(YOUNGER))
+                (directory / run.REGRESSION).parent.mkdir(parents=True)
+                if script:
+                    (directory / run.REGRESSION).write_text(script)
+                record.save_state(directory, {
+                    **record.read_state(directory), "first": True, "base_proof": "regression.sh",
+                    "followup": {"run": "run-0", "text": "api.py:1 - a defect", "place": "api.py:1"}})
+                leases.scan(self.repo, now=2000)
+                # the seat's next merge with evidence at the same site starts no second fix run
+                again = {"run_id": "run-1", "repo": str(self.repo), "launched_session": "seat-a"}
+                self.assertEqual(run.open_followup(again, "api.py:1 - again"), YOUNGER)
+                self.land(OLDER)
+                with patch.object(watch, "seat_closed", return_value=False), \
+                        patch.object(run, "preflight"), patch.object(run, "spawn_bg"):
+                    leases.restart(log=self.logs.append, now=3000)
+                fresh, = self.started_again()
+                self.assertEqual(run.open_followup(again, "api.py:1 - again"), fresh.name)
+                state = record.read_state(fresh)
+                self.assertEqual(state["followup"], {"run": "run-0", "text": "api.py:1 - a defect",
+                                                     "place": "api.py:1"})
+                self.assertEqual((state["base_proof"], state["first"]), ("regression.sh", True))
+                # its check is the script its executor may write, and the gate proves
+                self.assertEqual((fresh / "task.md").read_text(),
+                                 naming(fresh.name).replace("repo: acme", f"repo: {self.repo}"))
+                self.assertTrue((fresh / run.REGRESSION).parent.is_dir())
+                self.assertEqual(run.regression_script(fresh).is_file(), bool(script))
+                if script:
+                    self.assertEqual(run.regression_script(fresh).read_text(), script)
 
     def test_a_holder_that_ended_with_nothing_landed_frees_the_wait_too(self):
         self.collide()
