@@ -181,10 +181,12 @@ class FixRunHandsIn(unittest.TestCase):
             "reviewer": [{"text": gate.fail(1).replace("file.py:1", "broken.py:2")},
                          {"text": gate.PASS}]}))
         code, state = self.drive(child)
-        self.assertEqual((code, state["state"]), (0, "pass"))
-        self.assertTrue(state["merged"])
+        # a later not-needed changes nothing, so ak's replay of round one's finding keeps
+        # blocking whatever the reviewer says, each round checked and reviewed until none is left
+        self.assertEqual((code, state["state"]), (1, "fail"))
+        self.assertFalse(state["merged"])
         self.assertTrue(state["regression_checked"])
-        self.assertEqual(len(state["round_summaries"]), 2)
+        self.assertEqual([row["finding_count"] for row in state["round_summaries"]], [1, 1, 1])
         self.assertNotIn("not_needed", state)
 
     def test_resume_keeps_the_blocked_closing(self):
