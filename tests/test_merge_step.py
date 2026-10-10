@@ -264,7 +264,9 @@ class MergeStep(unittest.TestCase):
 
         def fixer(lp2, role, text, name):
             turns.append((name, lp2.rnd, text))
+            lp2.state.update(verdict=None, review=None)     # as execute() clears before a fixer
             (wt / f"fix{len(turns)}.txt").write_text("fixed\n")
+            (wt / "fix1.txt").write_text(f"fixed {len(turns)}\n")   # the cited file changes too
             run.git(wt, "add", ".")
             run.git(wt, "commit", "-m", "fix")
             return "## Summary\nFixed."
@@ -462,7 +464,10 @@ class MergeStep(unittest.TestCase):
 
         def fixer(lp2, role, text, name):
             turns.append((name, text))
-            return resolve(wt) if name == "rebase-fixer" else "## Summary\nFixed the findings."
+            if name == "rebase-fixer":
+                return resolve(wt)
+            (wt / "shared").write_text("both intents, mended\n")      # the fix changes the cited file
+            return "## Summary\nFixed the findings."
 
         verdicts = iter(["FAIL", "PASS"])
 

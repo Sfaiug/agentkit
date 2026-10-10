@@ -57,12 +57,13 @@ class OwnPrFixer(OwnPr):
         self.resume.assert_not_called()
 
     def test_a_fixer_that_commits_nothing_has_the_same_head_reviewed_again(self):
+        # ... and, its finding neither fixed nor disputed, ak's own replay of the proof blocks
+        # whatever the reviewer says, round after round, until the rounds are spent
         self.fix = lambda lp: None
-        state = self.review(["FAIL", "PASS"])
-        self.assertTrue(state["merged"])
-        self.assertEqual([s["head_sha"] for s in state["round_summaries"]], [self.heads[0]] * 2)
-        self.assertEqual(len(self.fixes), 1)
-        self.assertEqual(self.merges[0][-1], self.heads[0])
+        state = self.review(["FAIL", "PASS", "PASS"])
+        self.assertEqual((state["state"], state["merged"]), ("fail", False))
+        self.assertEqual([s["head_sha"] for s in state["round_summaries"]], [self.heads[0]] * 3)
+        self.assertEqual((len(self.fixes), self.merges), (2, []))
 
     def test_a_head_pushed_by_hand_before_the_fix_is_reviewed_instead(self):
         post = run.post_review
@@ -153,7 +154,6 @@ class OwnPrFixer(OwnPr):
         self.assertEqual(self.reviewers, ["astra", "grok", "grok"])
 
     def test_what_the_fixer_said_reaches_the_next_reviewer(self):
-        self.fix = lambda lp: None
         self.fix_summary = "## Summary\nWHY-MARKER: the flag is read by nobody; nothing to fix."
         state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])
@@ -161,7 +161,6 @@ class OwnPrFixer(OwnPr):
         self.assertNotIn("fix_summary", state)
 
     def test_what_the_fixer_said_reaches_a_reviewer_resumed_after_a_cut(self):
-        self.fix = lambda lp: None
         self.fix_summary = "## Summary\nWHY-MARKER: the flag is read by nobody; nothing to fix."
         reviewer, cut = self.reviewer, []
 
@@ -302,14 +301,16 @@ class OwnPrFixer(OwnPr):
 
         with patch.object(run, "pickup_new_code", side_effect=moved), \
                 self.assertRaises(InterruptedError):
-            self.review(["FAIL", "PASS"])
+            self.review(["FAIL", "PASS", "PASS"])
         saved = record.read_state(self.run_dir)
         saved.update(state="queued", pid=999999991)
         record.save_state(self.run_dir, saved)
-        state = self.review(["FAIL", "PASS"])
-        self.assertTrue(state["merged"])
-        self.assertEqual((len(self.fixes), len(self.prompts)), (1, 2))    # no second turn
-        self.assertEqual([s["head_sha"] for s in state["round_summaries"]], [self.heads[0]] * 2)
+        state = self.review(["FAIL", "PASS", "PASS"])
+        # the finished turn is not run again; its finding, neither fixed nor disputed, keeps
+        # ak's replay blocking, so round three gets a turn of its own and the rounds run out
+        self.assertEqual((len(self.fixes), len(self.prompts)), (2, 3))
+        self.assertEqual((state["state"], state["merged"]), ("fail", False))
+        self.assertEqual([s["head_sha"] for s in state["round_summaries"]], [self.heads[0]] * 3)
 
     def test_a_crash_after_the_push_pushes_nothing_again_and_reviews(self):
         pushes = []

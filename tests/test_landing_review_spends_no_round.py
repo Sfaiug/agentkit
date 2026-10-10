@@ -59,6 +59,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertIn("work.txt:1 - the merged tree breaks", text)
         self.events.append(("fixer", lp.rnd))
         lp.round_dir.mkdir(parents=True, exist_ok=True)
+        (lp.wt / "work.txt").write_text("mended\n")        # the fix changes the cited file
         return "## Summary\nFixed the findings."
 
     def pending_merge(self, spent=3):

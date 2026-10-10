@@ -280,10 +280,18 @@ out = pathlib.Path(sys.argv[6])
         def execute(lp, role, body, *_args, **_kw):
             lp.round_dir.mkdir(parents=True, exist_ok=True)
             calls.append((role, body))
+            if role == "fixer":
+                # the fix mends the regression the blocking finding proved, as a fix does
+                (self.wt / "api.py").write_text(
+                    (self.wt / "api.py").read_text().replace('mode = "branch"', 'mode = "base"'))
             return "## Summary\nFixture"
 
         with patch.object(run, "execute", side_effect=execute), patch.object(run, "pickup_new_code"):
             run.rounds(self.lp)
+        # a fix leaves a commit of its own on the reviewed head, and the checkout stands on it
+        fixed = run.git(self.wt, "rev-parse", "HEAD")
+        self.assertEqual(run.git(self.wt, "merge-base", fixed, self.head), self.head)
+        self.head = fixed
         self.assert_restored()
         return calls
 
