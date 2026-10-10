@@ -143,8 +143,22 @@ class TimeSplit(PhaseRows):
         self.assertEqual(scoreboard.compute(NOW)["merged"][0],
                          {"model": 1.0, "ak": 0.0, "waiting": 0.0, "seat": 1.5})
 
+    def test_a_wait_counted_past_its_row_by_a_clock_correction_keeps_its_change(self):
+        # a slot wait counted 600 monotonic seconds while the wall clock, stepped back 10 s,
+        # moved 590 between its row's ends; then a step ran
+        history.start_run("stepped", repo="/home/fixture/code/acme", started_at=NOW - 3 * HOUR,
+                          change="stepped")
+        history.add_wait("stepped", "slot", 600, NOW - 3 * HOUR + 590, began=NOW - 3 * HOUR)
+        history.open_step("stepped", "executor", NOW - 2 * HOUR)
+        history.close_step("stepped", NOW - HOUR)
+        history.finish_run("stepped", final_state="pass", finished_at=NOW - HOUR, changed_lines=0)
+        self.assertEqual({part: round(value, 3) for part, value in
+                          scoreboard.split_hours(history.get("stepped")).items()},
+                         {"model": 1.0, "ak": 0.0, "waiting": 0.164})
+        self.assertIsNotNone(scoreboard.compute(NOW)["merged"][0])
+
     def test_a_change_with_a_run_from_before_the_phase_rows_is_not_recorded(self):
-        # its columns count seconds no row holds: a run from before the rows, or one that began
+        # its step columns count seconds no step row holds: a run from before the rows, or one that began
         # before them and ended after, with rows for its later part only
         self.ended("spanning", "spanning", -6, -1, "pass", ("merge wait", -2, -1))
         history.add_seconds("spanning", "executor", HOUR)
