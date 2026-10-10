@@ -3563,8 +3563,8 @@ def followups_handed(run_dir, state, handed):
     so nothing written there meanwhile -- a stop, a delivery's mark -- is put back.  Read and
     written under `delivery_lock` too, taken inside the recovery lock as `reap` takes it: a
     delivery's mark lands before the read or after the write, never between them.  Then into
-    the result, the one place that names them: a merge is typed into no seat
-    (`routine_ending`)."""
+    the result, the one place that names them: a merge's ending, typed or only recorded
+    (`routine_ending`), does not."""
     state.update(handed)
     with run_record.recovery_lock(run_dir), delivery_lock(run_dir), \
             run_record.record(run_dir) as current:
