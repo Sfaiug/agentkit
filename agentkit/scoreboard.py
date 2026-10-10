@@ -16,13 +16,14 @@ PARTS = (("model", ("executor", "reviewer")), ("ak", ("done-when", "merge")),
 
 def split_hours(row):
     """A run's hours in each of `PARTS`, read from its phase rows so that no second is in two;
-    zero for a run that ran no step, and None for one whose step and wait columns count seconds
-    its rows do not hold: it began before the rows were kept."""
+    zero for a run with no phase row, and None for one whose step columns count seconds its
+    step rows do not hold: it began before the rows were kept.  Steps are compared alone: a
+    step's column and row both read the wall clock, while a wait's column counts monotonic
+    seconds that a clock correction sets apart from its row."""
     rows = [phase for phase in history.phases(row["run_id"]) if phase["ended_at"] is not None]
-    kept = sum(phase["ended_at"] - phase["started_at"] for phase in rows)
-    counted = sum(row.get(column) or 0 for column in (*history.STEP_COLUMNS.values(),
-                                                      *history.WAIT_COLUMNS.values()))
-    if counted > kept + 1:
+    kept = sum(phase["ended_at"] - phase["started_at"] for phase in rows
+               if phase["phase"] in history.STEP_COLUMNS)
+    if sum(row.get(column) or 0 for column in history.STEP_COLUMNS.values()) > kept + 1:
         return None
     edges = sorted({edge for row in rows for edge in (row["started_at"], row["ended_at"])})
     hours = {part: 0.0 for part, _ in PARTS}
