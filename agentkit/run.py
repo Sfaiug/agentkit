@@ -4196,11 +4196,16 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.log(f"WARN {overridden}; overriding to FAIL")
     record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
-    # kept whatever the verdict, every round's, with the commit each was proven on for its plan line
+    # kept whatever the verdict, every round's, with the commit each was proven on for its plan
+    # line; once per check, as a plan holds it: a follow-up of this change names its round's head
     kept = lp.state.get("followups") or []
-    lp.state["followups"] = kept + [item for item in submitted.followups if item not in kept]
-    lp.state["followup_checks"] = {**(lp.state.get("followup_checks") or {}), **submitted.followup_checks}
-    lp.state["followup_commits"] = {**(lp.state.get("followup_commits") or {}), **submitted.followup_commits}
+    checks = lp.state.get("followup_checks") or {}
+    fresh = [item for item in submitted.followups
+             if item not in kept and submitted.followup_checks.get(item) not in checks.values()]
+    lp.state["followups"] = kept + fresh
+    for key, found in (("followup_checks", submitted.followup_checks),
+                       ("followup_commits", submitted.followup_commits)):
+        lp.state[key] = {**(lp.state.get(key) or {}), **{item: found[item] for item in fresh if item in found}}
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)
         # A landing re-review with a pending suite keeps the task's probe base.

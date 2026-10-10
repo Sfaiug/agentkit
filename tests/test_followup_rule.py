@@ -121,6 +121,21 @@ class FollowupRule(unittest.TestCase):
         self.assert_followups([DEFECT, OTHER, updated])
         self.assertIn("## Follow-ups", run.pr_body(self.lp.state))
 
+    def test_a_follow_up_handed_in_again_on_a_new_head_is_kept_once(self):
+        def weighed(head):
+            row = {"kind": "follow-up", "path": "a.py", "line": 1, "what": "empty input crashes",
+                   "why": "callers crash", "evidence": {"run": "false", "commit": head,
+                                                       "returncode": 1, "output": ""}}
+            return lambda *_args, **_kw: hand_in.Review([row, {"kind": "done"}])
+        for head in ("1" * 40, "2" * 40):   # the fixer's commit between rounds moves the head
+            with patch.object(run, "weigh_review", side_effect=weighed(head)):
+                self.review()
+            self.lp.rnd += 1
+        [item] = self.lp.state["followups"]
+        self.assertIn("Commit " + "1" * 40, item)
+        self.assertEqual(self.lp.state["followup_checks"], {item: "false"})
+        self.assertEqual(self.lp.state["followup_commits"], {item: "1" * 40})
+
     def test_a_pass_overridden_by_the_loop_keeps_its_followups_too(self):
         self.review(OTHER)
         for ok, code in ((False, 0), (True, 1)):
