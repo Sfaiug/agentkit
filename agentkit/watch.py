@@ -5813,9 +5813,9 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
             log(f"would tell its launching seat: {line}")
             return "passed", None, None
         session = run.launched_session(st)
-        if run.routine_ending(st):
-            # its seat owes no work, so no turn of its waits on this (`awaiting_live`): recorded,
-            # never typed, and a line an earlier pass typed and never saw sent is sent
+        if run.seat_owes_nothing(st):
+            # no turn of its seat's waits on this (`awaiting_live`), a repair's included:
+            # recorded, never typed, and a line an earlier pass typed and never saw sent is sent
             if run.finish_typed(session, st.get("live_typed"), log):
                 with run_record.record(run_dir) as current:
                     current["live_notified"] = now

@@ -7869,19 +7869,26 @@ def announce_safely(state, run_dir, log, cfg=None):
 ROUTINE_NOTE = "routine ending: recorded, not typed"
 
 
+def seat_owes_nothing(state):
+    """Whether the seat that launched the run owes no work (`stop.owed`): then no turn of its
+    waits on the run or on its change going live, and either is recorded, never typed.  A
+    seat that owes work may have ended its turn on that very wait (`stop.recorded_ending`),
+    so for it the ending, or the change going live (`watch.after_merge_health`), is the end
+    of the wait and goes to it like any other."""
+    session = launched_session(state)
+    return not (session and stop.owed(session))
+
+
 def routine_ending(state):
     """An ending nothing is the seat's to decide about: a merge, or a `not needed`, while the
-    seat that launched it owes no work.  What it started (fix runs, plan lines) is in its
-    result and the seat's plan; `ak run status` names it; a change going live is recorded the
-    same way (`watch.after_merge_health`).  A seat that owes work (`stop.owed`) may have ended
-    its turn waiting on this run or its going live (`stop.recorded_ending`), so for it this is
-    the end of that wait and goes to it like any other ending.  A red target's repair is
-    routine whatever its seat owes: the runs parked on it retry by themselves, and their own
-    endings end the seat's wait."""
+    seat that launched it owes no work (`seat_owes_nothing`).  What it started (fix runs,
+    plan lines) is in its result and the seat's plan, and `ak run status` names it.  A red
+    target's repair's merge is routine whatever its seat owes: the runs parked on it retry by
+    themselves, and their own endings end the seat's wait -- its going live is not, as the
+    hook counts that wait."""
     if not (state.get("merged") or state.get("state") == "not_needed"):
         return False
-    session = launched_session(state)
-    return bool(state.get("repair")) or not (session and stop.owed(session))
+    return bool(state.get("repair")) or seat_owes_nothing(state)
 
 
 def finish_typed(session, mark, log, cfg=None):

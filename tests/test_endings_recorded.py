@@ -161,6 +161,20 @@ class LiveRecorded(HealthAfterMerge):
         self.tick(now=NOW + 120)
         self.assertEqual(len(self.lines), 1)                # once
 
+    def test_a_repairs_change_going_live_reaches_a_seat_that_owes_work_too(self):
+        """Its merge is routine, the runs parked on it retrying by themselves; its going live
+        is the wait the hook let the seat's turn end on, and ends it."""
+        config.plan_path(MERGED_SEAT).write_text(OPEN)
+        directory = self.merged(self.declare("test -e deployed"))
+        with record.record(directory) as current:
+            current["repair"] = {"target": "main", "command": "false"}
+        self.tick()
+        with patch.object(watch.time, "time", return_value=NOW):
+            self.assertEqual(stop.recorded_ending(MERGED_SEAT), (True, []))
+        (self.repo / "deployed").touch()
+        self.tick(now=NOW + 60)
+        self.assertEqual(self.lines, [(MERGED_SEAT, f"run {directory.name} is live: {PR}.")])
+
     def test_a_live_line_an_earlier_install_left_unsent_is_sent_never_dropped(self):
         directory = self.merged(self.declare("exit 0"), age=watch.AFTER_MERGE_WINDOW + 60)
         mark = {"line": f"run {directory.name} is live: {PR}.", "seat": 100}
