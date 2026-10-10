@@ -332,8 +332,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
     directories the command may also write; `hidden` are literal files it reads as empty, as it
-    does the credentials. With an out dir, /run is copied without services
-    or /run/user, and temporary and runtime directories are the box's own, empty. Everything
+    does the credentials. With an out dir, /run is copied without services or /run/user, and
+    temporary and runtime directories are the box's own, empty. Everything
     else is read-only; `home_overlay` gives checks throwaway writes in the account's home and
     HOME without child mounts, beneath the writable places and credential masks.
     """
