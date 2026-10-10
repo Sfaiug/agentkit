@@ -524,19 +524,21 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
         self.assertNotIn("deferred", run.planned_followups(ended))
 
-    def test_the_ending_names_a_line_as_the_plan_holds_it(self):
+    def test_a_line_of_the_seats_own_is_the_runs_once_a_later_merges_run_takes_its_check(self):
         # the seat's own line, from a merge no executor was marked for ...
         line = plan.add("seat", "Fix " + DEFECT, CHECK, self.repo,
                         proven=self.git(self.repo, "rev-parse", "origin/main"), deferred=False)
         self.assertEqual(plan.open_lines("seat"), [line])
         self.assertFalse(plan.deferred(line))
-        # ... stands as it was when a later merge's fix run takes the same check
+        # ... is kept, deferred, once a later merge's fix run takes the same check: the seat
+        # and the run never build one fix twice, and the result says which the line is now
         later, state = self.source("later", followup_checks={DEFECT: CHECK})
         self.assertEqual(len(self.start(later, state)), 1)
-        self.assertEqual(plan.open_lines("seat"), [line])
-        ended = record.read_state(later)
-        self.assertIn("now in your plan, yours to build: Fix broken.py:1", (later / "result.md").read_text())
-        self.assertNotIn("deferred", run.planned_followups(ended))
+        [kept] = plan.open_lines("seat")
+        self.assertEqual(kept.replace(plan.DEFERRED, ""), line)
+        self.assertTrue(plan.deferred(kept))
+        self.assertIn("now deferred in your plan: Fix broken.py:1", (later / "result.md").read_text())
+        self.assertNotIn("yours to build", run.planned_followups(record.read_state(later)))
 
     def test_a_followup_whose_run_could_not_start_keeps_its_line_owed(self):
         other = "python3 -c 'from other import ratio; ratio(0)'"

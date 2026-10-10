@@ -3415,9 +3415,10 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     A review follow-up becomes a line in the seat's own plan, checked by its failing command,
     and a fix run of its own with that command as its done-when: every planned item's line is
     written in one place, once the runs are settled, however the loop ended -- deferred,
-    holding no done, where a run took the item (started here, or already open with that
-    check), and the seat's own to build where none did: the session marks no executor, the
-    launch failed, or a stop cut the loop short.  Anything else on the list (a flaky check's
+    holding no done, where a run has the item (started here, or open with that check from
+    an earlier merge), and the seat's own to build where none does: the session marks no
+    executor, the launch failed, or a stop cut the loop short; a line an earlier merge wrote
+    is kept, its mark following.  Anything else on the list (a flaky check's
     evidence) starts an ordinary run with a regression test of its own.  The receipt is
     written once the list is handed
     on: a process cut off before that hands it on again, and each item finds what the cut-off
@@ -3464,10 +3465,13 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
 
         def plan_lines():
             """Every planned item's line, once, however the loop ended: deferred where a run
-            took it, the seat's own to build otherwise."""
+            has it (taken here, or open with its check from an earlier merge, which a stop
+            or a seat with no executor never asked), the seat's own to build otherwise."""
             handed["followup_plan"] = [
                 plan_followup(session, repo, item, checks[item],
-                              commits.get(item) or state.get("base_sha"), log, deferred=item in taken)
+                              commits.get(item) or state.get("base_sha"), log,
+                              deferred=item in taken or bool(open_followup(
+                                  {**state, "repo": str(repo)}, item, check=checks[item])))
                 for item in planned]
 
         cfg = report_config(cfg)
@@ -3603,8 +3607,8 @@ def plan_followup(session, repo, item, check, proven, log, deferred=True):
     """Write one review follow-up into the seat's plan, unless an open line already holds its
     check in this project; the entry the run's ending names it by, or why the plan refused it.
     `proven` is the commit the check failed on, which the line names; the line is `deferred`
-    where a fix run takes it.  The entry says how the plan holds the line: an open line that
-    already held the check stands as it was, whatever this merge asked."""
+    where a fix run has it.  The entry says how the plan holds the line: an open line that
+    already held the check is kept, deferred or the seat's own as this merge finds it."""
     from . import plan   # here, not at the top: a seat's small verb, this the loop
     outcome = "Fix " + item.splitlines()[0].replace("·", "-")
     try:

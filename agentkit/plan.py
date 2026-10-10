@@ -480,13 +480,20 @@ def still_done(name, proven):
                            f"first: {left[0]}; run `ak notify done` again")
 
 
+def compose(what, proof, where, deferred, stamp, base):
+    """An open line as `add` writes it."""
+    return (f"- [ ] {what} · {proof} · {where}" + (DEFERRED if deferred else "")
+            + f" · written {stamp}" + (f" on {base}" if base else ""))
+
+
 def add(name, what, check=None, repo=None, proven=None, deferred=False):
-    """Append an open line to the seat's plan, or return the open line that already holds this
-    check in this project.  A review follow-up names the run's project as `repo`, and as
-    `proven` the commit its check already failed on (the review's base, or the reviewed commit
-    for a defect of the change): the check is not run again first, and that commit's history
-    names the repository, whatever is checked out; and it is `deferred`, a run's to fix, so the
-    line holds no done."""
+    """Append an open line to the seat's plan, or keep the open line that already holds this
+    check in this project, deferred or the seat's own as this call asks.  A review follow-up
+    names the run's project as `repo`, and as `proven` the commit its check already failed on
+    (the review's base, or the reviewed commit for a defect of the change): the check is not
+    run again first, and that commit's history names the repository, whatever is checked out;
+    and it is `deferred` where a run has it, so the line holds no done, the seat's own where
+    none has it any more."""
     what = " ".join(what.split())
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")
@@ -508,17 +515,19 @@ def add(name, what, check=None, repo=None, proven=None, deferred=False):
     where = named(repo, found)
     if "·" in where:
         raise config.Error(f"{where}: a project a line names holds no `·`")
-    stamp = time.strftime("%Y-%m-%d %H:%M")
     proof = f"check: `{check}`" if check is not None else EYE
-    line = (f"- [ ] {what} · {proof} · {where}" + (DEFERRED if deferred else "")
-            + f" · written {stamp}" + (f" on {base}" if base else ""))
     with held(name) as current:
         text = lines(current)
-        for old in text:
+        for index, old in enumerate(text):
             parsed = LINE.match(old.strip())
             if (check is not None and parsed and is_open(old)
                     and parsed["check"] == check and parsed["project"] == where):
-                return old.strip()     # an open line already holds this check here
+                # the open line already holding this check here is kept, its mark as asked
+                kept = compose(parsed["what"], proof, where, deferred, parsed["when"], parsed["base"])
+                if kept != old.strip():
+                    write(current, [*text[:index], kept, *text[index + 1:]])
+                return kept
+        line = compose(what, proof, where, deferred, time.strftime("%Y-%m-%d %H:%M"), base)
         write(current, [*text, line])
     return line
 

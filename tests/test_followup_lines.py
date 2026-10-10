@@ -50,6 +50,20 @@ class Planned(Sandbox):
         return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
                               capture_output=True, text=True).stdout.strip()
 
+    def test_an_open_line_holding_the_check_is_kept_with_the_mark_the_call_asks(self):
+        own = plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
+                       proven=self.base, deferred=False)
+        self.assertFalse(plan.deferred(own))
+        kept = plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
+                        proven=self.base, deferred=True)          # a run takes it ...
+        self.assertEqual(kept.replace(plan.DEFERRED, ""), own)
+        self.assertEqual(plan.open_lines(SEAT), [kept])           # ... no duplicate ...
+        self.assertFalse(stop.owed(SEAT))                         # ... and the seat owes nothing
+        self.assertEqual(plan.add(SEAT, "Fix it another way", "test -f feature.txt", self.repo,
+                                  proven=self.base, deferred=False), own)   # none has it any more
+        self.assertEqual(plan.open_lines(SEAT), [own])
+        self.assertTrue(stop.owed(SEAT))
+
     def test_a_deferred_line_is_open_yet_owed_by_nobody_and_ticks_itself(self):
         line = plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
                         proven=self.base, deferred=True)
