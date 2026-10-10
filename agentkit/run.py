@@ -7200,6 +7200,7 @@ def record_decision(run_dir, state, reason, merged=False):
     run_record.save_state(run_dir, state)
     if merged:
         history_finish(state)
+        settle_delivered_line(state, logger(run_dir))
         start_followups(state, run_dir, logger(run_dir))
     result = run_dir / "result.md"
     try:
@@ -7961,21 +7962,27 @@ def routine_ending(state):
     plan lines) is in its result and the seat's plan, and `ak run status` names it.  A red
     target's repair's merge is routine whatever its seat owes: the runs parked on it retry by
     themselves, and their own endings end the seat's wait -- its going live is not, as the
-    hook counts that wait.  A fix run's delivery runs its seat's plan checks first
-    (`plan.delivery`): its line ticks where its check passes on the default branch, and where
-    it still fails -- a merge that did not fix it, a `not needed` misjudged -- the line is
-    the seat's own and the ending goes to it."""
+    hook counts that wait.  A fix run's delivery has settled its line as it ended
+    (`settle_delivered_line`): ticked where its fix is on the default branch, the seat's own
+    where its check still fails, and then the ending goes to it.  Read only: it runs nothing."""
     if not delivered(state):
         return False
-    if state.get("repair"):
-        return True
-    if (state.get("followup") or {}).get("check") and not seat_owes_nothing(state):
-        from . import plan   # here, not at the top: a seat's small verb, this the loop
-        try:
-            plan.delivery(launched_session(state), state["followup"]["check"])
-        except config.Error:
-            pass        # an unread plan is the seat's: the ending goes to it
-    return seat_owes_nothing(state)
+    return bool(state.get("repair")) or seat_owes_nothing(state)
+
+
+def settle_delivered_line(state, log):
+    """A fix run that delivered -- merged, or found its fix not needed -- runs its line's check
+    in its seat's plan once, as it ends, and nothing else of that plan (`plan.delivery`): the
+    line ticks where its fix is on the default branch, and is the seat's own where its check
+    still fails or could not run."""
+    check, session = (state.get("followup") or {}).get("check"), launched_session(state)
+    if not (check and session and delivered(state)):
+        return
+    from . import plan   # here, not at the top: a seat's small verb, this the loop
+    try:
+        plan.delivery(session, check)
+    except (config.Error, OSError) as exc:
+        log(f"WARN could not check its line in {session}'s plan: {exc}")
 
 
 def finish_typed(session, mark, log, cfg=None):
@@ -9897,6 +9904,7 @@ def update_scope_line(run_dir, state):
 
 
 def finish(state, run_dir, log, cfg=None):
+    settle_delivered_line(state, log)
     try:
         start_followups(state, run_dir, log, cfg)
     except run_record.StopRequested as exc:

@@ -387,13 +387,13 @@ def taken(name, line, delivered=False):
 
 
 def delivery(name, check):
-    """A fix run of the seat delivered `check`'s line -- merged, or found it not needed: the
-    plan's checks run (`verify`), ticking it where its fix is on the default branch.  Where
+    """A fix run of the seat delivered `check`'s line -- merged, or found it not needed: that
+    line's check runs (`verify`), ticking it where its fix is on the default branch.  Where
     its check still fails, or could not run, no run has it and the seat owes it, which the
     line then says too, its deferred mark dropped as `recheck` drops it: built by the seat,
     the done lists it (`outcomes`), never taking it for that delivery's work (`taken`)."""
     try:
-        verify(name)
+        verify(name, check=check)       # that line's check alone: the seat's others are its own
     except config.Error:
         pass        # unchecked: the line stays open
     mine = {line.strip() for line in lines(name) if deferred(line)
@@ -443,12 +443,13 @@ def outcomes(name):
     return sorted(set(result))
 
 
-def verify(name, every=False):
-    """The open lines left once the plan's checks ran (`_verify`)."""
-    return _verify(name, every)[0]
+def verify(name, every=False, check=None):
+    """The open lines left once the plan's checks ran (`_verify`): only the lines holding
+    `check`, where one is given."""
+    return _verify(name, every, check)[0]
 
 
-def _verify(name, every):
+def _verify(name, every, check=None):
     """Run the open check lines on their project's default branch now: each that passes is
     ticked, naming that commit, each check from a clean checkout of it.  With `every`, ticked
     check lines run too, and one that fails there -- or does not finish, or names a project
@@ -458,16 +459,17 @@ def _verify(name, every):
     added meanwhile stays and these results are the ones the open lines are counted from.
     Returns the plan's open lines left."""
     with verifying(name):
-        return _verify_held(name, every)
+        return _verify_held(name, every, check)
 
 
-def _verify_held(name, every):
+def _verify_held(name, every, check=None):
     checks = {}
     with held(name) as current:
         snapshot = lines(current)
     for line in snapshot:
         found = LINE.match(line.strip())
-        if found and found["check"] and (every or is_open(line)):
+        if (found and found["check"] and (every or is_open(line))
+                and (check is None or found["check"].strip() == check.strip())):
             # lines alike are one check, run once: its result is every one of theirs
             checks.setdefault(found["project"], {})[identity(line)] = found
     results = {}
