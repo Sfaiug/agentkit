@@ -2314,11 +2314,13 @@ def held_sha(record, conversation):
 
 def rulebook_change(name, record, conversation, text):
     """What changed from the rulebook `conversation` holds to `text`, as a unified diff, or ""
-    where ak no longer has the one it holds: the rules it last said it read, which its `rules`
-    file keeps until the next change is written there, or its launch's, which a rename leaves
-    under the name it was launched with."""
+    where ak no longer has the one it holds: the rules it last said it read, which its `held`
+    file keeps from that `ak orch rules` on, however often a change is told and not read since
+    (its `rules` file keeps them too until the next change is written there), or its launch's,
+    which a rename leaves under the name it was launched with."""
     holds = held_sha(record, conversation)
-    for held in (config.seat_file("rules", name), *map(config.rulebook_path, plan.names(name))):
+    for held in (config.seat_file("held", name), config.seat_file("rules", name),
+                 *map(config.rulebook_path, plan.names(name))):
         data = on_disk(held)
         if data and config.rulebook_digest(data) == holds:
             return "".join(difflib.unified_diff(
@@ -2513,8 +2515,13 @@ def rulebook_ack(name, code):
                                "rulebook that prompt names and run the code it gives")
         if not owns(record, told.get("conversation")):
             raise config.Error(f"{current}'s conversation is not the one that code was given to")
-        if told.get("sha") != config.rulebook_digest(config.seat_rulebook(current)):
+        text = config.seat_rulebook(current)
+        if told.get("sha") != config.rulebook_digest(text):
             raise config.Error("the rules changed since that prompt; the next one names them")
+        try:
+            replace_file(config.seat_file("held", current), text.encode())   # what a later change is told against
+        except OSError:
+            pass        # a change is then told whole, as before
         config.update_session(current, rulebook_read={"conversation": told["conversation"],
                                                       "sha": told["sha"]},
                               rulebook_told=None)
