@@ -524,6 +524,14 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
         self.assertNotIn("deferred", run.planned_followups(ended))
 
+    def test_the_ending_offers_a_recheck_as_making_the_line_the_seats_only_for_a_deferred_one(self):
+        ending = run.planned_followups({"followup_plan": [
+            {"outcome": "Fix a.py:1 - x", "deferred": True}, {"outcome": "Fix b.py:2 - y", "deferred": False}]})
+        deferred, owed = ending.split("Review follow-ups now in your plan, yours to build")
+        self.assertIn("puts your own test in its place and makes the line yours. ", deferred)
+        self.assertIn("puts your own test in its place. ", owed)
+        self.assertNotIn("makes the line yours", owed)
+
     def test_a_line_of_the_seats_own_is_the_runs_once_a_later_merges_run_takes_its_check(self):
         # the seat's own line, from a merge no executor was marked for ...
         line = plan.add("seat", "Fix " + DEFECT, CHECK, self.repo,

@@ -7639,11 +7639,11 @@ def planned_followups(state):
     refused = [f"{entry['outcome']} ({entry['refused']})" for entry in entries
                if "refused" in entry]
     checked = ("checked by the reviewer's probe until its fix is on the default branch or "
-               "`ak plan check N` puts your own test in its place and makes the line yours. ")
+               "`ak plan check N` puts your own test in its place")
     return ((f"Review follow-ups now deferred in your plan: {'; '.join(deferred)}, each fixed "
-             f"by a run of its own and {checked}" if deferred else "")
+             f"by a run of its own and {checked} and makes the line yours. " if deferred else "")
             + (f"Review follow-ups now in your plan, yours to build: {'; '.join(owed)}, each "
-               f"{checked}" if owed else "")
+               f"{checked}. " if owed else "")
             + (f"Review follow-ups your plan refused, yours to judge: {'; '.join(refused)}. "
                if refused else ""))
 
