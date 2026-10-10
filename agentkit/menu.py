@@ -1116,19 +1116,16 @@ def _head(info, widths):
     return number + ("  " + terminal.cut(" ".join(rest), left) if left > 0 else "")
 
 
-def v5o_seat_blocks(infos, term_width, widths=None, whole=None):
+def v5o_seat_blocks(infos, term_width, widths=None, most=None):
     """One block of lines per seat, in order; no rendered line keeps trailing space.
 
     Fixed columns with two-space gutters, from `widths` (one `v5o_column_widths`
     per draw): number, name, orchestrator, state, and one last column. Content is
-    capped at 100 columns. A long last column wraps at word boundaries onto one
-    indented line, ending in ` …` only when more was cut. A working seat's tasks bar takes
-    the room the last column has. On a narrow phone the last column goes on its own line.
-    Never cut inside a glyph or a colour sequence.
-
-    `whole` names the highlighted seat: its sentence -- the question it asks, the summary it
-    is done on -- is never cut, and wraps onto as many indented lines as it takes.  It is
-    what its owner is about to open the seat to answer, on whichever harness that seat runs.
+    capped at 100 columns. A long last column wraps at word boundaries onto as many
+    indented lines as it takes, so a seat's question is read whole on ak's own screen,
+    whatever harness the seat runs; a block of more than `most` lines is cut to them, ending
+    in ` …`. A working seat's tasks bar takes the room the last column has. On a narrow phone
+    the last column goes on its own line. Never cut inside a glyph or a colour sequence.
     """
     if widths is None:
         widths = v5o_column_widths(infos, term_width)
@@ -1136,11 +1133,14 @@ def v5o_seat_blocks(infos, term_width, widths=None, whole=None):
     if not infos:
         return []
 
-    def under(info, text, room):
-        """The indented lines a sentence takes under its row: one, cut, or all of it."""
-        if info["name"] == whole and not tasks_bar(info.get("word"), info.get("sentence")):
-            return ["    " + line for line in terminal.wrap(text, room)]
-        return ["    " + (text if terminal.cells(text) <= room else terminal.cut(text, room))]
+    def under(text, room):
+        """The indented lines a last column takes under its row: one where it fits (a tasks bar
+        always does), else its sentence wrapped, in what `most` leaves beside the row's own."""
+        lines = [text] if terminal.cells(text) <= room else terminal.wrap(text, room)
+        keep = len(lines) if most is None else max(1, most - 1)
+        if len(lines) > keep:
+            lines = lines[:keep - 1] + [terminal.cut(" ".join(lines[keep - 1:]), room)]
+        return ["    " + line for line in lines]
     blocks = []
     if narrow:
         for info in infos:
@@ -1148,8 +1148,8 @@ def v5o_seat_blocks(infos, term_width, widths=None, whole=None):
             second_room = max(1, room - 4)
             tail = _last_text(info, second_room, narrow=True)
             if tail:
-                # a tasks bar is drawn in the room, so what is cut is a sentence
-                block += under(info, tail, second_room)
+                # a tasks bar is drawn in the room, so what wraps is a sentence
+                block += under(tail, second_room)
             blocks.append(block)
         return [[line.rstrip() for line in block] for block in blocks]
     # Wide: fixed columns, the last column gets what the row has left; a sentence too long for
@@ -1169,12 +1169,12 @@ def v5o_seat_blocks(infos, term_width, widths=None, whole=None):
         if bar or free < sent_room:
             # a tasks bar too long for the column is never wrapped, which drops its colours, and
             # a row without ten cells left starts nothing: either goes under its row, the bar
-            # drawn in that line's room and a sentence cut to it
-            blocks.append([head] + under(info, _last_text(info, cont_room), cont_room))
+            # drawn in that line's room and a sentence wrapped to it
+            blocks.append([head] + under(_last_text(info, cont_room), cont_room))
             continue
         wrapped = terminal.wrap(last, sent_room)
         first, rest = wrapped[0], " ".join(wrapped[1:])
-        blocks.append([head + "  " + first] + (under(info, rest, cont_room) if rest else []))
+        blocks.append([head + "  " + first] + (under(rest, cont_room) if rest else []))
     return [[line.rstrip() for line in block] for block in blocks]
 
 
@@ -1282,12 +1282,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             flat.pop()
         return flat
 
-    # Every line travels with the name of the seat it draws, or None, so the highlight and a
-    # click find a seat on whichever page it lands.
-    seat_blocks = [[[(line, info["name"]) for line in block] for info, block in
-                    zip(project["seats"], v5o_seat_blocks(project["seats"], width, widths,
-                                                          cursor if owned else None))]
-                   for project in ordered]
+    def _seat_blocks(most=None):
+        # Every line travels with the name of the seat it draws, or None, so the highlight and a
+        # click find a seat on whichever page it lands.
+        return [[[(line, info["name"]) for line in block] for info, block in
+                 zip(project["seats"], v5o_seat_blocks(project["seats"], width, widths, most))]
+                for project in ordered]
 
     def heading(project):
         # one naming no switches is no row, yet it explains the project it heads
@@ -1295,7 +1295,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             project["checkout"] if "switches" in project
             else ("project", project["name"]) if project["checkout"] else None)
     blocks = [[heading(project)] + [pair for block in own for pair in block]
-              for project, own in zip(ordered, seat_blocks)]
+              for project, own in zip(ordered, _seat_blocks())]
     flat = _flat(blocks)
 
     # The highlighted seat's live line goes under its row: a line kept on every page while any
@@ -1313,14 +1313,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     def _seat_pages(room):
         # Collapsed overview first: every project header, no numbers. Then seat
         # blocks packed whole under their project header, so a seat's lines never
-        # split across pages. An oversized block falls back
-        # to bare line splits so tiny screens still fit. The overview is a page the
-        # highlight is never on, so with the keyboard there is none.
+        # split across pages: one taller than a page under its header is cut to it, as the
+        # highlight shows only a seat's first page. A screen without room for a row and a line
+        # under it falls back to bare line splits so tiny screens still fit. The overview is
+        # a page the highlight is never on, so with the keyboard there is none.
         headers = [heading(project) for project in ordered]
         pages = [] if owned else (
             [headers[i:i + room] for i in range(0, len(headers), room)] or [[]])
         cur, cur_header = [], None
-        for project, own in zip(ordered, seat_blocks):
+        for project, own in zip(ordered, _seat_blocks(room - 1)):
             header = heading(project)
             for block in own or [[]]:     # a heading with no seat under it still has its place
                 need = block if cur and cur_header == header else [header] + block
