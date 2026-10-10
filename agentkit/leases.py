@@ -11,11 +11,11 @@ by start, as waiting on the older (wait-die: the older never waits on the younge
 cycle can form).  A younger run still before its review -- its executor turn, or ak's
 commit step, which runs this scan itself -- is stopped there with its branch kept, waiting
 on the holder (`park`): what it built cannot land as it is.  A younger run past that point,
-the review of a pull request and a job's task are only written down: the lander orders
-their landings.  The record under `~/.agentkit/state/leases/` holds the collisions as the
-last scan saw them.  A diff counts only while its run is going (`run.going`) and its
-checkout is there; a record whose pair no longer collides, or whose holder is gone, is
-cleared on the next scan.
+the review of a pull request, a job's task, a red target's repair and a suite's split are
+only written down: the lander orders their landings.  The record under
+`~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
+only while its run is going (`run.going`) and its checkout is there; a record whose pair no
+longer collides, or whose holder is gone, is cleared on the next scan.
 """
 
 import fcntl
@@ -99,10 +99,12 @@ def live(repo):
 def before_review(state):
     """Whether the run is a build with nothing reviewed yet: no round with a verdict, and its
     loop in its executor turn or at ak's commit step, where what it built can still be set
-    aside.  A pull request's review builds nothing to set aside, and a job's task is its
-    job's to settle, as `run.parkable_conflict` leaves it."""
-    return (not state.get("review_pr") and not state.get("job_id")
-            and not state.get("round_summaries")
+    aside.  A pull request's review builds nothing to set aside, a job's task is its job's to
+    settle, as `run.parkable_conflict` leaves it, and a red target's repair and a suite's split
+    are waited on: stopped, either would hold its line (`run.repair_open`) or its suite
+    (`run.open_followup`) for good."""
+    return (not any(state.get(key) for key in ("review_pr", "job_id", "repair", "split_suite",
+                                               "round_summaries"))
             and state.get("step") in (None, "executor", "done-when"))
 
 

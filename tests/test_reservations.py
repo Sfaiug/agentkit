@@ -4,9 +4,9 @@ its branch kept, waiting on it.
 The scan the tick runs, and ak's commit step runs itself, parks the younger run
 (`leases.park`): its record reads `stopped`, waiting on the holder, its checkout and branch
 stay as they are.  A younger run past its executor turn, or one that reached its review
-while the scan ran, a pull request's review and a job's task are only written down.  A scan
-that cannot finish costs the commit step nothing.  Offline: the lease stage
-(`fixtures.leases`).
+while the scan ran, a pull request's review, a job's task, a red target's repair and a
+suite's split are only written down.  A scan that cannot finish costs the commit step
+nothing.  Offline: the lease stage (`fixtures.leases`).
 """
 
 from pathlib import Path
@@ -92,12 +92,15 @@ class Reservations(LiveRuns):
         self.assertEqual(self.state(YOUNGER)["state"], "running")
         self.assertIn("the younger is only written down", self.logs[-1])
 
-    def test_a_pull_requests_review_and_a_jobs_task_are_only_written_down(self):
+    def test_a_pull_requests_review_a_jobs_task_a_repair_and_a_split_are_only_written_down(self):
+        # a stopped repair would hold its target's line, and a stopped split its suite, for good
         self.collide(step="done-when")
         directory = config.RUNS / YOUNGER
-        for key, value in (("review_pr", "https://github.com/acme/acme/pull/7"), ("job_id", "job-1")):
-            record.save_state(directory, {**record.read_state(directory), "review_pr": None,
-                                          "job_id": None, key: value})
+        marks = {"review_pr": "https://github.com/acme/acme/pull/7", "job_id": "job-1",
+                 "repair": {"target": "main", "command": "make test"}, "split_suite": "make test"}
+        for key, value in marks.items():
+            record.save_state(directory, {**record.read_state(directory),
+                                          **dict.fromkeys(marks), key: value})
             found = leases.scan(self.repo, self.logs.append, now=2000)
             self.assertEqual(found[YOUNGER]["waits_on"], OLDER)
             self.assertEqual(self.state(YOUNGER)["state"], "running", key)
