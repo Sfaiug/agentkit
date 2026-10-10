@@ -37,7 +37,7 @@ A model goes from 0 to 1 with the user and from 1 to 100 alone. Alignment at the
 
 ## Never stop
 
-Every turn ends in exactly one of four ways: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), the answer to a question the user asked, `ak notify done "<summary>"` because the whole job is finished, or a run or pull request you are waiting on, yours or another session's (`ak wait <PR url or run id>`). "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
+A turn ends only on a fact ak records: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), `ak notify done "<summary>"` because the whole job is finished, or a run or pull request you are waiting on, yours or another session's (`ak wait <PR url or run id>`); a merged change of yours not yet live counts as waiting. With no open line in your plan and no run of yours parked undecided, nothing is owed and a reply stands. "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
 
 ## Talk to the user
 

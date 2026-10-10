@@ -24,9 +24,9 @@ HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT, OTHER = "park-seat", "other-seat"
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 SPENT = "three rounds spent: split or re-scope the task"
-REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
-          "declaring done with ak notify done, "
-          "or waiting on a run or pull request with ak wait. Continue: decide the next step and do it.")
+REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
+          "prompt or ak notify needs, no ak notify done, no run or pull request you are waiting on. "
+          "Continue: decide the next step and do it.")
 
 
 class StopParked(unittest.TestCase):
@@ -40,6 +40,7 @@ class StopParked(unittest.TestCase):
         self.runs.mkdir(parents=True)
         self.turn = time.time() - 60
         self.latch(self.turn)
+        (self.state / f"plan-{SEAT}.md").write_text('- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n')
 
     # --- the fixtures a turn is judged from ---------------------------------
 

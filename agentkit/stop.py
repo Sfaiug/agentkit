@@ -37,6 +37,17 @@ def _ending_work(name, records):
     return records, mine
 
 
+def owed(name):
+    """Whether the seat owes work: an open line in its plan (`plan.is_open`, as a done reads
+    it), or a plan nothing can read, which proves nothing done.  Read without the plan's lock:
+    a harness hook never waits on it, and every plan write is a whole-file replace."""
+    from . import plan
+    try:
+        return any(plan.is_open(line) for line in plan.lines(name))
+    except config.Error:
+        return True
+
+
 def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
                     since=None):
     """(the turn may end, parked records), from the evidence its caller can see.
@@ -56,12 +67,14 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
               and run.unfinished(state, records)]
     if parked:
         return False, parked
+    if not owed(name):
+        return True, []     # nothing is owed: no open line in the plan, so the stop stands
     if completion() if callable(completion) else completion:
         return True, []
     if supplied is None:
         _, mine = _ending_work(name, None)
     for _, state in mine:
-        if run.going(state):
+        if run.going(state) or watch.awaiting_live(state):
             return True, []
         if since is not None and state.get("state") not in ("error", "waiting"):
             for key in ("started_at", "queued_at"):
