@@ -176,12 +176,15 @@ RULES = [
      "max": 0},
     # Typing into a seat is the tick's, under its lock: a second typer needs claims and
     # delivery reports that each review round found a new race in (#439, 3 rounds).  The
-    # guard names the typing commands to refuse them in a seat.
+    # guard names the typing commands to refuse them in a seat; each call outside watch.py
+    # into a watch function that types is the one typer of its kind of line.
     {"name": "typing into a seat",
      "flags": (),
-     "pattern": r"\"(send-keys|paste-buffer|send-prefix)\"",
+     "pattern": r"\"(send-keys|paste-buffer|send-prefix)\"|"
+                r"watch\.(_send_line|_send_enter|type_into|type_checked|type_at_prompt|revive|"
+                r"ask_inbox|after_merge_deliver|sync_title)\(",
      "home": ("agentkit/watch.py", "agentkit/guard.py"),
-     "max": 0},
+     "max": 9},
 ]
 
 
