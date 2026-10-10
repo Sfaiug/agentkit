@@ -1295,23 +1295,46 @@ def rulebook_path(name):
     return seat_file("rulebook", name)
 
 
+VISION = re.compile(r"(?ms)^## What ak is for(?:\n|\Z).*?(?=^## |\Z)")
+
+
+def vision(text):
+    """The `What ak is for` section `text` carries as its own, up to the next section, or "".
+
+    A heading inside a code fence is a quoted copy, never the file's own: a fence closes at a
+    line of at least its own run of the same mark, so a ```` fence quoting ```bash blocks holds.
+    """
+    fence, at = "", 0
+    for line in text.split("\n"):
+        mark = re.match(r" {0,3}(`{3,}|~{3,})", line)
+        if fence:
+            if mark and mark.group(1).startswith(fence) and not line[mark.end():].strip():
+                fence = ""
+        elif mark:
+            fence = mark.group(1)
+        elif own := VISION.match(text, at):
+            return own.group().rstrip()
+        at += len(line) + 1
+    return ""
+
+
 def rulebook_text(project=""):
     """The rulebook a session receives: the vision, the repo's rules, then this host's own.
 
     The vision opens it unless `project`, the AGENTS.md handed after it, carries that same
-    section already: a seat filed under ak's own repository reads it once.  Only a host that
-    has written no rules of its own has none: a rules.md that is there and cannot be read is an
-    error, never an empty one, because a session opened without rules the owner did write is a
-    session working to rules nobody chose.
+    section as its own (`vision`): a seat filed under ak's own repository reads it once.  Only a
+    host that has written no rules of its own has none: a rules.md that is there and cannot be
+    read is an error, never an empty one, because a session opened without rules the owner did
+    write is a session working to rules nobody chose.
     """
     body = (REPO / "orchestrator.md").read_text()
     try:
         agents = (REPO / "AGENTS.md").read_text()
     except FileNotFoundError:
         agents = ""
-    vision = re.search(r"(?ms)^## What ak is for(?:\n|\Z).*?(?=^## |\Z)", agents)
-    if vision and vision.group().rstrip() not in project:
-        body = f"{vision.group().rstrip()}\n\n{body}"
+    opening = vision(agents)
+    if opening and opening != vision(project):
+        body = f"{opening}\n\n{body}"
     try:
         local = (HOME / "rules.md").read_text()
     except FileNotFoundError:
