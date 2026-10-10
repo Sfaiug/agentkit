@@ -133,6 +133,7 @@ class Planned(Sandbox):
         plan.still_done(SEAT, plan.require_done(SEAT))     # a done while the run is on its way
         for ending in ({"state": "pass", "merged": True}, {"state": "not_needed"}):
             state = self.fix(**ending, finished_at=time.time())
+            run.settle_delivered_line(state, lambda _: None)      # as the run ends
             self.assertFalse(run.routine_ending(state), ending)   # its ending goes to the seat ...
             self.assertTrue(stop.owed(SEAT), ending)             # ... and its turn is held
         with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open"):
@@ -146,9 +147,24 @@ class Planned(Sandbox):
         self.deferred()
         self.land("The fix run lands its fix")
         state = self.fix(state="pass", merged=True, finished_at=time.time())
-        self.assertTrue(run.routine_ending(state))       # the ending ran the line's check ...
-        self.assertEqual(plan.open_lines(SEAT), [])      # ... which ticked it
+        run.settle_delivered_line(state, lambda _: None)  # as the run ends, its line's check ...
+        self.assertEqual(plan.open_lines(SEAT), [])      # ... ticked it
+        self.assertTrue(run.routine_ending(state))
         self.assertEqual(stop.recorded_ending(SEAT), (True, []))
+
+    def test_a_delivery_runs_its_own_lines_check_once_and_an_ending_runs_none(self):
+        own = plan.add(SEAT, "the hero looks calm", "test -f hero.txt", self.repo, proven=self.base)
+        self.deferred()
+        self.land("The fix run lands its fix")
+        state = self.fix(state="pass", merged=True, finished_at=time.time())
+        ran = []
+        real = plan.fails
+        with patch.object(plan, "fails", side_effect=lambda tree, cmd, env: ran.append(cmd) or real(tree, cmd, env)):
+            run.settle_delivered_line(state, lambda _: None)
+            for _ in range(3):                            # the tick offers the ending again
+                self.assertFalse(run.routine_ending(state))  # the seat's own line is still open
+        self.assertEqual(ran, ["test -f feature.txt"])   # its line's check, once; never the seat's
+        self.assertEqual(plan.open_lines(SEAT), [own])
 
     def test_the_done_lists_a_deferred_line_the_seat_built_and_not_one_a_run_delivered(self):
         self.deferred()
