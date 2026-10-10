@@ -290,11 +290,11 @@ class NudgeTurnRule(Sandbox):
                 notify.record(SEAT, "needs", "Which account should I use?")
                 self.assertEqual(self.judged(), (False, []))
 
-    def test_h_a_question_is_kept_back_only_where_the_harness_reports_its_turns(self):
-        """A seat whose turns only its screen shows is asked at once, as it always was: ak
-        learns of that turn's end by looking, too late to ask it there.  Where hooks report
-        the turns, the question waits for the turn's end, and the tick's own look asks it
-        (tests/test_question_waits_for_the_stop.py)."""
+    def test_h_a_question_is_kept_back_on_every_harness(self):
+        """No hook reports these seats' stops, and the question waits for the turn's end all
+        the same: the health pass's own look finds the turn over and asks it
+        (tests/test_question_waits_for_the_stop.py), so its end-of-turn rule reads a seat that
+        stopped on one and types nothing."""
         question = "Which account should I use?"
         for harness in HARNESSES:
             with self.subTest(harness=harness):
@@ -302,10 +302,10 @@ class NudgeTurnRule(Sandbox):
                 self.harness = harness
                 self.pane = self.screen("working")
                 self.assertEqual(notify.main(["needs", question]), 0)
-                if (config.manifest(harness).get("authority") or {}).get("working") != "hooks":
-                    self.assertEqual(notify.last(SEAT)["text"], question)
-                    continue
                 self.assertIsNone(notify.last(SEAT))        # kept back: its turn is running
+                answer = watch.announce_state(dict(self.seat), cfg=self.cfg, look=True,
+                                              auth_out={}, gh_out={}, token_out={})
+                self.assertEqual(answer["word"], "working")
                 self.stopped()
                 with patch.object(notify, "progress", return_value=None):
                     watch.health(self.cfg, {"stalls": {}}, False, lambda line: None)

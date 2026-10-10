@@ -26,7 +26,8 @@ STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds"
 # A landing check's wait for a heavy-suite turn is the lander's, inside the run's line wait.
 WAIT_COLUMNS = {"slot": "slot_wait_seconds", "suite": "suite_wait_seconds",
                 "merge": "merge_wait_seconds", "lander": "lander_wait_seconds"}
-_OPEN = {}     # run_id -> [step, since]: the step this process runs, counted up to `since`
+_OPEN = {}     # run_id -> [step, since, opened]: the step this process runs, counted up to
+               # `since`, and its phase row's start
 _OPEN_LOCK = threading.Lock()
 
 SCHEMA = """
@@ -66,7 +67,21 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
-              ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"))
+              ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"))
+
+# One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
+# it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
+# by its close, so a row never lacks an end and a loop that died counts what its column counts.
+# A run with no row keeps no phases.
+PHASES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS phases (
+    run_id TEXT,
+    phase TEXT,
+    started_at REAL,
+    ended_at REAL,
+    PRIMARY KEY (run_id, phase, started_at)
+)
+"""
 
 REVIEWS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviews (
@@ -96,6 +111,7 @@ def _connect(*, readonly=False):
     database.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database, timeout=2)
     connection.execute(SCHEMA)
+    connection.execute(PHASES_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
@@ -155,22 +171,27 @@ def suite_run(run_id, repo):
 
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               started_at=None, session=None, task_words=None, task_points=None,
-              task_checks=None, task_files=None, orchestrator=None, log=None):
+              task_checks=None, task_files=None, orchestrator=None, change=None, log=None):
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
     goes, and every later write finds no row to change.  The orchestrator is the launching
-    seat's at the first write, whatever that seat runs by a resume.
+    seat's at the first write, whatever that seat runs by a resume.  `change` names the
+    change the run belongs to (its PR, or the run it continues), which the scoreboard groups
+    runs by.
     """
     if sandbox(repo):
-        _write(lambda connection: connection.execute(
-            "DELETE FROM runs WHERE run_id=?", (run_id,)), log)
+        def forget(connection):
+            connection.execute("DELETE FROM runs WHERE run_id=?", (run_id,))
+            connection.execute("DELETE FROM phases WHERE run_id=?", (run_id,))
+        _write(forget, log)
         return
     started_at = time.time() if started_at is None else started_at
     repo = Path(repo).name if repo else None
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
-              task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0)
+              task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
+              change)
 
     def insert(connection):
         connection.execute(
@@ -178,8 +199,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "started_at, finished_at, executor_seconds, done_when_seconds, reviewer_seconds, "
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
-            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -189,7 +210,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "task_points=COALESCE(excluded.task_points,runs.task_points), "
             "task_checks=COALESCE(excluded.task_checks,runs.task_checks), "
             "task_files=COALESCE(excluded.task_files,runs.task_files), "
-            "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator)", values)
+            "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator), "
+            "change=COALESCE(excluded.change,runs.change)", values)
 
     _write(insert, log)
 
@@ -226,13 +248,46 @@ def add_seconds(run_id, step, seconds, *, log=None):
         (max(0.0, seconds), run_id)), log)
 
 
-def add_wait(run_id, wait, seconds, *, log=None):
-    """Add one finished wait to its column; a row from before the columns stays unrecorded."""
+def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
+    """Add a wait's seconds, counted up to `at`, to its column and end its phase row there: the
+    row of the wait that began at `began`, a wait counted whole without it.  A row from before
+    the columns stays unrecorded."""
     if not isinstance(seconds, (int, float)) or not math.isfinite(seconds):
         return
-    column = WAIT_COLUMNS[wait]
-    _write(lambda connection: connection.execute(
-        f"UPDATE runs SET {column}={column}+? WHERE run_id=?", (max(0.0, seconds), run_id)), log)
+    column, seconds = WAIT_COLUMNS[wait], max(0.0, seconds)
+    at = time.time() if at is None else at
+    began = at - seconds if began is None else began
+
+    def add(connection):
+        connection.execute(f"UPDATE runs SET {column}={column}+? WHERE run_id=?", (seconds, run_id))
+        phase(connection, run_id, f"{wait} wait", began, max(began, at))
+    _write(add, log)
+
+
+def phase(connection, run_id, name, started_at, ended_at):
+    """Write the phase row, or move its end: the one under way ends at its last checkpoint."""
+    connection.execute(
+        "INSERT INTO phases (run_id, phase, started_at, ended_at) "
+        "SELECT run_id, ?, ?, ? FROM runs WHERE run_id=? "
+        "ON CONFLICT(run_id, phase, started_at) DO UPDATE SET ended_at=excluded.ended_at",
+        (name, started_at, ended_at, run_id))
+
+
+def phases(run_id):
+    """A run's phases in order, each `{phase, started_at, ended_at}`, the one under way ending
+    at its last checkpoint; none for a run with no row."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    "SELECT phase, started_at, ended_at FROM phases WHERE run_id=? "
+                    "ORDER BY started_at, phase", (run_id,))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
 
 
 def add_tokens(run_id, role, tokens, *, log=None):
@@ -281,7 +336,10 @@ def open_step(run_id, step, at=None, *, log=None):
     close_step(run_id, at, log=log)
     if step in STEP_COLUMNS:
         with _OPEN_LOCK:
-            _OPEN[run_id] = [step, at]
+            _OPEN[run_id] = [step, at, at]
+        # the row ends where it begins until a checkpoint or the close moves its end: a loop
+        # that dies before either leaves no endless row, and counts nothing, as its column
+        _write(lambda connection: phase(connection, run_id, step, at, at), log)
 
 
 def close_step(run_id, at=None, *, keep=False, log=None):
@@ -290,17 +348,19 @@ def close_step(run_id, at=None, *, keep=False, log=None):
     Only the process running a step counts it, so nobody adds the time after a loop died,
     parked or was stopped: the sampler's checkpoint (`keep`, which counts and carries on)
     already counted the dead loop's work to within its interval.  A retry closes its step for
-    the wait and opens it again after.
+    the wait and opens it again after.  Its row ends where its column is counted to, never
+    earlier: a wall clock stepped back counts nothing and moves no end back.
     """
     at = time.time() if at is None else at
     with _OPEN_LOCK:
         entry = _OPEN.get(run_id) if keep else _OPEN.pop(run_id, None)
         if entry is None:
             return None
-        step, since = entry
+        step, since, opened = entry
         if keep:
             entry[1] = max(since, at)
     add_seconds(run_id, step, at - since, log=log)
+    _write(lambda connection: phase(connection, run_id, step, opened, max(since, at)), log)
     return step
 
 

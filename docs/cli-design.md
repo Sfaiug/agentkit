@@ -381,9 +381,10 @@ screen: number, name, orchestrator, state (glyph and word in the state's
 colour), and one last column. Those before the last always fit the screen: the
 name and the orchestrator share what the number and the state leave, the longer
 giving way first, then the state. The last column takes all the remaining width;
-it wraps once at a word onto an indented continuation and is cut with ` …`
-only past that. A row with fewer than ten cells left puts it on the indented
-line alone, cut there, so no line runs past the screen. Columns use gutters, never ` · `. Never cut inside a
+it wraps at words onto as many indented lines as it takes, so a question is read whole on
+ak's own screen before its seat is opened, whatever harness that seat runs. A row with fewer
+than ten cells left puts it on the indented lines alone, so no line runs past the screen.
+Columns use gutters, never ` · `. Never cut inside a
 glyph or a colour sequence. No rendered line keeps trailing space: cell pads
 land outside the colour escapes and every row is rstripped, so the snapshots
 never pin invisible whitespace. The usage bars are one column, sized once per
@@ -423,8 +424,8 @@ Example: `  1  atoll-fix  fable  ● working  ████▒▒░░░░ 2/5
 
 ## Narrow screens
 
-Under 60 columns a seat row is two lines (number, name, orchestrator and
-state, then the last column indented under it). The tasks bar takes that
+Under 60 columns a seat row is two lines or more (number, name, orchestrator
+and state, then the last column indented under it). The tasks bar takes that
 line's room and never more; a line too short for a cell of it beside its count
 shows the count alone. No column ever lands alone on a line.
 
@@ -439,7 +440,8 @@ to spare. The usage block gives way first, then compact
 mode drops the frame and the blank lines so every number stays reachable.
 Pages start with a collapsed overview (every project header, no numbers),
 then whole seat blocks packed under repeated headers, so a seat's lines never
-split across pages; rows keep their global numbers. The heading says which
+split across pages: one taller than a page is cut to it, its last line ending
+in `…`. Rows keep their global numbers. The heading says which
 page is up (`your projects 2/3`), and in compact mode the page is never the
 part that is cut. On a terminal the page up is the one the highlight is on,
 and there is no overview page, since the highlight is never on it; in a pipe

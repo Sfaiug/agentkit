@@ -1,0 +1,54 @@
+  I have not checked the motion between frames on this one.
+
+  Your usage limit was reached, so I am stopping again. Two clips are still rendering on your
+  Mac and will land in [38;5;153m~/acme-clips/out/[39m unchecked. Everything else is as in my last message: the pipeline is not
+  [48;5;66mlive, and the end card and the 3D decision are still open with you.
+
+[38;5;246m✻[39m [38;5;246mChurned for 30s · done 2:44 PM · 2 shells still running[39m
+
+[38;5;246m❯ [38;5;231mrun 20270102-1032-review-pr-acme-poster-2 finished PASS merged. Result: [39m
+  [38;5;231m~/.agentkit/runs/20270102-1032-review-pr-acme-poster-2/result.md. 1 review follow-ups in full in result.md. 1 [39m
+  [38;5;231min your plan: ~/.agentkit/state/plan-acme-clips.md. Decide the next step.[39m
+[38;5;246m[49m  ⎿  [38;5;211m[48;5;66mYou've hit your session limit · resets 3:20pm (Europe/Berlin)[39m
+[49m     [38;5;246m[48;5;66m/usage-credits to finish what you’re working on.[39m
+
+[38;5;246m✻[39m [38;5;246mBaked for 0s · done 2:45 PM · 2 shells still running[39m
+
+[38;5;246m❯ [38;5;231mrun 20270102-1054-review-pr-acme-poster-3 finished PASS merged: [39m
+  [38;5;231mhttps://github.com/acme/acme-poster/pull/3. Result: [39m
+  [38;5;231m/home/dev/.agentkit/runs/20270102-1054-review-pr-acme-poster-3/result.md. Decide the next step.[39m
+[38;5;246m[49m  ⎿  [38;5;211m[48;5;66mYou've hit your session limit · resets 3:20pm (Europe/Berlin)[39m
+[49m     [38;5;246m[48;5;66m/usage-credits to finish what you’re working on.[39m
+
+[38;5;246m✻[39m [38;5;246mBrewed for 4s · done 2:48 PM · 2 shells still running[39m
+
+[38;5;246m❯ [38;5;231mrun 20270102-1131-review-pr-acme-poster-4 finished PASS merged: [39m
+  [38;5;231mhttps://github.com/acme/acme-poster/pull/4. Result: [39m
+  [38;5;231m/home/dev/.agentkit/runs/20270102-1131-review-pr-acme-poster-4/result.md. Decide the next step.[39m
+[38;5;246m[49m  ⎿  [38;5;211m[48;5;66mYou've hit your session limit · resets 3:20pm (Europe/Berlin)[39m
+[49m     [38;5;246m[48;5;66m/usage-credits to finish what you’re working on.[39m
+
+[38;5;246m✻[39m [38;5;246mCooked for 5s · done 2:51 PM · 2 shells still running[39m
+
+[38;5;246m❯ [38;5;231mrun 20270102-1227-review-pr-acme-poster-5 finished PASS merged: [39m
+  [38;5;231mhttps://github.com/acme/acme-poster/pull/5. Result: [39m
+  [38;5;231m/home/dev/.agentkit/runs/20270102-1227-review-pr-acme-poster-5/result.md. Decide the next step.[39m
+[38;5;246m[49m  ⎿  [38;5;211m[48;5;66mYou've hit your session limit · resets 3:20pm (Europe/Berlin)[39m
+[49m     [38;5;246m[48;5;66m/usage-credits to finish what you’re working on.[39m
+
+[38;5;246m✻[39m [38;5;246mBrewed for 3s · done 2:54 PM · 2 shells still running[39m
+
+[38;5;246m❯ [38;5;231mrun 20270102-1302-review-pr-acme-poster-6 finished PASS merged. Result: [39m
+  [38;5;231m~/.agentkit/runs/20270102-1302-review-pr-acme-poster-6/result.md. 1 review follow-ups in full in result.md. 1 [39m
+  [38;5;231min your plan: ~/.agentkit/state/plan-acme-clips.md. Decide the next step.[39m
+[38;5;246m[49m  ⎿  [38;5;211m[48;5;66mYou've hit your session limit · resets 3:20pm (Europe/Berlin)[39m
+[49m     [38;5;246m[48;5;66m/usage-credits to finish what you’re working on.[39m
+                                                                   [49m
+[38;5;246m✻[39m [38;5;246mCooked for 4s · done 2:57 PM · 2 shells still running[39m
+
+[38;5;244m──────────────────────────────────────────────────────────────────────────────────────────────────────── fix-api ──────
+[39m❯ 
+[38;5;244m───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [38;5;220m⚠ Usage limit reached[38;5;246m · limit resets 3:20pm · ]8;id=ntx52q;https://clau.de/wrap-up\clau.de/wrap-up[39m]8;;\
+  [1m[32mdev@acme-host[0m[38;5;246m:[1m[34m~/code[0;2m[38;5;246m | [0m[38;5;246mOpus 5.5[2m | [0m[33mctx ▓▓▓▓▓▓▓▓░░ 770.0k/1M (77%)[39m
+  [38;5;211m⏵⏵ bypass permissions on[38;5;246m · [38;5;44m2 shells[39m

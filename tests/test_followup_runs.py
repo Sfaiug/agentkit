@@ -240,28 +240,40 @@ class FollowupRuns(unittest.TestCase):
         self.assertLessEqual(len(heading), 256)
         self.assertIn(long_item, (child / "task.md").read_text())
 
-    def test_a_review_followup_becomes_a_checked_line_in_its_seats_plan_not_a_run(self):
+    def test_a_review_followup_becomes_a_deferred_line_in_its_seats_plan_and_a_fix_run(self):
         check = "python3 -c 'from broken import first; first([])'"
         flaky = "flaky: python3 -m unittest passed only on its re-run"
-        directory, state = self.source(followups=[DEFECT, flaky], followup_checks={DEFECT: check})
+        (self.repo / "reviewed.txt").write_text("the reviewed commit\n")   # a defect of this change:
+        self.git(self.repo, "add", ".")                                       # proven on the head
+        self.git(self.repo, "commit", "-qm", "The reviewed head")
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        directory, state = self.source(followups=[DEFECT, flaky], followup_checks={DEFECT: check},
+                                       followup_commits={DEFECT: head})
         children = self.start(directory, state)
-        self.assertEqual(len(children), 1)
-        self.assertIn(flaky, (children[0] / "task.md").read_text())
+        self.assertEqual(len(children), 2)
+        fix, other = (children[0] / "task.md").read_text(), (children[1] / "task.md").read_text()
+        self.assertIn(DEFECT, fix)
+        self.assertIn(f"## Done when\n```bash\n{check}\n```", fix)      # the reviewer's probe
+        self.assertNotIn("regression.sh", fix)
+        self.assertIn(flaky, other)
+        self.assertNotEqual(record.read_state(children[0]).get("base_proof"), "regression.sh")
         text = config.plan_path("seat").read_text()
         self.assertEqual(text.count("- [ ] "), 1)
-        self.assertIn(f"- [ ] Fix {DEFECT} · check: `{check}` · {plan.named(self.repo)} · written ", text)
-        # it names the commit its check failed on: the review's base
-        self.assertEqual(plan.LINE.match(text.strip())["base"], state["base_sha"][:12])
-        ending = (directory / "result.md").read_text()
-        self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
-        self.assertIn("until `ak plan check N` puts your fix's own test in its place", ending)
+        self.assertIn(f"- [ ] Fix {DEFECT} · check: `{check}` · {plan.named(self.repo)} · deferred · written ", text)
+        self.assertTrue(plan.deferred(text.strip()))
+        # it names the commit its check failed on: the reviewed head here, the base for a
+        # defect from before the task
+        self.assertEqual(plan.LINE.match(text.strip())["base"], head[:12])
+        ending = (directory / "result.md").read_text()         # the result names the lines
+        self.assertIn("now deferred in your plan: Fix broken.py:1", ending)
+        self.assertIn("until its fix is on the default branch or `ak plan check N` puts your own test in its place", ending)
         self.start(directory, record.read_state(directory))
         found_again = DEFECT + "\nfound again by a later review"
         later, again = self.source("later", followups=[found_again],
                                    followup_checks={found_again: check})
         self.assertEqual(self.start(later, again), [])
         self.assertEqual(config.plan_path("seat").read_text(), text)
-        self.assertEqual(len(self.spawns), 1)
+        self.assertEqual(len(self.spawns), 2)
 
     def test_a_followup_of_the_change_names_the_reviewed_commit_its_check_failed_on(self):
         self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
@@ -280,11 +292,11 @@ class FollowupRuns(unittest.TestCase):
 
     def test_a_followup_its_plan_refuses_is_named_for_the_seat_to_judge(self):
         directory, state = self.source(followup_checks={DEFECT: "false\nfalse"})
-        self.assertEqual(self.start(directory, state), [])
+        self.assertEqual(len(self.start(directory, state)), 1)      # its fix run starts all the same
         self.assertFalse(config.plan_path("seat").exists())
         self.assertIn("your plan refused, yours to judge: Fix broken.py:1",
                       (directory / "result.md").read_text())
-        self.assertEqual(self.spawns, [])
+        self.assertEqual(len(self.spawns), 1)
 
     def test_a_seat_with_no_executors_still_gets_its_review_followups_in_its_plan(self):
         config.update_session("seat", workers=[])
@@ -297,6 +309,8 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(self.start(directory, record.read_state(directory)), [])
         self.assertIn(f"- [ ] Fix {DEFECT} · check: `{CHECK}` · {plan.named(self.repo)} · ",
                       config.plan_path("seat").read_text())
+        [line] = [each for each in config.plan_path("seat").read_text().splitlines() if each.startswith("- [ ]")]
+        self.assertFalse(plan.deferred(line))        # no run takes it: the seat's own to build
         self.assertEqual(self.spawns, [])
 
     def test_a_handoff_cut_off_before_its_receipt_hands_its_list_on_again(self):
@@ -315,14 +329,14 @@ class FollowupRuns(unittest.TestCase):
 
         with patch.object(run, "report_config", side_effect=marked):
             children = self.start(directory, record.read_state(directory))
-        self.assertEqual(len(children), 1)
+        self.assertEqual(len(children), 2)
         self.assertEqual(config.plan_path("seat").read_text().count("- [ ] "), 1)
         ended = record.read_state(directory)
         self.assertTrue(ended["handed_back"])
-        self.assertIn("now in your plan, yours to build: Fix broken.py:1",
+        self.assertIn("now deferred in your plan: Fix broken.py:1",
                       (directory / "result.md").read_text())
         self.start(directory, ended)
-        self.assertEqual(len(self.spawns), 1)
+        self.assertEqual(len(self.spawns), 2)
 
     def test_a_delivery_marked_while_the_receipt_is_written_stays_marked(self):
         directory, state = self.source(followup_checks={DEFECT: CHECK})
@@ -439,6 +453,7 @@ class FollowupRuns(unittest.TestCase):
 
     def test_a_maintainer_merge_that_puts_work_in_the_plan_tells_the_seat(self):
         url = "https://github.com/acme/widget/pull/1"
+        config.update_session("seat", workers=[])      # no run takes its follow-up
         directory, _ = self.source(merged=False, pr=url, followup_checks={DEFECT: CHECK})
         sent = []
         with patch.object(orch, "find", return_value={"name": "seat"}), \
@@ -472,6 +487,86 @@ class FollowupRuns(unittest.TestCase):
         grandchild = self.start(child, fixed)[0]
         self.assertEqual(record.read_state(grandchild)["followup"]["run"], child.name)
         self.assertEqual(record.read_state(grandchild)["launched_session"], "seat")
+
+    def test_a_review_followups_run_is_one_per_check_and_its_line_deferred_once_a_run_has_it(self):
+        directory, state = self.source(followup_checks={DEFECT: CHECK})
+        [child] = self.start(directory, state)
+        self.assertEqual(record.read_state(child)["followup"]["check"], CHECK)
+        lines = lambda: [line for line in config.plan_path("seat").read_text().splitlines() if line.startswith("- [ ]")]
+        self.assertEqual([plan.deferred(line) for line in lines()], [True])
+        # the same site with another check is another follow-up: a run and a line of its own
+        other = "python3 -c 'from broken import first; first(None)'"
+        second, later = self.source("later", followups=["`./broken.py:01` - different words"],
+                                    followup_checks={"`./broken.py:01` - different words": other})
+        [again] = self.start(second, later)
+        self.assertNotEqual(again, child)
+        self.assertEqual([plan.deferred(line) for line in lines()], [True, True])
+        # the same check while that run is open: no second run, and the line it already has
+        third, same = self.source("same", followups=[DEFECT + " in other words"],
+                                  followup_checks={DEFECT + " in other words": CHECK})
+        self.assertEqual(self.start(third, same), [])
+        self.assertEqual(len(lines()), 2)
+        self.assertEqual(len(self.spawns), 2)
+
+    def test_a_stop_during_the_launches_still_writes_every_line_owed(self):
+        other = "python3 -c 'from other import ratio; ratio(0)'"
+        directory, state = self.source("stopped", followups=[DEFECT, OTHER],
+                                       followup_checks={DEFECT: CHECK, OTHER: other})
+        with patch.object(run, "prepare", side_effect=record.StopRequested("stop")):
+            self.assertEqual(self.start(directory, state), [])
+        lines = [line for line in config.plan_path("seat").read_text().splitlines() if line.startswith("- [ ]")]
+        self.assertEqual([plan.deferred(line) for line in lines], [False, False])
+        ended = record.read_state(directory)
+        self.assertEqual(len(ended["followup_plan"]), 2)
+        self.assertEqual(self.spawns, [])
+        # ... and the ending says so: the lines are the seat's own to build, not deferred
+        ending = (directory / "result.md").read_text()
+        self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
+        self.assertNotIn("deferred", run.planned_followups(ended))
+
+    def test_the_ending_offers_a_recheck_as_making_the_line_the_seats_only_for_a_deferred_one(self):
+        ending = run.planned_followups({"followup_plan": [
+            {"outcome": "Fix a.py:1 - x", "deferred": True}, {"outcome": "Fix b.py:2 - y", "deferred": False}]})
+        deferred, owed = ending.split("Review follow-ups now in your plan, yours to build")
+        self.assertIn("puts your own test in its place and makes the line yours. ", deferred)
+        self.assertIn("puts your own test in its place. ", owed)
+        self.assertNotIn("makes the line yours", owed)
+
+    def test_a_line_of_the_seats_own_is_the_runs_once_a_later_merges_run_takes_its_check(self):
+        # the seat's own line, from a merge no executor was marked for ...
+        line = plan.add("seat", "Fix " + DEFECT, CHECK, self.repo,
+                        proven=self.git(self.repo, "rev-parse", "origin/main"), deferred=False)
+        self.assertEqual(plan.open_lines("seat"), [line])
+        self.assertFalse(plan.deferred(line))
+        # ... is kept, deferred, once a later merge's fix run takes the same check: the seat
+        # and the run never build one fix twice, and the result says which the line is now
+        later, state = self.source("later", followup_checks={DEFECT: CHECK})
+        self.assertEqual(len(self.start(later, state)), 1)
+        [kept] = plan.open_lines("seat")
+        self.assertEqual(kept.replace(plan.DEFERRED, ""), line)
+        self.assertTrue(plan.deferred(kept))
+        self.assertIn("now deferred in your plan: Fix broken.py:1", (later / "result.md").read_text())
+        self.assertNotIn("yours to build", run.planned_followups(record.read_state(later)))
+
+    def test_a_followup_whose_run_could_not_start_keeps_its_line_owed(self):
+        other = "python3 -c 'from other import ratio; ratio(0)'"
+        directory, state = self.source("items", followups=[DEFECT, OTHER],
+                                       followup_checks={DEFECT: CHECK, OTHER: other})
+        real_prepare = run.prepare
+        calls = []
+
+        def flaky_prepare(d, o, log, cfg, *args, **kwargs):
+            calls.append(d.name)
+            if len(calls) == 1:
+                raise OSError("disk gone")
+            return real_prepare(d, o, log, cfg, *args, **kwargs)
+
+        with patch.object(run, "prepare", side_effect=flaky_prepare):
+            children = self.start(directory, state)
+        self.assertEqual(len(children), 1)
+        lines = [line for line in config.plan_path("seat").read_text().splitlines() if line.startswith("- [ ]")]
+        self.assertEqual([(plan.deferred(line), f"Fix {OTHER.splitlines()[0]}" in line) for line in lines],
+                         [(False, False), (True, True)])     # the one no run took is the seat's own
 
     def test_same_site_suppressed_only_for_an_open_fix_in_the_same_session(self):
         directory, state = self.source()
@@ -534,16 +629,15 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual([c["role"] for c in calls], ["executor", "reviewer"])
         self.assertIn("First fetch the target branch", calls[0]["prompt"])
         self.assertIn("another open run of session seat", calls[0]["prompt"])
-        self.assertEqual(fixed["followup_runs"], [])
+        self.assertEqual(len(fixed["followup_runs"]), 1)     # the fix run's own follow-up gets a run too
         found = fixed["followups"][0]
         self.assertEqual(found.splitlines()[0], OTHER)
         self.assertIn("ZeroDivisionError", found)
         self.assertIn(f"Commit {merged}", found)
         self.assertIn("Before the task: return 1 / value", found)
         self.assertIn(f"- [ ] Fix {OTHER} · check: `python3 -c 'from other import ratio; ratio(0)'` "
-                      f"· {plan.named(self.repo)} · written ", config.plan_path("seat").read_text())
-        self.assertIn("now in your plan, yours to build: Fix other.py:2",
-                      (child / "result.md").read_text())
+                      f"· {plan.named(self.repo)} · deferred · written ", config.plan_path("seat").read_text())
+        self.assertIn("now deferred in your plan: Fix other.py:2", (child / "result.md").read_text())
 
     def test_not_needed_is_done_without_checks_review_or_pr(self):
         for index, mode in enumerate(("gone", "duplicate")):

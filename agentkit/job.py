@@ -244,8 +244,8 @@ def job_create(cfg, task_paths, opts, parallel):
                 seat = first["seat"] or "nobody's"
                 raise config.Error(
                     f"{info['path']}: this looks already under way: {first['id']} ({seat}, "
-                    f"started {started}, \"{first['title']}\") shares {detail}; wait for "
-                    "it, or add --anyway to start a second run")
+                    f"started {started}, \"{first['title']}\") shares {detail}; "
+                    f"{run.rival_advice()}")
     seat = config.current_session()
     with notify.session_lock(seat) if seat else nullcontext() as held:
         seat = held or seat

@@ -45,7 +45,7 @@ COMMANDS = {
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
                           "Hand in a defect that cannot fail this review: one that existed before the task (--before proves it),\n"
                           "or a smaller one of this change that need not hold it (no --before; --run must fail now).\n"
-                          "Its command becomes the check on a line in the plan of the session that owns the work.",
+                          "Its command becomes the check of a line in the owning session's plan, deferred once a fix run of its own has it.",
                           'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py" --before "return None"'),
     "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",
                         "Dispute a blocking finding handed to this fixer, with a passing command or quoted evidence.",
@@ -72,6 +72,8 @@ a task over 3 rounds is refused regardless.
 --no-worktree uses the repo's current branch; --no-merge keeps work local.
 --bg detaches and prints a launch receipt, run ID and result path.
 --first admits the run ahead of every queued run without it, skipping the count cap and the CPU gate; a heavy suite turn still goes by wait.
+From a seat, --exec, --review, --anyway and --first are refused: ak picks the models by budget,
+decides what goes first and refuses a second run of a change under way.
 Several task files run as one job of independent pieces; --parallel caps it.
 max_runs caps the count when positive; 0 leaves host memory and ak's CPU pressure as the gates
 (config.toml or AK_MAX_RUNS).

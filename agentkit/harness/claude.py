@@ -121,6 +121,20 @@ def interrupted(record, cwd, conversation):
     return kept["at"] if kept else None
 
 
+def wrapped_up(record, cwd, conversation):
+    """When Claude Code told that conversation's turn its usage limit was reached, where no prompt
+    came after it, or None.  Its note of its own (`usageLimitNote: wrap_up`, 2.1.292) asks the
+    model to finish the piece in hand and stop, so the turn ends with nothing refused; the next
+    prompt, with room again, brings its `release` note."""
+    from . import last_entry, user_message
+    path = transcript(record, cwd, conversation)
+    entry = path and last_entry(path, lambda entry: entry.get("usageLimitNote") == "wrap_up"
+                                or prompt(entry) is not None)
+    kept = (entry and entry.get("usageLimitNote") == "wrap_up"
+            and user_message(entry.get("timestamp"), "wrap_up"))
+    return kept["at"] if kept else None
+
+
 def unanswered(record, cwd, conversation):
     """The owner's prompt that is that conversation's last message, as {at, text}, or None: one
     nothing has answered or interrupted yet.  An Esc before any answer leaves it so (2.1.292),
