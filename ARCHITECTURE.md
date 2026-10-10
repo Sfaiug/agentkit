@@ -44,9 +44,10 @@
   it. `settle_run`, `drop_checkout`, `provably_final` for run and gc.
   Leaks: run's state predicates, `git`, `git_out`, `Stopped`.
 - `leases.py`: the tick's collision scan: every pair of live runs of a repository merged in
-  memory (`git merge-tree`) over the base they share; a pair that cannot merge is written on
-  the younger run as waiting on the older, under `state/leases/`. Report-only: what the
-  refusals and restarts to come stand on. Reads run records (`record`) and `run.going`.
+  memory over the base they share; a pair that cannot merge is written on the younger run as
+  waiting on the older (`state/leases/`); one still before its review is stopped there, branch
+  kept (`park`), and starts again once the older has landed (`restart`). Reads run records and
+  `run.going`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member
   leaves to fix itself or hand the failure to its PR's seat. Record changes and the tick

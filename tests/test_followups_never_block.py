@@ -119,15 +119,21 @@ class Weighed(unittest.TestCase):
         return submitted, submitted.records[0]
 
     def test_a_follow_up_of_this_change_is_proven_on_the_reviewed_commit_and_never_blocks(self):
-        submitted, row = self.weigh(followup("api.py:1", "mode is wrong", probe('api.mode == "fixed"')))
+        submitted, row = self.weigh(followup("api.py:1", "mode is wrong", probe('api.mode != "branch"')))
         self.assertEqual(submitted.verdict, "PASS")
         self.assertEqual(row["kind"], "follow-up")
         self.assertEqual(row["evidence"]["commit"], self.head)
-        self.assertNotIn("base", row["evidence"])
+        self.assertEqual(row["evidence"]["base"]["returncode"], 0)
         self.assertNotIn("before", row)
-        self.assertEqual(submitted.followup_checks, {hand_in.item_text(row): probe('api.mode == "fixed"')})
+        self.assertEqual(submitted.followup_checks, {hand_in.item_text(row): probe('api.mode != "branch"')})
         self.assertEqual(submitted.followup_commits, {hand_in.item_text(row): self.head})
         self.assertEqual(submitted.preexisting, [])
+        # one failing on base too is from before the task, whatever the reviewer said
+        submitted, row = self.weigh(followup("api.py:1", "mode is wrong", probe('api.mode == "fixed"')))
+        self.assertEqual(row["kind"], "follow-up")
+        self.assertEqual(row["before"], f"base {self.base}: the proof fails there too")
+        self.assertEqual(submitted.followup_commits, {hand_in.item_text(row): self.head})
+        self.assertEqual(submitted.preexisting, [row])
         # one whose command passes on the reviewed commit proves nothing: a note, dropped
         submitted, row = self.weigh(followup("api.py:1", "mode is wrong", probe('api.mode == "branch"')))
         self.assertEqual(submitted.verdict, "PASS")

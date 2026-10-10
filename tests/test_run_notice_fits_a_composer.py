@@ -1,4 +1,4 @@
-"""Run notices share the typed line's bound; the full result and plan keep every follow-up.
+"""Run notices share the typed line's bound; the full result keeps every follow-up.
 
 Offline: a temporary HOME and a fake seat whose composer shows only a prefix of an
 oversized line. The real confirmed send must get its Enter and leave no unsent notice.
@@ -10,7 +10,10 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import Sandbox
-from agentkit import config, orch, plan, record, run, watch, worktrees
+from agentkit import config, orch, record, run, watch, worktrees
+
+
+PR = "https://github.com/acme/widget/pull/7"
 
 
 class RunNotice(Sandbox):
@@ -51,7 +54,7 @@ class RunNotice(Sandbox):
 
     def result(self, name="fix-api", **extra):
         directory = self.ended(name, owner="fix-api", **{
-            "merged": True, "pr": "https://github.com/acme/widget/pull/7",
+            "no_merge": True,
             "rounds": 3, "round_summaries": [], "findings": "", "branch": "ak/fix-api",
             "base_sha": "a" * 40, "worktree": str(self.root), **extra})
         state = record.read_state(directory)
@@ -60,69 +63,58 @@ class RunNotice(Sandbox):
         return directory, state
 
     def followups(self, count, **extra):
+        """A pass not merged whose reason outgrows any composer, with that many review
+        follow-ups: only its result holds them whole."""
         items = [f"api.py:{i + 1} - defect {i + 1}: " + "complete evidence " * 25
                  for i in range(count)]
-        directory, state = self.result(followups=items, **extra)
-        entries = [{"outcome": "Fix " + item} for item in items]
-        plan.path("fix-api").write_text("\n".join(entry["outcome"] for entry in entries))
-        run.followups_handed(directory, state, {"followup_plan": entries, "followup_runs": []})
-        return directory, state
+        return self.result(followups=items, merge_note="the delivery stopped: "
+                           + "the whole reason " * 100, **extra)
 
-    def test_two_long_followups_get_enter_and_leave_nothing_pending(self):
+    def test_a_long_ending_gets_enter_and_leaves_nothing_pending(self):
         directory, state = self.followups(2)
         # The original notice is larger than the whole composer, even without its result.
-        self.assertGreater(len(run.planned_followups(state)), self.visible)
+        self.assertGreater(len(state["merge_note"]), self.visible)
         run.announce(state, directory, self.logs.append, self.cfg)
         self.assertEqual(self.keys[-1], "Enter")
         self.assertEqual(self.composer, "")
         self.assertEqual(len(self.sent), 1)
         self.assertIsNone(watch.too_long(self.sent[0]))
         self.assertIn("2 review follow-ups", self.sent[0])
-        self.assertIn("2 in your plan:", self.sent[0])
         self.assertIn("result.md", self.sent[0])
-        self.assertIn(plan.path("fix-api").name, self.sent[0])
         saved = record.read_state(directory)
         self.assertTrue(saved["handed_back"])
         self.assertNotIn("handback_pending", saved)
         result = (directory / "result.md").read_text()
-        planned = plan.path("fix-api").read_text()
+        self.assertIn(state["merge_note"], result)
         for item in state["followups"]:
             self.assertIn(item, result)
-            self.assertIn(item, planned)
 
     def test_any_number_of_followups_is_counted_and_retained(self):
         directory, state = self.followups(1000)
         line = run.handback_line(state, directory, self.cfg)
         self.assertIsNone(watch.too_long(line))
         self.assertIn("1000 review follow-ups", line)
-        self.assertIn("1000 in your plan:", line)
         result = (directory / "result.md").read_text()
         for item in state["followups"]:
             self.assertIn(item, result)
 
-    def test_refused_followups_and_fix_runs_stay_whole_in_the_result(self):
-        directory, state = self.result(followups=["api.py:1 - " + "evidence " * 200])
+    def test_a_merges_plan_lines_refusals_and_fix_runs_are_whole_in_its_result(self):
+        """A merge is typed into no seat: its result is what names what it handed on."""
+        directory, state = self.result(merged=True, pr=PR,
+                                       followups=["api.py:1 - " + "evidence " * 200])
         refusal = "the check cannot run: " + "failure evidence " * 100
         handed = {"followup_plan": [{"outcome": "Fix api.py:1", "refused": refusal}],
                   "followup_runs": [f"fix-api-{i}" for i in range(100)]}
         run.followups_handed(directory, state, handed)
-        line = run.handback_line(state, directory, self.cfg)
-        self.assertIsNone(watch.too_long(line))
-        self.assertIn("1 refused by your plan", line)
-        self.assertIn("100 fix runs", line)
         result = (directory / "result.md").read_text()
         self.assertIn(refusal, result)
         for name in handed["followup_runs"]:
             self.assertIn("- " + name + "\n", result)
 
     def test_a_fitting_ending_is_unchanged_including_at_the_bound(self):
-        directory, state = self.result(followup_plan=[{"outcome": "Fix api.py:1", "deferred": True}])
-        expected = (f"run {directory.name} finished PASS merged: {state['pr']}. "
-                    f"Result: {directory / 'result.md'}. "
-                    "Review follow-ups now deferred in your plan: Fix api.py:1, each fixed by a "
-                    "run of its own and checked by the reviewer's probe until its fix is on the "
-                    "default branch or `ak plan check N` puts your own test in its place. "
-                    "Decide the next step.")
+        directory, state = self.result(followups=["api.py:1 - a defect"])
+        expected = (f"run {directory.name} finished PASS not merged: --no-merge. "
+                    f"Result: {directory / 'result.md'}. Decide the next step.")
         self.assertEqual(run.handback_line(state, directory, self.cfg), expected)
         with patch.object(watch, "longest", return_value=len(expected)):
             self.assertEqual(run.handback_line(state, directory, self.cfg), expected)
@@ -134,18 +126,18 @@ class RunNotice(Sandbox):
 
     def test_the_same_byte_bound_as_tell_is_applied(self):
         directory, state = self.result()
-        state["pr"] = "é" * 250
+        state["merge_note"] = "é" * 250
         with patch.object(watch, "MAX_BYTES", 600):
             line = run.handback_line(state, directory, self.cfg)
             self.assertIsNone(watch.too_long(line))
             self.assertLessEqual(len(line.encode("utf-8")), watch.MAX_BYTES)
-            self.assertNotIn(state["pr"], line)
+            self.assertNotIn(state["merge_note"], line)
 
     def test_a_maintainer_decision_uses_the_same_followup_bound(self):
-        directory, state = self.followups(2)
+        directory, state = self.followups(2, pr=PR)
         with patch.object(run, "run_for_pr", return_value=(directory, state)):
-            self.assertTrue(watch.say(False, self.logs.append, "The maintainer merged the PR",
-                                      state["pr"], "fix-api", merged=True))
+            self.assertTrue(watch.say(False, self.logs.append, "The maintainer requested changes "
+                                      + "on every line " * 100, state["pr"], "fix-api"))
         self.assertIsNone(watch.too_long(self.sent[-1]))
         self.assertIn("2 review follow-ups", self.sent[-1])
         self.assertEqual(self.composer, "")
@@ -161,19 +153,16 @@ class RunNotice(Sandbox):
         self.assertIn("result.md", self.sent[-1])
         self.assertEqual(self.composer, "")
 
-    def test_a_saved_ending_keeps_its_followups_and_refusals_before_typing(self):
-        refusal = "the check could not run: " + "failure evidence " * 100 + "plan refusal"
+    def test_a_saved_ending_keeps_its_followups_before_typing(self):
+        reason = "the delivery stopped: " + "failure evidence " * 100 + "whole reason"
         items = ["api.py:1 - a defect\ncomplete reviewer evidence"]
-        directory, state = self.result(
-            repo=str(self.root), followups=items, followup_runs=[], handback_pending=True,
-            followup_plan=[{"outcome": "Fix api.py:1", "refused": refusal}])
+        directory, state = self.result(followups=items, handback_pending=True, merge_note=reason)
         result = directory / "result.md"
-        result.write_text("# PASS merged\n\nFixed API.\n")  # a report saved before follow-ups were rendered
-        run.start_followups(state, directory, self.logs.append)
+        result.write_text("# PASS\n\nFixed API.\n")  # a report saved before follow-ups were rendered
         line = run.handback_line(state, directory, self.cfg)
         saved = result.read_text()
         self.assertIsNone(watch.too_long(line))
-        self.assertIn(refusal, saved)
+        self.assertIn(reason, saved)
         self.assertIn("complete reviewer evidence", saved)
         self.assertIn("Fixed API.", saved)
         self.assertEqual(run.handback_line(state, directory, self.cfg), line)
@@ -200,7 +189,7 @@ class RunNotice(Sandbox):
         now = 2000000
         evidence = "deployment missing " * 100 + "deployment evidence"
         directory, state = self.result(
-            repo=str(self.root), finished_at=now - watch.AFTER_MERGE_WINDOW - 1,
+            merged=True, pr=PR, repo=str(self.root), finished_at=now - watch.AFTER_MERGE_WINDOW - 1,
             merge_sha="a" * 40, target="origin/main",
             health={"command": "probe", "output": evidence})
         episodes = {}
@@ -220,7 +209,7 @@ class RunNotice(Sandbox):
         self.assertIn(evidence, (directory / "result.md").read_text())
 
     def test_a_report_finishing_after_failure_delivery_keeps_the_whole_notice(self):
-        directory, state = self.result(repo=str(self.root), finished_at=9999,
+        directory, state = self.result(merged=True, pr=PR, repo=str(self.root), finished_at=9999,
                                        merge_sha="a" * 40, target="origin/main")
         details = "https://ci.acme.example/build?diagnostic=" + "deployment-error-" * 80
         episodes = {}
@@ -254,7 +243,7 @@ class RunNotice(Sandbox):
         saved = result.read_text()
         (directory / "task.md").write_text("# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
         # A later report no longer has these fields to reconstruct the delivered notice.
-        latest = {**state, "followups": [], "followup_plan": [], "followup_runs": []}
+        latest = {**state, "followups": [], "merge_note": None}
         rebuilds = (
             ("full result", lambda: run.write_result(directory, latest, [], cfg=self.cfg)),
             ("stopped full result", lambda: run.record_result(directory, latest, cfg=self.cfg)),

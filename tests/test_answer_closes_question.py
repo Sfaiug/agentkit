@@ -58,6 +58,7 @@ class AnswerClosesQuestion(Sandbox):
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
             self.stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         config.ensure_dirs()
+        config.plan_path(SEAT).write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")   # the seat owes work
         self.stack.enter_context(patch.dict(os.environ, {
             "AK_RUN_ROLE": "orchestrator", "AGENTKIT_SESSION": "",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
@@ -321,14 +322,14 @@ class AnswerClosesQuestion(Sandbox):
                 self.assertTrue(output, "background results still require the seat to act")
                 self.assertEqual(json.loads(output)["decision"], "block")
 
-    def test_task_notification_question_keeps_its_plain_reply_ending(self):
+    def test_a_task_notifications_question_ends_nothing_with_work_open(self):
         for field in ("prompt", "message"):
             with self.subTest(field=field):
                 self.prompt(**{field: "<task-notification>Which acme schema failed?\n"
                                "</task-notification>"})
                 output = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
                                    last_assistant_message="Acme's second schema failed.")
-                self.assertEqual(output, "")
+                self.assertEqual(json.loads(output)["decision"], "block")
 
     def test_no_prompt_leaves_it_open(self):
         self.notice()

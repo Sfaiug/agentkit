@@ -59,6 +59,7 @@ class NudgeTurnRule(Sandbox):
         listed = lambda *_a, **_k: [dict(self.seat)]
         self.stack.enter_context(patch.object(orch, "sessions", side_effect=listed))
         self.stack.enter_context(patch.object(orch, "listing", side_effect=listed))
+        config.plan_path(SEAT).write_text('- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n')
         self.stack.enter_context(patch.object(
             watch, "seat_model", side_effect=lambda _cfg, name, *_a, **_k:
             (self.harness, "meta") if name == SEAT else ("claude", "anthropic")))

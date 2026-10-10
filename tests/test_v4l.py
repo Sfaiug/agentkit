@@ -155,6 +155,8 @@ class Babysitter(unittest.TestCase):
         self.assertNotIn("seat", self.data["stalls"])
 
     def test_real_tui_panes_keep_the_error_visible_but_reject_later_progress(self):
+        config.plan_path("seat").parent.mkdir(parents=True, exist_ok=True)
+        config.plan_path("seat").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")       # the seat owes work: the nudge is due
         panes = [(harness, (REPO / f"tests/fixtures/{harness}-stall-pane.txt").read_text())
                  for harness in ("claude", "codex", "muse")]
         # Earlier harness versions from the review: boxed Claude composer and Codex key hints.

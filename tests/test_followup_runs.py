@@ -205,7 +205,7 @@ class FollowupRuns(unittest.TestCase):
             self.assertIn("base: origin/main", (child / "task.md").read_text())
             self.assertEqual(receipt["followup"]["run"], directory.name)
             self.assertEqual(receipt["base_proof"], "regression.sh")   # its own probe proves it
-            self.assertIn(child.name, run.handback_line(state, directory, self.cfg))
+            self.assertIn(child.name, (directory / "result.md").read_text())
         self.assertFalse((config.HOME / "followups").exists())
         self.start(directory, record.read_state(directory))
         self.assertEqual(len(self.spawns), 2)
@@ -264,7 +264,7 @@ class FollowupRuns(unittest.TestCase):
         # it names the commit its check failed on: the reviewed head here, the base for a
         # defect from before the task
         self.assertEqual(plan.LINE.match(text.strip())["base"], head[:12])
-        ending = run.handback_line(state, directory, self.cfg)
+        ending = (directory / "result.md").read_text()         # the result names the lines
         self.assertIn("now deferred in your plan: Fix broken.py:1", ending)
         self.assertIn("until its fix is on the default branch or `ak plan check N` puts your own test in its place", ending)
         self.start(directory, record.read_state(directory))
@@ -290,12 +290,27 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(plan.LINE.match(line)["base"], head[:12])
         plan.recheck("seat", 1, doubled)   # a test failing on the change takes the line's check
 
+    def test_a_followup_of_the_change_names_the_reviewed_commit_its_check_failed_on(self):
+        self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        config.update_session("seat", repo=str(self.repo))
+        base = self.git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "other.py").write_text("def ratio(value):\n    return 2 / value\n")
+        self.git(self.repo, "commit", "-qam", "The change brings a smaller defect")
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        doubled = "python3 -c 'from other import ratio; assert ratio(1) == 1'"
+        item = "other.py:2 - ratio doubles - callers get 2"
+        self.start(*self.source(followups=[item], followup_checks={item: doubled},
+                                followup_commits={item: head}, base_sha=base))
+        [line] = plan.lines("seat")
+        self.assertEqual(plan.LINE.match(line)["base"], head[:12])
+        plan.recheck("seat", 1, doubled)   # a test failing on the change takes the line's check
+
     def test_a_followup_its_plan_refuses_is_named_for_the_seat_to_judge(self):
         directory, state = self.source(followup_checks={DEFECT: "false\nfalse"})
         self.assertEqual(len(self.start(directory, state)), 1)      # its fix run starts all the same
         self.assertFalse(config.plan_path("seat").exists())
         self.assertIn("your plan refused, yours to judge: Fix broken.py:1",
-                      run.handback_line(record.read_state(directory), directory, self.cfg))
+                      (directory / "result.md").read_text())
         self.assertEqual(len(self.spawns), 1)
 
     def test_a_seat_with_no_executors_still_gets_its_review_followups_in_its_plan(self):
@@ -334,7 +349,7 @@ class FollowupRuns(unittest.TestCase):
         ended = record.read_state(directory)
         self.assertTrue(ended["handed_back"])
         self.assertIn("now deferred in your plan: Fix broken.py:1",
-                      run.handback_line(ended, directory, self.cfg))
+                      (directory / "result.md").read_text())
         self.start(directory, ended)
         self.assertEqual(len(self.spawns), 2)
 
@@ -451,16 +466,19 @@ class FollowupRuns(unittest.TestCase):
             merge.result(timeout=30)
         self.assertEqual(len(plan.lines("seat")), 2)
 
-    def test_a_maintainer_merge_tells_the_seat_what_it_put_in_its_plan(self):
+    def test_a_maintainer_merge_that_puts_work_in_the_plan_tells_the_seat(self):
         url = "https://github.com/acme/widget/pull/1"
-        self.source(merged=False, pr=url, followup_checks={DEFECT: CHECK})
+        directory, _ = self.source(merged=False, pr=url, followup_checks={DEFECT: CHECK})
         sent = []
         with patch.object(orch, "find", return_value={"name": "seat"}), \
-                patch.object(watch, "type_into",
-                             side_effect=lambda seat, line, log: sent.append(line) or True):
+                patch.object(watch, "type_at_prompt",
+                             side_effect=lambda seat, line, log, **_kw: sent.append(line) or True):
             self.assertTrue(watch.say(False, self.logs.append, "PR #1: merged by the maintainer",
                                       url, "seat", merged=True))
-        self.assertIn("now deferred in your plan: Fix broken.py:1", sent[0])
+        # the seat now owes the follow-up, so the merge is no routine ending (`routine_ending`)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("PR #1: merged by the maintainer", sent[0])
+        self.assertIn("now deferred in your plan: Fix broken.py:1", (directory / "result.md").read_text())
 
     def test_exclusions_and_closed_session_start_nothing(self):
         for index, changes in enumerate(({"merged": False}, {"launched_session": None},
@@ -515,7 +533,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(len(ended["followup_plan"]), 2)
         self.assertEqual(self.spawns, [])
         # ... and the ending says so: the lines are the seat's own to build, not deferred
-        ending = run.handback_line(ended, directory, self.cfg)
+        ending = (directory / "result.md").read_text()
         self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
         self.assertNotIn("deferred", run.planned_followups(ended))
 
@@ -530,7 +548,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(len(self.start(later, state)), 1)
         self.assertEqual(plan.open_lines("seat"), [line])
         ended = record.read_state(later)
-        self.assertIn("now in your plan, yours to build: Fix broken.py:1", run.handback_line(ended, later, self.cfg))
+        self.assertIn("now in your plan, yours to build: Fix broken.py:1", (later / "result.md").read_text())
         self.assertNotIn("deferred", run.planned_followups(ended))
 
     def test_a_followup_whose_run_could_not_start_keeps_its_line_owed(self):
@@ -622,7 +640,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("Before the task: return 1 / value", found)
         self.assertIn(f"- [ ] Fix {OTHER} · check: `python3 -c 'from other import ratio; ratio(0)'` "
                       f"· {plan.named(self.repo)} · deferred · written ", config.plan_path("seat").read_text())
-        self.assertIn("now deferred in your plan: Fix other.py:2", self.endings[-1])
+        self.assertIn("now deferred in your plan: Fix other.py:2", (child / "result.md").read_text())
 
     def test_not_needed_is_done_without_checks_review_or_pr(self):
         for index, mode in enumerate(("gone", "duplicate")):

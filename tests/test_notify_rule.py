@@ -120,9 +120,18 @@ class Rule(unittest.TestCase):
                 "number": 7}
         with patch.object(watch, "own_prs", return_value={PR: session}), \
                 patch.object(watch, "gh_json", return_value=(view, "")), \
-                patch.object(orch, "find", return_value=seat):
+                patch.object(orch, "find", return_value=seat), \
+                patch.object(watch, "at_prompt", return_value=True), \
+                patch.object(watch, "pane_unread", return_value=False), \
+                patch.object(watch, "composer_holds", return_value="empty"), \
+                patch.object(watch, "type_checked", side_effect=self.type_checked):
             watch.outgoing(state, "me", False, self.log.append)
         return state
+
+    def type_checked(self, session, text, log, *_args, **_kw):
+        """The confirmed send into a seat at its quiet prompt, minus tmux: the keys it would send."""
+        self.tmux.append(["send-keys", "-t", session["name"], "-l", text])
+        return True
 
     def finished_run(self, name="20260915-0001-fix-the-parser", worktree=True):
         """A run that opened a PR from a fork and is waiting for the maintainer."""
@@ -153,10 +162,12 @@ class Rule(unittest.TestCase):
                 self.tmux.clear()
                 state = self.decision(pr_state, decision, seat=self.seat())
                 lines = self.typed()
-                self.assertEqual(len(lines), 1, lines)
-                self.assertIn(expected, lines[0])
-                self.assertIn(PR, lines[0])
-                self.assertIn("PR #7 Fix the parser", lines[0])
+                # a merge is routine: on the run, typed into no seat (`run.routine_ending`)
+                self.assertEqual(len(lines), 0 if pr_state == "MERGED" else 1, lines)
+                for line in lines:
+                    self.assertIn(expected, line)
+                    self.assertIn(PR, line)
+                    self.assertIn("PR #7 Fix the parser", line)
                 own = state["own"][PR]
                 self.assertEqual(own["done"] if pr_state != "OPEN" else own["decision"],
                                  True if pr_state != "OPEN" else "CHANGES_REQUESTED")
@@ -197,8 +208,9 @@ class Rule(unittest.TestCase):
                 with patch.object(run, "start_followups") as starts:
                     state = self.decision(pr_state, decision, seat=self.seat())
                 lines = self.typed()
-                self.assertEqual(len(lines), 1, lines)
-                self.assertIn(expected, lines[0])
+                self.assertEqual(len(lines), 0 if pr_state == "MERGED" else 1, lines)
+                for line in lines:
+                    self.assertIn(expected, line)
                 saved = record.read_state(run_dir)
                 self.assertEqual(saved["merge_note"], f"PR #7 Fix the parser: {expected}")
                 self.assertEqual(saved["merged"], pr_state == "MERGED")
@@ -214,19 +226,15 @@ class Rule(unittest.TestCase):
     def test_v5d_pr_retry_after_failed_typing_records_and_starts_once(self):
         text = "PR #7 Fix the parser: merged by the maintainer"
         run_dir = self.finished_run("20260915-0001-merged")
-        with patch.object(watch, "type_into", side_effect=[False, True]) as typ, \
+        with patch.object(watch, "type_at_prompt") as typ, \
                 patch.object(orch, "find", return_value=self.seat()), \
                 patch.object(run, "start_followups") as starts:
-            self.assertFalse(watch.say(False, self.log.append, text, PR, "seat", merged=True))
-            # the run learns it even though the seat is still owed its line
-            self.assertEqual(record.read_state(run_dir)["merge_note"], text)
-            self.assertTrue(record.read_state(run_dir)["merged"])
+            # a merge is routine: the run learns it, and no seat is owed a line
             self.assertTrue(watch.say(False, self.log.append, text, PR, "seat", merged=True))
-            self.assertEqual((typ.call_count, starts.call_count), (2, 1))
+            self.assertTrue(watch.say(False, self.log.append, text, PR, "seat", merged=True))
+            self.assertEqual((typ.call_count, starts.call_count), (0, 1))
         saved = record.read_state(run_dir)
         self.assertEqual((saved["merge_note"], saved["merged"]), (text, True))
-        self.assertEqual(len([line for line in self.log if line.startswith("told the")]), 1,
-                         self.log)
         self.assertEqual(len([line for line in self.log
                               if line.startswith("recorded on run")]), 1, self.log)
         # a decision that starts no fix runs still records only once
@@ -242,7 +250,7 @@ class Rule(unittest.TestCase):
             records.append(1)
             return real_record(*args, **kwargs)
 
-        with patch.object(watch, "type_into", side_effect=[False, True]) as typ, \
+        with patch.object(watch, "type_at_prompt", side_effect=[False, True]) as typ, \
                 patch.object(orch, "find", return_value=self.seat()), \
                 patch.object(run, "record_decision", side_effect=counting):
             self.assertFalse(watch.say(False, self.log.append, changes, PR, "seat"))

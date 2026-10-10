@@ -69,6 +69,8 @@ class Wait(Sandbox):
             receipt.update(status="delivered", message_id=str(len(self.posts)), webhook="sink")
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
         self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
+        # the seat owes work, so a stop with nothing recorded is sent back
+        config.plan_path(SEAT).write_text('- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n')
 
     def turn(self, name, event):
         """What that seat's own lifecycle hook writes, then a screen looking at it."""
@@ -209,6 +211,7 @@ class Wait(Sandbox):
         self.receipt(THEIRS, OTHER)
         self.wait(THEIRS)
         self.assertEqual(self.decide(), ("working", f"waiting on {THEIRS}"))
+        config.plan_path(SEAT).unlink()         # nothing left owed: the plan line is done
         with redirect_stdout(io.StringIO()):
             self.assertEqual(notify.main(["done", "Shipped the parser"]), 0)
         self.assertEqual(self.decide(), ("done", "Shipped the parser"))
