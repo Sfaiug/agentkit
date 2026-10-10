@@ -361,24 +361,26 @@ def deferred(line):
 def owed(name, line, proven=None):
     """Whether the seat owes the line, which holds its `ak notify done` and its turn
     (`stop.owed`): an open line, or, for a done, a check line its own checks did not prove
-    (`proven`); never a deferred one a run has (`taken`)."""
+    (`proven`); never a deferred one a run has (`taken`) -- for a done, one on its way: the
+    done ran the check, which a delivered run's fix should pass."""
     bare = identity(line)
     return ((is_open(line) or (proven is not None and bare is not None and bare not in proven))
-            and not taken(name, line))
+            and not taken(name, line, delivered=proven is None))
 
 
-def taken(name, line):
-    """Whether a deferred line is a run's: one of the seat's still on its way with the line's
-    check in the line's project (`run.open_followup`).  Read with the line, never written at an
-    ending: once the fix run has ended, however it ended -- merged, failed, stopped, killed, a
-    retry nobody makes any more -- the line is the seat's own until its check passes."""
+def taken(name, line, delivered=True):
+    """Whether a deferred line is a run's: one of the seat's with the line's check in the
+    line's project, on its way or, with `delivered`, merged or not needed with it
+    (`run.open_followup`).  Read with the line, never written at an ending: once the fix run
+    ended without it -- failed, stopped, killed, a retry nobody makes any more -- the line is
+    the seat's own until its check passes."""
     found = LINE.match(line.strip())
     if not (found and found["deferred"]):
         return False
     repo = place(name, found["project"])
     from . import run   # here, not at the top: the loop is heavy for a seat's small verb
     return bool(repo and run.open_followup({"repo": str(repo.resolve()), "launched_session": name},
-                                           "", check=found["check"]))
+                                           "", check=found["check"], held=delivered))
 
 
 def undone(line, found):
@@ -404,8 +406,8 @@ def outcomes(name):
     for line in lines(name):
         line = line.strip()
         found = LINE.match(line)
-        if found and found["deferred"]:
-            continue        # a run's to fix, never this done's work
+        if found and taken(name, line):
+            continue        # a run's, never this done's work: it has the line, or delivered it
         if found:
             result.append((found["project"], found["what"]))
         elif line.startswith("- [x] ") and not is_open(line):

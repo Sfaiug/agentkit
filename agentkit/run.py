@@ -3353,6 +3353,11 @@ def followup_place(text):
     return text.splitlines()[0].strip()
 
 
+def delivered(state):
+    """Whether the run delivered its change: merged, or found it not needed."""
+    return bool(state.get("merged") or state.get("state") == "not_needed")
+
+
 def followup_open(state):
     """Whether this fix run is still on its way: running, about to, or resuming itself --
     stopped to wait on an older run's change too, which the tick starts again (`leases.parked`),
@@ -3380,18 +3385,19 @@ def repair_open(state, tip):
     a target that moved past it is a new red.
     """
     return followup_open(state) or (
-        state.get("state") in run_record.ENDED and state.get("state") != "not_needed"
-        and not state.get("merged") and state.get("repair_tip") == tip)
+        state.get("state") in run_record.ENDED and not delivered(state)
+        and state.get("repair_tip") == tip)
 
 
-def open_followup(state, text, repair=None, tip=None, split=None, check=None):
+def open_followup(state, text, repair=None, tip=None, split=None, check=None, held=False):
     """The open run already fixing `text`, or None.
 
     A review follow-up is the same `check` in the same repository from the same seat: a run
     whose done-when is that command fixes it, whatever its words; any other follow-up is the
-    same site.  A `repair` is the same repository, target and command from any seat, open at
-    the target's `tip`: the target is everybody's.  A suite split holds its line forever,
-    and its repository while open.
+    same site.  With `held`, a run that ended delivering it counts too: its deferred line is
+    its own until the line's check is run (`plan.taken`).  A `repair` is the same repository,
+    target and command from any seat, open at the target's `tip`: the target is everybody's.
+    A suite split holds its line forever, and its repository while open.
     """
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
@@ -3405,9 +3411,9 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None):
                 and other.get("repair") == repair
                 and (repair_open(other, tip) if repair else
                      launched_session(other) == launched_session(state)
-                     and (other["followup"].get("check") == check if check
+                     and ((other["followup"].get("check") or "").strip() == check.strip() if check
                           else other["followup"]["place"] == followup_place(text))
-                     and followup_open(other))):
+                     and (followup_open(other) or held and delivered(other)))):
             return directory.name
     return None
 
@@ -7952,7 +7958,7 @@ def routine_ending(state):
     target's repair's merge is routine whatever its seat owes: the runs parked on it retry by
     themselves, and their own endings end the seat's wait -- its going live is not, as the
     hook counts that wait."""
-    if not (state.get("merged") or state.get("state") == "not_needed"):
+    if not delivered(state):
         return False
     return bool(state.get("repair")) or seat_owes_nothing(state)
 
