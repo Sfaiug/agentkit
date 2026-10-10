@@ -8214,6 +8214,22 @@ def run_depth():
     return int(value)
 
 
+def seat_refusal(opts, flags):
+    """Why a seat's launch is refused: a seat names no model, no place in the queue and no
+    second run of a change under way, since ak picks the models by budget, decides what goes
+    first and refuses the rival itself.  A seat is a recorded session (`config.session_records`);
+    a shell naming none is no seat, and outside a seat the flags stand."""
+    seat = config.current_session()
+    if not seat or seat not in config.session_records():
+        return None
+    given = ([flag for flag in ("--exec", "--review") if opts.get(flag)]
+             + [flag for flag in ("--anyway", "--first") if flags.get(flag)])
+    if given:
+        return (f"{', '.join(given)}: not a seat's; ak picks the models by budget, decides what "
+                "goes first and refuses a second run of a change under way, so launch without")
+    return None
+
+
 def depth_refused():
     depth = run_depth()
     if depth < 2:
@@ -11772,6 +11788,9 @@ def main(argv):
         else:
             positional.append(arg)
             i += 1
+    refused = seat_refusal(opts, flags)
+    if refused:
+        raise config.Error(refused)
     if opts["--review-pr"]:
         if positional or opts["--rounds"] or opts["--exec"] or flags["--no-worktree"] \
                 or opts["--parallel"] is not None:
