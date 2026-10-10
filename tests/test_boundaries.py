@@ -202,19 +202,25 @@ def outside(rule):
     return found
 
 
+def where_change_left_main(test, path):
+    """`path`'s text where this change left origin/main; an unreadable one skips `test`."""
+    # against where this change started: a commit main has since moved past (as the host's
+    # live check tests) is not held to what main changed after it
+    base = subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
+                          capture_output=True, text=True).stdout.strip() or "origin/main"
+    proc = subprocess.run(["git", "-C", str(REPO), "show", f"{base}:{path}"],
+                          capture_output=True, text=True)
+    if proc.returncode:
+        print(f"origin/main:{path} is not readable; skipping the comparison")
+        test.skipTest("origin/main is not readable")
+    return proc.stdout
+
+
 class Boundaries(unittest.TestCase):
     def test_no_max_rises_above_origin_main(self):
-        # against where this change started: a commit main has since moved past (as the host's
-        # live check tests) is not raising the maxima main lowered after it
-        base = subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
-                              capture_output=True, text=True).stdout.strip() or "origin/main"
-        proc = subprocess.run(["git", "-C", str(REPO), "show", f"{base}:tests/test_boundaries.py"],
-                              capture_output=True, text=True)
-        if proc.returncode:
-            print("origin/main:tests/test_boundaries.py is not readable; skipping max comparison")
-            self.skipTest("origin/main is not readable")
+        source = where_change_left_main(self, "tests/test_boundaries.py")
         # Literal parsing keeps target code from running during the comparison.
-        rules = next(node.value for node in ast.parse(proc.stdout).body
+        rules = next(node.value for node in ast.parse(source).body
                      if isinstance(node, ast.Assign)
                      and any(isinstance(target, ast.Name) and target.id == "RULES"
                              for target in node.targets))

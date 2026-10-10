@@ -41,7 +41,6 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - Never depend on when a seat's turn began; decide from recorded notices, runs and the screen. A new fact gets its own field (`stopped_at` means closed).
 - tmux targets are `={name}:`; a fake tmux answers only what real tmux 3.5a does; every tmux client call on a run's path has a timeout.
 - Usage display work never changes which meters `collect` keeps (`_without_past` drops past-reset ones on purpose).
-- A removed `.gitignore` pattern leaves its matches untracked on the live checkout and stops `go_live` pulling: keep it or delete them too.
 - A final check stopped for silence names the hung process after `still running:`: fix the hang on your branch, or hand in blocked if origin/main hangs too; gate changes are their own task.
 - A repairing tick re-derives placement or state from what it finds; findings remembered between ticks lose races.
 - A run's CPU and memory come from its cgroup (`cpu.stat`, `memory.current`), which counts killed and orphaned processes; process-tree sampling misses them. Put a process in its cgroup at start (its own scope, as `in_slice` does); moving it later races.

@@ -76,7 +76,7 @@ class Maxima(unittest.TestCase):
                 self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
                 self.assertEqual(len(result.skipped), 1)
                 self.assertIn("origin/main", output)
-                self.assertIn("skipping max comparison", output)
+                self.assertIn("skipping the comparison", output)
 
     def test_target_code_is_not_executed(self):
         source = f"raise AssertionError('target code ran')\nRULES = {BASE!r}\n"
