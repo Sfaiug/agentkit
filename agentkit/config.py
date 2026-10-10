@@ -753,6 +753,7 @@ SEAT_FILES = {
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
     "rules": "md",       # the rulebook its prompt names once that one is out of date
+    "change": "md",      # what changed from the rulebook it holds to that one, as a diff
     "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
     # written by nothing since seats stopped messaging one another: named so a stop and the daily collector still
     # take the queues a host holds from before, as they take every other file of a gone seat
