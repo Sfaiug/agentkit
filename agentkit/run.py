@@ -2939,8 +2939,9 @@ def unknown_front_lines(text):
 def needs_base_proof(lp):
     """A run launched under the rule owes one until a check fails on base, as its record
     says; one launched before it owes none -- a process change applies to the next launch.
-    A fix run's receipt says it proves its regression.sh instead (`regression_fails_before`),
-    a repair's that it is proven at landing, and a scratch run's record that it has no base."""
+    A fix run with no check of the reviewer's says it proves its regression.sh instead
+    (`regression_fails_before`), a repair's that it is proven at landing, and a scratch run's
+    record that it has no base."""
     return lp.state.get("base_proof") == "owed"
 
 
