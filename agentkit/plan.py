@@ -31,8 +31,10 @@ from . import command_help, config, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 EYE = "your eye"
+DEFERRED = " · deferred"
 LINE = re.compile(r"^- \[(?P<mark>[ x])\] (?P<what>.+?) · (?:check: `(?P<check>[^`]+)`|"
-                  + EYE + r") · (?P<project>.+?) · written (?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
+                  + EYE + r") · (?P<project>.+?)(?P<deferred>" + re.escape(DEFERRED) + r")? · written "
+                  r"(?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
                   r"(?: on (?P<base>[0-9a-f]{7,40}))?(?: · done (?P<done>.+))?$")
 
 
@@ -349,6 +351,22 @@ def is_open(line):
     return bool(BOX.match(line))
 
 
+def deferred(line):
+    """A line deferred to a run of its own (a review follow-up): open until its check passes,
+    yet never what the seat owes (`owed`)."""
+    found = LINE.match(line.strip())
+    return bool(found and found["deferred"])
+
+
+def owed(line, proven=None):
+    """Whether the seat owes the line, which holds its `ak notify done` and its turn
+    (`stop.owed`): an open line, or, for a done, a check line its own checks did not prove
+    (`proven`); never a deferred one."""
+    bare = identity(line)
+    return not deferred(line) and (is_open(line) or (proven is not None and bare is not None
+                                                     and bare not in proven))
+
+
 def undone(line, found):
     """The stripped line without its trailing done field: the one `LINE` parsed, never a
     ` · done ` that a check command itself holds."""
@@ -372,6 +390,8 @@ def outcomes(name):
     for line in lines(name):
         line = line.strip()
         found = LINE.match(line)
+        if found and found["deferred"]:
+            continue        # a run's to fix, never this done's work
         if found:
             result.append((found["project"], found["what"]))
         elif line.startswith("- [x] ") and not is_open(line):
@@ -441,6 +461,7 @@ def require_done(name):
     """Refuse a done while the plan still has open lines, after running every check once more;
     the check lines those checks proved, for `still_done`."""
     left, results = _verify(name, every=True)
+    left = [line for line in left if owed(line, results)]
     if left:
         raise config.Error(f"{len(left)} plan line(s) still open, first: {left[0]}; "
                            "a check line is done when its check passes on the default branch "
@@ -453,19 +474,26 @@ def still_done(name, proven):
     """Run under the seat's lock as its done is recorded: the plan as it reads now has no
     open line and no check line the done's own checks did not prove -- one added or ticked
     while they ran is not done."""
-    left = [line.strip() for line in lines(name) if is_open(line)
-            or (identity(line) and identity(line) not in proven)]
+    left = [line.strip() for line in lines(name) if owed(line, proven)]
     if left:
         raise config.Error(f"{len(left)} plan line(s) open or unproven since the checks ran, "
                            f"first: {left[0]}; run `ak notify done` again")
 
 
-def add(name, what, check=None, repo=None, proven=None):
-    """Append an open line to the seat's plan, or return the open line that already holds this
-    check in this project.  A review follow-up names the run's project as `repo`, and as
-    `proven` the commit its check already failed on (the review's base, or the reviewed commit
-    for a defect of the change): the check is not run again first, and that commit's history
-    names the repository, whatever is checked out."""
+def compose(what, proof, where, deferred, stamp, base):
+    """An open line as `add` writes it."""
+    return (f"- [ ] {what} · {proof} · {where}" + (DEFERRED if deferred else "")
+            + f" · written {stamp}" + (f" on {base}" if base else ""))
+
+
+def add(name, what, check=None, repo=None, proven=None, deferred=False):
+    """Append an open line to the seat's plan, or keep the open line that already holds this
+    check in this project, deferred or the seat's own as this call asks.  A review follow-up
+    names the run's project as `repo`, and as `proven` the commit its check already failed on
+    (the review's base, or the reviewed commit for a defect of the change): the check is not
+    run again first, and that commit's history names the repository, whatever is checked out;
+    and it is `deferred` where a run has it, so the line holds no done, the seat's own where
+    none has it any more."""
     what = " ".join(what.split())
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")
@@ -487,16 +515,19 @@ def add(name, what, check=None, repo=None, proven=None):
     where = named(repo, found)
     if "·" in where:
         raise config.Error(f"{where}: a project a line names holds no `·`")
-    stamp = time.strftime("%Y-%m-%d %H:%M")
     proof = f"check: `{check}`" if check is not None else EYE
-    line = f"- [ ] {what} · {proof} · {where} · written {stamp}" + (f" on {base}" if base else "")
     with held(name) as current:
         text = lines(current)
-        for old in text:
+        for index, old in enumerate(text):
             parsed = LINE.match(old.strip())
             if (check is not None and parsed and is_open(old)
                     and parsed["check"] == check and parsed["project"] == where):
-                return old.strip()     # an open line already holds this check here
+                # the open line already holding this check here is kept, its mark as asked
+                kept = compose(parsed["what"], proof, where, deferred, parsed["when"], parsed["base"])
+                if kept != old.strip():
+                    write(current, [*text[:index], kept, *text[index + 1:]])
+                return kept
+        line = compose(what, proof, where, deferred, time.strftime("%Y-%m-%d %H:%M"), base)
         write(current, [*text, line])
     return line
 
