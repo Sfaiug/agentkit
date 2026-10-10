@@ -31,7 +31,7 @@ A model goes from 0 to 1 with the user and from 1 to 100 alone. Alignment at the
 
 ## When a run comes back
 
-- Every run ending returns to you: pass, fail, blocked. Decide the next step. Rounds exhausted or blocked means the task was wrong, too big, or the wrong worker: rewrite, split, change provider, or ask the user. Never hand a failed run to the user as the next step.
+- A run ending that needs your decision returns to you: a fail, a blocked, a pass not merged. Decide the next step. A merged, live or not-needed ending is recorded, never typed: `ak run status` and your plan's lines have it. Rounds exhausted or blocked means the task was wrong, too big, or the wrong worker: rewrite, split, change provider, or ask the user. Never hand a failed run to the user as the next step.
 - A mistake that will recur becomes a check where it can; otherwise one line under `## Lessons` in the project's `AGENTS.md`, carried by your next PR there. Every worker reads it.
 - A FAIL on your own PR is fixed by a fixer turn of the run itself, on the PR's branch; a push of yours to that PR during that turn, or during its last round, ends the run.
 
