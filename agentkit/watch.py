@@ -2368,15 +2368,21 @@ def waiting_on(name):
 
 def wait_fact(wait):
     """(whether what that wait names is over, the one line saying how): a run once it is no
-    longer going, a pull request once it is merged or closed.  (None, why) where nothing can
-    say yet: `wait_over` leaves the wait as it is while that is the owner's login to fix, and
-    for UNREAD_TICKS ticks otherwise."""
+    longer going, or the run its task was started again as, a pull request once it is merged
+    or closed.  (None, why) where nothing can say yet: `wait_over` leaves the wait as it is
+    while that is the owner's login to fix, and for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
     if wait.get("kind") == "run":
-        directory = config.RUNS / on
-        state = run_record.read_state(directory) if directory.is_dir() else None
-        if not state:
-            return True, f"run {on} is gone"
+        while True:
+            directory = config.RUNS / on
+            state = run_record.read_state(directory) if directory.is_dir() else None
+            if not state:
+                return True, f"run {on} is gone"
+            if not state.get("lease_restarted"):
+                break
+            # stopped to wait on an older run's change, and started again (`leases.restart`):
+            # the wait goes on with the new run
+            on = state["lease_restarted"]
         from . import run as run_mod
         if state.get("state") == "stalled":
             # going to the ladder, but nothing moves it except the seat: the wait is over
@@ -6392,9 +6398,10 @@ def local_passes(state, dry_run, log):
         # has to be started.
         ("the stall pass did not run", lambda: recover_runs(config.load(), dry_run, log), True),
         # which live runs of a repository change the same lines: the younger, before its
-        # review, is stopped with its branch kept, waiting on the older (`leases.park`); a dry
-        # run, which writes nothing, skips it
+        # review, is stopped with its branch kept, and starts again once the older has
+        # landed (`leases`); a dry run, which writes nothing, skips both
         ("the lease scan did not run", lambda: leases.scan_all(log), False),
+        ("the lease restart pass did not run", lambda: leases.restart(log), False),
         ("the tick's watch.json was not saved", lambda: save_state(state), False),
         ("the usage refresh did not finish", read_usage, True),
         # An exhausted run waits for a provider window and resumes itself when one refills, on

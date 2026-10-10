@@ -10,7 +10,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import config, orch, run, watch, worker, worktrees
+from . import config, leases, orch, run, watch, worker, worktrees
 from . import job as jobs
 from . import record as run_record
 
@@ -90,10 +90,12 @@ def stoppable(state):
     """Whether `ak run stop` takes this run: unfinished work, or an `error`.
 
     `error` reads ended but the tick retries it hourly: stopping one is its owner's off-switch
-    for the ladder, the way stopping a waiting run ends its wait.  Every other ending sits
-    inert, so there is nothing to stop.
+    for the ladder, the way stopping a waiting run ends its wait.  So is a run stopped to wait
+    on an older run's change (`leases.parked`): stopping it calls off the tick's restart.
+    Every other ending sits inert, so there is nothing to stop.
     """
-    return state.get("state") not in run_record.ENDED or state.get("state") == "error"
+    return (state.get("state") not in run_record.ENDED or state.get("state") == "error"
+            or leases.parked(state))
 
 
 def ways_out(state, run_dir):
@@ -175,7 +177,7 @@ def stop_owned_runs(name):
                 continue
         except config.Error:
             continue
-        if state.get("state") not in run_record.ENDED:
+        if state.get("state") not in run_record.ENDED or leases.parked(state):
             try:
                 cmd_stop([run_dir.name])
             except config.Error as exc:
@@ -256,7 +258,7 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
         current = run_record.read_state(run_dir) or {}
         if owner_check:
             config.check_stop_owner(current.get("launched_session") or current.get("session"))
-        if current.get("state") == "stopped":
+        if current.get("state") == "stopped" and not stoppable(current):
             return current
         if not stoppable(current) or (only_if and not only_if(current)):
             return None
@@ -264,7 +266,7 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
         current.update(state="stopped", verdict="STOPPED", finished_at=time.time(),
                        error=why, reported=True, stop_kept=kept)
         for key in ("recovery_pending", "recovery_notified", "recovery_acknowledged_at",
-                    "handback_pending", "handback_wait_reason", "handback_note",
+                    "lease_wait", "handback_pending", "handback_wait_reason", "handback_note",
                     "notification_pending", "pending_inbox", "quota_dry", "refusal_retry",
                     "waiting_for", "login_resume_at", "login_back_at", "stall_resume_at",
                     "resume_after", "error_retry_at", "error_retries", "waiting_on",
@@ -359,7 +361,7 @@ def cmd_stop(argv):
     if state is None:
         raise config.Error(f"{run_id}: cannot read {run_dir / 'run.json'}")
     config.check_stop_owner(state.get("launched_session") or state.get("session"))
-    if state.get("state") == "stopped":
+    if state.get("state") == "stopped" and not stoppable(state):
         print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
         return 0
     if not stoppable(state):
