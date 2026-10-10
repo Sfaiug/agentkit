@@ -11,6 +11,11 @@ effort = "low"
 [worker]
 state = []
 
+# A file under the home the fixture would read on its own if echo.sh ever did: the contract
+# check plants a word there and expects the turn never to say it.
+[instructions]
+unswitched = ["~/.echo/AGENTS.md"]
+
 # `ak update` reads its version off a command that always answers, upgrades it with one that
 # always succeeds, and has no versioned reinstall to put it back -- so the plan says it cannot,
 # in these words, and takes no snapshot either.

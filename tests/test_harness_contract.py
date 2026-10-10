@@ -123,6 +123,22 @@ esac
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("FAIL  3 echo: resume", result.stdout)
 
+    def test_a_word_planted_where_the_harness_reads_on_its_own_never_comes_back(self):
+        # the manifest's unswitched file gets a word for the turn and is gone afterwards
+        self.adapter("echo")
+        result = self.gate()
+        self.assertIn("PASS  3 echo:", result.stdout)
+        self.assertFalse((self.home / ".echo/AGENTS.md").exists())
+
+    def test_a_turn_that_says_the_planted_word_fails(self):
+        fixture = (REPO / "tests/fixtures/adapters/echo.sh").read_text()
+        leak = 'cat -- "$HOME/.echo/AGENTS.md" >>"$out/final.md" 2>/dev/null\n    exit 0\n'
+        self.adapter("echo", fixture.replace("    exit 0\n", "    " + leak, 1))
+        result = self.gate()
+        self.assertIn("FAIL  3 echo: read a file of its own beside the prompt", result.stdout)
+        self.assertIn(".echo/AGENTS.md", result.stdout)
+        self.assertFalse((self.home / ".echo/AGENTS.md").exists())
+
     def test_standalone_drops_a_spent_window_after_its_reset(self):
         self.adapter("echo")
         snapshot = self.root / "usage.json"

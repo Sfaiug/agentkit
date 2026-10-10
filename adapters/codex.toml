@@ -2,7 +2,6 @@
 # authority to say what that seat is doing.  Paired with adapters/codex.sh; the format is the
 # adapter contract in docs/guide.md, "Adding a harness".
 # Verified against Codex 0.153.4; see tests/fixtures/README.md for the captures.
-# A worker turn or seat still loads ~/.codex/AGENTS.md: Codex 0.153.4 has no switch for it, only for the repository's.
 version = 1
 
 [check]
@@ -17,6 +16,8 @@ logins = ["~/.codex/auth.json", "$CODEX_HOME/auth.json", "~/.codex-$AGENTKIT_ACC
 # drops the rest without a word, so no project's file may grow past it.
 [instructions]
 read_limit = 32768
+# Codex 0.153.4 has a switch only for the repository's AGENTS.md, not its own
+unswitched = ["~/.codex/AGENTS.md"]
 
 [launch]
 seat_env = ["AGENTKIT_CODEX_RECEIPT", "AGENTKIT_CODEX_CAPTURE"]

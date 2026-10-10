@@ -1254,6 +1254,16 @@ def instruction_ceiling():
     return min(limits) if limits else None
 
 
+def unswitched_files(harness):
+    """The files under the owner's home that this harness reads on its own and that its adapter
+    cannot switch off: `[instructions] unswitched` in adapters/<h>.toml, `~/`-relative.  A seat
+    opens only while none of them exists, since nothing but its rulebook may instruct it, and
+    the live contract check plants a word in each to prove a worker's box keeps them out."""
+    block = manifest(harness).get("instructions")
+    paths = block.get("unswitched") if isinstance(block, dict) else None
+    return [Path(p).expanduser() for p in paths or [] if isinstance(p, str) and p.startswith("~/")]
+
+
 def seat_state_path(name):
     """Where the seat's last classified live state and its `since` are kept."""
     return seat_file("seat", name)
