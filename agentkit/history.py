@@ -348,7 +348,8 @@ def close_step(run_id, at=None, *, keep=False, log=None):
     Only the process running a step counts it, so nobody adds the time after a loop died,
     parked or was stopped: the sampler's checkpoint (`keep`, which counts and carries on)
     already counted the dead loop's work to within its interval.  A retry closes its step for
-    the wait and opens it again after.
+    the wait and opens it again after.  Its row ends where its column is counted to, never
+    earlier: a wall clock stepped back counts nothing and moves no end back.
     """
     at = time.time() if at is None else at
     with _OPEN_LOCK:
@@ -359,7 +360,7 @@ def close_step(run_id, at=None, *, keep=False, log=None):
         if keep:
             entry[1] = max(since, at)
     add_seconds(run_id, step, at - since, log=log)
-    _write(lambda connection: phase(connection, run_id, step, opened, max(opened, at)), log)
+    _write(lambda connection: phase(connection, run_id, step, opened, max(since, at)), log)
     return step
 
 
