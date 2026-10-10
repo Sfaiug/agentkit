@@ -41,7 +41,6 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - Never depend on when a seat's turn began; decide from recorded notices, runs and the screen. A new fact gets its own field (`stopped_at` means closed).
 - tmux targets are `={name}:`; a fake tmux answers only what real tmux 3.5a does; every tmux client call on a run's path has a timeout.
 - Usage display work never changes which meters `collect` keeps (`_without_past` drops past-reset ones on purpose).
-- A model entry names its model id, never `model = "default"`.
 - A removed `.gitignore` pattern leaves its matches untracked on the live checkout and stops `go_live` pulling: keep it or delete them too.
 - A final check stopped for silence names the hung process after `still running:`: fix the hang on your branch, or hand in blocked if origin/main hangs too; gate changes are their own task.
 - A repairing tick re-derives placement or state from what it finds; findings remembered between ticks lose races.
@@ -55,7 +54,6 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A test never asserts a wall-clock duration (under 100 ms, say): host load breaks it at landing. Inject the clock and assert what it read.
 - `tests/fixtures/sandbox.py`'s `Sandbox` stops this process's clock (`time.time()` reads 10000) and keeps ak's state in `<root>/state`, while a hook run as a subprocess stamps the real clock into `$HOME/.agentkit/state`: copy its record across and compare against its own stamps.
 - A rule on what may merge belongs in both merge paths: `do_merge` (task runs) and `merge_own_pr` (a seat's own PR, now the main path); a guard on one alone is a bypass.
-- Typing into a seat has one typer per kind of line: the tick, under its lock. A second typer (a sender trying first) needs claims and delivery reports that each review round finds a new race in (#439, 3 rounds).
 - A fix that reads the screen adds no fallback for shapes it did not set out to read: every such fallback (an at_prompt backstop, an "empty composer" pattern) misread another real screen and cost a review round (#501, 3 rounds).
 - A line typed into a seat is delivered at least once: no mark, receipt or transcript read closes every crash window between its Enter and the queue rewrite (#439, #502: six rounds). Say so in the task and the PR; never promise exactly once.
 - A test that asserts a UTF-8 glyph the menu draws (│ ▶ ✓ …) pins `patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"})`: under LANG=C the menu draws ASCII and the landing suite runs in the caller's locale.
