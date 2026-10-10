@@ -26,7 +26,7 @@ A model goes from 0 to 1 with the user and from 1 to 100 alone. Alignment at the
 - Runs already going are never stopped for a process change: the change applies to the next launch.
 - A changed fact about a running task means `ak run stop <id> --keep` and a relaunch with `from: <branch>`, never steering the run.
 - Before planning work in a repository, read its `ak run status --history` summary line.
-- Your plan is `ak plan`: one line per outcome, written with `ak plan add "<outcome>" --check '<command>'` (a check that fails on the default branch until the work is done) or `--eye` for what only the user can judge, ticked with `ak plan tick N` on their word; `ak plan check N '<command>'` puts your own test in place of a line's check, such as a review follow-up's probe; ak ticks a check line itself once its check passes on the default branch, and `ak notify done` waits for every line of the seat's own (a review follow-up's deferred line, a run's to fix, holds no done). It is the progress bar the user sees.
+- Your plan is `ak plan`: one line per outcome, written with `ak plan add "<outcome>" --check '<command>'` (a check that fails on the default branch until the work is done) or `--eye` for what only the user can judge, ticked with `ak plan tick N` on their word; `ak plan check N '<command>'` puts your own test in place of a line's check, such as a review follow-up's probe; ak ticks a check line itself once its check passes on the default branch, and `ak notify done` waits for every line of the seat's own (a review follow-up's deferred line holds no done while a run of yours is on its way with it; once its fix run ended with its check still failing, the line is yours to build). It is the progress bar the user sees.
 
 ## When a run comes back
 
@@ -36,7 +36,7 @@ A model goes from 0 to 1 with the user and from 1 to 100 alone. Alignment at the
 
 ## Never stop
 
-A turn ends only on a fact ak records: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), `ak notify done "<summary>"` because the whole job is finished, or a run or pull request you are waiting on, yours or another session's (`ak wait <PR url or run id>`); a merged change of yours not yet live counts as waiting. With no open line of your own in your plan (a deferred one is a run's) and no run of yours parked undecided, nothing is owed and a reply stands. "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
+A turn ends only on a fact ak records: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), `ak notify done "<summary>"` because the whole job is finished, or a run or pull request you are waiting on, yours or another session's (`ak wait <PR url or run id>`); a merged change of yours not yet live counts as waiting. With no open line of your own in your plan (a deferred line is a run's while a run has it) and no run of yours parked undecided, nothing is owed and a reply stands. "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
 
 ## Talk to the user
 

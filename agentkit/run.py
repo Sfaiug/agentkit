@@ -3353,16 +3353,24 @@ def followup_place(text):
     return text.splitlines()[0].strip()
 
 
+def delivered(state):
+    """Whether the run delivered its change: merged, or found it not needed."""
+    return bool(state.get("merged") or state.get("state") == "not_needed")
+
+
 def followup_open(state):
     """Whether this fix run is still on its way: running, about to, or resuming itself --
-    stopped to wait on an older run's change too, which the tick starts again (`leases.parked`)."""
+    stopped to wait on an older run's change too, which the tick starts again (`leases.parked`),
+    and a FAIL on a conflict with main, which the tick parks and resumes (`parkable_conflict`)."""
     return (state.get("state") == "running"
             or (state.get("state") == "queued"
                 and (run_record.process_active(state) or state.get("slot_waiting")))
             or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error", "stopped")
                 and going(state))
             or (state.get("state") == "interrupted" and state.get("deaths")
-                and tick_resumes(state)))
+                and tick_resumes(state))
+            or (state.get("state") == "fail"
+                and parkable_conflict(state, config.RUNS / str(state.get("run_id")))))
 
 
 def repair_open(state, tip):
@@ -3377,18 +3385,21 @@ def repair_open(state, tip):
     a target that moved past it is a new red.
     """
     return followup_open(state) or (
-        state.get("state") in run_record.ENDED and state.get("state") != "not_needed"
-        and not state.get("merged") and state.get("repair_tip") == tip)
+        state.get("state") in run_record.ENDED and not delivered(state)
+        and state.get("repair_tip") == tip)
 
 
-def open_followup(state, text, repair=None, tip=None, split=None, check=None):
+def open_followup(state, text, repair=None, tip=None, split=None, check=None, held=None):
     """The open run already fixing `text`, or None.
 
     A review follow-up is the same `check` in the same repository from the same seat: a run
     whose done-when is that command fixes it, whatever its words; any other follow-up is the
-    same site.  A `repair` is the same repository, target and command from any seat, open at
-    the target's `tip`: the target is everybody's.  A suite split holds its line forever,
-    and its repository while open.
+    same site.  With `held`, the time its deferred line was written, a run that ended
+    delivering it since counts too: the line's work is that run's, never a done's
+    (`plan.outcomes`); one that delivered before had only an earlier line.  A `repair` is the
+    same repository, target and command from any seat, open at the target's `tip`: the
+    target is everybody's.  A suite split holds its line forever, and its repository while
+    open.
     """
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
@@ -3402,9 +3413,10 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None):
                 and other.get("repair") == repair
                 and (repair_open(other, tip) if repair else
                      launched_session(other) == launched_session(state)
-                     and (other["followup"].get("check") == check if check
+                     and ((other["followup"].get("check") or "").strip() == check.strip() if check
                           else other["followup"]["place"] == followup_place(text))
-                     and followup_open(other))):
+                     and (followup_open(other) or held is not None and delivered(other)
+                          and (other.get("finished_at") or 0) >= held))):
             return directory.name
     return None
 
@@ -7949,10 +7961,21 @@ def routine_ending(state):
     plan lines) is in its result and the seat's plan, and `ak run status` names it.  A red
     target's repair's merge is routine whatever its seat owes: the runs parked on it retry by
     themselves, and their own endings end the seat's wait -- its going live is not, as the
-    hook counts that wait."""
-    if not (state.get("merged") or state.get("state") == "not_needed"):
+    hook counts that wait.  A fix run's delivery runs its seat's plan checks first
+    (`plan.delivery`): its line ticks where its check passes on the default branch, and where
+    it still fails -- a merge that did not fix it, a `not needed` misjudged -- the line is
+    the seat's own and the ending goes to it."""
+    if not delivered(state):
         return False
-    return bool(state.get("repair")) or seat_owes_nothing(state)
+    if state.get("repair"):
+        return True
+    if (state.get("followup") or {}).get("check") and not seat_owes_nothing(state):
+        from . import plan   # here, not at the top: a seat's small verb, this the loop
+        try:
+            plan.delivery(launched_session(state), state["followup"]["check"])
+        except config.Error:
+            pass        # an unread plan is the seat's: the ending goes to it
+    return seat_owes_nothing(state)
 
 
 def finish_typed(session, mark, log, cfg=None):
