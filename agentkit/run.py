@@ -7962,7 +7962,7 @@ def routine_ending(state):
     target's repair's merge is routine whatever its seat owes: the runs parked on it retry by
     themselves, and their own endings end the seat's wait -- its going live is not, as the
     hook counts that wait.  A fix run's delivery runs its seat's plan checks first
-    (`plan.verify`): its line ticks where its check passes on the default branch, and where
+    (`plan.delivery`): its line ticks where its check passes on the default branch, and where
     it still fails -- a merge that did not fix it, a `not needed` misjudged -- the line is
     the seat's own and the ending goes to it."""
     if not delivered(state):
@@ -7972,9 +7972,9 @@ def routine_ending(state):
     if (state.get("followup") or {}).get("check") and not seat_owes_nothing(state):
         from . import plan   # here, not at the top: a seat's small verb, this the loop
         try:
-            plan.verify(launched_session(state))
+            plan.delivery(launched_session(state), state["followup"]["check"])
         except config.Error:
-            pass        # unchecked, the line stays open and the seat's: the ending goes to it
+            pass        # an unread plan is the seat's: the ending goes to it
     return seat_owes_nothing(state)
 
 

@@ -374,7 +374,7 @@ def taken(name, line, delivered=False):
     or found it not needed since the line was written, for the done's work (`outcomes`).
     Read with the line, never written at an ending: once the fix run ended, whichever way,
     the line is the seat's own until its check passes, which a delivery runs at once
-    (`run.routine_ending`)."""
+    (`delivery`)."""
     found = LINE.match(line.strip())
     if not (found and found["deferred"]):
         return False
@@ -384,6 +384,31 @@ def taken(name, line, delivered=False):
     return bool(repo and run.open_followup({"repo": str(repo.resolve()), "launched_session": name},
                                            "", check=found["check"],
                                            held=written if delivered else None))
+
+
+def delivery(name, check):
+    """A fix run of the seat delivered `check`'s line -- merged, or found it not needed: the
+    plan's checks run (`verify`), ticking it where its fix is on the default branch.  Where
+    its check still fails, or could not run, no run has it and the seat owes it, which the
+    line then says too, its deferred mark dropped as `recheck` drops it: built by the seat,
+    the done lists it (`outcomes`), never taking it for that delivery's work (`taken`)."""
+    try:
+        verify(name)
+    except config.Error:
+        pass        # unchecked: the line stays open
+    mine = {line.strip() for line in lines(name) if deferred(line)
+            and (LINE.match(line.strip())["check"] or "").strip() == check.strip()
+            and owed(name, line)}
+    if not mine:
+        return
+    with held(name) as current:
+        text = lines(current)
+        for at, line in enumerate(text):
+            if line.strip() in mine:
+                found = LINE.match(line.strip())
+                lead = len(line) - len(line.lstrip())
+                text[at] = line[:lead + found.start("deferred")] + line[lead + found.end("deferred"):]
+        write(current, text)
 
 
 def undone(line, found):

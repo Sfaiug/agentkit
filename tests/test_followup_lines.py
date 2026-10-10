@@ -140,6 +140,7 @@ class Planned(Sandbox):
         self.land("The seat builds what the run's delivery did not")
         plan.still_done(SEAT, plan.require_done(SEAT))
         self.assertFalse(plan.is_open(plan.lines(SEAT)[0]))
+        self.assertEqual([what for _, what in plan.outcomes(SEAT)], [OUTCOME])   # the seat's work
 
     def test_a_merged_fix_runs_ending_ticks_its_line_and_is_routine(self):
         self.deferred()
