@@ -753,6 +753,7 @@ SEAT_FILES = {
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
     "rules": "md",       # the rulebook its prompt names once that one is out of date
+    "change": "md",      # what changed from the rulebook it holds to that one, as a diff
     "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
     # written by nothing since seats stopped messaging one another: named so a stop and the daily collector still
     # take the queues a host holds from before, as they take every other file of a gone seat
@@ -1294,21 +1295,46 @@ def rulebook_path(name):
     return seat_file("rulebook", name)
 
 
-def rulebook_text():
+VISION = re.compile(r"(?ms)^## What ak is for(?:\n|\Z).*?(?=^## |\Z)")
+
+
+def vision(text):
+    """The `What ak is for` section `text` carries as its own, up to the next section, or "".
+
+    A heading inside a code fence is a quoted copy, never the file's own: a fence closes at a
+    line of at least its own run of the same mark, so a ```` fence quoting ```bash blocks holds.
+    """
+    fence, at = "", 0
+    for line in text.split("\n"):
+        mark = re.match(r" {0,3}(`{3,}|~{3,})", line)
+        if fence:
+            if mark and mark.group(1).startswith(fence) and not line[mark.end():].strip():
+                fence = ""
+        elif mark:
+            fence = mark.group(1)
+        elif own := VISION.match(text, at):
+            return own.group().rstrip()
+        at += len(line) + 1
+    return ""
+
+
+def rulebook_text(project=""):
     """The rulebook a session receives: the vision, the repo's rules, then this host's own.
 
-    Only a host that has written no rules of its own has none: a rules.md that is there and
-    cannot be read is an error, never an empty one, because a session opened without rules the
-    owner did write is a session working to rules nobody chose.
+    The vision opens it unless `project`, the AGENTS.md handed after it, carries that same
+    section as its own (`vision`): a seat filed under ak's own repository reads it once.  Only a
+    host that has written no rules of its own has none: a rules.md that is there and cannot be
+    read is an error, never an empty one, because a session opened without rules the owner did
+    write is a session working to rules nobody chose.
     """
     body = (REPO / "orchestrator.md").read_text()
     try:
         agents = (REPO / "AGENTS.md").read_text()
     except FileNotFoundError:
         agents = ""
-    vision = re.search(r"(?ms)^## What ak is for(?:\n|\Z).*?(?=^## |\Z)", agents)
-    if vision:
-        body = f"{vision.group().rstrip()}\n\n{body}"
+    opening = vision(agents)
+    if opening and opening != vision(project):
+        body = f"{opening}\n\n{body}"
     try:
         local = (HOME / "rules.md").read_text()
     except FileNotFoundError:
@@ -1322,10 +1348,10 @@ def seat_rulebook(session, repo=None):
     branch: what its workers get, as its launch or the tick last fetched it
     (`orch.fetch_project`); and an unnamed seat's instruction to name itself."""
     from . import run
-    body = rulebook_text()
     record = session_records().get(session, {})
     repo = record.get("repo") if repo is None else repo
     project = run.agents_body(repo, RULES_REF)
+    body = rulebook_text(project or "")
     if project:
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "

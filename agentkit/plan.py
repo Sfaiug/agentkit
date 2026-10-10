@@ -32,6 +32,7 @@ from . import command_help, config, terminal
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 EYE = "your eye"
 DEFERRED = " · deferred"
+STAMP = "%Y-%m-%d %H:%M"
 LINE = re.compile(r"^- \[(?P<mark>[ x])\] (?P<what>.+?) · (?:check: `(?P<check>[^`]+)`|"
                   + EYE + r") · (?P<project>.+?)(?P<deferred>" + re.escape(DEFERRED) + r")? · written "
                   r"(?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
@@ -353,18 +354,61 @@ def is_open(line):
 
 def deferred(line):
     """A line deferred to a run of its own (a review follow-up): open until its check passes,
-    yet never what the seat owes (`owed`)."""
+    and what the seat owes only once no run has it (`taken`)."""
     found = LINE.match(line.strip())
     return bool(found and found["deferred"])
 
 
-def owed(line, proven=None):
+def owed(name, line, proven=None):
     """Whether the seat owes the line, which holds its `ak notify done` and its turn
     (`stop.owed`): an open line, or, for a done, a check line its own checks did not prove
-    (`proven`); never a deferred one."""
+    (`proven`); never a deferred one a run is on its way with (`taken`)."""
     bare = identity(line)
-    return not deferred(line) and (is_open(line) or (proven is not None and bare is not None
-                                                     and bare not in proven))
+    return ((is_open(line) or (proven is not None and bare is not None and bare not in proven))
+            and not taken(name, line))
+
+
+def taken(name, line, delivered=False):
+    """Whether a deferred line is a run's: one of the seat's with the line's check in the
+    line's project is on its way with it (`run.open_followup`) or, with `delivered`, merged
+    or found it not needed since the line was written, for the done's work (`outcomes`).
+    Read with the line, never written at an ending: once the fix run ended, whichever way,
+    the line is the seat's own until its check passes, which a delivery runs at once
+    (`delivery`)."""
+    found = LINE.match(line.strip())
+    if not (found and found["deferred"]):
+        return False
+    repo = place(name, found["project"])
+    written = time.mktime(time.strptime(found["when"], STAMP))
+    from . import run   # here, not at the top: the loop is heavy for a seat's small verb
+    return bool(repo and run.open_followup({"repo": str(repo.resolve()), "launched_session": name},
+                                           "", check=found["check"],
+                                           held=written if delivered else None))
+
+
+def delivery(name, check):
+    """A fix run of the seat delivered `check`'s line -- merged, or found it not needed: that
+    line's check runs (`verify`), ticking it where its fix is on the default branch.  Where
+    its check still fails, or could not run, no run has it and the seat owes it, which the
+    line then says too, its deferred mark dropped as `recheck` drops it: built by the seat,
+    the done lists it (`outcomes`), never taking it for that delivery's work (`taken`)."""
+    try:
+        verify(name, check=check)       # that line's check alone: the seat's others are its own
+    except config.Error:
+        pass        # unchecked: the line stays open
+    mine = {line.strip() for line in lines(name) if deferred(line)
+            and (LINE.match(line.strip())["check"] or "").strip() == check.strip()
+            and owed(name, line)}
+    if not mine:
+        return
+    with held(name) as current:
+        text = lines(current)
+        for at, line in enumerate(text):
+            if line.strip() in mine:
+                found = LINE.match(line.strip())
+                lead = len(line) - len(line.lstrip())
+                text[at] = line[:lead + found.start("deferred")] + line[lead + found.end("deferred"):]
+        write(current, text)
 
 
 def undone(line, found):
@@ -390,8 +434,8 @@ def outcomes(name):
     for line in lines(name):
         line = line.strip()
         found = LINE.match(line)
-        if found and found["deferred"]:
-            continue        # a run's to fix, never this done's work
+        if found and taken(name, line, delivered=True):
+            continue        # a run's, never this done's work: it has the line, or delivered it
         if found:
             result.append((found["project"], found["what"]))
         elif line.startswith("- [x] ") and not is_open(line):
@@ -399,12 +443,13 @@ def outcomes(name):
     return sorted(set(result))
 
 
-def verify(name, every=False):
-    """The open lines left once the plan's checks ran (`_verify`)."""
-    return _verify(name, every)[0]
+def verify(name, every=False, check=None):
+    """The open lines left once the plan's checks ran (`_verify`): only the lines holding
+    `check`, where one is given."""
+    return _verify(name, every, check)[0]
 
 
-def _verify(name, every):
+def _verify(name, every, check=None):
     """Run the open check lines on their project's default branch now: each that passes is
     ticked, naming that commit, each check from a clean checkout of it.  With `every`, ticked
     check lines run too, and one that fails there -- or does not finish, or names a project
@@ -414,16 +459,17 @@ def _verify(name, every):
     added meanwhile stays and these results are the ones the open lines are counted from.
     Returns the plan's open lines left."""
     with verifying(name):
-        return _verify_held(name, every)
+        return _verify_held(name, every, check)
 
 
-def _verify_held(name, every):
+def _verify_held(name, every, check=None):
     checks = {}
     with held(name) as current:
         snapshot = lines(current)
     for line in snapshot:
         found = LINE.match(line.strip())
-        if found and found["check"] and (every or is_open(line)):
+        if (found and found["check"] and (every or is_open(line))
+                and (check is None or found["check"].strip() == check.strip())):
             # lines alike are one check, run once: its result is every one of theirs
             checks.setdefault(found["project"], {})[identity(line)] = found
     results = {}
@@ -461,7 +507,7 @@ def require_done(name):
     """Refuse a done while the plan still has open lines, after running every check once more;
     the check lines those checks proved, for `still_done`."""
     left, results = _verify(name, every=True)
-    left = [line for line in left if owed(line, results)]
+    left = [line for line in left if owed(name, line, results)]
     if left:
         raise config.Error(f"{len(left)} plan line(s) still open, first: {left[0]}; "
                            "a check line is done when its check passes on the default branch "
@@ -474,7 +520,7 @@ def still_done(name, proven):
     """Run under the seat's lock as its done is recorded: the plan as it reads now has no
     open line and no check line the done's own checks did not prove -- one added or ticked
     while they ran is not done."""
-    left = [line.strip() for line in lines(name) if owed(line, proven)]
+    left = [line.strip() for line in lines(name) if owed(name, line, proven)]
     if left:
         raise config.Error(f"{len(left)} plan line(s) open or unproven since the checks ran, "
                            f"first: {left[0]}; run `ak notify done` again")
@@ -527,7 +573,9 @@ def add(name, what, check=None, repo=None, proven=None, deferred=False):
                 if kept != old.strip():
                     write(current, [*text[:index], kept, *text[index + 1:]])
                 return kept
-        line = compose(what, proof, where, deferred, time.strftime("%Y-%m-%d %H:%M"), base)
+        # on the clock a run's `finished_at` reads, which `taken` compares it with
+        stamp = time.strftime(STAMP, time.localtime(time.time()))
+        line = compose(what, proof, where, deferred, stamp, base)
         write(current, [*text, line])
     return line
 
@@ -601,7 +649,7 @@ def _tick(name, number):
         line = line[:found.start("done")].removesuffix(" · done ")
     text[at] = (text[at][:len(text[at]) - len(text[at].lstrip())]
                 + line.replace("- [ ]", "- [x]", 1)
-                + f" · done your yes {time.strftime('%Y-%m-%d %H:%M')}")
+                + f" · done your yes {time.strftime(STAMP)}")
     write(name, text)
     return text[at]
 

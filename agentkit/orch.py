@@ -22,6 +22,7 @@ in a popup over whatever is running.
 """
 
 import atexit
+import difflib
 import fnmatch
 import json
 import math
@@ -2298,13 +2299,32 @@ def rulebook_due(name):
     conversation = seat_conversation(record) if record else None
     if not record or not seat_plugin(record).prompt_context or not owns(record, conversation):
         return None
-    read = record.get("rulebook_read") or {}
-    holds = (read.get("sha") if read.get("conversation") == conversation
-             else record.get("rulebook_sha"))
+    holds = held_sha(record, conversation)
     text = config.seat_rulebook(name)
     pending = (record.get("rulebook_told") or {}).get("conversation") == conversation
     return ((record, conversation, text)
             if pending or holds is None or config.rulebook_digest(text) != holds else None)
+
+
+def held_sha(record, conversation):
+    """The digest of the rulebook `conversation` holds: the one it said it read, else its launch's."""
+    read = record.get("rulebook_read") or {}
+    return read.get("sha") if read.get("conversation") == conversation else record.get("rulebook_sha")
+
+
+def rulebook_change(name, record, conversation, text):
+    """What changed from the rulebook `conversation` holds to `text`, as a unified diff, or ""
+    where ak no longer has the one it holds: the rules it last said it read, which its `rules`
+    file keeps until the next change is written there, or its launch's, which a rename leaves
+    under the name it was launched with."""
+    holds = held_sha(record, conversation)
+    for held in (config.seat_file("rules", name), *map(config.rulebook_path, plan.names(name))):
+        data = on_disk(held)
+        if data and config.rulebook_digest(data) == holds:
+            return "".join(difflib.unified_diff(
+                data.decode(errors="replace").splitlines(True), text.splitlines(True),
+                "the rulebook you hold", "your current rulebook", n=1))
+    return ""
 
 
 def fetch_project(repo):
@@ -2393,19 +2413,29 @@ def rulebook_prepare(name):
         sha = config.rulebook_digest(text)
         told = record.get("rulebook_told") or {}
         if told.get("conversation") != conversation or told.get("sha") != sha:
+            # what changed since the rulebook it holds, read before the `rules` file below
+            # takes the new one; the news names it where it was written whole
+            change = rulebook_change(name, record, conversation, text)
+            if change:
+                replace_file(config.seat_file("change", name), change.encode())
             # a code for this conversation and these rules, which only a prompt that carried
             # the news holds: `ak orch rules` takes nothing else
             if config.update_session(name, rulebook_told={
-                    "conversation": conversation, "sha": sha,
-                    "code": secrets.token_hex(6)}) is None:
+                    "conversation": conversation, "sha": sha, "code": secrets.token_hex(6),
+                    "change": config.rulebook_digest(change) if change else None}) is None:
                 return
         path = config.seat_file("rules", name)
         if on_disk(path) != text.encode():
-            tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-            tmp.write_bytes(text.encode())
-            tmp.replace(path)
+            replace_file(path, text.encode())
     except OSError:
         pass
+
+
+def replace_file(path, data):
+    """Write `data` to `path` whole: a reader sees the old file or the new one, never half."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
 
 
 def rulebook_news(session, conversation):
@@ -2416,7 +2446,8 @@ def rulebook_news(session, conversation):
     merge, or the seat filed elsewhere -- would keep working to the old rules.  Reopening it
     replaces its pane, and nothing on a screen proves the owner has no draft there, so the
     seat is told instead, with the prompt that starts its next turn:
-    the rulebook is written to its `rules` file (`rulebook_prepare`), and this names it.
+    the rulebook is written to its `rules` file (`rulebook_prepare`), and this names what changed
+    since the one it holds (its `change` file), or the whole file where ak no longer has that one.
     Only its own conversation is told (`owns`): a client started inside the seat inherits its
     name and is never it.  Every prompt carries the news until the conversation says it read
     that rulebook (`ak orch rules`, `rulebook_ack`): a prompt something refused, or one whose
@@ -2445,6 +2476,13 @@ def rulebook_news(session, conversation):
             or on_disk(path) != text.encode() or told.get("conversation") != conversation
             or told.get("sha") != config.rulebook_digest(text)):
         return ""                       # nothing it could read and say so yet: the next prompt
+    change = config.seat_file("change", current)
+    if told.get("change") and config.rulebook_digest(on_disk(change) or b"") == told["change"]:
+        # what changed, not the whole rulebook again: most changes are a line or two
+        return (f"Your rulebook changed: read {change} now, before anything else; it shows what "
+                f"changed since the one you hold, as a unified diff. {path} holds the new one "
+                "whole: it is your current rulebook, and where it differs from the one you were "
+                f"opened with, it wins. Then run `ak orch rules {told['code']}` to say you have.")
     return (f"Read {path} in full now, before anything else: it is your current rulebook, and "
             "where it differs from the one you were opened with, it wins. Then run "
             f"`ak orch rules {told['code']}` to say you have.")

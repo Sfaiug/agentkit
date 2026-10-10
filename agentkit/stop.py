@@ -43,7 +43,7 @@ def owed(name):
     a harness hook never waits on it, and every plan write is a whole-file replace."""
     from . import plan
     try:
-        return any(plan.owed(line) for line in plan.lines(name))
+        return any(plan.owed(name, line) for line in plan.lines(name))
     except config.Error:
         return True
 
