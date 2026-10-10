@@ -13,6 +13,7 @@ translation PRs skip review and join the line like any passed review.
 """
 
 import copy
+import difflib
 import fcntl
 import hashlib
 import json
@@ -3899,10 +3900,56 @@ def dispute_rows(lp):
     return rows
 
 
-def earlier_sites(lp):
-    """Where the last review's blocking findings stand: a finding handed in again there
-    upholds an earlier one, in whatever words, inside the fix delta or not."""
-    return {(row["path"], row["line"]) for row in earlier_findings(lp)}
+def moved_lines(lp, path, line, since, head):
+    """(the lines on `head` where line `line` of `path` at `since` can sit, whether the diff
+    between them touched the line): one line where a fix above it moved a line it never
+    touched; the lines the fix put in its place where it rewrote it; the removal's anchor,
+    the line before it, where it deleted it; the line itself where there is no delta."""
+    shift = 0
+    for start, old, now, new in hunks(lp, path, since, head):
+        if old == 0:
+            start += 1      # lines were added after `start`: what follows it moves
+        if line < start:
+            break
+        if line < start + old:
+            return (range(now, now + new) if new else range(max(now, 1), max(now, 1) + 1)), True
+        shift += new - old
+    return range(line + shift, line + shift + 1), False
+
+
+def placed(lp, row, since, head):
+    """Where an earlier finding stands on `head`: (its line there, whether the fix delta since
+    `since` touched the line, whether that line is inside the change, every line it may stand
+    at: its own, or those the fix put in its place).  A line the fix left alone moved with
+    it; one the fix rewrote stands at the line the fix put in its place that reads most like
+    it (a tie goes to the first); one the fix deleted stands at the removal's anchor, which
+    the change's own diff reads as inside (`in_hunks`).  The site a finding is listed and
+    handed at, whatever the fix did to its line."""
+    lines, touched = (moved_lines(lp, row["path"], row["line"], since, head) if since
+                      else (range(row["line"], row["line"] + 1), False))
+    line = lines[0]
+    if touched and len(lines) > 1:
+        was = line_of(lp, since, row["path"], row["line"])
+        now = git(lp.wt, "show", f"{head}:{row['path']}", check=False).splitlines()
+        line = max(lines, key=lambda at: (difflib.SequenceMatcher(
+            None, was, now[at - 1] if at <= len(now) else "").ratio(), -at))
+    changed = [] if lp.scratch else hunks(lp, row["path"], lp.base_sha, head)
+    return line, touched, in_hunks(line, changed), lines
+
+
+def line_of(lp, commit, path, line):
+    """The text of that line of `path` at `commit`, '' where there is none."""
+    text = git(lp.wt, "show", f"{commit}:{path}", check=False).splitlines()
+    return text[line - 1] if 0 < line <= len(text) else ""
+
+
+def earlier_sites(lp, head, since):
+    """Where the last review's blocking findings can stand on `head` (`moved_lines`: moved, or
+    any of the lines the fix put in their place): a finding handed in again there upholds an
+    earlier one, in whatever words, inside the fix delta or not; a line that is base's again
+    is judged on base, as ak's own replay of it is."""
+    return {(row["path"], at) for row in earlier_findings(lp)
+            for at in moved_lines(lp, row["path"], row["line"], since, head)[0]}
 
 
 def replay_findings(lp, rows, head):
@@ -3954,16 +4001,15 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
 
     In a later round (`since` names the commit the last review judged) a new finding blocks
     only inside the fix delta; one handed in again at an earlier finding's site upholds it (a
-    dispute the reviewer rejects) and is weighed as ever.  ak's own replay of the earlier
-    findings (`replayed`) is weighed with the reviewer's: one still failing blocks whether or
-    not the reviewer handed it in again, one fixed is a note.  A replayed finding stands at
-    the line it was handed in at; following it where a fix moved or rewrote that line is the
-    placement change's."""
+    dispute the reviewer rejects) and is weighed as ak's replay is.  ak's own replay of the
+    earlier findings (`replayed`) is weighed with the reviewer's, each where the fix left its
+    line (`placed`): one still failing blocks whether or not the reviewer handed it in again,
+    on base where its line is base's again, and one fixed is a note."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
     sites = quoted_sites(lp, submitted, head)
-    earlier = earlier_sites(lp) if since else set()
+    earlier = earlier_sites(lp, head, since) if since else set()
     records = []
     for index, row in enumerate(submitted.records, 1):
         if row["kind"] not in ("finding", "follow-up"):
@@ -4036,20 +4082,38 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     if replayed:
         handed = [row for row in records if isinstance(row.get("evidence"), dict)]
         extra = []
-        for row, now, failing in replayed:
+        for n, (row, now, failing) in enumerate(replayed, 1):
+            line, touched, inside, sites = placed(lp, row, since, head)
+            row = {**row, "line": line}
+            where = "; the fix changed its line" if touched else ""
             if not failing:
                 extra.append({**row, "kind": "note", "evidence": now,
                               "replayed": "fixed; its proof passes now"})
                 continue
-            # the reviewer's own hand-in carrying this finding's very proof at its site is
-            # this finding upheld, and ak adds no copy beside it; anywhere else, or weighed
-            # down to a note, it is the reviewer's words, and ak's own copy stands beside them
-            if any(each["evidence"].get("run") == now["run"] and each["kind"] == "finding"
-                   and (each["path"], each["line"]) == (row["path"], row["line"]) for each in handed):
+            kind, replayed_word = "finding", "still failing; it blocks until its proof passes" + where
+            if not lp.scratch and not inside:
+                # its line is base's now (put back, or never the change's): judged on base,
+                # as any failing proof on a line the change did not touch is
+                base = {"sha": lp.base_sha, **proof_on(
+                    lp, now["run"], lp.round_dir / f"replay-{n}-base.log", lp.base_sha, head)}
+                now = {**now, "base": base}
+                if hand_in.proof_failed(base):
+                    kind = "follow-up"
+                    row["before"] = f"base {lp.base_sha}: the proof fails there too"
+                    replayed_word = ("still failing, on base too: a defect from before the task, "
+                                     "kept as a follow-up")
+                elif base["returncode"] != 0 or base["killed"]:
+                    kind, replayed_word = "note", "still failing, and base cannot run its proof"
+            # the reviewer's own hand-in carrying this finding's very proof at its site, and
+            # weighed as ak weighs it here, is this finding upheld, and ak adds no copy beside
+            # it; anywhere else, or weighed down to a note, it is the reviewer's words, and
+            # ak's own copy stands beside them
+            if any(each["evidence"].get("run") == now["run"] and each["kind"] == kind
+                   and each["path"] == row["path"] and each["line"] in sites for each in handed):
                 continue
-            extra.append({**row, "kind": "finding", "evidence": now,
-                          "replayed": "still failing; it blocks until its proof passes"})
-            lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit")
+            extra.append({**row, "kind": kind, "evidence": now, "replayed": replayed_word})
+            lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit"
+                   + ("" if kind == "finding" else f" ({kind})"))
         closing = records.pop() if records and records[-1]["kind"] in hand_in.CLOSING else None
         records.extend(extra)
         if closing is not None:
@@ -4108,7 +4172,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     else:
         lp.state.update(step="reviewer", step_at=time.time())
         lp.save()
-    checks, delta, replayed = "", None, []
+    checks, delta, replayed, listed = "", None, [], None
     if lp.scratch:
         work = whole = f"## Workspace ({lp.wt})\n```\n{listing(lp.wt)}\n```"
     else:
@@ -4140,12 +4204,20 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                      else "a quote, which ak cannot re-prove: hand it in again if it still stands")
                     for row in earlier if row not in proven]
             replayed = replay_findings(lp, proven, at)
+            # each earlier finding is listed, and handed to the reviewer's turn, where it
+            # stands on this commit (`placed`): the one site a hand-in upholds it at
+            standing = {id(row): placed(lp, row, delta, at)[0] if delta else row["line"] for row in earlier}
+            listed = lp.round_dir / "earlier.json"
+            listed.parent.mkdir(parents=True, exist_ok=True)
+            listed.write_text(json.dumps([{**row, "line": standing[id(row)]} for row in earlier]))
+            shown = [({**row, "line": standing[id(row)]}, now, failing) for row, now, failing in replayed]
+            told = [({**row, "line": standing[id(row)]}, why) for row, why in left]
             if delta:
                 changed = capped(lp, git(lp.wt, "diff", delta, head, check=False))
                 work = (f"## Fix delta ({delta[:12]}...HEAD in {lp.wt}; what changed since the "
-                        f"last review)\n```diff\n{changed}\n```\n\n{replay_section(replayed, left, delta)}")
+                        f"last review)\n```diff\n{changed}\n```\n\n{replay_section(shown, told, delta)}")
             else:
-                work = f"{whole}\n\n{replay_section(replayed, left, None)}"
+                work = f"{whole}\n\n{replay_section(shown, told, None)}"
         paths = changed_test_paths(lp, head)
         if paths:
             # Leave room for full names, including git's quoted non-ASCII paths.
@@ -4272,7 +4344,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                                                             lp.wt, out, lp.role("reviewer"),
                                                             lp.review_sid, lp.log,
                                                             lp.turn_limit,
-                                                            handover=handover, **resume)
+                                                            handover=handover, findings=listed,
+                                                            **resume)
         except worker.LoginExpired as expired:
             lp.review_sid = expired.session or lp.review_sid
             lp.save()           # the parked conversation is in run.json before the run parks
@@ -4333,7 +4406,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     submitted = weigh_review(lp, submitted, identity.get("head_sha"), since=delta, replayed=replayed)
     upheld = {(row["path"], row["line"]) for row in submitted.findings if not row.get("replayed")}
     for row in disputes.disputes:
-        if (row["path"], row["line"]) not in upheld:
+        # a dispute's finding is upheld wherever the fix left its line: moved, at the anchor
+        # of its removal, or among the lines the fix put in its place
+        lines, _ = (moved_lines(lp, row["path"], row["line"], delta, identity.get("head_sha"))
+                    if delta else ((row["line"],), False))
+        if not any((row["path"], at) in upheld for at in lines):
             dropped = lp.state.setdefault("disputes", [])
             text_dispute = "Dropped: " + hand_in.item_text(row)
             if text_dispute not in dropped:
