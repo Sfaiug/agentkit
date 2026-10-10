@@ -3945,6 +3945,12 @@ def review_disputes(lp, head):
     return hand_in.Review(disputes)
 
 
+def followup_key(item):
+    """The defect a follow-up names, whichever round proved it: its text without the round's
+    `Commit <sha>:` line, so its site, what, why and check tell it from another."""
+    return "\n".join(line for line in item.splitlines() if not line.startswith("Commit "))
+
+
 def review(lp, summary, ok, dw_log, preface="", record=True):
     """Commit what the executor left, hand the work to the reviewer, record the round's verdict.
 
@@ -4197,11 +4203,15 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
     # kept whatever the verdict, every round's, with the commit each was proven on for its plan
-    # line; once per check, as a plan holds it: a follow-up of this change names its round's head
+    # line; each defect once, whichever round proved it: a follow-up of this change names its
+    # round's head, and the same defect handed in again on the next head is the one kept
     kept = lp.state.get("followups") or []
-    checks = lp.state.get("followup_checks") or {}
-    fresh = [item for item in submitted.followups
-             if item not in kept and submitted.followup_checks.get(item) not in checks.values()]
+    known = {followup_key(item) for item in kept}
+    fresh = []
+    for item in submitted.followups:
+        if followup_key(item) not in known:
+            known.add(followup_key(item))
+            fresh.append(item)
     lp.state["followups"] = kept + fresh
     for key, found in (("followup_checks", submitted.followup_checks),
                        ("followup_commits", submitted.followup_commits)):

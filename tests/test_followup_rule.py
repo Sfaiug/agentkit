@@ -135,6 +135,15 @@ class FollowupRule(unittest.TestCase):
         self.assertIn("Commit " + "1" * 40, item)
         self.assertEqual(self.lp.state["followup_checks"], {item: "false"})
         self.assertEqual(self.lp.state["followup_commits"], {item: "1" * 40})
+        # ... while another defect with the same check is another follow-up, kept beside it
+        other = {"kind": "follow-up", "path": "b.py", "line": 2, "what": "zero divisor crashes",
+                 "why": "callers crash", "evidence": {"run": "false", "commit": "3" * 40,
+                                                     "returncode": 1, "output": ""}}
+        with patch.object(run, "weigh_review",
+                          return_value=hand_in.Review([other, {"kind": "done"}])):
+            self.review()
+        self.assertEqual(len(self.lp.state["followups"]), 2)
+        self.assertTrue(any(text.startswith("b.py:2 - zero divisor crashes") for text in self.lp.state["followups"]))
 
     def test_a_pass_overridden_by_the_loop_keeps_its_followups_too(self):
         self.review(OTHER)
