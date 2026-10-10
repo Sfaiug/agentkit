@@ -5640,8 +5640,9 @@ def say(dry_run, log, text, url, session, merged=False):
     Never to Discord.  The run learns it first, where the menu and `ak run status` were
     already showing `waiting for the maintainer` -- a seat that cannot be typed into never
     holds that back -- and a live seat is typed the line, exactly as a review question is
-    put to the `inbox`.  A merge its seat owes nothing on is the exception: routine
-    (`run.routine_ending`), recorded on the run and typed into no seat.  A decision already
+    put to the `inbox`.  A merge is the exception: routine, recorded on the run and typed
+    into no seat, unless its run's seat owes work (`run.routine_ending`), as the follow-ups
+    it put in that seat's plan.  A decision already
     on the run is not recorded again, so a retry after a failed typing tells the seat without
     recording twice or starting fix runs twice.  True means it has landed
     everywhere it goes, or that there is nowhere left for it to land and following this PR
@@ -5657,7 +5658,7 @@ def say(dry_run, log, text, url, session, merged=False):
                         and (not merged or run_state.get("merged"))):
         run.record_decision(run_dir, run_state, text, merged=merged)
         log(f"recorded on run {run_dir.name}: {text}")
-    if run_dir and run.routine_ending(run_state):
+    if merged and (not run_dir or run.routine_ending(run_state)):
         return True
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
