@@ -5641,8 +5641,9 @@ def say(dry_run, log, text, url, session, merged=False):
     already showing `waiting for the maintainer` -- a seat that cannot be typed into never
     holds that back -- and a live seat is typed the line at its quiet prompt, never into a
     running turn (`type_at_prompt`), exactly as a run's ending is, its mark kept on the run
-    (`decision_typed`) so a line typed and never seen sent gets its Enter, not a second copy.
-    A merge is the exception: routine, recorded on the run and typed into no seat, unless its
+    (`decision_typed`) so a line typed and never seen sent gets its Enter, not a second copy,
+    and is sent (`run.finish_typed`) before a later decision is typed or a routine merge ends
+    the following.  A merge is the exception: routine, recorded on the run and typed into no seat, unless its
     run's seat owes work (`run.routine_ending`), as the follow-ups it put in that seat's plan.
     A decision already on the run is not recorded again, so a retry after a failed typing
     tells the seat without recording twice or starting fix runs twice.  True means it has landed everywhere it goes, or that there is nowhere left for it
@@ -5659,22 +5660,33 @@ def say(dry_run, log, text, url, session, merged=False):
                         and (not merged or run_state.get("merged"))):
         run.record_decision(run_dir, run_state, text, merged=merged)
         log(f"recorded on run {run_dir.name}: {text}")
+    def kept(mark):
+        # a line typed and never seen sent gets only its Enter from the next tick
+        if run_dir:
+            run.mark_delivery(run_dir, run_state, decision_typed=mark)
+
+    held = (run_state or {}).get("decision_typed")
+
+    def finished():
+        # an earlier decision's line left unsent in the composer would hold this one, and
+        # every later line, back as the owner's draft: it is sent first
+        done = not held or run.finish_typed(run.launched_session(run_state), held, log)
+        if done and held:
+            kept(None)
+        return done
+
     if merged and (not run_dir or run.routine_ending(run_state)):
-        return True
+        return finished()
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
                 "decision on a PR of ours, for you to act on or not.")
-        def kept(mark):
-            # a line typed and never seen sent gets only its Enter from the next tick
-            if run_dir:
-                run.mark_delivery(run_dir, run_state, decision_typed=mark)
-
         if run_dir:
             line = run.seat_notice(line, run_state, run_dir,
                                    f"run {run_dir.name}: the maintainer decided on its PR.")
-        if not type_at_prompt(seat, line, log, typed=(run_state or {}).get("decision_typed"),
-                              receipt=kept):
+        if held and held.get("line") != line and not finished():
+            return False
+        if not type_at_prompt(seat, line, log, typed=held, receipt=kept):
             return False
         kept(None)
         log(f"told the {seat['name']} seat: {text}")

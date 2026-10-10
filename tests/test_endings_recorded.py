@@ -157,6 +157,26 @@ class InTheComposer(RunNotice):
         run.announce(record.read_state(failed), failed, self.logs.append, self.cfg)
         self.assertIn("run-f finished FAIL", self.sent[-1])
 
+    def test_a_decision_left_in_the_composer_is_sent_before_the_maintainer_moves_on(self):
+        for text, merged in (("PR #7 Fix api: closed by the maintainer without a merge", False),
+                             ("PR #7 Fix api: merged by the maintainer", True)):
+            with self.subTest(merged=merged):
+                directory, _ = self.result(f"run-{merged}", merged=False, pr=PR)
+                self.sent.clear()
+                with patch.object(run, "run_for_pr", side_effect=lambda _url: (
+                        directory, record.read_state(directory))):
+                    with patch.object(orch, "tmux_out", side_effect=self.enter_lost):
+                        self.assertFalse(watch.say(False, self.logs.append, DECISION, PR,
+                                                   "fix-api"))
+                    told = [watch.say(False, self.logs.append, text, PR, "fix-api",
+                                      merged=merged) for _ in range(2)]
+                self.assertEqual(told, [False, True])       # the earlier line's Enter first
+                self.assertIn(DECISION, self.sent[0])
+                # a routine merge is typed into no seat; a close is, after it
+                self.assertEqual([text in line for line in self.sent[1:]], [] if merged else [True])
+                self.assertEqual(self.composer, "")         # nothing holds a later line back
+                self.assertNotIn("decision_typed", record.read_state(directory))
+
     def test_a_decision_whose_enter_is_read_late_is_typed_once(self):
         directory, state = self.result("run-d", merged=False, pr=PR)
         reads = iter([False, True])                         # its Enter not yet read off the tty
