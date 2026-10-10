@@ -1,10 +1,12 @@
 """A review follow-up is a deferred line in the owning seat's plan: open until its check
-passes on the default branch, holding no `ak notify done`, and ticking itself once its fix is
-on the default branch, while a line no run took is the seat's own and holds its done.  The
+passes on the default branch, holding no `ak notify done` while a run of the seat is on its way
+with its check, and ticking itself once its fix is on the default branch, while a line no run
+has is the seat's own and holds its done.  The
 hand-in and the weighing: tests/test_followups_never_block.py; the fix runs:
 tests/test_followup_runs.py.  Offline: a real repository and plan.
 """
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -16,8 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox, account_home
-from agentkit import config, gate, orch, plan, run, stop
-from agentkit import record as run_record
+from agentkit import config, plan, stop
 
 SEAT = "fix-api"
 
@@ -52,12 +53,24 @@ class Planned(Sandbox):
         return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
                               capture_output=True, text=True).stdout.strip()
 
+    def fix(self, **state):
+        """The fix run's record as its last writer left it: ak's own, whichever path ended it."""
+        directory = config.RUNS / "fix"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "run.json").write_text(json.dumps({
+            "run_id": "fix", "launched_session": SEAT, "repo": str(self.repo.resolve()),
+            "base_sha": self.base, "followup": {"run": "source", "text": "api.py:1 - mode is wrong",
+                                                "place": "api.py:1", "check": "test -f feature.txt"},
+            **state}))
+        return directory
+
     def test_an_open_line_holding_the_check_is_kept_with_the_mark_the_call_asks(self):
         own = plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
                        proven=self.base, deferred=False)
         self.assertFalse(plan.deferred(own))
         kept = plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
                         proven=self.base, deferred=True)          # a run takes it ...
+        self.fix(state="running")
         self.assertEqual(kept.replace(plan.DEFERRED, ""), own)
         self.assertEqual(plan.open_lines(SEAT), [kept])           # ... no duplicate ...
         self.assertFalse(stop.owed(SEAT))                         # ... and the seat owes nothing
@@ -66,61 +79,43 @@ class Planned(Sandbox):
         self.assertEqual(plan.open_lines(SEAT), [own])
         self.assertTrue(stop.owed(SEAT))
 
-    def test_a_fix_run_no_run_has_any_more_gives_its_line_back_to_the_seat(self):
-        def defer():
-            return plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
-                            proven=self.base, deferred=True)
-        deferred = defer()
-        directory = config.RUNS / "fix"
-        directory.mkdir(parents=True)
+    def test_a_deferred_line_is_the_seats_own_again_once_no_run_is_on_its_way_with_its_check(self):
+        line = plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
+                        proven=self.base, deferred=True)
+        directory = self.fix()
         (directory / "log.txt").write_text("not merged: the rebase of origin/main conflicted\n")
-        fix = {"run_id": "fix", "launched_session": SEAT, "repo": str(self.repo), "base_sha": self.base,
-               "followup": {"run": "source", "text": "api.py:1 - mode is wrong", "place": "api.py:1",
-                            "check": "test -f feature.txt"}}
         now = time.time()
-        logs = []
-        for ending in ({"state": "not_needed"}, {"state": "pass", "merged": True},  # it ticks itself
-                       # ... or the run is still on its way: the tick's wait on main, its retry, and
-                       # the conflict it parks and resumes
-                       {"state": "waiting", "waiting_on": {"ref": "origin/main"}, "finished_at": now},
-                       {"state": "error", "finished_at": now, "error_retry_at": now + 3600},
-                       {"state": "fail", "merge_note": "the rebase of origin/main conflicted",
-                        "worktree": str(self.repo), "branch": "ak/fix-api", "base": "main",
-                        "rounds": 3, "round_summaries": [{}], "finished_at": now}):
-            self.assertIsNone(run.followup_returned({**fix, **ending}, directory, logs.append))
-            self.assertEqual(plan.open_lines(SEAT), [deferred])
-
-        def failed():
-            run.followup_returned({**fix, "state": "fail", "finished_at": now}, directory, logs.append)
-
-        def stopped():          # `ak run stop`
-            with patch.object(orch, "user_manager", return_value=False), \
-                    patch.object(stop, "marker_pids", return_value=[]):
-                stop.end(directory, keep=True, why="stopped by the user", log=logs.append)
-
-        def crashed():          # the loop raises: drive's error, which reaches no finish
-            def harness():
-                raise RuntimeError("the harness crashed")
-            with patch.object(gate, "wait_for_slot", return_value={**fix, "state": "running"}), \
-                    patch.object(run, "announce"), patch.object(run, "stop_run_tree"), \
-                    patch.dict(os.environ, {"AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}):
-                for name in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG"):
-                    os.environ.pop(name, None)
-                self.assertEqual(run.drive(self.cfg, directory, {}, logs.append, job=harness), 2)
-
-        for end in (failed, crashed, stopped):     # a stopped record takes no save after it
-            run_record.save_state(directory, {**fix, "state": "running"})
-            end()
-            self.assertEqual(plan.open_lines(SEAT), [deferred.replace(plan.DEFERRED, "")], end.__name__)
-            self.assertTrue(stop.owed(SEAT))                          # the seat's own again
-            defer()
-        self.assertIn("Its line is yours again, in your plan: Fix api.py:1 - mode is wrong",
-                      (directory / "result.md").read_text())
-        self.assertEqual(logs.count(f"follow-up for {SEAT}: Fix api.py:1 - mode is wrong (in its plan)"), 3)
+        on_its_way = ({"state": "running"}, {"state": "queued", "slot_waiting": True},
+                      {"state": "waiting", "waiting_on": {"ref": "origin/main"}, "finished_at": now},
+                      {"state": "error", "finished_at": now, "error_retry_at": now + 3600},
+                      {"state": "fail", "merge_note": "the rebase of origin/main conflicted",
+                       "worktree": str(self.repo), "branch": "ak/fix-api", "base": "main",
+                       "rounds": 3, "round_summaries": [{}], "finished_at": now})
+        ended = ({"state": "pass", "merged": True, "finished_at": now},
+                 {"state": "not_needed", "finished_at": now},
+                 {"state": "fail", "finished_at": now},
+                 {"state": "fail", "error": "killed at its memory cap", "finished_at": now},
+                 {"state": "stopped", "finished_at": now},
+                 {"state": "error", "finished_at": now},
+                 {"state": "error", "finished_at": now - 2 * 86400, "error_retry_at": now - 60},
+                 {"state": "interrupted", "deaths": [{"at": now}], "worktree": str(self.root / "gone")},
+                 {"state": "running", "launched_session": "other-seat"},
+                 {"state": "running", "followup": {"run": "source", "text": "api.py:1 - mode is wrong",
+                                                   "place": "api.py:1", "check": "test -f other.txt"}},
+                 {"state": "running", "repo": str(self.root / "elsewhere")})
+        for state in on_its_way + ended:
+            self.fix(**state)
+            self.assertEqual(stop.owed(SEAT), state in ended, state)
+            self.assertEqual(plan.open_lines(SEAT), [line])      # read so, never written
+        with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open"):
+            plan.require_done(SEAT)
+        self.fix(state="running")
+        plan.require_done(SEAT)
 
     def test_a_deferred_line_is_open_yet_owed_by_nobody_and_ticks_itself(self):
         line = plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
                         proven=self.base, deferred=True)
+        self.fix(state="running")
         self.assertIn(f" · {plan.named(self.repo)} · deferred · written ", line)
         self.assertTrue(plan.deferred(line))
         self.assertEqual(plan.open_lines(SEAT), [line])

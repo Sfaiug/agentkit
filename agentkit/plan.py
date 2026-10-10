@@ -353,18 +353,32 @@ def is_open(line):
 
 def deferred(line):
     """A line deferred to a run of its own (a review follow-up): open until its check passes,
-    yet never what the seat owes (`owed`)."""
+    and what the seat owes only once no run has it (`taken`)."""
     found = LINE.match(line.strip())
     return bool(found and found["deferred"])
 
 
-def owed(line, proven=None):
+def owed(name, line, proven=None):
     """Whether the seat owes the line, which holds its `ak notify done` and its turn
     (`stop.owed`): an open line, or, for a done, a check line its own checks did not prove
-    (`proven`); never a deferred one."""
+    (`proven`); never a deferred one a run has (`taken`)."""
     bare = identity(line)
-    return not deferred(line) and (is_open(line) or (proven is not None and bare is not None
-                                                     and bare not in proven))
+    return ((is_open(line) or (proven is not None and bare is not None and bare not in proven))
+            and not taken(name, line))
+
+
+def taken(name, line):
+    """Whether a deferred line is a run's: one of the seat's still on its way with the line's
+    check in the line's project (`run.open_followup`).  Read with the line, never written at an
+    ending: once the fix run has ended, however it ended -- merged, failed, stopped, killed, a
+    retry nobody makes any more -- the line is the seat's own until its check passes."""
+    found = LINE.match(line.strip())
+    if not (found and found["deferred"]):
+        return False
+    repo = place(name, found["project"])
+    from . import run   # here, not at the top: the loop is heavy for a seat's small verb
+    return bool(repo and run.open_followup({"repo": str(repo.resolve()), "launched_session": name},
+                                           "", check=found["check"]))
 
 
 def undone(line, found):
@@ -461,7 +475,7 @@ def require_done(name):
     """Refuse a done while the plan still has open lines, after running every check once more;
     the check lines those checks proved, for `still_done`."""
     left, results = _verify(name, every=True)
-    left = [line for line in left if owed(line, results)]
+    left = [line for line in left if owed(name, line, results)]
     if left:
         raise config.Error(f"{len(left)} plan line(s) still open, first: {left[0]}; "
                            "a check line is done when its check passes on the default branch "
@@ -474,7 +488,7 @@ def still_done(name, proven):
     """Run under the seat's lock as its done is recorded: the plan as it reads now has no
     open line and no check line the done's own checks did not prove -- one added or ticked
     while they ran is not done."""
-    left = [line.strip() for line in lines(name) if owed(line, proven)]
+    left = [line.strip() for line in lines(name) if owed(name, line, proven)]
     if left:
         raise config.Error(f"{len(left)} plan line(s) open or unproven since the checks ran, "
                            f"first: {left[0]}; run `ak notify done` again")

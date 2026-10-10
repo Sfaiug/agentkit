@@ -43,7 +43,7 @@ def owed(name):
     a harness hook never waits on it, and every plan write is a whole-file replace."""
     from . import plan
     try:
-        return any(plan.owed(line) for line in plan.lines(name))
+        return any(plan.owed(name, line) for line in plan.lines(name))
     except config.Error:
         return True
 
@@ -247,8 +247,7 @@ def stop_line(run_id, branch, kept):
 
 def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=None):
     """End that run: its record first (`stopped`, under the lock, `why` its error and `extra`
-    on it), a fix run's line back to its seat where no run has it now (`run.followup_returned`),
-    then its loop and everything it started, then its checkout unless `keep`.  The
+    on it), then its loop and everything it started, then its checkout unless `keep`.  The
     state as recorded; a run already stopped as it stands; None where the run had ended
     already, or where `only_if` no longer holds of the record read under the lock, so there
     was nothing to stop.  `owner_check` is the command's: only the seat a run belongs to stops
@@ -285,8 +284,6 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
         except (OSError, ValueError, KeyError, TypeError):
             pass
         state = current
-    # outside the run's lock: the plan is written under the seat's
-    run.followup_returned(state, run_dir, log)
     # The scope where one exists, else the tree by the run's marker -- in practice both,
     # so a scope that refused to stop still loses its processes, and a plain start loses
     # nothing by the scope attempt missing.  The record already says stopped, so whatever
