@@ -5640,11 +5640,13 @@ def say(dry_run, log, text, url, session, merged=False):
     Never to Discord.  The run learns it first, where the menu and `ak run status` were
     already showing `waiting for the maintainer` -- a seat that cannot be typed into never
     holds that back -- and a live seat is typed the line, exactly as a review question is
-    put to the `inbox`, with the review follow-ups a merge put in its plan.  A decision
-    already on the run is not recorded again, so a retry after a failed typing tells the
-    seat without recording twice or starting fix runs twice.  True means it has landed
-    everywhere it goes, or that there is nowhere left for it to land and following this PR
-    is over; False means the seat is still owed its line and the next tick retries it.
+    put to the `inbox`.  A merge is the exception: routine, recorded on the run and typed
+    into no seat, unless its run's seat owes work (`run.routine_ending`), as the follow-ups
+    it put in that seat's plan.  A decision already on the run is not recorded again, so a
+    retry after a failed typing tells the seat without recording twice or starting fix runs
+    twice.  True means it has landed everywhere it goes, or that there is nowhere left for it
+    to land and following this PR is over; False means the seat is still owed its line and
+    the next tick retries it.
     """
     from . import run   # here, not at the top: run imports this module
     if dry_run:
@@ -5656,12 +5658,12 @@ def say(dry_run, log, text, url, session, merged=False):
                         and (not merged or run_state.get("merged"))):
         run.record_decision(run_dir, run_state, text, merged=merged)
         log(f"recorded on run {run_dir.name}: {text}")
+    if merged and (not run_dir or run.routine_ending(run_state)):
+        return True
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
-        planned = run.planned_followups(run_state).strip() if merged and run_dir else ""
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
-                "decision on a PR of ours, for you to act on or not."
-                + (f" {planned}" if planned else ""))
+                "decision on a PR of ours, for you to act on or not.")
         if run_dir:
             line = run.seat_notice(line, run_state, run_dir,
                                    f"run {run_dir.name}: the maintainer decided on its PR.")
@@ -5812,18 +5814,16 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
             log(f"would tell its launching seat: {line}")
             return "passed", None, None
         session = run.launched_session(st)
-        if not session:
-            with run_record.record(run_dir) as current:
-                current["live_notified"] = now
+        if run.seat_owes_nothing(st):
+            # no turn of its seat's waits on this (`awaiting_live`), a repair's included:
+            # recorded, never typed, and a line an earlier pass typed and never saw sent is sent
+            if run.finish_typed(session, st.get("live_typed"), log):
+                with run_record.record(run_dir) as current:
+                    current["live_notified"] = now
+                    current.pop("live_typed", None)
+                log(f"{line} Recorded, not typed")
             return "passed", None, None
         seat = orch.find(session)
-        if seat and not st.get("live_typed") and done_since(seat["name"], st.get("finished_at")):
-            # its job is over: the line would open a turn it could end only by saying so again
-            with run_record.record(run_dir) as current:
-                current["live_notified"] = now
-            log(f"run {run_dir.name} is live; the {seat['name']} seat declared done after it "
-                "finished, so it is not told")
-            return "passed", None, None
         if after_merge_live(seat):
             def kept(mark):
                 with run_record.record(run_dir) as current:
@@ -5929,13 +5929,6 @@ def after_merge_status(owner, repo, host, sha, log):
     if passed:
         return "passed", None, None
     return "ignored", None, None
-
-
-def done_since(name, since):
-    """Has that seat declared its job done, in a done ak notify still holds, since `since`?"""
-    notice = notify.last(name) or {}
-    when, since = _stamp(notice.get("time")), _stamp(since)
-    return notice.get("kind") == "done" and None not in (when, since) and when >= since
 
 
 def after_merge_live(seat):

@@ -3562,11 +3562,14 @@ def followups_handed(run_dir, state, handed):
     """Write the receipt that this ending's list is handed on: onto the record as it stands,
     so nothing written there meanwhile -- a stop, a delivery's mark -- is put back.  Read and
     written under `delivery_lock` too, taken inside the recovery lock as `reap` takes it: a
-    delivery's mark lands before the read or after the write, never between them."""
+    delivery's mark lands before the read or after the write, never between them.  Then into
+    the result, the one place that names them: a merge's ending, typed or only recorded
+    (`routine_ending`), does not."""
     state.update(handed)
     with run_record.recovery_lock(run_dir), delivery_lock(run_dir), \
             run_record.record(run_dir) as current:
         current.update(handed)
+    save_result(run_dir, notices=(followup_report(state),))
 
 
 def plan_followup(session, repo, item, check, proven, log):
@@ -7601,7 +7604,6 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     line. Never type even the compact form unless that bound accepts it and its full notice
     and follow-ups have been saved in result.md, including for an older pending ending.
     """
-    from . import plan
     if not watch.too_long(line):
         return line
 
@@ -7615,18 +7617,9 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     where = shown(result)
     report = result.name
     parts = [brief, f"Result: {where}."]
-    entries = state.get("followup_plan") or []
-    count = len(state.get("followups") or entries)
+    count = len(state.get("followups") or [])
     if count:
         parts.append(f"{count} review follow-ups in full in {report}.")
-    planned = sum("refused" not in entry for entry in entries)
-    if planned:
-        parts.append(f"{planned} in your plan: {shown(plan.path(launched_session(state)))}.")
-    refused = len(entries) - planned
-    if refused:
-        parts.append(f"{refused} refused by your plan; reasons in {report}.")
-    if state.get("followup_runs"):
-        parts.append(f"{len(state['followup_runs'])} fix runs named in {report}.")
     parts.append(action)
     if line.endswith(watch.FRESH_NOTE):
         parts.append(watch.FRESH_NOTE.lstrip("; "))
@@ -7656,8 +7649,6 @@ def handback_line(state, run_dir, cfg=None):
     action = "Decide the next step."
     line = (f"run {run_dir.name} {ending}: "
             f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace} "
-            + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
-               if state.get("followup_runs") else "") + planned_followups(state)
             + action)
     spent = len(state.get("round_summaries") or [])
     if (state.get("state") == "fail" and (state.get("rounds") or 0) > 0
@@ -7875,16 +7866,62 @@ def announce_safely(state, run_dir, log, cfg=None):
         log(f"WARN the ending was not handed back: {exc}")
 
 
+ROUTINE_NOTE = "routine ending: recorded, not typed"
+
+
+def seat_owes_nothing(state):
+    """Whether the seat that launched the run owes no work (`stop.owed`): then no turn of its
+    waits on the run or on its change going live, and either is recorded, never typed.  A
+    seat that owes work may have ended its turn on that very wait (`stop.recorded_ending`),
+    so for it the ending, or the change going live (`watch.after_merge_health`), is the end
+    of the wait and goes to it like any other."""
+    session = launched_session(state)
+    return not (session and stop.owed(session))
+
+
+def routine_ending(state):
+    """An ending nothing is the seat's to decide about: a merge, or a `not needed`, while the
+    seat that launched it owes no work (`seat_owes_nothing`).  What it started (fix runs,
+    plan lines) is in its result and the seat's plan, and `ak run status` names it.  A red
+    target's repair's merge is routine whatever its seat owes: the runs parked on it retry by
+    themselves, and their own endings end the seat's wait -- its going live is not, as the
+    hook counts that wait."""
+    if not (state.get("merged") or state.get("state") == "not_needed"):
+        return False
+    return bool(state.get("repair")) or seat_owes_nothing(state)
+
+
+def finish_typed(session, mark, log, cfg=None):
+    """Whether nothing ak typed is left unsent in that seat's composer.
+
+    A routine ending types nothing, but a line an earlier pass typed and never saw sent
+    (`mark`, the receipt `watch.type_at_prompt` hands back) gets its Enter as that pass's
+    would: left there, it would hold every later line back as the owner's draft.  A seat
+    gone, down or reopened since holds no such line.
+    """
+    if not (isinstance(mark, dict) and mark.get("line")):
+        return True
+    with launcher_world(session) as live:
+        seat = orch.find(session) if live else None
+        if not (watch.after_merge_live(seat) and seat.get("created") == mark.get("seat")):
+            return True
+        return watch.type_at_prompt(seat, mark["line"], log, cfg=cfg, typed=mark)
+
+
 def announce(state, run_dir, log, cfg=None):
     """The one message a run sends when it ends: to its orchestrator, or about a gone one.
+
+    A routine ending (`routine_ending`) -- merged, or not needed, while its seat owes no work
+    -- is recorded and never typed: nothing in it is the seat's to decide, so the seat hears
+    only an ending that needs its decision, a fail, a blocked, a pass not merged, or the end
+    of a wait its turn may have ended on, and never a line opening a turn for news it can
+    read in `ak run status` and its plan.
 
     A run under an open seat is handed back to it -- one line into its composer saying how the
     run ended and that the next step is its own -- because the ending is the orchestrator's and
     never the owner's.  A run launched from no seat at all -- by hand, over ssh, from cron,
     from a test -- has nobody to hand back to and nobody to ping: its result is on the terminal
-    it was started from and in `ak run status`.  The repair a red target started belongs to
-    the seat whose run found it red, and tells it only what needs somebody: a merge or a
-    `not needed` is routine, and the runs parked on it retry by themselves.  Only an orphan
+    it was started from and in `ak run status`.  Only an orphan
     speaks to the owner, and first to its own seat: the seat is reopened on its saved
     conversation and told to continue, and the owner hears only when that fails -- or when
     there is no seat to reopen, one `ak orch stop` ended or one nothing is left of, which is
@@ -7916,8 +7953,27 @@ def announce(state, run_dir, log, cfg=None):
         return
     if state.get("state") not in run_record.ENDED:
         return
-    if not session or state.get("repair") and (state.get("merged")
-                                               or state.get("state") == "not_needed"):
+    if not session:
+        return
+    if routine_ending(state):
+        with delivery_lock(run_dir):
+            current = run_record.read_state(run_dir) or state
+            if not same_attempt(state, current):
+                log(f"run {run_dir.name} has moved on since this ending; nothing to record")
+                return
+            if not finish_typed(session, current.get("handback_typed"), log, cfg):
+                log(f"run {run_dir.name}'s line already in the {session} seat waits for its "
+                    "Enter; the tick sends it")
+                return
+            if not already_handed_back(current):
+                mark_delivery(run_dir, state, handed_back=time.time(), reported=True,
+                              handback_note=ROUTINE_NOTE, handback_pending=None,
+                              handback_typed=None, handback_wait_reason=None,
+                              notification_pending=None)
+        log(f"run {run_dir.name} ended {'merged' if state.get('merged') else 'not needed'}: "
+            "recorded, not typed")
+        # The seat reads result.md and its plan, never the checkout: the ending is history.
+        worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
         return
     with launcher_world(session) as live:
         if live:
@@ -7977,8 +8033,7 @@ def announce(state, run_dir, log, cfg=None):
     # is what this run says now, and the tick must not come back here every pass for it
     mark_delivery(run_dir, state, handback_pending=None, handback_wait_reason=None)
     task = state.get("title") or state.get("run_id") or run_dir.name
-    verdict = ("DONE" if state.get("state") == "not_needed" else
-               "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL")
+    verdict = "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL"
     why = ""
     # A pre-existing ending with a stuck card keeps its retry below, but never wakes its seat.
     if (not watch.seat_closed(session) and watch.orphan_fresh(state, session)

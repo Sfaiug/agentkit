@@ -205,7 +205,7 @@ class FollowupRuns(unittest.TestCase):
             self.assertIn("base: origin/main", (child / "task.md").read_text())
             self.assertEqual(receipt["followup"]["run"], directory.name)
             self.assertEqual(receipt["base_proof"], "regression.sh")   # its own probe proves it
-            self.assertIn(child.name, run.handback_line(state, directory, self.cfg))
+            self.assertIn(child.name, (directory / "result.md").read_text())
         self.assertFalse((config.HOME / "followups").exists())
         self.start(directory, record.read_state(directory))
         self.assertEqual(len(self.spawns), 2)
@@ -252,7 +252,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn(f"- [ ] Fix {DEFECT} · check: `{check}` · {plan.named(self.repo)} · written ", text)
         # it names the commit its check failed on: the review's base
         self.assertEqual(plan.LINE.match(text.strip())["base"], state["base_sha"][:12])
-        ending = run.handback_line(state, directory, self.cfg)
+        ending = (directory / "result.md").read_text()
         self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
         self.assertIn("until `ak plan check N` puts your fix's own test in its place", ending)
         self.start(directory, record.read_state(directory))
@@ -268,7 +268,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(self.start(directory, state), [])
         self.assertFalse(config.plan_path("seat").exists())
         self.assertIn("your plan refused, yours to judge: Fix broken.py:1",
-                      run.handback_line(record.read_state(directory), directory, self.cfg))
+                      (directory / "result.md").read_text())
         self.assertEqual(self.spawns, [])
 
     def test_a_seat_with_no_executors_still_gets_its_review_followups_in_its_plan(self):
@@ -305,7 +305,7 @@ class FollowupRuns(unittest.TestCase):
         ended = record.read_state(directory)
         self.assertTrue(ended["handed_back"])
         self.assertIn("now in your plan, yours to build: Fix broken.py:1",
-                      run.handback_line(ended, directory, self.cfg))
+                      (directory / "result.md").read_text())
         self.start(directory, ended)
         self.assertEqual(len(self.spawns), 1)
 
@@ -422,16 +422,20 @@ class FollowupRuns(unittest.TestCase):
             merge.result(timeout=30)
         self.assertEqual(len(plan.lines("seat")), 2)
 
-    def test_a_maintainer_merge_tells_the_seat_what_it_put_in_its_plan(self):
+    def test_a_maintainer_merge_that_puts_work_in_the_plan_tells_the_seat(self):
         url = "https://github.com/acme/widget/pull/1"
-        self.source(merged=False, pr=url, followup_checks={DEFECT: CHECK})
+        directory, _ = self.source(merged=False, pr=url, followup_checks={DEFECT: CHECK})
         sent = []
         with patch.object(orch, "find", return_value={"name": "seat"}), \
                 patch.object(watch, "type_into",
                              side_effect=lambda seat, line, log: sent.append(line) or True):
             self.assertTrue(watch.say(False, self.logs.append, "PR #1: merged by the maintainer",
                                       url, "seat", merged=True))
-        self.assertIn("now in your plan, yours to build: Fix broken.py:1", sent[0])
+        # the seat now owes the follow-up, so the merge is no routine ending (`routine_ending`)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("PR #1: merged by the maintainer", sent[0])
+        self.assertIn("now in your plan, yours to build: Fix broken.py:1",
+                      (directory / "result.md").read_text())
 
     def test_exclusions_and_closed_session_start_nothing(self):
         for index, changes in enumerate(({"merged": False}, {"launched_session": None},
@@ -523,7 +527,8 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("Before the task: return 1 / value", found)
         self.assertIn(f"- [ ] Fix {OTHER} · check: `python3 -c 'from other import ratio; ratio(0)'` "
                       f"· {plan.named(self.repo)} · written ", config.plan_path("seat").read_text())
-        self.assertIn("now in your plan, yours to build: Fix other.py:2", self.endings[-1])
+        self.assertIn("now in your plan, yours to build: Fix other.py:2",
+                      (child / "result.md").read_text())
 
     def test_not_needed_is_done_without_checks_review_or_pr(self):
         for index, mode in enumerate(("gone", "duplicate")):
