@@ -3945,40 +3945,43 @@ def dispute_rows(lp):
 
 
 def moved_lines(lp, path, line, since, head):
-    """(the lines on `head` where line `line` of `path` at `since` can sit, whether the diff
-    between them touched the line): one line where a fix above it moved a line it never
-    touched; the lines the fix put in its place where it rewrote it; the removal's anchor,
-    the line before it, where it deleted it; the line itself where there is no delta."""
+    """(the lines on `head` where line `line` of `path` at `since` can sit, the lines the diff
+    between them put in its place, None where it left the line alone): the line itself where
+    there is no delta; one line where a fix above it moved a line it never touched; the lines
+    the fix put in its place where it rewrote it; the removal's anchor, the line before it,
+    where it deleted it and put none there."""
     shift = 0
-    for start, old, now, new in hunks(lp, path, since, head):
+    for start, old, now, new in hunks(lp, path, since, head) if since else ():
         if old == 0:
             start += 1      # lines were added after `start`: what follows it moves
         if line < start:
             break
         if line < start + old:
-            return (range(now, now + new) if new else range(max(now, 1), max(now, 1) + 1)), True
+            put = range(now, now + new)
+            return put or range(max(now, 1), max(now, 1) + 1), put
         shift += new - old
-    return range(line + shift, line + shift + 1), False
+    return range(line + shift, line + shift + 1), None
 
 
 def placed(lp, row, since, head):
     """Where an earlier finding stands on `head`: (its line there, whether the fix delta since
-    `since` touched the line, whether that line is inside the change, every line it may stand
-    at: its own, or those the fix put in its place).  A line the fix left alone moved with
-    it; one the fix rewrote stands at the line the fix put in its place that reads most like
-    it (a tie goes to the first); one the fix deleted stands at the removal's anchor, which
-    the change's own diff reads as inside (`in_hunks`).  The site a finding is listed and
-    handed at, whatever the fix did to its line."""
-    lines, touched = (moved_lines(lp, row["path"], row["line"], since, head) if since
-                      else (range(row["line"], row["line"] + 1), False))
+    `since` touched the line, whether the fix put it back as base has it, every line it may
+    stand at: its own, or those the fix put in its place).  A line the fix left alone moved
+    with it; one the fix rewrote stands at the line the fix put in its place that reads most
+    like it (a tie goes to the first), and is base's again where every line the fix put there
+    is outside the change (`in_hunks`); one the fix deleted stands at the removal's anchor,
+    and is never base's again: a line the change added leaves nothing in the change's own diff
+    once deleted or moved.  The site a finding is listed and handed at, whatever the fix did
+    to its line."""
+    lines, put = moved_lines(lp, row["path"], row["line"], since, head)
     line = lines[0]
-    if touched and len(lines) > 1:
+    if len(lines) > 1:
         was = line_of(lp, since, row["path"], row["line"])
         now = git(lp.wt, "show", f"{head}:{row['path']}", check=False).splitlines()
         line = max(lines, key=lambda at: (difflib.SequenceMatcher(
             None, was, now[at - 1] if at <= len(now) else "").ratio(), -at))
-    changed = [] if lp.scratch else hunks(lp, row["path"], lp.base_sha, head)
-    return line, touched, in_hunks(line, changed), lines
+    changed = hunks(lp, row["path"], lp.base_sha, head) if put else []
+    return line, put is not None, bool(put) and not any(in_hunks(at, changed) for at in put), lines
 
 
 def line_of(lp, commit, path, line):
@@ -4053,7 +4056,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
     sites = quoted_sites(lp, submitted, head)
-    earlier = earlier_sites(lp, head, since) if since else set()
+    earlier = earlier_sites(lp, head, since)
     records = []
     for index, row in enumerate(submitted.records, 1):
         if row["kind"] not in ("finding", "follow-up"):
@@ -4130,7 +4133,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
         handed = [row for row in records if isinstance(row.get("evidence"), dict)]
         extra = []
         for n, (row, now, failing) in enumerate(replayed, 1):
-            line, touched, inside, sites = placed(lp, row, since, head)
+            line, touched, back, sites = placed(lp, row, since, head)
             row = {**row, "line": line}
             where = "; the fix changed its line" if touched else ""
             if not failing:
@@ -4138,9 +4141,9 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                               "replayed": "fixed; its proof passes now"})
                 continue
             kind, replayed_word = "finding", "still failing; it blocks until its proof passes" + where
-            if not lp.scratch and not inside:
-                # its line is base's now (put back, or never the change's): judged on base,
-                # as any failing proof on a line the change did not touch is
+            if back:
+                # the fix put its line back as base has it: judged on base, as any failing
+                # proof on a line the change did not touch is
                 base = {"sha": lp.base_sha, **proof_on(
                     lp, now["run"], lp.round_dir / f"replay-{n}-base.log", lp.base_sha, head)}
                 now = {**now, "base": base}
@@ -4250,7 +4253,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             replayed = replay_findings(lp, proven, at)
             # each earlier finding is listed, and handed to the reviewer's turn, where it
             # stands on this commit (`placed`): the one site a hand-in upholds it at
-            standing = {id(row): placed(lp, row, delta, at)[0] if delta else row["line"] for row in earlier}
+            standing = {id(row): placed(lp, row, delta, at)[0] for row in earlier}
             listed = lp.round_dir / "earlier.json"
             listed.parent.mkdir(parents=True, exist_ok=True)
             listed.write_text(json.dumps([{**row, "line": standing[id(row)]} for row in earlier]))
@@ -4452,8 +4455,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     for row in disputes.disputes:
         # a dispute's finding is upheld wherever the fix left its line: moved, at the anchor
         # of its removal, or among the lines the fix put in its place
-        lines, _ = (moved_lines(lp, row["path"], row["line"], delta, identity.get("head_sha"))
-                    if delta else ((row["line"],), False))
+        lines = moved_lines(lp, row["path"], row["line"], delta, identity.get("head_sha"))[0]
         if not any((row["path"], at) in upheld for at in lines):
             dropped = lp.state.setdefault("disputes", [])
             text_dispute = "Dropped: " + hand_in.item_text(row)

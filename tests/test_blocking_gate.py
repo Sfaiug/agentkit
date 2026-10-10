@@ -436,7 +436,7 @@ out = pathlib.Path(sys.argv[6])
         reviewed = self.head
         # a push rebased onto a main that grew above the value: the finding moves with its line
         self.on_main("# top\n# a\n# b\n# c\nvalue = 1\n", "Main grows a line above")
-        self.assertEqual(run.moved_lines(self.lp, "api.py", 4, reviewed, self.head), (range(5, 6), False))
+        self.assertEqual(run.moved_lines(self.lp, "api.py", 4, reviewed, self.head), (range(5, 6), None))
         self.assertEqual(self.review(), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 5, "still failing; it blocks until its proof passes")])
 
@@ -457,13 +457,28 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
         self.write('mode = "branch"\nextra = 1\n', "Delete the flag")
         self.assertEqual(self.review(), "FAIL")
-        # it stands at the removal's anchor, the line before where it was, inside the change
+        # it stands at the removal's anchor, the line before where it was
         anchored = [("api.py", 1, "still failing; it blocks until its proof passes; the fix changed its line")]
         self.assertEqual(self.records("finding"), anchored)
         # ... in every round after
         self.write('mode = "branch"\nextra = 1\n# noted\n', "Note something else")
         self.assertEqual(self.review(), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 1, "still failing; it blocks until its proof passes")])
+
+    def test_a_line_the_change_added_still_blocks_moved_or_deleted(self):
+        # the anchor of its removal is base's line, yet the line was the change's, never base's
+        self.write("mode = 1\nflag = 1\nextra = 1\nfeature = 1\n", "Add a feature")
+        self.assertEqual(self.review(finding("api.py:4", "the feature is wrong", probe("api.feature == 2"))), "FAIL")
+        self.write("feature = 1\nmode = 1\nflag = 1\nextra = 1\n", "Move the feature, still wrong, to the top")
+        self.assertEqual(self.review(), "FAIL")
+        self.write("feature = 1\nmode = 1\nflag = 1\nextra = 1\n# noted\n", "Note something else")
+        self.assertEqual(self.review(), "FAIL")      # ... in every round after
+        self.setUp()
+        self.write("mode = 1\nflag = 1\nextra = 1\nfeature = 1\n", "Add a feature")
+        self.assertEqual(self.review(finding("api.py:4", "the feature is wrong", probe("api.feature == 2"))), "FAIL")
+        self.write("mode = 1\nflag = 1\nextra = 1\n", "Delete the feature")
+        self.assertEqual(self.review(), "FAIL")
+        self.assertEqual(self.records("follow-up"), [])
 
     def test_a_deleted_lines_finding_is_disputed_and_upheld_at_its_anchor(self):
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
