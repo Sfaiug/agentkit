@@ -55,8 +55,8 @@ def compute(now=None):
         waiting, and with its seat between its runs (the wall time from its first run's start to
         its last run's end less its runs' time): every run of the change that ended in the two
         weeks, grouped by `change`, each second in one part (`split_hours`); time in no part,
-        such as a park on a spent quota window, is in none, and a change with a run from before
-        the phase rows were kept is not recorded."""
+        such as a park while its provider's window is spent, is in none, and a change with a run
+        from before the phase rows were kept is not recorded."""
         by_change = {}
         for row in rows:
             if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]:
