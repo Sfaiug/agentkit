@@ -286,6 +286,11 @@ sys.exit(every_file.main(every_file.Path(sys.argv[2])))
         self.assertEqual(len(errors), 1)
         self.assertIn("import third_party_acme is outside", errors[0])
 
+    def test_python_only_a_newer_interpreter_reads_is_refused(self):
+        (self.root / "tests/test_acme.py").write_text("type Acme = int\n")
+        [error] = every_file.import_errors(self.root)
+        self.assertTrue(error.startswith("tests/test_acme.py: invalid Python 3.11"), error)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

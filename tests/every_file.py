@@ -14,8 +14,10 @@ A failing file, or one reporting no executed cases, runs once more after the poo
 landing.py passes a descriptor that reads end-of-file once its other parts have ended, and
 the re-run waits for that too; failing again it fails the whole and is named with its last
 lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after their
-checks. Python imports under agentkit/, tools/, bin/ and tests/ must be from the standard
-library or this repository, including files smoke.sh already ran.
+checks. Python under agentkit/, tools/, bin/ and tests/ must parse with the grammar of Python
+3.11, the oldest ak supports, as `ast.parse`'s `feature_version` applies it (f-strings it still
+reads by the running interpreter's rules), and import only from the standard library or this
+repository, including files smoke.sh already ran.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
@@ -74,9 +76,9 @@ def import_errors(root):
                     continue
             try:
                 with tokenize.open(path) as fh:
-                    tree = ast.parse(fh.read(), filename=str(path))
+                    tree = ast.parse(fh.read(), filename=str(path), feature_version=(3, 11))
             except (SyntaxError, UnicodeError) as exc:
-                errors.append(f"{path.relative_to(root)}: invalid Python: {exc}")
+                errors.append(f"{path.relative_to(root)}: invalid Python 3.11: {exc}")
                 continue
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
