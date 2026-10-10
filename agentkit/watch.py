@@ -1781,18 +1781,17 @@ def keeps_back(name):
     """Does a question that seat asks itself wait for the end of the turn it asks in?
 
     It asks during its own turn, and may work on: until that turn ends its screen shows no
-    question and it waits for nobody.  So it does wherever the seat's harness reports its
-    turns to ak by hook, the moment they end -- a harness whose turns only its screen shows
-    is asked at once, as it always was -- unless a question of its own already stands
-    unanswered: the owner is asked already, and a newer one takes that one's place.
+    question and it waits for nobody.  So it does on every harness ak knows the seat to run,
+    the same way: where hooks report the turn's end a look follows at once, and where only
+    the screen shows it ak's next look finds it (`ask_kept_back`) -- unless a question of its
+    own already stands unanswered: the owner is asked already, and a newer one takes that
+    one's place.
     """
     try:
         harness = seat_model(config.load(), name)[0]
-        hooked = harness and (config.manifest(harness).get("authority") or {}).get(
-            "working") == "hooks"
     except config.Error:
         return False
-    return bool(hooked) and not owner_question(notify.last(name))
+    return bool(harness) and not owner_question(notify.last(name))
 
 
 def turn_ended(name):
