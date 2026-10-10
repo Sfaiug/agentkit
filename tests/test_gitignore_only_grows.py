@@ -4,11 +4,9 @@ origin/main, as `test_boundaries.py` compares its maxima; an unreadable target s
 Offline: git over this checkout.
 """
 
-import subprocess
 import unittest
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+from test_boundaries import REPO, where_change_left_main
 
 
 def removed(before, after):
@@ -25,14 +23,7 @@ class GitignoreOnlyGrows(unittest.TestCase):
         self.assertEqual(removed("*.pyc\n.ak-test-*\n", "*.pyc\n"), [".ak-test-*"])
 
     def test_no_pattern_on_origin_main_is_removed(self):
-        base = subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
-                              capture_output=True, text=True).stdout.strip() or "origin/main"
-        proc = subprocess.run(["git", "-C", str(REPO), "show", f"{base}:.gitignore"],
-                              capture_output=True, text=True)
-        if proc.returncode:
-            print("origin/main:.gitignore is not readable; skipping the comparison")
-            self.skipTest("origin/main is not readable")
-        gone = removed(proc.stdout, (REPO / ".gitignore").read_text())
+        gone = removed(where_change_left_main(self, ".gitignore"), (REPO / ".gitignore").read_text())
         self.assertEqual(gone, [], "a .gitignore pattern on origin/main was removed; its matches "
                                    "would turn untracked on every live checkout and stop its pulls: keep it")
 
