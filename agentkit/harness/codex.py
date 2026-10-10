@@ -553,10 +553,13 @@ def main(argv, launch=None):
             # because that file is the user's.  What each event means is
             # adapters/codex.toml's to say; that script only writes down what arrived.  The
             # end-of-turn rule rides the Stop layer beside it, and is the one that decides.
+            # The script also rides SessionStart, where a compaction (0.160's `compact` source)
+            # leaves the seat holding its launch's rulebook again (`orch.rulebook_compacted`).
             # 3s, not the receipt hook's 5: Interrupt is capped there and 0.153.4 prints a
             # clamping warning into the seat on every launch that asks for more
             seat = (shlex.join(["bash", str(config.REPO / "hooks/seat-state.sh")]), 3)
             hooks.update((event, [seat]) for event in SEAT_EVENTS)
+            hooks["SessionStart"].append(seat)
             hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), 3))
             os.environ[CAPTURE_ENV] = receipt
             for event, handlers in hooks.items():

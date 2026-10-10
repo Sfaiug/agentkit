@@ -113,6 +113,12 @@ class RulebookNews(Sandbox):
         self.assertIn("-Rule one.\n+Rule two.\n", change.read_text())
         self.said_read(json.loads(notice)["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(self.prompt(), "")
+        rules.write_text("Rule three.\n")
+        self.assertNotEqual(self.prompt(), "")                   # told, and not yet said read
+        self.assertIn("-Rule two.\n+Rule three.\n", change.read_text())
+        self.prompt("SessionStart", source="compact")
+        self.assertNotEqual(self.prompt(), "")
+        self.assertIn("-Rule one.\n+Rule three.\n", change.read_text())   # not from rule two, lost
 
     def test_where_ak_no_longer_has_the_rulebook_the_seat_holds_the_news_names_it_whole(self):
         self.handed(BEFORE)

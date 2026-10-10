@@ -57,7 +57,9 @@ class HookTrust(unittest.TestCase):
                     installed[event] = [(h["command"], h["timeout"]) for h in groups[0]["hooks"]]
         trusted = [flag for flag in flags if flag.startswith("hooks.state=")]
         self.assertEqual(len(installed), 5, installed)
-        self.assertEqual(sum(map(len, installed.values())), 6)
+        self.assertEqual(sum(map(len, installed.values())), 7)
+        # a compaction's SessionStart reaches the seat's hook (`orch.rulebook_compacted`)
+        self.assertIn("hooks/seat-state.sh", installed["SessionStart"][-1][0])
         self.assertEqual(trusted, [codex.trust(installed)])
         self.assertNotIn("--dangerously-bypass-hook-trust", seen[0])
 
