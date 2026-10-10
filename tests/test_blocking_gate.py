@@ -1,8 +1,7 @@
 """A later review round re-proves the earlier findings itself: ak replays each earlier `--run`
-finding's proof on the commit under review, a new one or the same again, before the reviewer
-runs; one still failing blocks whatever the reviewer hands in, one fixed is a note, and the
-ones at a disputed site are left to the reviewer.  Offline: a real git repository, a scripted reviewer
-that hands in through `ak hand-in`.
+finding's proof on the commit under review, a new one or the same again, before the reviewer runs;
+one still failing blocks whatever is handed in, one fixed is a note, and the ones at a disputed
+site are left to the reviewer.  Offline: a real git repository, a reviewer scripted to hand in.
 """
 
 from contextlib import ExitStack
@@ -41,18 +40,16 @@ class BlockingGate(unittest.TestCase):
         self.stack.enter_context(account_home(self.root))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
-            "PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": "",
-            "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
-            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": "", "AGENTKIT_SESSION": "",
+            "AGENTKIT_RUN_DIR": "", "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         for module, name, value in (
                 (worker, "auth_ok", (True, "fixture")), (worker, "marked_pids", []),
-                (worker, "kill_marked", True), (stop, "marker_pids", []),
-                (run.orch, "stop_scope", None), (run, "note_turn_meters", None),
-                (run, "history_role_tokens", None), (run, "memory_cap_note", None),
-                (run.history, "update_run", None)):
+                (worker, "kill_marked", True), (stop, "marker_pids", []), (run.orch, "stop_scope", None),
+                (run, "note_turn_meters", None), (run, "history_role_tokens", None),
+                (run, "memory_cap_note", None), (run.history, "update_run", None)):
             self.stack.enter_context(patch.object(module, name, return_value=value))
         config.ensure_dirs()
         self.cfg = config.load()
@@ -89,10 +86,9 @@ out = pathlib.Path(sys.argv[6])
         stateful(adapter, self.root, {m["harness"] for m in self.cfg["models"].values()})
         self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(self.root)}))
         self.stack.enter_context(patch.object(config, "adapter", return_value=adapter))
-        state = {"run_id": "gate-fixture", "title": "Later rounds", "state": "running",
-                 "base": "main", "base_sha": self.base, "branch": "ak/fix-api", "rounds": 3,
-                 "executor": "opus", "reviewer": "astra", "round_summaries": [],
-                 "repo": str(self.wt), "worktree": str(self.wt)}
+        state = {"run_id": "gate-fixture", "title": "Later rounds", "state": "running", "base": "main",
+                 "base_sha": self.base, "branch": "ak/fix-api", "rounds": 3, "executor": "opus",
+                 "reviewer": "astra", "round_summaries": [], "repo": str(self.wt), "worktree": str(self.wt)}
         self.logs = []
         self.lp = run.Loop(self.cfg, self.directory, state, {}, self.logs.append, self.wt,
                            "# Fixture", ["true"], "context", [])
@@ -106,8 +102,7 @@ out = pathlib.Path(sys.argv[6])
         run.git(self.wt, "add", ".")
         run.git(self.wt, "commit", "-qm", message)
 
-    def write(self, content, message):
-        """A new commit on the branch: what a fix round leaves behind."""
+    def write(self, content, message):     # a fix round's commit
         (self.wt / "api.py").write_text(content)
         self.commit(message)
         self.head = run.git(self.wt, "rev-parse", "HEAD")
@@ -176,13 +171,16 @@ out = pathlib.Path(sys.argv[6])
                       self.prompt())
         self.assertEqual(self.records("finding"), [("api.py", 1, "still failing; it blocks until its proof passes")])
 
-    def test_a_dispute_leaves_every_finding_at_its_site_to_the_reviewer(self):
-        # a dispute names its site, not one finding there: ak replays none of them, and a
-        # dispute nobody upheld is dropped
+    def disputed(self):
+        """Two findings at one site; the fix round mends one and disputes the other."""
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed),
                                      finding("api.py:2", "flag is misnamed", self.never)), "FAIL")
         self.write('mode = "branch"\nflag = "fixed"\nextra = 1\n', "Fix the flag; the name is right")
         self.dispute("api.py", 2, "flag is wrong", probe("True"))
+
+    def test_a_dispute_leaves_every_finding_at_its_site_to_the_reviewer(self):
+        # a dispute names its site, not one finding there: ak replays none, and one nobody upheld goes
+        self.disputed()
         self.assertEqual(self.review(), "PASS")
         self.assertEqual(self.records("finding"), [])
         prompt = self.prompt()
@@ -192,10 +190,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertTrue(dropped.startswith("Dropped: api.py:2 - flag is wrong"), dropped)
 
     def test_a_finding_the_reviewer_hands_in_again_at_a_disputed_site_blocks(self):
-        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed),
-                                     finding("api.py:2", "flag is misnamed", self.never)), "FAIL")
-        self.write('mode = "branch"\nflag = "fixed"\nextra = 1\n', "Fix the flag; the name is right")
-        self.dispute("api.py", 2, "flag is wrong", probe("True"))
+        self.disputed()
         self.assertEqual(self.review(finding("api.py:2", "flag is misnamed", self.never)), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 2, "")])
         self.assertNotIn("disputes", self.lp.state)

@@ -57,8 +57,7 @@ class OwnPrFixer(OwnPr):
         self.resume.assert_not_called()
 
     def test_a_fixer_that_commits_nothing_has_the_same_head_reviewed_again(self):
-        # ... and, its finding neither fixed nor disputed, ak's own replay of the proof blocks
-        # whatever the reviewer says, round after round, until the rounds are spent
+        # ... and ak's replay of its unfixed, undisputed proof blocks every round after
         self.fix = lambda lp: None
         state = self.review(["FAIL", "PASS", "PASS"])
         self.assertEqual((state["state"], state["merged"]), ("fail", False))
@@ -306,8 +305,7 @@ class OwnPrFixer(OwnPr):
         saved.update(state="queued", pid=999999991)
         record.save_state(self.run_dir, saved)
         state = self.review(["FAIL", "PASS", "PASS"])
-        # the finished turn is not run again; its finding, neither fixed nor disputed, keeps
-        # ak's replay blocking, so round three gets a turn of its own and the rounds run out
+        # the finished turn is not run again; ak's replay keeps blocking until the rounds run out
         self.assertEqual((len(self.fixes), len(self.prompts)), (2, 3))
         self.assertEqual((state["state"], state["merged"]), ("fail", False))
         self.assertEqual([s["head_sha"] for s in state["round_summaries"]], [self.heads[0]] * 3)

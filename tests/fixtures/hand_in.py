@@ -62,10 +62,8 @@ def followups_in(text):
 
 
 def proof(workspace=None, path="deliverable"):
-    """A fixture finding's proof: it fails while the cited file is as it was on the commit the
-    finding was handed in on, and passes once a later commit changed that file, so a finding
-    re-proven after a fix reads fixed, as a real one does, and one the fix never touched still
-    fails.  In a workspace that is no repository of its own, a command that always fails."""
+    """A fixture finding's proof: failing until a later commit changes the cited file, so a replay
+    after a fix reads fixed; outside a repository of its own, a command that always fails."""
     try:
         top, head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "--show-toplevel", "HEAD"],
                                    capture_output=True, text=True, check=True).stdout.split()

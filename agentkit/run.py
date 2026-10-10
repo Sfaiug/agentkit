@@ -3884,9 +3884,8 @@ def before_at_base(lp, row):
 
 
 def earlier_findings(lp):
-    """The blocking findings the last review of this run handed in, as weighed then: the
-    record this review took of them when it started (`review_pending`), which an attempt
-    that died or gave no verdict cannot overwrite, else the last review's records."""
+    """The blocking findings the last review handed in, as weighed then: the copy this review
+    took when it started (`review_pending`), which no dying attempt overwrites, else the records."""
     pending = lp.state.get("review_pending")
     if isinstance(pending, dict) and isinstance(pending.get("earlier"), list):
         return [row for row in pending["earlier"] if isinstance(row, dict)]
@@ -3907,9 +3906,8 @@ def dispute_rows(lp):
 
 def replay_findings(lp, rows, head):
     """Each earlier `--run` finding proven again on `head`: (the row, its evidence now, not
-    fixed).  Fixed means the proof passed: one still failing, or one that could not run or
-    did not finish, proves no fix and blocks whatever the reviewer hands in.  What ak can
-    prove itself is never left to the reviewer to find again."""
+    fixed).  Only a passing proof is a fix: one failing, unrunnable or unfinished blocks
+    whatever the reviewer hands in, who never has to find it again."""
     replayed = []
     if rows:
         lp.round_dir.mkdir(parents=True, exist_ok=True)   # the replay logs come before the turn
@@ -3949,9 +3947,8 @@ def weigh_review(lp, submitted, head=None, replayed=()):
     """The reviewer's editable copy cannot decide what blocks the reviewed commit.
 
     ak's own replay of the earlier findings (`replayed`) is weighed with the reviewer's: one
-    still failing blocks whether or not the reviewer handed it in again, one fixed is a note.
-    A replayed finding stands at the line it was handed in at; following it where a fix
-    moved or rewrote that line is the placement change's."""
+    still failing blocks whether or not the reviewer handed it in again, one fixed is a note;
+    each stands at the line it was handed in at."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
@@ -4023,9 +4020,8 @@ def weigh_review(lp, submitted, head=None, replayed=()):
                 extra.append({**row, "kind": "note", "evidence": now,
                               "replayed": "fixed; its proof passes now"})
                 continue
-            # the reviewer's own hand-in carrying this finding's very proof at its site is
-            # this finding upheld, and ak adds no copy beside it; anywhere else, or weighed
-            # down to a note, it is the reviewer's words, and ak's own copy stands beside them
+            # the reviewer handing in this very proof at its site upheld it: ak adds no copy;
+            # anywhere else, or weighed to a note, ak's own copy stands beside the reviewer's
             if any(each["evidence"].get("run") == now["run"] and each["kind"] == "finding"
                    and (each["path"], each["line"]) == (row["path"], row["line"]) for each in handed):
                 continue
@@ -4074,9 +4070,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     pending = lp.state.get("review_pending") or {}
     since = pending["since"] if "since" in pending else str(
         review_turn(lp.dir("reviewer").parent, lp.review_sid) or "")
-    # the commit the last review judged (`delta_from`, written by every review) and the
-    # findings it handed in: what a later round's replay stands on, kept on the pending
-    # record so no attempt of this review, dying or giving no verdict, overwrites them
+    # the commit the last review judged (`delta_from`, written by every review) and its findings,
+    # what a later round replays, kept on the pending record so no dying attempt overwrites them
     delta_from = lp.state.get("delta_from")
     earlier = earlier_findings(lp)
     lp.state.update(verdict=None, review=None,
@@ -4105,10 +4100,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             diff = diff[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
         work = f"## Diff ({lp.base}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
         if record and delta_from and earlier:
-            # a later round, on a new commit or the same again: ak re-proves the earlier
-            # findings itself, so the reviewer re-finds nothing.  A finding at a site the fixer
-            # disputed (a dispute names its site, as its drop is weighed) is the reviewer's to
-            # weigh, and a quote is no failing proof: both are listed, not replayed
+            # a later round, on a new commit or the same again: ak re-proves the earlier findings.
+            # One at a site the fixer disputed (a dispute names a site) is the reviewer's to weigh,
+            # and a quote is no failing proof: both are listed, not replayed
             disputed = {(row["path"], row["line"]) for row in dispute_rows(lp)}
             proven = [row for row in earlier if "run" in (row.get("evidence") or {})
                       and (row["path"], row["line"]) not in disputed]
@@ -11258,7 +11252,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     # `own_pr_wait` stays until the new head's checkout is written down below: a fetch that
     # fails or a process that dies before then still lets the next attempt move to that head
     if advancing:
-        receipt["review_session"] = None   # a new round may pick another reviewer: no conversation of the last one's is resumed
+        receipt["review_session"] = None
     run_record.save_state(run_dir, receipt)
     owner, name, number = PR_PARTS.match(url).groups()
     repo = checkout_for(f"{owner}/{name}", log)
