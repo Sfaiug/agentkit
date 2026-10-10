@@ -5642,11 +5642,11 @@ def say(dry_run, log, text, url, session, merged=False):
     holds that back -- and a live seat is typed the line, exactly as a review question is
     put to the `inbox`.  A merge is the exception: routine, recorded on the run and typed
     into no seat, unless its run's seat owes work (`run.routine_ending`), as the follow-ups
-    it put in that seat's plan.  A decision already
-    on the run is not recorded again, so a retry after a failed typing tells the seat without
-    recording twice or starting fix runs twice.  True means it has landed
-    everywhere it goes, or that there is nowhere left for it to land and following this PR
-    is over; False means the seat is still owed its line and the next tick retries it.
+    it put in that seat's plan.  A decision already on the run is not recorded again, so a
+    retry after a failed typing tells the seat without recording twice or starting fix runs
+    twice.  True means it has landed everywhere it goes, or that there is nowhere left for it
+    to land and following this PR is over; False means the seat is still owed its line and
+    the next tick retries it.
     """
     from . import run   # here, not at the top: run imports this module
     if dry_run:
