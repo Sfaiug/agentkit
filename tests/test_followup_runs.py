@@ -422,7 +422,7 @@ class FollowupRuns(unittest.TestCase):
             merge.result(timeout=30)
         self.assertEqual(len(plan.lines("seat")), 2)
 
-    def test_a_maintainer_merge_names_what_it_put_in_the_plan_in_its_result_alone(self):
+    def test_a_maintainer_merge_that_puts_work_in_the_plan_tells_the_seat(self):
         url = "https://github.com/acme/widget/pull/1"
         directory, _ = self.source(merged=False, pr=url, followup_checks={DEFECT: CHECK})
         sent = []
@@ -431,7 +431,9 @@ class FollowupRuns(unittest.TestCase):
                              side_effect=lambda seat, line, log: sent.append(line) or True):
             self.assertTrue(watch.say(False, self.logs.append, "PR #1: merged by the maintainer",
                                       url, "seat", merged=True))
-        self.assertEqual(sent, [])          # a merge is routine: typed into no seat
+        # the seat now owes the follow-up, so the merge is no routine ending (`routine_ending`)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("PR #1: merged by the maintainer", sent[0])
         self.assertIn("now in your plan, yours to build: Fix broken.py:1",
                       (directory / "result.md").read_text())
 

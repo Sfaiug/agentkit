@@ -275,6 +275,29 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual((self.probes.call_count, len(self.lines)), (1, 1))
         self.assertIn("deployment missing", self.lines[0][1])
 
+    def test_live_notice_retries_its_composer_after_the_window_without_a_new_probe(self):
+        sha = self.declare("exit 0")
+        directory = self.merged(sha)
+        config.plan_path(SEAT).write_text("- [ ] the parser parses\n")   # its turn waits on it
+        calls = []
+        mark = {"line": "live notice", "seat": 100}
+
+        def compose(seat, line, log, typed=None, receipt=lambda mark: None, **_kw):
+            calls.append(typed)
+            if typed is None:
+                receipt(mark)
+                return False
+            return self.send(seat, line, log)
+
+        with patch.object(watch, "type_at_prompt", compose):
+            self.tick()
+            self.assertNotIn("live_notified", record.read_state(directory))
+            self.tick(now=NOW + watch.AFTER_MERGE_WINDOW)
+            self.tick(now=NOW + watch.AFTER_MERGE_WINDOW + 1)
+        self.assertEqual(calls, [None, mark])
+        self.assertEqual((self.probes.call_count, len(self.lines)), (1, 1))
+        self.assertEqual(record.read_state(directory)["live_at"], NOW)
+
     def test_health_failure_and_check_failure_share_one_episode(self):
         sha = self.declare("echo deployment missing; exit 1")
         self.merged(sha, age=watch.AFTER_MERGE_WINDOW - 1)
