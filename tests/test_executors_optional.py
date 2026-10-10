@@ -78,7 +78,9 @@ class ExecutorsOptional(Sandbox):
                                 run.main(args)
                             sentence = str(refused.exception)
                             self.assertEqual(len(sentence.splitlines()), 1)
-                            self.assertIn(reason, sentence)
+                            # a seat naming a model or a place is refused for that first, alike
+                            flagged = session and {"--anyway", "--exec"} & set(args)
+                            self.assertIn("not a seat's" if flagged else reason, sentence)
                             self.assertEqual(list(config.RUNS.iterdir()), [])
             prepare.assert_not_called()
             spawn.assert_not_called()
