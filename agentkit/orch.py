@@ -239,13 +239,6 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     """
     entry = config.model(cfg, name)
     adapter = config.adapter(entry["harness"])
-    # a seat's only instructions are its rulebook: a file its harness reads on its own, and
-    # cannot be told not to, is refused rather than read beside it
-    found = [path for path in config.unswitched_files(entry["harness"]) if path.exists()]
-    if found:
-        raise config.Error(f"{name}'s harness reads {found[0]} on its own and has no switch for "
-                           f"it, so a seat on it would take instructions beside its rulebook: "
-                           f"move it away, or open the seat on a model of another harness")
     rulebook = rulebook or write_rulebook(os.environ.get(config.SESSION_ENV, ""))
     told = {**config.account_env(account), config.RULEBOOK_ENV: str(rulebook)}
     told.update(harness_plugin(entry["harness"]).checked(told[config.ACCOUNT_ENV]))
@@ -267,7 +260,37 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
                            f"({exc}): {line[:200]}")
     if not cmd:
         raise config.Error(f"{adapter.name} interactive printed no command for {name}")
-    return ["env", *(f"{key}={value}" for key, value in config.account_env(account).items()), *cmd]
+    cmd = ["env", *(f"{key}={value}" for key, value in config.account_env(account).items()), *cmd]
+    # a seat's only instructions are its rulebook: a file its harness reads on its own, and
+    # cannot be told not to, is refused rather than read beside it -- looked for in the home
+    # the seat's own line runs the harness from, an account's where the adapter keeps one
+    found = [path for path in config.unswitched_files(entry["harness"], command_env(cmd))
+             if path.exists()]
+    if found:
+        raise config.Error(f"{name}'s harness reads {found[0]} on its own and has no switch for "
+                           f"it, so a seat on it would take instructions beside its rulebook: "
+                           f"move it away, or open the seat on a model of another harness")
+    return cmd
+
+
+def command_env(cmd):
+    """This process's environment as a command line's leading `env` words leave it: each
+    `NAME=value` set, each `-u NAME` unset, through every `env` the line starts with."""
+    values, words = dict(os.environ), list(cmd)
+    while words and words[0] == "env":
+        words.pop(0)
+        while words:
+            if words[0] == "-u" and len(words) > 1:
+                values.pop(words[1], None)
+                del words[:2]
+            elif re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+                key, value = words.pop(0).split("=", 1)
+                values[key] = value
+            elif words[0].startswith("-"):
+                words.pop(0)
+            else:
+                break
+    return values
 
 
 def fresh_command(cfg, name, seat=None, account=None):

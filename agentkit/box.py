@@ -134,19 +134,6 @@ def _credentials(env, cwd, agent=None):
     return places
 
 
-def _paths(names, env, cwd):
-    values = {key: value for key, value in env.items() if value}
-    values.setdefault("HOME", str(Path.home()))
-    for name in names:
-        if name.startswith("~/"):
-            name = "$HOME/" + name[2:]
-        try:
-            path = Path(Template(name).substitute(values))
-        except KeyError:
-            continue
-        yield path if path.is_absolute() else Path(cwd or os.getcwd()) / path
-
-
 def _devices():
     """The host's device nodes a box binds: those whose mode gives the account read or write
     access. None is opened to find out, and no link or directory is copied."""
@@ -178,14 +165,15 @@ def _walls(cmd):
 
 def _writable(clean, cwd, out_dir, state, places, logins):
     """The command's own places: its workspace and Git storage, out dir and harness state."""
+    from . import config
     writable = set()
-    for path in [*_paths(state, clean, cwd), *map(Path, places)]:
+    for path in [*config.manifest_paths(state, clean, cwd), *map(Path, places)]:
         path = path.resolve()
         path.mkdir(parents=True, exist_ok=True)
         writable.add(path)
     # A sandbox HOME lends credential files as links. Their targets must also
     # allow an in-place token refresh; renaming over the link uses its state dir.
-    for path in _paths(logins, clean, cwd):
+    for path in config.manifest_paths(logins, clean, cwd):
         if path.is_symlink():
             target = path.resolve()
             if not target.exists():
@@ -275,8 +263,9 @@ def _copy_run(source, destination, hidden):
 
 def _own(scratch, clean, cwd, writable, hidden):
     """A copy of /run without services, and empty temporary and runtime directories."""
+    from . import config
     own = {path.resolve() for path in TRANSIENT}
-    for path in _paths(("$XDG_RUNTIME_DIR",), clean, cwd):
+    for path in config.manifest_paths(("$XDG_RUNTIME_DIR",), clean, cwd):
         if path.is_dir():
             real = path.resolve()
             # A writable workspace or state inside /tmp exposes its children again, so its

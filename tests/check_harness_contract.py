@@ -102,7 +102,7 @@ def planted(harness, host_home):
     planted ones go when the turn is over."""
     word = f"nonce-{os.urandom(4).hex()}"
     sandbox = Path(host_home).resolve() != Path.home().resolve()
-    mine = [path for path in config.unswitched_files(harness)
+    mine = [path for path in config.unswitched_files(harness, os.environ)
             if sandbox and not os.path.lexists(path)]
     try:
         for path in mine:
@@ -190,7 +190,7 @@ def check(cfg, root, snapshot, host_home, harness=None):
                     missing.append("no session_id")
                 if word and word in final:
                     missing.append("read a file of its own beside the prompt: the box let "
-                                   f"{' or '.join(map(str, config.unswitched_files(name)))} through")
+                                   f"{' or '.join(map(str, config.unswitched_files(name, os.environ)))} through")
                 if missing:
                     report("FAIL", name, "; ".join(missing))
                     failed += 1

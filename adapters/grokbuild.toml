@@ -11,7 +11,9 @@ effort = "low"
 
 # grok 1.0.40 has no switch for its own AGENTS.md either
 [instructions]
-unswitched = ["~/.grok/AGENTS.md"]
+# read under $GROK_HOME: ~/.grok-<name> on an account (grokbuild.sh sets it on the seat's
+# line; a worker turn's box knows the account's name)
+unswitched = ["${GROK_HOME:-~/.grok}/AGENTS.md", "~/.grok-$AGENTKIT_ACCOUNT/AGENTS.md"]
 
 [worker]
 state = ["~/.grok", "$GROK_HOME", "~/.grok-$AGENTKIT_ACCOUNT"]

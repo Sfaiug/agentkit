@@ -16,8 +16,10 @@ logins = ["~/.codex/auth.json", "$CODEX_HOME/auth.json", "~/.codex-$AGENTKIT_ACC
 # drops the rest without a word, so no project's file may grow past it.
 [instructions]
 read_limit = 32768
-# Codex 0.153.4 has a switch only for the repository's AGENTS.md, not its own
-unswitched = ["~/.codex/AGENTS.md"]
+# Codex 0.153.4 has a switch only for the repository's AGENTS.md, not its own, which it reads
+# under $CODEX_HOME: ~/.codex-<name> on an account (codex.sh sets it on the seat's line; a
+# worker turn's box knows the account's name)
+unswitched = ["${CODEX_HOME:-~/.codex}/AGENTS.md", "~/.codex-$AGENTKIT_ACCOUNT/AGENTS.md"]
 
 [launch]
 seat_env = ["AGENTKIT_CODEX_RECEIPT", "AGENTKIT_CODEX_CAPTURE"]
