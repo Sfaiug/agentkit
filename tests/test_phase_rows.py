@@ -143,6 +143,19 @@ class TimeSplit(PhaseRows):
         self.assertEqual(scoreboard.compute(NOW)["merged"][0],
                          {"model": 1.0, "ak": 0.0, "waiting": 0.0, "seat": 1.5})
 
+    def test_a_step_closed_after_the_clock_stepped_back_ends_where_its_column_is_counted(self):
+        # a checkpoint at 1 h, the wall clock steps back 60 s, the step closes 30 s later
+        history.start_run("back", repo="/home/fixture/code/acme", started_at=NOW - 3 * HOUR, change="back")
+        history.open_step("back", "executor", NOW - 3 * HOUR)
+        history.close_step("back", NOW - 2 * HOUR, keep=True)
+        history.close_step("back", NOW - 2 * HOUR - 30)
+        history.finish_run("back", final_state="pass", finished_at=NOW - HOUR, changed_lines=0)
+        self.assertEqual([(row["started_at"], row["ended_at"]) for row in history.phases("back")],
+                         [(NOW - 3 * HOUR, NOW - 2 * HOUR)])
+        self.assertEqual(history.get("back")["executor_seconds"], HOUR)
+        self.assertEqual(scoreboard.split_hours(history.get("back")), {"model": 1.0, "ak": 0.0, "waiting": 0.0})
+        self.assertIsNotNone(scoreboard.compute(NOW)["merged"][0])
+
     def test_a_wait_counted_past_its_row_by_a_clock_correction_keeps_its_change(self):
         # a slot wait counted 600 monotonic seconds while the wall clock, stepped back 10 s,
         # moved 590 between its row's ends; then a step ran
