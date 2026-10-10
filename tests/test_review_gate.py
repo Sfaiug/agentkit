@@ -200,8 +200,8 @@ sys.exit(1)
                 self.assertIn("[checked by ak: tests/test_dispute_hand_in.py] ak refuses disputes "
                               "outside the handed blocking findings, commands that do not exit 0 "
                               "and absent quotes.", text)
-                self.assertIn("For every undisputed finding, fix every instance of that pattern "
-                              f"in {work}", text)
+                self.assertIn(f"For every undisputed finding, fix it with the least change in {work}",
+                              text)
                 self.assertNotIn("Fix every finding below", text)
                 self.assertIn(worker.CHECKS, text)
 

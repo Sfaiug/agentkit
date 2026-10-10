@@ -325,7 +325,7 @@ sys.exit(1)
         for prompt in (executor["prompt"], fixer["prompt"]):
             self.assertIn("ak suppresses `ak notify` in worker sessions", prompt)
             self.assertIn("goes into your `## Summary`", prompt)
-        self.assertIn("fix every instance of that pattern", fixer["prompt"])
+        self.assertIn("fix it with the least change", fixer["prompt"])
         self.assertIn("list the sites you changed in your summary", fixer["prompt"])
         reviewer = self.calls("reviewer")[0]["prompt"]
         self.assertTrue(reviewer.startswith("You are the reviewer"))
@@ -357,7 +357,7 @@ sys.exit(1)
                 else:
                     self.assertIn("ak suppresses `ak notify` in worker sessions", text)
                 if role.startswith("fixer"):
-                    self.assertIn("fix every instance of that pattern", text)
+                    self.assertIn("fix it with the least change", text)
 
     def test_v5l_findings_grouped_by_pattern_do_not_converge(self):
         """The reviewer is asked to group by pattern; those subheadings are inside the list."""
