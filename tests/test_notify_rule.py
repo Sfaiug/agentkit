@@ -120,9 +120,18 @@ class Rule(unittest.TestCase):
                 "number": 7}
         with patch.object(watch, "own_prs", return_value={PR: session}), \
                 patch.object(watch, "gh_json", return_value=(view, "")), \
-                patch.object(orch, "find", return_value=seat):
+                patch.object(orch, "find", return_value=seat), \
+                patch.object(watch, "at_prompt", return_value=True), \
+                patch.object(watch, "pane_unread", return_value=False), \
+                patch.object(watch, "composer_holds", return_value="empty"), \
+                patch.object(watch, "type_checked", side_effect=self.type_checked):
             watch.outgoing(state, "me", False, self.log.append)
         return state
+
+    def type_checked(self, session, text, log, *_args, **_kw):
+        """The confirmed send into a seat at its quiet prompt, minus tmux: the keys it would send."""
+        self.tmux.append(["send-keys", "-t", session["name"], "-l", text])
+        return True
 
     def finished_run(self, name="20260915-0001-fix-the-parser", worktree=True):
         """A run that opened a PR from a fork and is waiting for the maintainer."""
@@ -217,7 +226,7 @@ class Rule(unittest.TestCase):
     def test_v5d_pr_retry_after_failed_typing_records_and_starts_once(self):
         text = "PR #7 Fix the parser: merged by the maintainer"
         run_dir = self.finished_run("20260915-0001-merged")
-        with patch.object(watch, "type_into") as typ, \
+        with patch.object(watch, "type_at_prompt") as typ, \
                 patch.object(orch, "find", return_value=self.seat()), \
                 patch.object(run, "start_followups") as starts:
             # a merge is routine: the run learns it, and no seat is owed a line
@@ -241,7 +250,7 @@ class Rule(unittest.TestCase):
             records.append(1)
             return real_record(*args, **kwargs)
 
-        with patch.object(watch, "type_into", side_effect=[False, True]) as typ, \
+        with patch.object(watch, "type_at_prompt", side_effect=[False, True]) as typ, \
                 patch.object(orch, "find", return_value=self.seat()), \
                 patch.object(run, "record_decision", side_effect=counting):
             self.assertFalse(watch.say(False, self.log.append, changes, PR, "seat"))

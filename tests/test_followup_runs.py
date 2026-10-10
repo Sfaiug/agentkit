@@ -442,8 +442,8 @@ class FollowupRuns(unittest.TestCase):
         directory, _ = self.source(merged=False, pr=url, followup_checks={DEFECT: CHECK})
         sent = []
         with patch.object(orch, "find", return_value={"name": "seat"}), \
-                patch.object(watch, "type_into",
-                             side_effect=lambda seat, line, log: sent.append(line) or True):
+                patch.object(watch, "type_at_prompt",
+                             side_effect=lambda seat, line, log, **_kw: sent.append(line) or True):
             self.assertTrue(watch.say(False, self.logs.append, "PR #1: merged by the maintainer",
                                       url, "seat", merged=True))
         # the seat now owes the follow-up, so the merge is no routine ending (`routine_ending`)

@@ -28,6 +28,7 @@ from agentkit import config, orch, run, stop, watch
 from agentkit import record
 
 OPEN = "- [ ] the parser parses\n"     # a plan line the seat still owes
+DECISION = "PR #7 Fix api: the maintainer requested changes"
 
 
 class RoutineEndings(HandBack):
@@ -120,6 +121,98 @@ class InTheComposer(RunNotice):
                                               "fix-api", merged=True))
                 self.assertTrue(run.routine_ending(record.read_state(directory)))
                 self.assertEqual((self.keys, self.sent), ([], []))
+
+    def test_a_maintainers_decision_is_never_typed_into_a_running_turn(self):
+        directory, state = self.result("run-d", merged=False, pr=PR)
+        with patch.object(watch, "at_prompt", return_value=False), \
+                patch.object(run, "run_for_pr", return_value=(directory, state)):
+            self.assertFalse(watch.say(False, self.logs.append, "The maintainer requested changes",
+                                       PR, "fix-api"))
+        self.assertEqual((self.keys, self.sent), ([], []))      # the tick retries at a quiet prompt
+        with patch.object(watch, "at_prompt", return_value=True), \
+                patch.object(run, "run_for_pr", return_value=(directory, state)):
+            self.assertTrue(watch.say(False, self.logs.append, "The maintainer requested changes",
+                                      PR, "fix-api"))
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("The maintainer requested changes", self.sent[0])
+
+    def enter_lost(self, *args, **kw):
+        """A seat that does not take the first pass's Enter: the line stays in its composer."""
+        if args[-1] == "Enter":
+            self.keys.append("Enter")
+            return 0, ""
+        return self.tmux(*args, **kw)
+
+    def test_a_decision_left_in_the_composer_is_sent_and_holds_no_later_ending_back(self):
+        directory, state = self.result("run-d", merged=False, pr=PR)
+        with patch.object(run, "run_for_pr", return_value=(directory, state)):
+            with patch.object(orch, "tmux_out", side_effect=self.enter_lost):
+                self.assertFalse(watch.say(False, self.logs.append, DECISION, PR, "fix-api"))
+            self.assertIn(DECISION, self.composer)
+            told = [watch.say(False, self.logs.append, DECISION, PR, "fix-api") for _ in range(2)]
+        self.assertEqual(told, [False, True])               # its Enter, then seen sent
+        self.assertEqual(len(self.sent), 1)                 # nothing typed anew
+        self.assertNotIn("decision_typed", record.read_state(directory))
+        failed, _ = self.result("run-f", state="fail", verdict="FAIL", merged=False)
+        run.announce(record.read_state(failed), failed, self.logs.append, self.cfg)
+        self.assertIn("run-f finished FAIL", self.sent[-1])
+
+    def test_a_decision_left_in_the_composer_is_sent_before_the_maintainer_moves_on(self):
+        for text, merged in (("PR #7 Fix api: closed by the maintainer without a merge", False),
+                             ("PR #7 Fix api: merged by the maintainer", True)):
+            with self.subTest(merged=merged):
+                directory, _ = self.result(f"run-{merged}", merged=False, pr=PR)
+                self.sent.clear()
+                with patch.object(run, "run_for_pr", side_effect=lambda _url: (
+                        directory, record.read_state(directory))):
+                    with patch.object(orch, "tmux_out", side_effect=self.enter_lost):
+                        self.assertFalse(watch.say(False, self.logs.append, DECISION, PR,
+                                                   "fix-api"))
+                    told = [watch.say(False, self.logs.append, text, PR, "fix-api",
+                                      merged=merged) for _ in range(2)]
+                self.assertEqual(told, [False, True])       # the earlier line's Enter first
+                self.assertIn(DECISION, self.sent[0])
+                # a routine merge is typed into no seat; a close is, after it
+                self.assertEqual([text in line for line in self.sent[1:]], [] if merged else [True])
+                self.assertEqual(self.composer, "")         # nothing holds a later line back
+                self.assertNotIn("decision_typed", record.read_state(directory))
+
+    def test_a_decision_whose_enter_is_read_late_is_typed_once(self):
+        directory, state = self.result("run-d", merged=False, pr=PR)
+        reads = iter([False, True])                         # its Enter not yet read off the tty
+        with patch.object(watch, "pane_unread", side_effect=lambda *_a: next(reads, False)), \
+                patch.object(run, "run_for_pr", return_value=(directory, state)):
+            told = [watch.say(False, self.logs.append, DECISION, PR, "fix-api") for _ in range(2)]
+        self.assertEqual((told, len(self.sent)), ([False, True], 1))
+
+    def test_a_decision_line_left_unsent_gets_its_enter_when_the_review_moves_on(self):
+        directory, state = self.result("run-d", merged=False, pr=PR)
+        real = self.tmux
+
+        def enter_lost(*args, **kw):
+            # no Enter reaches the pane while the first decision is typed, the confirmed
+            # send's retries included: the line stays in the composer, its receipt on the run
+            return (0, "") if args[-1] == "Enter" else real(*args, **kw)
+
+        def view(decision):
+            return patch.object(watch, "gh_json", return_value=(
+                {"state": "OPEN", "reviewDecision": decision, "title": "Fix api", "number": 7}, ""))
+
+        own = {"reviewed": {}, "own": {}}
+        with patch.object(watch, "own_prs", return_value={PR: "fix-api"}), \
+                patch.object(orch, "tmux_out", side_effect=enter_lost), view("CHANGES_REQUESTED"):
+            watch.outgoing(own, "me", False, self.logs.append)
+        self.assertIn("requested changes", self.composer)      # typed, its Enter lost
+        self.assertTrue(record.read_state(directory).get("decision_typed"))
+        self.assertEqual(self.sent, [])
+        with patch.object(watch, "own_prs", return_value={PR: "fix-api"}), view("APPROVED"):
+            watch.outgoing(own, "me", False, self.logs.append)      # its Enter, pressed first
+            self.assertEqual((self.composer, own["own"][PR]["decision"]), ("", None))
+            watch.outgoing(own, "me", False, self.logs.append)      # the next tick reads it sent
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("requested changes", self.sent[0])
+        self.assertNotIn("decision_typed", record.read_state(directory))
+        self.assertEqual(own["own"][PR]["decision"], "APPROVED")
 
     def test_a_merged_line_left_in_the_composer_is_sent_and_holds_no_later_ending_back(self):
         directory, state = self.result("run-m", merged=True, pr=PR, no_merge=False)

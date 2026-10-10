@@ -5630,8 +5630,29 @@ def outgoing(state, me, dry_run, log):
             if say(dry_run, log, f"{label}: the maintainer requested changes", url, session):
                 own["decision"] = "CHANGES_REQUESTED"
         elif view.get("reviewDecision") and own.get("decision") != view.get("reviewDecision"):
-            own["decision"] = view.get("reviewDecision")
-            own["decision_at"] = time.time()
+            # the line an earlier decision left unsent in the seat's composer gets its Enter
+            # first, or the next tick comes back here (`sent_pending`)
+            from . import run
+            run_dir, run_state = run.run_for_pr(url)
+            if dry_run or sent_pending(run_dir, run_state, log):
+                own["decision"] = view.get("reviewDecision")
+                own["decision_at"] = time.time()
+
+
+def sent_pending(run_dir, run_state, log):
+    """Whether no line ak typed about that run's PR is left unsent in its seat's composer: the
+    Enter of one typed and never seen sent (`decision_typed`, the receipt `type_at_prompt`
+    hands back) is pressed first (`run.finish_typed`) and the mark comes off the run; left
+    there, it would hold every later line back as the owner's draft."""
+    from . import run   # here, not at the top: run imports this module
+    held = (run_state or {}).get("decision_typed")
+    if not held:
+        return True
+    if not run.finish_typed(run.launched_session(run_state), held, log):
+        return False
+    if run_dir:
+        run.mark_delivery(run_dir, run_state, decision_typed=None)
+    return True
 
 
 def say(dry_run, log, text, url, session, merged=False):
@@ -5639,12 +5660,14 @@ def say(dry_run, log, text, url, session, merged=False):
 
     Never to Discord.  The run learns it first, where the menu and `ak run status` were
     already showing `waiting for the maintainer` -- a seat that cannot be typed into never
-    holds that back -- and a live seat is typed the line, exactly as a review question is
-    put to the `inbox`.  A merge is the exception: routine, recorded on the run and typed
-    into no seat, unless its run's seat owes work (`run.routine_ending`), as the follow-ups
-    it put in that seat's plan.  A decision already on the run is not recorded again, so a
-    retry after a failed typing tells the seat without recording twice or starting fix runs
-    twice.  True means it has landed everywhere it goes, or that there is nowhere left for it
+    holds that back -- and a live seat is typed the line at its quiet prompt, never into a
+    running turn (`type_at_prompt`), exactly as a run's ending is, its mark kept on the run
+    (`decision_typed`) so a line typed and never seen sent gets its Enter, not a second copy,
+    and is sent (`run.finish_typed`) before a later decision is typed or a routine merge ends
+    the following.  A merge is the exception: routine, recorded on the run and typed into no seat, unless its
+    run's seat owes work (`run.routine_ending`), as the follow-ups it put in that seat's plan.
+    A decision already on the run is not recorded again, so a retry after a failed typing
+    tells the seat without recording twice or starting fix runs twice.  True means it has landed everywhere it goes, or that there is nowhere left for it
     to land and following this PR is over; False means the seat is still owed its line and
     the next tick retries it.
     """
@@ -5658,8 +5681,20 @@ def say(dry_run, log, text, url, session, merged=False):
                         and (not merged or run_state.get("merged"))):
         run.record_decision(run_dir, run_state, text, merged=merged)
         log(f"recorded on run {run_dir.name}: {text}")
+    def kept(mark):
+        # a line typed and never seen sent gets only its Enter from the next tick
+        if run_dir:
+            run.mark_delivery(run_dir, run_state, decision_typed=mark)
+
+    held = (run_state or {}).get("decision_typed")
+
+    def finished():
+        # an earlier decision's line left unsent in the composer would hold this one, and
+        # every later line, back as the owner's draft: it is sent first
+        return sent_pending(run_dir, run_state, log)
+
     if merged and (not run_dir or run.routine_ending(run_state)):
-        return True
+        return finished()
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
@@ -5667,8 +5702,11 @@ def say(dry_run, log, text, url, session, merged=False):
         if run_dir:
             line = run.seat_notice(line, run_state, run_dir,
                                    f"run {run_dir.name}: the maintainer decided on its PR.")
-        if not type_into(seat, line, log):
+        if held and held.get("line") != line and not finished():
             return False
+        if not type_at_prompt(seat, line, log, typed=held, receipt=kept):
+            return False
+        kept(None)
         log(f"told the {seat['name']} seat: {text}")
         return True
     if run_dir:
