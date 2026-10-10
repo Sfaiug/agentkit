@@ -14,6 +14,7 @@ import threading
 import time
 import tomllib
 from pathlib import Path
+from string import Template
 
 from . import host
 
@@ -1254,14 +1255,34 @@ def instruction_ceiling():
     return min(limits) if limits else None
 
 
-def unswitched_files(harness):
-    """The files and folders under the owner's home that this harness reads on its own and that
-    its adapter cannot switch off: `[instructions] unswitched` in adapters/<h>.toml, `~/`-relative.  A seat
-    opens only while none of them exists, since nothing but its rulebook may instruct it; a
-    worker's box hides each from its turn, and the live contract check plants a word to prove it."""
+def manifest_paths(names, env, cwd=None):
+    """Manifest paths resolved for `env`, the environment the harness runs in: `~/` is its home,
+    `$VARIABLE` and `${VARIABLE:-default}` its variables, and an unset or empty one with no
+    default skips that path; a relative path is under `cwd`."""
+    values = {key: value for key, value in env.items() if value}
+    values.setdefault("HOME", str(Path.home()))
+    for name in names:
+        name = re.sub(r"\$\{(\w+):-([^}]*)\}", lambda m: values.get(m[1]) or m[2], name)
+        if name.startswith("~/"):
+            name = "$HOME/" + name[2:]
+        try:
+            path = Path(Template(name).substitute(values))
+        except KeyError:
+            continue
+        yield path if path.is_absolute() else Path(cwd or os.getcwd()) / path
+
+
+def unswitched_files(harness, env):
+    """The files and folders under the home that this harness reads on its own and that its
+    adapter cannot switch off: `[instructions] unswitched` in adapters/<h>.toml, resolved for
+    `env` as `manifest_paths` does, so an account's own home is looked in where the adapter
+    keeps one.  A seat opens only while none of them exists, since nothing but its rulebook may
+    instruct it; a worker's box hides each from its turn, and the live contract check plants a
+    word to prove it."""
     block = manifest(harness).get("instructions")
     paths = block.get("unswitched") if isinstance(block, dict) else None
-    return [Path(p).expanduser() for p in paths or [] if isinstance(p, str) and p.startswith("~/")]
+    return list(manifest_paths([p for p in paths or [] if isinstance(p, str) and p[:1] in "~$"],
+                               env))
 
 
 def seat_state_path(name):

@@ -10,7 +10,11 @@ effort = "minimal"
 
 # Muse has no switch for its own personal rules, and its TUI none for Claude's and Codex's
 [instructions]
-unswitched = ["~/.config/muse/AGENTS.md", "~/.claude/CLAUDE.md", "~/.codex/AGENTS.md"]
+# Muse's own rules live under $XDG_CONFIG_HOME/muse: ~/.muse-<name>/muse on an account
+# (muse.sh sets it on the seat's line; a worker turn's box knows the account's name);
+# Claude's and Codex's personal rules are read from their usual homes whatever the account
+unswitched = ["${XDG_CONFIG_HOME:-~/.config}/muse/AGENTS.md", "~/.muse-$AGENTKIT_ACCOUNT/muse/AGENTS.md",
+              "~/.claude/CLAUDE.md", "~/.codex/AGENTS.md"]
 
 [worker]
 state = ["~/.config/muse", "$XDG_CONFIG_HOME/muse", "~/.muse-$AGENTKIT_ACCOUNT",

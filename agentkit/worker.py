@@ -701,7 +701,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     with box.command(cmd, turn_env, out_dir, cwd=workspace,
                      state=paths.get("state", ()), places=places,
                      logins=paths.get("logins", ()),
-                     hidden=config.unswitched_files(entry["harness"])) as (cmd, turn_env, spawn), \
+                     hidden=config.unswitched_files(entry["harness"], turn_env)) as (cmd, turn_env, spawn), \
             own.open("wb") as err:
         code, _, killed = limited(cmd, None, silence=limit, activity=out_dir / "events.jsonl",
                                   abort=lambda: watching(out_dir),
