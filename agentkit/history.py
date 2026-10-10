@@ -26,7 +26,8 @@ STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds"
 # A landing check's wait for a heavy-suite turn is the lander's, inside the run's line wait.
 WAIT_COLUMNS = {"slot": "slot_wait_seconds", "suite": "suite_wait_seconds",
                 "merge": "merge_wait_seconds", "lander": "lander_wait_seconds"}
-_OPEN = {}     # run_id -> [step, since]: the step this process runs, counted up to `since`
+_OPEN = {}     # run_id -> [step, since, opened]: the step this process runs, counted up to
+               # `since`, and its phase row's start
 _OPEN_LOCK = threading.Lock()
 
 SCHEMA = """
@@ -68,6 +69,19 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"))
 
+# One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`), open while
+# it runs, and each wait it counted (`WAIT_COLUMNS`, named `<wait> wait`), whole.  A run with
+# no row keeps no phases.
+PHASES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS phases (
+    run_id TEXT,
+    phase TEXT,
+    started_at REAL,
+    ended_at REAL,
+    PRIMARY KEY (run_id, phase, started_at)
+)
+"""
+
 REVIEWS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviews (
     run_id TEXT,
@@ -96,6 +110,7 @@ def _connect(*, readonly=False):
     database.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database, timeout=2)
     connection.execute(SCHEMA)
+    connection.execute(PHASES_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
@@ -163,8 +178,10 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     seat's at the first write, whatever that seat runs by a resume.
     """
     if sandbox(repo):
-        _write(lambda connection: connection.execute(
-            "DELETE FROM runs WHERE run_id=?", (run_id,)), log)
+        def forget(connection):
+            connection.execute("DELETE FROM runs WHERE run_id=?", (run_id,))
+            connection.execute("DELETE FROM phases WHERE run_id=?", (run_id,))
+        _write(forget, log)
         return
     started_at = time.time() if started_at is None else started_at
     repo = Path(repo).name if repo else None
@@ -226,13 +243,44 @@ def add_seconds(run_id, step, seconds, *, log=None):
         (max(0.0, seconds), run_id)), log)
 
 
-def add_wait(run_id, wait, seconds, *, log=None):
-    """Add one finished wait to its column; a row from before the columns stays unrecorded."""
+def add_wait(run_id, wait, seconds, at=None, *, log=None):
+    """Add one finished wait, ended `at`, to its column and as a phase row; a row from before
+    the columns stays unrecorded."""
     if not isinstance(seconds, (int, float)) or not math.isfinite(seconds):
         return
-    column = WAIT_COLUMNS[wait]
-    _write(lambda connection: connection.execute(
-        f"UPDATE runs SET {column}={column}+? WHERE run_id=?", (max(0.0, seconds), run_id)), log)
+    column, seconds = WAIT_COLUMNS[wait], max(0.0, seconds)
+    at = time.time() if at is None else at
+
+    def add(connection):
+        connection.execute(f"UPDATE runs SET {column}={column}+? WHERE run_id=?", (seconds, run_id))
+        phase(connection, run_id, f"{wait} wait", at - seconds, at)
+    _write(add, log)
+
+
+def phase(connection, run_id, name, started_at, ended_at):
+    """Write the phase row: its end once it is known, else a new row open while it runs."""
+    connection.execute(
+        "INSERT INTO phases (run_id, phase, started_at, ended_at) "
+        "SELECT run_id, ?, ?, ? FROM runs WHERE run_id=? "
+        "ON CONFLICT(run_id, phase, started_at) DO UPDATE SET ended_at=excluded.ended_at",
+        (name, started_at, ended_at, run_id))
+
+
+def phases(run_id):
+    """A run's phases in order, each `{phase, started_at, ended_at}`, the one under way with
+    no end; none for a run with no row."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    "SELECT phase, started_at, ended_at FROM phases WHERE run_id=? "
+                    "ORDER BY started_at, phase", (run_id,))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
 
 
 def add_tokens(run_id, role, tokens, *, log=None):
@@ -281,7 +329,8 @@ def open_step(run_id, step, at=None, *, log=None):
     close_step(run_id, at, log=log)
     if step in STEP_COLUMNS:
         with _OPEN_LOCK:
-            _OPEN[run_id] = [step, at]
+            _OPEN[run_id] = [step, at, at]
+        _write(lambda connection: phase(connection, run_id, step, at, None), log)
 
 
 def close_step(run_id, at=None, *, keep=False, log=None):
@@ -297,10 +346,11 @@ def close_step(run_id, at=None, *, keep=False, log=None):
         entry = _OPEN.get(run_id) if keep else _OPEN.pop(run_id, None)
         if entry is None:
             return None
-        step, since = entry
+        step, since, opened = entry
         if keep:
             entry[1] = max(since, at)
     add_seconds(run_id, step, at - since, log=log)
+    _write(lambda connection: phase(connection, run_id, step, opened, max(opened, at)), log)
     return step
 
 
