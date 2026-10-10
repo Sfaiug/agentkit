@@ -5268,8 +5268,9 @@ def merge_body(lp, head, url=None):
 
 
 def merged(lp, url, method):
-    """Record the PR as merged; True, for the merge step to return."""
-    lp.state["merged"] = True
+    """Record the PR as merged, with what proving it live stands on; True, for the merge step
+    to return."""
+    lp.state.update(merged=True, **watch.merge_record(lp.wt, lp.state.get("delivery_sha")))
     lp.write()
     lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
     return True
@@ -7136,7 +7137,7 @@ def record_decision(run_dir, state, reason, merged=False):
     """
     state["merge_note"] = note = " ".join(reason.split())
     if merged:
-        state["merged"] = True
+        state.update(merged=True, **watch.merge_record(state.get("worktree"), state.get("delivery_sha")))
     run_record.save_state(run_dir, state)
     if merged:
         history_finish(state)
@@ -9787,7 +9788,9 @@ def cmd_merge(argv):
             if info.get("headRefOid") != head or info.get("baseRefName") != lp.target.removeprefix("origin/"):
                 note(lp, "PR head or target changed since PASS; a new run is required", failed=True)
             elif info.get("state") == "MERGED":
-                state["merged"] = True
+                # a delivery whose merge went through before its record did: what proving
+                # it live stands on is recorded here as on every merge path
+                state.update(merged=True, **watch.merge_record(lp.wt, head))
             elif info.get("state") != "OPEN":
                 note(lp, "PR is closed without a merge", failed=True)
         if not state.get("merged") and not state.get("merge_failed"):
@@ -10652,7 +10655,7 @@ def merge_own_pr(lp, url):
         ours = (remote["sha"] in expected
                 and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
         if current.get("merged") and ours:
-            lp.state["merged"] = True
+            lp.state.update(merged=True, **watch.merge_record(lp.wt, remote["sha"]))
             lp.write()
             return True
         if current.get("state") != "open" or not ours:
