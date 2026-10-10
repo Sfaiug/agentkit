@@ -74,7 +74,7 @@ GATE = ("[worker judgement] Hand in a **blocking** finding only for a correctnes
         "[checked by ak: tests/test_followup_runs.py] ak re-runs the command on base and checks --before there; "
         "a proof that cannot run or does not fail, or a --before absent from base, drops the follow-up into Notes.\n"
         "[checked by ak: tests/test_followups_never_block.py] ak re-runs a follow-up without --before "
-        "on this commit, where it must fail.\n"
+        "on this commit, where it must fail, and on base, where failing makes it one from before the task.\n"
         "[checked by ak: tests/test_followup_rule.py] ak keeps every round's follow-ups, a failed round's included.\n"
         "[worker judgement] Finish with `ak hand-in done`.\n"
         "[checked by ak: tests/test_hand_in.py] ak derives FAIL from any finding that stays blocking, "
