@@ -67,7 +67,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
-              ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"))
+              ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`), open while
 # it runs, and each wait it counted (`WAIT_COLUMNS`, named `<wait> wait`), whole.  A run with
@@ -170,12 +170,14 @@ def suite_run(run_id, repo):
 
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               started_at=None, session=None, task_words=None, task_points=None,
-              task_checks=None, task_files=None, orchestrator=None, log=None):
+              task_checks=None, task_files=None, orchestrator=None, change=None, log=None):
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
     goes, and every later write finds no row to change.  The orchestrator is the launching
-    seat's at the first write, whatever that seat runs by a resume.
+    seat's at the first write, whatever that seat runs by a resume.  `change` names the
+    change the run belongs to (its PR, or the run it continues), which the scoreboard groups
+    runs by.
     """
     if sandbox(repo):
         def forget(connection):
@@ -187,7 +189,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     repo = Path(repo).name if repo else None
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
-              task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0)
+              task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
+              change)
 
     def insert(connection):
         connection.execute(
@@ -195,8 +198,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "started_at, finished_at, executor_seconds, done_when_seconds, reviewer_seconds, "
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
-            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -206,7 +209,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "task_points=COALESCE(excluded.task_points,runs.task_points), "
             "task_checks=COALESCE(excluded.task_checks,runs.task_checks), "
             "task_files=COALESCE(excluded.task_files,runs.task_files), "
-            "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator)", values)
+            "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator), "
+            "change=COALESCE(excluded.change,runs.change)", values)
 
     _write(insert, log)
 

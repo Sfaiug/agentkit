@@ -6623,7 +6623,8 @@ def history_start(state, log=None):
                       session=session, task_words=state.get("task_words"),
                       task_points=state.get("task_points"),
                       task_checks=state.get("task_checks"),
-                      orchestrator=record.get("orchestrator") if record else None, log=log)
+                      orchestrator=record.get("orchestrator") if record else None,
+                      change=state.get("review_pr") or change_of(state), log=log)
 
 
 def changed_files(state):
