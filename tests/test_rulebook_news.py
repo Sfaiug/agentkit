@@ -43,11 +43,11 @@ class RulebookNews(Sandbox):
             config.update_session(config.resolve_session(name),
                                   rulebook_sha=config.rulebook_digest(text))
 
-    def prompt(self, event="UserPromptSubmit", session=SEAT, conversation=OWN, **env):
+    def prompt(self, event="UserPromptSubmit", session=SEAT, conversation=OWN, source=None, **env):
         result = subprocess.run(
             ["bash", str(REPO / "hooks/seat-state.sh")],
             input=json.dumps({"hook_event_name": event, "prompt": "carry on",
-                              "session_id": conversation}),
+                              "session_id": conversation, **({"source": source} if source else {})}),
             text=True, capture_output=True, timeout=30,
             env={"HOME": str(self.root), "PATH": os.environ["PATH"],
                  "AGENTKIT_SESSION": session, "AK_RUN_ROLE": "orchestrator", **env})
@@ -95,12 +95,31 @@ class RulebookNews(Sandbox):
         self.assertIn("-Rule two.\n+Rule three.\n", change.read_text())
         self.assertNotIn("Rule one.", change.read_text())
 
+    def test_after_a_compaction_the_seat_is_told_what_changed_since_its_launch_again(self):
+        rules = config.HOME / "rules.md"
+        rules.write_text("Rule one.\n")
+        self.handed(config.seat_rulebook(SEAT))                  # launched on rule one
+        rules.write_text("Rule two.\n")
+        self.said_read(json.loads(self.prompt())["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.prompt(), "")
+        self.assertEqual(self.prompt("SessionStart", source="resume"), "")   # only a compaction
+        self.assertEqual(self.prompt(), "")
+        self.assertEqual(self.prompt("SessionStart", conversation="someone-else", source="compact"), "")
+        self.assertEqual(self.prompt(), "")
+        self.assertEqual(self.prompt("SessionStart", source="compact"), "")  # prints nothing itself
+        notice = self.prompt()
+        change = config.seat_file("change", SEAT)
+        self.assertIn(f"read {change} now", notice)              # rule one is what it holds again
+        self.assertIn("-Rule one.\n+Rule two.\n", change.read_text())
+        self.said_read(json.loads(notice)["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.prompt(), "")
+
     def test_where_ak_no_longer_has_the_rulebook_the_seat_holds_the_news_names_it_whole(self):
         self.handed(BEFORE)
         config.rulebook_path(SEAT).unlink()                     # the launch's copy is gone
         notice = self.prompt()
         self.assertIn(f"Read {self.rules()} in full", notice)
-        self.assertNotIn("change-", notice)
+        self.assertNotIn("unified diff", notice)          # the notice's own words, never a path's
 
     def test_a_rulebook_said_read_after_it_changed_again_is_read_again(self):
         rules = config.HOME / "rules.md"
