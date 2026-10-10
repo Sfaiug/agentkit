@@ -5796,19 +5796,38 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 st.update(current)
             if not passed:
                 return "pending", None, None
-            # live is recorded on the run and its history row, never typed into the seat:
-            # nothing is the seat's to decide about a change that is live (`run.routine_ending`)
-            log(f"run {run_dir.name} is live: {pr_url}.")
         else:
             return "failed", f"health: {command}", (
                 f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
     if not dry_run:
         history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
-        # a live line an earlier install typed and never saw sent is sent, never left behind
-        if (st.get("live_typed")
-                and run.finish_typed(run.launched_session(st), st["live_typed"], log)):
-            with run_record.record(run_dir) as current:
-                current.pop("live_typed", None)
+    if not st.get("live_notified"):
+        line = f"run {run_dir.name} is live: {pr_url}."
+        if dry_run:
+            log(f"would tell its launching seat: {line}")
+            return "passed", None, None
+        session = run.launched_session(st)
+        if run.routine_ending(st):
+            # its seat owes no work, so no turn of its waits on this (`awaiting_live`): recorded,
+            # never typed, and a line an earlier pass typed and never saw sent is sent
+            if run.finish_typed(session, st.get("live_typed"), log):
+                with run_record.record(run_dir) as current:
+                    current["live_notified"] = now
+                    current.pop("live_typed", None)
+                log(f"{line} Recorded, not typed")
+            return "passed", None, None
+        seat = orch.find(session)
+        if after_merge_live(seat):
+            def kept(mark):
+                with run_record.record(run_dir) as current:
+                    current["live_typed"] = mark
+
+            line = run.seat_notice(line, st, run_dir, f"run {run_dir.name} is live.")
+            if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept):
+                with run_record.record(run_dir) as current:
+                    current["live_notified"] = now
+                    current.pop("live_typed", None)
+                log(f"told the {seat['name']} seat: {line}")
     return "passed", None, None
 
 
@@ -6055,11 +6074,10 @@ def after_merge_checks(state, dry_run, log, now=None):
         if (not isinstance(finished, (int, float)) or isinstance(finished, bool)
                 or not 0 <= now - finished):
             continue
-        # past the window, only a probe that failed inside it, or a live line still unsent,
-        # is followed further: the `health:` a merge recorded and no probe ever ran is let
-        # go, the merge commit unasked
+        # past the window, only a probe that failed inside it is followed further: the
+        # `health:` a merge recorded and no probe ever ran is let go, the merge commit unasked
         if (now - finished > AFTER_MERGE_WINDOW and "output" not in (st.get("health") or {})
-                and not st.get("live_typed")):
+                and not (st.get("live_at") and not st.get("live_notified"))):
             continue
         pr_url = st.get("pr")
         if not isinstance(pr_url, str) or not pr_url:
@@ -6278,36 +6296,45 @@ PASS_ERRORS = (config.Error, OSError, TypeError, ValueError, AttributeError, Key
 
 
 def offer_endings(log):
-    """Detect lost loops even when no phone opens the menu and GitHub is unavailable."""
+    """Detect lost loops even when no phone opens the menu and GitHub is unavailable.
+
+    A seat takes one line at each quiet prompt, so the endings that wait on its decision go
+    before those of runs that merged, which only tell it so: a failed run's ending waited
+    behind six merged runs' (6 Oct).
+    """
     from . import run
+    ended = []
     for run_dir in run_record.run_dirs():
         try:
             receipt = run_record.read_state(run_dir)
             if receipt:
                 receipt = run.reap(run_dir, receipt)
-                if receipt.get("state") not in run_record.ENDED:
-                    continue
-                # Every ending nobody has heard is offered again here, not only one a flag was
-                # left on: a hand-back the run could not type goes in at the next quiet prompt,
-                # and so does the ending of an attempt that was reaped without one.  `announce`
-                # decides again which path it is, so a seat that died since gets the orphan one.
-                if run.owes_ending(receipt):
-                    run.announce(receipt, run_dir, log)
-                # A question the seat never took is typed again before the user hears it; one
-                # it took whose ping failed is only pinged, and so is one kept before `asked`
-                # was, whose typing nobody knows the end of.
-                question = receipt.get("pending_inbox")
-                if question and ask_inbox(
-                        config.load(), question["question"], question["url"],
-                        question["sha"], log, asked=question.get("asked", True),
-                        typed=lambda: run.mark_delivery(
-                            run_dir, receipt, pending_inbox={**question, "asked": True})
-                        ) == 0:
-                    # struck off the record as it stands, never off this copy of it: the run's
-                    # own loop can have handed the ending back while the question was going
-                    # out, and a whole save from here would put that back to undelivered and
-                    # say it twice
-                    run.mark_delivery(run_dir, receipt, pending_inbox=None)
+                if receipt.get("state") in run_record.ENDED:
+                    ended.append((run_dir, receipt))
+        except PASS_ERRORS as exc:
+            log(f"WARN cannot check run {run_dir.name}: {exc}")
+    for run_dir, receipt in sorted(ended, key=lambda found: bool(found[1].get("merged"))):
+        try:
+            # Every ending nobody has heard is offered again here, not only one a flag was left
+            # on: a hand-back the run could not type goes in at the next quiet prompt, and so
+            # does the ending of an attempt that was reaped without one.  `announce` decides
+            # again which path it is, so a seat that died since gets the orphan one.
+            if run.owes_ending(receipt):
+                run.announce(receipt, run_dir, log)
+            # A question the seat never took is typed again before the user hears it; one it
+            # took whose ping failed is only pinged, and so is one kept before `asked` was,
+            # whose typing nobody knows the end of.
+            question = receipt.get("pending_inbox")
+            if question and ask_inbox(
+                    config.load(), question["question"], question["url"],
+                    question["sha"], log, asked=question.get("asked", True),
+                    typed=lambda: run.mark_delivery(
+                        run_dir, receipt, pending_inbox={**question, "asked": True})
+                    ) == 0:
+                # struck off the record as it stands, never off this copy of it: the run's own
+                # loop can have handed the ending back while the question was going out, and a
+                # whole save from here would put that back to undelivered and say it twice
+                run.mark_delivery(run_dir, receipt, pending_inbox=None)
         except PASS_ERRORS as exc:
             log(f"WARN cannot check run {run_dir.name}: {exc}")
 

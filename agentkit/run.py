@@ -7883,10 +7883,18 @@ ROUTINE_NOTE = "routine ending: recorded, not typed"
 
 
 def routine_ending(state):
-    """An ending nothing is the seat's to decide about: a merge, or a `not needed`.  What it
-    started (fix runs, plan lines) is in its result and the seat's plan; `ak run status`
-    names it; a change going live is recorded the same way (`watch.after_merge_health`)."""
-    return bool(state.get("merged") or state.get("state") == "not_needed")
+    """An ending nothing is the seat's to decide about: a merge, or a `not needed`, while the
+    seat that launched it owes no work.  What it started (fix runs, plan lines) is in its
+    result and the seat's plan; `ak run status` names it; a change going live is recorded the
+    same way (`watch.after_merge_health`).  A seat that owes work (`stop.owed`) may have ended
+    its turn waiting on this run or its going live (`stop.recorded_ending`), so for it this is
+    the end of that wait and goes to it like any other ending.  A red target's repair is
+    routine whatever its seat owes: the runs parked on it retry by themselves, and their own
+    endings end the seat's wait."""
+    if not (state.get("merged") or state.get("state") == "not_needed"):
+        return False
+    session = launched_session(state)
+    return bool(state.get("repair")) or not (session and stop.owed(session))
 
 
 def finish_typed(session, mark, log, cfg=None):
@@ -7909,11 +7917,11 @@ def finish_typed(session, mark, log, cfg=None):
 def announce(state, run_dir, log, cfg=None):
     """The one message a run sends when it ends: to its orchestrator, or about a gone one.
 
-    A routine ending -- merged, or not needed -- is recorded and never typed: nothing in it
-    is the seat's to decide, so the seat hears only an ending that needs its decision, a
-    fail, a blocked, a pass not merged, and never a line opening a turn for news it can read
-    in `ak run status` and its plan.  A red target's repair is no different: the runs
-    parked on it retry by themselves.
+    A routine ending (`routine_ending`) -- merged, or not needed, while its seat owes no work
+    -- is recorded and never typed: nothing in it is the seat's to decide, so the seat hears
+    only an ending that needs its decision, a fail, a blocked, a pass not merged, or the end
+    of a wait its turn may have ended on, and never a line opening a turn for news it can
+    read in `ak run status` and its plan.
 
     A run under an open seat is handed back to it -- one line into its composer saying how the
     run ended and that the next step is its own -- because the ending is the orchestrator's and
@@ -7977,6 +7985,10 @@ def announce(state, run_dir, log, cfg=None):
         if live:
             hand_back(state, run_dir, log, cfg)
             return
+    if state.get("state") == "not_needed":
+        mark_delivery(run_dir, state, reported=True, handback_pending=None,
+                      handback_wait_reason=None, notification_pending=None)
+        return
     if getattr(jobs._JOB_MUTE, "depth", 0) or jobs.job_started(state):
         # a job task's orphan is on the job's own card, never a per-task one -- and the
         # record has to say the ending went somewhere, or the tick, which runs in another

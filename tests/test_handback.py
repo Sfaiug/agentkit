@@ -251,6 +251,22 @@ class HandBack(Sandbox):
         self.assertEqual(len(self.typed), 1)
         self.assertTrue(record.read_state(other)["handback_pending"])
 
+    def test_an_ending_that_needs_a_decision_first_is_handed_back_before_merged_ones(self):
+        """A seat takes one line at a quiet prompt: the failed run's ending, the newest here,
+        goes first, before two merged runs' endings waiting for the same seat, which owes work
+        and so hears them (6 Oct)."""
+        config.plan_path(SEAT).write_text("- [ ] the parser parses\n")
+        self.rows = [self.live()]
+        self.screen = "working"
+        endings = [self.ended(name, owner=SEAT, merged=True, pr="https://github.com/o/r/pull/7")
+                   for name in ("run-a", "run-b")] + [self.failed("run-z")]
+        for directory in endings:
+            run.announce(record.read_state(directory), directory, self.logs.append)
+        self.assertEqual(self.typed, [])
+        self.screen = "at_prompt"
+        self.tick()
+        self.assertEqual([text.split()[1] for _, text in self.typed], ["run-z", "run-a", "run-b"])
+
     def claude(self):
         """The real confirmed send into a fake Claude seat, whose screen reads as a prompt."""
         seat = Claude()
@@ -1386,7 +1402,7 @@ class HandBack(Sandbox):
                              side_effect=lambda s, d, log=None: settles.append(s["run_id"])):
             code = run.finish(state, directory, self.logs.append, self.cfg)
         self.assertEqual(code, 0)
-        self.assertEqual(self.typed, [])       # a merge is routine: recorded, never typed
+        self.assertEqual(self.typed, [])       # the seat owes nothing: recorded, never typed
         self.assertTrue(record.read_state(directory)["handed_back"])
         self.assertEqual(histories, ["run-ending"])
         self.assertEqual(settles, ["run-ending"])
@@ -1416,7 +1432,7 @@ class HandBack(Sandbox):
             code = run.finish(record.read_state(directory), directory,
                               self.logs.append, self.cfg)
         self.assertEqual(code, 0)
-        self.assertEqual(self.typed, [])       # a merge is routine: recorded, never typed
+        self.assertEqual(self.typed, [])       # the seat owes nothing: recorded, never typed
         self.assertTrue(record.read_state(directory)["handed_back"])
         self.assertEqual(histories, ["run-fixstop"])
         self.assertEqual(settles, ["run-fixstop"])
