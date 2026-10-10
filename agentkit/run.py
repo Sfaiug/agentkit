@@ -9840,6 +9840,24 @@ def update_scope_line(run_dir, state):
         pass
 
 
+def followup_returned(state, run_dir, log):
+    """A fix run ending with its check unmet (failed, in error, stopped) gives its follow-up's
+    line back to the seat it was deferred from: the seat's own again (`plan_followup`,
+    deferred off), since no run has it now, and the result says so.  A merge, or a `not
+    needed` (the check passes on the target), leaves the line to tick itself."""
+    followup, session = state.get("followup") or {}, launched_session(state)
+    if (not followup.get("check") or not session or not state.get("repo")
+            or state.get("merged") or state.get("state") == "not_needed"):
+        return None
+    entry = plan_followup(session, main_checkout(Path(state["repo"])), followup["text"],
+                          followup["check"], state.get("base_sha"), log, deferred=False)
+    save_result(run_dir, notices=(
+        "## Follow-up plan\n\n" + (f"Its line is yours again, in your plan: {entry['outcome']}"
+                                   if "refused" not in entry else
+                                   f"Its line could not be returned to your plan: {entry['refused']}"),))
+    return entry
+
+
 def finish(state, run_dir, log, cfg=None):
     try:
         start_followups(state, run_dir, log, cfg)
@@ -9851,6 +9869,10 @@ def finish(state, run_dir, log, cfg=None):
         log(f"WARN could not start follow-ups: {exc}")
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the follow-ups
         log(f"WARN could not start follow-ups: {exc}")
+    try:
+        followup_returned(state, run_dir, log)
+    except (config.Error, OSError) as exc:
+        log(f"WARN the follow-up's line was not returned to the seat: {exc}")
     try:
         redress_seat(launched_session(state))   # the ending lands on the bar too
     except run_record.StopRequested:

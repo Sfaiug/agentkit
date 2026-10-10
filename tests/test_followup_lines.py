@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox, account_home
-from agentkit import config, plan, stop
+from agentkit import config, plan, run, stop
 
 SEAT = "fix-api"
 
@@ -63,6 +63,27 @@ class Planned(Sandbox):
                                   proven=self.base, deferred=False), own)   # none has it any more
         self.assertEqual(plan.open_lines(SEAT), [own])
         self.assertTrue(stop.owed(SEAT))
+
+    def test_a_fix_run_ending_with_its_check_unmet_gives_its_line_back_to_the_seat(self):
+        deferred = plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
+                            proven=self.base, deferred=True)
+        directory = self.root / "runs" / "fix"
+        directory.mkdir(parents=True)
+        fix = {"run_id": "fix", "launched_session": SEAT, "repo": str(self.repo), "base_sha": self.base,
+               "followup": {"run": "source", "text": "api.py:1 - mode is wrong", "place": "api.py:1",
+                            "check": "test -f feature.txt"}}
+        logs = []
+        for ending in ({"state": "not_needed"}, {"state": "pass", "merged": True}):
+            self.assertIsNone(run.followup_returned({**fix, **ending}, directory, logs.append))
+            self.assertEqual(plan.open_lines(SEAT), [deferred])        # the line ticks itself
+        for ending in ({"state": "fail"}, {"state": "error"}, {"state": "stopped"}):
+            entry = run.followup_returned({**fix, **ending}, directory, logs.append)
+            self.assertEqual(entry, {"outcome": "Fix api.py:1 - mode is wrong", "deferred": False})
+            self.assertEqual(plan.open_lines(SEAT), [deferred.replace(plan.DEFERRED, "")])
+            self.assertTrue(stop.owed(SEAT))                          # the seat's own again
+        self.assertIn("Its line is yours again, in your plan: Fix api.py:1 - mode is wrong",
+                      (directory / "result.md").read_text())
+        self.assertEqual(logs, [f"follow-up for {SEAT}: Fix api.py:1 - mode is wrong (in its plan)"] * 3)
 
     def test_a_deferred_line_is_open_yet_owed_by_nobody_and_ticks_itself(self):
         line = plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
