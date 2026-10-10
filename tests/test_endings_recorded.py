@@ -185,6 +185,35 @@ class InTheComposer(RunNotice):
             told = [watch.say(False, self.logs.append, DECISION, PR, "fix-api") for _ in range(2)]
         self.assertEqual((told, len(self.sent)), ([False, True], 1))
 
+    def test_a_decision_line_left_unsent_gets_its_enter_when_the_review_moves_on(self):
+        directory, state = self.result("run-d", merged=False, pr=PR)
+        real = self.tmux
+
+        def enter_lost(*args, **kw):
+            # no Enter reaches the pane while the first decision is typed, the confirmed
+            # send's retries included: the line stays in the composer, its receipt on the run
+            return (0, "") if args[-1] == "Enter" else real(*args, **kw)
+
+        def view(decision):
+            return patch.object(watch, "gh_json", return_value=(
+                {"state": "OPEN", "reviewDecision": decision, "title": "Fix api", "number": 7}, ""))
+
+        own = {"reviewed": {}, "own": {}}
+        with patch.object(watch, "own_prs", return_value={PR: "fix-api"}), \
+                patch.object(orch, "tmux_out", side_effect=enter_lost), view("CHANGES_REQUESTED"):
+            watch.outgoing(own, "me", False, self.logs.append)
+        self.assertIn("requested changes", self.composer)      # typed, its Enter lost
+        self.assertTrue(record.read_state(directory).get("decision_typed"))
+        self.assertEqual(self.sent, [])
+        with patch.object(watch, "own_prs", return_value={PR: "fix-api"}), view("APPROVED"):
+            watch.outgoing(own, "me", False, self.logs.append)      # its Enter, pressed first
+            self.assertEqual((self.composer, own["own"][PR]["decision"]), ("", None))
+            watch.outgoing(own, "me", False, self.logs.append)      # the next tick reads it sent
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("requested changes", self.sent[0])
+        self.assertNotIn("decision_typed", record.read_state(directory))
+        self.assertEqual(own["own"][PR]["decision"], "APPROVED")
+
     def test_a_merged_line_left_in_the_composer_is_sent_and_holds_no_later_ending_back(self):
         directory, state = self.result("run-m", merged=True, pr=PR, no_merge=False)
         line = run.handback_line(state, directory, self.cfg)

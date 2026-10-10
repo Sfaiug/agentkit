@@ -5630,8 +5630,29 @@ def outgoing(state, me, dry_run, log):
             if say(dry_run, log, f"{label}: the maintainer requested changes", url, session):
                 own["decision"] = "CHANGES_REQUESTED"
         elif view.get("reviewDecision") and own.get("decision") != view.get("reviewDecision"):
-            own["decision"] = view.get("reviewDecision")
-            own["decision_at"] = time.time()
+            # the line an earlier decision left unsent in the seat's composer gets its Enter
+            # first, or the next tick comes back here (`sent_pending`)
+            from . import run
+            run_dir, run_state = run.run_for_pr(url)
+            if dry_run or sent_pending(run_dir, run_state, log):
+                own["decision"] = view.get("reviewDecision")
+                own["decision_at"] = time.time()
+
+
+def sent_pending(run_dir, run_state, log):
+    """Whether no line ak typed about that run's PR is left unsent in its seat's composer: the
+    Enter of one typed and never seen sent (`decision_typed`, the receipt `type_at_prompt`
+    hands back) is pressed first (`run.finish_typed`) and the mark comes off the run; left
+    there, it would hold every later line back as the owner's draft."""
+    from . import run   # here, not at the top: run imports this module
+    held = (run_state or {}).get("decision_typed")
+    if not held:
+        return True
+    if not run.finish_typed(run.launched_session(run_state), held, log):
+        return False
+    if run_dir:
+        run.mark_delivery(run_dir, run_state, decision_typed=None)
+    return True
 
 
 def say(dry_run, log, text, url, session, merged=False):
@@ -5670,10 +5691,7 @@ def say(dry_run, log, text, url, session, merged=False):
     def finished():
         # an earlier decision's line left unsent in the composer would hold this one, and
         # every later line, back as the owner's draft: it is sent first
-        done = not held or run.finish_typed(run.launched_session(run_state), held, log)
-        if done and held:
-            kept(None)
-        return done
+        return sent_pending(run_dir, run_state, log)
 
     if merged and (not run_dir or run.routine_ending(run_state)):
         return finished()
