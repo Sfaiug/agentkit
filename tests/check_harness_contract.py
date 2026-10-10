@@ -93,13 +93,16 @@ def refused(cfg, model, code, out, snapshot):
 
 
 @contextmanager
-def planted(harness):
+def planted(harness, host_home):
     """A word planted, for the turn, in each file the harness reads on its own and cannot be
-    told not to (`[instructions] unswitched`): a worker's box keeps the caller's home out, so
-    the turn must never say it.  A file already there is the owner's and is left alone; the
+    told not to (`[instructions] unswitched`): a worker's box hides each from its turn, so the
+    turn must never say it.  Only in smoke.sh's sandbox HOME, never the caller's own, where
+    every other turn and seat would read it too; a file already there is left alone, and the
     planted ones go when the turn is over."""
     word = f"nonce-{os.urandom(4).hex()}"
-    mine = [path for path in config.unswitched_files(harness) if not os.path.lexists(path)]
+    sandbox = Path(host_home).resolve() != Path.home().resolve()
+    mine = [path for path in config.unswitched_files(harness)
+            if sandbox and not os.path.lexists(path)]
     try:
         for path in mine:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,7 +165,8 @@ def check(cfg, root, snapshot, host_home, harness=None):
                     f"Run: {shlex.quote(str(REPO / 'bin/ak'))} hand-in done\nReply DONE.\n")
             report("CHECK", name, f"{block['model']} at {block['effort']}")
             # No build or review instructions: both turns ask only what this contract proves.
-            with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}), planted(name) as word:
+            with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}), \
+                    planted(name, host_home) as word:
                 code, final, sid, _, _ = worker.turn(mine, name, body, workspace, out,
                                                      role="executor-scratch")
                 refusal = refused(mine, name, code, out, snapshot)

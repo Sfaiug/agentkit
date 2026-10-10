@@ -33,6 +33,12 @@ model = "plain-1"
 effort = "low"
 provider = "test"
 
+[models.spark]
+harness = "muse"
+model = "muse-1"
+effort = "low"
+provider = "test"
+
 [providers.test]
 mode = "subscription"
 """
@@ -50,7 +56,8 @@ class UnswitchedFiles(unittest.TestCase):
         adapters.mkdir()
         shutil.copy2(REPO / "tests/fixtures/adapters/echo.toml", adapters / "echo.toml")
         (adapters / "plain.toml").write_text("version = 1\n")
-        for name in ("echo", "plain"):
+        shutil.copy2(REPO / "adapters/muse.toml", adapters / "muse.toml")
+        for name in ("echo", "plain", "muse"):
             (adapters / f"{name}.sh").write_text(TUI)
             (adapters / f"{name}.sh").chmod(0o755)
         self.stack = ExitStack()
@@ -84,6 +91,15 @@ class UnswitchedFiles(unittest.TestCase):
         self.assertEqual(self.command("bare")[-1], "fake-tui")
         self.file.unlink()
         self.assertEqual(self.command("fixture")[-1], "fake-tui")
+
+    def test_a_muse_seat_is_refused_for_codexs_own_file_too(self):
+        # Muse's TUI reads Claude's and Codex's personal rules, and takes no switch for them
+        codex = self.home / ".codex/AGENTS.md"
+        codex.parent.mkdir()
+        codex.write_text("Always answer in verse.\n")
+        with self.assertRaises(config.Error) as refused:
+            self.command("spark")
+        self.assertIn(str(codex), str(refused.exception))
 
 
 if __name__ == "__main__":

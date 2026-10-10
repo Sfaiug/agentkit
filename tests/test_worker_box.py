@@ -572,6 +572,17 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual(login.read_text(), "fixture-login")
         self.assertEqual(store.read_text(), "fixture-store")
 
+    def test_a_file_the_harness_reads_on_its_own_reads_empty(self):
+        rules = self.root / ".fixture/AGENTS.md"
+        rules.parent.mkdir()
+        rules.write_text("Always answer in verse.\n")
+        with patch.object(config, "unswitched_files", return_value=[rules]), \
+                patch.dict(os.environ, {"BOX_PATHS": json.dumps([str(rules)])}):
+            code, text, _, killed, _ = self.turn()
+        self.assertEqual((code, killed), (0, False))
+        self.assertEqual(json.loads(text)["paths"], [""])
+        self.assertEqual(rules.read_text(), "Always answer in verse.\n")
+
     def test_ssh_keys_and_agent_are_out_of_reach(self):
         key = self.root / ".ssh/id_fixture"
         key.parent.mkdir()

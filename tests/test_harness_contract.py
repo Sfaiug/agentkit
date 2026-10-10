@@ -123,21 +123,35 @@ esac
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("FAIL  3 echo: resume", result.stdout)
 
+    def leaky(self):
+        # an echo that says what its manifest's unswitched file holds, as no box stops it here
+        fixture = (REPO / "tests/fixtures/adapters/echo.sh").read_text()
+        leak = 'cat -- "$HOME/.echo/AGENTS.md" >>"$out/final.md" 2>/dev/null\n    exit 0\n'
+        self.adapter("echo", fixture.replace("    exit 0\n", "    " + leak, 1))
+
     def test_a_word_planted_where_the_harness_reads_on_its_own_never_comes_back(self):
-        # the manifest's unswitched file gets a word for the turn and is gone afterwards
+        # smoke.sh's HOME is a sandbox apart from the caller's: the planted file goes after
+        self.env["SMOKE_CALLER_HOME"] = str(self.root / "caller")
         self.adapter("echo")
         result = self.gate()
         self.assertIn("PASS  3 echo:", result.stdout)
         self.assertFalse((self.home / ".echo/AGENTS.md").exists())
 
     def test_a_turn_that_says_the_planted_word_fails(self):
-        fixture = (REPO / "tests/fixtures/adapters/echo.sh").read_text()
-        leak = 'cat -- "$HOME/.echo/AGENTS.md" >>"$out/final.md" 2>/dev/null\n    exit 0\n'
-        self.adapter("echo", fixture.replace("    exit 0\n", "    " + leak, 1))
+        self.env["SMOKE_CALLER_HOME"] = str(self.root / "caller")
+        self.leaky()
         result = self.gate()
         self.assertIn("FAIL  3 echo: read a file of its own beside the prompt", result.stdout)
         self.assertIn(".echo/AGENTS.md", result.stdout)
         self.assertFalse((self.home / ".echo/AGENTS.md").exists())
+
+    def test_a_check_in_the_callers_own_home_plants_nothing(self):
+        # every other turn and seat of the caller's would read what it planted
+        del self.env["SMOKE_CALLER_HOME"]
+        self.leaky()
+        result = self.standalone("echo")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS  3 echo:", result.stdout)
 
     def test_standalone_drops_a_spent_window_after_its_reset(self):
         self.adapter("echo")

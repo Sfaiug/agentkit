@@ -2,12 +2,17 @@
 # who has the authority to say what that seat is doing.  Paired with adapters/antigravity.sh;
 # the format is the adapter contract in docs/guide.md, "Adding a harness".
 # Verified against agy 1.2.9; see tests/fixtures/README.md for the captures.
-# A worker turn or seat still loads GEMINI.md, AGENTS.md and rules/ of the workspace and of agy's global root: agy 1.2.13 has no switch for them.
+# A worker turn or seat still loads GEMINI.md, AGENTS.md and rules/ of the workspace, and the global rules/ folder in ~/.gemini/config: agy 1.2.13 has no switch for them.
 version = 1
 
 [check]
 model = "gemini-3.8-flash"
 effort = "low"
+
+# agy 1.2.13 has no switch for its global GEMINI.md and AGENTS.md, in ~/.gemini and ~/.gemini/config
+[instructions]
+unswitched = ["~/.gemini/GEMINI.md", "~/.gemini/AGENTS.md",
+              "~/.gemini/config/GEMINI.md", "~/.gemini/config/AGENTS.md"]
 
 [worker]
 state = ["~/.gemini/antigravity-cli", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT", "~/.gemini/config"]
