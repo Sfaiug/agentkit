@@ -7,6 +7,29 @@ from statistics import median
 
 from . import config, history, record, terminal
 
+# The parts of a merged change's hours, each second of its runs' phase rows in the first that
+# holds it: a model turn, else ak's own work (a check, or a merge step, which runs from the run's
+# place in its landing line), else a wait.
+PARTS = (("model", ("executor", "reviewer")), ("ak", ("done-when", "merge")),
+         ("waiting", tuple(f"{wait} wait" for wait in history.WAIT_COLUMNS)))
+
+
+def split_hours(run_id):
+    """A run's hours in each of `PARTS`, read from its phase rows so that no second is in two;
+    None for a run with none, one from before they were kept."""
+    rows = [row for row in history.phases(run_id) if row["ended_at"] is not None]
+    if not rows:
+        return None
+    edges = sorted({edge for row in rows for edge in (row["started_at"], row["ended_at"])})
+    hours = {part: 0.0 for part, _ in PARTS}
+    for start, end in zip(edges, edges[1:]):
+        held = {row["phase"] for row in rows if row["started_at"] <= start and end <= row["ended_at"]}
+        for part, names in PARTS:
+            if held.intersection(names):
+                hours[part] += (end - start) / 3600
+                break
+    return hours
+
 
 def compute(now=None):
     """Two weeks of ended work, newest first, and the installed ak's committed size.
@@ -27,14 +50,13 @@ def compute(now=None):
         return row.get("changed_lines") is not None or bool(
             (record.read_state(config.RUNS / row["run_id"]) or {}).get("merged"))
 
-    def column_hours(row, *columns):
-        return sum(row.get(column) or 0 for column in columns) / 3600
-
     def per_change(ended):
-        """The median hours a change merged this week spent in model turns, in ak's own work
-        (its checks and merges), waiting, and with its seat between its runs: every run of the
-        change that ended in the two weeks, grouped by `change`.  Each part is what its runs
-        recorded, never a remainder: a park on a provider is in none."""
+        """The median hours a change merged this week spent in model turns, in ak's own work,
+        waiting, and with its seat between its runs (the wall time from its first run's start to
+        its last run's end less its runs' time): every run of the change that ended in the two
+        weeks, grouped by `change`, each second in one part (`split_hours`); time in no part,
+        such as a park on a spent quota window, is in none, and a change with a run from before
+        the phase rows were kept is not recorded."""
         by_change = {}
         for row in rows:
             if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]:
@@ -43,17 +65,13 @@ def compute(now=None):
         splits = []
         for key in merged:
             runs = by_change.get(key) or []
-            if not runs:
+            parts = [split_hours(row["run_id"]) for row in runs]
+            if not runs or None in parts:
                 continue
             wall = (max(row["finished_at"] for row in runs) - min(row["started_at"] for row in runs)) / 3600
             going = sum((row["finished_at"] - row["started_at"]) / 3600 for row in runs)
-            # The lander's waits are inside the line's, as the waits row reads them.
-            splits.append({
-                "model": sum(column_hours(row, "executor_seconds", "reviewer_seconds") for row in runs),
-                "ak": sum(column_hours(row, "done_when_seconds", "merge_seconds") for row in runs),
-                "waiting": sum(column_hours(row, "slot_wait_seconds", "suite_wait_seconds",
-                                            "merge_wait_seconds") for row in runs),
-                "seat": max(0.0, wall - going)})
+            splits.append({**{part: sum(hours[part] for hours in parts) for part, _ in PARTS},
+                           "seat": max(0.0, wall - going)})
         if not splits:
             return None
         return {part: median(split[part] for split in splits) for part in ("model", "ak", "waiting", "seat")}
