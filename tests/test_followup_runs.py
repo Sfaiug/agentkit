@@ -726,13 +726,14 @@ class FollowupEvidence(unittest.TestCase):
     review = proof.ProofWeighed.review
     assert_restored = proof.ProofWeighed.assert_restored
 
-    def followup(self, command=None, before=None, site="api.py:2"):
-        return proof.finding(site, "old defect", command or self.fails, kind="follow-up",
+    def followup(self, command=None, before=None, site="api.py:2", what="old defect"):
+        return proof.finding(site, what, command or self.fails, kind="follow-up",
                              before=before if before is not None else f"base {self.base}")
 
     def test_followup_only_reviews_replay_the_proof_and_accept_real_base_commits_or_quotes(self):
-        self.assertEqual(self.review(*(self.followup(before=before) for before in
-                                     (self.base, f"base {self.base[:7]}: old defect", "old_bug = True"))),
+        # three defects, one per form of --before: one defect handed in thrice is kept once
+        self.assertEqual(self.review(*(self.followup(before=before, what=f"old defect {n}") for n, before in
+                                     enumerate((self.base, f"base {self.base[:7]}: old defect", "old_bug = True")))),
                          "PASS")
         self.assertEqual(len(self.lp.state["followups"]), 3)
         self.assertEqual(self.lp.state["notes"], [])
@@ -751,7 +752,8 @@ class FollowupEvidence(unittest.TestCase):
         self.lp.state["base_sha"] = self.base
         run.git(self.wt, "checkout", "-q", "ak/fix-api")
         before = (ancestor, f"base {ancestor[:7]}: old defect", "old-base")
-        self.assertEqual(self.review(*(self.followup(before=text) for text in before),
+        self.assertEqual(self.review(*(self.followup(before=text, what=f"old defect {n}")
+                                       for n, text in enumerate(before)),
                                      self.followup(before=self.head)), "PASS")
         self.assertEqual(len(self.lp.state["followups"]), len(before))
         for text in self.lp.state["followups"]:
