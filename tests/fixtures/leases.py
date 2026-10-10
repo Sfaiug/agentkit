@@ -1,7 +1,8 @@
 """The stage the lease tests play on: a repository with one checkout per live run.
 
 A throwaway HOME, a real repository, runs cut from its base with a worktree and a record
-each (`run_on`), and edits to a checkout, committed or not (`edit`).  A run is past its
+each (`run_on`, with a session record where it names a seat), a colliding pair of them
+(`collide`), and edits to a checkout, committed or not (`edit`).  A run is past its
 executor turn unless told otherwise, so the scan only writes it down; `step="executor"`
 with `rounds=0` is one still building.  Offline.
 """
@@ -15,6 +16,8 @@ import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[2]
+OLDER, YOUNGER = "20260101-0900-older", "20260101-1000-younger"
+TASK = "---\nrepo: acme\n---\n# Change line 5\n\nChange it.\n\n## Done when\n```bash\ntrue\n```\n"
 from agentkit import config, orch  # noqa: E402  - the suite puts the checkout on the path
 from agentkit import record  # noqa: E402
 
@@ -65,7 +68,20 @@ class LiveRuns(unittest.TestCase):
             "started_at": started, "artifacts": list(artifacts), "step": step,
             "round_summaries": [{"round": n, "verdict": "FAIL"} for n in range(1, rounds + 1)],
             "launched_session": session})
+        if session and session not in config.session_records():
+            config.save_session(config.load(), session, "opus", ["opus"], {"cwd": str(self.root)})
         return worktree
+
+    def collide(self, step="executor", rounds=0, session=None):
+        """An older run that changed line 5, and a younger one changing it too, uncommitted."""
+        older = self.run_on(OLDER, 900, step="executor", rounds=0)
+        younger = self.run_on(YOUNGER, 1000, step=step, rounds=rounds, session=session)
+        self.edit(older, "api.py", 5, "older's line 5", commit=True)
+        self.edit(younger, "api.py", 5, "younger's line 5")
+        return older, younger
+
+    def state(self, name):
+        return record.read_state(config.RUNS / name)
 
     def edit(self, worktree, path, line, text, commit=False):
         lines = (worktree / path).read_text().splitlines()

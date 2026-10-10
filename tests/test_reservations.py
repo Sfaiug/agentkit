@@ -71,7 +71,8 @@ class Reservations(LiveRuns):
         self.assertTrue(self.git(self.repo, "rev-parse", "--verify", "-q", f"refs/heads/ak/{YOUNGER}"))
         self.assertEqual(self.git(younger, "status", "--porcelain"), "M api.py")   # its edit, kept
         self.assertEqual(self.state(OLDER)["state"], "running")
-        self.assertIn("the younger is stopped, its branch kept, waiting on the older", self.logs[-1])
+        self.assertIn("the younger is stopped, its branch kept, to start again once the older has landed "
+                      "or is over", self.logs[-1])
         # a stopped run holds no diff: the next scan clears the record, and stops nothing again
         self.assertEqual(leases.scan(self.repo, self.logs.append, now=2300), {})
         self.assertEqual(self.state(YOUNGER)["finished_at"], state["finished_at"])

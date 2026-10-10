@@ -10,7 +10,10 @@ one with its neighbour.  A pair that cannot merge is written down on the younger
 by start, as waiting on the older (wait-die: the older never waits on the younger, so no
 cycle can form).  A younger run still before its review -- its executor turn, or ak's
 commit step, which runs this scan itself -- is stopped there with its branch kept, waiting
-on the holder (`park`): what it built cannot land as it is.  A younger run past that point,
+on the holder (`park`): what it built cannot land as it is.  Once the holder has landed or is
+over, the tick starts its task again on the newest base (`restart`); until then the stopped
+run is `parked`: going, so its seat is working and a wait on it follows the restart, and
+stoppable, so its owner's stop or its seat's close calls the restart off.  A younger run past that point,
 the review of a pull request, a job's task, a red target's repair and a suite's split are
 only written down: the lander orders their landings.  The record under
 `~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
@@ -24,6 +27,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import tempfile
 import time
 
@@ -85,7 +90,7 @@ def live(repo):
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
         if (not state or state.get("no_merge") or not state.get("base_sha")
-                or not run.going(state) or not same_repo(state.get("repo"), repo)):
+                or not run.going(state) or state.get("lease_wait") or not same_repo(state.get("repo"), repo)):
             continue
         worktree = Path(state.get("worktree") or "")
         if (not state.get("worktree") or not worktree.is_dir()
@@ -109,9 +114,16 @@ def before_review(state):
             and state.get("step") in (None, "executor", "done-when"))
 
 
+def parked(state):
+    """Whether that run is stopped waiting on an older run's change (`park`) and its task is
+    not started again yet (`restart`)."""
+    return (state.get("state") == "stopped" and isinstance(state.get("lease_wait"), dict)
+            and not state.get("lease_restarted"))
+
+
 def park(entry, holder, files, now):
     """Stop that run before its review, its branch and checkout kept, waiting on the holder:
-    the record says what it waits on (`lease_wait`).  Decided on the
+    the record says what it waits on (`lease_wait`), for `restart` to read.  Decided on the
     record read under the stop's lock, as the scan takes a while: the state as stopped, or
     None where the run had ended or reached its review meanwhile."""
     from . import stop
@@ -284,8 +296,9 @@ def scan(repo, log=lambda _: None, now=None):
     for at, younger in enumerate(runs):
         for older in runs[:at]:
             files = collide(repo, older, younger, trees)
-            if not files or not run.going(run_record.read_state(config.RUNS / older["run"]) or {}):
-                continue
+            holder = run_record.read_state(config.RUNS / older["run"]) or {}
+            if not files or not run.going(holder) or parked(holder):
+                continue        # one this scan parked, or that ended, holds no diff
             kept = before.get(younger["run"]) or {}
             since = kept.get("since") if kept.get("waits_on") == older["run"] else None
             waits[younger["run"]] = {"waits_on": older["run"], "files": files,
@@ -293,8 +306,8 @@ def scan(repo, log=lambda _: None, now=None):
             stopped = park(younger, older["run"], files, now)
             log(f"collision: {younger['run']} and {older['run']} change the same lines of "
                 f"{', '.join(files)}; the younger "
-                + ("is stopped, its branch kept, waiting on the older" if stopped
-                   else "is only written down"))
+                + ("is stopped, its branch kept, to start again once the older has landed "
+                   "or is over" if stopped else "is only written down"))
             break
     if waits or before:
         write(repo, waits)
@@ -323,3 +336,67 @@ def scan_safely(repo, log=lambda _: None, now=None):
         scan(repo, log, now)
     except (config.Error, OSError) as exc:
         log(f"WARN lease scan of {repo} did not finish: {exc}")
+
+
+# what a fix run's receipt carries that its gates read: it rides into its restart
+CARRIED = ("followup", "base_proof")
+
+
+def task_naming(path, repo):
+    """The task as written, its front matter naming `repo`, absolute: started again by the
+    tick, a task naming none, or a relative one, would be resolved in the tick's directory."""
+    text = path.read_text(encoding="utf-8")
+    front = re.match(r"\A---\n(.*?)\n---\n", text, re.S)
+    lines = [line for line in (front.group(1).splitlines() if front else [])
+             if not line.startswith("repo:")]
+    return ("---\n" + "\n".join([*lines, f"repo: {repo}"]) + "\n---\n"
+            + (text[front.end():] if front else text))
+
+
+def restart(log=print, now=None):
+    """The tick's pass: a run stopped waiting on a holder (`park`) is started again once the
+    holder has landed or is over (stopped or failed: its diff no longer counts) -- its task
+    naming its repository (`task_naming`), with its regression script and a fix run's receipt
+    (`CARRIED`), a new run of its seat (`run.launch_for_seat`).  The stopped run names the
+    new one first, under the lock a stop and a seat's close take, so a stop before it calls it
+    off, a closed seat gets none, and none starts twice whatever the launch did."""
+    from . import run, watch
+    for run_dir in run_record.run_dirs():
+        state = run_record.read_state(run_dir)
+        if not state or not parked(state) or not isinstance(state["lease_wait"].get("on"), str):
+            continue
+        wait = state["lease_wait"]
+        holder_dir = config.RUNS / wait["on"]
+        holder = run_record.read_state(holder_dir) if holder_dir.is_dir() else None
+        if holder and run.going(holder, now=now):
+            continue
+        why = f"{wait['on']} {'has landed' if holder and holder.get('merged') else 'is over'}"
+        directory = run.free_run_dir(run_dir.name.split("-", 2)[-1])
+        session = run.launched_session(state)
+        with watch.state_lock(), run_record.recovery_lock(run_dir):
+            state = run_record.read_state(run_dir) or {}
+            if not parked(state) or (session and watch.seat_closed(session)):
+                continue
+            with run_record.record(run_dir) as current:
+                current["lease_restarted"] = directory.name
+        directory.mkdir(parents=True)
+        try:
+            (directory / "task.md").write_text(task_naming(run_dir / "task.md", state.get("repo")),
+                                               encoding="utf-8")
+            if (run_dir / run.REGRESSION).is_file():
+                (directory / run.REGRESSION).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(run_dir / run.REGRESSION, directory / run.REGRESSION)
+            (directory / "log.txt").touch()
+            run.logger(directory)(f"started again for {run_dir.name}: {why}; its earlier attempt "
+                                  f"is kept on branch {state.get('branch')}")
+            run.launch_for_seat(
+                directory, state,
+                {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo"),
+                 **{key: state[key] for key in CARRIED if key in state}},
+                opts={**{key: value for key, value in (state.get("launch_opts") or {}).items()
+                         if key != "--first"},
+                      **({"--first": True} if state.get("first") else {})},
+                task_file=state.get("task_file"))
+            log(f"{run_dir.name} started again as {directory.name}: {why}")
+        except (config.Error, OSError, run_record.StopRequested) as exc:
+            log(f"WARN {run_dir.name} could not start again as {directory.name}: {exc}")
