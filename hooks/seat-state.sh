@@ -138,21 +138,9 @@ sys.exit(0 if passive else 1)
     look "$seat"
     return 0
   fi
-  # A prompt that asks something -- a sentence ending in `?`, the mark followed by
-  # whitespace or the end so a URL's `?` is none, or a prompt opening on a question word,
-  # since a question is often typed without its mark -- is ended by its answer.  `when`
-  # and `do` open instructions as often as questions ("when it lands, merge it"), so they
-  # ask nothing.  The latch says whether the prompt that opened the turn asked.
-  asked=false
-  if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(test("\\?([[:space:]]|$)")
-                     or test("^[[:space:]]*(what|why|how|which|where|who|whose|is|are|does|should)\\b"; "i"))' \
-      <<<"$payload" >/dev/null 2>&1; then
-    asked=true
-  fi
   tmp="$dir/stop-$seat.json.tmp.$$"
-  "$jq" -n --arg session "$seat" --argjson turn "$ts" --argjson asked "$asked" \
-    '{session: $session, turn: $turn, blocks: 0, asked: $asked}' \
+  "$jq" -n --arg session "$seat" --argjson turn "$ts" \
+    '{session: $session, turn: $turn, blocks: 0}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question, once the background look checks its pane.

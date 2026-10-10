@@ -10,7 +10,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import config, orch, run, watch, worker, worktrees
+from . import config, leases, orch, run, watch, worker, worktrees
 from . import job as jobs
 from . import record as run_record
 
@@ -37,6 +37,17 @@ def _ending_work(name, records):
     return records, mine
 
 
+def owed(name):
+    """Whether the seat owes work: an open line in its plan (`plan.is_open`, as a done reads
+    it), or a plan nothing can read, which proves nothing done.  Read without the plan's lock:
+    a harness hook never waits on it, and every plan write is a whole-file replace."""
+    from . import plan
+    try:
+        return any(plan.is_open(line) for line in plan.lines(name))
+    except config.Error:
+        return True
+
+
 def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
                     since=None):
     """(the turn may end, parked records), from the evidence its caller can see.
@@ -56,12 +67,14 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
               and run.unfinished(state, records)]
     if parked:
         return False, parked
+    if not owed(name):
+        return True, []     # nothing is owed: no open line in the plan, so the stop stands
     if completion() if callable(completion) else completion:
         return True, []
     if supplied is None:
         _, mine = _ending_work(name, None)
     for _, state in mine:
-        if run.going(state):
+        if run.going(state) or watch.awaiting_live(state):
             return True, []
         if since is not None and state.get("state") not in ("error", "waiting"):
             for key in ("started_at", "queued_at"):
@@ -77,10 +90,12 @@ def stoppable(state):
     """Whether `ak run stop` takes this run: unfinished work, or an `error`.
 
     `error` reads ended but the tick retries it hourly: stopping one is its owner's off-switch
-    for the ladder, the way stopping a waiting run ends its wait.  Every other ending sits
-    inert, so there is nothing to stop.
+    for the ladder, the way stopping a waiting run ends its wait.  So is a run stopped to wait
+    on an older run's change (`leases.parked`): stopping it calls off the tick's restart.
+    Every other ending sits inert, so there is nothing to stop.
     """
-    return state.get("state") not in run_record.ENDED or state.get("state") == "error"
+    return (state.get("state") not in run_record.ENDED or state.get("state") == "error"
+            or leases.parked(state))
 
 
 def ways_out(state, run_dir):
@@ -162,7 +177,7 @@ def stop_owned_runs(name):
                 continue
         except config.Error:
             continue
-        if state.get("state") not in run_record.ENDED:
+        if state.get("state") not in run_record.ENDED or leases.parked(state):
             try:
                 cmd_stop([run_dir.name])
             except config.Error as exc:
@@ -230,56 +245,34 @@ def stop_line(run_id, branch, kept):
     return f"stopped {run_id}: branch {branch} kept; relaunch with from: {branch}"
 
 
-def cmd_stop(argv):
-    """End a run deliberately: its record first, then its loop and its checkout.
-
-    The record goes first -- `stopped`, committed under the lock -- so a scheduler
-    that notices its dead child finds the stop already there and aborts instead of
-    replacing it.  Then the loop and everything it started: its systemd scope where
-    one exists, else its process tree by the run's pid and its `AK_PARENT_RUN`
-    marker.  The run reads `stopped`, a final state that is never resumed, never
-    handed back and never cards anyone.  The worktree and the local branch go with
-    it unless `--keep` keeps them for a relaunch from the printed `from:` line.
-    """
-    keep = "--keep" in argv
-    args = [arg for arg in argv if arg != "--keep"]
-    if len(args) != 1 or Path(args[0]).name != args[0] or args[0] in (".", ".."):
-        raise config.Error("usage: ak run stop ID [--keep]")
-    run_id = args[0]
-    run_dir = config.RUNS / run_id
-    if not (run_dir / "run.json").exists():
-        raise config.Error(f"no such run: {run_id} (looked in {config.RUNS})")
-    state = run_record.read_state(run_dir)
-    if state is None:
-        raise config.Error(f"{run_id}: cannot read {run_dir / 'run.json'}")
-    config.check_stop_owner(state.get("launched_session") or state.get("session"))
-    if state.get("state") == "stopped":
-        print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
-        return 0
-    if not stoppable(state):
-        raise config.Error(f"{run_id} is already {state.get('state')}; "
-                           "only unfinished work can be stopped")
-    log = run.note_in(run_dir / "log.txt")
+def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=None):
+    """End that run: its record first (`stopped`, under the lock, `why` its error and `extra`
+    on it), then its loop and everything it started, then its checkout unless `keep`.  The
+    state as recorded; a run already stopped as it stands; None where the run had ended
+    already, or where `only_if` no longer holds of the record read under the lock, so there
+    was nothing to stop.  `owner_check` is the command's: only the seat a run belongs to stops
+    it by hand, while ak's own stops (`leases.park`) are anybody's."""
+    run_id = run_dir.name
+    log = log or run.note_in(run_dir / "log.txt")
     with run_record.recovery_lock(run_dir):
-        current = run_record.read_state(run_dir) or state
-        config.check_stop_owner(current.get("launched_session") or current.get("session"))
-        if current.get("state") == "stopped":
-            print(stop_line(run_id, current.get("branch"),
-                            current.get("stop_kept", False)))
-            return 0
-        if not stoppable(current):
-            raise config.Error(f"{run_id} is already {current.get('state')}; "
-                               "only unfinished work can be stopped")
+        current = run_record.read_state(run_dir) or {}
+        if owner_check:
+            config.check_stop_owner(current.get("launched_session") or current.get("session"))
+        if current.get("state") == "stopped" and not stoppable(current):
+            return current
+        if not stoppable(current) or (only_if and not only_if(current)):
+            return None
         kept = bool(keep or not worktrees.checkout_removable(current))
         current.update(state="stopped", verdict="STOPPED", finished_at=time.time(),
-                       error="stopped by the user", reported=True, stop_kept=kept)
+                       error=why, reported=True, stop_kept=kept)
         for key in ("recovery_pending", "recovery_notified", "recovery_acknowledged_at",
-                    "handback_pending", "handback_wait_reason", "handback_note",
+                    "lease_wait", "handback_pending", "handback_wait_reason", "handback_note",
                     "notification_pending", "pending_inbox", "quota_dry", "refusal_retry",
                     "waiting_for", "login_resume_at", "login_back_at", "stall_resume_at",
                     "resume_after", "error_retry_at", "error_retries", "waiting_on",
                     "waiting_resume_at", "slot_waiting", "launch_pending", "resume_from"):
             current.pop(key, None)
+        current.update(extra or {})
         run_record.save_state(run_dir, current)
         run.history_finish(current, log)
         try:
@@ -295,7 +288,12 @@ def cmd_stop(argv):
     # so a scope that refused to stop still loses its processes, and a plain start loses
     # nothing by the scope attempt missing.  The record already says stopped, so whatever
     # notices the dead children aborts instead of replacing them.
-    if orch.user_manager():
+    pid = state.get("pid")
+    if orch.user_manager() and pid == os.getpid():
+        # this process is the run's loop, parking itself at its commit step (`leases.park`):
+        # a waited stop of its own unit would end it here, before its save raises the stop
+        orch.stop_scope(f"agentkit-run-{run_id}", log, wait=False)
+    elif orch.user_manager():
         unit = f"agentkit-run-{run_id}"
         for suffix in (".scope", ".service"):
             try:
@@ -304,7 +302,6 @@ def cmd_stop(argv):
                                env=orch.bus_env(), timeout=orch.SLICE_WAIT)
             except (OSError, subprocess.SubprocessError):
                 pass
-    pid = state.get("pid")
     # Only a run of its own is ended by its tree: a task whose pid is still its live
     # scheduler's is ended by its marker below, and a task resumed by hand -- a new
     # pid under an old stamp -- is ended by its tree like any run of its own.
@@ -338,5 +335,42 @@ def cmd_stop(argv):
     except (OSError, ValueError, TypeError):
         pass
     log(f"stopped {run_id}")
+    return state
+
+
+def cmd_stop(argv):
+    """End a run deliberately: its record first, then its loop and its checkout.
+
+    The record goes first -- `stopped`, committed under the lock -- so a scheduler
+    that notices its dead child finds the stop already there and aborts instead of
+    replacing it.  Then the loop and everything it started: its systemd scope where
+    one exists, else its process tree by the run's pid and its `AK_PARENT_RUN`
+    marker.  The run reads `stopped`, a final state that is never resumed, never
+    handed back and never cards anyone.  The worktree and the local branch go with
+    it unless `--keep` keeps them for a relaunch from the printed `from:` line.
+    """
+    keep = "--keep" in argv
+    args = [arg for arg in argv if arg != "--keep"]
+    if len(args) != 1 or Path(args[0]).name != args[0] or args[0] in (".", ".."):
+        raise config.Error("usage: ak run stop ID [--keep]")
+    run_id = args[0]
+    run_dir = config.RUNS / run_id
+    if not (run_dir / "run.json").exists():
+        raise config.Error(f"no such run: {run_id} (looked in {config.RUNS})")
+    state = run_record.read_state(run_dir)
+    if state is None:
+        raise config.Error(f"{run_id}: cannot read {run_dir / 'run.json'}")
+    config.check_stop_owner(state.get("launched_session") or state.get("session"))
+    if state.get("state") == "stopped" and not stoppable(state):
+        print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
+        return 0
+    if not stoppable(state):
+        raise config.Error(f"{run_id} is already {state.get('state')}; "
+                           "only unfinished work can be stopped")
+    log = run.note_in(run_dir / "log.txt")
+    state = end(run_dir, keep=keep, why="stopped by the user", log=log, owner_check=True)
+    if state is None:
+        raise config.Error(f"{run_id} is already {(run_record.read_state(run_dir) or {}).get('state')}; "
+                           "only unfinished work can be stopped")
     print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
     return 0

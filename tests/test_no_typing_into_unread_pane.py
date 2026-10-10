@@ -121,6 +121,7 @@ class UnreadPane(Seats):
                 self.assertIsNone(watch.seat_read(SEAT).get("midturn"))
 
     def test_stop_nudges_finish_the_line_that_began_before_the_terminal_froze(self):
+        config.plan_path(SEAT).write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")        # the seat owes work: the nudge is due
         for harness, model in (("antigravity", "gemini"), ("muse", "spark"),
                                ("opencode", "mimo")):
             with self.subTest(harness=harness):

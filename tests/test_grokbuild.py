@@ -793,6 +793,7 @@ class StopHook(GrokSandbox):
     def stop(self, message):
         (self.state / "stop-atoll.json").write_text(json.dumps(
             {"session": "atoll", "turn": time.time(), "blocks": 0}))
+        (self.state / "plan-atoll.md").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")     # the seat owes work
         fact = json.loads((FIX / "grok-hook-stop.json").read_text())
         fact["lastAssistantMessage"] = message
         proc = subprocess.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")],

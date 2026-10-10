@@ -123,9 +123,9 @@ class HealthAfterMerge(unittest.TestCase):
         st = record.read_state(directory)
         self.assertEqual((st["live_at"], st["finished_at"]), (NOW, NOW - 600))
         self.assertEqual(history.get("run-a")["live_at"], NOW)
-        self.assertEqual(self.lines, [(SEAT, f"run run-a is live: {PR}.")])
+        self.assertEqual(self.lines, [])        # the seat owes nothing: recorded, never typed
         self.tick(now=NOW + 60)
-        self.assertEqual((self.probes.call_count, len(self.lines)), (1, 1))
+        self.assertEqual((self.probes.call_count, len(self.lines)), (1, 0))
         self.assertEqual(record.read_state(directory)["live_at"], NOW)
 
     def notified(self, when, **extra):
@@ -133,27 +133,19 @@ class HealthAfterMerge(unittest.TestCase):
             {"session": SEAT, "kind": "done", "text": "Shipped the parser", "time": when,
              **extra}) + "\n")
 
-    def test_a_seat_that_declared_done_after_the_run_finished_is_not_told(self):
-        """A live line would open a turn the seat could end only by declaring done again, on
-        every harness: its done holds only for the turn it ended."""
-        directory = self.merged(self.declare("exit 0"))
-        self.notified(NOW - 300)          # after the run finished at NOW - 600
-        self.tick()
-        st = record.read_state(directory)
-        self.assertEqual((st["live_at"], st["live_notified"]), (NOW, NOW))
-        self.assertEqual(history.get("run-a")["live_at"], NOW)
-        self.assertEqual(self.lines, [])
-        self.tick(now=NOW + 60)
-        self.assertEqual(self.lines, [])
-
-    def test_a_seat_whose_done_came_before_the_run_finished_or_was_dropped_is_told(self):
-        for when, extra in ((NOW - 900, {}), (NOW - 300, {"seen": True})):
+    def test_a_live_change_is_recorded_on_the_run_and_the_seat_is_never_told(self):
+        """Whatever the seat's last notice: a change being live is nothing of its to decide."""
+        for when, extra in ((NOW - 300, {}), (NOW - 900, {}), (NOW - 300, {"seen": True})):
             with self.subTest(when=when, **extra):
                 self.setUp()
-                self.merged(self.declare("exit 0"))
+                directory = self.merged(self.declare("exit 0"))
                 self.notified(when, **extra)
                 self.tick()
-                self.assertEqual(self.lines, [(SEAT, f"run run-a is live: {PR}.")])
+                self.assertEqual(record.read_state(directory)["live_at"], NOW)
+                self.assertEqual(history.get("run-a")["live_at"], NOW)
+                self.assertEqual(self.lines, [])
+                self.tick(now=NOW + 60)
+                self.assertEqual(self.lines, [])
 
     def test_remote_merge_declaration_is_read_without_fetching_or_changing_the_checkout(self):
         sha = self.remote_merge("echo \"$AK_MERGE_SHA\" > live-proof")
@@ -169,7 +161,7 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual((self.repo / "live-proof").read_text().strip(), sha)
         self.assertEqual(record.read_state(directory)["live_at"], NOW)
         self.assertEqual(history.get("run-a")["live_at"], NOW)
-        self.assertEqual(self.lines, [(SEAT, f"run run-a is live: {PR}.")])
+        self.assertEqual(self.lines, [])        # the seat owes nothing: recorded, never typed
         self.assertEqual(self.git("rev-parse", "HEAD"), head)
         self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
         self.assertIn(f"repos/acme/widget/contents/AGENTS.md?ref={sha}", self.api.call_args.args)
@@ -232,7 +224,7 @@ class HealthAfterMerge(unittest.TestCase):
         (self.repo / "deployed").touch()
         self.tick(now=NOW + 120)
         self.assertEqual(record.read_state(directory)["live_at"], NOW + 120)
-        self.assertEqual(len(self.lines), 1)
+        self.assertEqual(self.lines, [])
         self.tick(now=NOW + 180)
         self.assertEqual(self.probes.call_count, 3)
 
@@ -243,7 +235,7 @@ class HealthAfterMerge(unittest.TestCase):
         self.rows.append({"name": "fix-ui", "created": 200, "exited": False})
         self.tick()
         self.assertEqual(self.probes.call_count, 1)
-        self.assertEqual([seat for seat, _ in self.lines], [SEAT, "fix-ui"])
+        self.assertEqual(self.lines, [])
         for directory in (first, second):
             self.assertEqual(record.read_state(directory)["live_at"], NOW)
             self.assertEqual(history.get(directory.name)["live_at"], NOW)
@@ -286,6 +278,7 @@ class HealthAfterMerge(unittest.TestCase):
     def test_live_notice_retries_its_composer_after_the_window_without_a_new_probe(self):
         sha = self.declare("exit 0")
         directory = self.merged(sha)
+        config.plan_path(SEAT).write_text("- [ ] the parser parses\n")   # its turn waits on it
         calls = []
         mark = {"line": "live notice", "seat": 100}
 
@@ -320,12 +313,16 @@ class HealthAfterMerge(unittest.TestCase):
         sha = self.declare(None)
         directory = self.merged(sha)
         (self.repo / "AGENTS.md").write_text("---\nhealth: exit 0\n---\n")
-        self.tick()
-        self.probes.assert_not_called()
-        self.assertEqual(self.lines, [])
-        self.assertNotIn("live_at", record.read_state(directory))
-        self.ci = ("failed", "release-gate", PR + "/checks")
-        self.tick()
+        with patch.object(run, "declared_at", wraps=run.declared_at) as read:
+            self.tick()
+            self.probes.assert_not_called()
+            self.assertEqual(self.lines, [])
+            self.assertNotIn("live_at", record.read_state(directory))
+            # what the merge commit declares is recorded, none included, and read once
+            self.assertEqual(record.read_state(directory)["health"], {})
+            self.ci = ("failed", "release-gate", PR + "/checks")
+            self.tick()
+        self.assertEqual(read.call_count, 1)
         self.assertEqual(self.lines, [(SEAT, watch.after_merge_line(
             "release-gate", "main", PR + "/checks"))])
 

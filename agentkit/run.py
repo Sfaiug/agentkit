@@ -3100,6 +3100,13 @@ def verify_work(lp, cmds=None):
         cmds = lp.every
     lp.step("done-when")
     if not lp.scratch and not lp.state.get("review_pr"):
+        if lp.state.get("repo"):
+            # ak's commit step runs the lease scan itself: a diff that cannot merge with an
+            # older live run's is parked here, before anything of it is reviewed, and the
+            # save below raises the stop the scan recorded (`leases.park`)
+            from . import leases
+            leases.scan_safely(Path(lp.state["repo"]), lp.log)
+            lp.save()
         commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
     checks = (files_scope(lp), rules_check(lp))
     lp.validation = {} if lp.scratch else commit_identity(lp.wt)
@@ -3346,11 +3353,12 @@ def followup_place(text):
 
 
 def followup_open(state):
-    """Whether this fix run is still on its way: running, about to, or resuming itself."""
+    """Whether this fix run is still on its way: running, about to, or resuming itself --
+    stopped to wait on an older run's change too, which the tick starts again (`leases.parked`)."""
     return (state.get("state") == "running"
             or (state.get("state") == "queued"
                 and (run_record.process_active(state) or state.get("slot_waiting")))
-            or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error")
+            or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error", "stopped")
                 and going(state))
             or (state.get("state") == "interrupted" and state.get("deaths")
                 and tick_resumes(state)))
@@ -3473,12 +3481,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                      else "Fix " + item.splitlines()[0])
             if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
                 title = title[:255] + "…"
-            name = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
-            directory = config.RUNS / name
-            number = 1
-            while directory.exists():
-                number += 1
-                directory = config.RUNS / f"{name}-{number}"
+            directory = free_run_dir(slugify(title))
             try:
                 directory.mkdir(parents=True)
                 check = shlex.quote(str(directory / REGRESSION))
@@ -3512,36 +3515,20 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                     (directory / REGRESSION.parent).mkdir()
                 (directory / "task.md").write_text(task)
                 (directory / "log.txt").touch()
-                # A fix run is a new launch: the session's lists now, the discovering
-                # run's only for a seat with no record of its own.  The record is checked
-                # against the config now: the discovering run's may predate a model it names.
-                try:
-                    lists = config.load_session(config.load(), session, required=False) or state
-                except config.Error:
-                    lists = state
-                receipt = {"followup": {"run": run_dir.name, "text": item,
-                                        "place": followup_place(item)},
-                           # a repair's only check is the target's own, run at landing: its
-                           # before is the lander's run of it on the target tip, where it did
-                           # not pass, and no round has a check of its own to replay on base
-                           **({"repair": key, "repair_tip": repair["sha"],
-                               "base_proof": "at landing"} if repair else {}),
-                           **({"split_suite": split["command"]} if split else {}),
-                           # a fix run is proven by its own regression.sh
-                           # (`regression_fails_before`), not by its checks on base
-                           **({} if repair or split else {"base_proof": "regression.sh"}),
-                           "launched_session": session, "repo": str(repo),
-                           **{role: list(lists[role]) for role in ("workers", "reviewers")
-                              if isinstance(lists.get(role), list) and lists[role]},
-                           **({"notify_sink": state["notify_sink"]}
-                              if state.get("notify_sink") else {})}
-                opts = {"--rounds": None, "--exec": None, "--review": None,
-                        "--review-pr": None, "--no-worktree": False, "--no-merge": False,
-                        "--bg": True, **({"--first": True} if request else {})}
                 if split:
                     gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
-                prepare(directory, opts, logger(directory), cfg, receipt=receipt)
-                spawn_bg(directory, [str(directory / "task.md")])
+                launch_for_seat(directory, state, {
+                    "followup": {"run": run_dir.name, "text": item, "place": followup_place(item)},
+                    # a repair's only check is the target's own, run at landing: its
+                    # before is the lander's run of it on the target tip, where it did
+                    # not pass, and no round has a check of its own to replay on base
+                    **({"repair": key, "repair_tip": repair["sha"],
+                        "base_proof": "at landing"} if repair else {}),
+                    **({"split_suite": split["command"]} if split else {}),
+                    # a fix run is proven by its own regression.sh
+                    # (`regression_fails_before`), not by its checks on base
+                    **({} if repair or split else {"base_proof": "regression.sh"}),
+                    "repo": str(repo)}, cfg, opts={"--first": True} if request else {})
             except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 return None if request else followups_handed(run_dir, state, handed)
@@ -3576,11 +3563,14 @@ def followups_handed(run_dir, state, handed):
     """Write the receipt that this ending's list is handed on: onto the record as it stands,
     so nothing written there meanwhile -- a stop, a delivery's mark -- is put back.  Read and
     written under `delivery_lock` too, taken inside the recovery lock as `reap` takes it: a
-    delivery's mark lands before the read or after the write, never between them."""
+    delivery's mark lands before the read or after the write, never between them.  Then into
+    the result, the one place that names them: a merge's ending, typed or only recorded
+    (`routine_ending`), does not."""
     state.update(handed)
     with run_record.recovery_lock(run_dir), delivery_lock(run_dir), \
             run_record.record(run_dir) as current:
         current.update(handed)
+    save_result(run_dir, notices=(followup_report(state),))
 
 
 def plan_followup(session, repo, item, check, proven, log):
@@ -5289,8 +5279,9 @@ def merge_body(lp, head, url=None):
 
 
 def merged(lp, url, method):
-    """Record the PR as merged; True, for the merge step to return."""
-    lp.state["merged"] = True
+    """Record the PR as merged, with what proving it live stands on; True, for the merge step
+    to return."""
+    lp.state.update(merged=True, **watch.merge_record(lp.wt, lp.state.get("delivery_sha")))
     lp.write()
     lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
     return True
@@ -7157,7 +7148,7 @@ def record_decision(run_dir, state, reason, merged=False):
     """
     state["merge_note"] = note = " ".join(reason.split())
     if merged:
-        state["merged"] = True
+        state.update(merged=True, **watch.merge_record(state.get("worktree"), state.get("delivery_sha")))
     run_record.save_state(run_dir, state)
     if merged:
         history_finish(state)
@@ -7634,7 +7625,6 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     line. Never type even the compact form unless that bound accepts it and its full notice
     and follow-ups have been saved in result.md, including for an older pending ending.
     """
-    from . import plan
     if not watch.too_long(line):
         return line
 
@@ -7648,18 +7638,9 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     where = shown(result)
     report = result.name
     parts = [brief, f"Result: {where}."]
-    entries = state.get("followup_plan") or []
-    count = len(state.get("followups") or entries)
+    count = len(state.get("followups") or [])
     if count:
         parts.append(f"{count} review follow-ups in full in {report}.")
-    planned = sum("refused" not in entry for entry in entries)
-    if planned:
-        parts.append(f"{planned} in your plan: {shown(plan.path(launched_session(state)))}.")
-    refused = len(entries) - planned
-    if refused:
-        parts.append(f"{refused} refused by your plan; reasons in {report}.")
-    if state.get("followup_runs"):
-        parts.append(f"{len(state['followup_runs'])} fix runs named in {report}.")
     parts.append(action)
     if line.endswith(watch.FRESH_NOTE):
         parts.append(watch.FRESH_NOTE.lstrip("; "))
@@ -7689,8 +7670,6 @@ def handback_line(state, run_dir, cfg=None):
     action = "Decide the next step."
     line = (f"run {run_dir.name} {ending}: "
             f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace} "
-            + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
-               if state.get("followup_runs") else "") + planned_followups(state)
             + action)
     spent = len(state.get("round_summaries") or [])
     if (state.get("state") == "fail" and (state.get("rounds") or 0) > 0
@@ -7908,16 +7887,62 @@ def announce_safely(state, run_dir, log, cfg=None):
         log(f"WARN the ending was not handed back: {exc}")
 
 
+ROUTINE_NOTE = "routine ending: recorded, not typed"
+
+
+def seat_owes_nothing(state):
+    """Whether the seat that launched the run owes no work (`stop.owed`): then no turn of its
+    waits on the run or on its change going live, and either is recorded, never typed.  A
+    seat that owes work may have ended its turn on that very wait (`stop.recorded_ending`),
+    so for it the ending, or the change going live (`watch.after_merge_health`), is the end
+    of the wait and goes to it like any other."""
+    session = launched_session(state)
+    return not (session and stop.owed(session))
+
+
+def routine_ending(state):
+    """An ending nothing is the seat's to decide about: a merge, or a `not needed`, while the
+    seat that launched it owes no work (`seat_owes_nothing`).  What it started (fix runs,
+    plan lines) is in its result and the seat's plan, and `ak run status` names it.  A red
+    target's repair's merge is routine whatever its seat owes: the runs parked on it retry by
+    themselves, and their own endings end the seat's wait -- its going live is not, as the
+    hook counts that wait."""
+    if not (state.get("merged") or state.get("state") == "not_needed"):
+        return False
+    return bool(state.get("repair")) or seat_owes_nothing(state)
+
+
+def finish_typed(session, mark, log, cfg=None):
+    """Whether nothing ak typed is left unsent in that seat's composer.
+
+    A routine ending types nothing, but a line an earlier pass typed and never saw sent
+    (`mark`, the receipt `watch.type_at_prompt` hands back) gets its Enter as that pass's
+    would: left there, it would hold every later line back as the owner's draft.  A seat
+    gone, down or reopened since holds no such line.
+    """
+    if not (isinstance(mark, dict) and mark.get("line")):
+        return True
+    with launcher_world(session) as live:
+        seat = orch.find(session) if live else None
+        if not (watch.after_merge_live(seat) and seat.get("created") == mark.get("seat")):
+            return True
+        return watch.type_at_prompt(seat, mark["line"], log, cfg=cfg, typed=mark)
+
+
 def announce(state, run_dir, log, cfg=None):
     """The one message a run sends when it ends: to its orchestrator, or about a gone one.
+
+    A routine ending (`routine_ending`) -- merged, or not needed, while its seat owes no work
+    -- is recorded and never typed: nothing in it is the seat's to decide, so the seat hears
+    only an ending that needs its decision, a fail, a blocked, a pass not merged, or the end
+    of a wait its turn may have ended on, and never a line opening a turn for news it can
+    read in `ak run status` and its plan.
 
     A run under an open seat is handed back to it -- one line into its composer saying how the
     run ended and that the next step is its own -- because the ending is the orchestrator's and
     never the owner's.  A run launched from no seat at all -- by hand, over ssh, from cron,
     from a test -- has nobody to hand back to and nobody to ping: its result is on the terminal
-    it was started from and in `ak run status`.  The repair a red target started belongs to
-    the seat whose run found it red, and tells it only what needs somebody: a merge or a
-    `not needed` is routine, and the runs parked on it retry by themselves.  Only an orphan
+    it was started from and in `ak run status`.  Only an orphan
     speaks to the owner, and first to its own seat: the seat is reopened on its saved
     conversation and told to continue, and the owner hears only when that fails -- or when
     there is no seat to reopen, one `ak orch stop` ended or one nothing is left of, which is
@@ -7949,8 +7974,27 @@ def announce(state, run_dir, log, cfg=None):
         return
     if state.get("state") not in run_record.ENDED:
         return
-    if not session or state.get("repair") and (state.get("merged")
-                                               or state.get("state") == "not_needed"):
+    if not session:
+        return
+    if routine_ending(state):
+        with delivery_lock(run_dir):
+            current = run_record.read_state(run_dir) or state
+            if not same_attempt(state, current):
+                log(f"run {run_dir.name} has moved on since this ending; nothing to record")
+                return
+            if not finish_typed(session, current.get("handback_typed"), log, cfg):
+                log(f"run {run_dir.name}'s line already in the {session} seat waits for its "
+                    "Enter; the tick sends it")
+                return
+            if not already_handed_back(current):
+                mark_delivery(run_dir, state, handed_back=time.time(), reported=True,
+                              handback_note=ROUTINE_NOTE, handback_pending=None,
+                              handback_typed=None, handback_wait_reason=None,
+                              notification_pending=None)
+        log(f"run {run_dir.name} ended {'merged' if state.get('merged') else 'not needed'}: "
+            "recorded, not typed")
+        # The seat reads result.md and its plan, never the checkout: the ending is history.
+        worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
         return
     with launcher_world(session) as live:
         if live:
@@ -8010,8 +8054,7 @@ def announce(state, run_dir, log, cfg=None):
     # is what this run says now, and the tick must not come back here every pass for it
     mark_delivery(run_dir, state, handback_pending=None, handback_wait_reason=None)
     task = state.get("title") or state.get("run_id") or run_dir.name
-    verdict = ("DONE" if state.get("state") == "not_needed" else
-               "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL")
+    verdict = "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL"
     why = ""
     # A pre-existing ending with a stuck card keeps its retry below, but never wakes its seat.
     if (not watch.seat_closed(session) and watch.orphan_fresh(state, session)
@@ -9114,10 +9157,14 @@ def going(state, now=None):
     an old stamp cannot keep a seat working after its retry stopped being allowed,
     and an exhausted run keeps one working only while the tick can resume it
     (`exhausted_wait`): one that waits on nobody is his, not going. Line members
-    stay going until the lander ends them.
+    stay going until the lander ends them, and a run stopped to wait on an older run's
+    change (`leases.park`) until the tick has started its task again.
     """
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
         return True  # the line is unfinished work, not an ending with timed recovery
+    from . import leases
+    if leases.parked(state):
+        return True
     if state.get("state") in ("error", "waiting") and not tick_admission(state, now=now):
         return False
     if state.get("state") == "exhausted":
@@ -9254,6 +9301,46 @@ def queued(run_dir):
         return False
 
 
+def free_run_dir(slug):
+    """The run directory this minute's stamp and `slug` name, `-2`, `-3` on where it is taken."""
+    name = f"{datetime.now():%Y%m%d-%H%M}-{slug}"
+    directory = config.RUNS / name
+    number = 1
+    while directory.exists():
+        number += 1
+        directory = config.RUNS / f"{name}-{number}"
+    return directory
+
+
+def seat_launch(state):
+    """Whether the tick launched that run for a seat (`launch_for_seat`): a fix run
+    (`followup`) or a task started again (`restarted`), whose receipt names the seat and its
+    lists, and which descends from nothing that launched it."""
+    return bool(state.get("followup") or state.get("restarted"))
+
+
+def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None):
+    """Launch the task.md in that new run directory as the tick does for a seat, the one `state`
+    was launched from: `origin` on its receipt says why (`seat_launch`), with the seat's lists
+    now, the given run's only for a seat with no record of its own -- checked against the
+    config now, as that run's may predate a model it names -- and `opts` over the defaults."""
+    session = launched_session(state)
+    try:
+        lists = (config.load_session(config.load(), session, required=False) if session
+                 else None) or state
+    except config.Error:
+        lists = state
+    receipt = {**origin, "launched_session": session,
+               **{role: list(lists[role]) for role in ("workers", "reviewers")
+                  if isinstance(lists.get(role), list) and lists[role]},
+               **({"notify_sink": state["notify_sink"]} if state.get("notify_sink") else {})}
+    opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
+            "--no-worktree": False, "--no-merge": False, **(opts or {}), "--bg": True}
+    prepare(directory, opts, logger(directory), report_config(cfg), task_file=task_file,
+            receipt=receipt)
+    spawn_bg(directory, [str(directory / "task.md")])
+
+
 def spawn_bg(run_dir, argv, expected=None, park_as=False):
     """Start `ak run <argv>` detached, from the record it reads under the recovery lock.
 
@@ -9266,13 +9353,17 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
     child = [sys.executable, str(config.REPO / "bin" / "ak"), "run"] + [a for a in argv if a != "--bg"]
     with gate.slot_lock(), run_record.recovery_lock(run_dir):
         previous = run_record.read_state(run_dir) or {}
-        if previous.get("followup"):
+        if seat_launch(previous):
             # These are siblings owned by the seat, not descendants for the ending's
             # process sweep to kill or tests sharing its admission slot.
             for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_SCOPE",
                         config.UNATTENDED_ENV, config.JOB_DIR_ENV, "AK_RUN_ROLE"):
                 env.pop(key, None)
-            env[config.SESSION_ENV] = launched_session(previous)
+            seat = launched_session(previous)
+            if seat:
+                env[config.SESSION_ENV] = seat
+            else:
+                env.pop(config.SESSION_ENV, None)
         if expected is not None and previous != expected:
             raise config.Error("the run changed while choosing recovery; select it again")
         if previous.get("state") == "stopped":
@@ -9411,12 +9502,14 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
     where the file lives is what files a scratch run's seat under a project (`run_project`).
     """
     receipt = (run_record.read_state(run_dir) or {}) if receipt is None else receipt
-    followup = receipt.get("followup")
-    session_at_launch = receipt["launched_session"] if followup else config.current_session()
-    workers = (receipt.get("workers") if followup else
+    # launched by the tick for a seat: the receipt says whose, and which lists, and no slot
+    # is reserved before the launch
+    bound = seat_launch(receipt)
+    session_at_launch = receipt["launched_session"] if bound else config.current_session()
+    workers = (receipt.get("workers") if bound else
                config.workers(cfg) if cfg is not None and session_at_launch else None)
-    if followup:
-        # A fix run keeps the lists start_followups bound when it wrote the receipt.
+    if bound:
+        # It keeps the lists launch_for_seat bound when it wrote the receipt.
         groups = {role: list(receipt[role]) for role in ("workers", "reviewers")
                   if isinstance(receipt.get(role), list) and receipt[role]}
     else:
@@ -9429,8 +9522,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         state = stamp_origin({**receipt, "run_id": run_dir.name, "state": "queued", "verdict": None,
                          "launched_session": session_at_launch, "started_at": time.time(),
                          "queued_at": time.time(), "slot_waiting": True,
-                         "run_depth": 0 if followup else run_depth(),
-                         "parent_run": None if followup else os.environ.get("AK_PARENT_RUN"),
+                         "run_depth": 0 if bound else run_depth(),
+                         "parent_run": None if bound else os.environ.get("AK_PARENT_RUN"),
                          "reservation_pending": True,
                          "unattended": not session_at_launch and config.unattended(),
                          **run_record.process_owner(), "launch_opts": opts or {},
@@ -9447,7 +9540,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
             state["task_file"] = str(task_file)
         if (opts or {}).get("--first"):
             state["first"] = True
-        if not followup:
+        if not bound:
             # A fix run waits for its slot from its first record on: whatever cuts its handoff
             # off before the launch, it is a slot wait, which the tick resumes.
             gate.reserve_slot(state, limit)
@@ -9808,7 +9901,9 @@ def cmd_merge(argv):
             if info.get("headRefOid") != head or info.get("baseRefName") != lp.target.removeprefix("origin/"):
                 note(lp, "PR head or target changed since PASS; a new run is required", failed=True)
             elif info.get("state") == "MERGED":
-                state["merged"] = True
+                # a delivery whose merge went through before its record did: what proving
+                # it live stands on is recorded here as on every merge path
+                state.update(merged=True, **watch.merge_record(lp.wt, head))
             elif info.get("state") != "OPEN":
                 note(lp, "PR is closed without a merge", failed=True)
         if not state.get("merged") and not state.get("merge_failed"):
@@ -10673,7 +10768,7 @@ def merge_own_pr(lp, url):
         ours = (remote["sha"] in expected
                 and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
         if current.get("merged") and ours:
-            lp.state["merged"] = True
+            lp.state.update(merged=True, **watch.merge_record(lp.wt, remote["sha"]))
             lp.write()
             return True
         if current.get("state") != "open" or not ours:

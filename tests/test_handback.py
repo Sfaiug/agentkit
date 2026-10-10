@@ -203,12 +203,11 @@ class HandBack(Sandbox):
     # --- the hand-back ------------------------------------------------------
 
     def test_handback_is_typed_into_a_seat_that_is_at_its_prompt(self):
-        directory = self.ended("run-1", owner=SEAT, merged=True,
-                               pr="https://github.com/o/r/pull/7")
+        directory = self.ended("run-1", owner=SEAT, no_merge=True)
         self.rows = [self.live()]
         run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [(SEAT, (
-            "run run-1 finished PASS merged: https://github.com/o/r/pull/7. "
+            "run run-1 finished PASS not merged: --no-merge. "
             f"Result: {directory / 'result.md'}. Decide the next step."))])
         self.assertEqual(self.cards, [])        # the owner is never the fallback
         self.assertEqual(self.reopened, [])     # nothing to reopen: somebody is in it
@@ -254,7 +253,9 @@ class HandBack(Sandbox):
 
     def test_an_ending_that_needs_a_decision_first_is_handed_back_before_merged_ones(self):
         """A seat takes one line at a quiet prompt: the failed run's ending, the newest here,
-        goes first, before two merged runs' endings waiting for the same seat (6 Oct)."""
+        goes first, before two merged runs' endings waiting for the same seat, which owes work
+        and so hears them (6 Oct)."""
+        config.plan_path(SEAT).write_text("- [ ] the parser parses\n")
         self.rows = [self.live()]
         self.screen = "working"
         endings = [self.ended(name, owner=SEAT, merged=True, pr="https://github.com/o/r/pull/7")
@@ -1401,8 +1402,8 @@ class HandBack(Sandbox):
                              side_effect=lambda s, d, log=None: settles.append(s["run_id"])):
             code = run.finish(state, directory, self.logs.append, self.cfg)
         self.assertEqual(code, 0)
-        self.assertEqual(len(self.typed), 1)   # the seat was told
-        self.assertIn("finished PASS", self.typed[0][1])
+        self.assertEqual(self.typed, [])       # the seat owes nothing: recorded, never typed
+        self.assertTrue(record.read_state(directory)["handed_back"])
         self.assertEqual(histories, ["run-ending"])
         self.assertEqual(settles, ["run-ending"])
         failures = [line for line in self.logs if "WARN could not" in line]
@@ -1431,7 +1432,8 @@ class HandBack(Sandbox):
             code = run.finish(record.read_state(directory), directory,
                               self.logs.append, self.cfg)
         self.assertEqual(code, 0)
-        self.assertEqual(len(self.typed), 1)
+        self.assertEqual(self.typed, [])       # the seat owes nothing: recorded, never typed
+        self.assertTrue(record.read_state(directory)["handed_back"])
         self.assertEqual(histories, ["run-fixstop"])
         self.assertEqual(settles, ["run-fixstop"])
         failures = [line for line in self.logs if "WARN could not start follow-ups" in line]
