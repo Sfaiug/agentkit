@@ -46,7 +46,7 @@ class V5s(Sandbox):
         self.stack.enter_context(patch.object(orch, "ensure", side_effect=ensure))
         self.stack.enter_context(patch.object(
             watch, "type_into",
-            side_effect=lambda session, text, log: self.typed.append(
+            side_effect=lambda session, text, log, **_kw: self.typed.append(
                 (session.get("name"), text)) or self.sent))
         self.stack.enter_context(patch.object(
             notify, "shaped",
