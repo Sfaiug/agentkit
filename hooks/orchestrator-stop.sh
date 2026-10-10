@@ -6,8 +6,9 @@
 # `ak notify done` because the job is finished, or a run or live job it is waiting on, including
 # background work it started in its own harness while the harness still lists it in flight, and
 # a pull request or run it said it waits on with `ak wait`, for as long as `watch.waiting_on`
-# says that is not yet over.  A turn the owner opened with a question ends on its answer too:
-# the prompt asked, so a plain reply stands.  A run of its own that sits parked and undecided --
+# says that is not yet over.  A merged run of its own not yet live, where its project declares
+# `health:`, is ak's own step and a wait too.  With no open line in the seat's plan nothing is
+# owed, and a plain reply stands.  A run of its own that sits parked and undecided --
 # `unfinished`, the runs `ak notify done` refuses on, so not one a later merged run replaced --
 # holds the turn past a done, an answer or a run going: the block names each such run, its
 # parked reason and the commands its state takes, and the seat looks at it, resumes it,
@@ -25,8 +26,9 @@
 #
 # It blocks at most twice in one turn.  The counter lives beside the turn's own start in
 # ~/.agentkit/state/stop-<seat>.json, which hooks/seat-state.sh writes fresh on every
-# UserPromptSubmit; the third stop stands, so a model that truly cannot proceed is left to the
-# state function, which shows the seat as `needs you` rather than looping forever.
+# UserPromptSubmit; the third stop stands, and one with work open and nothing recorded becomes
+# a question to the owner carrying the seat's last words, so a model that truly cannot proceed
+# is heard rather than looping forever.
 #
 # On that same harness this is also what writes the Stop down, in the record hooks/seat-state.sh
 # keeps for every other event: the two run side by side, and only this one knows whether the
@@ -62,12 +64,12 @@ sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
 from agentkit.run import handback_reason
 from agentkit.stop import recorded_ending, ways_out
-from agentkit.watch import owner_question, seat_read, turn_ended
+from agentkit.watch import owner_question, seat_read, seat_write, turn_ended
 
 LIMIT = 2           # blocks in one turn; the third stop stands
-REASON = ("You stopped without asking the user through the question prompt or ak notify needs, "
-          "declaring done with ak notify done, "
-          "or waiting on a run or pull request with ak wait. Continue: decide the next step and do it.")
+REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
+          "prompt or ak notify needs, no ak notify done, no run or pull request you are waiting on. "
+          "Continue: decide the next step and do it.")
 HOME = Path(os.path.expanduser("~")) / ".agentkit"
 STATE = HOME / "state"
 def loads(text):
@@ -250,13 +252,26 @@ def parked_reason(found):
             f"it split or on another model, or ask the owner.")
 
 
+def asked_owner(seat, said):
+    """A third stop with work open and nothing recorded is a seat that cannot go on: its last
+    words become the question the owner is paged with, so the card says what it is stuck on.
+    It is kept back in the seat's record as `ak notify needs` keeps one for its turn's end,
+    which this stop is: the notice lock is never waited on here, and the next look asks it."""
+    words = " ".join((said or "").split())
+    if len(words) > 200:
+        words = "\u2026" + words[-199:]        # the end, where what it is stuck on is said
+    seat_write(seat, unasked={"text": f"Stopped three times with work open: {words}",
+                              "at": time.time()})
+
+
 def held(launched, payload):
     """The reason to send this stop back with, or "" where the stop stands.
 
     At most LIMIT blocks in one turn, which the latch counts: a question, `ak notify needs`,
     background work and the third stop stand past a parked run as they always did, while a
-    done, an answer to the owner's question, a run going or an `ak wait` ends the turn only
-    with none of this seat's runs parked and undecided.
+    done, a run going, a merged run not yet live or an `ak wait` ends the turn only with none
+    of this seat's runs parked and undecided, and nothing at all is owed with no open line in
+    the seat's plan.
     """
     # The latch is this seat's own file, under the name its harness was launched with, the way
     # hooks/seat-state.sh writes it.  What it reads is the toolkit's, and that moved when the
@@ -268,7 +283,6 @@ def held(launched, payload):
         return ""    # no turn was written down; nothing here can say what happened during it
     if background(payload):
         return ""
-    asked = record.get("asked") is True    # the prompt that opened the turn asked something
     seat = resolve(launched)
     if last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
@@ -279,16 +293,16 @@ def held(launched, payload):
     ends, undecided = recorded_ending(
         seat, question=(questioned(payload) or told(seat, turn, "needs") or kept
                         or owner_question(notify.last(seat))),
-        completion=lambda: told(seat, turn, "done"), answer=asked, since=turn)
+        completion=lambda: told(seat, turn, "done"), since=turn)
     if ends:
         return ""
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
-        return ""    # the third stop stands, and the state function shows it as `needs you`
+        if not undecided:
+            asked_owner(seat, last_message(payload))
+        return ""    # the third stop stands: the owner is paged with what the seat is stuck on
     kept = {"session": launched, "turn": turn, "blocks": blocks}
-    if asked:
-        kept["asked"] = True    # the turn it counts still opened on a question
     tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
     tmp.write_text(json.dumps(kept) + "\n")
     tmp.replace(latch)

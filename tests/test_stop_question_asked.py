@@ -32,6 +32,7 @@ class StopQuestionAsked(unittest.TestCase):
         self.latch = self.state / f"stop-{SEAT}.json"
         self.latch.write_text(json.dumps({"session": SEAT, "turn": self.turn, "blocks": 0}))
         self.transcript = self.home / "transcript.jsonl"
+        (self.state / f"plan-{SEAT}.md").write_text('- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n')
 
     def stop(self, said=QUESTION, entries=(), **payload):
         lines = [{"type": "user", "message": {"role": "user", "content": "Build the parser."}},

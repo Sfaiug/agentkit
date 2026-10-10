@@ -40,6 +40,7 @@ class ThreeStates(Sandbox):
                      "legacy": False, "resumable": False}
         config.save_session(self.cfg, "atoll", "fable", ["opus"],
                             {"repo": self.repo, "cwd": self.repo})
+        config.plan_path("atoll").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")   # the seat owes work
         self.options = {}
         self.pane = "$ "
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[self.seat]))
