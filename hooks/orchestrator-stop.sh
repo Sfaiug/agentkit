@@ -64,12 +64,13 @@ sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
 from agentkit.run import handback_reason
 from agentkit.stop import recorded_ending, ways_out
-from agentkit.watch import owner_question, seat_read, seat_write, turn_ended
+from agentkit.watch import owner_question, seat_read, turn_ended
 
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
           "prompt or ak notify needs, no ak notify done, no run or pull request you are waiting on. "
           "Continue: decide the next step and do it.")
+STUCK = "How should this seat go on? It stopped three times with work open:"
 HOME = Path(os.path.expanduser("~")) / ".agentkit"
 STATE = HOME / "state"
 def loads(text):
@@ -254,14 +255,12 @@ def parked_reason(found):
 
 def asked_owner(seat, said):
     """A third stop with work open and nothing recorded is a seat that cannot go on: its last
-    words become the question the owner is paged with, so the card says what it is stuck on.
-    It is kept back in the seat's record as `ak notify needs` keeps one for its turn's end,
-    which this stop is: the notice lock is never waited on here, and the next look asks it."""
+    words follow the question the owner is paged with, so the card says what it is stuck on.
+    It is kept back as `ak notify needs` keeps one for its turn's end, which this stop is."""
     words = " ".join((said or "").split())
     if len(words) > 200:
         words = "\u2026" + words[-199:]        # the end, where what it is stuck on is said
-    seat_write(seat, unasked={"text": f"Stopped three times with work open: {words}",
-                              "at": time.time()})
+    notify.keep_back(seat, f"{STUCK} {words}")
 
 
 def held(launched, payload):

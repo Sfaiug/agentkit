@@ -23,13 +23,14 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.merged_run import SEAT, MergedRuns
-from agentkit import config, watch
+from agentkit import config, notify, watch
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SAID = "The parser is fixed and the tests pass. Let me know if I should continue."
 LINE = "- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n"
 HAND_KEPT = "- [ ] fix the parser\n"      # open as a done reads it, though `ak plan` never wrote it
+ASKED = "How should this seat go on? It stopped three times with work open: " + SAID
 
 
 class RecordedWaits(MergedRuns):
@@ -112,6 +113,9 @@ class RecordedWaits(MergedRuns):
                 self.setUp()
                 self.owes(line)
                 self.prompt("Which parser does it use?")
+                (self.state / f"seat-{SEAT}.json").write_text(json.dumps({  # over, not yet told
+                    "session": SEAT, "wait": {"kind": "run", "on": "gone", "at": self.turn,
+                                              "over": True}}) + "\n")
                 lock = self.held_notice_lock()          # the hook decides without it
                 for _ in range(2):
                     back = json.loads(self.stop())
@@ -120,13 +124,16 @@ class RecordedWaits(MergedRuns):
                     self.assertIsNone(self.kept())
                 self.assertEqual(self.stop(), "")       # the third stop stands ...
                 self.assertIsNone(self.notice())        # ... its question kept back, its turn ended
-                self.assertEqual(self.kept()["text"], "Stopped three times with work open: " + SAID)
+                self.assertEqual(self.kept()["text"], ASKED)
+                notify.asks_first(ASKED)                # shaped as `ak notify needs` takes one
                 self.assertIsInstance(self.kept()["ended"], float)
+                seat = json.loads((self.state / f"seat-{SEAT}.json").read_text())
+                self.assertIsNone(seat["wait"])         # the question ends the wait's line
                 lock.close()
                 self.look()                             # ... and the next look asks the owner
                 notice = self.notice()
                 self.assertEqual(notice["kind"], "needs")
-                self.assertEqual(notice["text"], "Stopped three times with work open: " + SAID)
+                self.assertEqual(notice["text"], ASKED)
                 self.assertIsNone(self.kept())
 
     def test_the_third_stops_question_carries_the_owners_earlier_answer(self):
@@ -142,7 +149,7 @@ class RecordedWaits(MergedRuns):
         self.assertEqual(self.stop(), "")
         self.look()
         notice = self.notice()
-        self.assertEqual(notice["text"], "Stopped three times with work open: " + SAID)
+        self.assertEqual(notice["text"], ASKED)
         self.assertEqual(notice["earlier_answer_at"], 1234.5)
 
     def test_a_merged_run_not_yet_live_is_a_wait_where_its_project_proves_itself_live(self):

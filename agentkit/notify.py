@@ -1320,6 +1320,24 @@ def _completion(session):
     return {"created": created, "outcomes": [list(outcome) for outcome in sorted(work | pending | covered)]}
 
 
+def asks_first(text):
+    """Refuse a question whose "?" is not within its first ASK_CAP characters."""
+    asked, mark, _ = " ".join(text.split()).partition("?")
+    if not mark or len(asked) >= ASK_CAP:
+        raise config.Error(f'put the question first, its "?" within {ASK_CAP} characters: '
+                           "the status bar and the menu show a question's start; context "
+                           "goes after it")
+
+
+def keep_back(name, text):
+    """Keep the seat's question back for its turn's end, in the seat's record, which `ask_kept`
+    asks once that turn has ended.  The seat's newer word ends its `ak wait` here as `shaped`
+    does.  No notice lock is taken, so the stop hook keeps one without waiting on it."""
+    from . import watch
+    asks_first(text)
+    watch.seat_write(name, unasked={"text": text, "at": time.time()}, wait=None)
+
+
 def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
     """Record the question or declaration, then evaluate the same transition latch.
 
@@ -1357,8 +1375,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
     try:
         own = name == config.current_session()      # the seat's own word
         if kind == "needs" and own and event_id is None and watch.keeps_back(name):
-            # the seat's newer word ends its `ak wait` here as it does below
-            watch.seat_write(name, unasked={"text": text, "at": time.time()}, wait=None)
+            keep_back(name, text)
             return 0
         with session_lock(name) as name:
             if gate:
@@ -1508,11 +1525,7 @@ def main(argv):
     if kind and worker_blocked(kind, dry_run):
         return 0                          # before the plan's checks: a worker runs none of them
     if kind == "needs":
-        asked, mark, _ = " ".join(rest[0].split()).partition("?")
-        if not mark or len(asked) >= ASK_CAP:
-            raise config.Error(f'put the question first, its "?" within {ASK_CAP} characters: '
-                               "the status bar and the menu show a question's start; context "
-                               "goes after it")
+        asks_first(rest[0])
     if kind:
         return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run)
     raise config.Error(USAGE)
