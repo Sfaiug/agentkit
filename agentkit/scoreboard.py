@@ -47,7 +47,9 @@ def compute(now=None):
             wall = (max(row["finished_at"] for row in runs) - min(row["started_at"] for row in runs)) / 3600
             going = sum((row["finished_at"] - row["started_at"]) / 3600 for row in runs)
             model = sum(column_hours(row, "executor_seconds", "reviewer_seconds") for row in runs)
-            waiting = sum(column_hours(row, *history.WAIT_COLUMNS.values()) for row in runs)
+            # The lander's waits are inside the line's, as the waits row reads them.
+            waiting = sum(column_hours(row, "slot_wait_seconds", "suite_wait_seconds",
+                                       "merge_wait_seconds") for row in runs)
             splits.append({"model": model, "waiting": waiting, "ak": max(0.0, going - model - waiting),
                            "seat": max(0.0, wall - going)})
         if not splits:

@@ -98,7 +98,8 @@ class TimeSplit(PhaseRows):
                            finished_at=NOW + finished * HOUR, changed_lines=0 if merged else None)
 
     def test_a_merged_changes_hours_are_split_over_every_run_of_it(self):
-        # a PR reviewed twice: the first run failed, the seat held it two hours, the second merged
+        # a PR reviewed twice: the first run failed, the seat held it two hours, the second merged;
+        # its lander's wait is inside its line's
         self.ended("a", PR, -10, -8, merged=False, executor=1, reviewer=0.5, waits=[("slot", 1 / 6)])
         self.ended("b", PR, -6, -1, merged=True, executor=0.5, reviewer=0.25,
                    waits=[("merge", 1), ("lander", 1 / 3)])
@@ -106,11 +107,11 @@ class TimeSplit(PhaseRows):
         self.ended("open", "open", -3, -2, merged=False, executor=4)          # merged nothing
         [this_week, before] = scoreboard.compute(NOW)["merged"]
         self.assertEqual({part: round(value, 3) for part, value in this_week.items()},
-                         {"model": 1.375, "ak": 1.875, "waiting": 0.75, "seat": 1.0})
+                         {"model": 1.375, "ak": 2.042, "waiting": 0.583, "seat": 1.0})
         self.assertIsNone(before)
         with patch.object(scoreboard.terminal, "content_width", return_value=300):
-            self.assertIn("merged    median hours per merged change: 1.4 in model turns, 1.9 ak's own "
-                          "work, 0.8 waiting, 1.0 with its seat between runs", "\n".join(scoreboard.render()))
+            self.assertIn("merged    median hours per merged change: 1.4 in model turns, 2.0 ak's own "
+                          "work, 0.6 waiting, 1.0 with its seat between runs", "\n".join(scoreboard.render()))
 
     def test_a_runs_row_names_its_change(self):
         for state, change in (({"run_id": "r1", "repo": "/x/acme", "review_pr": PR}, PR),
