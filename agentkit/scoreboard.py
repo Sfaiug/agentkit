@@ -14,11 +14,15 @@ PARTS = (("model", ("executor", "reviewer")), ("ak", ("done-when", "merge")),
          ("waiting", tuple(f"{wait} wait" for wait in history.WAIT_COLUMNS)))
 
 
-def split_hours(run_id):
+def split_hours(row):
     """A run's hours in each of `PARTS`, read from its phase rows so that no second is in two;
-    None for a run with none, one from before they were kept."""
-    rows = [row for row in history.phases(run_id) if row["ended_at"] is not None]
-    if not rows:
+    zero for a run that ran no step, and None for one whose step and wait columns count seconds
+    its rows do not hold: it began before the rows were kept."""
+    rows = [phase for phase in history.phases(row["run_id"]) if phase["ended_at"] is not None]
+    kept = sum(phase["ended_at"] - phase["started_at"] for phase in rows)
+    counted = sum(row.get(column) or 0 for column in (*history.STEP_COLUMNS.values(),
+                                                      *history.WAIT_COLUMNS.values()))
+    if counted > kept + 1:
         return None
     edges = sorted({edge for row in rows for edge in (row["started_at"], row["ended_at"])})
     hours = {part: 0.0 for part, _ in PARTS}
@@ -56,7 +60,7 @@ def compute(now=None):
         its last run's end less its runs' time): every run of the change that ended in the two
         weeks, grouped by `change`, each second in one part (`split_hours`); time in no part,
         such as a park while its provider's window is spent, is in none, and a change with a run
-        from before the phase rows were kept is not recorded."""
+        from before the phase rows were kept is not recorded (`split_hours`)."""
         by_change = {}
         for row in rows:
             if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]:
@@ -65,7 +69,7 @@ def compute(now=None):
         splits = []
         for key in merged:
             runs = by_change.get(key) or []
-            parts = [split_hours(row["run_id"]) for row in runs]
+            parts = [split_hours(row) for row in runs]
             if not runs or None in parts:
                 continue
             wall = (max(row["finished_at"] for row in runs) - min(row["started_at"] for row in runs)) / 3600
