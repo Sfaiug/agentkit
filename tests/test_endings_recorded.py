@@ -2,8 +2,11 @@
 
 A merged run, a run not needed and a change going live are recorded on the run (handed
 back with the routine note, reported, its checkout dropped) and typed into no seat, live or
-gone: nothing in them is the seat's to decide, and `ak run status` and the seat's plan have
-them, a maintainer's merge of a PR of ours among them.  A line an earlier pass typed and
+gone, while that seat owes no work: nothing in them is the seat's to decide, and `ak run
+status` and the seat's plan have them, a maintainer's merge of a PR of ours among them.  A
+seat that owes work (an open plan line) may have ended its turn waiting on that run or its
+going live (`stop.recorded_ending`), so it hears them as the end of that wait; a red
+target's repair is routine whatever it owes.  A line an earlier pass typed and
 never saw sent is sent, never left in the composer to hold later lines back.  A fail, a
 blocked and a pass not merged are still typed, at a quiet prompt and never into a running
 turn: a turn in flight leaves the line pending for the tick.  Offline, on the hand-back
@@ -19,10 +22,12 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_handback import SEAT, HandBack
-from test_health_after_merge import NOW, PR, HealthAfterMerge
+from test_health_after_merge import NOW, PR, SEAT as MERGED_SEAT, HealthAfterMerge
 from test_run_notice_fits_a_composer import RunNotice
-from agentkit import orch, run, watch
+from agentkit import config, orch, run, stop, watch
 from agentkit import record
+
+OPEN = "- [ ] the parser parses\n"     # a plan line the seat still owes
 
 
 class RoutineEndings(HandBack):
@@ -72,6 +77,36 @@ class RoutineEndings(HandBack):
         self.tick()
         self.assertEqual(len(self.typed), 2)                # once
 
+    def test_a_seat_that_owes_work_hears_the_merge_its_turn_waited_on(self):
+        config.plan_path(SEAT).write_text(OPEN)
+        self.rows = [self.live()]
+        directory = self.ended("run-g", owner=SEAT, state="running", verdict=None,
+                               finished_at=None)
+        self.assertEqual(stop.recorded_ending(SEAT), (True, []))   # its turn ends on the run
+        with record.record(directory) as current:
+            current.update(state="pass", verdict="PASS", merged=True, finished_at=9990,
+                           pr="https://github.com/o/r/pull/7")
+        self.screen = "working"                             # never into a turn
+        run.announce(record.read_state(directory), directory, self.logs.append)
+        self.assertEqual(self.typed, [])
+        self.screen = "at_prompt"
+        self.tick()
+        self.assertEqual([text.split()[1:4] for _, text in self.typed],
+                         [["run-g", "finished", "PASS"]])
+        self.assertIn("merged", self.typed[0][1])
+        self.tick()
+        self.assertEqual(len(self.typed), 1)                # once
+
+    def test_a_repairs_merge_is_recorded_whatever_its_seat_owes(self):
+        config.plan_path(SEAT).write_text(OPEN)
+        self.rows = [self.live()]
+        directory = self.ended("run-r", owner=SEAT, merged=True,
+                               pr="https://github.com/o/r/pull/7",
+                               repair={"target": "main", "command": "false"})
+        run.announce(record.read_state(directory), directory, self.logs.append)
+        self.assertEqual((self.typed, self.cards, self.reopened), ([], [], []))
+        self.recorded(directory)
+
 
 class InTheComposer(RunNotice):
     def test_a_maintainers_merge_is_recorded_and_never_typed(self):
@@ -112,6 +147,19 @@ class LiveRecorded(HealthAfterMerge):
         self.assertEqual(self.lines, [])
         self.tick(now=NOW + 60)
         self.assertEqual(self.lines, [])
+
+    def test_a_seat_that_owes_work_hears_its_change_went_live(self):
+        config.plan_path(MERGED_SEAT).write_text(OPEN)
+        directory = self.merged(self.declare("test -e deployed"))
+        self.tick()
+        with patch.object(watch.time, "time", return_value=NOW):
+            # its turn ends on the change not yet live
+            self.assertEqual(stop.recorded_ending(MERGED_SEAT), (True, []))
+        (self.repo / "deployed").touch()
+        self.tick(now=NOW + 60)
+        self.assertEqual(self.lines, [(MERGED_SEAT, f"run {directory.name} is live: {PR}.")])
+        self.tick(now=NOW + 120)
+        self.assertEqual(len(self.lines), 1)                # once
 
     def test_a_live_line_an_earlier_install_left_unsent_is_sent_never_dropped(self):
         directory = self.merged(self.declare("exit 0"), age=watch.AFTER_MERGE_WINDOW + 60)
