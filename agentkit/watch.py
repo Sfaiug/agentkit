@@ -2137,8 +2137,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     out = logged_out(harness, auth_out)
     if out:
         return {"word": "needs you", "reason": login_reason(harness), "since": out.get("at")}
+    # A question the seat asked outranks its wait for usage (1d): the wait ends by itself.
     waiting = seat_read(name).get("usage_wait")
-    if waiting and not any(session.get(key) for key in orch.CLOSED) and not seat_closed_by_owner(name):
+    last = notify.last(name)
+    if (waiting and not any(session.get(key) for key in orch.CLOSED)
+            and not seat_closed_by_owner(name) and not owner_question(last)):
         return {"word": "needs you", "reason": waiting["reason"], "since": waiting["since"]}
     # 1a. ... and a run of this seat's parked on one is the same news about a login he has to
     # go and fix.  The run being parked is the evidence: nothing here re-asks the verb for it,
@@ -2186,7 +2189,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # asks, then gets on with the work that does not wait on the answer, so neither its runs
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
     # and a watcher's own alert about the seat waits for its prompt (rung 6).
-    last = notify.last(name)
     if not gone and owner_question(last):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time"), "question": True}

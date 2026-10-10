@@ -7,6 +7,7 @@ conversation on an account with room and is told to continue, even while a quest
 the owner stands; a seat whose turn ended on its own, or whose job is done, is left idle.
 A seat with no proven conversation goes on in place once its own window is back, question or
 not; a bare rate limit spends no subscription and, like any stall, waits on the answer.
+While no subscription has room, the question, not the wait, is what the owner is shown and sent.
 The pane is one captured from a real seat (renamed); the stage is `test_seat_account`'s.
 """
 
@@ -104,6 +105,22 @@ class SpentSeat(SeatAccount):
                 self.tick()
         self.assertEqual(self.sent(ticks), [])
         self.assertTrue(watch.owner_question(notify.last(NAME)))
+
+    def test_a_question_open_with_no_room_anywhere_is_what_the_owner_sees(self):
+        for name, kw in (("installed_at", {"return_value": 0}), ("_attempt", {"return_value": 0}),
+                         ("terminal_notice", {})):
+            self.stack.enter_context(patch.object(notify, name, **kw))
+        self.meters(100, 100)
+        self.ask()
+        for _ in range(2):
+            self.tick()
+            notify.transition(NAME, seat=self.seat)
+            self.now += notify.CARD_WAIT + 1
+            self.meters(100, 100)
+        self.assertTrue(watch.seat_read(NAME).get("usage_wait"))    # kept, to go on after it
+        cards = [json.loads(path.read_text())["text"] for path in notify.outbox().glob("*.json")]
+        self.assertEqual(cards, ["Which end card goes on the clip?"])
+        self.assertEqual(self.answer()["reason"], "Which end card goes on the clip?")
 
     def test_a_question_open_at_an_idle_prompt_moves_and_types_nothing(self):
         self.ask()
