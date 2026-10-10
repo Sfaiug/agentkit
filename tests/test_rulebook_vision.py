@@ -70,12 +70,14 @@ class RulebookVision(unittest.TestCase):
     def test_a_seat_whose_projects_agents_md_carries_the_vision_reads_it_once(self):
         self.agents.write_text("# acme\n\n" + VISION)
         for project, opens in (("# acme\n\n" + VISION + "\n## Working here\n\nTests.\n", False),
-                               ("# widget\n\n## Working here\n\nTests.\n", True)):
+                               ("# widget\n\n## Working here\n\nTests.\n", True),
+                               # a copy quoted in a template is no section of the project's own
+                               ("# widget\n\nEvery README holds:\n\n```markdown\n" + VISION + "```\n", True)):
             with self.subTest(opens=opens), \
                     patch.object(config, "session_records", return_value={"acme": {"repo": "/x/acme"}}), \
                     patch("agentkit.run.agents_body", return_value=project):
                 text = config.seat_rulebook("acme")
-                self.assertEqual(text.count("## What ak is for"), 1, text)
+                self.assertEqual(text.count("## What ak is for"), 1 + (opens and VISION in project), text)
                 self.assertEqual(text.startswith(VISION.rstrip()), opens, text)
                 self.assertIn(project, text)            # the project's AGENTS.md stays whole
 

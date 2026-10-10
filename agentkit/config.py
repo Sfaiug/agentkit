@@ -1295,11 +1295,16 @@ def rulebook_path(name):
     return seat_file("rulebook", name)
 
 
+# ak's vision: the `What ak is for` section of an AGENTS.md, up to the next section.
+VISION = re.compile(r"(?ms)^## What ak is for(?:\n|\Z).*?(?=^## |\Z)")
+
+
 def rulebook_text(project=""):
     """The rulebook a session receives: the vision, the repo's rules, then this host's own.
 
     The vision opens it unless `project`, the AGENTS.md handed after it, carries that same
-    section already: a seat filed under ak's own repository reads it once.  Only a host that
+    section as its own (`VISION`, never a copy quoted inside another section): a seat filed
+    under ak's own repository reads it once.  Only a host that
     has written no rules of its own has none: a rules.md that is there and cannot be read is an
     error, never an empty one, because a session opened without rules the owner did write is a
     session working to rules nobody chose.
@@ -1309,8 +1314,8 @@ def rulebook_text(project=""):
         agents = (REPO / "AGENTS.md").read_text()
     except FileNotFoundError:
         agents = ""
-    vision = re.search(r"(?ms)^## What ak is for(?:\n|\Z).*?(?=^## |\Z)", agents)
-    if vision and vision.group().rstrip() not in project:
+    vision, own = VISION.search(agents), VISION.search(project)
+    if vision and not (own and own.group().rstrip() == vision.group().rstrip()):
         body = f"{vision.group().rstrip()}\n\n{body}"
     try:
         local = (HOME / "rules.md").read_text()
