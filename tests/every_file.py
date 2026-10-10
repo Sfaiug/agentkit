@@ -14,13 +14,15 @@ A failing file, or one reporting no executed cases, runs once more after the poo
 landing.py passes a descriptor that reads end-of-file once its other parts have ended, and
 the re-run waits for that too; failing again it fails the whole and is named with its last
 lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after their
-checks. Python imports under agentkit/, tools/, bin/ and tests/ must be from the standard
-library or this repository, including files smoke.sh already ran.
+checks. Python under agentkit/, tools/, bin/ and tests/ must be what Python 3.11, the oldest ak
+supports, reads -- a newer interpreter accepts syntax 3.11 refuses -- and import only from the
+standard library or this repository, including files smoke.sh already ran.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
 
 import ast
+import io
 import os
 import re
 import subprocess
@@ -55,6 +57,32 @@ def source_files(root):
             yield Path(directory) / name
 
 
+def delimiter(text):
+    """A string token's opening quote, its prefix letters aside."""
+    body = text.lstrip("rRbBfFuU")
+    return body[:3] if body[:3] in ('"""', "'''") else body[:1]
+
+
+def newer_fstrings(source):
+    """The rows of f-strings only Python 3.12 reads (PEP 701), which `feature_version` does not
+    refuse: the enclosing quote reused, or a backslash or a comment inside a replacement field.
+    Python 3.11 reads f-strings as one token and refuses these itself."""
+    if not hasattr(tokenize, "FSTRING_START"):
+        return []
+    rows, quotes = [], []
+    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+        if quotes and tok.type not in (tokenize.FSTRING_MIDDLE, tokenize.FSTRING_END):
+            nested = (tok.type in (tokenize.STRING, tokenize.FSTRING_START)
+                      and delimiter(tok.string).startswith(quotes[-1]))
+            if nested or "\\" in tok.string or tok.type == tokenize.COMMENT:
+                rows.append(tok.start[0])
+        if tok.type == tokenize.FSTRING_START:
+            quotes.append(delimiter(tok.string))
+        elif tok.type == tokenize.FSTRING_END:
+            quotes.pop()
+    return sorted(set(rows))
+
+
 def import_errors(root):
     local = set()
     for path in source_files(root):
@@ -74,10 +102,14 @@ def import_errors(root):
                     continue
             try:
                 with tokenize.open(path) as fh:
-                    tree = ast.parse(fh.read(), filename=str(path))
+                    source = fh.read()
+                tree = ast.parse(source, filename=str(path), feature_version=(3, 11))
+                rows = newer_fstrings(source)
             except (SyntaxError, UnicodeError) as exc:
-                errors.append(f"{path.relative_to(root)}: invalid Python: {exc}")
+                errors.append(f"{path.relative_to(root)}: invalid Python 3.11: {exc}")
                 continue
+            errors.extend(f"{path.relative_to(root)}: invalid Python 3.11: line {row}: an f-string "
+                          "only Python 3.12 reads" for row in rows)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     names = [alias.name for alias in node.names]
