@@ -61,7 +61,21 @@ def followups_in(text):
             if not re.fullmatch(r"(?:none|n/a)\.?", item, re.I)]
 
 
-def records(text):
+def proof(workspace=None, path="deliverable"):
+    """A fixture finding's proof: failing until a later commit changes the cited file, so a replay
+    after a fix reads fixed; outside a repository of its own, a command that always fails."""
+    try:
+        top, head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "--show-toplevel", "HEAD"],
+                                   capture_output=True, text=True, check=True).stdout.split()
+    except (subprocess.CalledProcessError, OSError, ValueError):
+        top = head = None
+    if workspace and head and Path(top).resolve() == Path(workspace).resolve():
+        return {"run": f"if git diff --quiet {head} HEAD -- {shlex.quote(path)}; then exit 1; fi",
+                "returncode": 1, "output": ""}
+    return {"run": "echo 'fixture evidence'; exit 1", "returncode": 1, "output": "fixture evidence\n"}
+
+
+def records(text, workspace=None):
     verdicts = review_verdicts(text)
     if not verdicts:
         return []
@@ -77,17 +91,15 @@ def records(text):
             what, _, why = details.partition(" - ")
             row = {"kind": kind, "path": path or "deliverable", "line": int(line) if line.isdigit() else 1,
                    "what": what or item, "why": why or "fixture defect",
-                   "evidence": {"quote": "fixture evidence"} if kind == "follow-up" else {
-                       "run": "echo 'fixture evidence'; exit 1", "returncode": 1,
-                       "output": "fixture evidence\n"}}
+                   "evidence": {"quote": "fixture evidence"} if kind == "follow-up"
+                   else proof(workspace, path or "deliverable")}
             if kind == "follow-up":
                 row["before"] = "base abc123 (fixture)"
             rows.append(row)
     if verdicts[-1].upper() == "FAIL" and not any(row["kind"] == "finding" for row in rows):
         rows.insert(0, {"kind": "finding", "path": "deliverable", "line": 1,
                         "what": "fixture blocking finding", "why": "fixture defect",
-                        "evidence": {"run": "echo 'fixture evidence'; exit 1", "returncode": 1,
-                                     "output": "fixture evidence\n"}})
+                        "evidence": proof(workspace)})
     return rows + [{"kind": "done"}]
 
 
@@ -116,7 +128,7 @@ def submitting(fake):
     def call(*args, **kwargs):
         answer = fake(*args, **kwargs) if callable(fake) else fake
         role = kwargs.get("role", args[5] if len(args) > 5 else "executor")
-        rows = (records(answer[1]) if role.startswith("reviewer") else
+        rows = (records(answer[1], args[3]) if role.startswith("reviewer") else
                 executor_records(answer[1]) if answer[0] == 0 else [])
         if rows:
             out = Path(args[4])
@@ -139,7 +151,11 @@ def write(out):
         return
     reviewing = (out / "prompt.md").read_text().startswith("You are the reviewer")
     text = (out / "final.md").read_text()
-    rows = records(text) if reviewing else executor_records(text)
+    try:
+        workspace = json.loads(Path(file).read_text().splitlines()[0]).get("workspace")
+    except (OSError, ValueError, IndexError, AttributeError):
+        workspace = None
+    rows = records(text, workspace) if reviewing else executor_records(text)
     if rows:
         with Path(file).open("a") as fh:
             fh.write("".join(json.dumps(row) + "\n" for row in rows))

@@ -60,7 +60,8 @@ class ProofMustRun(unittest.TestCase):
                     proof.finding("legacy.py:1", "missing base proof", base_only),
                     proof.finding("api.py:2", "missing follow-up proof", command,
                                   kind="follow-up", before=self.base)), "FAIL")
-                rows = self.lp.state["review_records"]
+                # the same loop reviewed again: the earlier programs' findings are ak's replays
+                rows = [row for row in self.lp.state["review_records"] if not row.get("replayed")]
                 self.assertEqual([row["kind"] for row in rows], ["finding", "follow-up", "follow-up", "done"])
                 # the follow-ups are kept whatever the verdict, this round's after the earlier ones
                 self.assertEqual(self.lp.state["followups"][-2:],
@@ -101,12 +102,16 @@ class ProofMustRun(unittest.TestCase):
                 self.assertIn(f"[exit {code}]", self.lp.state["notes"][0])
 
     def test_a_missing_script_reporting_exit_two_reaches_the_fixer(self):
+        self.lp.state["rounds"] = 2
         calls = self.rounds([{
             "commands": [proof.finding("api.py:1", "reviewer script", "python3 probe.py")],
             "edits": {"probe.py": "raise AssertionError('fixture defect')\n"}}, {}])
         self.assertEqual([role for role, _ in calls], ["executor", "fixer"])
         self.assertIn("[exit 2]", calls[1][1])
-        self.assertEqual(self.lp.state["verdict"], "PASS")
+        # the reviewer's probe.py never lands, so ak's replay of its proof exits 2 again and blocks
+        self.assertEqual(self.lp.state["verdict"], "FAIL")
+        self.assertEqual([row.get("replayed") for row in self.lp.state["review_records"]
+                          if row["kind"] == "finding"], ["still failing; it blocks until its proof passes"])
         self.assertEqual(self.lp.state["followups"], [])
 
     def test_a_proof_that_cannot_start_on_base_does_not_prove_an_old_defect(self):

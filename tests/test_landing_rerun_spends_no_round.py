@@ -349,6 +349,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
             self.assertEqual(name, "executor")
             self.assertIn("base.txt:1 - the fix skips a check", text)
             self.events.append(("task-fixer", lp.rnd))
+            self.commit(lp.wt, "base.txt", "branch\n2\n3\n4\ngreen\n")   # the fix changes the cited file
             return "## Summary\nFixed the review findings."
 
         with patch.object(run, "execute", side_effect=fixer):

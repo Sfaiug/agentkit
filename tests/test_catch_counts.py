@@ -127,7 +127,7 @@ class CatchCounts(unittest.TestCase):
         # The run row changes reviewer; its earlier review still belongs to judge-1.
         lp.rnd = 2
         lp.reviewer = "spare"
-        self.assertEqual(self.review(lp), "PASS")
+        self.assertEqual(self.review(lp), "FAIL")      # ak's own replay blocks: no catch of the spare's
         run.history_finish({**lp.state, "state": "pass"})
         self.assert_counts(1, 1, 1, 1)
         self.assert_counts(1, 0, 0, 0, "spare")

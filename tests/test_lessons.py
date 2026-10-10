@@ -75,7 +75,8 @@ class Lessons(unittest.TestCase):
             finding = "deliverable:1 - fixture defect - breaks callers" if verdict == "FAIL" else "none"
             text = f"VERDICT: {verdict}\n## Findings\n- {finding}"
         else:
-            (workspace / "deliverable").write_text("fixture work\n")
+            # a fixer's turn changes the cited file, as a fix does: its replayed proof reads fixed
+            (workspace / "deliverable").write_text(f"fixture work {len(self.prompts)}\n")
             text = "## Summary\nFixture execution."
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "final.md").write_text(text)

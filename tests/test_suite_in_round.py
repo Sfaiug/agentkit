@@ -108,7 +108,8 @@ class SuiteInRound(unittest.TestCase):
                     text = "VERDICT: FAIL\n## Findings\n- deliverable:1 - fixture finding"
                     (out_dir / "final.md").write_text(text)
             else:
-                (workspace / "deliverable").write_text("fixture work\n")
+                # a fixer's turn changes the cited file, as a fix does: its replayed proof reads fixed
+                (workspace / "deliverable").write_text(f"fixture work {len(reviews)}\n")
             return code, text, sid, dead
 
         with patch.object(worker, "call", side_effect=submitting(worker_call)):
