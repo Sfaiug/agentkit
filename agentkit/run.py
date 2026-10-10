@@ -3353,11 +3353,12 @@ def followup_place(text):
 
 
 def followup_open(state):
-    """Whether this fix run is still on its way: running, about to, or resuming itself."""
+    """Whether this fix run is still on its way: running, about to, or resuming itself --
+    stopped to wait on an older run's change too, which the tick starts again (`leases.parked`)."""
     return (state.get("state") == "running"
             or (state.get("state") == "queued"
                 and (run_record.process_active(state) or state.get("slot_waiting")))
-            or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error")
+            or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error", "stopped")
                 and going(state))
             or (state.get("state") == "interrupted" and state.get("deaths")
                 and tick_resumes(state)))

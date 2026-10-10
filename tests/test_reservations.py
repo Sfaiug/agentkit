@@ -19,11 +19,9 @@ from unittest.mock import ANY, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.leases import LiveRuns
+from fixtures.leases import OLDER, YOUNGER, LiveRuns
 from agentkit import config, leases, orch, run
 from agentkit import record
-
-OLDER, YOUNGER = "20260101-0900-older", "20260101-1000-younger"
 
 
 class Step:
@@ -48,17 +46,6 @@ class Step:
 
 
 class Reservations(LiveRuns):
-    def collide(self, step="executor", rounds=0, session=None):
-        """An older run that changed line 5, and a younger one changing it too, uncommitted."""
-        older = self.run_on(OLDER, 900, step="executor", rounds=0)
-        younger = self.run_on(YOUNGER, 1000, step=step, rounds=rounds, session=session)
-        self.edit(older, "api.py", 5, "older's line 5", commit=True)
-        self.edit(younger, "api.py", 5, "younger's line 5")
-        return older, younger
-
-    def state(self, name):
-        return record.read_state(config.RUNS / name)
-
     def test_the_younger_run_in_its_executor_turn_is_stopped_with_its_branch_kept(self):
         _, younger = self.collide()
         found = leases.scan(self.repo, self.logs.append, now=2000)

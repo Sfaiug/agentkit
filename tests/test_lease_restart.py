@@ -1,11 +1,13 @@
 """A run stopped waiting on an older run's change starts again once that run has landed:
 its task, naming its repository, as a new run of its seat (`leases.restart`), claimed on the
-stopped run before the launch so none starts twice and a stop, a seat's close or a closed seat
-calls it off; until then the stopped run is going and its seat's wait follows the restart.
+stopped run and launched under the lock a seat's close takes, so none starts twice and a stop,
+a seat's close or a closed seat calls it off; until then the stopped run is going, its seat's
+wait follows the restart and a fix run holds its site.
 Offline: the lease stage (`fixtures.leases`), a fake launch.
 """
 
 from contextlib import redirect_stdout
+import fcntl
 import io
 from pathlib import Path
 import sys
@@ -29,6 +31,14 @@ class LeaseRestart(LiveRuns):
         return sorted(d for d in config.RUNS.iterdir()
                       if ((record.read_state(d) or {}).get("restarted") or {}).get("run") == YOUNGER)
 
+    def state_locked(self):
+        """Whether the lock a stop and a seat's close take (`watch.state_lock`) is held."""
+        with watch.state_path().with_suffix(".lock").open("a") as other:
+            try:
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            return False
 
     def test_the_tick_starts_the_task_again_once_the_holder_has_landed(self):
         self.collide(session="seat-a")
@@ -127,7 +137,7 @@ class LeaseRestart(LiveRuns):
                 self.assertEqual((text.count("repo:"), text.endswith("# Change line 5\n")), (1, True))
                 self.assertIn(f"\nrepo: {self.repo}\n---\n", text)
 
-    def test_the_restart_is_claimed_before_the_launch_and_a_closed_seat_gets_none(self):
+    def test_the_restart_is_claimed_and_launched_under_the_close_lock_and_a_closed_seat_gets_none(self):
         self.collide(session="seat-a")
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
         leases.scan(self.repo, now=2000)
@@ -139,13 +149,14 @@ class LeaseRestart(LiveRuns):
         claimed = []
 
         def launch(directory, state, origin, **_kw):
-            claimed.append(self.state(YOUNGER).get("lease_restarted") == directory.name)
+            claimed.append((self.state(YOUNGER).get("lease_restarted") == directory.name,
+                            self.state_locked()))
             raise config.Error("a stop would find it started again already")
 
         with patch.object(watch, "seat_closed", return_value=False), \
                 patch.object(run, "launch_for_seat", side_effect=launch):
             leases.restart(log=self.logs.append, now=3100)
-        self.assertEqual(claimed, [True])                            # named before the launch
+        self.assertEqual(claimed, [(True, True)])    # named first, launched before a close
         self.assertFalse(stop.stoppable(self.state(YOUNGER)))        # nothing left to call off
 
     def test_a_parked_fix_runs_receipt_rides_into_its_restart(self):
@@ -155,16 +166,22 @@ class LeaseRestart(LiveRuns):
         (directory / run.REGRESSION).parent.mkdir(parents=True)
         (directory / run.REGRESSION).write_text("exit 1\n")
         record.save_state(directory, {**record.read_state(directory), "first": True,
-                                      "followup": {"run": "run-0", "text": "api.py:1 - a defect"},
+                                      "followup": {"run": "run-0", "text": "api.py:1 - a defect",
+                                                   "place": "api.py:1"},
                                       "base_proof": "regression.sh"})
         leases.scan(self.repo, now=2000)
+        # the seat's next merge with evidence at the same site starts no second fix run
+        again = {"run_id": "run-1", "repo": str(self.repo), "launched_session": "seat-a"}
+        self.assertEqual(run.open_followup(again, "api.py:1 - again"), YOUNGER)
         self.land(OLDER)
         with patch.object(watch, "seat_closed", return_value=False), \
                 patch.object(run, "preflight"), patch.object(run, "spawn_bg"):
             leases.restart(log=self.logs.append, now=3000)
         fresh, = self.started_again()
+        self.assertEqual(run.open_followup(again, "api.py:1 - again"), fresh.name)
         state = record.read_state(fresh)
-        self.assertEqual(state["followup"], {"run": "run-0", "text": "api.py:1 - a defect"})
+        self.assertEqual(state["followup"], {"run": "run-0", "text": "api.py:1 - a defect",
+                                             "place": "api.py:1"})
         self.assertEqual((state["base_proof"], state["first"]), ("regression.sh", True))
         self.assertEqual((fresh / run.REGRESSION).read_text(), "exit 1\n")
 

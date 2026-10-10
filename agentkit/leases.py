@@ -27,7 +27,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import tempfile
 import time
@@ -345,12 +344,10 @@ CARRIED = ("followup", "base_proof")
 def task_naming(path, repo):
     """The task as written, its front matter naming `repo`, absolute: started again by the
     tick, a task naming none, or a relative one, would be resolved in the tick's directory."""
-    text = path.read_text(encoding="utf-8")
-    front = re.match(r"\A---\n(.*?)\n---\n", text, re.S)
-    lines = [line for line in (front.group(1).splitlines() if front else [])
-             if not line.startswith("repo:")]
-    return ("---\n" + "\n".join([*lines, f"repo: {repo}"]) + "\n---\n"
-            + (text[front.end():] if front else text))
+    from . import task
+    pairs, body = task.front_matter(path)
+    return ("---\n" + "".join(f"{key}: {value}\n" for key, value in pairs if key != "repo")
+            + f"repo: {repo}\n---\n" + body)
 
 
 def restart(log=print, now=None):
@@ -358,8 +355,9 @@ def restart(log=print, now=None):
     holder has landed or is over (stopped or failed: its diff no longer counts) -- its task
     naming its repository (`task_naming`), with its regression script and a fix run's receipt
     (`CARRIED`), a new run of its seat (`run.launch_for_seat`).  The stopped run names the
-    new one first, under the lock a stop and a seat's close take, so a stop before it calls it
-    off, a closed seat gets none, and none starts twice whatever the launch did."""
+    new one first, and the launch follows, under the lock a stop and a seat's close take (as
+    `run.start_followups` holds it), so a stop before it calls it off, a closed seat gets none,
+    and none starts twice whatever the launch did."""
     from . import run, watch
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
@@ -373,30 +371,31 @@ def restart(log=print, now=None):
         why = f"{wait['on']} {'has landed' if holder and holder.get('merged') else 'is over'}"
         directory = run.free_run_dir(run_dir.name.split("-", 2)[-1])
         session = run.launched_session(state)
-        with watch.state_lock(), run_record.recovery_lock(run_dir):
-            state = run_record.read_state(run_dir) or {}
-            if not parked(state) or (session and watch.seat_closed(session)):
-                continue
-            with run_record.record(run_dir) as current:
-                current["lease_restarted"] = directory.name
-        directory.mkdir(parents=True)
-        try:
-            (directory / "task.md").write_text(task_naming(run_dir / "task.md", state.get("repo")),
-                                               encoding="utf-8")
-            if (run_dir / run.REGRESSION).is_file():
-                (directory / run.REGRESSION).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(run_dir / run.REGRESSION, directory / run.REGRESSION)
-            (directory / "log.txt").touch()
-            run.logger(directory)(f"started again for {run_dir.name}: {why}; its earlier attempt "
-                                  f"is kept on branch {state.get('branch')}")
-            run.launch_for_seat(
-                directory, state,
-                {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo"),
-                 **{key: state[key] for key in CARRIED if key in state}},
-                opts={**{key: value for key, value in (state.get("launch_opts") or {}).items()
-                         if key != "--first"},
-                      **({"--first": True} if state.get("first") else {})},
-                task_file=state.get("task_file"))
-            log(f"{run_dir.name} started again as {directory.name}: {why}")
-        except (config.Error, OSError, run_record.StopRequested) as exc:
-            log(f"WARN {run_dir.name} could not start again as {directory.name}: {exc}")
+        with watch.state_lock():
+            with run_record.recovery_lock(run_dir):
+                state = run_record.read_state(run_dir) or {}
+                if not parked(state) or (session and watch.seat_closed(session)):
+                    continue
+                with run_record.record(run_dir) as current:
+                    current["lease_restarted"] = directory.name
+            directory.mkdir(parents=True)
+            try:
+                (directory / "task.md").write_text(
+                    task_naming(run_dir / "task.md", state.get("repo")), encoding="utf-8")
+                if (run_dir / run.REGRESSION).is_file():
+                    (directory / run.REGRESSION).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(run_dir / run.REGRESSION, directory / run.REGRESSION)
+                (directory / "log.txt").touch()
+                run.logger(directory)(f"started again for {run_dir.name}: {why}; its earlier "
+                                      f"attempt is kept on branch {state.get('branch')}")
+                run.launch_for_seat(
+                    directory, state,
+                    {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo"),
+                     **{key: state[key] for key in CARRIED if key in state}},
+                    opts={**{key: value for key, value in (state.get("launch_opts") or {}).items()
+                             if key != "--first"},
+                          **({"--first": True} if state.get("first") else {})},
+                    task_file=state.get("task_file"))
+                log(f"{run_dir.name} started again as {directory.name}: {why}")
+            except (config.Error, OSError, run_record.StopRequested) as exc:
+                log(f"WARN {run_dir.name} could not start again as {directory.name}: {exc}")
