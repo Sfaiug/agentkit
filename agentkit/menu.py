@@ -1116,7 +1116,7 @@ def _head(info, widths):
     return number + ("  " + terminal.cut(" ".join(rest), left) if left > 0 else "")
 
 
-def v5o_seat_blocks(infos, term_width, widths=None):
+def v5o_seat_blocks(infos, term_width, widths=None, whole=None):
     """One block of lines per seat, in order; no rendered line keeps trailing space.
 
     Fixed columns with two-space gutters, from `widths` (one `v5o_column_widths`
@@ -1125,12 +1125,22 @@ def v5o_seat_blocks(infos, term_width, widths=None):
     indented line, ending in ` …` only when more was cut. A working seat's tasks bar takes
     the room the last column has. On a narrow phone the last column goes on its own line.
     Never cut inside a glyph or a colour sequence.
+
+    `whole` names the highlighted seat: its sentence -- the question it asks, the summary it
+    is done on -- is never cut, and wraps onto as many indented lines as it takes.  It is
+    what its owner is about to open the seat to answer, on whichever harness that seat runs.
     """
     if widths is None:
         widths = v5o_column_widths(infos, term_width)
     room, narrow = widths["room"], widths["narrow"]
     if not infos:
         return []
+
+    def under(info, text, room):
+        """The indented lines a sentence takes under its row: one, cut, or all of it."""
+        if info["name"] == whole and not tasks_bar(info.get("word"), info.get("sentence")):
+            return ["    " + line for line in terminal.wrap(text, room)]
+        return ["    " + (text if terminal.cells(text) <= room else terminal.cut(text, room))]
     blocks = []
     if narrow:
         for info in infos:
@@ -1139,8 +1149,7 @@ def v5o_seat_blocks(infos, term_width, widths=None):
             tail = _last_text(info, second_room, narrow=True)
             if tail:
                 # a tasks bar is drawn in the room, so what is cut is a sentence
-                block.append("    " + (tail if terminal.cells(tail) <= second_room
-                                       else terminal.cut(tail, second_room)))
+                block += under(info, tail, second_room)
             blocks.append(block)
         return [[line.rstrip() for line in block] for block in blocks]
     # Wide: fixed columns, the last column gets what the row has left; a sentence too long for
@@ -1161,18 +1170,11 @@ def v5o_seat_blocks(infos, term_width, widths=None):
             # a tasks bar too long for the column is never wrapped, which drops its colours, and
             # a row without ten cells left starts nothing: either goes under its row, the bar
             # drawn in that line's room and a sentence cut to it
-            under = _last_text(info, cont_room)
-            blocks.append([head,
-                           "    " + (under if terminal.cells(under) <= cont_room
-                                     else terminal.cut(under, cont_room))])
+            blocks.append([head] + under(info, _last_text(info, cont_room), cont_room))
             continue
         wrapped = terminal.wrap(last, sent_room)
         first, rest = wrapped[0], " ".join(wrapped[1:])
-        block = [head + "  " + first]
-        cont = terminal.cut(rest, cont_room) if terminal.cells(rest) > cont_room else rest
-        if cont:
-            block.append("    " + cont)
-        blocks.append(block)
+        blocks.append([head + "  " + first] + (under(info, rest, cont_room) if rest else []))
     return [[line.rstrip() for line in block] for block in blocks]
 
 
@@ -1283,7 +1285,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # Every line travels with the name of the seat it draws, or None, so the highlight and a
     # click find a seat on whichever page it lands.
     seat_blocks = [[[(line, info["name"]) for line in block] for info, block in
-                    zip(project["seats"], v5o_seat_blocks(project["seats"], width, widths))]
+                    zip(project["seats"], v5o_seat_blocks(project["seats"], width, widths,
+                                                          cursor if owned else None))]
                    for project in ordered]
 
     def heading(project):

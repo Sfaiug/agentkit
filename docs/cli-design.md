@@ -382,7 +382,9 @@ colour), and one last column. Those before the last always fit the screen: the
 name and the orchestrator share what the number and the state leave, the longer
 giving way first, then the state. The last column takes all the remaining width;
 it wraps once at a word onto an indented continuation and is cut with ` …`
-only past that. A row with fewer than ten cells left puts it on the indented
+only past that. The highlighted seat's sentence is never cut: what it asks, or is done on,
+wraps onto as many indented lines as it takes, so a question is read whole on ak's own
+screen before its seat is opened, whatever harness that seat runs. A row with fewer than ten cells left puts it on the indented
 line alone, cut there, so no line runs past the screen. Columns use gutters, never ` · `. Never cut inside a
 glyph or a colour sequence. No rendered line keeps trailing space: cell pads
 land outside the colour escapes and every row is rstripped, so the snapshots
