@@ -1,14 +1,16 @@
 """A merged run of a seat's whose project has yet to prove itself live is a wait ak records.
 
-The merge records the `health:` its delivered commit declares, once, in every merge path
-(`run.merge_record`); the tick keeps that record until the probe passes, and follows a run
-past the after-merge window only on a probe that failed inside it; and the seat's word reads
-the record as `working`, below a run parked undecided, so no card goes out while ak's own
-probe is pending (`watch.awaiting_live`).  Offline: fake records in a throwaway HOME
-(`fixtures.merged_run`).
+The merge records the `health:` its delivered commit declares, or that it declares none, once,
+in every merge path (`watch.merge_record`); the tick keeps that record until the probe passes,
+and follows a run past the after-merge window only on a probe that failed inside it; and the
+seat's word reads the record as `working`, below a run parked undecided, so no card goes out
+while ak's own probe is pending (`watch.awaiting_live`).  Offline: fake records in a throwaway
+HOME (`fixtures.merged_run`).
 """
 
+from contextlib import ExitStack
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -18,7 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.merged_run import SEAT, MergedRuns
-from agentkit import config, run, watch
+from agentkit import config, notify, watch
 
 
 class LiveCheckWait(MergedRuns):
@@ -31,15 +33,28 @@ class LiveCheckWait(MergedRuns):
                                        number=1, harness="claude", live={}, auth_out={},
                                        gh_out={}, token_out=None)
 
+    def card_pass(self):
+        """One tick's card pass over the seat, as `notify.tick_cards` runs it: its card's word."""
+        home = self.home / ".agentkit"
+        with ExitStack() as stack:
+            for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
+                stack.enter_context(patch.object(config, name, home if name == "HOME" else home / name.lower()))
+            stack.enter_context(patch.dict(os.environ, {
+                "HOME": str(self.home), "AK_NOTIFY_SINK": "off", "AGENTKIT_DISCORD_WEBHOOK": "off",
+                "AK_RUN_ROLE": ""}))
+            stack.enter_context(patch.object(notify, "post", return_value=0))
+            notify.transition(SEAT, seat={"name": SEAT}, log=lambda line: None)
+            return notify._card_read(SEAT).get("word")
+
     def test_a_merge_records_the_health_its_delivered_commit_declares_and_the_wait_reads_that(self):
         bare = "---\nusers: real\n---\n# acme\n"
         with_health = "---\nusers: real\nhealth: curl -fsS https://acme.test/ok\n---\n# acme\n"
         # the merge step records what the delivered commit declares, once, for the tick and the word
         wt, sha = self.delivered("declares", with_health)
-        self.assertEqual(run.merge_record(wt, sha), {"health": {"command": "curl -fsS https://acme.test/ok"}})
+        self.assertEqual(watch.merge_record(wt, sha), {"health": {"command": "curl -fsS https://acme.test/ok"}})
         wt, sha = self.delivered("silent", bare)
-        self.assertEqual(run.merge_record(wt, sha), {})
-        self.assertEqual(run.merge_record(None, sha), {})           # no checkout at hand: the tick reads GitHub's
+        self.assertEqual(watch.merge_record(wt, sha), {"health": {}})
+        self.assertEqual(watch.merge_record(None, sha), {})         # no checkout at hand: the tick reads GitHub's
         # the wait reads that record and nothing else: a checkout's own file decides nothing
         self.merged("recorded", health=True, tree=bare)
         self.assertTrue(watch.awaiting_live(json.loads((self.runs / "recorded" / "run.json").read_text())))
@@ -88,7 +103,8 @@ class LiveCheckWait(MergedRuns):
 
     def test_what_is_his_below_outranks_the_wait(self):
         """A handed-back run left undecided, a run failed after the seat's done, a watcher's
-        alert: each is his, so each keeps the word it reads without the wait."""
+        alert: each is his, so each keeps the word it reads without the wait, and keeps it once
+        the card pass has read it -- a done it drops for a failed run is only marked seen."""
         undecided = {"state": "interrupted", "interruption_reason": "the host restarted",
                      "recovery_pending": True}
         for name, run_state, notice in (
@@ -107,6 +123,8 @@ class LiveCheckWait(MergedRuns):
                 with patch.object(config, "STATE", self.state):
                     config.notify_path(SEAT).write_text(json.dumps(
                         {"session": SEAT, "time": time.time() - 30, **notice}))
+                self.assertEqual(self.word()["word"], "needs you")
+                self.assertEqual(self.card_pass(), "needs you")
                 self.assertEqual(self.word()["word"], "needs you")
 
 

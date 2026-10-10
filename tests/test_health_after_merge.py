@@ -320,12 +320,16 @@ class HealthAfterMerge(unittest.TestCase):
         sha = self.declare(None)
         directory = self.merged(sha)
         (self.repo / "AGENTS.md").write_text("---\nhealth: exit 0\n---\n")
-        self.tick()
-        self.probes.assert_not_called()
-        self.assertEqual(self.lines, [])
-        self.assertNotIn("live_at", record.read_state(directory))
-        self.ci = ("failed", "release-gate", PR + "/checks")
-        self.tick()
+        with patch.object(run, "declared_at", wraps=run.declared_at) as read:
+            self.tick()
+            self.probes.assert_not_called()
+            self.assertEqual(self.lines, [])
+            self.assertNotIn("live_at", record.read_state(directory))
+            # what the merge commit declares is recorded, none included, and read once
+            self.assertEqual(record.read_state(directory)["health"], {})
+            self.ci = ("failed", "release-gate", PR + "/checks")
+            self.tick()
+        self.assertEqual(read.call_count, 1)
         self.assertEqual(self.lines, [(SEAT, watch.after_merge_line(
             "release-gate", "main", PR + "/checks"))])
 

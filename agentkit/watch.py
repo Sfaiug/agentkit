@@ -2263,12 +2263,16 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
     # probe, read every tick (`awaiting_live`), so the stop hook, this word and the card it
     # decides agree that nothing here is his.  Only where nothing below is his either: a run
-    # parked or undecided (the hook's `unfinished`, which it puts first), a declaration a
-    # failed run dropped, or a watcher's alert keeps the word the rungs below give it
-    held = (parked or any(run_mod.unfinished(state, index=index) for _, state in mine)
-            or (last and (last["kind"] != "done" or notify.failed_declaration(last, mine, index))))
-    pending = [] if held else [state for _, state in mine if awaiting_live(state, now=at)]
-    if pending:
+    # parked or undecided (the hook's `unfinished`, which it puts first), a run failed after
+    # the seat's own done, or a watcher's alert keeps the word the rungs below give it.  That
+    # done is read as the card pass leaves it, dropped or not: its drop only marks it seen.
+    pending = [state for _, state in mine if awaiting_live(state, now=at)]
+    declared = notify.last(name, include_seen=True) if pending else None
+    if pending and not (
+            parked or any(run_mod.unfinished(state, index=index) for _, state in mine)
+            or (last and last["kind"] != "done")
+            or (declared and declared["kind"] == "done" and not notify.job_done(declared)
+                and notify.failed_declaration(declared, mine, index))):
         newest = max(pending, key=lambda state: state.get("finished_at") or 0)
         title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
         return {"word": "working", "reason": f"waiting on the live check · {title}".rstrip(" ·"),
@@ -5716,7 +5720,7 @@ def awaiting_live(state, now=None):
     """A merged run whose project proves itself live (`health:`) and has not yet: ak's own
     probe, read every tick, so its seat has nothing to do but wait on it -- the stop hook lets
     the turn end on it and the seat's ladder reads it as working.  Whether the project proves
-    itself is the one record the merge left (`run.merge_record`) and the tick keeps until it
+    itself is the one record the merge left (`merge_record`) and the tick keeps until it
     passes (`after_merge_health`); nothing is read again here."""
     now = time.time() if now is None else now
     finished = state.get("finished_at")
@@ -5727,25 +5731,48 @@ def awaiting_live(state, now=None):
     return bool((state.get("health") or {}).get("command"))
 
 
+def merge_record(repo, sha, pr_url=None):
+    """What a merge leaves on its run's record beside `merged`, the one record the tick
+    (`after_merge_health`) and the seat's word (`awaiting_live`) read: the `health:` the
+    commit `sha` declares, `{}` where it declares none.  Read in `repo`, else from the PR's
+    repository on GitHub where `pr_url` names one; nothing where neither holds the commit,
+    and the tick asks again."""
+    from . import run
+    if not sha:
+        return {}
+    if repo and run.git_out(repo, "cat-file", "-e", f"{sha}^{{commit}}")[0] == 0:
+        command = run.declared_at(repo, sha, "health")
+    else:
+        # The merge may exist only on GitHub; discovering health must not depend on origin.
+        parsed = after_merge_repo(pr_url)
+        if not parsed:
+            return {}
+        owner, name, host, _ = parsed
+        api = ("api",) if host == "github.com" else ("api", "--hostname", host)
+        data, _ = gh_json(config.RUNS, *api,
+                          f"repos/{owner}/{name}/contents/AGENTS.md?ref={sha}",
+                          timeout=HEALTH_TIMEOUT)
+        if not (isinstance(data, dict) and data.get("encoding") == "base64"):
+            return {}
+        text = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+        command = run.front_value(text, "health")
+    return {"health": {"command": command} if command else {}}
+
+
 def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes):
     """Follow the merge's declaration in its original checkout, stopping at its first pass."""
     from . import history, run
     inside = now - st["finished_at"] < AFTER_MERGE_WINDOW
+    if not st.get("live_at") and "health" not in st and inside and st.get("repo"):
+        # a merge that could not read its commit, or one recorded before merges did: the
+        # commit it delivered decides, as it would have there, recorded once for both readers
+        found = merge_record(st["repo"], st.get("delivery_sha") or sha, pr_url)
+        if found and not dry_run:
+            with run_record.record(run_dir) as current:
+                current.update(found)
+        st.update(found)
     health = st.get("health") or {}
     command = health.get("command")
-    if not st.get("live_at") and not command and inside and st.get("repo"):
-        if run.git_out(st["repo"], "cat-file", "-e", f"{sha}^{{commit}}")[0] == 0:
-            command = run.declared_at(st["repo"], sha, "health")
-        else:
-            # The merge may exist only on GitHub; discovering health must not depend on origin.
-            owner, repo, host, _ = after_merge_repo(pr_url)
-            api = ("api",) if host == "github.com" else ("api", "--hostname", host)
-            data, _ = gh_json(config.RUNS, *api,
-                              f"repos/{owner}/{repo}/contents/AGENTS.md?ref={sha}",
-                              timeout=HEALTH_TIMEOUT)
-            if isinstance(data, dict) and data.get("encoding") == "base64":
-                text = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
-                command = run.front_value(text, "health")
     if not st.get("live_at"):
         if not command:
             return None
