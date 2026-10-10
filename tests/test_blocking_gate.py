@@ -4,7 +4,8 @@ Before the reviewer runs, ak replays each earlier blocking finding's proof on th
 review, a new one or the same again: one still failing blocks whatever the reviewer hands in,
 one fixed is a note, and the ones at a disputed site, or quoted, are left to the reviewer.  The
 reviewer is given the diff since the commit the last review judged, and a new finding that
-would block outside that delta is kept as a note: it was judged in an earlier round.  A review of
+would block outside that delta is kept as a note, unless its proof passes on that commit: the
+fix broke it.  A review of
 the same commit again (a fixer turn that left no commit) judges the whole change.  Offline: a
 real git repository, a reviewer scripted to hand in.
 """
@@ -198,6 +199,17 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.records("finding"), [])
         self.assertEqual(self.records("note"), [("api.py", 1, "fixed; its proof passes now")])
         self.assertEqual(self.lp.state["round_summaries"][-1]["finding_count"], 0)
+
+    def test_a_line_the_fix_broke_blocks_outside_the_fix_delta(self):
+        self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed)), "FAIL")
+        # the fix mends the mode and clobbers lines 2 (the change's) and 3 (never touched) below:
+        # both proofs pass on the commit round one judged, and fail now
+        self.write('mode = "fixed"\nflag = "branch"\nextra = 1\nflag = None\ndel extra\n', "Fix the mode")
+        self.assertEqual(self.review(finding("api.py:2", "the fix makes flag None",
+                                             probe("isinstance(api.flag, str)")),
+                                     finding("api.py:3", "the fix deletes extra",
+                                             probe('getattr(api, "extra", None) == 1'))), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 2, ""), ("api.py", 3, "")])
 
     def test_a_round_after_a_landing_re_review_gets_the_delta_and_the_replay(self):
         # a landing re-review judges the whole change and records nothing of its own ...

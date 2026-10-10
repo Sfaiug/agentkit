@@ -3986,7 +3986,8 @@ def replay_section(replayed, left, since):
             + ("\n\n## Earlier findings left to you\n" + "\n".join(yours) if yours else "")
             + "\nA finding still failing blocks whatever you hand in; one you hand in again at its "
               "site with its proof is weighed as ak's replay is; one fixed needs no word. "
-            + (f"A new finding blocks only inside the fix delta since {since[:12]}." if since else
+            + (f"A new finding blocks only inside the fix delta since {since[:12]}, or with a "
+               "proof that passes on that commit: the fix broke it." if since else
                "This is the commit the last review judged, again: a new finding blocks "
                "wherever it is in the change."))
 
@@ -3995,11 +3996,11 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     """The reviewer's editable copy cannot decide what blocks the reviewed commit.
 
     In a later round (`since` names the commit the last review judged) a new finding blocks
-    only inside the fix delta; one handed in again at an earlier finding's site upholds it (a
-    dispute the reviewer rejects) and is weighed as ever.  ak's own replay of the earlier
-    findings (`replayed`) is weighed with the reviewer's: one still failing blocks whether or
-    not the reviewer handed it in again, one fixed is a note; each stands at the line it was
-    handed in at."""
+    only inside the fix delta, or with a proof that passes on `since`; one handed in again at
+    an earlier finding's site upholds it (a dispute the reviewer rejects) and is weighed as
+    ever.  ak's own replay of the earlier findings (`replayed`) is weighed with the
+    reviewer's: one still failing blocks whether or not the reviewer handed it in again, one
+    fixed is a note; each stands at the line it was handed in at."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
@@ -4047,9 +4048,13 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             if not lp.scratch and not changed_line(lp, row, head):
                 kind = "follow-up"
         # a defect from before the task is a follow-up above, whichever round finds it: only
-        # what would still block is held to the fix delta
+        # what would still block is held to the fix delta, and a proof passing on the commit
+        # the last review judged shows the fix broke that line, wherever it is
         outside = (kind == "finding" and since and (row["path"], row["line"]) not in earlier
                    and not changed_line(lp, row, head, since))
+        if outside and "run" in evidence:
+            outside = hand_in.proof_failed(proof_on(
+                lp, evidence["run"], lp.round_dir / f"proof-{index}-since.log", since, head))
         row = {**row, "kind": "note" if outside else kind, "evidence": evidence}
         if outside:
             row["outside"] = f"the fix delta since {since[:12]}; judged in an earlier round"
