@@ -134,6 +134,16 @@ class SpentSeat(SeatAccount):
         self.assertEqual(config.session_records()[NAME]["account"], "second")
         self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
 
+    def test_a_wrapped_turn_on_another_account_goes_on_at_home(self):
+        (self.root / ".claude-second").mkdir()
+        (self.root / ".claude-second/projects").symlink_to(self.root / ".claude/projects")
+        config.update_session(NAME, account="second")
+        self.meters(20, 20)       # only the note in its transcript says the window is spent
+        self.wrapped()
+        self.tick()
+        self.assertEqual(config.session_records()[NAME]["account"], "default")
+        self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
+
     def test_a_wrapped_turn_prompted_since_or_done_since_stays_idle(self):
         cases = {"prompted": lambda: self.wrapped(self.entry(30, "user", "Thanks, stop here.")),
                  "done": lambda: (self.wrapped(),

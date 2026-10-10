@@ -7639,7 +7639,7 @@ def planned_followups(state):
     refused = [f"{entry['outcome']} ({entry['refused']})" for entry in entries
                if "refused" in entry]
     checked = ("checked by the reviewer's probe until its fix is on the default branch or "
-               "`ak plan check N` puts your own test in its place. ")
+               "`ak plan check N` puts your own test in its place and makes the line yours. ")
     return ((f"Review follow-ups now deferred in your plan: {'; '.join(deferred)}, each fixed "
              f"by a run of its own and {checked}" if deferred else "")
             + (f"Review follow-ups now in your plan, yours to build: {'; '.join(owed)}, each "
@@ -8213,6 +8213,24 @@ def run_depth():
     if not value.isascii() or not value.isdigit():
         raise config.Error("AK_RUN_DEPTH must be a non-negative integer")
     return int(value)
+
+
+def seat_refusal(opts, flags):
+    """Why a seat's launch is refused: a seat names no model, no place in the queue and no
+    second run of a change under way, since ak picks the models by budget, decides what goes
+    first and refuses the rival itself.  A seat is a recorded session (`config.session_records`);
+    a shell naming none is no seat, and outside a seat the flags stand.  So do a queued child's,
+    which `spawn_bg` starts under the seat's name: they are ak's own pick (a job's rerun on the
+    next executor) or the seat's launch, judged at its parsing."""
+    seat = config.current_session()
+    if not seat or seat not in config.session_records() or os.environ.get(config.RUN_DIR_ENV):
+        return None
+    given = ([flag for flag in ("--exec", "--review") if opts.get(flag)]
+             + [flag for flag in ("--anyway", "--first") if flags.get(flag)])
+    if given:
+        return (f"{', '.join(given)}: not a seat's; ak picks the models by budget, decides what "
+                "goes first and refuses a second run of a change under way, so launch without")
+    return None
 
 
 def depth_refused():
@@ -11780,6 +11798,9 @@ def main(argv):
         else:
             positional.append(arg)
             i += 1
+    refused = seat_refusal(opts, flags)
+    if refused:
+        raise config.Error(refused)
     if opts["--review-pr"]:
         if positional or opts["--rounds"] or opts["--exec"] or flags["--no-worktree"] \
                 or opts["--parallel"] is not None:

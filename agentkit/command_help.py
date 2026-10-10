@@ -72,6 +72,8 @@ a task over 3 rounds is refused regardless.
 --no-worktree uses the repo's current branch; --no-merge keeps work local.
 --bg detaches and prints a launch receipt, run ID and result path.
 --first admits the run ahead of every queued run without it, skipping the count cap and the CPU gate; a heavy suite turn still goes by wait.
+From a seat, --exec, --review, --anyway and --first are refused: ak picks the models by budget,
+decides what goes first and refuses a second run of a change under way.
 Several task files run as one job of independent pieces; --parallel caps it.
 max_runs caps the count when positive; 0 leaves host memory and ak's CPU pressure as the gates
 (config.toml or AK_MAX_RUNS).

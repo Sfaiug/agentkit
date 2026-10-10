@@ -39,7 +39,7 @@ class PhaseRows(unittest.TestCase):
     def test_each_step_and_wait_is_one_row_in_order_adding_up_to_the_columns(self):
         history.open_step("r1", "executor", 100)
         self.assertEqual(history.phases("r1"),
-                         [{"phase": "executor", "started_at": 100, "ended_at": None}])
+                         [{"phase": "executor", "started_at": 100, "ended_at": 100}])
         history.open_step("r1", "done-when", 160)          # the executor's row ends, the check's opens
         history.close_step("r1", 190, keep=True)            # a checkpoint moves the end, adds no row
         history.add_wait("r1", "slot", 30, 250)             # a wait is whole, ended when counted
@@ -64,6 +64,17 @@ class PhaseRows(unittest.TestCase):
                 counted = gate.count_wait("r1", "slot", counted)
         self.assertEqual(history.phases("r1"),
                          [{"phase": "slot wait", "started_at": 200, "ended_at": 290}])
+
+    def test_a_loop_dying_before_its_first_checkpoint_leaves_no_endless_row(self):
+        history.open_step("r1", "executor", 100)
+        history._OPEN.clear()                               # the loop died, killed or out of memory
+        history.open_step("r1", "executor", 90000)          # a resume: a new attempt's step
+        history.close_step("r1", 90020)
+        history.finish_run("r1", final_state="pass", finished_at=90020)
+        self.assertEqual(history.phases("r1"), [
+            {"phase": "executor", "started_at": 100, "ended_at": 100},     # counted nothing, as its column
+            {"phase": "executor", "started_at": 90000, "ended_at": 90020}])
+        self.assertEqual(history.get("r1")["executor_seconds"], 20)
 
     def test_a_run_with_no_row_keeps_no_phases(self):
         history.open_step("r2", "executor", 100)
