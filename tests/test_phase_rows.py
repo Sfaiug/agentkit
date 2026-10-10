@@ -126,7 +126,7 @@ class TimeSplit(PhaseRows):
         self.ended("solo", "solo", -4, -3, "pass", ("executor", -4, -3.5),
                    ("done-when", -3.5, -3.25), ("suite wait", -3.25, -3))
         self.ended("open", "open", -3, -2, "fail", ("executor", -3, -2))          # merged nothing
-        self.assertEqual(scoreboard.split_hours("b"), {"model": 0.75, "ak": 0.75, "waiting": 2.25})
+        self.assertEqual(scoreboard.split_hours(history.get("b")), {"model": 0.75, "ak": 0.75, "waiting": 2.25})
         [this_week, before] = scoreboard.compute(NOW)["merged"]
         self.assertEqual({part: round(value, 3) for part, value in this_week.items()},
                          {"model": 1.875, "ak": 0.625, "waiting": 1.375, "seat": 1.0})
@@ -135,7 +135,21 @@ class TimeSplit(PhaseRows):
             self.assertIn("merged    median hours per merged change: 1.9 in model turns, 0.6 ak's own "
                           "work, 1.4 waiting, 1.0 with its seat between runs", "\n".join(scoreboard.render()))
 
+    def test_a_change_whose_run_ended_before_any_step_counts_with_that_run_at_zero(self):
+        # a review run its fetch ended in error right after its launch receipt, relaunched by its seat
+        self.ended("early", PR, -5, -4.5, "error")
+        self.ended("late", PR, -3, -1, "pass", ("executor", -3, -2))
+        self.assertEqual(scoreboard.split_hours(history.get("early")), {"model": 0.0, "ak": 0.0, "waiting": 0.0})
+        self.assertEqual(scoreboard.compute(NOW)["merged"][0],
+                         {"model": 1.0, "ak": 0.0, "waiting": 0.0, "seat": 1.5})
+
     def test_a_change_with_a_run_from_before_the_phase_rows_is_not_recorded(self):
+        # its columns count seconds no row holds: a run from before the rows, or one that began
+        # before them and ended after, with rows for its later part only
+        self.ended("spanning", "spanning", -6, -1, "pass", ("merge wait", -2, -1))
+        history.add_seconds("spanning", "executor", HOUR)
+        self.assertIsNone(scoreboard.split_hours(history.get("spanning")))
+        self.assertIsNone(scoreboard.compute(NOW)["merged"][0])
         history.start_run("old", repo="/home/fixture/code/acme", started_at=NOW - 2 * HOUR, change="old")
         history.add_seconds("old", "executor", HOUR)
         history.finish_run("old", final_state="pass", finished_at=NOW - HOUR, changed_lines=0)
