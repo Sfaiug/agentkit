@@ -1,7 +1,7 @@
 """A later review round re-proves the earlier findings itself: ak replays each earlier `--run`
 finding's proof on the commit under review, a new one or the same again, before the reviewer
 runs; one still failing blocks whatever the reviewer hands in, one fixed is a note, and the
-disputed ones are left to the reviewer.  Offline: a real git repository, a scripted reviewer
+ones at a disputed site are left to the reviewer.  Offline: a real git repository, a scripted reviewer
 that hands in through `ak hand-in`.
 """
 
@@ -176,27 +176,29 @@ out = pathlib.Path(sys.argv[6])
                       self.prompt())
         self.assertEqual(self.records("finding"), [("api.py", 1, "still failing; it blocks until its proof passes")])
 
-    def test_a_dispute_silences_only_the_finding_it_names(self):
+    def test_a_dispute_leaves_every_finding_at_its_site_to_the_reviewer(self):
+        # a dispute names its site, not one finding there: ak replays none of them, and a
+        # dispute nobody upheld is dropped
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed),
                                      finding("api.py:2", "flag is misnamed", self.never)), "FAIL")
-        self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode only")
+        self.write('mode = "branch"\nflag = "fixed"\nextra = 1\n', "Fix the flag; the name is right")
         self.dispute("api.py", 2, "flag is wrong", probe("True"))
-        self.assertEqual(self.review(), "FAIL")
-        self.assertEqual(self.records("finding"), [("api.py", 2, "still failing; it blocks until its proof passes")])
+        self.assertEqual(self.review(), "PASS")
+        self.assertEqual(self.records("finding"), [])
         prompt = self.prompt()
-        self.assertIn("api.py:2 - flag is misnamed - still fails", prompt)
         self.assertIn("api.py:2 - flag is wrong - disputed by the fixer", prompt)
-
-    def test_a_dispute_nobody_upheld_is_dropped_though_ak_blocks_at_its_site(self):
-        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed),
-                                     finding("api.py:2", "flag is misnamed", self.never)), "FAIL")
-        self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode only")
-        self.dispute("api.py", 2, "flag is wrong", probe("True"))
-        self.assertEqual(self.review(), "FAIL")            # ak's replay of the other finding blocks there
-        self.assertEqual(self.records("finding"), [("api.py", 2, "still failing; it blocks until its proof passes")])
+        self.assertIn("api.py:2 - flag is misnamed - disputed by the fixer", prompt)
         [dropped] = self.lp.state["disputes"]
         self.assertTrue(dropped.startswith("Dropped: api.py:2 - flag is wrong"), dropped)
 
+    def test_a_finding_the_reviewer_hands_in_again_at_a_disputed_site_blocks(self):
+        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed),
+                                     finding("api.py:2", "flag is misnamed", self.never)), "FAIL")
+        self.write('mode = "branch"\nflag = "fixed"\nextra = 1\n', "Fix the flag; the name is right")
+        self.dispute("api.py", 2, "flag is wrong", probe("True"))
+        self.assertEqual(self.review(finding("api.py:2", "flag is misnamed", self.never)), "FAIL")
+        self.assertEqual(self.records("finding"), [("api.py", 2, "")])
+        self.assertNotIn("disputes", self.lp.state)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

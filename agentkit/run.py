@@ -4073,15 +4073,14 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         work = f"## Diff ({lp.base}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
         if record and delta_from and earlier:
             # a later round, on a new commit or the same again: ak re-proves the earlier
-            # findings itself, so the reviewer re-finds nothing.  A finding the fixer disputed
-            # (a dispute names one finding, not every one at its site) is the reviewer's to
+            # findings itself, so the reviewer re-finds nothing.  A finding at a site the fixer
+            # disputed (a dispute names its site, as its drop is weighed) is the reviewer's to
             # weigh, and a quote is no failing proof: both are listed, not replayed
-            disputed = {(row["finding"]["path"], row["finding"]["line"], row["finding"].get("what"))
-                        for row in dispute_rows(lp)}
+            disputed = {(row["path"], row["line"]) for row in dispute_rows(lp)}
             proven = [row for row in earlier if "run" in (row.get("evidence") or {})
-                      and (row["path"], row["line"], row.get("what")) not in disputed]
+                      and (row["path"], row["line"]) not in disputed]
             left = [(row, "disputed by the fixer: hand it in again to uphold it"
-                     if (row["path"], row["line"], row.get("what")) in disputed
+                     if (row["path"], row["line"]) in disputed
                      else "a quote, which ak cannot re-prove: hand it in again if it still stands")
                     for row in earlier if row not in proven]
             replayed = replay_findings(lp, proven, git(lp.wt, "rev-parse", head))
@@ -4263,7 +4262,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         identity != validation or commit_identity(lp.wt) != identity
         or (not lp.state.get("review_pr") and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
     submitted = weigh_review(lp, submitted, identity.get("head_sha"), replayed=replayed)
-    upheld = {(row["path"], row["line"]) for row in submitted.findings if not row.get("replayed")}
+    upheld = {(row["path"], row["line"]) for row in submitted.findings}
     for row in disputes.disputes:
         if (row["path"], row["line"]) not in upheld:
             dropped = lp.state.setdefault("disputes", [])
@@ -4326,10 +4325,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     if validation.get("head_sha"):
         lp.state["delta_from"] = validation["head_sha"]     # every review, recorded or not
     lp.save()
+    own = hand_in.Review([row for row in submitted.records if not row.get("replayed")])   # ak's replays are no reviewer's catch
     history.record_review(lp.state.get("run_id"), str(out),
                           harness=review_harness, model=review_model,
-                          blocking=len(submitted.findings), followup=len(submitted.preexisting),
-                          note=len(submitted.notes), log=lp.log)
+                          blocking=len(own.findings), followup=len(own.preexisting),
+                          note=len(own.notes), log=lp.log)
     return verdict
 
 

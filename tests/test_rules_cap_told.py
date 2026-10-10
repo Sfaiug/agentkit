@@ -77,7 +77,8 @@ class RulesCapTold(unittest.TestCase):
             text = f"VERDICT: {verdict}\n## Findings\n- {finding}\n{self.review_extra}"
         else:
             text = "## Summary\nAcme work.\n"
-        (workspace / "deliverable").write_text("acme\n")
+            # a fixer's turn changes the cited file, as a fix does: its replayed proof reads fixed
+            (workspace / "deliverable").write_text(f"acme {len(self.prompts)}\n")
         return 0, text, "acme-session", False
 
     def launch(self, prior=None):
