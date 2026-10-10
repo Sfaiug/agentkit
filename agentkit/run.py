@@ -2939,8 +2939,9 @@ def unknown_front_lines(text):
 def needs_base_proof(lp):
     """A run launched under the rule owes one until a check fails on base, as its record
     says; one launched before it owes none -- a process change applies to the next launch.
-    A fix run's receipt says it proves its regression.sh instead (`regression_fails_before`),
-    a repair's that it is proven at landing, and a scratch run's record that it has no base."""
+    A fix run with no check of the reviewer's says it proves its regression.sh instead
+    (`regression_fails_before`), a repair's that it is proven at landing, and a scratch run's
+    record that it has no base."""
     return lp.state.get("base_proof") == "owed"
 
 
@@ -3380,12 +3381,14 @@ def repair_open(state, tip):
         and not state.get("merged") and state.get("repair_tip") == tip)
 
 
-def open_followup(state, text, repair=None, tip=None, split=None):
+def open_followup(state, text, repair=None, tip=None, split=None, check=None):
     """The open run already fixing `text`, or None.
 
-    A follow-up is the same site in the same repository from the same seat.  A `repair` is
-    the same repository, target and command from any seat, open at the target's `tip`: the
-    target is everybody's. A suite split holds its line forever, and its repository while open.
+    A review follow-up is the same `check` in the same repository from the same seat: a run
+    whose done-when is that command fixes it, whatever its words; any other follow-up is the
+    same site.  A `repair` is the same repository, target and command from any seat, open at
+    the target's `tip`: the target is everybody's.  A suite split holds its line forever,
+    and its repository while open.
     """
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
@@ -3399,7 +3402,8 @@ def open_followup(state, text, repair=None, tip=None, split=None):
                 and other.get("repair") == repair
                 and (repair_open(other, tip) if repair else
                      launched_session(other) == launched_session(state)
-                     and other["followup"]["place"] == followup_place(text)
+                     and (other["followup"].get("check") == check if check
+                          else other["followup"]["place"] == followup_place(text))
                      and followup_open(other))):
             return directory.name
     return None
@@ -3408,9 +3412,15 @@ def open_followup(state, text, repair=None, tip=None, split=None):
 def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     """A merge hands its follow-ups on, once, under the same lock that closes the seat.
 
-    A review follow-up becomes a line in the seat's own plan, checked by its failing command:
-    the seat builds it with the context it already has.  Anything else on the list (a flaky
-    check's evidence) starts an ordinary run.  The receipt is written once the list is handed
+    A review follow-up becomes a line in the seat's own plan, checked by its failing command,
+    and a fix run of its own with that command as its done-when: every planned item's line is
+    written in one place, once the runs are settled, however the loop ended -- deferred,
+    holding no done, where a run has the item (started here, or open with that check from
+    an earlier merge), and the seat's own to build where none does: the session marks no
+    executor, the launch failed, or a stop cut the loop short; a line an earlier merge wrote
+    is kept, its mark following.  Anything else on the list (a flaky check's
+    evidence) starts an ordinary run with a regression test of its own.  The receipt is
+    written once the list is handed
     on: a process cut off before that hands it on again, and each item finds what the cut-off
     one already did -- its open plan line, the fix run it started.  A fix run waits for its slot
     from its first record on, so one the cut left before its launch is a slot wait the tick
@@ -3444,16 +3454,29 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             return None
         request = repair or split
         checks = {} if request else state.get("followup_checks") or {}
+        commits = {} if request else state.get("followup_commits") or {}
         items = [request["text"]] if request else state["followups"]
         planned = [item for item in items if item in checks]   # the seat's own, executors or not
         repo = main_checkout(Path(state["repo"])) if planned else None
-        proven = state.get("followup_commits") or {}
-        handed = {"followup_runs": [], "followup_plan": [
-            plan_followup(session, repo, item, checks[item], proven.get(item, state.get("base_sha")), log)
-            for item in planned]}
-        cfg = report_config(cfg)
         record = config.session_records().get(config.resolve_session(session), {})
-        if record.get("workers") == []:
+        fixers = record.get("workers") != []      # a run can take a line; else the seat does
+        handed = {"followup_runs": [], "followup_plan": []}
+        taken = set()       # the items a run has: started here, or already open with the check
+
+        def plan_lines():
+            """Every planned item's line, once, however the loop ended: deferred where a run
+            has it (taken here, or open with its check from an earlier merge, which a stop
+            or a seat with no executor never asked), the seat's own to build otherwise."""
+            handed["followup_plan"] = [
+                plan_followup(session, repo, item, checks[item],
+                              commits.get(item) or state.get("base_sha"), log,
+                              deferred=item in taken or bool(open_followup(
+                                  {**state, "repo": str(repo)}, item, check=checks[item])))
+                for item in planned]
+
+        cfg = report_config(cfg)
+        if not fixers:
+            plan_lines()
             return None if request else followups_handed(run_dir, state, handed)
         repo = repo or main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
@@ -3463,18 +3486,18 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 return previous
         key = repair and {"target": target, "command": repair["command"]}
         for item in items:
-            if item in planned:
-                continue
             started = None if request else started_by(run_dir, item)
             if started:
                 handed["followup_runs"].append(started)
+                taken.add(item)
                 continue
             source = {**state, "repo": str(repo)}
             opened = open_followup(source, item, key, repair and repair["sha"],
-                                   split and split["command"])
+                                   split and split["command"], check=checks.get(item))
             if opened and request:
                 return opened
             if opened:
+                taken.add(item)
                 continue
             title = ("Split the slow test suite" if split else
                      f"Make {target} pass `{repair['command']}` again" if repair
@@ -3489,15 +3512,16 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                         f"# {title}\n\n{item}\n\n")
                 if split:
                     task += f"## Done when\n```bash\n{split['check']}\n```\n"
-                elif repair:
+                elif repair or item in checks:
+                    # the check is a given failing command, the target's own for a repair and the
+                    # reviewer's for a follow-up, and the run makes it pass: one task for both
                     task += (
-                        "First fetch the target branch and run the command on its tip. If it "
-                        'passes there now, run `ak hand-in not-needed "<why>"`, '
-                        "with no edits or PR. Otherwise make the target pass it "
-                        "again: fix the root cause, and show the command failing before the fix "
-                        "and passing afterwards in your summary. If only the owner can decide, "
+                        "First fetch the target branch and run the command below on its tip. If it "
+                        'passes there now, run `ak hand-in not-needed "<why>"`, with no edits or PR. '
+                        "Otherwise fix the root cause so it passes, and show it failing before the "
+                        "fix and passing afterwards in your summary. If only the owner can decide, "
                         'run `ak hand-in blocked "<question>"`.\n\n'
-                        f"## Done when\n```bash\n{repair['check']}\n```\n")
+                        f"## Done when\n```bash\n{repair['check'] if repair else checks[item]}\n```\n")
                 else:
                     task += (
                         "First fetch the target branch and check that this defect still exists there. "
@@ -3518,20 +3542,24 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 if split:
                     gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
                 launch_for_seat(directory, state, {
-                    "followup": {"run": run_dir.name, "text": item, "place": followup_place(item)},
+                    "followup": {"run": run_dir.name, "text": item, "place": followup_place(item),
+                                 **({"check": checks[item]} if item in checks else {})},
                     # a repair's only check is the target's own, run at landing: its
                     # before is the lander's run of it on the target tip, where it did
                     # not pass, and no round has a check of its own to replay on base
                     **({"repair": key, "repair_tip": repair["sha"],
                         "base_proof": "at landing"} if repair else {}),
                     **({"split_suite": split["command"]} if split else {}),
-                    # a fix run is proven by its own regression.sh
-                    # (`regression_fails_before`), not by its checks on base
-                    **({} if repair or split else {"base_proof": "regression.sh"}),
+                    # a fix run with no check of the reviewer's is proven by its own
+                    # regression.sh (`regression_fails_before`), not by its checks on base
+                    **({} if repair or split or item in checks else {"base_proof": "regression.sh"}),
                     "repo": str(repo)}, cfg, opts={"--first": True} if request else {})
             except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
-                return None if request else followups_handed(run_dir, state, handed)
+                if request:
+                    return None
+                plan_lines()        # the lines of every item, this one and the rest owed
+                return followups_handed(run_dir, state, handed)
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 if split:
@@ -3545,7 +3573,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             if request:
                 return directory.name
             handed["followup_runs"].append(directory.name)
+            taken.add(item)
         if not request:
+            plan_lines()
             return followups_handed(run_dir, state, handed)
 
 
@@ -3573,14 +3603,17 @@ def followups_handed(run_dir, state, handed):
     save_result(run_dir, notices=(followup_report(state),))
 
 
-def plan_followup(session, repo, item, check, proven, log):
+def plan_followup(session, repo, item, check, proven, log, deferred=True):
     """Write one review follow-up into the seat's plan, unless an open line already holds its
-    check in this project; the entry the run's ending names it by, or why the plan refused it."""
+    check in this project; the entry the run's ending names it by, or why the plan refused it.
+    `proven` is the commit the check failed on, which the line names; the line is `deferred`
+    where a fix run has it.  The entry says how the plan holds the line: an open line that
+    already held the check is kept, deferred or the seat's own as this merge finds it."""
     from . import plan   # here, not at the top: a seat's small verb, this the loop
     outcome = "Fix " + item.splitlines()[0].replace("·", "-")
     try:
-        plan.add(session, outcome, check, repo, proven=proven)
-        entry = {"outcome": outcome}
+        line = plan.add(session, outcome, check, repo, proven=proven, deferred=deferred)
+        entry = {"outcome": outcome, "deferred": plan.deferred(line)}
     except (config.Error, OSError) as exc:
         entry = {"outcome": outcome, "refused": str(exc)}
     log(f"follow-up for {session}: {outcome}" + (f" (not planned: {entry['refused']})"
@@ -7596,14 +7629,21 @@ def failed_check(state):
 
 
 def planned_followups(state):
-    """The review follow-ups a merge handed to its seat, as the ending's sentence about them."""
+    """The review follow-ups a merge handed to its seat, as the ending's sentence about them:
+    the lines a fix run took (deferred, holding no done), the lines that are the seat's own
+    to build, and the lines its plan refused."""
     entries = state.get("followup_plan") or []
-    planned = [entry["outcome"] for entry in entries if "refused" not in entry]
+    planned = [entry for entry in entries if "refused" not in entry]
+    deferred = [entry["outcome"] for entry in planned if entry.get("deferred")]
+    owed = [entry["outcome"] for entry in planned if not entry.get("deferred")]
     refused = [f"{entry['outcome']} ({entry['refused']})" for entry in entries
                if "refused" in entry]
-    return ((f"Review follow-ups now in your plan, yours to build: {'; '.join(planned)}. "
-             "Each is checked by the reviewer's probe until `ak plan check N` puts your fix's "
-             "own test in its place. " if planned else "")
+    checked = ("checked by the reviewer's probe until its fix is on the default branch or "
+               "`ak plan check N` puts your own test in its place. ")
+    return ((f"Review follow-ups now deferred in your plan: {'; '.join(deferred)}, each fixed "
+             f"by a run of its own and {checked}" if deferred else "")
+            + (f"Review follow-ups now in your plan, yours to build: {'; '.join(owed)}, each "
+               f"{checked}" if owed else "")
             + (f"Review follow-ups your plan refused, yours to judge: {'; '.join(refused)}. "
                if refused else ""))
 
