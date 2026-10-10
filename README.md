@@ -2,7 +2,7 @@
 
 You talk. It ships.
 
-One command installs it. One word opens it. You tell one orchestrator what you want, and agentkit works until the change ships or it truly needs you. Then it tells you, once. Each orchestrator's rulebook opens with `What ak is for` from the agentkit checkout's `AGENTS.md`, where present.
+One command installs it. One word opens it. You tell one orchestrator what you want, and agentkit works until the change ships or it truly needs you. Then it tells you, once. Each orchestrator's rulebook opens with `What ak is for` from the agentkit checkout's `AGENTS.md`, where present, unless the project's `AGENTS.md` handed after it carries the same section: then it is read there, once.
 
 Jobs keep your words since the seat's previous job, capped at the newest 64 KiB, from Claude, Codex or Grok records. ak's notices are excluded; relayed owner replies count. Delivery checks will use them.
 

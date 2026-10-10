@@ -1,4 +1,5 @@
-"""The checkout's vision opens each new rulebook; launched seats keep their copy."""
+"""The checkout's vision opens each new rulebook, once: a seat whose project's AGENTS.md carries it reads
+it there; launched seats keep their copy."""
 
 from contextlib import ExitStack
 import os
@@ -65,6 +66,18 @@ class RulebookVision(unittest.TestCase):
                     expected = (self.body.rstrip() + "\n\n" + local
                                 if local and local.strip() else self.body)
                     self.assertEqual(rulebook.text(), expected)
+
+    def test_a_seat_whose_projects_agents_md_carries_the_vision_reads_it_once(self):
+        self.agents.write_text("# acme\n\n" + VISION)
+        for project, opens in (("# acme\n\n" + VISION + "\n## Working here\n\nTests.\n", False),
+                               ("# widget\n\n## Working here\n\nTests.\n", True)):
+            with self.subTest(opens=opens), \
+                    patch.object(config, "session_records", return_value={"acme": {"repo": "/x/acme"}}), \
+                    patch("agentkit.run.agents_body", return_value=project):
+                text = config.seat_rulebook("acme")
+                self.assertEqual(text.count("## What ak is for"), 1, text)
+                self.assertEqual(text.startswith(VISION.rstrip()), opens, text)
+                self.assertIn(project, text)            # the project's AGENTS.md stays whole
 
     def test_a_later_launch_reads_the_vision_without_changing_a_running_seat(self):
         self.agents.write_text(VISION)
