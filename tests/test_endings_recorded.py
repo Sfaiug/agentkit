@@ -121,6 +121,20 @@ class InTheComposer(RunNotice):
                 self.assertTrue(run.routine_ending(record.read_state(directory)))
                 self.assertEqual((self.keys, self.sent), ([], []))
 
+    def test_a_maintainers_decision_is_never_typed_into_a_running_turn(self):
+        directory, state = self.result("run-d", merged=False, pr=PR)
+        with patch.object(watch, "at_prompt", return_value=False), \
+                patch.object(run, "run_for_pr", return_value=(directory, state)):
+            self.assertFalse(watch.say(False, self.logs.append, "The maintainer requested changes",
+                                       PR, "fix-api"))
+        self.assertEqual((self.keys, self.sent), ([], []))      # the tick retries at a quiet prompt
+        with patch.object(watch, "at_prompt", return_value=True), \
+                patch.object(run, "run_for_pr", return_value=(directory, state)):
+            self.assertTrue(watch.say(False, self.logs.append, "The maintainer requested changes",
+                                      PR, "fix-api"))
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("The maintainer requested changes", self.sent[0])
+
     def test_a_merged_line_left_in_the_composer_is_sent_and_holds_no_later_ending_back(self):
         directory, state = self.result("run-m", merged=True, pr=PR, no_merge=False)
         line = run.handback_line(state, directory, self.cfg)

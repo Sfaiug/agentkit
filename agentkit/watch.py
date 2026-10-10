@@ -5639,8 +5639,8 @@ def say(dry_run, log, text, url, session, merged=False):
 
     Never to Discord.  The run learns it first, where the menu and `ak run status` were
     already showing `waiting for the maintainer` -- a seat that cannot be typed into never
-    holds that back -- and a live seat is typed the line, exactly as a review question is
-    put to the `inbox`.  A merge is the exception: routine, recorded on the run and typed
+    holds that back -- and a live seat is typed the line at its quiet prompt, never into a
+    running turn (`type_at_prompt`), exactly as a run's ending is.  A merge is the exception: routine, recorded on the run and typed
     into no seat, unless its run's seat owes work (`run.routine_ending`), as the follow-ups
     it put in that seat's plan.  A decision already on the run is not recorded again, so a
     retry after a failed typing tells the seat without recording twice or starting fix runs
@@ -5667,7 +5667,7 @@ def say(dry_run, log, text, url, session, merged=False):
         if run_dir:
             line = run.seat_notice(line, run_state, run_dir,
                                    f"run {run_dir.name}: the maintainer decided on its PR.")
-        if not type_into(seat, line, log):
+        if not type_at_prompt(seat, line, log):
             return False
         log(f"told the {seat['name']} seat: {text}")
         return True
