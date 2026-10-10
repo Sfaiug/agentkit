@@ -1,4 +1,4 @@
-"""Collisions between the live runs of one repository: the tick's scan, report-only.
+"""Collisions between the live runs of one repository: the tick's scan, and what it enforces.
 
 A run's lease is its own diff against the base it was cut from, uncommitted edits included
 as a commit would take them (`run.committable_paths`; what its checks generated is written
@@ -8,11 +8,14 @@ newer of their two bases first with main's side kept where the run clashes with 
 main's movement between the bases is nobody's diff and a run's conflict with main is not
 one with its neighbour.  A pair that cannot merge is written down on the younger run,
 by start, as waiting on the older (wait-die: the older never waits on the younger, so no
-cycle can form).  Nothing is refused here: the record under `~/.agentkit/state/leases/`
-and the tick's log line are what the refusals at ak's commit step, the git shim and the
-lander, and the restart on the newest main, stand on.  A diff counts only while its run is
-going (`run.going`) and its checkout is there; a record whose pair no longer collides, or
-whose holder is gone, is cleared on the next scan.
+cycle can form).  A younger run still before its review -- its executor turn, or ak's
+commit step, which runs this scan itself -- is stopped there with its branch kept, waiting
+on the holder (`park`): what it built cannot land as it is.  A younger run past that point,
+the review of a pull request, a job's task, a red target's repair and a suite's split are
+only written down: the lander orders their landings.  The record under
+`~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
+only while its run is going (`run.going`), is to land and its checkout is there; a record
+whose pair no longer collides, or whose holder is gone, is cleared on the next scan.
 """
 
 import fcntl
@@ -74,13 +77,14 @@ def write(repo, waits):
 
 
 def live(repo):
-    """The runs of that repository whose diffs count: going, cut from a base, with a checkout
-    of their own that is still there; oldest first by start."""
+    """The runs of that repository whose diffs count: going, to land (a `--no-merge` run, a
+    scratch one among them, keeps its work local and stands in nobody's way), cut from a base,
+    with a checkout of their own that is still there; oldest first by start."""
     from . import run
     found = []
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
-        if (not state or state.get("scratch") or not state.get("base_sha")
+        if (not state or state.get("no_merge") or not state.get("base_sha")
                 or not run.going(state) or not same_repo(state.get("repo"), repo)):
             continue
         worktree = Path(state.get("worktree") or "")
@@ -91,6 +95,29 @@ def live(repo):
                       "started": state.get("started_at") or 0,
                       "artifacts": state.get("artifacts") or []})
     return sorted(found, key=lambda each: (each["started"], each["run"]))
+
+
+def before_review(state):
+    """Whether the run is a build with nothing reviewed yet: no round with a verdict, and its
+    loop in its executor turn or at ak's commit step, where what it built can still be set
+    aside.  A pull request's review builds nothing to set aside, a job's task is its job's to
+    settle, as `run.parkable_conflict` leaves it, and a red target's repair and a suite's split
+    are waited on: stopped, either would hold its line (`run.repair_open`) or its suite
+    (`run.open_followup`) for good."""
+    return (not any(state.get(key) for key in ("review_pr", "job_id", "repair", "split_suite",
+                                               "round_summaries"))
+            and state.get("step") in (None, "executor", "done-when"))
+
+
+def park(entry, holder, files, now):
+    """Stop that run before its review, its branch and checkout kept, waiting on the holder:
+    the record says what it waits on (`lease_wait`).  Decided on the
+    record read under the stop's lock, as the scan takes a while: the state as stopped, or
+    None where the run had ended or reached its review meanwhile."""
+    from . import stop
+    why = f"waits on {holder}: both change {', '.join(files)}"
+    return stop.end(config.RUNS / entry["run"], keep=True, why=why, only_if=before_review,
+                    extra={"lease_wait": {"on": holder, "files": files, "since": now}})
 
 
 # One identity and moment for every commit the scan writes: a tree compared before hashes to
@@ -244,7 +271,10 @@ def collide(repo, older, younger, trees):
 def scan(repo, log=lambda _: None, now=None):
     """One repository's pass: each younger run that collides with an older one is written
     down as waiting on the oldest such holder, with the paths and since when; the rest of
-    the record is cleared.  Returns the record."""
+    the record is cleared.  A holder counts only while its record, read again, says it is
+    going: one this scan parked, or one that ended while it ran, holds no diff.  Returns the
+    record."""
+    from . import run
     now = time.time() if now is None else now
     home.cache_clear()          # repository identity is read afresh each scan
     before = read(repo)
@@ -254,14 +284,17 @@ def scan(repo, log=lambda _: None, now=None):
     for at, younger in enumerate(runs):
         for older in runs[:at]:
             files = collide(repo, older, younger, trees)
-            if not files:
+            if not files or not run.going(run_record.read_state(config.RUNS / older["run"]) or {}):
                 continue
             kept = before.get(younger["run"]) or {}
             since = kept.get("since") if kept.get("waits_on") == older["run"] else None
             waits[younger["run"]] = {"waits_on": older["run"], "files": files,
                                      "since": since if isinstance(since, (int, float)) else now}
+            stopped = park(younger, older["run"], files, now)
             log(f"collision: {younger['run']} and {older['run']} change the same lines of "
-                f"{', '.join(files)}; the younger would wait")
+                f"{', '.join(files)}; the younger "
+                + ("is stopped, its branch kept, waiting on the older" if stopped
+                   else "is only written down"))
             break
     if waits or before:
         write(repo, waits)
@@ -278,9 +311,15 @@ def scan_all(log=lambda _: None, now=None):
         if repo and not any(same_repo(repo, seen) for seen in repos):
             repos.append(repo)
     for repo in repos:
-        if not Path(repo).is_dir():
-            continue
-        try:
-            scan(repo, log, now)
-        except config.Error as exc:
-            log(f"WARN lease scan of {repo} did not finish: {exc}")   # the next repository still runs
+        if Path(repo).is_dir():
+            scan_safely(repo, log, now)
+
+
+def scan_safely(repo, log=lambda _: None, now=None):
+    """`scan`, a failure said and nothing more: it belongs to no one run (a checkout read
+    after its run ended, say), so it stops neither the tick's next repository nor the commit
+    step of the run that ran it."""
+    try:
+        scan(repo, log, now)
+    except (config.Error, OSError) as exc:
+        log(f"WARN lease scan of {repo} did not finish: {exc}")
