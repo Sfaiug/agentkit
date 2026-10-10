@@ -1124,7 +1124,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None):
     capped at 100 columns. A long last column wraps at word boundaries onto as many
     indented lines as it takes, so a seat's question is read whole on ak's own screen,
     whatever harness the seat runs; a block of more than `most` lines is cut to them, ending
-    in ` …`. A working seat's tasks bar takes the room the last column has. On a narrow phone
+    in `…`. A working seat's tasks bar takes the room the last column has. On a narrow phone
     the last column goes on its own line. Never cut inside a glyph or a colour sequence.
     """
     if widths is None:

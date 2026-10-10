@@ -441,7 +441,7 @@ mode drops the frame and the blank lines so every number stays reachable.
 Pages start with a collapsed overview (every project header, no numbers),
 then whole seat blocks packed under repeated headers, so a seat's lines never
 split across pages: one taller than a page is cut to it, its last line ending
-` …`. Rows keep their global numbers. The heading says which
+in `…`. Rows keep their global numbers. The heading says which
 page is up (`your projects 2/3`), and in compact mode the page is never the
 part that is cut. On a terminal the page up is the one the highlight is on,
 and there is no overview page, since the highlight is never on it; in a pipe
