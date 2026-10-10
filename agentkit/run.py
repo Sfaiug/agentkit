@@ -3389,15 +3389,17 @@ def repair_open(state, tip):
         and state.get("repair_tip") == tip)
 
 
-def open_followup(state, text, repair=None, tip=None, split=None, check=None, held=False):
+def open_followup(state, text, repair=None, tip=None, split=None, check=None, held=None):
     """The open run already fixing `text`, or None.
 
     A review follow-up is the same `check` in the same repository from the same seat: a run
     whose done-when is that command fixes it, whatever its words; any other follow-up is the
-    same site.  With `held`, a run that ended delivering it counts too: its deferred line is
-    its own until the line's check is run (`plan.taken`).  A `repair` is the same repository,
-    target and command from any seat, open at the target's `tip`: the target is everybody's.
-    A suite split holds its line forever, and its repository while open.
+    same site.  With `held`, the time its deferred line was written, a run that ended
+    delivering it since counts too: the line is its own until the line's check is run
+    (`plan.taken`); one that delivered before had only an earlier line.  A `repair` is the
+    same repository, target and command from any seat, open at the target's `tip`: the
+    target is everybody's.  A suite split holds its line forever, and its repository while
+    open.
     """
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
@@ -3413,7 +3415,8 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
                      launched_session(other) == launched_session(state)
                      and ((other["followup"].get("check") or "").strip() == check.strip() if check
                           else other["followup"]["place"] == followup_place(text))
-                     and (followup_open(other) or held and delivered(other)))):
+                     and (followup_open(other) or held is not None and delivered(other)
+                          and (other.get("finished_at") or 0) >= held))):
             return directory.name
     return None
 

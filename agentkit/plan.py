@@ -32,6 +32,7 @@ from . import command_help, config, terminal
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 EYE = "your eye"
 DEFERRED = " · deferred"
+STAMP = "%Y-%m-%d %H:%M"
 LINE = re.compile(r"^- \[(?P<mark>[ x])\] (?P<what>.+?) · (?:check: `(?P<check>[^`]+)`|"
                   + EYE + r") · (?P<project>.+?)(?P<deferred>" + re.escape(DEFERRED) + r")? · written "
                   r"(?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
@@ -370,17 +371,20 @@ def owed(name, line, proven=None):
 
 def taken(name, line, delivered=True):
     """Whether a deferred line is a run's: one of the seat's with the line's check in the
-    line's project, on its way or, with `delivered`, merged or not needed with it
-    (`run.open_followup`).  Read with the line, never written at an ending: once the fix run
-    ended without it -- failed, stopped, killed, a retry nobody makes any more -- the line is
-    the seat's own until its check passes."""
+    line's project, on its way or, with `delivered`, merged or not needed with it since the
+    line was written (`run.open_followup`).  Read with the line, never written at an ending:
+    once the fix run ended without it -- failed, stopped, killed, a retry nobody makes any
+    more -- the line is the seat's own until its check passes, whatever an older run with the
+    check delivered."""
     found = LINE.match(line.strip())
     if not (found and found["deferred"]):
         return False
     repo = place(name, found["project"])
+    written = time.mktime(time.strptime(found["when"], STAMP))
     from . import run   # here, not at the top: the loop is heavy for a seat's small verb
     return bool(repo and run.open_followup({"repo": str(repo.resolve()), "launched_session": name},
-                                           "", check=found["check"], held=delivered))
+                                           "", check=found["check"],
+                                           held=written if delivered else None))
 
 
 def undone(line, found):
@@ -543,7 +547,9 @@ def add(name, what, check=None, repo=None, proven=None, deferred=False):
                 if kept != old.strip():
                     write(current, [*text[:index], kept, *text[index + 1:]])
                 return kept
-        line = compose(what, proof, where, deferred, time.strftime("%Y-%m-%d %H:%M"), base)
+        # on the clock a run's `finished_at` reads, which `taken` compares it with
+        stamp = time.strftime(STAMP, time.localtime(time.time()))
+        line = compose(what, proof, where, deferred, stamp, base)
         write(current, [*text, line])
     return line
 
@@ -616,7 +622,7 @@ def _tick(name, number):
         line = line[:found.start("done")].removesuffix(" · done ")
     text[at] = (text[at][:len(text[at]) - len(text[at].lstrip())]
                 + line.replace("- [ ]", "- [x]", 1)
-                + f" · done your yes {time.strftime('%Y-%m-%d %H:%M')}")
+                + f" · done your yes {time.strftime(STAMP)}")
     write(name, text)
     return text[at]
 

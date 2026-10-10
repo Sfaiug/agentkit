@@ -116,7 +116,10 @@ class Planned(Sandbox):
                             {"state": "running", "launched_session": "other-seat"},
                             {"state": "running", "followup": {"run": "source", "text": "api.py:1 - mode is wrong",
                                                               "place": "api.py:1", "check": "test -f other.txt"}},
-                            {"state": "running", "repo": str(self.root / "elsewhere")})
+                            {"state": "running", "repo": str(self.root / "elsewhere")},
+                            # delivered before the line was written: an earlier line's run
+                            {"state": "pass", "merged": True, "finished_at": now - 86400},
+                            {"state": "not_needed", "finished_at": now - 86400})
         for state in has_it + ended_without_it:
             self.fix(**state)
             self.assertEqual(stop.owed(SEAT), state in ended_without_it, state)
