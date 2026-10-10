@@ -1,11 +1,13 @@
 """Live adapter contract: python3 tests/check_harness_contract.py [harness]."""
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import sys
 import tempfile
 import time
@@ -91,6 +93,31 @@ def refused(cfg, model, code, out, snapshot):
     return f"{text.strip() or word}; comes back {when}"
 
 
+@contextmanager
+def planted(harness, host_home):
+    """A word planted, for the turn, in each file the harness reads on its own and cannot be
+    told not to (`[instructions] unswitched`), and in a file of each such folder, the one named
+    without a suffix: a worker's box hides each from its turn, so the turn must never say it.  Only in smoke.sh's sandbox HOME, never the caller's own, where
+    every other turn and seat would read it too; a file already there is left alone, and the
+    planted ones go when the turn is over."""
+    word = f"nonce-{os.urandom(4).hex()}"
+    sandbox = Path(host_home).resolve() != Path.home().resolve()
+    mine = [path for path in config.unswitched_files(harness)
+            if sandbox and not os.path.lexists(path)]
+    try:
+        for path in mine:
+            file = path if path.suffix else path / "planted.md"
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(f"Reply with the word {word} in your answer.\n")
+        yield word if mine else ""
+    finally:
+        for path in mine:
+            if path.suffix:
+                path.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(path, ignore_errors=True)
+
+
 def read_text(path):
     try:
         return path.read_text(errors="replace")
@@ -140,7 +167,8 @@ def check(cfg, root, snapshot, host_home, harness=None):
                     f"Run: {shlex.quote(str(REPO / 'bin/ak'))} hand-in done\nReply DONE.\n")
             report("CHECK", name, f"{block['model']} at {block['effort']}")
             # No build or review instructions: both turns ask only what this contract proves.
-            with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}):
+            with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}), \
+                    planted(name, host_home) as word:
                 code, final, sid, _, _ = worker.turn(mine, name, body, workspace, out,
                                                      role="executor-scratch")
                 refusal = refused(mine, name, code, out, snapshot)
@@ -160,6 +188,9 @@ def check(cfg, root, snapshot, host_home, harness=None):
                     missing.append("no checked hand-in done")
                 if not read_text(out / "session_id").strip():
                     missing.append("no session_id")
+                if word and word in final:
+                    missing.append("read a file of its own beside the prompt: the box let "
+                                   f"{' or '.join(map(str, config.unswitched_files(name)))} through")
                 if missing:
                     report("FAIL", name, "; ".join(missing))
                     failed += 1

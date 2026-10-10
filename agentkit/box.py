@@ -326,13 +326,14 @@ def _bind(own, writable, homes=()):
 
 
 @contextmanager
-def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(),
+def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(), hidden=(),
             home_overlay=False, drain=False):
     """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
-    directories the command may also write. With an out dir, /run is copied without services
-    or /run/user, and temporary and runtime directories are the box's own, empty. Everything
+    directories the command may also write; `hidden` are literal files and folders it finds empty,
+    as it does the credentials. With an out dir, /run is copied without services or /run/user, and
+    temporary and runtime directories are the box's own, empty. Everything
     else is read-only; `home_overlay` gives checks throwaway writes in the account's home and
     HOME without child mounts, beneath the writable places and credential masks.
     """
@@ -351,7 +352,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     targets = set()
     try:
         homes = {path.resolve() for path in _homes(clean, cwd)} if home_overlay else set()
-        for path in _credentials(clean, cwd, env.get("SSH_AUTH_SOCK")):
+        for path in [*_credentials(clean, cwd, env.get("SSH_AUTH_SOCK")), *map(Path, hidden)]:
             try:
                 targets.add(path.resolve(strict=True))
             except PermissionError:

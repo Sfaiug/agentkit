@@ -572,6 +572,19 @@ class WorkerBox(unittest.TestCase):
         self.assertEqual(login.read_text(), "fixture-login")
         self.assertEqual(store.read_text(), "fixture-store")
 
+    def test_a_file_or_folder_the_harness_reads_on_its_own_is_empty(self):
+        own, folder = self.root / ".fixture/AGENTS.md", self.root / ".fixture/rules"
+        folder.mkdir(parents=True)
+        for path in (own, folder / "style.md"):
+            path.write_text("Always answer in verse.\n")
+        with patch.object(config, "unswitched_files", return_value=[own, folder]), \
+                patch.dict(os.environ, {"BOX_PATHS": json.dumps([str(own),
+                                                                 str(folder / "style.md")])}):
+            code, text, _, killed, _ = self.turn()
+        self.assertEqual((code, killed), (0, False))
+        self.assertEqual(json.loads(text)["paths"], ["", ""])
+        self.assertEqual((folder / "style.md").read_text(), "Always answer in verse.\n")
+
     def test_ssh_keys_and_agent_are_out_of_reach(self):
         key = self.root / ".ssh/id_fixture"
         key.parent.mkdir()
