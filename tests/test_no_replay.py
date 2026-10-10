@@ -50,7 +50,7 @@ class NoReplay(Sandbox):
         self.stack.enter_context(patch.object(watch, "pane_unread", return_value=False))
         self.stack.enter_context(patch.object(
             watch, "type_into",
-            side_effect=lambda session, text, log, *_: self.typed.append(
+            side_effect=lambda session, text, log, *_, **_kw: self.typed.append(
                 (session.get("name"), text)) or self.sent))
         self.stack.enter_context(patch.object(
             notify, "shaped",

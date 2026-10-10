@@ -96,7 +96,7 @@ class V5X(unittest.TestCase):
             side_effect=lambda run_id, log=lambda _: None: self.resumed.append(run_id) or True))
         self.stack.enter_context(patch.object(
             watch, "type_into",
-            side_effect=lambda session, text, log: self.typed.append(
+            side_effect=lambda session, text, log, **_kw: self.typed.append(
                 (session.get("name"), text)) or True))
         self.stack.enter_context(patch.object(
             notify, "shaped",

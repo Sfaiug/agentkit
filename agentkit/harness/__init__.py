@@ -478,6 +478,13 @@ class Harness:
         hook = self._hook("interrupted")
         return hook(record, cwd, conversation) if hook else None
 
+    def wrapped_up(self, record, cwd, conversation):
+        """When the harness told that conversation's turn its usage limit was reached and to stop
+        -- an end that refuses nothing -- where no prompt came after it, or None.  OSError where
+        a record exists and cannot be read."""
+        hook = self._hook("wrapped_up")
+        return hook(record, cwd, conversation) if hook else None
+
     def unanswered(self, record, cwd, conversation):
         """The owner's prompt that is that conversation's last message, as {at, text}, or None:
         one nothing has answered or interrupted yet.  OSError where a record exists and cannot
