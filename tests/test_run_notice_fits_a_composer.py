@@ -13,6 +13,9 @@ from fixtures.sandbox import Sandbox
 from agentkit import config, orch, plan, record, run, watch, worktrees
 
 
+PR = "https://github.com/acme/widget/pull/7"
+
+
 class RunNotice(Sandbox):
     def setUp(self):
         super().setUp()
@@ -51,7 +54,7 @@ class RunNotice(Sandbox):
 
     def result(self, name="fix-api", **extra):
         directory = self.ended(name, owner="fix-api", **{
-            "merged": True, "pr": "https://github.com/acme/widget/pull/7",
+            "no_merge": True,
             "rounds": 3, "round_summaries": [], "findings": "", "branch": "ak/fix-api",
             "base_sha": "a" * 40, "worktree": str(self.root), **extra})
         state = record.read_state(directory)
@@ -117,7 +120,7 @@ class RunNotice(Sandbox):
 
     def test_a_fitting_ending_is_unchanged_including_at_the_bound(self):
         directory, state = self.result(followup_plan=[{"outcome": "Fix api.py:1"}])
-        expected = (f"run {directory.name} finished PASS merged: {state['pr']}. "
+        expected = (f"run {directory.name} finished PASS not merged: --no-merge. "
                     f"Result: {directory / 'result.md'}. "
                     "Review follow-ups now in your plan, yours to build: Fix api.py:1. "
                     "Each is checked by the reviewer's probe until `ak plan check N` puts "
@@ -132,7 +135,7 @@ class RunNotice(Sandbox):
             self.assertNotEqual(line, expected)
 
     def test_the_same_byte_bound_as_tell_is_applied(self):
-        directory, state = self.result()
+        directory, state = self.result(merged=True, pr=PR)
         state["pr"] = "é" * 250
         with patch.object(watch, "MAX_BYTES", 600):
             line = run.handback_line(state, directory, self.cfg)
@@ -141,7 +144,7 @@ class RunNotice(Sandbox):
             self.assertNotIn(state["pr"], line)
 
     def test_a_maintainer_decision_uses_the_same_followup_bound(self):
-        directory, state = self.followups(2)
+        directory, state = self.followups(2, merged=True, pr=PR)
         with patch.object(run, "run_for_pr", return_value=(directory, state)):
             self.assertTrue(watch.say(False, self.logs.append, "The maintainer merged the PR",
                                       state["pr"], "fix-api", merged=True))
@@ -199,7 +202,7 @@ class RunNotice(Sandbox):
         now = 2000000
         evidence = "deployment missing " * 100 + "deployment evidence"
         directory, state = self.result(
-            repo=str(self.root), finished_at=now - watch.AFTER_MERGE_WINDOW - 1,
+            merged=True, pr=PR, repo=str(self.root), finished_at=now - watch.AFTER_MERGE_WINDOW - 1,
             merge_sha="a" * 40, target="origin/main",
             health={"command": "probe", "output": evidence})
         episodes = {}
@@ -219,7 +222,7 @@ class RunNotice(Sandbox):
         self.assertIn(evidence, (directory / "result.md").read_text())
 
     def test_a_report_finishing_after_failure_delivery_keeps_the_whole_notice(self):
-        directory, state = self.result(repo=str(self.root), finished_at=9999,
+        directory, state = self.result(merged=True, pr=PR, repo=str(self.root), finished_at=9999,
                                        merge_sha="a" * 40, target="origin/main")
         details = "https://ci.acme.example/build?diagnostic=" + "deployment-error-" * 80
         episodes = {}

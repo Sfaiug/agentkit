@@ -7888,8 +7888,23 @@ def announce_safely(state, run_dir, log, cfg=None):
         log(f"WARN the ending was not handed back: {exc}")
 
 
+ROUTINE_NOTE = "routine ending: recorded, not typed"
+
+
+def routine_ending(state):
+    """An ending nothing is the seat's to decide about: a merge, or a `not needed`.  What it
+    started (fix runs, plan lines) is in its result and the seat's plan; `ak run status`
+    names it; a change going live is recorded the same way (`watch.after_merge_health`)."""
+    return bool(state.get("merged") or state.get("state") == "not_needed")
+
+
 def announce(state, run_dir, log, cfg=None):
     """The one message a run sends when it ends: to its orchestrator, or about a gone one.
+
+    A routine ending -- merged, or not needed -- is recorded and never typed: nothing in it
+    is the seat's to decide, so the seat hears only an ending that needs its decision, a
+    fail, a blocked, a pass not merged, and never a line opening a turn for news it can read
+    in `ak run status` and its plan.
 
     A run under an open seat is handed back to it -- one line into its composer saying how the
     run ended and that the next step is its own -- because the ending is the orchestrator's and
@@ -7931,6 +7946,21 @@ def announce(state, run_dir, log, cfg=None):
         return
     if not session or state.get("repair") and (state.get("merged")
                                                or state.get("state") == "not_needed"):
+        return
+    if routine_ending(state):
+        with delivery_lock(run_dir):
+            current = run_record.read_state(run_dir) or state
+            if not same_attempt(state, current):
+                log(f"run {run_dir.name} has moved on since this ending; nothing to record")
+                return
+            if not already_handed_back(current):
+                mark_delivery(run_dir, state, handed_back=time.time(), reported=True,
+                              handback_note=ROUTINE_NOTE, handback_pending=None,
+                              handback_wait_reason=None, notification_pending=None)
+        log(f"run {run_dir.name} ended {'merged' if state.get('merged') else 'not needed'}: "
+            "recorded, not typed")
+        # The seat reads result.md and its plan, never the checkout: the ending is history.
+        worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
         return
     with launcher_world(session) as live:
         if live:
