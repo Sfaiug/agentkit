@@ -69,9 +69,10 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"))
 
-# One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`), open while
-# it runs, and each wait it counted (`WAIT_COLUMNS`, named `<wait> wait`), whole, each poll
-# moving its end.  A run with no row keeps no phases.
+# One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
+# it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
+# by its close, so a row never lacks an end and a loop that died counts what its column counts.
+# A run with no row keeps no phases.
 PHASES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS phases (
     run_id TEXT,
@@ -260,7 +261,7 @@ def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
 
 
 def phase(connection, run_id, name, started_at, ended_at):
-    """Write the phase row: its end once it is known, else a new row open while it runs."""
+    """Write the phase row, or move its end: the one under way ends at its last checkpoint."""
     connection.execute(
         "INSERT INTO phases (run_id, phase, started_at, ended_at) "
         "SELECT run_id, ?, ?, ? FROM runs WHERE run_id=? "
@@ -269,8 +270,8 @@ def phase(connection, run_id, name, started_at, ended_at):
 
 
 def phases(run_id):
-    """A run's phases in order, each `{phase, started_at, ended_at}`, the one under way with
-    no end; none for a run with no row."""
+    """A run's phases in order, each `{phase, started_at, ended_at}`, the one under way ending
+    at its last checkpoint; none for a run with no row."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
@@ -332,7 +333,9 @@ def open_step(run_id, step, at=None, *, log=None):
     if step in STEP_COLUMNS:
         with _OPEN_LOCK:
             _OPEN[run_id] = [step, at, at]
-        _write(lambda connection: phase(connection, run_id, step, at, None), log)
+        # the row ends where it begins until a checkpoint or the close moves its end: a loop
+        # that dies before either leaves no endless row, and counts nothing, as its column
+        _write(lambda connection: phase(connection, run_id, step, at, at), log)
 
 
 def close_step(run_id, at=None, *, keep=False, log=None):
