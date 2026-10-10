@@ -3864,16 +3864,18 @@ def weigh_review(lp, submitted, head=None):
         evidence = row["evidence"]
         kind = row["kind"]
         # a follow-up from before the task is proven on base; one of this change (no `before`)
-        # on this commit
+        # on this commit, and on base too, where failing makes it one from before the task
         deferred = kind == "follow-up" and "before" not in row
         if kind == "follow-up":
             if not lp.scratch and "run" in evidence:
                 command = evidence["run"]
-                evidence = ({"run": command, "commit": head or "workspace", **proof_on(
-                                lp, command, lp.round_dir / f"proof-{index}-commit.log", head)}
-                            if deferred else
-                            {"run": command, "commit": lp.base_sha, **proof_on(
-                                lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)})
+                base = proof_on(lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)
+                evidence = {"run": command, "commit": lp.base_sha, **base}
+                if deferred:
+                    evidence = {"run": command, "commit": head, **proof_on(
+                        lp, command, lp.round_dir / f"proof-{index}-commit.log", head),
+                        "base": {"sha": lp.base_sha, **base}}
+                    deferred = not (hand_in.proof_failed(evidence) and hand_in.proof_failed(base))
         elif index in sites and sites[index] is None:
             kind = "note"
         elif "run" in evidence:
@@ -3906,7 +3908,7 @@ def weigh_review(lp, submitted, head=None):
                       if "run" not in evidence else
                       ("the command did not fail on this commit" if deferred
                        else "the command did not fail on base") if not hand_in.proof_failed(
-                          evidence.get("base", evidence)) else
+                          evidence if deferred else evidence.get("base", evidence)) else
                       "--before names no commit in base's history or quote present at base"
                       if not deferred and not before_at_base(lp, row) else "")
             if reason:
