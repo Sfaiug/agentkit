@@ -130,7 +130,7 @@ def child():
             if session:
                 stack.enter_context(patch.object(orch, "find", return_value={"name": session}))
             if args.get("typed"):
-                stack.enter_context(patch.object(watch, "type_into", return_value=True))
+                stack.enter_context(patch.object(watch, "type_at_prompt", return_value=True))
             stack.enter_context(patch.object(watch, "gh_json", return_value=({
                 "state": args.get("pr_state", "MERGED"), "reviewDecision": args.get("decision"),
                 "title": "Fixture PR", "number": 7}, "")))
