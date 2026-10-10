@@ -8,12 +8,13 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history
+from agentkit import config, gate, history
 
 
 class PhaseRows(unittest.TestCase):
@@ -48,6 +49,14 @@ class PhaseRows(unittest.TestCase):
                           row["slot_wait_seconds"]), (60, 90, 60, 30))
         self.assertIsNone(history.close_step("r1", 400))     # nothing open: nothing written
         self.assertEqual(len(history.phases("r1")), 4)
+
+    def test_a_wait_counted_poll_by_poll_is_one_row_each_poll_moving_its_end(self):
+        counted = (200, time.monotonic())
+        for at in (230, 260, 290):
+            with patch.object(time, "time", return_value=at):
+                counted = gate.count_wait("r1", "slot", counted)
+        self.assertEqual(history.phases("r1"),
+                         [{"phase": "slot wait", "started_at": 200, "ended_at": 290}])
 
     def test_a_run_with_no_row_keeps_no_phases(self):
         history.open_step("r2", "executor", 100)

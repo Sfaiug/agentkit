@@ -284,15 +284,18 @@ def reserve_slot(state, limit):
     state.pop("slot_healthy_polls", None)
 
 
-def count_wait(run_id, wait, since):
-    """Add what this process waited since `since` (monotonic) to its run's history; returns now.
+def count_wait(run_id, wait, counted):
+    """Add what this process waited since `counted` to its run's history; returns it moved to now.
 
-    The waiting process counts its own wait as it polls, so one that dies loses at most a
-    poll, and no recovery can count time no process spent waiting -- nor a clock correction.
+    `counted` is the wait's start on the wall clock, which keys its one phase row, and the
+    monotonic time it is counted up to.  The waiting process counts its own wait as it polls,
+    so one that dies loses at most a poll, and no recovery can count time no process spent
+    waiting -- nor a clock correction.
     """
+    began, since = counted
     now = time.monotonic()
-    history.add_wait(run_id, wait, now - since)
-    return now
+    history.add_wait(run_id, wait, now - since, began=began)
+    return began, now
 
 
 def wait_for_slot(run_dir):
@@ -329,7 +332,7 @@ def wait_for_slot(run_dir):
             print(slot_note(state), flush=True)
             run.redress_seat(state.get("launched_session"))
             announced = True
-        counted = counted or time.monotonic()
+        counted = counted or (time.time(), time.monotonic())
         time.sleep(SLOT_POLL)
         counted = count_wait(run_dir.name, "slot", counted)
     if counted:
@@ -792,7 +795,8 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             for fh in slot:
                 fcntl.flock(fh, fcntl.LOCK_UN)
             slot = []
-            began = counted = time.monotonic()
+            began = time.monotonic()
+            counted = (time.time(), began)
             said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
             if log is not None:
                 log(f"done-when: {said}")

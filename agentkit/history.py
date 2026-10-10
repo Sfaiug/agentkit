@@ -70,8 +70,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`), open while
-# it runs, and each wait it counted (`WAIT_COLUMNS`, named `<wait> wait`), whole.  A run with
-# no row keeps no phases.
+# it runs, and each wait it counted (`WAIT_COLUMNS`, named `<wait> wait`), whole, each poll
+# moving its end.  A run with no row keeps no phases.
 PHASES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS phases (
     run_id TEXT,
@@ -243,17 +243,19 @@ def add_seconds(run_id, step, seconds, *, log=None):
         (max(0.0, seconds), run_id)), log)
 
 
-def add_wait(run_id, wait, seconds, at=None, *, log=None):
-    """Add one finished wait, ended `at`, to its column and as a phase row; a row from before
+def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
+    """Add a wait's seconds, counted up to `at`, to its column and end its phase row there: the
+    row of the wait that began at `began`, a wait counted whole without it.  A row from before
     the columns stays unrecorded."""
     if not isinstance(seconds, (int, float)) or not math.isfinite(seconds):
         return
     column, seconds = WAIT_COLUMNS[wait], max(0.0, seconds)
     at = time.time() if at is None else at
+    began = at - seconds if began is None else began
 
     def add(connection):
         connection.execute(f"UPDATE runs SET {column}={column}+? WHERE run_id=?", (seconds, run_id))
-        phase(connection, run_id, f"{wait} wait", at - seconds, at)
+        phase(connection, run_id, f"{wait} wait", began, max(began, at))
     _write(add, log)
 
 
