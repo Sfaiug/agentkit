@@ -1,7 +1,7 @@
 """A review follow-up is a deferred line in the owning seat's plan: open until its check
-passes on the default branch, holding no `ak notify done` while a run of the seat has it (on
-its way with its check, or merged with it until a done runs the check), and ticking itself once
-its fix is on the default branch, while a line no run has is the seat's own and holds its done.
+passes on the default branch, holding no `ak notify done` while a run of the seat is on its way
+with its check, and ticking itself once its fix is on the default branch -- a delivery runs the
+check -- while a line no run has is the seat's own and holds its done.
 The hand-in and the weighing: tests/test_followups_never_block.py; the fix runs:
 tests/test_followup_runs.py.  Offline: a real repository and plan.
 """
@@ -103,9 +103,7 @@ class Planned(Sandbox):
                    "rounds": 3, "round_summaries": [{}], "finished_at": now},
                   # the check as the reviewer handed it in, a trailing space and all
                   {"state": "running", "followup": {"run": "source", "text": "api.py:1 - mode is wrong",
-                                                    "place": "api.py:1", "check": "test -f feature.txt "}},
-                  {"state": "pass", "merged": True, "finished_at": now},
-                  {"state": "not_needed", "finished_at": now})
+                                                    "place": "api.py:1", "check": "test -f feature.txt "}})
         ended_without_it = ({"state": "fail", "finished_at": now},
                             {"state": "fail", "error": "killed at its memory cap", "finished_at": now},
                             {"state": "stopped", "finished_at": now},
@@ -117,9 +115,9 @@ class Planned(Sandbox):
                             {"state": "running", "followup": {"run": "source", "text": "api.py:1 - mode is wrong",
                                                               "place": "api.py:1", "check": "test -f other.txt"}},
                             {"state": "running", "repo": str(self.root / "elsewhere")},
-                            # delivered before the line was written: an earlier line's run
-                            {"state": "pass", "merged": True, "finished_at": now - 86400},
-                            {"state": "not_needed", "finished_at": now - 86400})
+                            # delivered, its check still failing on the default branch
+                            {"state": "pass", "merged": True, "finished_at": now},
+                            {"state": "not_needed", "finished_at": now})
         for state in has_it + ended_without_it:
             self.fix(**state)
             self.assertEqual(stop.owed(SEAT), state in ended_without_it, state)
@@ -129,26 +127,27 @@ class Planned(Sandbox):
         self.fix(state="running")
         plan.require_done(SEAT)
 
-    def test_a_done_owes_a_delivered_runs_line_whose_check_still_fails(self):
-        # the stop hook leaves the line to the run that merged it, until a done runs the check
+    def test_a_delivery_whose_check_still_fails_goes_to_the_seat_after_its_done(self):
         self.deferred()
-        self.fix(state="pass", merged=True, finished_at=time.time())
-        self.assertFalse(stop.owed(SEAT))
+        self.fix(state="running")
+        plan.still_done(SEAT, plan.require_done(SEAT))     # a done while the run is on its way
+        for ending in ({"state": "pass", "merged": True}, {"state": "not_needed"}):
+            state = self.fix(**ending, finished_at=time.time())
+            self.assertFalse(run.routine_ending(state), ending)   # its ending goes to the seat ...
+            self.assertTrue(stop.owed(SEAT), ending)             # ... and its turn is held
         with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open"):
             plan.require_done(SEAT)
-        with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) open or unproven"):
-            plan.still_done(SEAT, set())
-        self.land("The seat builds what the run's merge did not")
+        self.land("The seat builds what the run's delivery did not")
         plan.still_done(SEAT, plan.require_done(SEAT))
         self.assertFalse(plan.is_open(plan.lines(SEAT)[0]))
 
-    def test_a_merged_fix_runs_ending_is_routine_and_its_seats_turn_may_end(self):
+    def test_a_merged_fix_runs_ending_ticks_its_line_and_is_routine(self):
         self.deferred()
         self.land("The fix run lands its fix")
         state = self.fix(state="pass", merged=True, finished_at=time.time())
-        self.assertTrue(run.routine_ending(state))
+        self.assertTrue(run.routine_ending(state))       # the ending ran the line's check ...
+        self.assertEqual(plan.open_lines(SEAT), [])      # ... which ticked it
         self.assertEqual(stop.recorded_ending(SEAT), (True, []))
-        self.assertEqual(plan.verify(SEAT), [])          # and the line ticks at the next verify
 
     def test_the_done_lists_a_deferred_line_the_seat_built_and_not_one_a_run_delivered(self):
         self.deferred()
@@ -156,6 +155,8 @@ class Planned(Sandbox):
         self.assertTrue(stop.owed(SEAT))
         self.land("The seat builds the line its failed fix run gave back")
         self.assertEqual(plan.verify(SEAT), [])
+        self.assertEqual([what for _, what in plan.outcomes(SEAT)], [OUTCOME])
+        self.fix(state="pass", merged=True, finished_at=time.time() - 86400)   # an earlier line's
         self.assertEqual([what for _, what in plan.outcomes(SEAT)], [OUTCOME])
         self.fix(state="pass", merged=True, finished_at=time.time())
         self.assertEqual(plan.outcomes(SEAT), [])        # a run's work, never this done's

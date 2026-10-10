@@ -3395,8 +3395,8 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
     A review follow-up is the same `check` in the same repository from the same seat: a run
     whose done-when is that command fixes it, whatever its words; any other follow-up is the
     same site.  With `held`, the time its deferred line was written, a run that ended
-    delivering it since counts too: the line is its own until the line's check is run
-    (`plan.taken`); one that delivered before had only an earlier line.  A `repair` is the
+    delivering it since counts too: the line's work is that run's, never a done's
+    (`plan.outcomes`); one that delivered before had only an earlier line.  A `repair` is the
     same repository, target and command from any seat, open at the target's `tip`: the
     target is everybody's.  A suite split holds its line forever, and its repository while
     open.
@@ -7960,10 +7960,21 @@ def routine_ending(state):
     plan lines) is in its result and the seat's plan, and `ak run status` names it.  A red
     target's repair's merge is routine whatever its seat owes: the runs parked on it retry by
     themselves, and their own endings end the seat's wait -- its going live is not, as the
-    hook counts that wait."""
+    hook counts that wait.  A fix run's delivery runs its seat's plan checks first
+    (`plan.verify`): its line ticks where its check passes on the default branch, and where
+    it still fails -- a merge that did not fix it, a `not needed` misjudged -- the line is
+    the seat's own and the ending goes to it."""
     if not delivered(state):
         return False
-    return bool(state.get("repair")) or seat_owes_nothing(state)
+    if state.get("repair"):
+        return True
+    if (state.get("followup") or {}).get("check") and not seat_owes_nothing(state):
+        from . import plan   # here, not at the top: a seat's small verb, this the loop
+        try:
+            plan.verify(launched_session(state))
+        except config.Error:
+            pass        # unchecked, the line stays open and the seat's: the ending goes to it
+    return seat_owes_nothing(state)
 
 
 def finish_typed(session, mark, log, cfg=None):

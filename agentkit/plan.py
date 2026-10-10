@@ -362,20 +362,19 @@ def deferred(line):
 def owed(name, line, proven=None):
     """Whether the seat owes the line, which holds its `ak notify done` and its turn
     (`stop.owed`): an open line, or, for a done, a check line its own checks did not prove
-    (`proven`); never a deferred one a run has (`taken`) -- for a done, one on its way: the
-    done ran the check, which a delivered run's fix should pass."""
+    (`proven`); never a deferred one a run is on its way with (`taken`)."""
     bare = identity(line)
     return ((is_open(line) or (proven is not None and bare is not None and bare not in proven))
-            and not taken(name, line, delivered=proven is None))
+            and not taken(name, line))
 
 
-def taken(name, line, delivered=True):
+def taken(name, line, delivered=False):
     """Whether a deferred line is a run's: one of the seat's with the line's check in the
-    line's project, on its way or, with `delivered`, merged or not needed with it since the
-    line was written (`run.open_followup`).  Read with the line, never written at an ending:
-    once the fix run ended without it -- failed, stopped, killed, a retry nobody makes any
-    more -- the line is the seat's own until its check passes, whatever an older run with the
-    check delivered."""
+    line's project is on its way with it (`run.open_followup`) or, with `delivered`, merged
+    or found it not needed since the line was written, for the done's work (`outcomes`).
+    Read with the line, never written at an ending: once the fix run ended, whichever way,
+    the line is the seat's own until its check passes, which a delivery runs at once
+    (`run.routine_ending`)."""
     found = LINE.match(line.strip())
     if not (found and found["deferred"]):
         return False
@@ -410,7 +409,7 @@ def outcomes(name):
     for line in lines(name):
         line = line.strip()
         found = LINE.match(line)
-        if found and taken(name, line):
+        if found and taken(name, line, delivered=True):
             continue        # a run's, never this done's work: it has the line, or delivered it
         if found:
             result.append((found["project"], found["what"]))
