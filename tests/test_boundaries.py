@@ -174,6 +174,14 @@ RULES = [
      "pattern": r"run_repo_cleanup\(",
      "home": ("agentkit/worktrees.py",),
      "max": 0},
+    # Typing into a seat is the tick's, under its lock: a second typer needs claims and
+    # delivery reports that each review round found a new race in (#439, 3 rounds).  The
+    # guard names the typing commands to refuse them in a seat.
+    {"name": "typing into a seat",
+     "flags": (),
+     "pattern": r"\"(send-keys|paste-buffer|send-prefix)\"",
+     "home": ("agentkit/watch.py", "agentkit/guard.py"),
+     "max": 0},
 ]
 
 
