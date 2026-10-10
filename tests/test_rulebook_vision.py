@@ -72,12 +72,17 @@ class RulebookVision(unittest.TestCase):
         for project, opens in (("# acme\n\n" + VISION + "\n## Working here\n\nTests.\n", False),
                                ("# widget\n\n## Working here\n\nTests.\n", True),
                                # a copy quoted in a template is no section of the project's own
-                               ("# widget\n\nEvery README holds:\n\n```markdown\n" + VISION + "```\n", True)):
+                               ("# widget\n\nEvery README holds:\n\n```markdown\n" + VISION + "```\n", True),
+                               ("# widget\n\nEvery AGENTS.md holds:\n\n````markdown\n" + VISION
+                                + "\n## Working here\n\n```bash\nmake test\n```\n````\n", True),
+                               # nor does one hide the project's own that follows it
+                               ("# acme\n\nEvery README holds:\n\n~~~\n" + VISION + "~~~\n\n" + VISION
+                                + "\n## Working here\n\nTests.\n", False)):
             with self.subTest(opens=opens), \
                     patch.object(config, "session_records", return_value={"acme": {"repo": "/x/acme"}}), \
                     patch("agentkit.run.agents_body", return_value=project):
                 text = config.seat_rulebook("acme")
-                self.assertEqual(text.count("## What ak is for"), 1 + (opens and VISION in project), text)
+                self.assertEqual(text.count("## What ak is for"), project.count("## What ak is for") + opens, text)
                 self.assertEqual(text.startswith(VISION.rstrip()), opens, text)
                 self.assertIn(project, text)            # the project's AGENTS.md stays whole
 
