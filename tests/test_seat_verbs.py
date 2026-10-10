@@ -87,6 +87,20 @@ class SeatVerbs(unittest.TestCase):
                 self.assertIsNone(run.seat_refusal(opts, flags))
         self.assertIsNone(run.seat_refusal({"--exec": None, "--review": None}, {"--anyway": False, "--first": False}))
 
+    def test_a_rival_under_way_is_only_to_be_waited_for_from_a_seat(self):
+        rival = {"id": "20261010-0700-fix-api", "seat": SEAT, "started": 0, "title": "Fix the api",
+                 "files": ["tests/test_api.py"], "words": 0}
+        with patch.object(run, "already_under_way", return_value=[rival]):
+            code, err = self.launch(self.task)
+            self.assertEqual(code, 2, err)
+            self.assertTrue(err.endswith("shares tests/test_api.py; wait for it\n"), err)
+            with patch.dict(os.environ, {config.SESSION_ENV: ""}):       # outside a seat, the flag stands
+                code, err = self.launch(self.task)
+            self.assertEqual(code, 2, err)
+            self.assertTrue(err.endswith("; wait for it, or add --anyway to start a second run\n"), err)
+        self.assertEqual(run.rival_advice(), "wait for it")                 # and a job's refusal says the same
+        self.assertEqual(list(config.RUNS.iterdir()), [])
+
     def test_a_jobs_rerun_on_the_next_executor_starts_under_the_seat(self):
         # ak's own pick, relayed to the child `ak run` that spawn_bg starts under the seat's name
         children = []

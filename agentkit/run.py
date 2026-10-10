@@ -8222,8 +8222,7 @@ def seat_refusal(opts, flags):
     a shell naming none is no seat, and outside a seat the flags stand.  So do a queued child's,
     which `spawn_bg` starts under the seat's name: they are ak's own pick (a job's rerun on the
     next executor) or the seat's launch, judged at its parsing."""
-    seat = config.current_session()
-    if not seat or seat not in config.session_records() or os.environ.get(config.RUN_DIR_ENV):
+    if not from_seat():
         return None
     given = ([flag for flag in ("--exec", "--review") if opts.get(flag)]
              + [flag for flag in ("--anyway", "--first") if flags.get(flag)])
@@ -8231,6 +8230,21 @@ def seat_refusal(opts, flags):
         return (f"{', '.join(given)}: not a seat's; ak picks the models by budget, decides what "
                 "goes first and refuses a second run of a change under way, so launch without")
     return None
+
+
+def from_seat():
+    """Whether this launch is a seat's own: a recorded session's (`config.session_records`),
+    outside any run (`RUN_DIR_ENV`)."""
+    seat = config.current_session()
+    return bool(seat and seat in config.session_records()
+                and not os.environ.get(config.RUN_DIR_ENV))
+
+
+def rival_advice():
+    """What a launch refused for a run already under way may do: wait for it, or, outside a
+    seat, start a second run regardless with `--anyway`, which a seat may not give
+    (`seat_refusal`)."""
+    return "wait for it" + ("" if from_seat() else ", or add --anyway to start a second run")
 
 
 def depth_refused():
@@ -11897,8 +11911,8 @@ def main(argv):
                     started = "??:??"
                 seat = first["seat"] or "nobody's"
                 print(f"ak run: this looks already under way: {first['id']} ({seat}, "
-                      f"started {started}, \"{first['title']}\") shares {detail}; wait for "
-                      "it, or add --anyway to start a second run", file=sys.stderr)
+                      f"started {started}, \"{first['title']}\") shares {detail}; "
+                      f"{rival_advice()}", file=sys.stderr)
                 return 2
         run_id = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
         run_dir = config.RUNS / run_id
