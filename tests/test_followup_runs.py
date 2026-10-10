@@ -290,21 +290,6 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(plan.LINE.match(line)["base"], head[:12])
         plan.recheck("seat", 1, doubled)   # a test failing on the change takes the line's check
 
-    def test_a_followup_of_the_change_names_the_reviewed_commit_its_check_failed_on(self):
-        self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
-        config.update_session("seat", repo=str(self.repo))
-        base = self.git(self.repo, "rev-parse", "HEAD")
-        (self.repo / "other.py").write_text("def ratio(value):\n    return 2 / value\n")
-        self.git(self.repo, "commit", "-qam", "The change brings a smaller defect")
-        head = self.git(self.repo, "rev-parse", "HEAD")
-        doubled = "python3 -c 'from other import ratio; assert ratio(1) == 1'"
-        item = "other.py:2 - ratio doubles - callers get 2"
-        self.start(*self.source(followups=[item], followup_checks={item: doubled},
-                                followup_commits={item: head}, base_sha=base))
-        [line] = plan.lines("seat")
-        self.assertEqual(plan.LINE.match(line)["base"], head[:12])
-        plan.recheck("seat", 1, doubled)   # a test failing on the change takes the line's check
-
     def test_a_followup_its_plan_refuses_is_named_for_the_seat_to_judge(self):
         directory, state = self.source(followup_checks={DEFECT: "false\nfalse"})
         self.assertEqual(len(self.start(directory, state)), 1)      # its fix run starts all the same
@@ -468,6 +453,7 @@ class FollowupRuns(unittest.TestCase):
 
     def test_a_maintainer_merge_that_puts_work_in_the_plan_tells_the_seat(self):
         url = "https://github.com/acme/widget/pull/1"
+        config.update_session("seat", workers=[])      # no run takes its follow-up
         directory, _ = self.source(merged=False, pr=url, followup_checks={DEFECT: CHECK})
         sent = []
         with patch.object(orch, "find", return_value={"name": "seat"}), \
@@ -478,7 +464,8 @@ class FollowupRuns(unittest.TestCase):
         # the seat now owes the follow-up, so the merge is no routine ending (`routine_ending`)
         self.assertEqual(len(sent), 1)
         self.assertIn("PR #1: merged by the maintainer", sent[0])
-        self.assertIn("now deferred in your plan: Fix broken.py:1", (directory / "result.md").read_text())
+        self.assertIn("now in your plan, yours to build: Fix broken.py:1",
+                      (directory / "result.md").read_text())
 
     def test_exclusions_and_closed_session_start_nothing(self):
         for index, changes in enumerate(({"merged": False}, {"launched_session": None},

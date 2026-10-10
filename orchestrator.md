@@ -31,13 +31,13 @@ A model goes from 0 to 1 with the user and from 1 to 100 alone. Alignment at the
 
 ## When a run comes back
 
-- A run ending that needs your decision returns to you: a fail, a blocked, a pass not merged. Decide the next step. A merged, live or not-needed ending returns to you only while your plan has an open line, as the end of the wait your turn ended on; otherwise it is recorded, never typed: `ak run status` and your plan's lines have it. Rounds exhausted or blocked means the task was wrong, too big, or the wrong worker: rewrite, split, change provider, or ask the user. Never hand a failed run to the user as the next step.
+- A run ending that needs your decision returns to you: a fail, a blocked, a pass not merged. Decide the next step. A merged, live or not-needed ending returns to you only while your plan has an open line of your own, as the end of the wait your turn ended on; otherwise it is recorded, never typed: `ak run status` and your plan's lines have it. Rounds exhausted or blocked means the task was wrong, too big, or the wrong worker: rewrite, split, change provider, or ask the user. Never hand a failed run to the user as the next step.
 - A mistake that will recur becomes a check where it can; otherwise one line under `## Lessons` in the project's `AGENTS.md`, carried by your next PR there. Every worker reads it.
 - A FAIL on your own PR is fixed by a fixer turn of the run itself, on the PR's branch; a push of yours to that PR during that turn, or during its last round, ends the run.
 
 ## Never stop
 
-A turn ends only on a fact ak records: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), `ak notify done "<summary>"` because the whole job is finished, or a run or pull request you are waiting on, yours or another session's (`ak wait <PR url or run id>`); a merged change of yours not yet live counts as waiting. With no open line in your plan and no run of yours parked undecided, nothing is owed and a reply stands. "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
+A turn ends only on a fact ak records: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), `ak notify done "<summary>"` because the whole job is finished, or a run or pull request you are waiting on, yours or another session's (`ak wait <PR url or run id>`); a merged change of yours not yet live counts as waiting. With no open line of your own in your plan (a deferred one is a run's) and no run of yours parked undecided, nothing is owed and a reply stands. "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
 
 ## Talk to the user
 

@@ -353,9 +353,18 @@ def is_open(line):
 
 def deferred(line):
     """A line deferred to a run of its own (a review follow-up): open until its check passes,
-    yet never what the seat owes, so it holds no `ak notify done`."""
+    yet never what the seat owes (`owed`)."""
     found = LINE.match(line.strip())
     return bool(found and found["deferred"])
+
+
+def owed(line, proven=None):
+    """Whether the seat owes the line, which holds its `ak notify done` and its turn
+    (`stop.owed`): an open line, or, for a done, a check line its own checks did not prove
+    (`proven`); never a deferred one."""
+    bare = identity(line)
+    return not deferred(line) and (is_open(line) or (proven is not None and bare is not None
+                                                     and bare not in proven))
 
 
 def undone(line, found):
@@ -452,7 +461,7 @@ def require_done(name):
     """Refuse a done while the plan still has open lines, after running every check once more;
     the check lines those checks proved, for `still_done`."""
     left, results = _verify(name, every=True)
-    left = [line for line in left if not deferred(line)]
+    left = [line for line in left if owed(line, results)]
     if left:
         raise config.Error(f"{len(left)} plan line(s) still open, first: {left[0]}; "
                            "a check line is done when its check passes on the default branch "
@@ -465,8 +474,7 @@ def still_done(name, proven):
     """Run under the seat's lock as its done is recorded: the plan as it reads now has no
     open line and no check line the done's own checks did not prove -- one added or ticked
     while they ran is not done."""
-    left = [line.strip() for line in lines(name) if not deferred(line)
-            and (is_open(line) or (identity(line) and identity(line) not in proven))]
+    left = [line.strip() for line in lines(name) if owed(line, proven)]
     if left:
         raise config.Error(f"{len(left)} plan line(s) open or unproven since the checks ran, "
                            f"first: {left[0]}; run `ak notify done` again")

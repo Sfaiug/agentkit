@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox, account_home
-from agentkit import config, plan
+from agentkit import config, plan, stop
 
 SEAT = "fix-api"
 
@@ -59,8 +59,10 @@ class Planned(Sandbox):
         self.assertEqual(plan.outcomes(SEAT), [])
         proven = plan.require_done(SEAT)            # nothing owed: a done may be recorded ...
         plan.still_done(SEAT, proven)
+        self.assertFalse(stop.owed(SEAT))                  # ... and no turn is held for it ...
         self.assertEqual(plan.open_lines(SEAT), [line])    # ... while the line stays open
         plan.add(SEAT, "the hero looks calm", None)          # ... and an owed line still holds it
+        self.assertTrue(stop.owed(SEAT))
         with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open"):
             plan.require_done(SEAT)
         # its fix lands: the check passes on the default branch and the line ticks
