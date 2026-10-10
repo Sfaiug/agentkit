@@ -98,7 +98,7 @@ class UsualAccountFirst(unittest.TestCase):
             self.pane = "❯"
         return 0, ""
 
-    def type_into(self, session, text, log, stale=lambda _: False):
+    def type_into(self, session, text, log, stale=lambda _: False, **_kw):
         if stale(session["name"]):
             return False
         self.typed.append(text)
