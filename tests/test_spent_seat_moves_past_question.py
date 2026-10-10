@@ -1,0 +1,114 @@
+"""A seat whose subscription runs out moves to the next one and goes on, question open or not.
+
+Claude Code 2.1.292 refuses a spent window with `You've hit your session limit · resets ...`,
+and before that tells the running turn to wrap up and stop (its `usageLimitNote: wrap_up`), so
+the model ends the turn itself with nothing refused.  Either way the seat resumes its
+conversation on an account with room and is told to continue, even while a question it put to
+the owner stands; a seat whose turn ended on its own, or whose job is done, is left idle.
+The pane is one captured from a real seat (renamed); the stage is `test_seat_account`'s.
+"""
+
+import json
+import sys
+import unittest
+from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import patch
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "tests"))
+from test_seat_account import CONVERSATION, NAME, SeatAccount  # noqa: E402
+from agentkit import config, notify, orch, watch  # noqa: E402
+
+TYPE_INTO = watch.type_into     # the real one: the stage fakes it, and its veto is what counts
+REFUSED = (REPO / "tests/fixtures/claude-session-limit-pane.txt").read_text(encoding="utf-8")
+
+
+class SpentSeat(SeatAccount):
+    def ask(self):
+        notify.record(NAME, "needs", "Which end card goes on the clip?")
+        self.assertTrue(watch.owner_question(notify.last(NAME)))
+
+    def go_on(self):
+        """The tick's continue pass, typing through the real veto; what reached the pane."""
+        sent = []
+        with patch.object(watch, "type_into", TYPE_INTO), \
+                patch.object(watch, "_send_line", side_effect=lambda s, text, *a, **k:
+                             sent.append(text) or True), \
+                patch.object(watch, "_send_enter", return_value=True), \
+                patch.object(watch, "_wait_sent", return_value=True):
+            watch.continue_turns(self.cfg, self.logs.append, accounts=True)
+        return sent
+
+    def transcript(self, *entries):
+        slug = "".join(c if c.isalnum() else "-" for c in str(self.root))
+        path = self.root / ".claude/projects" / slug / f"{CONVERSATION}.jsonl"
+        path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
+
+    def entry(self, ago, kind, content, **fields):
+        at = datetime.fromtimestamp(self.now - ago, timezone.utc).isoformat()
+        return {"type": kind, "timestamp": at, "message": {"role": kind, "content": content},
+                **fields}
+
+    def wrapped(self, *after):
+        self.transcript(
+            self.entry(600, "user", "Render the remaining clips."),
+            self.entry(120, "user", "[Usage limit reached; a short grace allowance remains, "
+                       "then this turn is cut off without warning.]", isMeta=True,
+                       usageLimitNote="wrap_up"),
+            self.entry(60, "assistant", [{"type": "text", "text": "Your usage limit was "
+                                          "reached, so I'm stopping here."}]),
+            *after)
+
+    def test_a_refused_seat_with_its_question_open_moves_and_goes_on(self):
+        self.meters(20, 20)       # only the refusal on its screen says the window is spent
+        self.ask()
+        self.pane = REFUSED
+        self.refusal_tick()
+        record = config.session_records()[NAME]
+        self.assertEqual(record["account"], "second")
+        self.assertEqual(record["conversation"], CONVERSATION)
+        self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
+        self.assertTrue(watch.owner_question(notify.last(NAME)))   # still the owner's to answer
+
+    def test_a_question_open_at_an_idle_prompt_moves_and_types_nothing(self):
+        self.ask()
+        self.tick()
+        self.assertEqual(config.session_records()[NAME]["account"], "second")
+        self.assertEqual(self.go_on(), [])
+
+    def test_a_turn_the_limit_wrapped_up_goes_on_where_it_stopped(self):
+        self.wrapped()
+        self.tick()
+        self.assertEqual(config.session_records()[NAME]["account"], "second")
+        self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
+
+    def test_a_wrapped_turn_prompted_since_or_done_since_stays_idle(self):
+        cases = {"prompted": lambda: self.wrapped(self.entry(30, "user", "Thanks, stop here.")),
+                 "done": lambda: (self.wrapped(),
+                                  notify.record(NAME, "done", "Both clips are rendered."))}
+        for case, arrange in cases.items():
+            with self.subTest(case), patch.object(orch, "resume", return_value="resumed"):
+                arrange()
+                watch.seat_write(NAME, midturn=None)
+                config.update_session(NAME, account="default")
+                self.tick()
+                self.assertFalse(watch.seat_read(NAME).get("midturn"))
+                self.assertEqual(self.go_on(), [])
+
+    def test_only_a_spent_session_limit_is_a_refusal(self):
+        plugin = orch.harness_plugin("claude")
+        self.assertEqual(plugin.failure("You've hit your session limit · resets 3:20pm "
+                                        "(Europe/Berlin)"), (watch.SPENT, "hit your session limit"))
+        self.assertEqual(plugin.failure("You've used 84% of your session limit · resets 3:20pm"),
+                         (None, None))
+
+
+def load_tests(loader, tests, pattern):
+    """Only this file's own cases: the stage's run from their own file."""
+    return unittest.TestSuite(SpentSeat(name) for name in loader.getTestCaseNames(SpentSeat)
+                              if name in vars(SpentSeat))
+
+
+if __name__ == "__main__":
+    unittest.main()

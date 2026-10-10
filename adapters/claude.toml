@@ -170,13 +170,16 @@ none = ["esc to interrupt"]
 # carries the transient words beside them -- a 500 the worker answers by typing `continue`,
 # resuming the same session, never by handing the round over.
 [stall]
+# "hit your session limit" is how 2.1.292 refuses a spent window; never "session limit" alone,
+# which its warnings ("You've used 84% of your session limit") say with room left.
 signatures = ["API Error", "Overloaded", "rate limit", "rate_limit_error",
-              "Usage limit reached", "weekly limit", "Can't reach the API server"]
+              "Usage limit reached", "hit your session limit", "weekly limit",
+              "Can't reach the API server"]
 refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529",
             "500", "502", "503", "504", "Internal server error", "API Error",
             "Can't reach the API server", "at capacity"]
-quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit", "weekly limit", "429",
-          "insufficient_quota", "insufficient quota"]
+quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit",
+          "hit your session limit", "weekly limit", "429", "insufficient_quota", "insufficient quota"]
 # `terminal` is the event log's terminal record kind: the stream ends with a `result` event,
 # which is what adapters/claude.sh reads final.md out of, failure or not.
 terminal = "result"

@@ -518,6 +518,7 @@ def continue_turns(cfg, log, accounts=False):
     passes send the same line.  A mark from another boot, a seat gone again, and a seat that
     has been prompted since it came back -- by the line, or by him, finished or not -- need
     no line at all, and that is read under the send's own lock, just before each keystroke.
+    A question the seat put to the owner holds no line back: that turn went on after asking.
     A seat renamed since loses its mark: its harness stamps prompts under the name it was
     started with.
     """
@@ -541,7 +542,7 @@ def continue_turns(cfg, log, accounts=False):
 
                 def taken(held):
                     return held != mark.get("name") or prompted_since(held, at)
-                sent = type_into(session, mark.get("line") or MIDTURN_LINE, log, taken)
+                sent = type_into(session, mark.get("line") or MIDTURN_LINE, log, taken, asked=True)
                 if sent:
                     log(f"told {name} to continue the turn it was in before reopening")
                 elif taken(config.resolve_session(name)):
@@ -1278,6 +1279,23 @@ def recorded_error(harness, name):
         return plugin.error(record, cwd, conversation) or ""
     except OSError:
         return None
+
+
+def limit_ended(harness, name):
+    """Did that seat's harness end its latest turn for a spent subscription -- told the model to
+    wrap up, so it stopped without a refusal -- on a job not since reported done?"""
+    record = config.session_records().get(name) if name else None
+    if not record:
+        return False
+    plugin = orch.harness_plugin(harness)
+    cwd = record.get("cwd")
+    try:
+        at = plugin.wrapped_up(record, cwd, plugin.conversation(record, cwd))
+    except OSError:
+        return False
+    notice = notify.last(name, include_seen=True)
+    return at is not None and not (notice and notice["kind"] == "done"
+                                   and notice.get("time", 0) >= at)
 
 
 def interrupted_at(harness, name):
@@ -2776,15 +2794,17 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     return False
 
 
-def type_into(session, text, log, stale=lambda held: False, *, source="ak"):
+def type_into(session, text, log, stale=lambda held: False, *, source="ak", asked=False):
     """One line and Enter into a seat, the way the inbox is asked its question.
 
     `stale` is asked beside the owner's question, under the same lock and with the name the
     seat goes by now, so what changed while the pane was read or the lock waited still counts.
+    `asked` types it past an open question too: the line goes on with a turn it never stopped.
     """
     return type_checked(session, text, log, None,
                         guard=lambda: seat_held(session["name"]),
-                        veto=lambda held: owner_question(notify.last(held)) or stale(held),
+                        veto=lambda held: (not asked and owner_question(notify.last(held)))
+                        or stale(held),
                         source=source)
 
 
@@ -3514,8 +3534,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     live = seat_read(name)
     if (live.get("midturn") or {}).get("line") == ACCOUNT_LINE:
         return True       # its resumed transcript may still show the previous account's refusal
-    if live.get("state") in ("draft", "asking") or owner_question(notify.last(name)):
-        return True
+    if live.get("state") in ("draft", "asking"):
+        return True       # a respawn would lose them; an open question is ak's record and stays
     accounts = config.accounts(cfg, provider)
     current = record.get("account") or config.DEFAULT_ACCOUNT
     home = record.get("home_account") or config.DEFAULT_ACCOUNT
@@ -3648,7 +3668,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             observed = {"line": line, "at": now, "handled": True}
             seat_write(name, usage_refusal=observed)
         continuing = bool((waiting or {}).get("continue") or refusal
-                          or _turn_in_flight(harness, live)[0])
+                          or _turn_in_flight(harness, live)[0] or limit_ended(harness, name))
         if target is not None:
             try:
                 if owned:
