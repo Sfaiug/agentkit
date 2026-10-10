@@ -3519,6 +3519,14 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         log(f"{name}: stopped with no question, no done and no run; typed {keys!r}")
 
 
+def _resume_on(cfg, name, log, account, continuing):
+    """Resume that seat's conversation on `account`; a turn it was in goes on there."""
+    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account)
+    if continuing and resumed == "resumed":
+        seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
+                                 "line": ACCOUNT_LINE})
+
+
 def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     """Keep a seat on its model's usable subscriptions, preserving its live conversation.
 
@@ -3593,7 +3601,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     elif not refusal and observed and not observed.get("handled") and not dry_run:
         seat_write(name, usage_refusal=None)
     if not waiting and not refusal and not spent(current):
-        # An idle seat comes home once home has a window, and leaves credits for any window.
+        # An idle seat comes home once home has a window, and leaves credits for any window; a
+        # turn the limit ended goes on there, though the meters may not show that limit yet.
         moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
                  and window(a) and (a == home or not window(current))]
         if (moves and live.get("state") == "at_prompt"
@@ -3614,7 +3623,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                         or pane_text(current_seat) != pane):
                     return True
                 try:
-                    orch.resume(cfg, name, log=log, hand_over=False, account=target)
+                    _resume_on(cfg, name, log, target, limit_ended(harness, name))
                 except (config.Error, OSError) as exc:
                     log(f"WARN {name}: {provider} account reopen failed: {exc}")
                     return True
@@ -3674,10 +3683,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if target is not None:
             try:
                 if owned:
-                    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=target)
-                    if continuing and resumed == "resumed":
-                        seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
-                                                 "line": ACCOUNT_LINE})
+                    _resume_on(cfg, name, log, target, continuing)
                 elif continuing and not type_into(session, keystroke(harness, cue), log,
                                                   asked=True):
                     return True
