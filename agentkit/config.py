@@ -1255,8 +1255,8 @@ def instruction_ceiling():
 
 
 def unswitched_files(harness):
-    """The files under the owner's home that this harness reads on its own and that its adapter
-    cannot switch off: `[instructions] unswitched` in adapters/<h>.toml, `~/`-relative.  A seat
+    """The files and folders under the owner's home that this harness reads on its own and that
+    its adapter cannot switch off: `[instructions] unswitched` in adapters/<h>.toml, `~/`-relative.  A seat
     opens only while none of them exists, since nothing but its rulebook may instruct it; a
     worker's box hides each from its turn, and the live contract check plants a word to prove it."""
     block = manifest(harness).get("instructions")

@@ -39,6 +39,12 @@ model = "muse-1"
 effort = "low"
 provider = "test"
 
+[models.gemini]
+harness = "antigravity"
+model = "gemini-1"
+effort = "low"
+provider = "test"
+
 [providers.test]
 mode = "subscription"
 """
@@ -56,8 +62,9 @@ class UnswitchedFiles(unittest.TestCase):
         adapters.mkdir()
         shutil.copy2(REPO / "tests/fixtures/adapters/echo.toml", adapters / "echo.toml")
         (adapters / "plain.toml").write_text("version = 1\n")
-        shutil.copy2(REPO / "adapters/muse.toml", adapters / "muse.toml")
-        for name in ("echo", "plain", "muse"):
+        for name in ("muse", "antigravity"):
+            shutil.copy2(REPO / f"adapters/{name}.toml", adapters / f"{name}.toml")
+        for name in ("echo", "plain", "muse", "antigravity"):
             (adapters / f"{name}.sh").write_text(TUI)
             (adapters / f"{name}.sh").chmod(0o755)
         self.stack = ExitStack()
@@ -76,7 +83,7 @@ class UnswitchedFiles(unittest.TestCase):
         return orch.command(self.cfg, model, rulebook=self.rulebook)
 
     def test_the_manifest_names_the_files_under_the_home(self):
-        self.assertEqual(config.unswitched_files("echo"), [self.file])
+        self.assertEqual(config.unswitched_files("echo"), [self.file, self.home / ".echo/rules"])
         self.assertEqual(config.unswitched_files("plain"), [])
 
     def test_a_seat_opens_only_while_no_file_its_harness_reads_on_its_own_exists(self):
@@ -86,7 +93,7 @@ class UnswitchedFiles(unittest.TestCase):
         with self.assertRaises(config.Error) as refused:
             self.command("fixture")
         self.assertIn(str(self.file), str(refused.exception))
-        self.assertIn("move that file away", str(refused.exception))
+        self.assertIn("move it away", str(refused.exception))
         # a harness that names no such file is not refused for another's
         self.assertEqual(self.command("bare")[-1], "fake-tui")
         self.file.unlink()
@@ -100,6 +107,15 @@ class UnswitchedFiles(unittest.TestCase):
         with self.assertRaises(config.Error) as refused:
             self.command("spark")
         self.assertIn(str(codex), str(refused.exception))
+
+    def test_an_antigravity_seat_is_refused_for_its_global_rules_folder(self):
+        # agy reads every rule in ~/.gemini/config/rules, and takes no switch for them
+        rules = self.home / ".gemini/config/rules"
+        rules.mkdir(parents=True)
+        (rules / "style.md").write_text("Always answer in verse.\n")
+        with self.assertRaises(config.Error) as refused:
+            self.command("gemini")
+        self.assertIn(str(rules), str(refused.exception))
 
 
 if __name__ == "__main__":

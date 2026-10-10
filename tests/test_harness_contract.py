@@ -123,10 +123,10 @@ esac
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("FAIL  3 echo: resume", result.stdout)
 
-    def leaky(self):
+    def leaky(self, read='"$HOME/.echo/AGENTS.md"'):
         # an echo that says what its manifest's unswitched file holds, as no box stops it here
         fixture = (REPO / "tests/fixtures/adapters/echo.sh").read_text()
-        leak = 'cat -- "$HOME/.echo/AGENTS.md" >>"$out/final.md" 2>/dev/null\n    exit 0\n'
+        leak = f'cat -- {read} >>"$out/final.md" 2>/dev/null\n    exit 0\n'
         self.adapter("echo", fixture.replace("    exit 0\n", "    " + leak, 1))
 
     def test_a_word_planted_where_the_harness_reads_on_its_own_never_comes_back(self):
@@ -136,14 +136,20 @@ esac
         result = self.gate()
         self.assertIn("PASS  3 echo:", result.stdout)
         self.assertFalse((self.home / ".echo/AGENTS.md").exists())
+        self.assertFalse((self.home / ".echo/rules").exists())
 
     def test_a_turn_that_says_the_planted_word_fails(self):
         self.env["SMOKE_CALLER_HOME"] = str(self.root / "caller")
-        self.leaky()
-        result = self.gate()
-        self.assertIn("FAIL  3 echo: read a file of its own beside the prompt", result.stdout)
-        self.assertIn(".echo/AGENTS.md", result.stdout)
-        self.assertFalse((self.home / ".echo/AGENTS.md").exists())
+        # the manifest's file, and a file in the folder it names
+        for read in ('"$HOME/.echo/AGENTS.md"', '"$HOME/.echo/rules"/*'):
+            with self.subTest(read):
+                self.leaky(read)
+                result = self.gate()
+                self.assertIn("FAIL  3 echo: read a file of its own beside the prompt",
+                              result.stdout)
+                self.assertIn(".echo/rules", result.stdout)
+                self.assertFalse((self.home / ".echo/AGENTS.md").exists())
+                self.assertFalse((self.home / ".echo/rules").exists())
 
     def test_a_check_in_the_callers_own_home_plants_nothing(self):
         # every other turn and seat of the caller's would read what it planted

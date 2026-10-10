@@ -245,7 +245,7 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     if found:
         raise config.Error(f"{name}'s harness reads {found[0]} on its own and has no switch for "
                            f"it, so a seat on it would take instructions beside its rulebook: "
-                           f"move that file away, or open the seat on a model of another harness")
+                           f"move it away, or open the seat on a model of another harness")
     rulebook = rulebook or write_rulebook(os.environ.get(config.SESSION_ENV, ""))
     told = {**config.account_env(account), config.RULEBOOK_ENV: str(rulebook)}
     told.update(harness_plugin(entry["harness"]).checked(told[config.ACCOUNT_ENV]))
