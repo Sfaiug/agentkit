@@ -4053,8 +4053,10 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
         outside = (kind == "finding" and since and (row["path"], row["line"]) not in earlier
                    and not changed_line(lp, row, head, since))
         if outside and "run" in evidence:
-            outside = hand_in.proof_failed(proof_on(
-                lp, evidence["run"], lp.round_dir / f"proof-{index}-since.log", since, head))
+            # a proof that cannot run or finish there shows no break, as on base above
+            on_since = proof_on(lp, evidence["run"], lp.round_dir / f"proof-{index}-since.log",
+                                since, head)
+            outside = on_since["returncode"] != 0 or on_since["killed"]
         row = {**row, "kind": "note" if outside else kind, "evidence": evidence}
         if outside:
             row["outside"] = f"the fix delta since {since[:12]}; judged in an earlier round"
@@ -4281,13 +4283,13 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         body = rbody if lp.review_sid else rbody_whole
         asked_body, note, resume = body, None, {}
         if ask:
-            asked_body, resume, ask = NO_VERDICT_ASK, {"fresh_body": body, "previous": ask}, None
+            asked_body, resume, ask = NO_VERDICT_ASK, {"fresh_body": rbody_whole, "previous": ask}, None
         elif turn_kind == "resume":
             asked_body = host_ended_prompt(lp.state)
             lp.review_sid = turn_sid
             note = {"at": time.time(), "role": "reviewer", "restarted": False}
             lp.state["resume_notice"] = note
-            resume = {"fresh_body": body, "resume_note": note, "previous": latest_turn(rd, name)}
+            resume = {"fresh_body": rbody_whole, "resume_note": note, "previous": latest_turn(rd, name)}
         elif turn_kind == "fresh":
             asked_body = rbody_whole
             lp.review_sid = None

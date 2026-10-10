@@ -211,6 +211,39 @@ out = pathlib.Path(sys.argv[6])
                                              probe('getattr(api, "extra", None) == 1'))), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 2, ""), ("api.py", 3, "")])
 
+    def test_a_proof_that_cannot_run_on_the_commit_the_last_review_judged_shows_no_break(self):
+        self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed)), "FAIL")
+        judged = self.head
+        # the fix adds the probe the new finding needs: exit 127 on the commit round one judged
+        # is no proof the fix broke the flag's line, which round one judged
+        (self.wt / "probe.sh").write_text("exit 7\n")
+        self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode and add a probe")
+        self.assertEqual(self.review(finding("api.py:2", "flag is wrong", "bash probe.sh")), "PASS")
+        self.assertEqual(self.records("finding"), [])
+        self.assertEqual(self.records("note"), [
+            ("api.py", 2, f"the fix delta since {judged[:12]}; judged in an earlier round"),
+            ("api.py", 1, "fixed; its proof passes now")])
+        self.assertTrue((self.directory / "round-2/proof-1-since.log").read_text().endswith("[exit 127]\n"))
+
+    def test_a_reviewer_asked_once_more_that_cannot_resume_starts_on_the_whole_change(self):
+        self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed)), "FAIL")
+        self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode")
+        real, bodies = run.call_retrying, []
+        def no_verdict_first(cfg, name, body, workspace, out_dir, role, session, log, *args, **kw):
+            bodies.append(kw.get("fresh_body"))
+            if len(bodies) > 1:
+                return real(cfg, name, body, workspace, out_dir, role, session, log, *args, **kw)
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            (Path(out_dir) / "final.md").write_text("No verdict yet.")
+            return 0, "No verdict yet.", session, False
+        self.stack.enter_context(patch.object(run, "call_retrying", no_verdict_first))
+        self.assertEqual(self.review(), "PASS")
+        # the ask once more resumes the conversation that holds the whole change; the fresh
+        # conversation a failed resume starts gets the whole change beside the fix delta
+        self.assertEqual(len(bodies), 2)
+        self.assertIn("## Fix delta", bodies[1])
+        self.assertIn("## Diff (main...HEAD", bodies[1])
+
     def test_a_round_after_a_landing_re_review_gets_the_delta_and_the_replay(self):
         # a landing re-review judges the whole change and records nothing of its own ...
         self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed),

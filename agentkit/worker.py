@@ -14,17 +14,15 @@ from pathlib import Path
 from . import box, command_help, config, hand_in, host, record
 from .harness import load as harness_plugin
 
-# A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
-# the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
+# A worker session is not a seat: `ak notify` is suppressed there.
 NO_NOTIFY = ("[checked by ak: tests/test_notify_rule.py] ak suppresses `ak notify` in worker sessions.\n"
              "[worker judgement] Anything you would report or ask goes into your `## Summary`.")
-EVERY_INSTANCE = ('[worker judgement] You may dispute a finding instead of changing code: use '
+FIX_OR_DISPUTE = ('[worker judgement] You may dispute a finding instead of changing code: use '
                   '`ak hand-in dispute path:line "why it is wrong" --run COMMAND` or `--quote LINES`.\n'
                   "[checked by ak: tests/test_dispute_hand_in.py] ak refuses disputes outside the "
                   "handed blocking findings, commands that do not exit 0 and absent quotes.\n"
-                  "[worker judgement] For every "
-                  "undisputed finding, fix it with the least change in {work}, and list the "
-                  "sites you changed in your summary.")
+                  "[worker judgement] Fix every undisputed finding in {work}, and list the sites "
+                  "you changed in your summary.")
 ONE_PASS = ("[worker judgement] Report every finding you can establish in this one pass, grouped by "
             "pattern with every site listed.\n"
             "[checked by ak: tests/test_dispute_hand_in.py] ak supplies each dispute beside its finding "
@@ -276,7 +274,7 @@ PREAMBLES = {
         f"{GATE}\n{ONE_PASS}"),
     "fixer": (
         "You are the executor, continuing.\n"
-        f"{EVERY_INSTANCE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
+        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     # somebody else's PR: no executor ran, so the diff is judged against the repository itself
@@ -298,7 +296,7 @@ PREAMBLES = {
     "fixer-scratch": (
         "You are the executor, continuing.\n"
         "[worker judgement] Work only inside {workspace}; its files are the deliverable.\n"
-        f"{EVERY_INSTANCE.format(work='the workspace')}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
+        f"{FIX_OR_DISPUTE.format(work='the workspace')}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     "reviewer-scratch": (
