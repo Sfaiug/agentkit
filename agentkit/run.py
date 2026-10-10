@@ -3798,15 +3798,35 @@ TEST_DIRS = ("tests", "test", "spec", "specs", "__tests__")
 TEST_NAMES = ("*_test.*", "*_spec.*", "*.test.*", "*.spec.*")
 
 
-def changed_line(lp, row, head):
+def hunks(lp, path, since, head):
+    """The hunks of `path` from the commit `since` to `head`, no context, as git reads a
+    conflict: (old start, old count, new start, new count) each, in order.  Two commits'
+    trees, not their merge base's: after a rebased push the coordinates are the reviewed
+    commit's own, and the base is already the merge base."""
     diff = git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
-               "--unified=0", f"{lp.base_sha}...{head}", "--", f":(literal){row['path']}")
-    for hunk in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", diff, re.M):
-        start, count = int(hunk[1]), int(hunk[2] or 1)
-        # A pure removal leaves an anchor between the two surviving neighbouring lines.
-        if (start <= row["line"] < start + count if count else row["line"] in (start, start + 1)):
-            return True
-    return False
+               "--unified=0", since, head, "--", f":(literal){path}")
+    return [(int(hunk[1]), int(hunk[2] or 1), int(hunk[3]), int(hunk[4] or 1))
+            for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", diff, re.M)]
+
+
+def in_hunks(line, found):
+    """Whether `line` is inside those hunks' new side.  A pure removal leaves an anchor
+    between the two surviving neighbouring lines."""
+    return any(start <= line < start + count if count else line in (start, start + 1)
+               for _, _, start, count in found)
+
+
+def changed_line(lp, row, head, since=None):
+    """Whether the finding's line is inside the diff to `head` from `since`: the base, or the
+    commit the last review judged, for a later round."""
+    return in_hunks(row["line"], hunks(lp, row["path"], since or lp.base_sha, head))
+
+
+def capped(lp, diff):
+    """A diff cut at DIFF_CAP, saying where the rest is."""
+    if len(diff) > DIFF_CAP:
+        return diff[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
+    return diff
 
 
 def proof_on(lp, command, log_path, revision=None, tests_from=None):
@@ -3895,6 +3915,13 @@ def before_at_base(lp, row):
     return code == 0 and before in content
 
 
+def reviewed_before(lp, before, head):
+    """The commit the last review of this run judged (`before`), when `head` is a later one:
+    the delta from it is what a later round reviews.  None in round 1, in a scratch run, and
+    for a review of that same commit again."""
+    return before if before and not lp.scratch and before != head else None
+
+
 def earlier_findings(lp):
     """The blocking findings the last review handed in, as weighed then: the copy this review
     took when it started (`review_pending`), which no dying attempt overwrites, else the records."""
@@ -3914,6 +3941,12 @@ def dispute_rows(lp):
             if row not in rows:
                 rows.append(row)
     return rows
+
+
+def earlier_sites(lp):
+    """Where the last review's blocking findings stand: a finding handed in again there
+    upholds an earlier one, in whatever words, inside the fix delta or not."""
+    return {(row["path"], row["line"]) for row in earlier_findings(lp)}
 
 
 def replay_findings(lp, rows, head):
@@ -3942,7 +3975,7 @@ def replay_word(now, failing):
     return f"still fails (exit {now['returncode']})"
 
 
-def replay_section(replayed, left):
+def replay_section(replayed, left, since):
     """What the reviewer is told of the earlier findings: ak's own replay of the proven ones,
     and the ones it leaves to the reviewer (`left`: each with why), never a question."""
     lines = [f"- {row['path']}:{row['line']} - {row['what']} - {replay_word(now, failing)}"
@@ -3952,19 +3985,27 @@ def replay_section(replayed, left):
             + ("\n".join(lines) if lines else "(none)")
             + ("\n\n## Earlier findings left to you\n" + "\n".join(yours) if yours else "")
             + "\nA finding still failing blocks whatever you hand in; one you hand in again at its "
-              "site with its proof is weighed as ak's replay is; one fixed needs no word.")
+              "site with its proof is weighed as ak's replay is; one fixed needs no word. "
+            + (f"A new finding blocks only inside the fix delta since {since[:12]}; "
+               "outside it, it is kept as a note." if since else
+               "This is the commit the last review judged, again: a new finding blocks "
+               "wherever it is in the change."))
 
 
-def weigh_review(lp, submitted, head=None, replayed=()):
+def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     """The reviewer's editable copy cannot decide what blocks the reviewed commit.
 
-    ak's own replay of the earlier findings (`replayed`) is weighed with the reviewer's: one
-    still failing blocks whether or not the reviewer handed it in again, one fixed is a note;
-    each stands at the line it was handed in at."""
+    In a later round (`since` names the commit the last review judged) a new finding blocks
+    only inside the fix delta; one handed in again at an earlier finding's site upholds it (a
+    dispute the reviewer rejects) and is weighed as ever.  ak's own replay of the earlier
+    findings (`replayed`) is weighed with the reviewer's: one still failing blocks whether or
+    not the reviewer handed it in again, one fixed is a note; each stands at the line it was
+    handed in at."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
     sites = quoted_sites(lp, submitted, head)
+    earlier = earlier_sites(lp) if since else set()
     records = []
     for index, row in enumerate(submitted.records, 1):
         if row["kind"] not in ("finding", "follow-up"):
@@ -3972,6 +4013,7 @@ def weigh_review(lp, submitted, head=None, replayed=()):
             continue
         evidence = row["evidence"]
         kind = row["kind"]
+        outside = False
         # a follow-up from before the task is proven on base; one of this change (no `before`)
         # on this commit, and on base too, where failing makes it one from before the task
         deferred = kind == "follow-up" and "before" not in row
@@ -3996,6 +4038,9 @@ def weigh_review(lp, submitted, head=None, replayed=()):
                     lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
             if not hand_in.proof_failed(evidence):
                 kind = "note"
+            elif (since and (row["path"], row["line"]) not in earlier
+                    and not changed_line(lp, row, head, since)):
+                kind, outside = "note", True
             elif not lp.scratch and not changed_line(lp, row, head):
                 base = evidence["base"]
                 if hand_in.proof_failed(base):
@@ -4004,9 +4049,15 @@ def weigh_review(lp, submitted, head=None, replayed=()):
                     kind = "note"
         else:
             row = {**row, **sites[index]}
-            if not lp.scratch and not changed_line(lp, row, head):
+            if (since and (row["path"], row["line"]) not in earlier
+                    and not changed_line(lp, row, head, since)):
+                kind, outside = "note", True
+            elif not lp.scratch and not changed_line(lp, row, head):
                 kind = "follow-up"
         row = {**row, "kind": kind, "evidence": evidence}
+        if outside:
+            row["outside"] = f"the fix delta since {since[:12]}; judged in an earlier round"
+            lp.log(f"Kept as a note {row['path']}:{row['line']}: outside the fix delta")
         if kind == "follow-up":
             if "before" not in row and not deferred:
                 row["before"] = f"base {lp.base_sha}: " + (
@@ -4097,9 +4148,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     else:
         lp.state.update(step="reviewer", step_at=time.time())
         lp.save()
-    checks, replayed = "", []
+    checks, delta, replayed = "", None, []
     if lp.scratch:
-        work = f"## Workspace ({lp.wt})\n```\n{listing(lp.wt)}\n```"
+        work = whole = f"## Workspace ({lp.wt})\n```\n{listing(lp.wt)}\n```"
     else:
         head = "HEAD"
         if lp.state.get("review_pr"):
@@ -4107,10 +4158,14 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             restore_review_checkout(lp, "tests")
         else:
             commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
-        diff = git(lp.wt, "diff", f"{lp.base_sha}...{head}", check=False)
-        if len(diff) > DIFF_CAP:
-            diff = diff[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
-        work = f"## Diff ({lp.base}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
+        diff = capped(lp, git(lp.wt, "diff", f"{lp.base_sha}...{head}", check=False))
+        work = whole = f"## Diff ({lp.base}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
+        at = git(lp.wt, "rev-parse", head)
+        # a later round judges what changed since the last review, where that review handed
+        # in findings for a fix to answer: after a FAIL on the checks alone, and in a landing
+        # re-review (`record` off: the repair that brought it here is nobody's fix round),
+        # the whole change is judged again
+        delta = reviewed_before(lp, delta_from, at) if record and earlier else None
         if record and delta_from and earlier:
             # a later round, on a new commit or the same again: ak re-proves the earlier findings.
             # One at a site the fixer disputed (a dispute names a site) is the reviewer's to weigh,
@@ -4122,8 +4177,13 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                      if (row["path"], row["line"]) in disputed
                      else "a quote, which ak cannot re-prove: hand it in again if it still stands")
                     for row in earlier if row not in proven]
-            replayed = replay_findings(lp, proven, git(lp.wt, "rev-parse", head))
-            work = f"{work}\n\n{replay_section(replayed, left)}"
+            replayed = replay_findings(lp, proven, at)
+            if delta:
+                changed = capped(lp, git(lp.wt, "diff", delta, head, check=False))
+                work = (f"## Fix delta ({delta[:12]}...HEAD in {lp.wt}; what changed since the "
+                        f"last review)\n```diff\n{changed}\n```\n\n{replay_section(replayed, left, delta)}")
+            else:
+                work = f"{whole}\n\n{replay_section(replayed, left, None)}"
         paths = changed_test_paths(lp, head)
         if paths:
             # Leave room for full names, including git's quoted non-ASCII paths.
@@ -4154,15 +4214,20 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         flaky = ("A `flaky:` record is ak's own rule, not a weakened check: a done-when command "
                  "that fails runs once more at once, and it passes if that re-run does.")
     lp.log(f"--- round {lp.rnd}: reviewer {lp.reviewer}")
-    rbody = (f"{lp.body}\n\n{work}\n\n"
-             + (disputes.text + "\n" if disputes.disputes else "")
-             + f"## Executor summary\n{summary}\n\n{heading}\n"
-             + (f"{deferred}\n" if deferred else "")
-             + (f"{flaky}\n" if flaky else "")
-             + f"```\n{dw_log}\n```")
-    if preface:
-        rbody = f"{preface}\n\n{rbody}"
-    rbody = checks + rbody
+
+    def body_with(section):
+        text = (f"{lp.body}\n\n{section}\n\n"
+                + (disputes.text + "\n" if disputes.disputes else "")
+                + f"## Executor summary\n{summary}\n\n{heading}\n"
+                + (f"{deferred}\n" if deferred else "")
+                + (f"{flaky}\n" if flaky else "")
+                + f"```\n{dw_log}\n```")
+        if preface:
+            text = f"{preface}\n\n{text}"
+        return checks + text
+    rbody = body_with(work)
+    # a conversation that resumes holds the whole change already; one that cannot gets it too
+    rbody_whole = body_with(f"{whole}\n\n{work}") if delta else rbody
     # A review cut off mid-turn is continued where it was, fallback model and all: the
     # attempt after a fallback wrote under `reviewer-<model>`, and asking `reviewer` for
     # it would start the review over in a directory beside the one holding its session.
@@ -4212,21 +4277,24 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         # The open attempt is read before free_dir creates the next directory.
         turn_kind, turn_sid = open_turn(rd, name)
         out = free_dir(lp, name)
-        asked_body, note, resume = rbody, None, {}
+        body = rbody if lp.review_sid else rbody_whole
+        asked_body, note, resume = body, None, {}
         if ask:
-            asked_body, resume, ask = NO_VERDICT_ASK, {"fresh_body": rbody, "previous": ask}, None
+            asked_body, resume, ask = NO_VERDICT_ASK, {"fresh_body": body, "previous": ask}, None
         elif turn_kind == "resume":
             asked_body = host_ended_prompt(lp.state)
             lp.review_sid = turn_sid
             note = {"at": time.time(), "role": "reviewer", "restarted": False}
             lp.state["resume_notice"] = note
-            resume = {"fresh_body": rbody, "resume_note": note, "previous": latest_turn(rd, name)}
+            resume = {"fresh_body": body, "resume_note": note, "previous": latest_turn(rd, name)}
         elif turn_kind == "fresh":
+            asked_body = rbody_whole
             lp.review_sid = None
             note = {"at": time.time(), "role": "reviewer", "restarted": True}
             lp.state["resume_notice"] = note
         else:
-            resume = {"previous": review_turn(rd, lp.review_sid, since)}
+            # a conversation that cannot resume after all starts fresh on the whole change
+            resume = {"previous": review_turn(rd, lp.review_sid, since), "fresh_body": rbody_whole}
         why, ending = "died on API/transport errors", Exhausted
         model = lp.reviewer     # a fallback below moves on from it before its tokens are read
         reviewed = config.model(lp.cfg, model)
@@ -4300,7 +4368,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     checkout_changed = not lp.scratch and (
         identity != validation or commit_identity(lp.wt) != identity
         or (not lp.state.get("review_pr") and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
-    submitted = weigh_review(lp, submitted, identity.get("head_sha"), replayed=replayed)
+    submitted = weigh_review(lp, submitted, identity.get("head_sha"), since=delta, replayed=replayed)
     upheld = {(row["path"], row["line"]) for row in submitted.findings}
     for row in disputes.disputes:
         if (row["path"], row["line"]) not in upheld:
