@@ -30,6 +30,7 @@ Every change to ak is judged by what it does for what you build with it, and by 
 
 Mistakes earlier work here made that no check catches yet. One that becomes a check leaves this list.
 
+- `python3.11 -m py_compile` what you touch: ak supports 3.11, and a newer `python3` accepts syntax 3.11 rejects.
 - Never start the landing suite (`tests/landing.py`, its `tests/smoke.sh` or `tests/every_file.py`): it runs every test at landing, so when you change a sentence, rule, order or name, grep tests/ and fix each test pinning it.
 - Comments say why. Listing screens go through `agentkit/terminal.py` (`docs/cli-design.md`).
 - Each run has a memory cap (exit 137). Commit before a test sweep; run only the files your change touches, three at most at once; background one only under `timeout -k 30 20m`, read before your turn ends.

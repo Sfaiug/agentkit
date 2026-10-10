@@ -14,16 +14,15 @@ A failing file, or one reporting no executed cases, runs once more after the poo
 landing.py passes a descriptor that reads end-of-file once its other parts have ended, and
 the re-run waits for that too; failing again it fails the whole and is named with its last
 lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after their
-checks. Python under agentkit/, tools/, bin/ and tests/ must be what Python 3.11, the oldest ak
-supports, reads -- a newer interpreter accepts syntax 3.11 refuses -- and import only from the
-standard library or this repository, including files smoke.sh already ran.
+checks. Python under agentkit/, tools/, bin/ and tests/ must parse with the grammar of Python
+3.11, the oldest ak supports, as `ast.parse`'s `feature_version` applies it (f-strings it still
+reads by the running interpreter's rules), and import only from the standard library or this
+repository, including files smoke.sh already ran.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
 
 import ast
-import io
-import itertools
 import os
 import re
 import subprocess
@@ -58,58 +57,6 @@ def source_files(root):
             yield Path(directory) / name
 
 
-def one_string(text):
-    """Whether Python reads an f-string's text, its `f` dropped, as a single string token."""
-    plain = re.sub("[fF]", "", text[:2]) + text[2:]
-    try:
-        return next(tokenize.generate_tokens(io.StringIO(plain).readline)).string == plain
-    except tokenize.TokenError:
-        return False
-
-
-def newer_fstrings(source):
-    """The rows of f-strings only Python 3.12 reads (PEP 701), which `feature_version` does not
-    refuse.  Python 3.11 reads each f-string as one string token, as it reads any other: no
-    enclosing quote reused and, single-quoted, no line break.  Then it refuses a backslash or a
-    comment anywhere in a replacement field, nested strings and f-strings included, and a field
-    in a format spec that is itself in a format spec."""
-    if not hasattr(tokenize, "FSTRING_START"):
-        return []
-    offsets = list(itertools.accumulate((len(line) + 1 for line in source.split("\n")), initial=0))
-    text = lambda start, end: source[offsets[start[0] - 1] + start[1]:offsets[end[0] - 1] + end[1]]
-    rows, opened, last = [], [], None   # each open f-string: its start, and its open fields
-    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
-        if opened and (len(opened) > 1 or opened[-1][1] and tok.type not in (
-                tokenize.FSTRING_MIDDLE, tokenize.FSTRING_END)):   # in a replacement field
-            # a backslash between tokens is a line continuation; an FSTRING_MIDDLE's end is
-            # off by its doubled braces, and no field's gap follows one
-            gap = "" if last.type == tokenize.FSTRING_MIDDLE else text(last.end, tok.start)
-            if tok.type == tokenize.COMMENT or "\\" in gap + tok.string:
-                rows.append(tok.start[0])
-        if tok.type == tokenize.FSTRING_START:
-            opened.append((tok, []))
-        elif tok.type == tokenize.FSTRING_END:
-            start, _ = opened.pop()
-            if not one_string(text(start.start, tok.end)):
-                rows.append(start.start[0])
-        elif opened and tok.type == tokenize.OP:
-            fields = opened[-1][1]   # each: [brackets open in its expression, in its format spec]
-            if tok.string == "{" and (not fields or fields[-1][1]):
-                if len(fields) == 2:
-                    rows.append(tok.start[0])
-                fields.append([0, False])
-            elif tok.string in ("(", "[", "{"):
-                fields[-1][0] += 1
-            elif tok.string in (")", "]", "}") and fields[-1][0]:
-                fields[-1][0] -= 1
-            elif tok.string == "}":
-                fields.pop()
-            elif tok.string == ":" and not fields[-1][0]:
-                fields[-1][1] = True
-        last = tok
-    return sorted(set(rows))
-
-
 def import_errors(root):
     local = set()
     for path in source_files(root):
@@ -129,14 +76,10 @@ def import_errors(root):
                     continue
             try:
                 with tokenize.open(path) as fh:
-                    source = fh.read()
-                tree = ast.parse(source, filename=str(path), feature_version=(3, 11))
-                rows = newer_fstrings(source)
+                    tree = ast.parse(fh.read(), filename=str(path), feature_version=(3, 11))
             except (SyntaxError, UnicodeError) as exc:
                 errors.append(f"{path.relative_to(root)}: invalid Python 3.11: {exc}")
                 continue
-            errors.extend(f"{path.relative_to(root)}: invalid Python 3.11: line {row}: an f-string "
-                          "only Python 3.12 reads" for row in rows)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     names = [alias.name for alias in node.names]
