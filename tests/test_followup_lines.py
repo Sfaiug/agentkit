@@ -161,6 +161,24 @@ class Planned(Sandbox):
         self.fix(state="pass", merged=True, finished_at=time.time())
         self.assertEqual(plan.outcomes(SEAT), [])        # a run's work, never this done's
 
+    def test_a_deferred_line_given_the_seats_own_test_is_the_seats_own(self):
+        line = plan.add(SEAT, "Fix api.py:1 - mode is wrong", "test -f feature.txt", self.repo,
+                        proven=self.base, deferred=True)
+        self.fix(state="running")
+        self.assertFalse(stop.owed(SEAT))                  # a run of the seat has it
+        own = plan.recheck(SEAT, 1, "test -f feature.txt && test -f notes.txt")
+        self.assertEqual(own, line.replace("`test -f feature.txt`", "`test -f feature.txt && test -f notes.txt`")
+                         .replace(plan.DEFERRED, ""))
+        self.assertEqual(plan.open_lines(SEAT), [own])
+        self.assertTrue(stop.owed(SEAT))                   # no run has the new check: the seat does
+        # the fix run's fix lands and the reviewer's probe passes: the seat's own test still holds it
+        (self.repo / "feature.txt").write_text("fixed\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "The run fixes the probe")
+        self.git("push", "-q", "origin", "main")
+        self.assertEqual(plan.verify(SEAT), [own])
+        self.assertTrue(stop.owed(SEAT))
+
     def test_a_deferred_line_is_open_yet_owed_by_nobody_and_ticks_itself(self):
         line = self.deferred()
         self.fix(state="running")

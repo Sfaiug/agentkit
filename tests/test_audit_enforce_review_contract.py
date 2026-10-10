@@ -260,9 +260,10 @@ sys.exit(row["code"])
                   "fable": [{"code": 1, "text": "Usage limit reached"}]}
         # Opus and Fable itself are fallbacks too; silence every legal reviewer.
         self.respond(failed)
+        # named outside the seat: a seat's launch names no model
+        code, directory, state = self.launch("--exec", "fable")
         with patch.dict(os.environ, {config.SESSION_ENV: "fable-seat"}), \
                 patch.object(run, "launch_session", return_value=None):
-            code, directory, state = self.launch("--exec", "fable")
             self.assertEqual(code, 1)
             self.assertEqual(state["state"], "exhausted")
             self.assertEqual(state["executor"], "fable")

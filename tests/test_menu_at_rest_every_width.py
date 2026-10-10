@@ -207,17 +207,17 @@ class V5oMenu(Sandbox):
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
         self.assertRegex(job, r"█+[▒░]+ 3/7$")
         self.assertNotIn("2 running", job)
-        # A last column too long for two lines is cut with … on the continuation.
+        # A last column too long for a page's lines is cut with … on the last of them.
         info = {"number": "1", "name": "atoll-job", "count": "needs you",
                 "orchestrator": "fable", "worker": "fable",
                 "sentence": "word " * 120, "bar": None, "running": 0,
                 "word": "needs you"}
-        lines = menu.v5o_seat_blocks([info], 100)[0]
+        lines = menu.v5o_seat_blocks([info], 100, most=2)[0]
         self.assertEqual(len(lines), 2)
         self.assertTrue(lines[1].strip().endswith("…"))
         # Wrapping never splits a word: the break is at a space.
         self.assertNotRegex(lines[0], r"\S…$")
-        narrow = menu.v5o_seat_blocks([info], 40)[0]
+        narrow = menu.v5o_seat_blocks([info], 40, most=2)[0]
         self.assertGreaterEqual(len(narrow), 2)
         self.assertTrue(any("…" in line for line in narrow))
 

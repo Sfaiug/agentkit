@@ -67,11 +67,12 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
-              ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"))
+              ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"))
 
-# One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`), open while
-# it runs, and each wait it counted (`WAIT_COLUMNS`, named `<wait> wait`), whole, each poll
-# moving its end.  A run with no row keeps no phases.
+# One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
+# it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
+# by its close, so a row never lacks an end and a loop that died counts what its column counts.
+# A run with no row keeps no phases.
 PHASES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS phases (
     run_id TEXT,
@@ -170,12 +171,14 @@ def suite_run(run_id, repo):
 
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               started_at=None, session=None, task_words=None, task_points=None,
-              task_checks=None, task_files=None, orchestrator=None, log=None):
+              task_checks=None, task_files=None, orchestrator=None, change=None, log=None):
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
     goes, and every later write finds no row to change.  The orchestrator is the launching
-    seat's at the first write, whatever that seat runs by a resume.
+    seat's at the first write, whatever that seat runs by a resume.  `change` names the
+    change the run belongs to (its PR, or the run it continues), which the scoreboard groups
+    runs by.
     """
     if sandbox(repo):
         def forget(connection):
@@ -187,7 +190,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     repo = Path(repo).name if repo else None
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
-              task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0)
+              task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
+              change)
 
     def insert(connection):
         connection.execute(
@@ -195,8 +199,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "started_at, finished_at, executor_seconds, done_when_seconds, reviewer_seconds, "
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
-            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -206,7 +210,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "task_points=COALESCE(excluded.task_points,runs.task_points), "
             "task_checks=COALESCE(excluded.task_checks,runs.task_checks), "
             "task_files=COALESCE(excluded.task_files,runs.task_files), "
-            "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator)", values)
+            "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator), "
+            "change=COALESCE(excluded.change,runs.change)", values)
 
     _write(insert, log)
 
@@ -260,7 +265,7 @@ def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
 
 
 def phase(connection, run_id, name, started_at, ended_at):
-    """Write the phase row: its end once it is known, else a new row open while it runs."""
+    """Write the phase row, or move its end: the one under way ends at its last checkpoint."""
     connection.execute(
         "INSERT INTO phases (run_id, phase, started_at, ended_at) "
         "SELECT run_id, ?, ?, ? FROM runs WHERE run_id=? "
@@ -269,8 +274,8 @@ def phase(connection, run_id, name, started_at, ended_at):
 
 
 def phases(run_id):
-    """A run's phases in order, each `{phase, started_at, ended_at}`, the one under way with
-    no end; none for a run with no row."""
+    """A run's phases in order, each `{phase, started_at, ended_at}`, the one under way ending
+    at its last checkpoint; none for a run with no row."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
@@ -332,7 +337,9 @@ def open_step(run_id, step, at=None, *, log=None):
     if step in STEP_COLUMNS:
         with _OPEN_LOCK:
             _OPEN[run_id] = [step, at, at]
-        _write(lambda connection: phase(connection, run_id, step, at, None), log)
+        # the row ends where it begins until a checkpoint or the close moves its end: a loop
+        # that dies before either leaves no endless row, and counts nothing, as its column
+        _write(lambda connection: phase(connection, run_id, step, at, at), log)
 
 
 def close_step(run_id, at=None, *, keep=False, log=None):

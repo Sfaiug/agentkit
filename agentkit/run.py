@@ -6668,7 +6668,8 @@ def history_start(state, log=None):
                       session=session, task_words=state.get("task_words"),
                       task_points=state.get("task_points"),
                       task_checks=state.get("task_checks"),
-                      orchestrator=record.get("orchestrator") if record else None, log=log)
+                      orchestrator=record.get("orchestrator") if record else None,
+                      change=change_name(state), log=log)
 
 
 def changed_files(state):
@@ -7650,11 +7651,11 @@ def planned_followups(state):
     refused = [f"{entry['outcome']} ({entry['refused']})" for entry in entries
                if "refused" in entry]
     checked = ("checked by the reviewer's probe until its fix is on the default branch or "
-               "`ak plan check N` puts your own test in its place. ")
+               "`ak plan check N` puts your own test in its place")
     return ((f"Review follow-ups now deferred in your plan: {'; '.join(deferred)}, each fixed "
-             f"by a run of its own and {checked}" if deferred else "")
+             f"by a run of its own and {checked} and makes the line yours. " if deferred else "")
             + (f"Review follow-ups now in your plan, yours to build: {'; '.join(owed)}, each "
-               f"{checked}" if owed else "")
+               f"{checked}. " if owed else "")
             + (f"Review follow-ups your plan refused, yours to judge: {'; '.join(refused)}. "
                if refused else ""))
 
@@ -8235,6 +8236,38 @@ def run_depth():
     if not value.isascii() or not value.isdigit():
         raise config.Error("AK_RUN_DEPTH must be a non-negative integer")
     return int(value)
+
+
+def seat_refusal(opts, flags):
+    """Why a seat's launch is refused: a seat names no model, no place in the queue and no
+    second run of a change under way, since ak picks the models by budget, decides what goes
+    first and refuses the rival itself.  A seat is a recorded session (`config.session_records`);
+    a shell naming none is no seat, and outside a seat the flags stand.  So do a queued child's,
+    which `spawn_bg` starts under the seat's name: they are ak's own pick (a job's rerun on the
+    next executor) or the seat's launch, judged at its parsing."""
+    if not from_seat():
+        return None
+    given = ([flag for flag in ("--exec", "--review") if opts.get(flag)]
+             + [flag for flag in ("--anyway", "--first") if flags.get(flag)])
+    if given:
+        return (f"{', '.join(given)}: not a seat's; ak picks the models by budget, decides what "
+                "goes first and refuses a second run of a change under way, so launch without")
+    return None
+
+
+def from_seat():
+    """Whether this launch is a seat's own: a recorded session's (`config.session_records`),
+    outside any run (`RUN_DIR_ENV`)."""
+    seat = config.current_session()
+    return bool(seat and seat in config.session_records()
+                and not os.environ.get(config.RUN_DIR_ENV))
+
+
+def rival_advice():
+    """What a launch refused for a run already under way may do: wait for it, or, outside a
+    seat, start a second run regardless with `--anyway`, which a seat may not give
+    (`seat_refusal`)."""
+    return "wait for it" + ("" if from_seat() else ", or add --anyway to start a second run")
 
 
 def depth_refused():
@@ -11407,6 +11440,13 @@ def change_of(state):
     return state.get("change") or state.get("run_id")
 
 
+def change_name(state):
+    """The name a run's change is recorded under: the pull request it reviews, as
+    `owner/repo#n` however its URL was spelled (`pr_key`), else its change (`change_of`)."""
+    key = pr_key(state.get("review_pr"))
+    return f"{key[0]}/{key[1]}#{key[2]}" if key else change_of(state)
+
+
 def change_on(branch, repo, exclude=None):
     """The change a launch `from:` that branch continues: the change of the newest run of that
     repository that ak cut the branch for and whose branch is still there, or None when the
@@ -11795,6 +11835,9 @@ def main(argv):
         else:
             positional.append(arg)
             i += 1
+    refused = seat_refusal(opts, flags)
+    if refused:
+        raise config.Error(refused)
     if opts["--review-pr"]:
         if positional or opts["--rounds"] or opts["--exec"] or flags["--no-worktree"] \
                 or opts["--parallel"] is not None:
@@ -11891,8 +11934,8 @@ def main(argv):
                     started = "??:??"
                 seat = first["seat"] or "nobody's"
                 print(f"ak run: this looks already under way: {first['id']} ({seat}, "
-                      f"started {started}, \"{first['title']}\") shares {detail}; wait for "
-                      "it, or add --anyway to start a second run", file=sys.stderr)
+                      f"started {started}, \"{first['title']}\") shares {detail}; "
+                      f"{rival_advice()}", file=sys.stderr)
                 return 2
         run_id = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
         run_dir = config.RUNS / run_id

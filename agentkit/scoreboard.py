@@ -7,6 +7,34 @@ from statistics import median
 
 from . import config, history, record, terminal
 
+# The parts of a merged change's hours, each second of its runs' phase rows in the first that
+# holds it: a model turn, else ak's own work (a check, or a merge step, which runs from the run's
+# place in its landing line), else a wait.
+PARTS = (("model", ("executor", "reviewer")), ("ak", ("done-when", "merge")),
+         ("waiting", tuple(f"{wait} wait" for wait in history.WAIT_COLUMNS)))
+
+
+def split_hours(row):
+    """A run's hours in each of `PARTS`, read from its phase rows so that no second is in two;
+    zero for a run with no phase row, and None for one whose step columns count seconds its
+    step rows do not hold: it began before the rows were kept.  Steps are compared alone: a
+    step's column and row both read the wall clock, while a wait's column counts monotonic
+    seconds that a clock correction sets apart from its row."""
+    rows = [phase for phase in history.phases(row["run_id"]) if phase["ended_at"] is not None]
+    kept = sum(phase["ended_at"] - phase["started_at"] for phase in rows
+               if phase["phase"] in history.STEP_COLUMNS)
+    if sum(row.get(column) or 0 for column in history.STEP_COLUMNS.values()) > kept + 1:
+        return None
+    edges = sorted({edge for row in rows for edge in (row["started_at"], row["ended_at"])})
+    hours = {part: 0.0 for part, _ in PARTS}
+    for start, end in zip(edges, edges[1:]):
+        held = {row["phase"] for row in rows if row["started_at"] <= start and end <= row["ended_at"]}
+        for part, names in PARTS:
+            if held.intersection(names):
+                hours[part] += (end - start) / 3600
+                break
+    return hours
+
 
 def compute(now=None):
     """Two weeks of ended work, newest first, and the installed ak's committed size.
@@ -21,6 +49,37 @@ def compute(now=None):
     """
     now = time.time() if now is None else now
     week = 7 * 86400
+
+    def delivered(row):
+        """Whether the run merged: its size survives run cleanup, an older merge needs its record."""
+        return row.get("changed_lines") is not None or bool(
+            (record.read_state(config.RUNS / row["run_id"]) or {}).get("merged"))
+
+    def per_change(ended):
+        """The median hours a change merged this week spent in model turns, in ak's own work,
+        waiting, and with its seat between its runs (the wall time from its first run's start to
+        its last run's end less its runs' time): every run of the change that ended in the two
+        weeks, grouped by `change`, each second in one part (`split_hours`); time in no part,
+        such as a park while its provider's window is spent, is in none, and a change with a run
+        from before the phase rows were kept is not recorded (`split_hours`)."""
+        by_change = {}
+        for row in rows:
+            if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]:
+                by_change.setdefault(row.get("change") or row["run_id"], []).append(row)
+        merged = {row.get("change") or row["run_id"] for row in ended if delivered(row)}
+        splits = []
+        for key in merged:
+            runs = by_change.get(key) or []
+            parts = [split_hours(row) for row in runs]
+            if not runs or None in parts:
+                continue
+            wall = (max(row["finished_at"] for row in runs) - min(row["started_at"] for row in runs)) / 3600
+            going = sum((row["finished_at"] - row["started_at"]) / 3600 for row in runs)
+            splits.append({**{part: sum(hours[part] for hours in parts) for part, _ in PARTS},
+                           "seat": max(0.0, wall - going)})
+        if not splits:
+            return None
+        return {part: median(split[part] for split in splits) for part in ("model", "ak", "waiting", "seat")}
 
     def settled(row):
         """Whether the run's record still ends where its row does, or is gone."""
@@ -45,7 +104,7 @@ def compute(now=None):
     rows = [row for row in history.ended_runs(now - 2 * week, now)
             if row["final_state"] in ("pass", *record.FAILED, "exhausted", "not_needed")]
 
-    board, waits = {"products": [], "ak": []}, []
+    board, waits, merged_changes = {"products": [], "ak": []}, [], []
     for end in (now, now - week):
         finished = [row for row in rows if end - week <= row["finished_at"] and
                     (row["finished_at"] <= end if end == now else row["finished_at"] < end)]
@@ -63,13 +122,13 @@ def compute(now=None):
                       "merge_hours": sum(row["merge_wait_seconds"] for row in recorded) / 3600,
                       "lander_hours": None if None in checks else sum(checks) / 3600}
                      if run_time else None)
+        merged_changes.append(per_change(ended))
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group:
                 board[label].append(None)
                 continue
-            merged = [row for row in group if row.get("changed_lines") is not None or
-                      (record.read_state(config.RUNS / row["run_id"]) or {}).get("merged")]
+            merged = [row for row in group if delivered(row)]
             hours = [(row["finished_at"] - row["started_at"]) / 3600 for row in merged
                      if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]]
             tokens = [row["executor_tokens"] + row["reviewer_tokens"] for row in merged
@@ -100,6 +159,7 @@ def compute(now=None):
     before = git("rev-list", "--first-parent", "-1",
                  "--before=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - week)), "HEAD")
     board["waits"] = waits
+    board["merged"] = merged_changes
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
     return board
 
@@ -137,6 +197,13 @@ def render():
         return (f"{stats['compute']:.0%} of run time waiting for a slot or its own suite turn; "
                 f"{stats['merge_hours']:.1f} hours in a landing line, where {checks}")
 
+    def split(stats):
+        if stats is None:
+            return "no merged change"
+        return (f"median hours per merged change: {stats['model']:.1f} in model turns, "
+                f"{stats['ak']:.1f} ak's own work, {stats['waiting']:.1f} waiting, "
+                f"{stats['seat']:.1f} with its seat between runs")
+
     def size(stats):
         if stats is None:
             return "size unavailable"
@@ -149,6 +216,7 @@ def render():
             ("products", *(week(stats, False) for stats in board["products"])),
             ("ak", *(week(stats, True) for stats in board["ak"])),
             ("waits", *(waited(stats) for stats in board["waits"])),
+            ("merged", *(split(stats) for stats in board["merged"])),
             ("ak size", *(size(stats) for stats in board["size"]))]
     room = max(1, (terminal.content_width() - 12) // 2)
     lines = terminal.wrap("Scoreboard (reported tokens; size now and 7 days ago)", terminal.content_width())

@@ -570,10 +570,11 @@ def numbered(text, number):
 
 def recheck(name, number, check):
     """Put `check` in place of plan line `number`'s check, the line open again until it
-    passes.  It must fail where the line's check did: on the commit the line names -- the code
-    before the work, however long ago the work landed.  A line from before lines named one
-    takes it unproven, as it reads: nothing recorded where its check failed, and a missing
-    proof never blocks (the owner, 7 Oct)."""
+    passes, and the seat's own: a line deferred to a fix run takes the seat's own test as the
+    seat's, since no run has the new check.  It must fail where the line's check did: on the
+    commit the line names -- the code before the work, however long ago the work landed.  A
+    line from before lines named one takes it unproven, as it reads: nothing recorded where
+    its check failed, and a missing proof never blocks (the owner, 7 Oct)."""
     check = one_command(check)
     with held(name) as current:
         text = lines(current)
@@ -589,8 +590,8 @@ def recheck(name, number, check):
             raise config.Error(f"this check already passes on {found['base']}, the commit line "
                                f"{number} names, so it proves nothing; write one that fails "
                                "until the work is done")
-    # the line as it reads, open and with only its check changed
-    new = "- [ ] " + line[6:found.start("check")] + check + undone(line, found)[found.end("check"):]
+    # the line as it reads, open, the seat's own, with only its check changed
+    new = compose(found["what"], f"check: `{check}`", found["project"], False, found["when"], found["base"])
     with held(name) as current:
         text = lines(current)
         same = [at for at, old in enumerate(text) if old.strip() == line]
