@@ -120,6 +120,20 @@ class RulebookNews(Sandbox):
         self.assertNotEqual(self.prompt(), "")
         self.assertIn("-Rule one.\n+Rule three.\n", change.read_text())   # not from rule two, lost
 
+    def test_a_change_told_and_never_read_leaves_the_next_one_told_against_what_was_read(self):
+        rules = config.HOME / "rules.md"
+        rules.write_text("Rule one.\n")
+        self.handed(config.seat_rulebook(SEAT))                  # launched on rule one
+        rules.write_text("Rule two.\n")
+        self.said_read(json.loads(self.prompt())["hookSpecificOutput"]["additionalContext"])
+        rules.write_text("Rule three.\n")
+        self.assertIn(TOLD, self.prompt())                       # told, never said read ...
+        rules.write_text("Rule four.\n")                        # ... before the rules move again
+        notice = self.prompt()
+        change = config.seat_file("change", SEAT)
+        self.assertIn(f"read {change} now", notice)             # against rule two, which it read
+        self.assertIn("-Rule two.\n+Rule four.\n", change.read_text())
+
     def test_where_ak_no_longer_has_the_rulebook_the_seat_holds_the_news_names_it_whole(self):
         self.handed(BEFORE)
         config.rulebook_path(SEAT).unlink()                     # the launch's copy is gone
