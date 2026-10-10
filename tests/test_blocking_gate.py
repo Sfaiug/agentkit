@@ -3,8 +3,8 @@
 Before the reviewer runs, ak replays each earlier blocking finding's proof on the commit under
 review, a new one or the same again: one still failing blocks whatever the reviewer hands in,
 one fixed is a note, and the ones at a disputed site, or quoted, are left to the reviewer.  The
-reviewer is given the diff since the commit the last review judged, and a new finding outside
-that delta is kept as a note, never a blocker: it was judged in an earlier round.  A review of
+reviewer is given the diff since the commit the last review judged, and a new finding that
+would block outside that delta is kept as a note: it was judged in an earlier round.  A review of
 the same commit again (a fixer turn that left no commit) judges the whole change.  Offline: a
 real git repository, a reviewer scripted to hand in.
 """
@@ -154,15 +154,13 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.lp.state["round_summaries"][-1]["finding_count"], 2)
         self.assertNotIn("## Fix delta", self.prompt())
         # the fix round mends the first and leaves the second; the reviewer re-finds nothing
-        # and raises something new on a line the fix never touched
+        # and raises something new on a line the change never touched, a follow-up as ever
         self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode")
         self.assertEqual(self.review(finding("api.py:3", "extra is odd", self.never)), "FAIL")
         self.assertEqual(self.records("finding"),
                          [("api.py", 2, "still failing; it blocks until its proof passes")])
-        self.assertEqual(sorted(self.records("note")), [
-            ("api.py", 1, "fixed; its proof passes now"),
-            ("api.py", 3, f"the fix delta since {self.lp.state['round_summaries'][0]['head_sha'][:12]}; "
-                          "judged in an earlier round")])
+        self.assertEqual(self.records("note"), [("api.py", 1, "fixed; its proof passes now")])
+        self.assertEqual(self.records("follow-up"), [("api.py", 3, "")])
         self.assertEqual(self.lp.state["round_summaries"][-1]["finding_count"], 1)
         prompt = self.prompt()
         self.assertIn("## Fix delta", prompt)
@@ -173,20 +171,25 @@ out = pathlib.Path(sys.argv[6])
         # the reviewer's conversation resumes, so it holds the whole change already
         self.assertNotIn("## Diff (main...HEAD", prompt)
         self.assertIn("Re-proven by ak on this commit: still failing", self.lp.findings)
-        self.assertIn("Outside the fix delta", self.lp.findings)
         self.write('mode = "fixed"\nflag = "fixed"\nextra = 1\n', "Fix the flag")
         self.assertEqual(self.review(), "PASS")
         self.assertEqual(self.records("finding"), [])
         self.assertEqual(self.lp.state["round_summaries"][-1]["finding_count"], 0)
 
-    def test_a_new_finding_inside_the_fix_delta_blocks_and_everything_fixed_passes(self):
+    def test_a_new_finding_blocks_only_inside_the_fix_delta_and_everything_fixed_passes(self):
         self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed)), "FAIL")
         self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode, badly")
         self.lp.review_sid = None     # a conversation that cannot resume sees the whole change too
         both = probe('api.mode == "fixed" and api.flag == "fixed"')
-        self.assertEqual(self.review(finding("api.py:1", "the fix is half of it", both)), "FAIL")
+        # the flag's line is the change's, which round one judged, and outside the fix delta
+        self.assertEqual(self.review(finding("api.py:1", "the fix is half of it", both),
+                                     finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 1, "")])
-        self.assertEqual(self.records("note"), [("api.py", 1, "fixed; its proof passes now")])
+        self.assertEqual(self.records("note"), [
+            ("api.py", 2, f"the fix delta since {self.lp.state['round_summaries'][0]['head_sha'][:12]}; "
+                          "judged in an earlier round"),
+            ("api.py", 1, "fixed; its proof passes now")])
+        self.assertIn("Outside the fix delta", self.lp.findings)
         prompt = self.prompt()
         self.assertIn("## Diff (main...HEAD", prompt)
         self.assertIn("## Fix delta", prompt)

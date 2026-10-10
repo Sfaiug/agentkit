@@ -3986,8 +3986,7 @@ def replay_section(replayed, left, since):
             + ("\n\n## Earlier findings left to you\n" + "\n".join(yours) if yours else "")
             + "\nA finding still failing blocks whatever you hand in; one you hand in again at its "
               "site with its proof is weighed as ak's replay is; one fixed needs no word. "
-            + (f"A new finding blocks only inside the fix delta since {since[:12]}; "
-               "outside it, it is kept as a note." if since else
+            + (f"A new finding blocks only inside the fix delta since {since[:12]}." if since else
                "This is the commit the last review judged, again: a new finding blocks "
                "wherever it is in the change."))
 
@@ -4013,7 +4012,6 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             continue
         evidence = row["evidence"]
         kind = row["kind"]
-        outside = False
         # a follow-up from before the task is proven on base; one of this change (no `before`)
         # on this commit, and on base too, where failing makes it one from before the task
         deferred = kind == "follow-up" and "before" not in row
@@ -4038,9 +4036,6 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                     lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
             if not hand_in.proof_failed(evidence):
                 kind = "note"
-            elif (since and (row["path"], row["line"]) not in earlier
-                    and not changed_line(lp, row, head, since)):
-                kind, outside = "note", True
             elif not lp.scratch and not changed_line(lp, row, head):
                 base = evidence["base"]
                 if hand_in.proof_failed(base):
@@ -4049,12 +4044,13 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                     kind = "note"
         else:
             row = {**row, **sites[index]}
-            if (since and (row["path"], row["line"]) not in earlier
-                    and not changed_line(lp, row, head, since)):
-                kind, outside = "note", True
-            elif not lp.scratch and not changed_line(lp, row, head):
+            if not lp.scratch and not changed_line(lp, row, head):
                 kind = "follow-up"
-        row = {**row, "kind": kind, "evidence": evidence}
+        # a defect from before the task is a follow-up above, whichever round finds it: only
+        # what would still block is held to the fix delta
+        outside = (kind == "finding" and since and (row["path"], row["line"]) not in earlier
+                   and not changed_line(lp, row, head, since))
+        row = {**row, "kind": "note" if outside else kind, "evidence": evidence}
         if outside:
             row["outside"] = f"the fix delta since {since[:12]}; judged in an earlier round"
             lp.log(f"Kept as a note {row['path']}:{row['line']}: outside the fix delta")
