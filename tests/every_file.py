@@ -23,6 +23,7 @@ standard library or this repository, including files smoke.sh already ran.
 
 import ast
 import io
+import itertools
 import os
 import re
 import subprocess
@@ -57,29 +58,55 @@ def source_files(root):
             yield Path(directory) / name
 
 
-def delimiter(text):
-    """A string token's opening quote, its prefix letters aside."""
-    body = text.lstrip("rRbBfFuU")
-    return body[:3] if body[:3] in ('"""', "'''") else body[:1]
+def one_string(text):
+    """Whether Python reads an f-string's text, its `f` dropped, as a single string token."""
+    plain = re.sub("[fF]", "", text[:2]) + text[2:]
+    try:
+        return next(tokenize.generate_tokens(io.StringIO(plain).readline)).string == plain
+    except tokenize.TokenError:
+        return False
 
 
 def newer_fstrings(source):
     """The rows of f-strings only Python 3.12 reads (PEP 701), which `feature_version` does not
-    refuse: the enclosing quote reused, or a backslash or a comment inside a replacement field.
-    Python 3.11 reads f-strings as one token and refuses these itself."""
+    refuse.  Python 3.11 reads each f-string as one string token, as it reads any other: no
+    enclosing quote reused and, single-quoted, no line break.  Then it refuses a backslash or a
+    comment anywhere in a replacement field, nested strings and f-strings included, and a field
+    in a format spec that is itself in a format spec."""
     if not hasattr(tokenize, "FSTRING_START"):
         return []
-    rows, quotes = [], []
+    offsets = list(itertools.accumulate((len(line) + 1 for line in source.split("\n")), initial=0))
+    text = lambda start, end: source[offsets[start[0] - 1] + start[1]:offsets[end[0] - 1] + end[1]]
+    rows, opened, last = [], [], None   # each open f-string: its start, and its open fields
     for tok in tokenize.generate_tokens(io.StringIO(source).readline):
-        if quotes and tok.type not in (tokenize.FSTRING_MIDDLE, tokenize.FSTRING_END):
-            nested = (tok.type in (tokenize.STRING, tokenize.FSTRING_START)
-                      and delimiter(tok.string).startswith(quotes[-1]))
-            if nested or "\\" in tok.string or tok.type == tokenize.COMMENT:
+        if opened and (len(opened) > 1 or opened[-1][1] and tok.type not in (
+                tokenize.FSTRING_MIDDLE, tokenize.FSTRING_END)):   # in a replacement field
+            # a backslash between tokens is a line continuation; an FSTRING_MIDDLE's end is
+            # off by its doubled braces, and no field's gap follows one
+            gap = "" if last.type == tokenize.FSTRING_MIDDLE else text(last.end, tok.start)
+            if tok.type == tokenize.COMMENT or "\\" in gap + tok.string:
                 rows.append(tok.start[0])
         if tok.type == tokenize.FSTRING_START:
-            quotes.append(delimiter(tok.string))
+            opened.append((tok, []))
         elif tok.type == tokenize.FSTRING_END:
-            quotes.pop()
+            start, _ = opened.pop()
+            if not one_string(text(start.start, tok.end)):
+                rows.append(start.start[0])
+        elif opened and tok.type == tokenize.OP:
+            fields = opened[-1][1]   # each: [brackets open in its expression, in its format spec]
+            if tok.string == "{" and (not fields or fields[-1][1]):
+                if len(fields) == 2:
+                    rows.append(tok.start[0])
+                fields.append([0, False])
+            elif tok.string in ("(", "[", "{"):
+                fields[-1][0] += 1
+            elif tok.string in (")", "]", "}") and fields[-1][0]:
+                fields[-1][0] -= 1
+            elif tok.string == "}":
+                fields.pop()
+            elif tok.string == ":" and not fields[-1][0]:
+                fields[-1][1] = True
+        last = tok
     return sorted(set(rows))
 
 

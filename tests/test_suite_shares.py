@@ -288,13 +288,17 @@ sys.exit(every_file.main(every_file.Path(sys.argv[2])))
 
     def test_python_only_a_newer_interpreter_reads_is_refused(self):
         for source in ('type Acme = int\n', 'x = {"a": 1}\ny = f"{x["a"]}"\n',
-                       "z = f\"{'\\n'.join([])}\"\n"):
+                       "z = f\"{'\\n'.join([])}\"\n", "x = f\"{f'{\"a\"}'}\"\n",
+                       "x = f\"{f'a\\nb'}\"\n", 'x = 1\ny = f"{\nx\n}"\n',
+                       'x = 1\ny = f"{x + \\\n1}"\n', 'x = 1\ny = f"""{x  # acme\n}"""\n',
+                       'x = y = z = 1\nw = f"{x:{y:{z}}}"\n'):
             with self.subTest(source=source):
                 (self.root / "tests/test_acme.py").write_text(source)
                 [error] = every_file.import_errors(self.root)
                 self.assertTrue(error.startswith("tests/test_acme.py: invalid Python 3.11"), error)
-        (self.root / "tests/test_acme.py").write_text(
-            "t = f'''{dict(a=1)['a']}'''\nu = f\"{f'{1}'}\"\n")   # both read by 3.11
+        (self.root / "tests/test_acme.py").write_text(   # each read by 3.11
+            "t = f'''{dict(a=1)['a']}'''\nu = f\"{f'{1}'}\"\nv = f\"{1:\\n>{2}}{'#'}\"\n"
+            'w = f"""{\n{1: {2}}\n}"""\n')
         self.assertEqual(every_file.import_errors(self.root), [])
 
 
