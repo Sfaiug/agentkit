@@ -28,6 +28,7 @@ from agentkit import config, orch, run, stop, watch
 from agentkit import record
 
 OPEN = "- [ ] the parser parses\n"     # a plan line the seat still owes
+DECISION = "PR #7 Fix api: the maintainer requested changes"
 
 
 class RoutineEndings(HandBack):
@@ -134,6 +135,35 @@ class InTheComposer(RunNotice):
                                       PR, "fix-api"))
         self.assertEqual(len(self.sent), 1)
         self.assertIn("The maintainer requested changes", self.sent[0])
+
+    def enter_lost(self, *args, **kw):
+        """A seat that does not take the first pass's Enter: the line stays in its composer."""
+        if args[-1] == "Enter":
+            self.keys.append("Enter")
+            return 0, ""
+        return self.tmux(*args, **kw)
+
+    def test_a_decision_left_in_the_composer_is_sent_and_holds_no_later_ending_back(self):
+        directory, state = self.result("run-d", merged=False, pr=PR)
+        with patch.object(run, "run_for_pr", return_value=(directory, state)):
+            with patch.object(orch, "tmux_out", side_effect=self.enter_lost):
+                self.assertFalse(watch.say(False, self.logs.append, DECISION, PR, "fix-api"))
+            self.assertIn(DECISION, self.composer)
+            told = [watch.say(False, self.logs.append, DECISION, PR, "fix-api") for _ in range(2)]
+        self.assertEqual(told, [False, True])               # its Enter, then seen sent
+        self.assertEqual(len(self.sent), 1)                 # nothing typed anew
+        self.assertNotIn("decision_typed", record.read_state(directory))
+        failed, _ = self.result("run-f", state="fail", verdict="FAIL", merged=False)
+        run.announce(record.read_state(failed), failed, self.logs.append, self.cfg)
+        self.assertIn("run-f finished FAIL", self.sent[-1])
+
+    def test_a_decision_whose_enter_is_read_late_is_typed_once(self):
+        directory, state = self.result("run-d", merged=False, pr=PR)
+        reads = iter([False, True])                         # its Enter not yet read off the tty
+        with patch.object(watch, "pane_unread", side_effect=lambda *_a: next(reads, False)), \
+                patch.object(run, "run_for_pr", return_value=(directory, state)):
+            told = [watch.say(False, self.logs.append, DECISION, PR, "fix-api") for _ in range(2)]
+        self.assertEqual((told, len(self.sent)), ([False, True], 1))
 
     def test_a_merged_line_left_in_the_composer_is_sent_and_holds_no_later_ending_back(self):
         directory, state = self.result("run-m", merged=True, pr=PR, no_merge=False)
