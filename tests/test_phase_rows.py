@@ -87,30 +87,33 @@ class TimeSplit(PhaseRows):
         stack.enter_context(patch.object(scoreboard.time, "time", return_value=NOW))
         stack.enter_context(patch.object(config, "session_records", return_value={}))
 
-    def ended(self, run_id, change, started, finished, *, merged, waits=(), **steps):
+    def ended(self, run_id, change, started, finished, state, *, waits=(), **steps):
         history.start_run(run_id, repo="/home/fixture/code/acme", started_at=NOW + started * HOUR,
                           change=change)
         for step, value in steps.items():
             history.add_seconds(run_id, step, value * HOUR)
         for wait, value in waits:
             history.add_wait(run_id, wait, value * HOUR, NOW + finished * HOUR)
-        history.finish_run(run_id, final_state="pass" if merged else "fail",
-                           finished_at=NOW + finished * HOUR, changed_lines=0 if merged else None)
+        history.finish_run(run_id, final_state=state, finished_at=NOW + finished * HOUR,
+                           changed_lines=0 if state == "pass" else None)
 
     def test_a_merged_changes_hours_are_split_over_every_run_of_it(self):
         # a PR reviewed twice: the first run failed, the seat held it two hours, the second merged;
         # its lander's wait is inside its line's
-        self.ended("a", PR, -10, -8, merged=False, executor=1, reviewer=0.5, waits=[("slot", 1 / 6)])
-        self.ended("b", PR, -6, -1, merged=True, executor=0.5, reviewer=0.25,
+        self.ended("a", PR, -10, -8, "fail", executor=1, reviewer=0.5, **{"done-when": 0.25},
+                   waits=[("slot", 1 / 6)])
+        self.ended("b", PR, -6, -1, "pass", executor=0.5, reviewer=0.25, merge=0.5,
                    waits=[("merge", 1), ("lander", 1 / 3)])
-        self.ended("solo", "solo", -3, -2, merged=True, executor=0.5)
-        self.ended("open", "open", -3, -2, merged=False, executor=4)          # merged nothing
+        # merged alone after four hours parked on a spent quota window, which is in no part
+        self.ended("solo", "solo", -9, -8, "exhausted", executor=1)
+        self.ended("solo", "solo", -4, -3, "pass", executor=0.5, **{"done-when": 0.25})
+        self.ended("open", "open", -3, -2, "fail", executor=4)          # merged nothing
         [this_week, before] = scoreboard.compute(NOW)["merged"]
         self.assertEqual({part: round(value, 3) for part, value in this_week.items()},
-                         {"model": 1.375, "ak": 2.042, "waiting": 0.583, "seat": 1.0})
+                         {"model": 1.875, "ak": 0.5, "waiting": 0.583, "seat": 1.0})
         self.assertIsNone(before)
         with patch.object(scoreboard.terminal, "content_width", return_value=300):
-            self.assertIn("merged    median hours per merged change: 1.4 in model turns, 2.0 ak's own "
+            self.assertIn("merged    median hours per merged change: 1.9 in model turns, 0.5 ak's own "
                           "work, 0.6 waiting, 1.0 with its seat between runs", "\n".join(scoreboard.render()))
 
     def test_a_runs_row_names_its_change(self):

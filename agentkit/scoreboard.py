@@ -32,8 +32,9 @@ def compute(now=None):
 
     def per_change(ended):
         """The median hours a change merged this week spent in model turns, in ak's own work
-        (its run time that was neither), waiting, and with its seat between its runs: every
-        run of the change that ended in the two weeks, grouped by `change`."""
+        (its checks and merges), waiting, and with its seat between its runs: every run of the
+        change that ended in the two weeks, grouped by `change`.  Each part is what its runs
+        recorded, never a remainder: a park on a provider is in none."""
         by_change = {}
         for row in rows:
             if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]:
@@ -46,12 +47,13 @@ def compute(now=None):
                 continue
             wall = (max(row["finished_at"] for row in runs) - min(row["started_at"] for row in runs)) / 3600
             going = sum((row["finished_at"] - row["started_at"]) / 3600 for row in runs)
-            model = sum(column_hours(row, "executor_seconds", "reviewer_seconds") for row in runs)
             # The lander's waits are inside the line's, as the waits row reads them.
-            waiting = sum(column_hours(row, "slot_wait_seconds", "suite_wait_seconds",
-                                       "merge_wait_seconds") for row in runs)
-            splits.append({"model": model, "waiting": waiting, "ak": max(0.0, going - model - waiting),
-                           "seat": max(0.0, wall - going)})
+            splits.append({
+                "model": sum(column_hours(row, "executor_seconds", "reviewer_seconds") for row in runs),
+                "ak": sum(column_hours(row, "done_when_seconds", "merge_seconds") for row in runs),
+                "waiting": sum(column_hours(row, "slot_wait_seconds", "suite_wait_seconds",
+                                            "merge_wait_seconds") for row in runs),
+                "seat": max(0.0, wall - going)})
         if not splits:
             return None
         return {part: median(split[part] for split in splits) for part in ("model", "ak", "waiting", "seat")}
