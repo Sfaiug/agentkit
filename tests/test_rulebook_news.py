@@ -70,13 +70,37 @@ class RulebookNews(Sandbox):
         told = json.loads(self.prompt())["hookSpecificOutput"]
         path = self.rules()
         self.assertEqual(told["hookEventName"], "UserPromptSubmit")
-        self.assertIn(f"Read {path} in full", told["additionalContext"])
+        self.assertIn(f"{path} holds the new one whole", told["additionalContext"])
         self.assertEqual(path.read_text(), config.seat_rulebook(SEAT))
         self.assertIn(TOLD, self.prompt())   # not said read yet: told again
         self.assertEqual(self.said_read(told["additionalContext"]), 0)
         self.assertEqual(config.session_records()[SEAT]["rulebook_read"],
                          {"conversation": OWN, "sha": config.rulebook_digest(config.seat_rulebook(SEAT))})
         self.assertEqual(self.prompt(), "")
+
+    def test_the_news_names_what_changed_since_the_rulebook_the_seat_holds(self):
+        rules = config.HOME / "rules.md"
+        rules.write_text("Rule one.\n")
+        self.handed(config.seat_rulebook(SEAT))                  # launched on rule one
+        rules.write_text("Rule two.\n")
+        notice = self.prompt()
+        change = config.seat_file("change", SEAT)
+        self.assertIn(f"read {change} now", notice)
+        diff = change.read_text()
+        self.assertIn("-Rule one.\n+Rule two.\n", diff)
+        self.assertLess(len(diff), len(config.seat_rulebook(SEAT)) // 4)
+        self.said_read(json.loads(notice)["hookSpecificOutput"]["additionalContext"])
+        rules.write_text("Rule three.\n")                       # from the one it said it read
+        self.assertIn(f"read {change} now", self.prompt())
+        self.assertIn("-Rule two.\n+Rule three.\n", change.read_text())
+        self.assertNotIn("Rule one.", change.read_text())
+
+    def test_where_ak_no_longer_has_the_rulebook_the_seat_holds_the_news_names_it_whole(self):
+        self.handed(BEFORE)
+        config.rulebook_path(SEAT).unlink()                     # the launch's copy is gone
+        notice = self.prompt()
+        self.assertIn(f"Read {self.rules()} in full", notice)
+        self.assertNotIn("change-", notice)
 
     def test_a_rulebook_said_read_after_it_changed_again_is_read_again(self):
         rules = config.HOME / "rules.md"
