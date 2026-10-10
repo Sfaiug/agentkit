@@ -3355,14 +3355,17 @@ def followup_place(text):
 
 def followup_open(state):
     """Whether this fix run is still on its way: running, about to, or resuming itself --
-    stopped to wait on an older run's change too, which the tick starts again (`leases.parked`)."""
+    stopped to wait on an older run's change too, which the tick starts again (`leases.parked`),
+    and a FAIL on a conflict with main, which the tick parks and resumes (`parkable_conflict`)."""
     return (state.get("state") == "running"
             or (state.get("state") == "queued"
                 and (run_record.process_active(state) or state.get("slot_waiting")))
             or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error", "stopped")
                 and going(state))
             or (state.get("state") == "interrupted" and state.get("deaths")
-                and tick_resumes(state)))
+                and tick_resumes(state))
+            or (state.get("state") == "fail"
+                and parkable_conflict(state, config.RUNS / str(state.get("run_id")))))
 
 
 def repair_open(state, tip):
@@ -9841,20 +9844,27 @@ def update_scope_line(run_dir, state):
 
 
 def followup_returned(state, run_dir, log):
-    """A fix run ending with its check unmet (failed, in error, stopped) gives its follow-up's
-    line back to the seat it was deferred from: the seat's own again (`plan_followup`,
-    deferred off), since no run has it now, and the result says so.  A merge, or a `not
-    needed` (the check passes on the target), leaves the line to tick itself."""
-    followup, session = state.get("followup") or {}, launched_session(state)
-    if (not followup.get("check") or not session or not state.get("repo")
-            or state.get("merged") or state.get("state") == "not_needed"):
+    """A fix run's ending gives its follow-up's line back to the seat it was deferred from
+    once no run has it: neither on its way (`followup_open`, which the tick's retry, wait or
+    resume keeps) nor ended with its check met -- a merge, or a `not needed` (the check passes
+    on the target), leaves the line to tick itself.  The line is the seat's own again
+    (`plan_followup`, deferred off) and the result says so.  Called however a loop ended
+    (`drive`) and wherever a stop ends one (`stop.end`)."""
+    try:
+        followup, session = state.get("followup") or {}, launched_session(state)
+        if (not followup.get("check") or not session or not state.get("repo")
+                or state.get("merged") or state.get("state") == "not_needed"
+                or followup_open(state)):
+            return None
+        entry = plan_followup(session, main_checkout(Path(state["repo"])), followup["text"],
+                              followup["check"], state.get("base_sha"), log, deferred=False)
+        save_result(run_dir, notices=(
+            "## Follow-up plan\n\n" + (f"Its line is yours again, in your plan: {entry['outcome']}"
+                                       if "refused" not in entry else
+                                       f"Its line could not be returned to your plan: {entry['refused']}"),))
+    except (config.Error, OSError) as exc:
+        log(f"WARN the follow-up's line was not returned to the seat: {exc}")
         return None
-    entry = plan_followup(session, main_checkout(Path(state["repo"])), followup["text"],
-                          followup["check"], state.get("base_sha"), log, deferred=False)
-    save_result(run_dir, notices=(
-        "## Follow-up plan\n\n" + (f"Its line is yours again, in your plan: {entry['outcome']}"
-                                   if "refused" not in entry else
-                                   f"Its line could not be returned to your plan: {entry['refused']}"),))
     return entry
 
 
@@ -9869,10 +9879,6 @@ def finish(state, run_dir, log, cfg=None):
         log(f"WARN could not start follow-ups: {exc}")
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the follow-ups
         log(f"WARN could not start follow-ups: {exc}")
-    try:
-        followup_returned(state, run_dir, log)
-    except (config.Error, OSError) as exc:
-        log(f"WARN the follow-up's line was not returned to the seat: {exc}")
     try:
         redress_seat(launched_session(state))   # the ending lands on the bar too
     except run_record.StopRequested:
@@ -10482,13 +10488,15 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
             run_record.save_state(run_dir, state)
         if stop_after_finally:
             stop_run_tree(run_record.read_state(run_dir) or state, log)
-        # Endings that raise never reach finish(); the checkout and the tabs still go.
+        # Endings that raise never reach finish(); the checkout and the tabs still go, and
+        # however it ended, a fix run no run has any more gives its line back to the seat.
         try:
             settled = run_record.read_state(run_dir) or state
         except NameError:
             settled = None  # the stop landed before the loop saved anything
         if isinstance(settled, dict):
             worktrees.settle_run(settled, run_dir, log)
+            followup_returned(settled, run_dir, log)
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
         release_line(run_dir, log)
         return 0
