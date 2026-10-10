@@ -84,7 +84,7 @@ def load_tests(loader, tests, pattern):
     """Only this file's own cases: the stages it builds on run their tests from their own files."""
     suite = unittest.TestSuite()
     for case in (RoutineEndings, LiveRecorded):
-        suite.addTests(loader.loadTestsFromTestCase(case))
+        suite.addTests(case(name) for name in loader.getTestCaseNames(case) if name in vars(case))
     return suite
 
 
