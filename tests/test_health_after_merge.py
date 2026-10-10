@@ -141,8 +141,7 @@ class HealthAfterMerge(unittest.TestCase):
                 directory = self.merged(self.declare("exit 0"))
                 self.notified(when, **extra)
                 self.tick()
-                st = record.read_state(directory)
-                self.assertEqual((st["live_at"], st["live_notified"]), (NOW, NOW))
+                self.assertEqual(record.read_state(directory)["live_at"], NOW)
                 self.assertEqual(history.get("run-a")["live_at"], NOW)
                 self.assertEqual(self.lines, [])
                 self.tick(now=NOW + 60)
@@ -239,7 +238,6 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual(self.lines, [])
         for directory in (first, second):
             self.assertEqual(record.read_state(directory)["live_at"], NOW)
-            self.assertEqual(record.read_state(directory)["live_notified"], NOW)
             self.assertEqual(history.get(directory.name)["live_at"], NOW)
 
     def test_deadline_failure_is_told_once_with_last_stdout_and_stderr(self):

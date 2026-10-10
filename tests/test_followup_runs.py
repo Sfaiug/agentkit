@@ -523,7 +523,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("Before the task: return 1 / value", found)
         self.assertIn(f"- [ ] Fix {OTHER} · check: `python3 -c 'from other import ratio; ratio(0)'` "
                       f"· {plan.named(self.repo)} · written ", config.plan_path("seat").read_text())
-        self.assertIn("now in your plan, yours to build: Fix other.py:2", self.endings[-1])
+        self.assertIn("now in your plan, yours to build: Fix other.py:2", (child / "result.md").read_text())
 
     def test_not_needed_is_done_without_checks_review_or_pr(self):
         for index, mode in enumerate(("gone", "duplicate")):

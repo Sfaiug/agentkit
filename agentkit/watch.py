@@ -5640,9 +5640,10 @@ def say(dry_run, log, text, url, session, merged=False):
     Never to Discord.  The run learns it first, where the menu and `ak run status` were
     already showing `waiting for the maintainer` -- a seat that cannot be typed into never
     holds that back -- and a live seat is typed the line, exactly as a review question is
-    put to the `inbox`, with the review follow-ups a merge put in its plan.  A decision
-    already on the run is not recorded again, so a retry after a failed typing tells the
-    seat without recording twice or starting fix runs twice.  True means it has landed
+    put to the `inbox`.  A merge is the exception: it is routine, recorded on the run and
+    typed into no seat (`run.routine_ending`).  A decision already on the run is not
+    recorded again, so a retry after a failed typing tells the seat without recording
+    twice.  True means it has landed
     everywhere it goes, or that there is nowhere left for it to land and following this PR
     is over; False means the seat is still owed its line and the next tick retries it.
     """
@@ -5656,12 +5657,12 @@ def say(dry_run, log, text, url, session, merged=False):
                         and (not merged or run_state.get("merged"))):
         run.record_decision(run_dir, run_state, text, merged=merged)
         log(f"recorded on run {run_dir.name}: {text}")
+    if merged:
+        return True
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
-        planned = run.planned_followups(run_state).strip() if merged and run_dir else ""
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
-                "decision on a PR of ours, for you to act on or not."
-                + (f" {planned}" if planned else ""))
+                "decision on a PR of ours, for you to act on or not.")
         if run_dir:
             line = run.seat_notice(line, run_state, run_dir,
                                    f"run {run_dir.name}: the maintainer decided on its PR.")
@@ -5801,22 +5802,18 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 st.update(current)
             if not passed:
                 return "pending", None, None
+            # live is recorded on the run and its history row, never typed into the seat:
+            # nothing is the seat's to decide about a change that is live (`run.routine_ending`)
+            log(f"run {run_dir.name} is live: {pr_url}.")
         else:
             return "failed", f"health: {command}", (
                 f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
     if not dry_run:
         history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
-    if not st.get("live_notified"):
-        # live is recorded on the run and its history row, never typed into the seat: nothing
-        # is the seat's to decide about a change that is live (`run.routine_ending`)
-        line = f"run {run_dir.name} is live: {pr_url}."
-        if dry_run:
-            log(f"would record: {line}")
-            return "passed", None, None
-        with run_record.record(run_dir) as current:
-            current["live_notified"] = now
-            current.pop("live_typed", None)
-        log(line)
+        # a live line an earlier install typed and never saw sent is sent, never left behind
+        if st.get("live_typed") and run.finish_typed(run.launched_session(st), st["live_typed"], log):
+            with run_record.record(run_dir) as current:
+                current.pop("live_typed", None)
     return "passed", None, None
 
 
@@ -6063,10 +6060,11 @@ def after_merge_checks(state, dry_run, log, now=None):
         if (not isinstance(finished, (int, float)) or isinstance(finished, bool)
                 or not 0 <= now - finished):
             continue
-        # past the window, only a probe that failed inside it is followed further: the
-        # `health:` a merge recorded and no probe ever ran is let go, the merge commit unasked
+        # past the window, only a probe that failed inside it, or a live line still unsent,
+        # is followed further: the `health:` a merge recorded and no probe ever ran is let
+        # go, the merge commit unasked
         if (now - finished > AFTER_MERGE_WINDOW and "output" not in (st.get("health") or {})
-                and not (st.get("live_at") and not st.get("live_notified"))):
+                and not st.get("live_typed")):
             continue
         pr_url = st.get("pr")
         if not isinstance(pr_url, str) or not pr_url:
@@ -6285,45 +6283,36 @@ PASS_ERRORS = (config.Error, OSError, TypeError, ValueError, AttributeError, Key
 
 
 def offer_endings(log):
-    """Detect lost loops even when no phone opens the menu and GitHub is unavailable.
-
-    A seat takes one line at each quiet prompt, so the endings that wait on its decision go
-    before those of runs that merged, which only tell it so: a failed run's ending waited
-    behind six merged runs' (6 Oct).
-    """
+    """Detect lost loops even when no phone opens the menu and GitHub is unavailable."""
     from . import run
-    ended = []
     for run_dir in run_record.run_dirs():
         try:
             receipt = run_record.read_state(run_dir)
             if receipt:
                 receipt = run.reap(run_dir, receipt)
-                if receipt.get("state") in run_record.ENDED:
-                    ended.append((run_dir, receipt))
-        except PASS_ERRORS as exc:
-            log(f"WARN cannot check run {run_dir.name}: {exc}")
-    for run_dir, receipt in sorted(ended, key=lambda found: bool(found[1].get("merged"))):
-        try:
-            # Every ending nobody has heard is offered again here, not only one a flag was left
-            # on: a hand-back the run could not type goes in at the next quiet prompt, and so
-            # does the ending of an attempt that was reaped without one.  `announce` decides
-            # again which path it is, so a seat that died since gets the orphan one.
-            if run.owes_ending(receipt):
-                run.announce(receipt, run_dir, log)
-            # A question the seat never took is typed again before the user hears it; one it
-            # took whose ping failed is only pinged, and so is one kept before `asked` was,
-            # whose typing nobody knows the end of.
-            question = receipt.get("pending_inbox")
-            if question and ask_inbox(
-                    config.load(), question["question"], question["url"],
-                    question["sha"], log, asked=question.get("asked", True),
-                    typed=lambda: run.mark_delivery(
-                        run_dir, receipt, pending_inbox={**question, "asked": True})
-                    ) == 0:
-                # struck off the record as it stands, never off this copy of it: the run's own
-                # loop can have handed the ending back while the question was going out, and a
-                # whole save from here would put that back to undelivered and say it twice
-                run.mark_delivery(run_dir, receipt, pending_inbox=None)
+                if receipt.get("state") not in run_record.ENDED:
+                    continue
+                # Every ending nobody has heard is offered again here, not only one a flag was
+                # left on: a hand-back the run could not type goes in at the next quiet prompt,
+                # and so does the ending of an attempt that was reaped without one.  `announce`
+                # decides again which path it is, so a seat that died since gets the orphan one.
+                if run.owes_ending(receipt):
+                    run.announce(receipt, run_dir, log)
+                # A question the seat never took is typed again before the user hears it; one
+                # it took whose ping failed is only pinged, and so is one kept before `asked`
+                # was, whose typing nobody knows the end of.
+                question = receipt.get("pending_inbox")
+                if question and ask_inbox(
+                        config.load(), question["question"], question["url"],
+                        question["sha"], log, asked=question.get("asked", True),
+                        typed=lambda: run.mark_delivery(
+                            run_dir, receipt, pending_inbox={**question, "asked": True})
+                        ) == 0:
+                    # struck off the record as it stands, never off this copy of it: the run's
+                    # own loop can have handed the ending back while the question was going
+                    # out, and a whole save from here would put that back to undelivered and
+                    # say it twice
+                    run.mark_delivery(run_dir, receipt, pending_inbox=None)
         except PASS_ERRORS as exc:
             log(f"WARN cannot check run {run_dir.name}: {exc}")
 
