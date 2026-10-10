@@ -122,17 +122,21 @@ class FollowupRule(unittest.TestCase):
         self.assertIn("## Follow-ups", run.pr_body(self.lp.state))
 
     def test_a_follow_up_handed_in_again_on_a_new_head_is_kept_once(self):
-        def weighed(head):
+        def weighed(n):
+            # the fixer's commit moves the head, and with it the proof's exit status and the line
+            # its traceback names; a landing rebase moves the base its text names
             row = {"kind": "follow-up", "path": "a.py", "line": 1, "what": "empty input crashes",
-                   "why": "callers crash", "evidence": {"run": "false", "commit": head,
-                                                       "returncode": 1, "output": ""}}
+                   "why": "callers crash", "before": f"base {n * 40}: the proof fails there too",
+                   "evidence": {"run": "false", "commit": n * 40, "returncode": int(n),
+                                "output": f'File "cli.py", line {n}'}}
             return lambda *_args, **_kw: hand_in.Review([row, {"kind": "done"}])
-        for head in ("1" * 40, "2" * 40):   # the fixer's commit between rounds moves the head
-            with patch.object(run, "weigh_review", side_effect=weighed(head)):
+        for n in "12":
+            with patch.object(run, "weigh_review", side_effect=weighed(n)):
                 self.review()
             self.lp.rnd += 1
         [item] = self.lp.state["followups"]
         self.assertIn("Commit " + "1" * 40, item)
+        self.assertIn('File "cli.py", line 1', item)
         self.assertEqual(self.lp.state["followup_checks"], {item: "false"})
         self.assertEqual(self.lp.state["followup_commits"], {item: "1" * 40})
         # ... while another defect with the same check is another follow-up, kept beside it

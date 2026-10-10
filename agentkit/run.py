@@ -3945,12 +3945,6 @@ def review_disputes(lp, head):
     return hand_in.Review(disputes)
 
 
-def followup_key(item):
-    """The defect a follow-up names, whichever round proved it: its text without the round's
-    `Commit <sha>:` line, so its site, what, why and check tell it from another."""
-    return "\n".join(line for line in item.splitlines() if not line.startswith("Commit "))
-
-
 def review(lp, summary, ok, dw_log, preface="", record=True):
     """Commit what the executor left, hand the work to the reviewer, record the round's verdict.
 
@@ -4203,18 +4197,18 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
     # kept whatever the verdict, every round's, with the commit each was proven on for its plan
-    # line; each defect once, whichever round proved it: a follow-up of this change names its
-    # round's head, and the same defect handed in again on the next head is the one kept
-    kept = lp.state.get("followups") or []
-    known = {followup_key(item) for item in kept}
+    # line; each defect once, whichever round proved it: the same defect handed in again on a
+    # later head differs only in its proof, which names that head, and the first one is kept
+    known = set((lp.state.get("followup_defects") or {}).values())
     fresh = []
-    for item in submitted.followups:
-        if followup_key(item) not in known:
-            known.add(followup_key(item))
+    for item, defect in submitted.followup_defects.items():
+        if defect not in known:
+            known.add(defect)
             fresh.append(item)
-    lp.state["followups"] = kept + fresh
+    lp.state["followups"] = (lp.state.get("followups") or []) + fresh
     for key, found in (("followup_checks", submitted.followup_checks),
-                       ("followup_commits", submitted.followup_commits)):
+                       ("followup_commits", submitted.followup_commits),
+                       ("followup_defects", submitted.followup_defects)):
         lp.state[key] = {**(lp.state.get(key) or {}), **{item: found[item] for item in fresh if item in found}}
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)

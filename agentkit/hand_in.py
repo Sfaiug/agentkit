@@ -105,6 +105,14 @@ class Review:
                 if row["kind"] == "follow-up" and "commit" in row["evidence"]}
 
     @property
+    def followup_defects(self):
+        """Each follow-up's text with the defect it names, whichever head proved it: its site,
+        what, why and check, without the proof's commit, exit status and output."""
+        return {item_text(row): json.dumps([row["path"], row["line"], row["what"], row["why"],
+                                            row["evidence"].get("run", row["evidence"].get("quote"))])
+                for row in self.records if row["kind"] == "follow-up"}
+
+    @property
     def preexisting(self):
         """The follow-ups from before the task: what the review found already on the base."""
         return [row for row in self.records if row["kind"] == "follow-up" and row.get("before")]
