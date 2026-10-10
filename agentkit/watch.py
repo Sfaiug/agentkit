@@ -3644,14 +3644,14 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             # The host may have slept through the deadline. Never replace that old
             # refusal with a new shared-cache park; retry it once in the existing pane.
             if until is not None and until <= now:
-                if type_into(session, keystroke(harness, cue), log):
+                if type_into(session, keystroke(harness, cue), log, asked=True):
                     seat_write(name, usage_refusal={"line": line, "at": now, "handled": True})
                 return True
             # A bare 429/rate limit is not proof a subscription is empty. Retry the
             # stable error locally; only a spent window or deadline parks an account.
             if until is None and outcome == LIMITED:
-                if observed.get("told"):
-                    return True
+                if observed.get("told") or owner_question(notify.last(name)):
+                    return True     # a stall, and an open question is never a reason to type
                 if now - observed["at"] >= GIVE_UP:
                     text = stuck_notice(name, harness)
                     if notify.shaped("needs", text, session=name,
@@ -3676,7 +3676,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                     if continuing and resumed == "resumed":
                         seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
                                                  "line": ACCOUNT_LINE})
-                elif continuing and not type_into(session, keystroke(harness, cue), log):
+                elif continuing and not type_into(session, keystroke(harness, cue), log,
+                                                  asked=True):
                     return True
             except (config.Error, OSError) as exc:
                 reason = f"{provider} account reopen failed: {exc}"

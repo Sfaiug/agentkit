@@ -5,6 +5,8 @@ and before that tells the running turn to wrap up and stop (its `usageLimitNote:
 the model ends the turn itself with nothing refused.  Either way the seat resumes its
 conversation on an account with room and is told to continue, even while a question it put to
 the owner stands; a seat whose turn ended on its own, or whose job is done, is left idle.
+A seat with no proven conversation goes on in place once its own window is back, question or
+not; a bare rate limit spends no subscription and, like any stall, waits on the answer.
 The pane is one captured from a real seat (renamed); the stage is `test_seat_account`'s.
 """
 
@@ -29,16 +31,20 @@ class SpentSeat(SeatAccount):
         notify.record(NAME, "needs", "Which end card goes on the clip?")
         self.assertTrue(watch.owner_question(notify.last(NAME)))
 
-    def go_on(self):
-        """The tick's continue pass, typing through the real veto; what reached the pane."""
+    def sent(self, step):
+        """`step`, typing through the real veto; what reached the pane."""
         sent = []
         with patch.object(watch, "type_into", TYPE_INTO), \
                 patch.object(watch, "_send_line", side_effect=lambda s, text, *a, **k:
                              sent.append(text) or True), \
                 patch.object(watch, "_send_enter", return_value=True), \
                 patch.object(watch, "_wait_sent", return_value=True):
-            watch.continue_turns(self.cfg, self.logs.append, accounts=True)
+            step()
         return sent
+
+    def go_on(self):
+        """The tick's continue pass; what reached the pane."""
+        return self.sent(lambda: watch.continue_turns(self.cfg, self.logs.append, accounts=True))
 
     def transcript(self, *entries):
         slug = "".join(c if c.isalnum() else "-" for c in str(self.root))
@@ -70,6 +76,34 @@ class SpentSeat(SeatAccount):
         self.assertEqual(record["conversation"], CONVERSATION)
         self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
         self.assertTrue(watch.owner_question(notify.last(NAME)))   # still the owner's to answer
+
+    def test_a_seat_kept_in_place_goes_on_after_its_reset_question_open(self):
+        config.save_session(self.cfg, NAME, "opus", ["astra"], {
+            "cwd": str(self.root), "account": "default", "conversation": None, "id_source": None})
+        self.meters(20, 20)
+        self.ask()
+        self.pane = REFUSED
+        self.refusal_tick()
+        self.assertTrue(watch.seat_read(NAME).get("usage_wait"))
+        self.now += 2 * 86400
+        self.meters(20, 20)
+        self.pane = "❯"
+        self.assertEqual(self.sent(self.tick), [watch.keystroke("claude", "❯")])
+        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+        self.assertTrue(watch.owner_question(notify.last(NAME)))
+
+    def test_a_bare_rate_limit_under_an_open_question_waits_on_the_answer(self):
+        self.meters(30, 20)
+        self.ask()
+        self.pane = "API Error: 429 rate limit"
+
+        def ticks():
+            for wait in (0, watch.STALL_WAIT, watch.GIVE_UP):
+                self.now += wait
+                self.meters(30, 20)
+                self.tick()
+        self.assertEqual(self.sent(ticks), [])
+        self.assertTrue(watch.owner_question(notify.last(NAME)))
 
     def test_a_question_open_at_an_idle_prompt_moves_and_types_nothing(self):
         self.ask()
