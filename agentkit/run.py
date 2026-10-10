@@ -6656,7 +6656,8 @@ def history_start(state, log=None):
                       session=session, task_words=state.get("task_words"),
                       task_points=state.get("task_points"),
                       task_checks=state.get("task_checks"),
-                      orchestrator=record.get("orchestrator") if record else None, log=log)
+                      orchestrator=record.get("orchestrator") if record else None,
+                      change=change_name(state), log=log)
 
 
 def changed_files(state):
@@ -11400,6 +11401,13 @@ def same_repo(a, b):
 def change_of(state):
     """The change a run belongs to: the id it inherited at a `from:` launch, else its own."""
     return state.get("change") or state.get("run_id")
+
+
+def change_name(state):
+    """The name a run's change is recorded under: the pull request it reviews, as
+    `owner/repo#n` however its URL was spelled (`pr_key`), else its change (`change_of`)."""
+    key = pr_key(state.get("review_pr"))
+    return f"{key[0]}/{key[1]}#{key[2]}" if key else change_of(state)
 
 
 def change_on(branch, repo, exclude=None):

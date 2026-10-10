@@ -1,6 +1,9 @@
 """history.db holds one row per phase of every run: each step a process ran, open while it
 runs and ended when it closes, and each wait it counted, whole; in order, beside the cumulative
-columns they add up to.  A run with no row keeps no phases.  Offline: a temporary HOME.
+columns they add up to.  A run with no row keeps no phases.  The scoreboard shows, per change
+merged in the week, the median hours in model turns, in ak's own work, waiting and with its
+seat between its runs, every run of the change grouped by its PR or the run it continues, each
+second of a run's phase rows in one part.  Offline: a temporary HOME.
 """
 
 from contextlib import ExitStack
@@ -14,7 +17,11 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, history
+from agentkit import config, gate, history, run, scoreboard
+
+NOW = 1_800_000_000
+HOUR = 3600
+PR = "https://github.com/acme/widget/pull/7"
 
 
 class PhaseRows(unittest.TestCase):
@@ -77,6 +84,71 @@ class PhaseRows(unittest.TestCase):
         history.open_step("r1", "merge", 100)
         history.start_run("r1", repo="/home/fixture/.agentkit/tmp/sandbox")     # a sandbox's row goes
         self.assertEqual((history.get("r1"), history.phases("r1")), (None, []))
+
+
+class TimeSplit(PhaseRows):
+    """The scoreboard's split of a merged change's hours."""
+
+    def setUp(self):
+        super().setUp()
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        for name in ("RUNS", "REPO"):
+            stack.enter_context(patch.object(config, name, self.root / name.lower()))
+        stack.enter_context(patch.object(scoreboard.time, "time", return_value=NOW))
+        stack.enter_context(patch.object(config, "session_records", return_value={}))
+
+    def ended(self, run_id, change, started, finished, state, *phases):
+        """A run's row and its phase rows, each `(name, start, end)` in hours from NOW."""
+        history.start_run(run_id, repo="/home/fixture/code/acme", started_at=NOW + started * HOUR,
+                          change=change)
+        for name, start, end in phases:
+            if name.endswith(" wait"):
+                history.add_wait(run_id, name[:-5], (end - start) * HOUR, NOW + end * HOUR,
+                                 began=NOW + start * HOUR)
+            else:
+                history.open_step(run_id, name, NOW + start * HOUR)
+                history.close_step(run_id, NOW + end * HOUR)
+        history.finish_run(run_id, final_state=state, finished_at=NOW + finished * HOUR,
+                           changed_lines=0 if state == "pass" else None)
+
+    def test_a_merged_changes_hours_are_split_over_every_run_of_it_each_second_once(self):
+        # a PR reviewed twice: the first run failed, the seat held it two hours, the second
+        # merged from its place in the landing line, where its slot wait after the wake, its
+        # lander's wait and its delivery all fall inside the line wait
+        self.ended("a", PR, -10, -8, "fail", ("executor", -10, -9), ("slot wait", -9, -8.75),
+                   ("reviewer", -8.75, -8.25), ("done-when", -8.25, -8))
+        self.ended("b", PR, -6, -1, "pass", ("executor", -6, -5.5), ("reviewer", -5.5, -5.25),
+                   ("merge wait", -4, -1), ("slot wait", -4, -3.875), ("lander wait", -3.5, -3.25),
+                   ("merge", -2, -1.25))
+        # merged alone after four hours parked on a spent quota window, which is in no part
+        self.ended("solo", "solo", -9, -8, "exhausted", ("executor", -9, -8))
+        self.ended("solo", "solo", -4, -3, "pass", ("executor", -4, -3.5),
+                   ("done-when", -3.5, -3.25), ("suite wait", -3.25, -3))
+        self.ended("open", "open", -3, -2, "fail", ("executor", -3, -2))          # merged nothing
+        self.assertEqual(scoreboard.split_hours("b"), {"model": 0.75, "ak": 0.75, "waiting": 2.25})
+        [this_week, before] = scoreboard.compute(NOW)["merged"]
+        self.assertEqual({part: round(value, 3) for part, value in this_week.items()},
+                         {"model": 1.875, "ak": 0.625, "waiting": 1.375, "seat": 1.0})
+        self.assertIsNone(before)
+        with patch.object(scoreboard.terminal, "content_width", return_value=300):
+            self.assertIn("merged    median hours per merged change: 1.9 in model turns, 0.6 ak's own "
+                          "work, 1.4 waiting, 1.0 with its seat between runs", "\n".join(scoreboard.render()))
+
+    def test_a_change_with_a_run_from_before_the_phase_rows_is_not_recorded(self):
+        history.start_run("old", repo="/home/fixture/code/acme", started_at=NOW - 2 * HOUR, change="old")
+        history.add_seconds("old", "executor", HOUR)
+        history.finish_run("old", final_state="pass", finished_at=NOW - HOUR, changed_lines=0)
+        self.assertIsNone(scoreboard.compute(NOW)["merged"][0])
+
+    def test_a_runs_row_names_its_change_by_the_pull_request_however_its_url_is_spelled(self):
+        for state, change in (({"run_id": "r1", "repo": "/x/acme", "review_pr": PR}, "acme/widget#7"),
+                              ({"run_id": "r2", "repo": "/x/acme",
+                                "review_pr": "https://github.com/Acme/widget/pull/7/"}, "acme/widget#7"),
+                              ({"run_id": "r3", "repo": "/x/acme", "change": "r1"}, "r1"),
+                              ({"run_id": "r4", "repo": "/x/acme"}, "r4")):
+            run.history_start(state)
+            self.assertEqual(history.get(state["run_id"])["change"], change)
 
 
 if __name__ == "__main__":
