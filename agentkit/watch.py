@@ -5805,7 +5805,8 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
     if not dry_run:
         history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
         # a live line an earlier install typed and never saw sent is sent, never left behind
-        if st.get("live_typed") and run.finish_typed(run.launched_session(st), st["live_typed"], log):
+        if (st.get("live_typed")
+                and run.finish_typed(run.launched_session(st), st["live_typed"], log)):
             with run_record.record(run_dir) as current:
                 current.pop("live_typed", None)
     return "passed", None, None
