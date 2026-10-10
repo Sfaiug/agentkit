@@ -3447,8 +3447,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         items = [request["text"]] if request else state["followups"]
         planned = [item for item in items if item in checks]   # the seat's own, executors or not
         repo = main_checkout(Path(state["repo"])) if planned else None
+        proven = state.get("followup_commits") or {}
         handed = {"followup_runs": [], "followup_plan": [
-            plan_followup(session, repo, item, checks[item], state.get("base_sha"), log)
+            plan_followup(session, repo, item, checks[item], proven.get(item, state.get("base_sha")), log)
             for item in planned]}
         cfg = report_config(cfg)
         record = config.session_records().get(config.resolve_session(session), {})
@@ -3862,11 +3863,19 @@ def weigh_review(lp, submitted, head=None):
             continue
         evidence = row["evidence"]
         kind = row["kind"]
+        # a follow-up from before the task is proven on base; one of this change (no `before`)
+        # on this commit, and on base too, where failing makes it one from before the task
+        deferred = kind == "follow-up" and "before" not in row
         if kind == "follow-up":
             if not lp.scratch and "run" in evidence:
                 command = evidence["run"]
-                evidence = {"run": command, "commit": lp.base_sha, **proof_on(
-                    lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
+                base = proof_on(lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)
+                evidence = {"run": command, "commit": lp.base_sha, **base}
+                if deferred:
+                    evidence = {"run": command, "commit": head, **proof_on(
+                        lp, command, lp.round_dir / f"proof-{index}-commit.log", head),
+                        "base": {"sha": lp.base_sha, **base}}
+                    deferred = not (hand_in.proof_failed(evidence) and hand_in.proof_failed(base))
         elif index in sites and sites[index] is None:
             kind = "note"
         elif "run" in evidence:
@@ -3890,16 +3899,18 @@ def weigh_review(lp, submitted, head=None):
                 kind = "follow-up"
         row = {**row, "kind": kind, "evidence": evidence}
         if kind == "follow-up":
-            if "before" not in row:
+            if "before" not in row and not deferred:
                 row["before"] = f"base {lp.base_sha}: " + (
                     "the proof fails there too" if "run" in evidence
                     else "quoted lines outside the change")
             reason = ("no base commit" if lp.scratch else
-                      "needs a --run proof that fails on base" if "run" not in evidence else
-                      "the command did not fail on base" if not hand_in.proof_failed(
-                          evidence.get("base", evidence)) else
-                      "--before names no commit in base's history or quote present at base" if not before_at_base(lp, row)
-                      else "")
+                      "needs a --run proof" + ("" if deferred else " that fails on base")
+                      if "run" not in evidence else
+                      ("the command did not fail on this commit" if deferred
+                       else "the command did not fail on base") if not hand_in.proof_failed(
+                          evidence if deferred else evidence.get("base", evidence)) else
+                      "--before names no commit in base's history or quote present at base"
+                      if not deferred and not before_at_base(lp, row) else "")
             if reason:
                 row.update(kind="note", dropped=reason)
                 lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
@@ -4177,8 +4188,20 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.log(f"WARN {overridden}; overriding to FAIL")
     record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
-    lp.state["followups"] = submitted.followups if verdict == "PASS" else []
-    lp.state["followup_checks"] = submitted.followup_checks if verdict == "PASS" else {}
+    # kept whatever the verdict, every round's, with the commit each was proven on for its plan
+    # line; each defect once, whichever round proved it: the same defect handed in again on a
+    # later head differs only in its proof, which names that head, and the first one is kept
+    known = set((lp.state.get("followup_defects") or {}).values())
+    fresh = []
+    for item, defect in submitted.followup_defects.items():
+        if defect not in known:
+            known.add(defect)
+            fresh.append(item)
+    lp.state["followups"] = (lp.state.get("followups") or []) + fresh
+    for key, found in (("followup_checks", submitted.followup_checks),
+                       ("followup_commits", submitted.followup_commits),
+                       ("followup_defects", submitted.followup_defects)):
+        lp.state[key] = {**(lp.state.get(key) or {}), **{item: found[item] for item in fresh if item in found}}
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)
         # A landing re-review with a pending suite keeps the task's probe base.
@@ -4200,7 +4223,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     lp.save()
     history.record_review(lp.state.get("run_id"), str(out),
                           harness=review_harness, model=review_model,
-                          blocking=len(submitted.findings), followup=len(submitted.followups),
+                          blocking=len(submitted.findings), followup=len(submitted.preexisting),
                           note=len(submitted.notes), log=lp.log)
     return verdict
 

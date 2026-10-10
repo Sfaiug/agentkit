@@ -9,7 +9,7 @@ NOTIFY_DONE = ('ak notify done "SUMMARY" [--pr URL] '
 NOTIFY_USAGE = (f"usage: {NOTIFY_NEEDS}\n       {NOTIFY_DONE}\n"
                 "       ak notify --check")
 HAND_IN_FINDING = 'ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES)'
-HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES) --before PROOF'
+HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES) [--before PROOF]'
 HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND | --quote LINES)'
 
 # Each entry is (usage, description, example). Model selections remain in config.toml;
@@ -26,7 +26,8 @@ COMMANDS = {
                 "Paths and lines must exist in the checkout; a quote must occur in that file.\n"
                 "--run executes in the checkout and records bounded output excerpts and the exit status.\n"
                 "A finding's command must fail while the defect exists; ak re-runs it on commit and base.\n"
-                "A follow-up's command must run and fail on base; --before names the base or an ancestor commit, or verbatim lines in its file at base.\n"
+                "A follow-up from before the task has --before, naming the base or an ancestor commit, or verbatim lines in its file at base; its command must fail on base.\n"
+                "A follow-up of this change has no --before; its --run must fail now and on the reviewed commit.\n"
                 "Unproven follow-ups are dropped into Notes.\n"
                 "A follow-up's --run is one line without backticks or this checkout's path.\n"
                 "Only a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\n"
@@ -42,7 +43,8 @@ COMMANDS = {
                         "Hand in a finding for ak to weigh, with a failing command or quoted evidence.",
                         'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py"'),
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
-                          "Hand in a proven defect that existed before the task; it cannot fail this review.\n"
+                          "Hand in a defect that cannot fail this review: one that existed before the task (--before proves it),\n"
+                          "or a smaller one of this change that need not hold it (no --before; --run must fail now).\n"
                           "Its command becomes the check on a line in the plan of the session that owns the work.",
                           'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py" --before "return None"'),
     "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",

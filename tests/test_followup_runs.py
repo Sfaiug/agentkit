@@ -263,6 +263,21 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(config.plan_path("seat").read_text(), text)
         self.assertEqual(len(self.spawns), 1)
 
+    def test_a_followup_of_the_change_names_the_reviewed_commit_its_check_failed_on(self):
+        self.git(self.remote, "symbolic-ref", "HEAD", "refs/heads/main")
+        config.update_session("seat", repo=str(self.repo))
+        base = self.git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "other.py").write_text("def ratio(value):\n    return 2 / value\n")
+        self.git(self.repo, "commit", "-qam", "The change brings a smaller defect")
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        doubled = "python3 -c 'from other import ratio; assert ratio(1) == 1'"
+        item = "other.py:2 - ratio doubles - callers get 2"
+        self.start(*self.source(followups=[item], followup_checks={item: doubled},
+                                followup_commits={item: head}, base_sha=base))
+        [line] = plan.lines("seat")
+        self.assertEqual(plan.LINE.match(line)["base"], head[:12])
+        plan.recheck("seat", 1, doubled)   # a test failing on the change takes the line's check
+
     def test_a_followup_its_plan_refuses_is_named_for_the_seat_to_judge(self):
         directory, state = self.source(followup_checks={DEFECT: "false\nfalse"})
         self.assertEqual(self.start(directory, state), [])
@@ -716,13 +731,14 @@ class FollowupEvidence(unittest.TestCase):
     review = proof.ProofWeighed.review
     assert_restored = proof.ProofWeighed.assert_restored
 
-    def followup(self, command=None, before=None, site="api.py:2"):
-        return proof.finding(site, "old defect", command or self.fails, kind="follow-up",
+    def followup(self, command=None, before=None, site="api.py:2", what="old defect"):
+        return proof.finding(site, what, command or self.fails, kind="follow-up",
                              before=before if before is not None else f"base {self.base}")
 
     def test_followup_only_reviews_replay_the_proof_and_accept_real_base_commits_or_quotes(self):
-        self.assertEqual(self.review(*(self.followup(before=before) for before in
-                                     (self.base, f"base {self.base[:7]}: old defect", "old_bug = True"))),
+        # three defects, one per form of --before: one defect handed in thrice is kept once
+        self.assertEqual(self.review(*(self.followup(before=before, what=f"old defect {n}") for n, before in
+                                     enumerate((self.base, f"base {self.base[:7]}: old defect", "old_bug = True")))),
                          "PASS")
         self.assertEqual(len(self.lp.state["followups"]), 3)
         self.assertEqual(self.lp.state["notes"], [])
@@ -741,7 +757,8 @@ class FollowupEvidence(unittest.TestCase):
         self.lp.state["base_sha"] = self.base
         run.git(self.wt, "checkout", "-q", "ak/fix-api")
         before = (ancestor, f"base {ancestor[:7]}: old defect", "old-base")
-        self.assertEqual(self.review(*(self.followup(before=text) for text in before),
+        self.assertEqual(self.review(*(self.followup(before=text, what=f"old defect {n}")
+                                       for n, text in enumerate(before)),
                                      self.followup(before=self.head)), "PASS")
         self.assertEqual(len(self.lp.state["followups"]), len(before))
         for text in self.lp.state["followups"]:
