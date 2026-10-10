@@ -1276,13 +1276,17 @@ def unswitched_files(harness, env):
     """The files and folders under the home that this harness reads on its own and that its
     adapter cannot switch off: `[instructions] unswitched` in adapters/<h>.toml, resolved for
     `env` as `manifest_paths` does, so an account's own home is looked in where the adapter
-    keeps one.  A seat opens only while none of them exists, since nothing but its rulebook may
-    instruct it; a worker's box hides each from its turn, and the live contract check plants a
-    word to prove it."""
+    keeps one.  An `env` naming no account looks in the usual homes too: there an adapter drops
+    an account's home a seat handed down.  A seat opens only while none of them exists, since
+    nothing but its rulebook may instruct it; a worker's box hides each from its turn, and the
+    live contract check plants a word to prove it."""
     block = manifest(harness).get("instructions")
     paths = block.get("unswitched") if isinstance(block, dict) else None
-    return list(manifest_paths([p for p in paths or [] if isinstance(p, str) and p[:1] in "~$"],
-                               env))
+    paths = [p for p in paths or [] if isinstance(p, str) and p[:1] in "~$"]
+    found = list(manifest_paths(paths, env))
+    if not env.get(ACCOUNT_ENV):
+        found += [p for p in manifest_paths(paths, {"HOME": env.get("HOME")}) if p not in found]
+    return found
 
 
 def seat_state_path(name):

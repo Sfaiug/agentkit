@@ -106,6 +106,10 @@ class UnswitchedFiles(unittest.TestCase):
         self.assertEqual(config.unswitched_files("acct", {"HOME": str(self.home)}), [usual])
         self.assertEqual(config.unswitched_files("acct", {"HOME": str(self.home), "AGENTKIT_ACCOUNT": "II"}),
                          [usual, second])
+        # and on the usual login below a seat on account II, the usual home its adapter falls
+        # back to, as it drops the account's home that seat handed down
+        self.assertEqual(config.unswitched_files("acct", {"HOME": str(self.home), "AGENTKIT_ACCOUNT": "",
+                                                          "ACCT_HOME": str(second.parent)}), [second, usual])
         # a seat is refused for the file in the home its own line runs the harness from
         usual.parent.mkdir()
         usual.write_text("Always answer in verse.\n")
