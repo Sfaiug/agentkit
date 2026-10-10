@@ -349,6 +349,8 @@ class RulebookNews(Sandbox):
         config.rename_session("acme-old", "acme-new")
         told = json.loads(self.prompt(session="acme-old"))["hookSpecificOutput"]
         self.assertIn(str(self.rules("acme-new")), told["additionalContext"])
+        # what changed since the launch copy, which stays under the name it was launched with
+        self.assertIn(str(config.seat_file("change", "acme-new")), told["additionalContext"])
         self.said_read(told["additionalContext"], session="acme-old")
         self.assertEqual(config.session_records()["acme-new"]["rulebook_read"],
                          {"conversation": OWN,

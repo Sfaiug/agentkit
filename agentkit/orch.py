@@ -2315,9 +2315,10 @@ def held_sha(record, conversation):
 def rulebook_change(name, record, conversation, text):
     """What changed from the rulebook `conversation` holds to `text`, as a unified diff, or ""
     where ak no longer has the one it holds: the rules it last said it read, which its `rules`
-    file keeps until the next change is written there, or its launch's."""
+    file keeps until the next change is written there, or its launch's, which a rename leaves
+    under the name it was launched with."""
     holds = held_sha(record, conversation)
-    for held in (config.seat_file("rules", name), config.rulebook_path(name)):
+    for held in (config.seat_file("rules", name), *map(config.rulebook_path, plan.names(name))):
         data = on_disk(held)
         if data and config.rulebook_digest(data) == holds:
             return "".join(difflib.unified_diff(
