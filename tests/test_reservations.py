@@ -5,8 +5,9 @@ The scan the tick runs, and ak's commit step runs itself, parks the younger run
 (`leases.park`): its record reads `stopped`, waiting on the holder, its checkout and branch
 stay as they are.  A younger run past its executor turn, or one that reached its review
 while the scan ran, a pull request's review, a job's task, a red target's repair and a
-suite's split are only written down.  A scan that cannot finish costs the commit step
-nothing.  Offline: the lease stage (`fixtures.leases`).
+suite's split are only written down; a `--no-merge` run neither holds nor waits.  A scan
+that cannot finish costs the commit step nothing.  Offline: the lease stage
+(`fixtures.leases`).
 """
 
 from pathlib import Path
@@ -104,6 +105,16 @@ class Reservations(LiveRuns):
             found = leases.scan(self.repo, self.logs.append, now=2000)
             self.assertEqual(found[YOUNGER]["waits_on"], OLDER)
             self.assertEqual(self.state(YOUNGER)["state"], "running", key)
+
+    def test_a_run_kept_local_neither_holds_nor_waits(self):
+        # a --no-merge run never lands: nothing stands in its way, and it in nobody's
+        self.collide()
+        for local in (OLDER, YOUNGER):
+            for name in (OLDER, YOUNGER):
+                directory = config.RUNS / name
+                record.save_state(directory, {**record.read_state(directory), "no_merge": name == local})
+            self.assertEqual(leases.scan(self.repo, self.logs.append, now=2000), {}, local)
+            self.assertEqual(self.state(YOUNGER)["state"], "running", local)
 
     def test_a_run_that_reached_its_review_during_the_scan_is_not_stopped(self):
         self.collide(step="done-when")

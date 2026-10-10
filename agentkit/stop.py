@@ -264,7 +264,7 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
         current.update(state="stopped", verdict="STOPPED", finished_at=time.time(),
                        error=why, reported=True, stop_kept=kept)
         for key in ("recovery_pending", "recovery_notified", "recovery_acknowledged_at",
-                    "lease_wait", "handback_pending", "handback_wait_reason", "handback_note",
+                    "handback_pending", "handback_wait_reason", "handback_note",
                     "notification_pending", "pending_inbox", "quota_dry", "refusal_retry",
                     "waiting_for", "login_resume_at", "login_back_at", "stall_resume_at",
                     "resume_after", "error_retry_at", "error_retries", "waiting_on",

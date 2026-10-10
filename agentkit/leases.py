@@ -14,8 +14,8 @@ on the holder (`park`): what it built cannot land as it is.  A younger run past 
 the review of a pull request, a job's task, a red target's repair and a suite's split are
 only written down: the lander orders their landings.  The record under
 `~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
-only while its run is going (`run.going`) and its checkout is there; a record whose pair no
-longer collides, or whose holder is gone, is cleared on the next scan.
+only while its run is going (`run.going`), is to land and its checkout is there; a record
+whose pair no longer collides, or whose holder is gone, is cleared on the next scan.
 """
 
 import fcntl
@@ -77,13 +77,14 @@ def write(repo, waits):
 
 
 def live(repo):
-    """The runs of that repository whose diffs count: going, cut from a base, with a checkout
-    of their own that is still there; oldest first by start."""
+    """The runs of that repository whose diffs count: going, to land (a `--no-merge` run, a
+    scratch one among them, keeps its work local and stands in nobody's way), cut from a base,
+    with a checkout of their own that is still there; oldest first by start."""
     from . import run
     found = []
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
-        if (not state or state.get("scratch") or not state.get("base_sha")
+        if (not state or state.get("no_merge") or not state.get("base_sha")
                 or not run.going(state) or not same_repo(state.get("repo"), repo)):
             continue
         worktree = Path(state.get("worktree") or "")
@@ -92,7 +93,7 @@ def live(repo):
             continue        # a run working in the checkout it was launched from holds no diff of its own
         found.append({"run": run_dir.name, "worktree": worktree, "base": state["base_sha"],
                       "started": state.get("started_at") or 0,
-                      "artifacts": state.get("artifacts") or [], "state": state})
+                      "artifacts": state.get("artifacts") or []})
     return sorted(found, key=lambda each: (each["started"], each["run"]))
 
 
