@@ -14,7 +14,6 @@ import functools
 import json
 import math
 import os
-import re
 import sys
 import tempfile
 import time
@@ -176,20 +175,6 @@ def start_line(turn, log=lambda _: None):
         return False
 
 
-def red_suite_piece(text, suite):
-    """What of `suite` the lander log `text` shows red: the piece that exited red
-    (`AK_SHARD=k/N`), else "" for the suite whole -- run whole, a piece killed (its siblings
-    are stopped with it, never retried, so no red beside it is one piece's), or a checkout the
-    checks changed -- or None where there is no suite or what failed was not it: a `# once`
-    check of the member's own, which no target answers for."""
-    from . import run
-    failed = [command for command, _ in run.failing_checks(text)]
-    if not suite or failed[:1] not in ([], [suite]):
-        return None
-    red = re.findall(r"^--- AK_SHARD=(\S+) ---\n\[(exit [1-9]|killed)", text, re.M)
-    return "" if not red or any(how == "killed" for _, how in red) else red[0][0]
-
-
 def paused(red):
     """Whether a red target entry holds the line on the retry ladder: probed red on the
     target's tip alone, with no repair started and the ladder not yet climbed.  An entry an
@@ -215,11 +200,13 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     member's own.  Red there is the target's: the entry under `tree` counts the probe and holds
     the line (`paused`) until the retry ladder's next step, and red through the whole ladder
     starts the target's one repair (`_repair`)."""
-    from . import gate, run
-    command = gate.piece_command(piece, suite) if piece else suite
-    ok, probe = _check(directory, state, scratch, [command], directory / "target-probe.log", log)
+    from . import run
+    ok, probe, _ = _check(directory, state, scratch, [suite], directory / "target-probe.log", log,
+                          shard=piece or None)
     if ok:
-        note(turn, [tree], directory.name, checks=[command], red={tree: None})
+        # the pass is the piece's, named so it covers no stack's own checks
+        note(turn, [tree], directory.name, checks=[f"{suite} (AK_SHARD={piece})" if piece else suite],
+             red={tree: None})
         return True
     held = _trees(turn, "red")[1].get(tree) or {}
     probes = held.get("probes", 0) + 1 if (held.get("probe") or {}).get("sha") == tip else 1
@@ -414,19 +401,46 @@ def check_line(turn, log=lambda _: None):
                 prefix.append((directory, state))
 
 
-def _check(directory, state, scratch, cmds, log_path, log):
+def red_piece(cmds, marks, pieces, suite, ok):
+    """What of `suite` the checks found red, from the exits the runner saw (`marks`, and
+    `pieces` by share): the first red piece's share (`k/N`); "" where the suite ran whole, a
+    piece was killed at the limit, which stops its siblings with it, or no command failed and
+    yet the checks did not pass (the checkout changed under them, the suite's own doing as far
+    as the lander can tell); None where the first failing command was not the suite -- a check
+    of the member's own, which no target answers for -- or the checks passed."""
+    if ok or suite is None or not marks:
+        return None       # no exits reported: nothing says the suite failed
+    for cmd, mark in zip(cmds, marks):
+        if mark == 0:
+            continue
+        if cmd != suite:
+            return None
+        codes = pieces.get(cmd, {})
+        if any(code is None for code in codes.values()):
+            return ""      # a piece killed at the limit stops its siblings with it: the suite whole
+        return next((share for share, code in sorted(codes.items(),
+                                                     key=lambda item: int(item[0].split("/")[0]))
+                     if code != 0), "")
+    return ""
+
+
+def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None):
+    """(whether the checks passed, their output, the red piece of `suite` as `red_piece` reads
+    it); with `shard` every command runs as that one piece alone, on one turn."""
     from . import gate, run
     identity = run.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
     # The checker takes a heavy turn without marking any member's record.
     context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
                "since": state["waiting_on"]["joined"], "line": state["waiting_on"]["line"]}
-    suite = next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
-    with gate.gate_turn(None, log_path, log, suite, scratch, context=context):
+    sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
+    marks, pieces = [], {}
+    with gate.gate_turn(None, log_path, log, sharded, scratch, context=context):
         ok, text = gate.run_done_when(
             cmds, scratch, log_path, set(),
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
-            silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True)
+            silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
+            marks=marks, shard=shard, pieces=pieces)
     if (not clean or run.commit_identity(scratch) != identity
             or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
         ok = False
@@ -434,7 +448,7 @@ def _check(directory, state, scratch, cmds, log_path, log):
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
     log_path.write_text(text)
-    return ok, text
+    return ok, text, red_piece(cmds, marks, pieces, suite, ok)
 
 
 def _member_commit(repo, state, head):
@@ -499,11 +513,12 @@ def _landing_checks(directory, state, scratch, tip):
     return tuple(task.group_commands(run.with_suite(cmds, scratch, ref=tip))[1])
 
 
-def _check_tree(directory, state, scratch, tree, checks, log):
+def _check_tree(directory, state, scratch, tree, checks, log, suite):
     from . import run
     log_path = directory / f"lander-{tree}.log"
-    ok, text = _check(directory, state, scratch, list(checks), log_path, log)
-    return {"land": tree} if ok else {"fix": {"line": run.first_failure(text), "log": str(log_path)}}
+    ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite)
+    return {"land": tree} if ok else {"fix": {"line": run.first_failure(text), "log": str(log_path),
+                                              "piece": red}}
 
 
 def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None,
@@ -608,7 +623,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 if tree in green and checked(green[tree], checks):
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
                 elif red.get(tree, {}).get("checks") == list(checks):
-                    answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log")}}
+                    answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log", "piece")
+                                                     if key in red[tree]}}
             batched = len({(tree, checks) for _, _, _, tree, checks in stacks
                            if (tree, checks) not in answers}) > limit
 
@@ -622,7 +638,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
             if batched:
                 for index, (_, _, _, tree, checks) in enumerate(stacks):
                     if red.get(tree, {}).get("checks") == list(commands(index)):
-                        answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log")}}
+                        answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log", "piece")
+                                                         if key in red[tree]}}
                     evidence = green.get(tree)
                     if evidence and checked(evidence, commands(index)):
                         cover(index, evidence["checks"], evidence["tested"], evidence["at"],
@@ -661,12 +678,11 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     if answer is None or ("fix" in answer and index and not green_prefix):
                         break
                     # The target's tip answers for a red suite before anyone is blamed: its red
-                    # piece runs there alone, whatever pass the target has on record, as the
-                    # host, not the change, may have failed it.  A red check of the member's
-                    # own is the member's.
+                    # piece (`red_piece`, from the exits the runner saw) runs there alone,
+                    # whatever pass the target has on record, as the host, not the change, may
+                    # have failed it.  A red check of the member's own is the member's.
                     if index == 0 and not prefix and "fix" in answer and not saved.get("repair"):
-                        piece = red_suite_piece(
-                            Path(answer["fix"]["log"]).read_text(errors="replace"), suite)
+                        piece = answer["fix"].get("piece")
                         if piece is not None and piece not in tip_green:
                             if stopped():
                                 return
@@ -712,7 +728,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             if (tree, own) in active or len(running) >= limit:
                                 continue
                             checks = commands(index) if batched else own
-                            running[pool.submit(_check_tree, member, saved, scratch, tree, checks, log)] = index, checks
+                            running[pool.submit(_check_tree, member, saved, scratch, tree, checks, log,
+                                                suite)] = index, checks
                             active.add((tree, own))
                         if not running:
                             break
