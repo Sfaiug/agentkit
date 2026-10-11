@@ -177,33 +177,36 @@ def start_line(turn, log=lambda _: None):
 
 
 def red_suite_piece(text, suite):
-    """What of `suite` the lander log `text` shows red: its piece (`AK_SHARD=k/N`), "" for the
-    suite run whole, or None where what failed was not the suite -- a `# once` check of the
-    member's own, which no target answers for."""
+    """What of `suite` the lander log `text` shows red: the piece that exited red
+    (`AK_SHARD=k/N`), else "" for the suite whole -- run whole, a piece killed (its siblings
+    are stopped with it and recorded alike), or a checkout the checks changed -- or None where
+    there is no suite or what failed was not it: a `# once` check of the member's own, which
+    no target answers for."""
     from . import run
-    if run.first_failing_command(text) != suite:
+    failed = [command for command, _ in run.failing_checks(text)]
+    if not suite or failed[:1] not in ([], [suite]):
         return None
-    found = re.search(r"^--- AK_SHARD=(\S+) ---\n\[(?:exit [1-9]\d*|killed at the limit)\]",
-                      text, re.M)
+    found = re.search(r"^--- AK_SHARD=(\S+) ---\n\[exit [1-9]\d*\]", text, re.M)
     return found.group(1) if found else ""
 
 
 def paused(red):
     """Whether a red target entry holds the line on the retry ladder: probed red on the
-    target's tip alone, with no repair started and the ladder not yet climbed."""
+    target's tip alone, with no repair started and the ladder not yet climbed.  An entry an
+    earlier lander kept counts no probes: it is the target's own, as that lander judged."""
     from . import run
     return (bool(red) and not red.get("run")
-            and red.get("probes", 0) <= len(run.TRANSIENT_BACKOFF))
+            and 0 < red.get("probes", 0) <= len(run.TRANSIENT_BACKOFF))
 
 
-def _tip_scratch(repo, tip, opened):
-    """A scratch checkout of the target's tip alone, or None with why not."""
+def _scratch(repo, commit, opened):
+    """A scratch checkout of `commit`, removed when `opened` closes, or None with why not."""
     from . import run
     scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix="land-")))
     opened.callback(os.close, os.open(scratch, os.O_RDONLY))
-    code, out = run.add_worktree(repo, scratch, "--detach", tip, mark=SCRATCH_MARK)
+    code, out = run.add_worktree(repo, scratch, "--detach", commit, mark=SCRATCH_MARK)
     opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
-    return (scratch, "") if not code else (None, f"[exit {code}]\nERROR: checkout of {tip} failed\n{out}")
+    return (scratch, "") if not code else (None, f"[exit {code}]\nERROR: checkout of {commit} failed\n{out}")
 
 
 def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log):
@@ -312,7 +315,7 @@ def check_line(turn, log=lambda _: None):
                 if time.time() - red["at"] < run.transient_delay(red["probes"]):
                     return
                 with ExitStack() as opened:
-                    scratch, text = _tip_scratch(repo, tip, opened)
+                    scratch, text = _scratch(repo, tip, opened)
                     if scratch is None:
                         log(f"WARN {text.splitlines()[-1]}")
                         return
@@ -468,12 +471,9 @@ def _stack_member(repo, state, top, upstream, opened):
     code, out = _member_commit(repo, state, head)
     if code:
         return None, f"[exit {code}]\nERROR: reviewed commit {head} is unavailable\n{out}"
-    scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix="land-")))
-    opened.callback(os.close, os.open(scratch, os.O_RDONLY))
-    code, out = run.add_worktree(repo, scratch, "--detach", head, mark=SCRATCH_MARK)
-    opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
-    if code:
-        return None, f"[exit {code}]\nERROR: checkout of {head} failed\n{out}"
+    scratch, text = _scratch(repo, head, opened)
+    if text:
+        return None, text
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))

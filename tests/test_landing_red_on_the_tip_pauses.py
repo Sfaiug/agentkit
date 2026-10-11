@@ -164,6 +164,56 @@ class RedOnTheTip(unittest.TestCase):
         self.assertFalse((first / "target-probe.log").exists())
         self.assertIsNone(self.red())
 
+    def test_a_killed_piece_runs_the_suite_whole_on_the_tip(self):
+        # piece 1 talks and passes, piece 2 goes silent while the host holds the flag: its
+        # kill stops piece 1 too, recorded alike, so no log tells which piece hung
+        suite = ('case "$AK_SHARD" in 1/*) for i in 1 2 3 4 5 6; do echo tick; sleep 1; done;; '
+                 '*) if test -f ../flake; then sleep 30; fi;; esac')
+        self.declare(suite)
+        first = self.member()
+        with record.record(first) as state:
+            state["silence_minutes"] = 0.05
+        self.advance()
+        self.flag()
+        with patch.object(gate, "derived_heavy_limit", return_value=2):
+            land.check_line(self.turn)
+        self.assertEqual(self.commands(), [["true", suite], [suite]])
+        self.assertEqual(self.red()["probe"]["piece"], "")
+        self.wake.assert_not_called()
+
+    def test_a_target_suite_that_changes_its_checkout_blames_no_member(self):
+        self.declare("printf more >> base.txt")
+        self.member()
+        self.advance()
+        land.check_line(self.turn)
+        self.assertEqual(self.red()["probes"], 1)
+        self.wake.assert_not_called()
+
+    def test_with_no_suite_a_check_that_changes_its_checkout_is_the_members(self):
+        (self.repo / "AGENTS.md").write_text("# acme\n")
+        self.commit("no declared suite")
+        run.git(self.repo, "push", "origin", "main")
+        self.base = run.git(self.repo, "rev-parse", "HEAD")
+        first = fixture.Lander.member(self, "first", 1, once="printf changed >> work.txt")
+        self.advance()
+        land.check_line(self.turn)
+        self.assertIn("Checkout changed during", self.wait(first)["fix"]["line"])
+        self.wake.assert_called_once_with(first.name, ANY)
+        self.assertIsNone(self.red())
+
+    def test_a_red_entry_an_earlier_lander_kept_is_the_targets_own(self):
+        self.member()
+        self.advance(**{"broken.txt": "target breakage\n"})
+        run.fetch(self.repo, "origin")
+        tip = run.git(self.repo, "rev-parse", "origin/main")
+        land.note(self.turn, [], "earlier", red={
+            run.git(self.repo, "rev-parse", "origin/main^{tree}"): {"probe": {
+                "command": red_main.SUITE, "check": f"{red_main.SUITE}  # once", "sha": tip,
+                "text": "fails"}}})
+        land.check_line(self.turn)
+        self.assertEqual(len(self.prepared), 1)
+        self.assertEqual(self.checks, [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
