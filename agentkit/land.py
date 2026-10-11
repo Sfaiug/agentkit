@@ -536,7 +536,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # tests code nobody will land, so the PR goes back to be reviewed.
                     log_path = member / "lander.log"
                     log_path.write_text(moved + "\n")
-                    verdicts[member] = {"fix": {"line": moved, "log": str(log_path)}}
+                    verdicts[member] = {"fix": {"line": moved, "log": str(log_path), "moved": True}}
                     continue
                 # Earlier changes can hide a target conflict, so try the bare tip first.
                 scratch, text = _stack_member(repo, saved, tip, upstream, opened)

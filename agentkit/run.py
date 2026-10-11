@@ -2520,21 +2520,22 @@ def host_ended_prompt(state):
             "do not start over.")
 
 
-def latest_worker_turn(round_dir):
-    """The latest executor/fixer attempt supersedes earlier attempts, even when it closed."""
+def latest_worker_turn(round_dir, name=""):
+    """The latest executor/fixer attempt supersedes earlier attempts, even when it closed;
+    `name` keeps one turn's attempts and handovers alone (`own_pr_fix`)."""
     rd = Path(round_dir)
     if not rd.is_dir():
         return None
     turns = [latest_turn(rd, role_base(path.name)) for path in rd.iterdir()
-             if path.is_dir() and "-retry" not in path.name
+             if path.is_dir() and "-retry" not in path.name and path.name.startswith(name)
              and not path.name.startswith("reviewer")
              and re.match(r"(?:executor|(?:.+-)?fixer)(?:-|$)", path.name)]
     return max(turns, key=lambda path: (path.stat().st_mtime_ns, path.name), default=None)
 
 
-def open_worker(lp):
+def open_worker(lp, name=""):
     """`(name, kind, session)` of the open executor/fixer attempt, or three Nones."""
-    latest = latest_worker_turn(lp.round_dir)
+    latest = latest_worker_turn(lp.round_dir, name)
     if latest is None:
         return None, None, None
     name = role_base(latest.name.split("-retry", 1)[0])
@@ -6244,7 +6245,8 @@ def land_from_line(lp, upstream, deliver):
                     path = lp.run_dir / "review-needed.log"
                     path.write_text("Rebased onto the target, this wording PR now changes files "
                                     "that need review; push the rebased branch and it is reviewed.\n")
-                    return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)})
+                    return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)},
+                                           landing=False)
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],
@@ -6268,7 +6270,8 @@ def land_from_line(lp, upstream, deliver):
         return rejoin_line(lp, upstream, "waiting for the lander")
     failure = wait["fix"]
     if lp.state.get("review_pr"):
-        return fail_pr_landing(lp, failure)
+        # a head the seat pushed past its review is new work, reviewed as a round: no landing red
+        return fail_pr_landing(lp, failure, landing=not failure.get("moved"))
     if not wait.get("fixing"):
         lp.state["landing_reds"] = lp.state.get("landing_reds", 0) + 1
         lp.state["waiting_on"] = {**wait, "fixing": True}
@@ -11111,8 +11114,16 @@ def post_review(lp, url, verdict):
     return rc == 0
 
 
-def fail_pr_landing(lp, failure):
-    """The PR's writer fixes a red landing tree, just as it fixes review findings."""
+def fail_pr_landing(lp, failure, landing=True):
+    """The PR's writer fixes a red landing tree, just as it fixes review findings.
+
+    A `landing` red -- the line's check, a required check, a rebase the tip conflicts with --
+    gets the run's fixer turn on the PR branch and a re-review that spends no round, however
+    the round budget stands (`landing_fix`, read by `review_pr_round`), up to CONFLICT_ROUNDS
+    times for one landing, as a task run's landing fixer gets.  A PR whose head moved past its
+    review, in the line or under its delivery, or that closed (`landing` off) is reviewed as a
+    round, as any new head is, while rounds are left.
+    """
     text = saved_findings(lp.run_dir, lp.state) + "\n\n## Landing failed\n" + Path(failure["log"]).read_text()
     path = lp.run_dir / "landing-findings.md"
     path.write_text(text)
@@ -11123,9 +11134,17 @@ def fail_pr_landing(lp, failure):
     # the round's delivery is settled in this same write: a resume after it reviews the next head
     lp.state.pop("waiting_on", None)
     lp.state.pop("own_pr_round_pending", None)
-    if lp.state.get("own_pr") and lp.rnd < lp.rounds:
+    lp.state.pop("landing_fix", None)
+    reds = lp.state.get("landing_reds", 0)
+    if landing:
+        reds = lp.state["landing_reds"] = reds + 1
+    if lp.state.get("own_pr") and (reds <= CONFLICT_ROUNDS if landing else lp.rnd < lp.rounds):
         lp.state.update(state="running", finished_at=None, own_pr_wait=lp.state["head_sha"])
+        if landing:
+            lp.state["landing_fix"] = True
     else:
+        if landing:
+            lp.state["merge_note"] = f"landing failed {reds} times: {failure['line']}"
         lp.state.update(state="fail", finished_at=time.time())
     lp.write()
     return False
@@ -11157,7 +11176,8 @@ def merge_own_pr(lp, url):
             path = lp.run_dir / "pr-changed.log"
             path.write_text("The PR head or target changed, or the PR closed, since review.\n")
             lp.state["review_stale"] = True
-            return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)})
+            return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)},
+                                   landing=False)
         pinned = git(lp.wt, "rev-parse", "HEAD")
         # Keep the intended push before calling Git: a killed push may have gone through.
         lp.state["delivery_sha"] = pinned
@@ -11176,11 +11196,22 @@ def done_when_block(cmds):
     return "## Done when\n```bash\n" + (cmds[0] if cmds else "true   # AGENTS.md declares no tests:") + "\n```\n"
 
 
-def fixer_words(round_dir):
+def own_pr_fix(state):
+    """(round, turn name) of the fix a seat's own PR's next head comes from, which its review
+    shares: the next round's `executor`, or a landing red's (`landing_fix`) in the round whose
+    PASS it repairs, under a name for each red, so neither that round's fixer nor an earlier
+    red's stands for it, and the next round still starts in a directory of its own."""
+    done = len(state.get("round_summaries") or [])
+    if state.get("landing_fix"):
+        return done, f"landing-{state['landing_reds']}-fixer"
+    return done + 1, "executor"
+
+
+def fixer_words(round_dir, name):
     """What the fixer turn in that round said, for the reviewer of the head it left: its
     answer, and the reason of a not-needed it handed in; '' without a turn.  Read where the
     turn wrote it, so a review resumed after a cut finds it too."""
-    turn = latest_worker_turn(round_dir)
+    turn = latest_worker_turn(round_dir, name)
     if turn is None:
         return ""
     answer = turn / "final.md"
@@ -11264,7 +11295,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
     reviewed = state["head_sha"]
     number = PR_PARTS.match(url).group(3)
     lp = pr_loop(cfg, run_dir, state, opts, log)
-    lp.rnd = len(state.get("round_summaries") or []) + 1
+    lp.rnd, turn = own_pr_fix(state)
     state.update(state="running", **run_record.process_owner(), finished_at=None)
     run_record.save_state(run_dir, state)
 
@@ -11286,7 +11317,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         pushed = None
     head = git(lp.wt, "rev-parse", "HEAD")
     if remote["sha"] != reviewed and remote["sha"] != pushed:
-        if latest_worker_turn(lp.round_dir) is not None and not pushed:
+        if latest_worker_turn(lp.round_dir, turn) is not None and not pushed:
             # the seat pushed while the fix was made (the turn cut off before its push):
             # never pushed over its commit, never reviewed as if it were the seat's
             return ended("the PR head moved while the fix was made; review it with a new run")
@@ -11302,8 +11333,8 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         # sees a turn handed to another model too): one that closed did its work and HEAD is
         # what it left; one the host cut off is resumed by execute on the checkout as it
         # left it, under its own name; none yet starts from the reviewed head
-        turned = latest_worker_turn(lp.round_dir) is not None
-        name = open_worker(lp)[0]
+        turned = latest_worker_turn(lp.round_dir, turn) is not None
+        name = open_worker(lp, turn)[0]
         if not (turned and name is None):
             if not turned and head != reviewed:
                 git(lp.wt, "reset", "--hard", reviewed)     # the line left the checkout elsewhere
@@ -11313,14 +11344,15 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
                 # execute recorded, and the next round's reviewer is picked against whoever
                 # wrote the fix
                 lp.executor = state["executor"] = state["own_orchestrator"]
-            log(f"--- round {lp.rnd}/{lp.rounds}: fixer {lp.executor} (findings on PR #{number})")
+            log(f"--- {'landing fixer' if state.get('landing_fix') else f'round {lp.rnd}/{lp.rounds}: fixer'} "
+                f"{lp.executor} (findings on PR #{number})")
             lp.context = pr_context(state, fix_body(state, current.get("body"), lp.cmds, number)
                                     + repo_rules(lp.wt, state["base_sha"]))
             fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
             try:
                 # what the fixer says stays in its turn's directory, where the next round's
                 # reviewer reads it (`fixer_words`), resumed after a cut or not
-                execute(lp, "fixer", fix, name or "executor")
+                execute(lp, "fixer", fix, name or turn)
             except Blocked as exc:
                 pr_review_blocked(lp, exc)
                 return False
@@ -11363,7 +11395,6 @@ def review_pr(cfg, run_dir, url, opts, log):
                 return state
             # the fix starts a round, and a round runs on the agentkit installed now
             pickup_new_code(pr_loop(cfg, run_dir, state, opts, log))
-        summaries = state.get("round_summaries") or []
         if (state.get("waiting_on") or {}).get("line") and not state.get("merged"):
             # a merge already recorded is settled below, never sent back to a line that skips it
             state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)
@@ -11378,9 +11409,10 @@ def review_pr(cfg, run_dir, url, opts, log):
                              finished_at=time.time())
             lp.write()
             write_result(run_dir, state, lp.cmds or ["(none declared)"], log, cfg)
-        elif (state.get("merged") or (state.get("own_pr") and state.get("own_pr_round_pending") and summaries
-                and summaries[-1]["round"] == state["own_pr_round_pending"])):
-            # A durable verdict still owes its post and delivery, even in round three.
+        elif (state.get("merged") or (state.get("own_pr") and state.get("own_pr_round_pending")
+                                      and state.get("verdict"))):
+            # A durable verdict still owes its post and delivery, even in round three or of
+            # a landing fix's re-review, which records no round.
             state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)
             run_record.save_state(run_dir, state)
             state = settle_pr_round(pr_loop(cfg, run_dir, state, opts, log), url, pr_view(url))
@@ -11425,6 +11457,10 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         raise config.Error("no session record names the writer of this PR; "
                            "review of the seat's own PR needs its orchestrator")
     summaries = prior.get("round_summaries", []) if is_own else []
+    # a landing fix (`fail_pr_landing`) is re-reviewed in the round whose PASS it repairs, which
+    # enters no round history and spends no round, however the budget stands
+    landing_fix = bool(is_own and prior.get("landing_fix"))
+    rnd, turn = own_pr_fix(prior if is_own else {})
     n_rounds = 1
     if is_own:
         # the pull request's budget, less what earlier runs spent on it: this run's rounds
@@ -11434,7 +11470,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                                      what=f"PR #{number}")
         if why:
             raise config.Error(why)
-        if len(summaries) >= n_rounds:     # this run's rounds counted in
+        if len(summaries) >= n_rounds and not landing_fix:     # this run's rounds counted in
             raise config.Error(round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, what=f"PR #{number}")[1])
     advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
                                    or prior.get("own_pr_wait"))
@@ -11514,7 +11550,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                  task_checks=sized_checks)
     if is_own:
         # Kept through post failures and cleared only when this verdict is settled.
-        state["own_pr_round_pending"] = len(summaries) + 1
+        state["own_pr_round_pending"] = rnd
     state.pop("own_pr_wait", None)       # this head is checked out and recorded
     state.pop("delivery_sha", None)      # a push an earlier round meant to make proves nothing here
     state.pop("review", None)            # nor does its review: this head's comes with this round
@@ -11599,7 +11635,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     body += repo_rules(wt, base_sha)
     run_record.save_state(run_dir, state)
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, pr_context(state, body), spares)
-    lp.rnd += 1
+    lp.rnd = rnd
     lp.round_dir.mkdir(parents=True, exist_ok=True)
     state.pop("final_check", None)
     if tests and not is_own:
@@ -11618,14 +11654,17 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
-        said = fixer_words(lp.round_dir)        # the fixer's own words on the head it left
+        said = fixer_words(lp.round_dir, turn)      # the fixer's own words on the head it left
         if said:
             summary += f"\n\n## What the fixer said\n{said}"
     else:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. agentkit executed nothing; "
                    "review the author's diff.")
     try:
-        if summaries:
+        if landing_fix:
+            verdict = review(lp, summary, ok, dw_log, record=False,
+                             preface=f"Re-review after the landing fix.\n\n## The last round\n{previous}")
+        elif summaries:
             verdict = review(lp, summary, ok, dw_log,
                              preface=f"Re-review after a push.\n\n## The last round\n{previous}")
         else:
@@ -11666,6 +11705,7 @@ def settle_pr_round(lp, url, info):
                 state.pop("waiting_on", None)
                 state.update(state="pass" if state["verdict"] == "PASS" else "fail",
                              finished_at=time.time())
+            state.pop("landing_fix", None)      # this verdict is the landing fix's
             lp.write()
             write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
             return state
@@ -11698,6 +11738,7 @@ def settle_pr_round(lp, url, info):
         if not posted:
             state["error"] = state["review_error"]
     state.pop("own_pr_round_pending", None)
+    state.pop("landing_fix", None)
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
     return state
