@@ -6244,7 +6244,8 @@ def land_from_line(lp, upstream, deliver):
                     path = lp.run_dir / "review-needed.log"
                     path.write_text("Rebased onto the target, this wording PR now changes files "
                                     "that need review; push the rebased branch and it is reviewed.\n")
-                    return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)})
+                    return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)},
+                                           landing=False)
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],
@@ -11111,8 +11112,15 @@ def post_review(lp, url, verdict):
     return rc == 0
 
 
-def fail_pr_landing(lp, failure):
-    """The PR's writer fixes a red landing tree, just as it fixes review findings."""
+def fail_pr_landing(lp, failure, landing=True):
+    """The PR's writer fixes a red landing tree, just as it fixes review findings.
+
+    A `landing` red -- the line's check, a required check, a rebase the tip conflicts with --
+    gets the run's fixer turn on the PR branch and a re-review that spends no round, however
+    the round budget stands (`landing_fix`, read by `review_pr_round`), up to CONFLICT_ROUNDS
+    times for one landing, as a task run's landing fixer gets.  A PR moved or closed under its
+    delivery (`landing` off) is reviewed as a round, as any new head is, while rounds are left.
+    """
     text = saved_findings(lp.run_dir, lp.state) + "\n\n## Landing failed\n" + Path(failure["log"]).read_text()
     path = lp.run_dir / "landing-findings.md"
     path.write_text(text)
@@ -11123,9 +11131,17 @@ def fail_pr_landing(lp, failure):
     # the round's delivery is settled in this same write: a resume after it reviews the next head
     lp.state.pop("waiting_on", None)
     lp.state.pop("own_pr_round_pending", None)
-    if lp.state.get("own_pr") and lp.rnd < lp.rounds:
+    lp.state.pop("landing_fix", None)
+    reds = lp.state.get("landing_reds", 0)
+    if landing:
+        reds = lp.state["landing_reds"] = reds + 1
+    if lp.state.get("own_pr") and (reds <= CONFLICT_ROUNDS if landing else lp.rnd < lp.rounds):
         lp.state.update(state="running", finished_at=None, own_pr_wait=lp.state["head_sha"])
+        if landing:
+            lp.state["landing_fix"] = True
     else:
+        if landing:
+            lp.state["merge_note"] = f"landing failed {reds} times: {failure['line']}"
         lp.state.update(state="fail", finished_at=time.time())
     lp.write()
     return False
@@ -11157,7 +11173,8 @@ def merge_own_pr(lp, url):
             path = lp.run_dir / "pr-changed.log"
             path.write_text("The PR head or target changed, or the PR closed, since review.\n")
             lp.state["review_stale"] = True
-            return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)})
+            return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)},
+                                   landing=False)
         pinned = git(lp.wt, "rev-parse", "HEAD")
         # Keep the intended push before calling Git: a killed push may have gone through.
         lp.state["delivery_sha"] = pinned
@@ -11313,7 +11330,8 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
                 # execute recorded, and the next round's reviewer is picked against whoever
                 # wrote the fix
                 lp.executor = state["executor"] = state["own_orchestrator"]
-            log(f"--- round {lp.rnd}/{lp.rounds}: fixer {lp.executor} (findings on PR #{number})")
+            log(f"--- {'landing fixer' if state.get('landing_fix') else f'round {lp.rnd}/{lp.rounds}: fixer'} "
+                f"{lp.executor} (findings on PR #{number})")
             lp.context = pr_context(state, fix_body(state, current.get("body"), lp.cmds, number)
                                     + repo_rules(lp.wt, state["base_sha"]))
             fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
@@ -11425,6 +11443,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         raise config.Error("no session record names the writer of this PR; "
                            "review of the seat's own PR needs its orchestrator")
     summaries = prior.get("round_summaries", []) if is_own else []
+    # a landing fix (`fail_pr_landing`) is re-reviewed at the next round number, which enters no
+    # round history and spends no round, however the budget stands
+    landing_fix = bool(is_own and prior.get("landing_fix"))
     n_rounds = 1
     if is_own:
         # the pull request's budget, less what earlier runs spent on it: this run's rounds
@@ -11434,7 +11455,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                                      what=f"PR #{number}")
         if why:
             raise config.Error(why)
-        if len(summaries) >= n_rounds:     # this run's rounds counted in
+        if len(summaries) >= n_rounds and not landing_fix:     # this run's rounds counted in
             raise config.Error(round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, what=f"PR #{number}")[1])
     advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
                                    or prior.get("own_pr_wait"))
@@ -11625,7 +11646,10 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         summary = (f"PR #{number} by {info['author']}: {info['title']}. agentkit executed nothing; "
                    "review the author's diff.")
     try:
-        if summaries:
+        if landing_fix:
+            verdict = review(lp, summary, ok, dw_log, record=False,
+                             preface=f"Re-review after the landing fix.\n\n## The last round\n{previous}")
+        elif summaries:
             verdict = review(lp, summary, ok, dw_log,
                              preface=f"Re-review after a push.\n\n## The last round\n{previous}")
         else:
@@ -11666,6 +11690,7 @@ def settle_pr_round(lp, url, info):
                 state.pop("waiting_on", None)
                 state.update(state="pass" if state["verdict"] == "PASS" else "fail",
                              finished_at=time.time())
+            state.pop("landing_fix", None)      # this verdict is the landing fix's
             lp.write()
             write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
             return state
@@ -11698,6 +11723,7 @@ def settle_pr_round(lp, url, info):
         if not posted:
             state["error"] = state["review_error"]
     state.pop("own_pr_round_pending", None)
+    state.pop("landing_fix", None)
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
     return state

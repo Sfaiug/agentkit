@@ -20,7 +20,7 @@ from test_lander import LanderFixture, climb_ladder
 SUITE = "test ! -f first.txt || test ! -f second.txt"
 
 
-class OwnPrLine(LanderFixture, unittest.TestCase):
+class OwnPrLineFixture(LanderFixture):
     def setUp(self):
         turn, do_merge = worker.turn, run.do_merge
         super().setUp()
@@ -148,6 +148,8 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         run.git(self.repo, "push", "origin", "main")
         self.base = run.git(self.repo, "rev-parse", "HEAD")
 
+
+class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
     def test_wording_the_target_carries_onto_code_goes_back_for_review(self):
         original = "".join(f"# Deployment example {i}\n" for i in range(30)) + "RETENTION_DAYS = 30\n"
         self.on_main(lambda: (self.repo / "example.md").write_text(original), "document retention")
@@ -398,7 +400,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
                 self.assertTrue(self.review(directory, url)["merged"])
         self.assertLessEqual(len(run.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
 
-    def test_a_red_tree_gets_a_fix_round_and_the_fix_is_checked(self):
+    def test_a_red_tree_gets_the_landing_fixer_and_the_fix_is_checked_without_a_round(self):
         directory, url = self.own_pr("second", 1)
         self.review(directory, url)
         self.advance(**{"first.txt": "first\n"})
@@ -415,7 +417,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         with patch.object(run, "fix_own_pr", side_effect=fixed):
             state = self.review(directory, url)
         self.assertEqual(state["state"], "waiting")
-        self.assertEqual(len(state["round_summaries"]), 2)
+        self.assertEqual(len(state["round_summaries"]), 1)
         self.assertIn("Landing failed", self.reviews[-1])
         self.assertEqual(len(self.checks), checks, "the seat's next review ran a suite")
         land.check_line(self.turn)
@@ -536,6 +538,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
         self.assertEqual(state["verdict"], "FAIL")
         self.assertIn("required checks failed: fence", state["findings"])
         self.assertIn("own_pr_wait", state)
+        self.assertTrue(state["landing_fix"])
         self.assertEqual(self.merges, [])
         self.assertEqual(len(self.checks), 1)
 
