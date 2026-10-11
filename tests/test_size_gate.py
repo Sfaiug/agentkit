@@ -134,6 +134,23 @@ class SizeGate(Sandbox):
                          "most 400; split it")
         self.assertIsNone(run.pr_size_refusal(7, 1000, 600))
 
+    def test_a_deleted_line_carries_one_copy_and_generated_files_carry_none(self):
+        # git marks every copy of a deleted block moved, and pairs blocks with generated files
+        block = lambda tag: "".join(f"def {tag}_{n}(value):\n    return {tag} * {n}\n" for n in range(50))
+        self.git("checkout", "-q", self.base)
+        self.git("checkout", "-qb", "paste")
+        self.write({"big.py": block("pasted"), "mod.py": block("built"), "dist/old.js": block("vendored"),
+                    "x.py": "x = 1\n", "y.py": "y = 1\n", "z.py": "z = 1\n", "dist/app bundle.js": "built\n"},
+                   "Modules and built files")
+        base = self.git("rev-parse", "HEAD")
+        self.git("rm", "-q", "big.py", "mod.py", "dist/old.js")
+        # one block pasted twice, one moved into a generated file whose name holds a space, and
+        # a generated file's lines moved into a hand-written one: only the first copy carries
+        self.write({"x.py": "x = 1\n" + block("pasted"), "y.py": "y = 1\n" + block("pasted"),
+                    "dist/app bundle.js": "built\n" + block("built"), "z.py": "z = 1\n" + block("vendored")},
+                   "Paste them")
+        self.assertEqual(run.carried_lines(self.repo, base, self.git("rev-parse", "HEAD")), 100)
+
     def test_a_module_replaced_by_fresh_code_moves_nothing(self):
         # the braces and blank lines the new code shares with the old are no moved block, and a
         # vendored tree deleted whole pairs with nothing in one pass
