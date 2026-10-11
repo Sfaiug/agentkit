@@ -16,7 +16,7 @@ from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import config, gitcall, hand_in, host, orch, record as run_record, worker
+from . import config, gitcall, hand_in, history, host, orch, record as run_record, worker
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 
@@ -556,7 +556,6 @@ def transient_wait(out_dir, delay):
     starts that clock instead.  A turn with no run record above its round (a direct caller's)
     only sleeps.
     """
-    from . import history     # here, not at the top: these reach run
     run_dir = Path(out_dir).parent.parent
     if (run_dir / "run.json").is_file():
         try:
@@ -781,7 +780,7 @@ def harness_said(out_dir, text, harness, failures_only=False):
     log a retried warning before a successful answer.  The prompt is not read at all, nor any
     line quoting it back.
     """
-    from . import watch     # here, not at the top: these reach run
+    from . import watch     # here, not at the top: watch reaches run
     out_dir = Path(out_dir)
     try:
         with (out_dir / "prompt.md").open(encoding="utf-8", errors="replace") as fh:
@@ -872,7 +871,7 @@ def note_turn_meters(cfg, name, out_dir, account):
     Best effort and never the turn's failure: a harness that says nothing leaves the
     endpoint's reading alone.
     """
-    from . import usage     # here, not at the top: these reach run
+    from . import usage     # here, not at the top: usage reaches turns
     try:
         entry = config.model(cfg, name)
         meters = harness_plugin(entry["harness"]).turn_meters(out_dir)
@@ -935,7 +934,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
 
     An executor or fixer of a fix run may also write the run's regression folder.
     """
-    from . import update, usage     # here, not at the top: these reach run
+    from . import update, usage     # here, not at the top: both reach turns
     limit = 60 * run_record.SILENCE_MINUTES if limit is None else limit
     out_dir = Path(out_dir)
     run_dir = out_dir.parent.parent

@@ -35,7 +35,7 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import command_help, config, host, retention, turns, worker
+from . import command_help, config, host, retention, worker
 from .harness import load as harness_plugin
 
 VERSION = re.compile(r"\d+\.\d+\.\d+[^\s()]*")

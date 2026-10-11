@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, record, turns
+from . import config, gitcall, prompts, record, turns
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
@@ -179,7 +179,6 @@ def paused(red):
     """Whether a red target entry holds the line on the retry ladder: probed red on the
     target's tip alone, with no repair started and the ladder not yet climbed.  An entry an
     earlier lander kept counts no probes: it is the target's own, as that lander judged."""
-    from . import run
     return (bool(red) and not red.get("run")
             and 0 < red.get("probes", 0) <= len(turns.TRANSIENT_BACKOFF))
 
@@ -211,7 +210,7 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     held = _trees(turn, "red")[1].get(tree) or {}
     probes = held.get("probes", 0) + 1 if (held.get("probe") or {}).get("sha") == tip else 1
     red = {"probe": {"command": suite, "piece": piece, "check": f"{suite}  # once", "sha": tip,
-                     "text": run.red_target_text(suite, upstream, tip, probe, piece=piece)},
+                     "text": prompts.red_target_text(suite, upstream, tip, probe, piece=piece)},
            "at": time.time(), "probes": probes}
     note(turn, [], directory.name, red={tree: red})
     what = f"its piece AK_SHARD={piece}" if piece else "its suite"
@@ -517,7 +516,7 @@ def _check_tree(directory, state, scratch, tree, checks, log, suite):
     from . import run
     log_path = directory / f"lander-{tree}.log"
     ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite)
-    return {"land": tree} if ok else {"fix": {"line": run.first_failure(text), "log": str(log_path),
+    return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
                                               "piece": red}}
 
 
@@ -563,7 +562,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     if member == directory or scratch is not None:
                         log_path = member / "lander.log"
                         log_path.write_text(text)
-                        verdicts[member] = {"fix": {"line": run.first_failure(text), "log": str(log_path)}}
+                        verdicts[member] = {"fix": {"line": prompts.first_failure(text), "log": str(log_path)}}
                     continue
                 if top != tip:
                     scratch, text = _stack_member(repo, saved, top, upstream, opened)
