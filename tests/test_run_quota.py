@@ -212,10 +212,10 @@ class Quota(unittest.TestCase):
             return 0, "## Summary\nDone.", "s-opus", False
         # The handover must leave a reviewer with budget too.
         providers = self.providers(openai_used=100, anthropic_used=40, meta_used=50)
+        waits = Clock(MagicMock(side_effect=AssertionError("quota waits on nothing")))
         with patch.object(run.worker, "call", side_effect=submitting(turn)), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(turns, "time", Clock(
-                    MagicMock(side_effect=AssertionError("quota waits on nothing")))), \
+                patch.object(turns, "time", waits), patch.object(run, "time", waits), \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(run.execute(lp, "executor", "Do the task.", "executor"),
                              "## Summary\nDone.")
@@ -239,11 +239,12 @@ class Quota(unittest.TestCase):
                 return 1, "quota exhausted for muse-spark", "s", False
             return 1, "usage limit reached", "s", False
         sent, sleeps = [], []
+        clock = Clock(sleeps.append)
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(turns, "time", Clock(sleeps.append)), \
+                patch.object(turns, "time", clock), patch.object(run, "time", clock), \
                 patch.object(notify, "shaped",
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
@@ -374,10 +375,10 @@ class Quota(unittest.TestCase):
         def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None, **_kw):
             return 1, "usage limit reached", "s", False
         providers = self.providers(openai_used=100, anthropic_used=40, meta_used=100)
+        waits = Clock(MagicMock(side_effect=AssertionError("quota waits on nothing")))
         with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(turns, "time", Clock(
-                    MagicMock(side_effect=AssertionError("quota waits on nothing")))), \
+                patch.object(turns, "time", waits), patch.object(run, "time", waits), \
                 redirect_stderr(io.StringIO()):
             with self.assertRaises(run.QuotaDry):
                 run.execute(lp, "executor", "Do the task.", "executor")
@@ -452,8 +453,9 @@ class QuotaDry(unittest.TestCase):
         self.stack.enter_context(patch.object(run.notify, "shaped",
                                               side_effect=AssertionError("notification")))
         self.sleep = MagicMock()
-        self.stack.enter_context(patch.object(turns, "time", Clock(self.sleep)))
-        self.stack.enter_context(patch.object(gate, "time", run.time))
+        clock = Clock(self.sleep)
+        for module in (turns, run, gate):
+            self.stack.enter_context(patch.object(module, "time", clock))
         self.now = time.mktime(time.strptime("2026-09-15 07:00", "%Y-%m-%d %H:%M"))
         self.stack.enter_context(patch.object(usage.time, "time", side_effect=lambda: self.now))
 

@@ -443,9 +443,12 @@ ANSWER = "final.md"             # and this one arrives as `text`, already read b
 
 
 ECHO = 40                       # a prompt is recognised quoted back by this many of its own
+                                # first characters -- the role preamble, which is one line and
+                                # which no refusal begins with
 
 
 REFUSAL_CAP = 1000              # a refusal replaces the answer instead of following it, so it is
+                                # short; past this many characters what is there is an answer
 
 
 # A heading distinguishes an answer from the harness's short refusal.

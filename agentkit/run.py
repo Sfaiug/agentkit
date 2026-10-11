@@ -51,11 +51,6 @@ PR_PARTS = re.compile(r"^https://github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)/?$")
 
 DIFF_CAP = 300 * 1024
 GITHUB_BODY_CAP = 60_000         # below GitHub's 65,536-character body limit, including UTF-8
-                                # first characters -- the role preamble, which is one line and
-                                # which no refusal begins with
-                                # short; past this many characters what is there is an answer
-
-
 MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
 CHECKS_CAP = 60 * 60            # a check suite still running after an hour is not going to finish
 CHECKS_POLL = 10

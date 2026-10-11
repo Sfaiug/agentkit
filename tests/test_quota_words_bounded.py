@@ -94,7 +94,9 @@ class QuotaWordsBounded(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "replenish", return_value=(False, 0.0)))
         # a wait nobody expects fails at once, rather than replaying the same turn for ever
         self.sleep = MagicMock(side_effect=AssertionError("waited"))
-        self.stack.enter_context(patch.object(turns, "time", Clock(self.sleep)))
+        clock = Clock(self.sleep)
+        for module in (turns, run):
+            self.stack.enter_context(patch.object(module, "time", clock))
 
     def turn(self, model, *rows):
         (self.adapters / "plan.json").write_text(json.dumps(list(rows)))
