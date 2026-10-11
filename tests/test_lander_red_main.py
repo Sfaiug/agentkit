@@ -1,4 +1,5 @@
-"""A red target gets one repair; the other line members keep their places and no blame.
+"""A red target gets one repair once the retry ladder is climbed; the other line members
+keep their places and no blame.
 
 Offline: local Git and real suites, with isolated state and fake repair launches and wakes.
 """
@@ -58,6 +59,9 @@ class RedMain(unittest.TestCase):
         land.check_line(self.turn)
         return first, later, before
 
+    def exhaust(self):
+        fixture.climb_ladder(self.turn)
+
     def assert_parked(self, before):
         for directory, original in before.items():
             self.assertEqual((directory / "run.json").read_bytes(), original)
@@ -79,12 +83,16 @@ class RedMain(unittest.TestCase):
                          finished_at=time.time())
         return branch
 
-    def test_one_bare_probe_and_one_repair_leave_every_member_unblamed(self):
+    def test_red_through_the_ladder_gets_one_repair_and_leaves_every_member_unblamed(self):
         first, _, before = self.red_line()
         self.assert_parked(before)
         self.wake.assert_not_called()
         self.assertEqual(len(self.checks), 2)
         self.assertEqual(self.checks[1][0], [SUITE])
+        self.assertEqual(self.prepared, [])
+        self.exhaust()
+        self.assertEqual(len(self.checks), 3)
+        self.assertEqual(self.checks[2][0], [SUITE])
         self.assertEqual(len(self.prepared), 1)
         directory, opts = self.prepared[0]
         self.assertTrue(opts["--first"])
@@ -95,7 +103,7 @@ class RedMain(unittest.TestCase):
         for _ in range(3):
             land.check_line(self.turn)
         self.assertEqual(len(self.prepared), 1)
-        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(len(self.checks), 3)
         self.assert_parked(before)
         self.wake.assert_not_called()
         self.assertIn("Tree: ", (first / "target-probe.log").read_text())
@@ -113,6 +121,7 @@ class RedMain(unittest.TestCase):
         path.write_text(json.dumps(kept))
         before = (first / "run.json").read_bytes()
         land.check_line(self.turn)
+        self.exhaust()
         self.assertEqual(len(self.prepared), 1)
         self.assertEqual(self.checks[-1][0], [SUITE])
         checks = len(self.checks)
@@ -174,21 +183,23 @@ class RedMain(unittest.TestCase):
         path.write_text(json.dumps(kept))
         before = {directory: (directory / "run.json").read_bytes() for directory in (first, later)}
         land.check_line(self.turn)
+        self.exhaust()
         self.wake.assert_not_called()
         self.assertEqual(len(self.prepared), 1)
         self.assert_parked(before)
 
-    def test_a_target_this_landers_code_passed_is_not_checked_again(self):
+    def test_a_target_this_landers_code_passed_is_still_probed_for_the_red_piece(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})
         self.advance()
         land.note(self.turn, [run.git(self.repo, "rev-parse", "main^{tree}")], "earlier",
                   checks=[SUITE])
         land.check_line(self.turn)
         self.assertIn(SUITE, self.wait(first)["fix"]["line"])
-        self.assertEqual(len(self.checks), 1)
+        self.assertEqual([cmds for cmds, _, _ in self.checks], [["true", SUITE], [SUITE]])
 
     def test_only_the_repair_lands_until_the_target_tree_changes(self):
         first, later, before = self.red_line()
+        self.exhaust()
         self.assertEqual(len(self.prepared), 1)
         repair = self.prepared[0][0]
         branch = self.ready_repair(repair)
@@ -236,7 +247,7 @@ class RedMain(unittest.TestCase):
         self.assertEqual(len(self.checks), 3)
         self.assertEqual(self.prepared, [])
 
-    def test_a_recorded_green_target_needs_no_bare_probe(self):
+    def test_a_recorded_green_target_is_still_probed_for_the_red_piece(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})
         self.advance()
         run.fetch(self.repo, "origin")
@@ -244,7 +255,7 @@ class RedMain(unittest.TestCase):
         land.note(self.turn, [tree], "earlier")
         land.check_line(self.turn)
         self.assertIn("fix", self.wait(first))
-        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(len(self.checks), 2)
         self.assertEqual(self.prepared, [])
 
     def test_a_covered_red_target_gets_a_probe_and_waits_on_its_repair(self):
@@ -282,13 +293,14 @@ class RedMain(unittest.TestCase):
         self.checks.clear()
         self.wake.reset_mock()
         land.check_line(self.turn)
-        self.assertEqual([cmds for cmds, _, _ in self.checks], [["true", suite], [suite]])
+        self.exhaust()
+        self.assertEqual([cmds for cmds, _, _ in self.checks], [["true", suite], [suite], [suite]])
         self.assertEqual(len(self.prepared), 1)
         self.assert_parked(before)
         self.wake.assert_not_called()
         # Covered evidence must not bypass a repair already holding this target either.
         land.check_line(self.turn)
-        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(len(self.checks), 3)
         self.assertEqual(len(self.prepared), 1)
         self.assert_parked(before)
         self.wake.assert_not_called()
@@ -316,6 +328,8 @@ class RedMain(unittest.TestCase):
 
         with patch.object(run, "git_out", side_effect=checkout):
             land.check_line(self.turn)
+            if target_red:
+                self.exhaust()
         self.assertIn("fix", self.wait(first))
         self.assertIn("Tree: ", (later / "target-probe.log").read_text())
         if target_red:
@@ -344,17 +358,19 @@ class RedMain(unittest.TestCase):
 
     def test_another_commit_with_the_same_red_tree_gets_no_probe_or_repair(self):
         _, _, before = self.red_line()
+        self.exhaust()
         self.assertEqual(len(self.prepared), 1)
         run.git(self.repo, "commit", "--allow-empty", "-m", "same target tree")
         run.git(self.repo, "push", "origin", "main")
         land.check_line(self.turn)
         self.assertEqual(len(self.prepared), 1)
-        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(len(self.checks), 3)
         self.assert_parked(before)
         self.wake.assert_not_called()
 
     def test_an_unmerged_repair_holds_its_tree_without_blame_or_relaunch(self):
         _, _, before = self.red_line()
+        self.exhaust()
         self.assertEqual(len(self.prepared), 1)
         repair = self.prepared[0][0]
         for ending in ("fail", "blocked", "pass", "error", "stopped"):
@@ -365,7 +381,7 @@ class RedMain(unittest.TestCase):
                         run.schedule_error_retry(state)
                 land.check_line(self.turn)
                 self.assertEqual(len(self.prepared), 1)
-                self.assertEqual(len(self.checks), 2)
+                self.assertEqual(len(self.checks), 3)
                 self.assert_parked(before)
                 self.wake.assert_not_called()
 
@@ -383,6 +399,7 @@ class RedMain(unittest.TestCase):
         config.WT.mkdir(parents=True, exist_ok=True)
         flake.write_text("transient\n")
         land.check_line(self.turn)
+        self.exhaust()
         self.assertEqual(len(self.prepared), 1)
         self.wake.assert_not_called()
         flake.unlink()
@@ -393,13 +410,14 @@ class RedMain(unittest.TestCase):
         self.assertEqual([call.args[0] for call in self.wake.call_args_list],
                          [first.name, later.name])
         self.assertEqual(len(self.prepared), 1)
-        self.assertEqual(len(self.checks), 3)
+        self.assertEqual(len(self.checks), 4)
         self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), tree)
         self.assertEqual(self.wait(later)["land"], self.wait(first)["land"])
         self.assert_cleaned()
 
     def test_a_reverted_target_tree_gets_a_new_repair_after_the_old_one_merged(self):
         _, _, before = self.red_line()
+        self.exhaust()
         tree = run.git(self.repo, "rev-parse", "origin/main^{tree}")
         repair = self.prepared[0][0]
         branch = self.ready_repair(repair)
@@ -413,6 +431,7 @@ class RedMain(unittest.TestCase):
         self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), tree)
         self.wake.reset_mock()
         land.check_line(self.turn)
+        self.exhaust()       # the tip moved: the ladder starts over, and climbed, repairs again
         self.assertEqual(len(self.prepared), 2)
         new = self.prepared[1][0]
         self.assertNotEqual(new, repair)
@@ -439,14 +458,16 @@ class RedMain(unittest.TestCase):
 
         with patch.object(run, "start_followups", side_effect=crash):
             land.check_line(self.turn)
+            self.exhaust()
         land.check_line(self.turn)
         self.assertEqual(len(self.prepared), 1)
-        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(len(self.checks), 3)
         self.assert_parked(before)
         self.wake.assert_not_called()
 
     def test_a_changed_target_releases_the_line_while_the_repair_is_still_open(self):
         first, later, _ = self.red_line()
+        self.exhaust()
         run.git(self.repo, "rm", "broken.txt")
         self.commit("target repaired externally")
         run.git(self.repo, "push", "origin", "main")

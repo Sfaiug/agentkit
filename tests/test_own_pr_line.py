@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gate, gc, hand_in, land, record, run, worktrees, watch, worker
 from fixtures.hand_in import submitting
-from test_lander import LanderFixture
+from test_lander import LanderFixture, climb_ladder
 
 SUITE = "test ! -f first.txt || test ! -f second.txt"
 
@@ -731,6 +731,7 @@ class OwnPrLine(LanderFixture, unittest.TestCase):
             state = self.review(directory, url)
             if state["state"] == "waiting":
                 land.check_line(self.turn)
+                climb_ladder(self.turn)     # red on the tip alone pauses the line first
                 state = self.review(directory, url)
             self.assertEqual(state["verdict"], "FAIL")
             run.git(self.repo, "checkout", pr["branch"])

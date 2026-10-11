@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import test_lander
 import test_red_target as red
 from agentkit import config, gate, land, run, watch
 from agentkit import record
@@ -252,6 +253,8 @@ class GreenBase(unittest.TestCase):
         before = (directory / "run.json").read_bytes()
         with patch.object(watch, "launch_resume") as wake:
             land.check_line(run.turn_path(lp, "origin/main"))
+            self.repair.assert_not_called()     # red on the tip alone pauses the line first
+            test_lander.climb_ladder(run.turn_path(lp, "origin/main"))
         self.repair.assert_called_once()
         self.assertEqual(self.repair.call_args.kwargs["repair"]["sha"], tip)
         self.assertEqual((directory / "run.json").read_bytes(), before)

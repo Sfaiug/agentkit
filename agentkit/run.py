@@ -5996,12 +5996,14 @@ def failing_blocks(text, cap=OUT_CAP):
     return f"{named}\n\n... the end of the output:\n{text[-cap:]}" if named else text[-cap:]
 
 
-def red_target_text(cmd, upstream, tip, output):
-    """What a red target's repair is told: the command, where it fails, and what it printed
-    there, read as a fixer reads a failed check -- indented, so nothing it printed reads as a
-    heading or a fence of the task."""
+def red_target_text(cmd, upstream, tip, output, piece=None):
+    """What a red target's repair is told: the command (its red `piece`, `AK_SHARD=k/N`, named
+    where the suite ran in pieces), where it fails, and what it printed there, read as a fixer
+    reads a failed check -- indented, so nothing it printed reads as a heading or a fence of
+    the task."""
     printed = "\n".join("    " + line for line in failing_blocks(output).splitlines())
-    return (f"`{cmd}` fails on {upstream} at {tip}, the target's own tip, whichever branch runs "
+    what = f"`{cmd}`" + (f", its piece AK_SHARD={piece}," if piece else "")
+    return (f"{what} fails on {upstream} at {tip}, the target's own tip, whichever branch runs "
             f"it. What it printed there:\n\n{printed}")
 
 

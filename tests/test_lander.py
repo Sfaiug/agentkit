@@ -25,6 +25,17 @@ SUITE = "test -f base.txt && test ! -f broken.txt"
 ONCE = "test -f tip.txt && test -f work.txt"
 
 
+def climb_ladder(turn):
+    """Climb the retry ladder of every red target on `turn` at once: the next pass probes
+    the tip again and, red past the ladder's last step, starts the target's repair."""
+    path = land._trees(turn)[0]
+    data = json.loads(path.read_text())
+    for entry in data["red"].values():
+        entry.update(probes=len(run.TRANSIENT_BACKOFF), at=0)
+    path.write_text(json.dumps(data))
+    land.check_line(turn)
+
+
 class LanderFixture:
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-lander-", dir=REPO)
@@ -201,7 +212,9 @@ class Lander(LanderFixture, unittest.TestCase):
         self.assertIn("FAIL once check", fix["line"])
         self.assertIn(SUITE, Path(fix["log"]).read_text())
         self.assertIn("Tree: ", Path(fix["log"]).read_text())
-        self.assert_only_target_green()
+        # a check of the member's own is the member's: the target is not asked
+        self.assertFalse((directory / "target-probe.log").exists())
+        self.assertEqual(land._trees(self.turn)[1], {})
         self.wake.assert_called_once()
         self.assert_cleaned()
 
@@ -351,7 +364,7 @@ class Lander(LanderFixture, unittest.TestCase):
         self.assertIn("fix", verdict)
         land.check_line(self.turn)
         self.assertEqual(self.wait(directory), verdict)
-        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(len(self.checks), 1)
         self.assertEqual(self.wake.call_count, 2)
 
     def test_a_member_changed_during_the_check_is_never_written_or_woken(self):
@@ -501,7 +514,7 @@ class Lander(LanderFixture, unittest.TestCase):
         self.advance()
         land.check_line(self.turn)
         self.assertIn("Checkout changed during", self.wait(directory)["fix"]["line"])
-        self.assert_only_target_green()
+        self.assert_only_target_green()     # no command names the red: the suite whole is probed
         self.wake.assert_called_once()
         self.assert_cleaned()
 
