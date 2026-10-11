@@ -953,19 +953,7 @@ def flaky_key(line):
 
 
 def names_shard(command):
-    return re.search(r"\bAK_SHARD\b", command) is not None and piece_of(command) is None
-
-
-def piece_command(shard, suite):
-    """One piece of a sharded suite as a command of its own: the suite with its share set,
-    run on one turn and never split again (`names_shard`)."""
-    return f"export AK_SHARD={shard}; {suite}"
-
-
-def piece_of(command):
-    """(the share, the suite) of a command `piece_command` wrote, else None."""
-    found = re.match(r"export AK_SHARD=(\S+); (.*)\Z", command, re.S)
-    return (found.group(1), found.group(2)) if found else None
+    return re.search(r"\bAK_SHARD\b", command) is not None
 
 
 def suite_cost(command, cwd, run_dir):
@@ -1109,17 +1097,28 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log):
 
 
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
-              on_wait=None, measure=False, **kwargs):
+              on_wait=None, measure=False, shard=None, pieces=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
     all attempts share the command's ceiling, and live output identifies its piece.
+    With `shard` (`k/N`) one piece runs alone with that share set, as the lander probes the
+    target's tip: on one turn, never split again, measuring nothing, its cost the suite's.
+    `pieces`, a dict, gets each piece's exit as the runner saw it, by share -- None for one
+    killed at the limit -- so a caller decides from codes, never from what a piece printed.
     """
     env = suite_env()
+    if shard is not None:
+        header = f"--- AK_SHARD={shard} ---\n"
+        output.write(header.encode())
+        output.flush()
+        code, text, killed = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd),
+                                          activity=activity, output=output,
+                                          env={**env, "AK_SHARD": shard}, **kwargs)
+        return code, header + text, killed
     if not names_shard(command):
-        # one piece run alone measures nothing: its cost is the suite's, already kept
-        path = suite_cost(command, cwd, run_dir)[0] if measure and not piece_of(command) else None
-        measured = _SuiteMeasure(run_dir) if path else None
+        path = suite_cost(command, cwd, run_dir)[0] if measure else None
+        measured = _SuiteMeasure(run_dir) if measure else None
         aborting = kwargs.pop("abort", None)
         def abort():
             if measured:
@@ -1253,6 +1252,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             text = "\n\n".join(chunks + red + flakes)
             output.write(("\n" + text + "\n").encode())
             output.flush()
+            if pieces is not None:
+                pieces.update({f"{index}/{count}": None if killed else code
+                               for index, (code, _, killed) in enumerate(results, 1)})
             return next((code for code, _, _ in results if code), 0), text, any(
                 killed for _, _, killed in results)
 
@@ -1294,7 +1296,7 @@ def _running_commands(pid):
 
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
-                  run_dir=None, heavy=False, marks=None):
+                  run_dir=None, heavy=False, marks=None, shard=None, pieces=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -1330,7 +1332,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
 
     `marks`, a list, gets each command's exit as the runner saw it, in order -- None for one
     killed at the limit or never run, and none for those after a kill: what decides a proof,
-    never the text, which a command can print anything into.
+    never the text, which a command can print anything into.  `pieces`, a dict, gets the same
+    for each sharded command's pieces, by command then share (`run_suite`); `shard` runs
+    every command as that one piece alone.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -1368,7 +1372,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         cmd, left, silence=silence, activity=log_path,
                         on_timeout=stopped, cwd=str(cwd), output=progress,
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                        run_dir=run_dir, log=log, on_wait=waited, measure=heavy)
+                        run_dir=run_dir, log=log, on_wait=waited, measure=heavy, shard=shard,
+                        pieces=None if pieces is None else pieces.setdefault(cmd, {}))
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     run.memory_cap_note(run_dir, log)
