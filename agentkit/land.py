@@ -408,8 +408,8 @@ def red_piece(cmds, marks, pieces, suite, ok):
     yet the checks did not pass (the checkout changed under them, the suite's own doing as far
     as the lander can tell); None where the first failing command was not the suite -- a check
     of the member's own, which no target answers for -- or the checks passed."""
-    if ok or suite is None:
-        return None
+    if ok or suite is None or not marks:
+        return None       # no exits reported: nothing says the suite failed
     for cmd, mark in zip(cmds, marks):
         if mark == 0:
             continue
