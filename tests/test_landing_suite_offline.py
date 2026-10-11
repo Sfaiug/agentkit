@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 import every_file
-from agentkit import run
+from agentkit import gitcall, run
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 # Real models, GitHub, Discord, live meters, the shared browser and user systemd.
@@ -130,7 +130,7 @@ class LandingSuiteOffline(unittest.TestCase):
                 self.assertEqual(self.ran()[-1], "live=1")
 
     def test_tests_line_cuts_the_network_and_requires_complete_acceptance(self):
-        line = run.declared(REPO, "tests")
+        line = gitcall.declared(REPO, "tests")
         self.assertIn("unshare --user --map-current-user --net --keep-caps", line)
         self.assertIn("AGENTKIT_ACCEPTANCE_REQUIRED=1", line)
         tools = self.root / "bin"

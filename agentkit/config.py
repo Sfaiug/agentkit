@@ -1383,10 +1383,10 @@ def seat_rulebook(session, repo=None):
     the project it is filed under -- `repo`, else its record's -- as on that project's default
     branch: what its workers get, as its launch or the tick last fetched it
     (`orch.fetch_project`); and an unnamed seat's instruction to name itself."""
-    from . import run
+    from . import gitcall     # here, not at the top: gitcall imports this module
     record = session_records().get(session, {})
     repo = record.get("repo") if repo is None else repo
-    project = run.agents_body(repo, RULES_REF)
+    project = gitcall.agents_body(repo, RULES_REF)
     body = rulebook_text(project or "")
     if project:
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "

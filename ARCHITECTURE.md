@@ -11,7 +11,7 @@
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words leak into some twenty files.
-- `run.py` (11.0k lines) holds most of the run side.
+- `run.py` (11.1k lines) holds most of the run side; `gitcall.py` is its first leaf.
 
 ## Entry points
 
@@ -21,14 +21,15 @@
 
 ## agentkit/
 
-- `run.py`: staffing, review, landing, hand-back, failures, worktrees and delivery locks.
+- `run.py`: staffing, review, landing, hand-back, failures and delivery locks.
   Passed writable workers and automatic review-PR merges park in the line and exit;
   foreground callers and jobs follow records. Forks keep `land`. API: `main`, `going`,
   `pick_models`; for watch, status, job, gc, orch, menu, notify, usage, worker and a hook.
+- `gitcall.py`: git, gh and tool calls with their stop handling (`Stopped`); the declared suite, rules and front matter read off a checkout; worktrees, leftovers, sandboxes, the reviewer's copy and probe checkouts; the run's child environment and logger. The base every leaf of `run.py` calls.
 - `gate.py`: run admission (the slot queue and host gates), check commands and host-wide
   heavy-suite turns. API: `slot_lock`, `claim_slot`, `wait_for_slot`, `slot_note`,
   `host_status_line`, `run_done_when`, turn/env helpers and wait notes. For run, land and
-  tests. Leaks: run's `run_child_env`, `memory_cap_note`, `dirty_paths`, `OUT_CAP`,
+  tests. Leaks: gitcall's `run_child_env` and `dirty_paths`, run's `memory_cap_note`, `OUT_CAP`,
   `redress_seat`, `run_depth`.
 - `status.py`: `ak run status`: the run table, one run's details and their dim lines
   (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for

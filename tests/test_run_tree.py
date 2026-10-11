@@ -34,7 +34,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.sandbox import account_home
-from agentkit import gate as suite_gate, config, orch, run, stop, watch, worker
+from agentkit import config, gate as suite_gate, gitcall, orch, run, stop, watch, worker
 
 
 def fresh_id():
@@ -272,7 +272,7 @@ class RunTree(unittest.TestCase):
         # Worker turns and done-when gates -- the final check is a gate -- all
         # carry the run's marker in the environment they are started with.
         self.enter_run_context()
-        self.assertEqual(run.run_child_env().get(worker.RUN_MARKER), str(config.RUNS / self.run_id))
+        self.assertEqual(gitcall.run_child_env().get(worker.RUN_MARKER), str(config.RUNS / self.run_id))
         cfg = {"models": {"w": {"harness": "claude", "model": "m", "effort": "e",
                                 "provider": "p"}},
                "providers": {"p": {}}}
@@ -326,7 +326,7 @@ class RunTree(unittest.TestCase):
         before = getattr(run._RUN_CONTEXT, "state", {})
 
         def fake_merge(lp):
-            seen["marker"] = run.run_child_env().get("AGENTKIT_RUN")
+            seen["marker"] = gitcall.run_child_env().get("AGENTKIT_RUN")
             marked = {"AGENTKIT_RUN": seen["marker"]} if seen["marker"] else {}
             kid = subprocess.Popen(
                 ["sleep", "100"], start_new_session=True, stdin=subprocess.DEVNULL,

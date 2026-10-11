@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import gate, host, config, job, orch, run, watch, worker
+from agentkit import config, gate, gitcall, host, job, orch, run, watch, worker
 from agentkit import record
 
 
@@ -174,6 +174,7 @@ class MergePipeline(Fixture):
     def test_a_final_check(self):
         self.lp.once, self.lp.every = ["true"], []
         with patch.object(run, "git", return_value="a" * 40), \
+             patch.object(gitcall, "git", return_value="a" * 40), \
                 patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity", return_value={"head_sha": "a" * 40,
                                                                    "tree_sha": "b" * 40}), \

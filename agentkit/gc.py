@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 
-from . import config, host, job as jobs, land, orch, proc_snapshot, record, retention, run, worktrees
+from . import config, gitcall, host, job as jobs, land, orch, proc_snapshot, record, retention, run, worktrees
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -58,7 +58,7 @@ def collectible_worktree(directory, state):
         return False
     if not retention.present(wt):
         return not wt.is_symlink()      # already cleaned; the history can still be compressed
-    return retention.clean_worktree(Path(repo), wt, state, run.JUNK)
+    return retention.clean_worktree(Path(repo), wt, state, gitcall.JUNK)
 
 
 def seat_file_stale(path, now):
@@ -412,7 +412,7 @@ def holds_work(wt):
 
     A folder with no `.git` is no checkout and holds none: an empty one a lander or a run
     killed while making its checkout leaves, or what a removal cut short left once `.git`
-    went first.  Nor does a checkout ak never finished making, still locked as `run.MAKING`.
+    went first.  Nor does a checkout ak never finished making, still locked as `gitcall.MAKING`.
     The line's scratch -- detached, its own git directory holding the lander's mark
     (`land.SCRATCH_MARK`) -- is a killed lander's: its output is nobody's.  A seat builds on
     a branch in a worktree, whose branches and commits stay in its repository when the
@@ -434,7 +434,7 @@ def holds_work(wt):
             lock = retention.read_bytes(private / "locked").rstrip(b"\n")
         except OSError:
             return True
-    if lock == run.MAKING.encode():
+    if lock == gitcall.MAKING.encode():
         return False
     code, _ = orch.git_in(wt, "symbolic-ref", "-q", "HEAD")
     if code == 1:

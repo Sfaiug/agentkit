@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, gc, land, orch, retention, run, worktrees
+from agentkit import config, gc, gitcall, land, orch, retention, run, worktrees
 from agentkit import record as run_record
 
 DAY = 86400
@@ -280,7 +280,7 @@ class GcSweep(Sandbox):
         (cut / "output").write_text("a killed check's\n")
         (cut / ".git").unlink()
         for wt, *args in ((half, "--detach"), (half_run, "-b", "ak/half")):
-            self.git(self.repo, "worktree", "add", "-q", "--lock", "--reason", run.MAKING, str(wt), *args)
+            self.git(self.repo, "worktree", "add", "-q", "--lock", "--reason", gitcall.MAKING, str(wt), *args)
         for wt in (empty, cut, half, half_run):
             self.aged(wt, 2 * DAY)
         fresh = config.WT / "fresh"
@@ -548,8 +548,8 @@ class GcSweep(Sandbox):
                  f"sh -c 'cat \"$(git rev-parse --absolute-git-dir)/locked\" > {seen}; cat'")
         wt = config.WT / "made"
         with patch.dict(os.environ, {"LC_ALL": "de_DE.UTF-8"}):
-            self.assertEqual(run.add_worktree(self.repo, wt, "--detach", mark="mark")[0], 0)
-        self.assertEqual(seen.read_text(), run.MAKING + "\n")
+            self.assertEqual(gitcall.add_worktree(self.repo, wt, "--detach", mark="mark")[0], 0)
+        self.assertEqual(seen.read_text(), gitcall.MAKING + "\n")
         own = Path(self.git(wt, "rev-parse", "--absolute-git-dir"))
         self.assertTrue((own / "mark").is_file())
         self.assertFalse((own / "locked").exists())

@@ -1,7 +1,7 @@
 """Collisions between the live runs of one repository: the tick's scan, and what it enforces.
 
 A run's lease is its own diff against the base it was cut from, uncommitted edits included
-as a commit would take them (`run.committable_paths`; what its checks generated is written
+as a commit would take them (`gitcall.committable_paths`; what its checks generated is written
 down by the run and left out); no model declares, renews or releases anything.  Each tick, every pair of live runs of a repository is merged in memory (`git
 merge-tree --write-tree`, git's own conflict rule), each run's own diff brought onto the
 newer of their two bases first with main's side kept where the run clashes with it, so
@@ -31,7 +31,7 @@ import shutil
 import tempfile
 import time
 
-from . import config
+from . import config, gitcall
 from . import record as run_record
 
 DIR = "leases"
@@ -39,12 +39,11 @@ DIR = "leases"
 
 @functools.lru_cache(maxsize=256)
 def home(path):
-    """The main checkout a recorded path is of (`run.main_checkout`, the one reading of a
+    """The main checkout a recorded path is of (`gitcall.main_checkout`, the one reading of a
     repository's identity): a run launched from inside a linked worktree records that
     worktree, and is of the repository it was added from.  Remembered for one scan."""
-    from . import run
     try:
-        return run.main_checkout(Path(path)).resolve()
+        return gitcall.main_checkout(Path(path)).resolve()
     except OSError:
         return Path(path)
 
@@ -140,7 +139,7 @@ STAMP = {"GIT_AUTHOR_NAME": "ak", "GIT_AUTHOR_EMAIL": "ak@localhost",
 
 def tree(worktree, artifacts, log=lambda _: None):
     """The checkout's tree as it stands: HEAD with the uncommitted paths a commit would take
-    (`run.committable_paths`: never test sandboxes, dependency trees, run locks, what
+    (`gitcall.committable_paths`: never test sandboxes, dependency trees, run locks, what
     `.gitignore` names or what the run's checks generated, its `artifacts`), read and written
     through an index of its own in the repository's object store: the checkout's own index is
     neither read, locked nor rewritten (`git diff` refreshes and rewrites the index it reads,
@@ -151,7 +150,7 @@ def tree(worktree, artifacts, log=lambda _: None):
     with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
         env = {**os.environ, "GIT_INDEX_FILE": index.name}
         run.git(worktree, "read-tree", "HEAD", env=env)
-        real, _ = run.committable_paths(worktree, artifacts, env=env)
+        real, _ = gitcall.committable_paths(worktree, artifacts, env=env)
         if real:
             staged(worktree, real, env, log)
         return run.git(worktree, "write-tree", env=env)
@@ -242,7 +241,7 @@ def favour_ours(repo, base, ours, theirs, tree, clashes):
                 files = []
                 for n, side in enumerate((mine, old, other)):
                     target = Path(work) / str(n)
-                    target.write_bytes(run.git_bytes(repo, "cat-file", "blob", side[1])
+                    target.write_bytes(gitcall.git_bytes(repo, "cat-file", "blob", side[1])
                                        .encode("utf-8", "surrogateescape") if side else b"")
                     files.append(str(target))
                 if run.git_out(repo, "merge-file", "--ours", *files)[0] == 0:

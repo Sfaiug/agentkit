@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, history, job, land, menu, record, run, scoreboard, watch
+from agentkit import config, gate, gitcall, history, job, land, menu, record, run, scoreboard, watch
 from test_merge_step import make_loop, make_repos
 from fixtures.sandbox import Sandbox
 
@@ -284,7 +284,7 @@ class JoinLine(Sandbox):
 
     def test_review_pr_joins_without_taking_the_delivery_lock(self):
         self.lp.state["own_orchestrator"] = "opus"
-        with patch.object(run, "gh", side_effect=AssertionError("delivery")), \
+        with patch.object(gitcall, "gh", side_effect=AssertionError("delivery")), \
                 patch.object(run, "merge_lock", side_effect=AssertionError("delivery lock")):
             self.assertFalse(run.merge_own_pr(self.lp, "https://github.com/acme/widget/pull/7"))
         self.assertEqual(self.saved()["waiting_on"]["line"], run.turn_path(self.lp, "origin/main").name)

@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import gate, host, config, run, worktrees, usage
+from agentkit import config, gate, gitcall, host, run, usage, worktrees
 from agentkit import record
 
 
@@ -55,7 +55,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
 sys.exit(1)
 ''')
         self.script(self.bin / "gh", 'raise AssertionError("unexpected external delivery")\n')
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(run.notify, "shaped",
                                              side_effect=AssertionError("notification")))
         self.sleep = self.stack.enter_context(patch.object(run.time, "sleep"))

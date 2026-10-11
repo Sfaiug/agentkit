@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, run, worker
+from agentkit import config, gc, gitcall, run, worker
 from agentkit import record
 
 TASK = "# Learn once\n\n## Goal\nUse the repository facts.\n\n## Done when\n```bash\ntrue\n```\n"
@@ -61,7 +61,7 @@ class Lessons(unittest.TestCase):
         self.stack.enter_context(patch.object(run.usage, "pick_order",
                                              return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.worker)))
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub")))
 
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.repo), *args], check=True,

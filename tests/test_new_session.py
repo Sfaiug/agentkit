@@ -20,7 +20,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox, menu_input
-from agentkit import config, gc, menu, notify, orch, run, terminal, usage
+from agentkit import config, gc, gitcall, menu, notify, orch, run, terminal, usage
 from agentkit import record as run_record
 
 COLLECT, SESSIONS = usage.collect, orch.sessions    # the real ones, for the dry run
@@ -360,6 +360,7 @@ class NewSession(Sandbox):
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git", return_value="f" * 40), \
+                patch.object(gitcall, "git", return_value="f" * 40), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "make_worktree", return_value=(self.root / "review", "ak/pr-7")), \
                 patch.object(run, "exclude_junk"), \

@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, record, run, usage
+from agentkit import config, gc, gitcall, record, run, usage
 from fixtures.landing import landing
 from test_merge_step import make_repos
 
@@ -75,7 +75,7 @@ class DeliveryRetryDry(unittest.TestCase):
                     "/fixture/gh" if name == "gh" else which(name, **kw))), \
                 patch.object(run.landing, "start_line"), \
                 patch.object(run, "fix_final_check", side_effect=landing_review), \
-                patch.object(run, "gh", side_effect=AssertionError("GitHub delivery")), \
+                patch.object(gitcall, "gh", side_effect=AssertionError("GitHub delivery")), \
                 patch.object(run, "call_retrying", side_effect=reviewer_turn) as turn, \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_merge([run_dir.name]), 0)

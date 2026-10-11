@@ -28,7 +28,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.clock import Clock
 from fixtures.hand_in import submitting, scripted, stateful
-from agentkit import gate, harness, host, config, notify, orch, run, status, usage, watch
+from agentkit import config, gate, gitcall, harness, host, notify, orch, run, status, usage, watch
 from agentkit import record
 
 WEEK = 604800
@@ -447,7 +447,7 @@ class QuotaDry(unittest.TestCase):
                                             {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
         self.script(self.bin / "tmux", 'import sys\n'
                     'assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv\nsys.exit(1)\n')
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(run.notify, "shaped",
                                               side_effect=AssertionError("notification")))
         self.sleep = MagicMock()

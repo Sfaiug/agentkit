@@ -44,8 +44,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (browser, command_help, config, gc, host, notify, orch, statusbar, update, usage,
-               worker)
+from . import (browser, command_help, config, gc, gitcall, host, notify, orch, statusbar, update,
+               usage, worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
 
@@ -5815,7 +5815,7 @@ def merge_record(repo, sha, pr_url=None):
     if not sha:
         return {}
     if repo and run.git_out(repo, "cat-file", "-e", f"{sha}^{{commit}}")[0] == 0:
-        command = run.declared_at(repo, sha, "health")
+        command = gitcall.declared_at(repo, sha, "health")
     else:
         # The merge may exist only on GitHub; discovering health must not depend on origin.
         parsed = after_merge_repo(pr_url)
@@ -5829,7 +5829,7 @@ def merge_record(repo, sha, pr_url=None):
         if not (isinstance(data, dict) and data.get("encoding") == "base64"):
             return {}
         text = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
-        command = run.front_value(text, "health")
+        command = gitcall.front_value(text, "health")
     return {"health": {"command": command} if command else {}}
 
 

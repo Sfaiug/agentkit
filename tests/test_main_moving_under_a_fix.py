@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
-from agentkit import host, config, run, status
+from agentkit import config, gitcall, host, run, status
 from agentkit import record
 
 
@@ -366,7 +366,7 @@ class V5aa(unittest.TestCase):
                 calls.append(role)
                 raise AssertionError("resume must not spend an executor round")
 
-            with mock_patch.object(run, "gh", side_effect=fake_gh), \
+            with mock_patch.object(gitcall, "gh", side_effect=fake_gh), \
                     mock_patch.object(run, "execute", side_effect=no_execute):
                 self.assertEqual(run.cmd_resume([run_dir.name]), 0)
             self.assertEqual(calls, [])
@@ -471,7 +471,7 @@ class V5aa(unittest.TestCase):
                 calls.append(role)
                 raise AssertionError("resume must not spend an executor round")
 
-            with mock_patch.object(run, "gh", side_effect=fake_gh), \
+            with mock_patch.object(gitcall, "gh", side_effect=fake_gh), \
                     mock_patch.object(run, "execute", side_effect=no_execute):
                 self.assertEqual(run.cmd_resume([run_dir.name, "--rounds", "3"]), 0)
             self.assertEqual(calls, [])

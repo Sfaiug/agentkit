@@ -24,7 +24,7 @@ REAL_TMUX = shutil.which("tmux")
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import gate, host, config, gc, menu, notify, orch, retention, run, status, update, watch
+from agentkit import config, gate, gc, gitcall, host, menu, notify, orch, retention, run, status, update, watch
 from agentkit import record as run_record
 
 DAY = 86400
@@ -64,7 +64,7 @@ sys.exit(1)
         for executable in ("gh", "claude", "codex", "muse"):
             self.script(binaries / executable, 'raise AssertionError("external call forbidden")\n')
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub")))
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[]))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,

@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, history, job as jobs, run, status, task
+from agentkit import config, gc, gitcall, history, job as jobs, run, status, task
 from agentkit import record
 
 SEAT = "size-check"
@@ -275,6 +275,7 @@ class Sandbox(unittest.TestCase):
                 patch.object(run, "checkout_for", return_value=repo), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "git", return_value="sha"), \
+                patch.object(gitcall, "git", return_value="sha"), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \

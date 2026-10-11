@@ -24,7 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import host, config, harness, menu, notify, orch, run, terminal, update, usage, watch
+from agentkit import config, gitcall, harness, host, menu, notify, orch, run, terminal, update, usage, watch
 from agentkit import record as run_record, statusbar
 from agentkit.harness import codex as codex_plugin
 
@@ -390,7 +390,7 @@ class ScratchRun(Fixture):
 
     def setUp(self):
         super().setUp()
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub")))
         self.stack.enter_context(patch.object(run.notify, "shaped",
                                              side_effect=AssertionError("notification")))
         self.stack.enter_context(patch.object(run.time, "sleep"))

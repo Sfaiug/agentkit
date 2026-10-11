@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, gc, land, menu, orch, run, stop, status, watch
+from agentkit import config, gc, gitcall, host, land, menu, orch, run, status, stop, watch
 from agentkit import record
 
 WEEK = 604800
@@ -454,22 +454,22 @@ class Parked(unittest.TestCase):
 
     def test_parked_upstream_sha_accepts_only_a_full_sha(self):
         sha = "ab" * 20
-        with patch.object(run, "git_out", return_value=(1, "fatal: no such repo")), \
+        with patch.object(gitcall, "git_out", return_value=(1, "fatal: no such repo")), \
                 patch.object(run, "git", side_effect=AssertionError("no fetch, no rev")):
             self.assertIsNone(run.upstream_sha("/nowhere", "origin/main"))
-        with patch.object(run, "git_out", return_value=(0, "")), \
+        with patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(run, "git", return_value="origin/main;^{commit}"):
             # what `rev-parse` echoes for a ref it cannot resolve: not a move
             self.assertIsNone(run.upstream_sha("/nowhere", "origin/main;"))
-        with patch.object(run, "git_out", return_value=(0, "")), \
+        with patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(run, "git", return_value=""):
             self.assertIsNone(run.upstream_sha("/nowhere", "origin/main"))
-        with patch.object(run, "git_out", return_value=(0, "")), \
+        with patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(run, "git", return_value=sha) as rev:
             self.assertEqual(run.upstream_sha("/nowhere", "origin/main"), sha)
             rev.assert_called_once_with("/nowhere", "rev-parse", "origin/main^{commit}",
                                         check=False)
-        with patch.object(run, "git_out", return_value=(0, "")), \
+        with patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(run, "git", return_value="ef" * 32):
             # a sha256 repository's 64-char oids count as an answer too
             self.assertEqual(run.upstream_sha("/nowhere", "origin/main"), "ef" * 32)

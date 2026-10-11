@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, history, menu, orch, statusbar, terminal, watch
+from agentkit import config, gitcall, history, menu, orch, statusbar, terminal, watch
 from agentkit.guard import commands  # noqa: E402
 from agentkit import run as ak_run
 from agentkit import record
@@ -377,7 +377,7 @@ class FinalRound(Sandbox):
                 patch.object(orch, "listing", return_value=[seat]), \
                 patch.object(menu.Live, "look"), \
                 patch.object(history, "open_step"), patch.object(history, "update_run"), \
-                patch.object(ak_run, "sweep_sandboxes", side_effect=sweep), \
+                patch.object(gitcall, "sweep_sandboxes", side_effect=sweep), \
                 patch.object(ak_run, "call_retrying", side_effect=worker), \
                 patch.object(ak_run, "history_role_tokens"), patch.object(ak_run, "record_disputes"):
             watch.announce_state(seat, cfg=self.cfg, records=menu.run_records(), now=10000)

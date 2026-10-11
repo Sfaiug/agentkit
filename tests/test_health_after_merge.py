@@ -17,7 +17,7 @@ from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, orch, record, run, watch
+from agentkit import config, gitcall, history, orch, record, run, watch
 
 NOW = 2000000
 PR = "https://github.com/acme/widget/pull/7"
@@ -313,7 +313,7 @@ class HealthAfterMerge(unittest.TestCase):
         sha = self.declare(None)
         directory = self.merged(sha)
         (self.repo / "AGENTS.md").write_text("---\nhealth: exit 0\n---\n")
-        with patch.object(run, "declared_at", wraps=run.declared_at) as read:
+        with patch.object(gitcall, "declared_at", wraps=gitcall.declared_at) as read:
             self.tick()
             self.probes.assert_not_called()
             self.assertEqual(self.lines, [])

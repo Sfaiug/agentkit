@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import config, gitcall, run, worker
 from agentkit import record
 
 
@@ -65,8 +65,9 @@ def crash(root, probe, phase):
             (wt / "probe-output").write_text("probe output\n")
             os._exit(73)  # No finally runs, as after SIGKILL or a reboot.
 
-        with patch.object(run, "git", side_effect=git), \
+        with patch.object(run, "git", side_effect=git), patch.object(gitcall, "git", side_effect=git), \
                 patch.object(run, "git_out", side_effect=git_out), \
+                patch.object(gitcall, "git_out", side_effect=git_out), \
                 patch.object(worker, "limited", side_effect=die):
             lp = make_loop(root)
             if phase != "restore":
@@ -176,7 +177,7 @@ class ProbeResume(unittest.TestCase):
                         return ""
                     return real_git(repo, *args, **kwargs)
 
-                with patch.object(run, "git", side_effect=refuse):
+                with patch.object(gitcall, "git", side_effect=refuse):   # the restore runs inside gitcall
                     with self.assertRaises(config.Error):
                         make_loop(self.root)
                 self.assertIn("probe_checkout", record.read_state(self.directory))

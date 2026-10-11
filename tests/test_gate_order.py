@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, config, run, worker
+from agentkit import config, gate, gitcall, run, worker
 from agentkit import host, record as run_record
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
@@ -104,7 +104,7 @@ class GateOrder(unittest.TestCase):
         directory = self.record(name, repo, first, owner)
         state = run_record.read_state(directory)
         pid = self.dead if stale else state["pid"]
-        state["gate_turn"] = {"pid": pid, "of": str(run.main_checkout(repo)), "since": since}
+        state["gate_turn"] = {"pid": pid, "of": str(gitcall.main_checkout(repo)), "since": since}
         run_record.save_state(directory, state)
         return directory
 
@@ -137,7 +137,7 @@ class GateOrder(unittest.TestCase):
         first, second, third = self.since("one"), self.since("two"), self.since("three")
         self.assertLess(first, second)
         self.assertLess(second, third)
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         # whatever order they poll in, the last to wait still finds two before it
         self.assertTrue(gate._gate_waiter_before(repo, "three", third))
         self.assertTrue(gate._gate_waiter_before(repo, "two", second))
@@ -153,7 +153,7 @@ class GateOrder(unittest.TestCase):
         self.assertEqual(self.marks.read_text(), "one\ntwo\nthree\n")
 
     def test_earlier_plain_waiter_goes_before_first_while_dead_marks_hold_nobody(self):
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         # a dead --first waiter's mark still reads waiting, and a kill-or-resume mark
         # left its dict behind; neither holds another back
         self.waiter("dead-first", ACME, 500, first=True, owner={"pid": self.dead})
@@ -175,7 +175,7 @@ class GateOrder(unittest.TestCase):
         state = run_record.read_state(config.RUNS / "elsewhere-first")
         self.assertEqual(gate.gate_turn_note(state), "waiting for a heavy suite turn")
         self.assertEqual(state["gate_turn"]["of"], ELSEWHERE)
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "ghost", 3000))
         # a live waiter holds a newcomer back whichever checkout it checks
         self.waiter("plain", ACME, 1000)

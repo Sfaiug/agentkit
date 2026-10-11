@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import test_worker_list as fixtures
 from fixtures.hand_in import smoke, submitting
-from agentkit import gate, config, gc, run, status, usage, watch
+from agentkit import config, gate, gc, gitcall, run, status, usage, watch
 from agentkit import record as run_record
 
 
@@ -478,6 +478,7 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "own_pr_orchestrator", return_value=(False, None)), \
                 patch.object(run, "checkout_for", return_value=wt), \
                 patch.object(run, "git", return_value=""), \
+                patch.object(gitcall, "git", return_value=""), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
                 patch.object(run, "make_worktree", return_value=(wt, "ak/fix-api")), \

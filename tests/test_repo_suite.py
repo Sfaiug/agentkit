@@ -13,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import gate as check_gate, config, gc, host, run, worker
+from agentkit import config, gate as check_gate, gc, gitcall, host, run, worker
 
 SUITE = 'test -f AGENTS.md && printf "piece %s\\n" "${AK_SHARD:-all}"'
 
@@ -58,7 +58,7 @@ class RepoSuiteFixture:
         self.stack.enter_context(patch.object(run.usage, "pick_order",
                                              return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.worker)))
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub")))
         # delivery is only its final check here: no remote, no PR
         self.stack.enter_context(patch.object(
             run, "merge", side_effect=lambda lp: run.final_check(lp, "origin/main")))
@@ -151,7 +151,7 @@ class RepoSuite(RepoSuiteFixture, unittest.TestCase):
                         self.assertNotEqual(run.git(lp.wt, "rev-parse", "HEAD"), before)
                     else:
                         self.assertEqual(run.git(lp.wt, "rev-parse", "HEAD"), before)
-                    self.assertEqual(run.declared_suite(lp.wt, lp.target), suite)
+                    self.assertEqual(gitcall.declared_suite(lp.wt, lp.target), suite)
                     self.assertEqual(run.final_check(lp, "origin/main"), mode != "probe")
                     self.assertEqual(lp.every, ["true"])
                     self.assertEqual(lp.once, [task_once, suite])

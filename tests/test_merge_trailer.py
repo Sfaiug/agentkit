@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import gate, config, gc, run
+from agentkit import config, gate, gc, gitcall, run
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -53,7 +53,7 @@ class MergeTrailer(unittest.TestCase):
         self.directory = config.RUNS / "merge-test"
         self.directory.mkdir()
         self.calls = []
-        self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run, "merge_lock", side_effect=lambda *a, **_kw: nullcontext()))
         self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
 
@@ -206,7 +206,7 @@ class MergeTrailer(unittest.TestCase):
                         self.assertEqual(args[:4], ("api", "--hostname", "ghe.acme.test", "graphql"))
                     return self.gh(cwd, *args, **_kw)
 
-                with patch.object(run, "gh", side_effect=gh):
+                with patch.object(gitcall, "gh", side_effect=gh):
                     message = self.land(lp, url, own=own)
                 self.assertEqual(len(reads), 1)
                 self.assertEqual(self.calls[-1][2], url)
@@ -228,7 +228,7 @@ class MergeTrailer(unittest.TestCase):
                             return answer
                         return self.gh(cwd, *args, **_kw)
 
-                    with patch.object(run, "gh", side_effect=gh):
+                    with patch.object(gitcall, "gh", side_effect=gh):
                         message = self.land(lp, own=own)
                     self.assertEqual(len(reads), 1)
                     self.assertTrue(lp.state["merged"])
