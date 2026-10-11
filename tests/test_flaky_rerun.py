@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, config, host, run
+from agentkit import gate, config, gitcall, host, run
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # the main checkout as the record names it; never opened
@@ -41,6 +41,7 @@ class FlakyRerun(unittest.TestCase):
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
+        self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         config.RUNS.mkdir(parents=True)
         self.run_dir = config.RUNS / RUN_ID
         self.run_dir.mkdir()

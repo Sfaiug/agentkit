@@ -60,6 +60,7 @@ class GateLanders(unittest.TestCase):
                                                           "AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0"}))
         os.environ.pop("AK_MAX_RUNS", None)
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
+        self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         config.RUNS.mkdir(parents=True)

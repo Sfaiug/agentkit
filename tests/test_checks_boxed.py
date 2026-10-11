@@ -20,7 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home, in_account_home
-from agentkit import box, config, gate, hand_in, run, worker
+from agentkit import box, config, gate, gitcall, hand_in, run, worker
 
 
 class ChecksBoxed(unittest.TestCase):
@@ -40,6 +40,7 @@ class ChecksBoxed(unittest.TestCase):
         for key in ("HOME", "RUNS", "STATE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
+        self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(gate, "derived_heavy_limit", return_value=2))
         self.stack.enter_context(patch.object(gate._SuiteMeasure, "save"))
