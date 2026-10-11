@@ -412,6 +412,8 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
             self.assertIn("## Landing failed", state["findings"])
             self.assertEqual(self.notices, [], "the seat was told of a round it has no part in")
             self.push_fix(url, rename=True)
+            state["delivery_sha"] = self.prs[url]["head"]     # as fix_own_pr records its push
+            record.save_state(directory, state)
             return True
 
         with patch.object(run, "fix_own_pr", side_effect=fixed):

@@ -33,6 +33,8 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
             self.assertTrue(state["landing_fix"])
             self.assertIn("## Landing failed", state["findings"])
             self.push_fix(url, rename=rename)
+            state["delivery_sha"] = self.prs[url]["head"]     # as fix_own_pr records its push
+            record.save_state(directory, state)
             return True
         return patch.object(run, "fix_own_pr", side_effect=fixed)
 
@@ -63,6 +65,44 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
     @staticmethod
     def rename(wt):
         run.git(wt, "mv", "second.txt", "repaired.txt")
+
+    def push(self, url):
+        """The seat pushes a commit of its own onto the PR branch as origin holds it now."""
+        pr = self.prs[url]
+        run.git(self.repo, "fetch", "origin", pr["branch"])
+        run.git(self.repo, "checkout", "-B", pr["branch"], "FETCH_HEAD")
+        (self.repo / "fix.txt").write_text("seat\n")
+        self.commit("the seat push")
+        run.git(self.repo, "push", "origin", pr["branch"])
+        pr["head"] = run.git(self.repo, "rev-parse", "HEAD")
+
+    def seat_push_after_the_landing_fix(self, spent):
+        """A landing red, its fixer turn, and the seat's own push landing between the fixer's
+        push and the re-review's read of the PR: (the run's state, the reviews made, the seat's
+        head)."""
+        directory, url = self.red_landing()
+        with record.record(directory) as state:
+            first = state["round_summaries"][0]
+            state["round_summaries"] = [{**first, "round": n} for n in range(1, spent + 1)]
+        self.fixer_turns(self.rename)
+        seen = len(self.reviews)
+        with patch.object(run, "pickup_new_code", side_effect=lambda *a, **k: self.push(url)):
+            state = self.review(directory, url)
+        return state, self.reviews[seen:], self.prs[url]["head"]
+
+    def test_a_seat_push_right_after_the_landing_fix_push_spends_a_round(self):
+        state, reviews, seat = self.seat_push_after_the_landing_fix(1)
+        self.assertEqual(state["head_sha"], seat)
+        self.assertEqual(len(state["round_summaries"]), 2)
+        self.assertNotIn("landing_fix", state)
+        self.assertFalse(any("Re-review after the landing fix" in body for body in reviews))
+
+    def test_past_the_budget_a_seat_push_right_after_the_landing_fix_push_is_not_reviewed(self):
+        state, reviews, seat = self.seat_push_after_the_landing_fix(3)
+        self.assertEqual(state["head_sha"], seat)
+        self.assertEqual(reviews, [])
+        self.assertEqual(state["state"], "fail")
+        self.assertIn("3 review rounds spent on PR #1", state["error"])
 
     def test_the_fix_is_re_reviewed_without_a_round_and_lands(self):
         directory, url = self.red_landing()
@@ -134,6 +174,8 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
             run.git(self.repo, "-c", "core.editor=true", "rebase", "--continue")
             run.git(self.repo, "push", "--force", "origin", pr["branch"])
             pr["head"] = run.git(self.repo, "rev-parse", "HEAD")
+            state["delivery_sha"] = pr["head"]     # as fix_own_pr records its push
+            record.save_state(directory_, state)
             return True
 
         with patch.object(run, "fix_own_pr", side_effect=rebased):
