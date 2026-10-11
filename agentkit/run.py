@@ -11532,8 +11532,11 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     landing_fix = bool(is_own and prior.get("landing_fix")
                        and info["headRefOid"] in own_pr_heads(prior))
     if is_own and prior.get("landing_fix") and not landing_fix:
+        # off the record as it stands now, under its lock: `prior` was read before the wait on
+        # GitHub, and a whole save of it would put the old record over a watcher's write since
         prior.pop("landing_fix")
-        run_record.save_state(run_dir, prior)
+        with run_record.record(run_dir) as current:
+            current.pop("landing_fix", None)
     rnd, turn = own_pr_fix(prior if is_own else {})
     n_rounds = 1
     if is_own:
