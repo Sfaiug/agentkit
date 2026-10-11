@@ -4,7 +4,8 @@ A task has at most three checks a round runs (`task.MAX_CHECKS`, counted by pref
 list the loop settles: the repository's suite line, however the task names it, runs once at
 landing and never counts; a `# once` line counts where the run has no landing), and a seat's own pull request
 gets its first review only up to 400 added lines (`task.MAX_PR_LINES`), generated files aside
-and nothing deleted counted, as `run.diff_lines` counts them.  tests/test_own_pr_rounds.py drives the
+and nothing deleted counted, as `run.diff_lines` counts them, less what `run.carried_lines` finds
+moved unchanged from lines the diff deletes.  tests/test_own_pr_rounds.py drives the
 refusal through the review itself.  Offline: a real checkout whose attributes mark a
 generated file.
 """
@@ -88,6 +89,31 @@ class SizeGate(Sandbox):
         self.assertEqual(run.pr_size_refusal(7, taskfile.MAX_PR_LINES + 1),
                          "PR #7 adds 401 lines (generated files aside; deletions never count): "
                          "a first review takes at most 400; split it")
+
+    def test_lines_moved_unchanged_from_what_the_diff_deletes_never_count(self):
+        self.git("checkout", "-q", self.base)
+        self.git("checkout", "-qb", "split-big")
+        body = [f"line {n} = {n}" for n in range(500)] + ["", "", "tail = True"]
+        self.write({"big.py": "\n".join(body) + "\n"}, "A big module")
+        base = self.git("rev-parse", "HEAD")
+        (self.repo / "big.py").unlink()
+        (self.repo / "parts").mkdir()
+        # one half moves as it was, the other re-indented into a class; two lines are new, and
+        # a line the base had once is added twice
+        self.write({"parts/a.py": "import os\n" + "\n".join(body[:250]) + "\n",
+                    "parts/b.py": "class Half:\n" + "\n".join("    " + line for line in body[250:])
+                    + "\ntail = True\n",
+                    "dist/app.js": "tail = True\n" * 3}, "Split it")
+        head = self.git("rev-parse", "HEAD")
+        self.assertEqual(run.carried_lines(self.repo, base, head), 503)
+        added = run.diff_lines(self.repo, base, head, added_only=True)
+        self.assertEqual(added, 506)
+        self.assertIsNone(run.pr_size_refusal(7, added, 503))
+        self.assertEqual(run.pr_size_refusal(7, 1000, 599),
+                         "PR #7 adds 1000 lines, 599 of them moved unchanged from lines it deletes "
+                         "(generated files aside; deletions never count): a first review takes at "
+                         "most 400; split it")
+        self.assertIsNone(run.pr_size_refusal(7, 1000, 600))
 
 
 if __name__ == "__main__":

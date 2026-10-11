@@ -6892,18 +6892,51 @@ def diff_lines(repo, base, head="HEAD", added_only=False):
                 name = next(parts)
             if added != "-":
                 changes.append((name, int(added) if added_only else int(added) + int(deleted)))
-        if changes:
-            # Older Git has no check-attr --source; a private index reads the same tree.
-            with tempfile.TemporaryDirectory(dir=config.TMP) as tmp:
-                index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
-                git(repo, "read-tree", source, env=index)
-                attrs = git(repo, "check-attr", "--cached", "-z", "linguist-generated",
-                            "--", *(name for name, _ in changes), env=index).split("\0")[2::3]
-            if len(attrs) != len(changes):
-                raise config.Error("git did not report generated attributes for the PR diff")
-            total += sum(lines for (_, lines), attr in zip(changes, attrs)
-                         if attr.lower() not in ("set", "true"))
+        generated = _generated(repo, source, [name for name, _ in changes])
+        total += sum(lines for name, lines in changes if name not in generated)
     return total
+
+
+def _generated(repo, source, names):
+    """Which of `names` Git marks linguist-generated in `source`'s tree."""
+    if not names:
+        return set()
+    # Older Git has no check-attr --source; a private index reads the same tree.
+    with tempfile.TemporaryDirectory(dir=config.TMP) as tmp:
+        index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        git(repo, "read-tree", source, env=index)
+        attrs = git(repo, "check-attr", "--cached", "-z", "linguist-generated",
+                    "--", *names, env=index).split("\0")[2::3]
+    if len(attrs) != len(names):
+        raise config.Error("git did not report generated attributes for the PR diff")
+    return {name for name, attr in zip(names, attrs) if attr.lower() in ("set", "true")}
+
+
+def carried_lines(repo, base, head="HEAD"):
+    """Added lines a reviewer need not read: each with the text, whitespace aside, of a line
+    the same diff deletes, a deleted line paired with one added line at most, so a module
+    split across files adds what its new lines come to.  Generated files are left out, as
+    `diff_lines` leaves them out; a blank line pairs with a deleted blank line."""
+    diff = git(repo, "-c", "core.quotePath=false", "diff", "-U0", "--find-renames",
+               "--no-color", f"{base}...{head}", check=False)
+    added, deleted = {}, {}
+    new = old = None
+    for line in diff.split("\n"):
+        if line.startswith("diff --git "):
+            new = old = None
+        elif line.startswith("--- "):
+            old = line[6:] if line.startswith("--- a/") else None
+        elif line.startswith("+++ "):
+            new = line[6:] if line.startswith("+++ b/") else None
+        elif line.startswith("+") and new is not None:
+            added.setdefault(new, Counter())[" ".join(line[1:].split())] += 1
+        elif line.startswith("-") and old is not None:
+            deleted.setdefault(old, Counter())[" ".join(line[1:].split())] += 1
+    skip_new = _generated(repo, head, sorted(added))
+    skip_old = _generated(repo, base, sorted(deleted))
+    gone = sum((lines for name, lines in deleted.items() if name not in skip_old), Counter())
+    came = sum((lines for name, lines in added.items() if name not in skip_new), Counter())
+    return sum((came & gone).values())
 
 
 def history_finish(state, log=None):
@@ -10746,14 +10779,16 @@ def gh_json(cwd, *args, timeout=None):
         return None, f"gh printed no JSON ({exc}): {out[-200:]}"
 
 
-def pr_size_refusal(number, lines):
+def pr_size_refusal(number, lines, carried=0):
     """One sentence when a pull request adds more lines than a first review takes at once
-    (`task.MAX_PR_LINES`), else None: `lines` as `diff_lines` counts the added ones, what a
-    reviewer reads; nothing deleted counts."""
-    if lines <= taskfile.MAX_PR_LINES:
+    (`task.MAX_PR_LINES`), else None: `lines` as `diff_lines` counts the added ones, less
+    `carried`, the ones `carried_lines` found moved unchanged from lines the diff deletes --
+    what a reviewer reads; nothing deleted counts."""
+    if lines - carried <= taskfile.MAX_PR_LINES:
         return None
-    return (f"PR #{number} adds {lines} lines (generated files aside; deletions never count): "
-            f"a first review takes at most {taskfile.MAX_PR_LINES}; split it")
+    moved = f", {carried} of them moved unchanged from lines it deletes" if carried else ""
+    return (f"PR #{number} adds {lines} lines{moved} (generated files aside; deletions never "
+            f"count): a first review takes at most {taskfile.MAX_PR_LINES}; split it")
 
 
 def pr_view(url):
@@ -11441,10 +11476,11 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         lp.rnd += 1
         return settle_pr_round(lp, url, info)
     if is_own and not summaries and not rounds_spent_elsewhere(pr=url, exclude=run_dir)[0]:
-        # the PR's first review, in this run or any, takes at most MAX_PR_LINES at once: past
-        # it, the run ends blocked with the reason before any reviewer is picked, and the PR
-        # is split; a later round reviews whatever the fix left
-        why = pr_size_refusal(number, diff_lines(repo, base_sha, head, added_only=True))
+        # the PR's first review, in this run or any, takes at most MAX_PR_LINES at once, the
+        # lines it moves unchanged aside: past it, the run ends blocked with the reason before
+        # any reviewer is picked, and the PR is split; a later round reviews whatever the fix left
+        why = pr_size_refusal(number, diff_lines(repo, base_sha, head, added_only=True),
+                              carried_lines(repo, base_sha, head))
         if why:
             lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
             return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
