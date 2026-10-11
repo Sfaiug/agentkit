@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, hand_in, host, orch, run, status, watch, worker
+from agentkit import config, gate, gc, gitcall, hand_in, host, orch, run, status, turns, watch, worker
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -164,7 +164,7 @@ class OwnPr(unittest.TestCase):
         self.assertEqual(role, "fixer")
         self.assertEqual(record.read_state(self.run_dir)["state"], "running")
         self.fix_names.append(name)
-        out = run.free_dir(lp, name)
+        out = turns.free_dir(lp, name)
         out.mkdir(parents=True)
         (out / hand_in.FILE).write_text(json.dumps(
             {"kind": "turn", "workspace": str(lp.wt), "role": role, "findings": []}) + "\n")

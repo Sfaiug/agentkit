@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import stateful  # noqa: E402
-from agentkit import config, run, usage  # noqa: E402
+from agentkit import config, run, turns, usage  # noqa: E402
 
 # The bearer token out of the `-H @file` header, and the answer from `resp-<token>`: the
 # code on the first line, the body on the rest.
@@ -221,7 +221,7 @@ class Accounts(unittest.TestCase):
 
         # ... and once the usual is refused too, the turn goes to another model
         (self.fake / "refuse-tok-default").touch()
-        with self.assertRaises(run.RanDry):
+        with self.assertRaises(turns.RanDry):
             self.turn()
         self.assertEqual(self.calls()[-1]["token"], "tok-default")
         self.assertEqual(usage.account(self.cfg, "anthropic")[1], False)
@@ -264,7 +264,7 @@ class Accounts(unittest.TestCase):
 
         # a quota refusal parks the provider and hands the work over, as it always did
         (self.fake / "refuse-tok-default").touch()
-        with self.assertRaises(run.RanDry):
+        with self.assertRaises(turns.RanDry):
             self.turn()
         providers = usage.collect(self.cfg)
         self.assertIn("exhausted_until", providers["anthropic"])

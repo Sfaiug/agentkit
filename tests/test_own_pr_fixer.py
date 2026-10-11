@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import OwnPr
-from agentkit import config, hand_in, run, worker
+from agentkit import config, hand_in, run, turns, worker
 from agentkit import record
 
 
@@ -122,7 +122,7 @@ class OwnPrFixer(OwnPr):
         def handed_over(lp):
             if len(self.fixes) == 1:
                 # execute handed the turn to astra, which the host then cut off mid-way
-                out = run.free_dir(lp, "executor-astra")
+                out = turns.free_dir(lp, "executor-astra")
                 out.mkdir(parents=True)
                 (out / hand_in.FILE).write_text(json.dumps(
                     {"kind": "turn", "workspace": str(lp.wt), "role": "fixer", "findings": []}) + "\n")
@@ -269,7 +269,7 @@ class OwnPrFixer(OwnPr):
 
         def handed_over(lp):
             fix(lp)                                     # the fix lands under the second model ...
-            out = run.free_dir(lp, "executor-astra")     # ... whose turn closed under its own name
+            out = turns.free_dir(lp, "executor-astra")     # ... whose turn closed under its own name
             out.mkdir(parents=True)
             (out / hand_in.FILE).write_text("".join(json.dumps(row) + "\n" for row in (
                 {"kind": "turn", "workspace": str(lp.wt), "role": "fixer", "findings": []},

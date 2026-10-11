@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run  # noqa: E402
+from agentkit import config, run, turns  # noqa: E402
 
 # The usual login's week is spent, the second's half; each holds one reset credit.
 ADAPTER = """#!/usr/bin/env bash
@@ -91,7 +91,7 @@ class RefusedSubscription(unittest.TestCase):
         out.parent.mkdir(parents=True)
         lines = []
         with patch.object(run.worker, "call", side_effect=self.call), \
-                self.assertRaises(run.RanDry):
+                self.assertRaises(turns.RanDry):
             run.call_retrying(self.cfg, "one", "Do the task.", self.root, out,
                               "executor", None, lines.append, limit=120)
         self.assertEqual(self.ran_on, ["second"], lines)

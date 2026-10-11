@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import test_worker_list as fixtures
 from fixtures.hand_in import smoke, submitting
-from agentkit import config, gate, gc, gitcall, run, status, usage, watch
+from agentkit import config, gate, gc, gitcall, run, status, turns, usage, watch
 from agentkit import record as run_record
 
 
@@ -418,9 +418,9 @@ class RoleGroups(unittest.TestCase):
                     if name == "gamma":
                         if failure == "transient":
                             new = kwargs["handover"]("transport")
-                            raise run.TransientHandover(name, new, None, "transport")
+                            raise turns.TransientHandover(name, new, None, "transport")
                         if failure == "quota":
-                            raise run.RanDry(name, "b", 1, "usage limit reached", None,
+                            raise turns.RanDry(name, "b", 1, "usage limit reached", None,
                                              self.now + 3600, "quota", True)
                         return 0, "No verdict.", None, False
                     return 0, "VERDICT: PASS\n\n## Findings\n- none", None, False

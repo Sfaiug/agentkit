@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import finding_count, reported, scripted, stateful
-from agentkit import config, gate, gitcall, host, notify, run, status, stop, worker
+from agentkit import config, gate, gitcall, host, notify, run, status, stop, turns, worker
 from agentkit import record
 
 
@@ -391,7 +391,7 @@ sys.exit(1)
                          str(directory / "round-3" / "reviewer" / "review.md"))
         # with the round directory gone, the bounded tail is still better than nothing
         # a `findings_file` that does not match the tail is repaired from the round's answers
-        whole = run.read_answer(state["findings_file"])
+        whole = turns.read_answer(state["findings_file"])
         state["findings_file"] = str(directory / "round-9" / "reviewer" / "final.md")
         self.assertEqual(run.saved_findings(directory, state), whole)
         # with the answers gone as well, the bounded tail is still better than nothing

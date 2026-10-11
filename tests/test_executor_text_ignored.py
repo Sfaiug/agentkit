@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, run, worker
+from agentkit import config, hand_in, run, turns, worker
 
 
 class ExecutorTextIgnored(unittest.TestCase):
@@ -26,7 +26,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         for module, name in ((run, "note_turn_meters"), (run, "history_role_tokens"),
-                             (run, "memory_cap_note"), (run.history, "update_run"),
+                             (turns, "memory_cap_note"), (run.history, "update_run"),
                              (run, "pickup_new_code")):
             self.stack.enter_context(patch.object(module, name, return_value=None))
         self.stack.enter_context(patch.object(run, "transient_wait",
@@ -143,7 +143,7 @@ class ExecutorTextIgnored(unittest.TestCase):
             if model == "opus":
                 out.mkdir(parents=True)
                 (out / "final.md").write_text("fixture harness cannot run")
-                raise run.CannotRun(model, "fixture harness cannot run")
+                raise turns.CannotRun(model, "fixture harness cannot run")
             return call_retrying(cfg, model, body, cwd, out, *args, **kw)
 
         def handover(lp, *_args, **_kw):

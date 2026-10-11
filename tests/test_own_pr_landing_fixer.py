@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_own_pr_line as line
-from agentkit import hand_in, land, record, run, watch, worker
+from agentkit import hand_in, land, record, run, turns, watch, worker
 from fixtures.hand_in import submitting
 
 
@@ -45,7 +45,7 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
 
         def execute(lp, role, _text, name):
             self.turns.append(name)
-            out = run.free_dir(lp, name)
+            out = turns.free_dir(lp, name)
             out.mkdir(parents=True)
             edits[len(self.turns) - 1](lp.wt)
             run.git(lp.wt, "-c", "user.name=f", "-c", "user.email=f@localhost", "commit", "-qm", name)

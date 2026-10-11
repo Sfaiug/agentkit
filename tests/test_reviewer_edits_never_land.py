@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import config, gitcall, run, worker
+from agentkit import config, gitcall, run, turns, worker
 
 
 ADAPTER = '''import json, os, pathlib, subprocess, sys, time
@@ -105,7 +105,7 @@ class ReviewerEdits(unittest.TestCase):
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(run.usage, "account", return_value=(None, True)))
         self.stack.enter_context(patch.object(run, "transient_wait"))
-        self.stack.enter_context(patch.object(run, "memory_cap_note"))
+        self.stack.enter_context(patch.object(turns, "memory_cap_note"))
         self.stack.enter_context(patch.object(run, "note_turn_meters"))
         self.stack.enter_context(patch.object(run, "history_role_tokens"))
         self.wt = self.root / "acme"

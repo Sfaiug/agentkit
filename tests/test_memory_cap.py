@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, job as jobs, orch, run, worker
+from agentkit import config, host, job as jobs, orch, run, turns, worker
 from agentkit import record
 
 
@@ -205,8 +205,8 @@ class MemoryCap(unittest.TestCase):
         self.assertEqual(run.memory_cap_mb(20000), 8000)
         self.assertEqual(run.memory_cap_mb(5000), 2000)
         self.assertEqual(run.memory_cap_mb(), 4096)
-        self.assertEqual(run.memory_cap_line(4096), "killed: memory cap 4 GB")
-        self.assertEqual(run.memory_cap_line(512), "killed: memory cap 0.5 GB")
+        self.assertEqual(turns.memory_cap_line(4096), "killed: memory cap 4 GB")
+        self.assertEqual(turns.memory_cap_line(512), "killed: memory cap 0.5 GB")
         drop = self.root / ".config/systemd/user/agentkit-test.slice.d"
         drop.mkdir(parents=True)
         (drop / "limits.conf").write_text("[Slice]\nMemoryMax=5000M\n")

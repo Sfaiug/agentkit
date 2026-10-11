@@ -15,7 +15,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, gitcall, history, host, orch, run, watch, worker
+from . import config, gitcall, history, host, orch, run, turns, watch, worker
 from . import land as landing
 from . import record as run_record
 
@@ -1375,7 +1375,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}))
                     end = progress.tell()
                 if log is not None and run_dir is not None:
-                    run.memory_cap_note(run_dir, log)
+                    turns.memory_cap_note(run_dir, log)
                 with log_path.open("rb") as progress:
                     progress.seek(max(offset, log_path.stat().st_size - run.OUT_CAP))
                     out = progress.read().decode("utf-8", errors="replace")
