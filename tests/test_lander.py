@@ -514,7 +514,7 @@ class Lander(LanderFixture, unittest.TestCase):
         self.advance()
         land.check_line(self.turn)
         self.assertIn("Checkout changed during", self.wait(directory)["fix"]["line"])
-        self.assertEqual(land._trees(self.turn)[1], {})   # nothing of the suite failed: no probe
+        self.assert_only_target_green()     # no command names the red: the suite whole is probed
         self.wake.assert_called_once()
         self.assert_cleaned()
 
