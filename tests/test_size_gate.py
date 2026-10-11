@@ -4,8 +4,8 @@ A task has at most three checks a round runs (`task.MAX_CHECKS`, counted by pref
 list the loop settles: the repository's suite line, however the task names it, runs once at
 landing and never counts; a `# once` line counts where the run has no landing), and a seat's own pull request
 gets its first review only up to 400 added lines (`task.MAX_PR_LINES`), generated files aside
-and nothing deleted counted, as `run.diff_lines` counts them, less what `run.carried_lines` finds
-moved unchanged from lines the diff deletes.  tests/test_own_pr_rounds.py drives the
+and nothing deleted counted, as `run.diff_lines` counts them, less the blocks `run.carried_lines`
+finds moved unchanged from lines the diff deletes.  tests/test_own_pr_rounds.py drives the
 refusal through the review itself.  Offline: a real checkout whose attributes mark a
 generated file.
 """
@@ -132,6 +132,27 @@ class SizeGate(Sandbox):
                          "(generated files aside; deletions never count): a first review takes at "
                          "most 400; split it")
         self.assertIsNone(run.pr_size_refusal(7, 1000, 600))
+
+    def test_a_module_replaced_by_fresh_code_moves_nothing(self):
+        # the braces and blank lines the new code shares with the old are no moved block, and a
+        # vendored tree deleted whole pairs with nothing in one pass
+        self.git("checkout", "-q", self.base)
+        self.git("checkout", "-qb", "replace")
+        (self.repo / "vendor").mkdir()
+        self.write({"old.js": "".join(f"function old_{n}() {{\n  return {n};\n}}\n\n" for n in range(300)),
+                    **{f"vendor/f{f}.py": "".join(f"v_{f}_{n} = {n}\n" for n in range(100)) for f in range(40)}},
+                   "An old module and a vendored tree")
+        base = self.git("rev-parse", "HEAD")
+        (self.repo / "old.js").unlink()
+        self.git("rm", "-rq", "vendor")
+        self.write({"new.js": "".join(f"function fresh_{n}(x) {{\n  return x * {n};\n}}\n\n" for n in range(130))},
+                   "Fresh code in its place")
+        head = self.git("rev-parse", "HEAD")
+        self.assertEqual(run.carried_lines(self.repo, base, head), 0)
+        self.assertEqual(run.diff_lines(self.repo, base, head, added_only=True), 520)
+        # a short block that reads as moved is still new: fewer than MOVED_BLOCK letters or digits
+        self.write({"new.js": "function old_1() {\n  return 1;\n}\n"}, "A short block that was in old.js")
+        self.assertEqual(run.carried_lines(self.repo, base, self.git("rev-parse", "HEAD")), 0)
 
 
 if __name__ == "__main__":
