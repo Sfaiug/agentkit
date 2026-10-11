@@ -7015,33 +7015,52 @@ def carried_lines(repo, base, head="HEAD"):
     skip_new = _generated(repo, head, sorted(added))
     skip_old = _generated(repo, base, sorted(deleted))
     gone = {name: lines for name, lines in deleted.items() if name not in skip_old}
-    where = {}      # a deleted line's text -> where it stands; a block starts on a line with text
+    # each deleted position is indexed by the run of lines from it that first reaches
+    # MOVED_BLOCK alphanumerics: an added line starting no such run (a lone brace, a blank)
+    # matches nothing, so the walk grows with the diff's size, never with its copies squared
+    where = {}
     for name, lines in gone.items():
-        for at, text in enumerate(lines):
-            if text:
-                where.setdefault(text, []).append((name, at))
+        for at, key in enumerate(_windows(lines)):
+            if key:
+                where.setdefault(key, []).append((name, at))
     used = {name: set() for name in gone}
     carried = 0
     for name, lines in added.items():
         if name in skip_new:
             continue
+        keys = _windows(lines)
         i = 0
         while i < len(lines):
             best, span = 0, None
-            for file, at in where.get(lines[i], ()):
+            for file, at in where.get(keys[i], ()) if keys[i] else ():
                 source, held, length = gone[file], used[file], 0
                 while (i + length < len(lines) and at + length < len(source)
                        and at + length not in held and source[at + length] == lines[i + length]):
                     length += 1
                 if length > best:
                     best, span = length, (file, at)
-            if best and sum(ch.isalnum() for ch in "".join(lines[i:i + best])) >= MOVED_BLOCK:
+            if best >= len(keys[i] or ()) and best:
                 used[span[0]].update(range(span[1], span[1] + best))
                 carried += best
                 i += best
             else:
                 i += 1
     return carried
+
+
+def _windows(lines):
+    """For each position in `lines`, the run of lines from it that first holds MOVED_BLOCK
+    alphanumeric characters, as a tuple, or None where the lines end first: what a moved
+    block starting there must read as, whole."""
+    counts = [sum(ch.isalnum() for ch in line) for line in lines]
+    out, j, total = [], 0, 0
+    for i in range(len(lines)):
+        while j < len(lines) and total < MOVED_BLOCK:
+            total += counts[j]
+            j += 1
+        out.append(tuple(lines[i:j]) if total >= MOVED_BLOCK else None)
+        total -= counts[i]
+    return out
 
 
 def history_finish(state, log=None):
