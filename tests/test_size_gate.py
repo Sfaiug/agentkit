@@ -5,7 +5,7 @@ list the loop settles: the repository's suite line, however the task names it, r
 landing and never counts; a `# once` line counts where the run has no landing), and a seat's own pull request
 gets its first review only up to 400 added lines (`task.MAX_PR_LINES`), generated files aside
 and nothing deleted counted, as `run.diff_lines` counts them, less the blocks `run.carried_lines`
-finds moved unchanged from lines the diff deletes.  tests/test_own_pr_rounds.py drives the
+finds moved unchanged from lines the diff deletes, as git marks them.  tests/test_own_pr_rounds.py drives the
 refusal through the review itself.  Offline: a real checkout whose attributes mark a
 generated file.
 """
@@ -161,7 +161,7 @@ class SizeGate(Sandbox):
         finally:
             sys.settrace(None)
         self.assertLessEqual(steps[0], 20 * (4000 + 300 * 4 + 520))
-        # a short block that reads as moved is still new: fewer than MOVED_BLOCK letters or digits
+        # a short block that reads as moved is still new: fewer than twenty letters or digits
         self.write({"new.js": "function old_1() {\n  return 1;\n}\n"}, "A short block that was in old.js")
         self.assertEqual(run.carried_lines(self.repo, base, self.git("rev-parse", "HEAD")), 0)
 

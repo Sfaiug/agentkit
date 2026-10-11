@@ -6979,88 +6979,39 @@ def _generated(repo, source, names):
     return {name for name, attr in zip(names, attrs) if attr.lower() in ("set", "true")}
 
 
-MOVED_BLOCK = 20    # alphanumeric characters a moved block holds at least, as git's own
-                    # moved-line detection (--color-moved) asks before it calls lines moved
-
-
 def carried_lines(repo, base, head="HEAD"):
-    """Added lines a reviewer need not read: the blocks moved unchanged, whitespace aside, from
-    lines the same diff deletes -- a run of added lines reading as a run of deleted lines of one
-    file, each deleted line paired once, the block holding at least MOVED_BLOCK alphanumeric
-    characters -- so a new blank line or brace that reads as a deleted one is not moved, and a
-    module split across files adds what its new lines come to.  Generated files are left out,
-    as `diff_lines` leaves them out."""
-    # the patch Git prints itself, whatever the user's config says of prefixes, drivers and
-    # submodules, whose insides diff_lines never counts
-    diff = git(repo, "-c", "core.quotePath=false", "diff", "-U0", "--find-renames", "--no-color",
-               "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
-               "--submodule=short", f"{base}...{head}", check=False)
-    added, deleted = {}, {}
-    new = old = hunk = None
+    """Added lines a reviewer need not read: the blocks git's own moved-line detection marks
+    moved, whitespace aside -- `--color-moved=blocks`, a block of at least twenty alphanumeric
+    characters deleted in one place of the diff and added in another -- so a module split
+    across files adds what its new lines come to, and a new blank line, brace or lone line that
+    reads as a deleted one is not moved.  Generated files are left out, as `diff_lines` leaves
+    them out.  Git does the pairing, in its own time: nothing here grows with the diff's copies."""
+    # the patch git prints itself, whatever the user's config says of prefixes, drivers,
+    # submodules and colours: every colour off but the moved mark, so a moved added line
+    # alone starts with a colour code
+    off = [arg for name in ("new", "old", "meta", "frag", "func", "commit", "whitespace",
+                            "context", "oldMoved", "oldMovedAlternative", "newMovedAlternative")
+           for arg in ("-c", f"color.diff.{name}=normal")]
+    diff = git(repo, "-c", "core.quotePath=false", "-c", "color.diff.newMoved=reverse", *off,
+               "diff", "-U0", "--color=always", "--color-moved=blocks",
+               "--color-moved-ws=ignore-all-space", "--find-renames", "--no-ext-diff",
+               "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "--submodule=short",
+               f"{base}...{head}", check=False)
+    moved, name, hunk = {}, None, False
     for line in diff.split("\n"):
+        line = line.removesuffix("\x1b[m")
         if line.startswith("diff --git "):
-            new = old = hunk = None
+            name, hunk = None, False
         elif line.startswith("@@"):
             hunk = True
         elif not hunk:
             # a file's header, where Git ends a name holding a space with a tab
-            if line.startswith("--- a/"):
-                old = line[6:].removesuffix("\t")
-            elif line.startswith("+++ b/"):
-                new = line[6:].removesuffix("\t")
-        elif line.startswith("+") and new is not None:
-            added.setdefault(new, []).append(" ".join(line[1:].split()))
-        elif line.startswith("-") and old is not None:
-            deleted.setdefault(old, []).append(" ".join(line[1:].split()))
-    skip_new = _generated(repo, head, sorted(added))
-    skip_old = _generated(repo, base, sorted(deleted))
-    gone = {name: lines for name, lines in deleted.items() if name not in skip_old}
-    # each deleted position is indexed by the run of lines from it that first reaches
-    # MOVED_BLOCK alphanumerics: an added line starting no such run (a lone brace, a blank)
-    # matches nothing, so the walk grows with the diff's size, never with its copies squared
-    where = {}
-    for name, lines in gone.items():
-        for at, key in enumerate(_windows(lines)):
-            if key:
-                where.setdefault(key, []).append((name, at))
-    used = {name: set() for name in gone}
-    carried = 0
-    for name, lines in added.items():
-        if name in skip_new:
-            continue
-        keys = _windows(lines)
-        i = 0
-        while i < len(lines):
-            best, span = 0, None
-            for file, at in where.get(keys[i], ()) if keys[i] else ():
-                source, held, length = gone[file], used[file], 0
-                while (i + length < len(lines) and at + length < len(source)
-                       and at + length not in held and source[at + length] == lines[i + length]):
-                    length += 1
-                if length > best:
-                    best, span = length, (file, at)
-            if best >= len(keys[i] or ()) and best:
-                used[span[0]].update(range(span[1], span[1] + best))
-                carried += best
-                i += best
-            else:
-                i += 1
-    return carried
-
-
-def _windows(lines):
-    """For each position in `lines`, the run of lines from it that first holds MOVED_BLOCK
-    alphanumeric characters, as a tuple, or None where the lines end first: what a moved
-    block starting there must read as, whole."""
-    counts = [sum(ch.isalnum() for ch in line) for line in lines]
-    out, j, total = [], 0, 0
-    for i in range(len(lines)):
-        while j < len(lines) and total < MOVED_BLOCK:
-            total += counts[j]
-            j += 1
-        out.append(tuple(lines[i:j]) if total >= MOVED_BLOCK else None)
-        total -= counts[i]
-    return out
+            if line.startswith("+++ b/"):
+                name = line[6:].removesuffix("\t")
+        elif name is not None and re.match(r"\x1b\[[0-9;]*m\+", line):
+            moved[name] = moved.get(name, 0) + 1
+    generated = _generated(repo, head, sorted(moved))
+    return sum(count for name, count in moved.items() if name not in generated)
 
 
 def history_finish(state, log=None):
