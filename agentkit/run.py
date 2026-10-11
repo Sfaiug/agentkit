@@ -3945,11 +3945,10 @@ def dispute_rows(lp):
 
 
 def moved_lines(lp, path, line, since, head):
-    """(the lines on `head` where line `line` of `path` at `since` can sit, the lines the diff
-    between them put in its place, None where it left the line alone): the line itself where
-    there is no delta; one line where a fix above it moved a line it never touched; the lines
-    the fix put in its place where it rewrote it; the removal's anchor, the line before it,
-    where it deleted it and put none there."""
+    """(the lines on `head` where line `line` of `path` at `since` can sit, whether the diff
+    between them touched the line): one line where a fix above it moved a line it never
+    touched; the lines the fix put in its place where it rewrote it; the removal's anchor,
+    the line before it, where it deleted it; the line itself where there is no delta."""
     shift = 0
     for start, old, now, new in hunks(lp, path, since, head) if since else ():
         if old == 0:
@@ -3957,31 +3956,26 @@ def moved_lines(lp, path, line, since, head):
         if line < start:
             break
         if line < start + old:
-            put = range(now, now + new)
-            return put or range(max(now, 1), max(now, 1) + 1), put
+            return (range(now, now + new) if new else range(max(now, 1), max(now, 1) + 1)), True
         shift += new - old
-    return range(line + shift, line + shift + 1), None
+    return range(line + shift, line + shift + 1), False
 
 
 def placed(lp, row, since, head):
     """Where an earlier finding stands on `head`: (its line there, whether the fix delta since
-    `since` touched the line, whether the fix put it back as base has it, every line it may
-    stand at: its own, or those the fix put in its place).  A line the fix left alone moved
-    with it; one the fix rewrote stands at the line the fix put in its place that reads most
-    like it (a tie goes to the first), and is base's again where every line the fix put there
-    is outside the change (`in_hunks`); one the fix deleted stands at the removal's anchor,
-    and is never base's again: a line the change added leaves nothing in the change's own diff
-    once deleted or moved.  The site a finding is listed and handed at, whatever the fix did
-    to its line."""
-    lines, put = moved_lines(lp, row["path"], row["line"], since, head)
+    `since` touched the line, every line it may stand at: its own, or those the fix put in its
+    place).  A line the fix left alone moved with it; one the fix rewrote stands at the line
+    the fix put in its place that reads most like it (a tie goes to the first); one the fix
+    deleted stands at the removal's anchor.  The site a finding is listed and handed at,
+    whatever the fix did to its line."""
+    lines, touched = moved_lines(lp, row["path"], row["line"], since, head)
     line = lines[0]
     if len(lines) > 1:
         was = line_of(lp, since, row["path"], row["line"])
         now = git(lp.wt, "show", f"{head}:{row['path']}", check=False).splitlines()
         line = max(lines, key=lambda at: (difflib.SequenceMatcher(
             None, was, now[at - 1] if at <= len(now) else "").ratio(), -at))
-    changed = hunks(lp, row["path"], lp.base_sha, head) if put else []
-    return line, put is not None, bool(put) and not any(in_hunks(at, changed) for at in put), lines
+    return line, touched, lines
 
 
 def line_of(lp, commit, path, line):
@@ -3993,8 +3987,7 @@ def line_of(lp, commit, path, line):
 def earlier_sites(lp, head, since):
     """Where the last review's blocking findings can stand on `head` (`moved_lines`: moved, or
     any of the lines the fix put in their place): a finding handed in again there upholds an
-    earlier one, in whatever words, inside the fix delta or not; a line that is base's again
-    is judged on base, as ak's own replay of it is."""
+    earlier one, in whatever words, inside the fix delta or not."""
     return {(row["path"], at) for row in earlier_findings(lp)
             for at in moved_lines(lp, row["path"], row["line"], since, head)[0]}
 
@@ -4050,8 +4043,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     an earlier finding's site upholds it (a dispute the reviewer rejects) and is weighed as
     ever.  ak's own replay of the earlier findings (`replayed`) is weighed with the
     reviewer's, each where the fix left its line (`placed`): one still failing blocks
-    whether or not the reviewer handed it in again, on base where its line is base's again,
-    and one fixed is a note."""
+    whether or not the reviewer handed it in again, and one fixed is a note."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
         return submitted
     head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
@@ -4132,38 +4124,26 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     if replayed:
         handed = [row for row in records if isinstance(row.get("evidence"), dict)]
         extra = []
-        for n, (row, now, failing) in enumerate(replayed, 1):
-            line, touched, back, sites = placed(lp, row, since, head)
+        for row, now, failing in replayed:
+            # where the fix left its line, whatever base has there: git's diff tells neither a
+            # moved line nor one the change added from one it put back as base has it
+            line, touched, sites = placed(lp, row, since, head)
             row = {**row, "line": line}
-            where = "; the fix changed its line" if touched else ""
             if not failing:
                 extra.append({**row, "kind": "note", "evidence": now,
                               "replayed": "fixed; its proof passes now"})
                 continue
-            kind, replayed_word = "finding", "still failing; it blocks until its proof passes" + where
-            if back:
-                # the fix put its line back as base has it: judged on base, as any failing
-                # proof on a line the change did not touch is
-                base = {"sha": lp.base_sha, **proof_on(
-                    lp, now["run"], lp.round_dir / f"replay-{n}-base.log", lp.base_sha, head)}
-                now = {**now, "base": base}
-                if hand_in.proof_failed(base):
-                    kind = "follow-up"
-                    row["before"] = f"base {lp.base_sha}: the proof fails there too"
-                    replayed_word = ("still failing, on base too: a defect from before the task, "
-                                     "kept as a follow-up")
-                elif base["returncode"] != 0 or base["killed"]:
-                    kind, replayed_word = "note", "still failing, and base cannot run its proof"
             # the reviewer's own hand-in carrying this finding's very proof at its site, and
-            # weighed as ak weighs it here, is this finding upheld, and ak adds no copy beside
-            # it; anywhere else, or weighed down to a note, it is the reviewer's words, and
-            # ak's own copy stands beside them
-            if any(each["evidence"].get("run") == now["run"] and each["kind"] == kind
+            # weighed to block, is this finding upheld, and ak adds no copy beside it;
+            # anywhere else, or weighed down to a note or a follow-up, it is the reviewer's
+            # words, and ak's own copy stands beside them
+            if any(each["evidence"].get("run") == now["run"] and each["kind"] == "finding"
                    and each["path"] == row["path"] and each["line"] in sites for each in handed):
                 continue
-            extra.append({**row, "kind": kind, "evidence": now, "replayed": replayed_word})
-            lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit"
-                   + ("" if kind == "finding" else f" ({kind})"))
+            extra.append({**row, "kind": "finding", "evidence": now, "replayed": (
+                "still failing; it blocks until its proof passes"
+                + ("; the fix changed its line" if touched else ""))})
+            lp.log(f"Earlier finding {row['path']}:{row['line']} still fails on this commit")
         closing = records.pop() if records and records[-1]["kind"] in hand_in.CLOSING else None
         records.extend(extra)
         if closing is not None:

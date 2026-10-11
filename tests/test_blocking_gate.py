@@ -6,8 +6,8 @@ one fixed is a note, and the ones at a disputed site, or quoted, are left to the
 reviewer is given the diff since the commit the last review judged, and a new finding that
 would block outside that delta is kept as a note, unless its proof passes on that commit: the
 fix broke it.  A review of the same commit again (a fixer turn that left no commit) judges the
-whole change.  A replayed proof on a line the fix put back as base has it is judged on base, as
-any finding there is.  Offline: a real git repository, a reviewer scripted to hand in.
+whole change.  A replayed proof still failing blocks where the fix left its line, even on one
+put back as base has it.  Offline: a real git repository, a reviewer scripted to hand in.
 """
 
 from contextlib import ExitStack
@@ -436,7 +436,7 @@ out = pathlib.Path(sys.argv[6])
         reviewed = self.head
         # a push rebased onto a main that grew above the value: the finding moves with its line
         self.on_main("# top\n# a\n# b\n# c\nvalue = 1\n", "Main grows a line above")
-        self.assertEqual(run.moved_lines(self.lp, "api.py", 4, reviewed, self.head), (range(5, 6), None))
+        self.assertEqual(run.moved_lines(self.lp, "api.py", 4, reviewed, self.head), (range(5, 6), False))
         self.assertEqual(self.review(), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 5, "still failing; it blocks until its proof passes")])
 
@@ -447,11 +447,11 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(), "FAIL")
         self.assertEqual(self.records("finding"),
                          [("api.py", 3, "still failing; it blocks until its proof passes; the fix changed its line")])
-        # ... and rewritten to base's text, it is base's: judged there, a follow-up
+        # ... and rewritten to base's text, still failing, it still blocks
         self.write('import os\nmode = "branch"\nflag = "base"\nextra = 1\n', "Put the flag back as base has it")
-        self.assertEqual(self.review(), "PASS")
-        self.assertEqual(self.records("follow-up"),
-                         [("api.py", 3, "still failing, on base too: a defect from before the task, kept as a follow-up")])
+        self.assertEqual(self.review(), "FAIL")
+        self.assertEqual(self.records("finding"),
+                         [("api.py", 3, "still failing; it blocks until its proof passes; the fix changed its line")])
 
     def test_a_deleted_line_still_failing_blocks(self):
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
@@ -465,8 +465,8 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 1, "still failing; it blocks until its proof passes")])
 
-    def test_a_line_the_change_added_still_blocks_moved_or_deleted(self):
-        # the anchor of its removal is base's line, yet the line was the change's, never base's
+    def test_a_line_the_change_added_still_blocks_wherever_the_fix_takes_it(self):
+        # git's diff tells none of these from a line put back as base has it
         self.write("mode = 1\nflag = 1\nextra = 1\nfeature = 1\n", "Add a feature")
         self.assertEqual(self.review(finding("api.py:4", "the feature is wrong", probe("api.feature == 2"))), "FAIL")
         self.write("feature = 1\nmode = 1\nflag = 1\nextra = 1\n", "Move the feature, still wrong, to the top")
@@ -479,6 +479,11 @@ out = pathlib.Path(sys.argv[6])
         self.write("mode = 1\nflag = 1\nextra = 1\n", "Delete the feature")
         self.assertEqual(self.review(), "FAIL")
         self.assertEqual(self.records("follow-up"), [])
+        self.setUp()      # ... or moved off a neighbour the fix put back as base has it
+        self.write('mode = "branch"\nfeature = 1\nflag = "branch"\nextra = 1\n', "Add a feature")
+        self.assertEqual(self.review(finding("api.py:2", "the feature is wrong", probe("api.feature == 2"))), "FAIL")
+        self.write('mode = "branch"\nflag = "base"\nextra = 1\nfeature = 1\n', "Put the flag back, move the feature")
+        self.assertEqual(self.review(), "FAIL")
 
     def test_a_deleted_lines_finding_is_disputed_and_upheld_at_its_anchor(self):
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
@@ -526,16 +531,6 @@ out = pathlib.Path(sys.argv[6])
         self.assertLess(len(diffs), 40)
         self.assertEqual(self.records("finding"),
                          [("api.py", 2, "still failing; it blocks until its proof passes; the fix changed its line")])
-
-    def test_a_replayed_proof_failing_on_base_too_is_a_follow_up_once_its_line_is_base_s(self):
-        self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.never)), "FAIL")
-        self.write('mode = "branch"\nflag = "base"\nextra = 1\n', "Put the flag back as base has it")
-        # the reviewer handing it in again there, with its very proof, is weighed the same: one
-        # follow-up, ak's replay of that proof adding no second copy beside it
-        self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.never)), "PASS")
-        self.assertEqual(self.records("finding"), [])
-        self.assertEqual(self.records("follow-up"), [("api.py", 2, "")])
-        self.assertEqual(len(self.lp.state["followups"]), 1)
 
     def test_a_proof_handed_in_away_from_its_site_leaves_aks_own_replay_blocking(self):
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.never)), "FAIL")
