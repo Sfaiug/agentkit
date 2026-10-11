@@ -508,6 +508,8 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual((row["kind"], row["path"], row["line"]), ("dispute", "api.py", 2))
         with self.assertRaisesRegex(config.Error, "exists inside this checkout"):
             hand_in.checked(["finding", "api.py:2", "x", "y", "--run", "false"], self.wt)    # unlisted: as ever
+        with self.assertRaisesRegex(config.Error, "exists inside this checkout"):     # listed, but a quote
+            hand_in.checked(["finding", "api.py:2", "x", "y", "--quote", "flag"], self.wt, findings=[handed])
         self.dispute("api.py", 2, "the flag is wrong", "true")
         # ... and the reviewer upholds it where it stands, the removal's anchor, file or no file
         self.assertEqual(self.review(finding("api.py:1", "the flag went with the file", self.flag_fixed)), "FAIL")
