@@ -15,7 +15,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, gitcall, history, host, orch, run, turns, watch, worker
+from . import config, gitcall, handback, history, host, orch, run, turns, watch, worker
 from . import land as landing
 from . import record as run_record
 
@@ -330,7 +330,7 @@ def wait_for_slot(run_dir):
             run_record.save_state(run_dir, state)
         if not announced:
             print(slot_note(state), flush=True)
-            run.redress_seat(state.get("launched_session"))
+            handback.redress_seat(state.get("launched_session"))
             announced = True
         counted = counted or (time.time(), time.monotonic())
         time.sleep(SLOT_POLL)
@@ -349,7 +349,7 @@ def wait_for_slot(run_dir):
             fh.seek(0)
             fh.write(line + content)
         print(line.rstrip(), flush=True)
-    run.redress_seat(state.get("launched_session"))
+    handback.redress_seat(state.get("launched_session"))
     return state
 
 

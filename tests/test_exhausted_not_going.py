@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, menu, notify, orch, run, status, transitions, watch, worker
+from agentkit import config, handback, menu, notify, orch, run, status, transitions, watch, worker
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -105,7 +105,7 @@ class ExhaustedNotGoing(Sandbox):
         found = self.decide()
         self.assertEqual((found["word"], found["reason"]),
                          ("needs you", f"run {directory.name} parked: {NO_VERDICT}"))
-        index = run.supersession_index(state for _, state in menu.run_records())
+        index = transitions.supersession_index(state for _, state in menu.run_records())
         reread = record.read_state(directory)
         self.assertFalse(run.settled(reread, index))
         self.assertEqual(status.status_state_word(reread, index), "needs you")
@@ -119,7 +119,7 @@ class ExhaustedNotGoing(Sandbox):
         # word stands, and the status row reads done
         record.save_state(relaunch, {**record.read_state(relaunch), "merged": True})
         self.assertEqual(self.decide()["word"], "done")
-        index = run.supersession_index(state for _, state in menu.run_records())
+        index = transitions.supersession_index(state for _, state in menu.run_records())
         reread = record.read_state(directory)
         self.assertTrue(transitions.is_superseded(reread, None, index))
         self.assertTrue(run.settled(reread, index))
@@ -129,7 +129,7 @@ class ExhaustedNotGoing(Sandbox):
         self.receipt("20260101-0900-unanswered", error=NO_VERDICT, handed_back=NOW - 590,
                      recovery_notified="orchestrator")
         self.receipt("20260101-1000-window", quota_dry=True, title="Parked on a window")
-        tallies = run.seat_tallies((state for _, state in menu.run_records()), now=NOW)
+        tallies = handback.seat_tallies((state for _, state in menu.run_records()), now=NOW)
         self.assertEqual(tallies["acme"][:2], (1, 1))
         self.assertEqual(menu.tally(tallies["acme"]), "1 running · 1 needs you")
         self.assertEqual(self.decide()["reason"], "1 running · Parked on a window")

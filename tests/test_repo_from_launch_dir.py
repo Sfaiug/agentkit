@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, job, orch, record, run, staffing, worker
+from agentkit import config, handback, job, orch, record, run, staffing, worker
 
 
 class BeforeModel(Exception):
@@ -38,7 +38,9 @@ class RepoFromLaunchDir(Sandbox):
         self.stack.enter_context(patch.object(run.box, "check"))
         self.stack.enter_context(patch.object(run, "history_start"))
         self.stack.enter_context(patch.object(run, "redress_seat"))
+        self.stack.enter_context(patch.object(handback, "redress_seat"))
         self.stack.enter_context(patch.object(run, "join_session_project"))
+        self.stack.enter_context(patch.object(handback, "join_session_project"))
         self.stack.enter_context(patch.object(run.gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "run_placement", return_value=("fixture", None, ())))
         self.stack.enter_context(patch.object(run, "place_here", side_effect=AssertionError("parent scope")))

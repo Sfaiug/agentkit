@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, job as jobs, run, staffing, status, terminal, transitions, usage
+from agentkit import config, handback, job as jobs, run, staffing, status, terminal, transitions, usage
 from agentkit import record
 
 
@@ -400,7 +400,7 @@ class OneProvider(unittest.TestCase):
                 self.assertEqual(run.finish(state, lp.run_dir, self.logs.append, self.cfg), 0)
             announce.assert_called_once_with(state, lp.run_dir, self.logs.append, self.cfg)
             with patch.object(run, "launched_session", return_value="orphan"), patch.object(transitions, "launched_session", return_value="orphan"), \
-                    patch.object(run, "launcher_watched", return_value=False), \
+                    patch.object(handback, "launcher_watched", return_value=False), \
                     patch.object(run.watch, "seat_closed", return_value=False), \
                     patch.object(run.watch, "revive", return_value=None) as revive:
                 run.announce(state, lp.run_dir, self.logs.append, self.cfg)

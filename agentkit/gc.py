@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 
-from . import config, gitcall, host, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, worktrees
+from . import config, gitcall, handback, host, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, worktrees
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -615,7 +615,7 @@ def gc_candidates(now=None):
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
                 and not record.writing(directory)
                 and (retention.expired(finished, now, GC_AGE)
-                     or (run.already_handed_back(state)
+                     or (handback.already_handed_back(state)
                          and not worktrees.resume_holds_tree(state, directory)))
                 and worktrees.disposable_workspace(directory, state) and state["worktree"] not in left
                 and not retention.busy(Path(state["worktree"]), paths)):
@@ -878,7 +878,7 @@ def gc(report, automatic=False):
                                 done = retention.compress(path, item["identity"])
                             elif item.get("loose") and not (
                                     retention.expired(state.get("finished_at"), time.time(), GC_AGE)
-                                    or (run.already_handed_back(state)
+                                    or (handback.already_handed_back(state)
                                         and not worktrees.resume_holds_tree(state, directory))):
                                 continue
                             else:

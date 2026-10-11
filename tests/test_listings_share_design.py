@@ -20,7 +20,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox, menu_input
-from agentkit import command_help, config, host, menu, orch, run, staffing, status, terminal, transitions
+from agentkit import command_help, config, handback, host, menu, orch, run, staffing, status, terminal, transitions
 from agentkit import record
 
 NOW = 1_800_000_000      # what every draw reads as the time
@@ -86,7 +86,7 @@ class Listings(Sandbox):
         return directory
 
     def tallies(self):
-        return run.seat_tallies(state for _, state in menu.run_records())
+        return handback.seat_tallies(state for _, state in menu.run_records())
 
     def status(self, argv, width=100):
         # Alive readings are pinned: the working run holds three processes, the
@@ -440,7 +440,7 @@ class Listings(Sandbox):
             "state": "pass", "verdict": "PASS", "merged": True, "finished_at": NOW - 600,
             "unattended": True, "repo": str(config.TMP / "smoke-20260101-000000" / "repo-hello")})
         records = [record.read_state(directory) for directory in config.RUNS.iterdir()]
-        index = run.supersession_index(records)
+        index = transitions.supersession_index(records)
         relaunched = record.read_state(config.RUNS / "20260101-0604-relaunched")
         for kwargs in ({"records": records}, {"index": index}):
             self.assertEqual(transitions.superseded_by(relaunched, **kwargs), continued.name)

@@ -691,7 +691,7 @@ def review_disputes(lp, head):
     return hand_in.Review(disputes)
 
 
-def failing_blocks(text, cap=turns.OUT_CAP):
+def failing_blocks(text, cap=None):
     """What a fixer reads of a failed check: its last `cap` characters, as before, and ahead of
     them every block that begins above that end and says what failed.
 
@@ -702,6 +702,7 @@ def failing_blocks(text, cap=turns.OUT_CAP):
     even where the end begins inside it.  The end is kept whole too, so nothing the end alone
     showed is ever traded for a block.
     """
+    cap = turns.OUT_CAP if cap is None else cap
     if len(text) <= cap:
         return text
     above, blocks, block, at = len(text) - cap, [], None, 0

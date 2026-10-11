@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, history, host, config, run  # noqa: E402
+from agentkit import config, gate, handback, history, host, run  # noqa: E402
 from agentkit import record
 
 
@@ -146,7 +146,7 @@ class Slots(unittest.TestCase):
             with patch.object(config, "RUNS", runs), \
                     patch.object(host, "host_readings", return_value=HEALTHY), \
                     patch.object(run, "history_start"), \
-                    patch.object(run, "redress_seat"), \
+                    patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), \
                     patch.dict(os.environ, {"AGENTKIT_SESSION": "",
                                             "AK_RUN_DEPTH": "0"}):
                 directory = runs / "r"
@@ -166,7 +166,7 @@ class Slots(unittest.TestCase):
                     patch.object(gate, "slot_counts", return_value=(0, 0)), \
                     patch.object(host, "host_readings",
                                  side_effect=[{**HEALTHY, "free_mb": 1024}, HEALTHY, HEALTHY]), \
-                    patch.object(run, "redress_seat"):
+                    patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"):
                 directory = runs / "r"
                 directory.mkdir()
                 (directory / "log.txt").write_text("started\n")

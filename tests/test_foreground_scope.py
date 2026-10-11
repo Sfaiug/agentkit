@@ -20,7 +20,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, host, orch, run
+from agentkit import config, handback, host, orch, run
 from agentkit import record
 
 USER = f"/user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service"
@@ -79,6 +79,7 @@ class ForegroundScope(Sandbox):
         # a refusal is waited on as long as any answer; the fake busctl still starts in time
         self.stack.enter_context(patch.object(orch, "SLICE_WAIT", 2))
         self.stack.enter_context(patch.object(run, "redress_seat"))
+        self.stack.enter_context(patch.object(handback, "redress_seat"))
         # `ak run` itself, not this test: only that process is a run's to move
         self.stack.enter_context(patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run"]))
         self.niced, self.renice = [], None

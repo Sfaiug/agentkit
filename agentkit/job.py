@@ -15,7 +15,7 @@ from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import (box, config, gitcall, host, notify, orch, retention, run, staffing,
+from . import (box, config, gitcall, handback, host, notify, orch, retention, run, staffing,
                task as taskfile, transitions, turns, watch)
 from . import land, record
 
@@ -352,7 +352,7 @@ def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
     owner instead.  Only `gone` is.  `typed` and `receipt` are the job record's side of
     `watch.type_at_prompt`'s: a line in the composer is never typed a second time.
     """
-    with run.launcher_world(seat) as live:
+    with handback.launcher_world(seat) as live:
         if not live:
             return "gone"
         if watch.type_at_prompt(orch.find(seat) or {"name": seat}, line, log,
@@ -369,11 +369,11 @@ def mark_job_delivery(job_dir, job, **marks):
     the tasks from before back over them, and a job resumed since this copy was taken is no
     more this delivery's to mark than a resumed run is.  A mark given as None is removed.
     """
-    with run.delivery_lock(job_dir):
+    with handback.delivery_lock(job_dir):
         current = read_job(job_dir)
         if current is None:
             current = dict(job)
-        elif not run.same_attempt(job, current):
+        elif not handback.same_attempt(job, current):
             return False
         for key, value in marks.items():
             if value is None:
@@ -395,7 +395,7 @@ def deliver_job_handbacks(log):
     to say.
     """
     for job_dir in job_dirs():
-        with run.delivery_lock(job_dir):
+        with handback.delivery_lock(job_dir):
             job = read_job(job_dir)
             line = (job or {}).get("handback_pending")
             seat = (job or {}).get("seat")
@@ -930,7 +930,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     # worker-list order
     if not task.get("rerun_attempted") and job_classify(run_state, cfg) == "failed" \
             and (transitions.failed_at_budget(run_state) or job_round_shortfall(run_state)) \
-            and not run.review_failed(run_state):
+            and not handback.review_failed(run_state):
         nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"),
                                 staffing.run_workers(cfg, run_state))
         if nxt:
@@ -1403,7 +1403,7 @@ def run_job_loop(cfg, job_dir, job):
         # owner is never asked about them -- the same rule a single run's ending obeys.  Under
         # the job's own delivery lock, because a tick may be holding a line this loop left
         # pending on an earlier pass: one of them types it, and only one.
-        with run.delivery_lock(job_dir):
+        with handback.delivery_lock(job_dir):
             answer = job_hand_back(seat, line, log, job.get("handback_typed"),
                                    lambda mark: mark_job_delivery(job_dir, job, handback_typed=mark)
                                    ) if seat else "gone"

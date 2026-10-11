@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, gitcall, history, menu, orch, statusbar, terminal, watch
+from agentkit import config, gitcall, handback, history, menu, orch, statusbar, terminal, watch
 from agentkit.guard import commands  # noqa: E402
 from agentkit import run as ak_run
 from agentkit import record
@@ -351,7 +351,7 @@ class FinalRound(Sandbox):
             if args[:1] == ("set-option",):
                 published.update((command[3], command[4]) for command in commands(args))
             elif args[:1] == ("run-shell",):
-                ak_run.publish_seat(name)              # the job the run hands to tmux, run here
+                handback.publish_seat(name)              # the job the run hands to tmux, run here
             return 0, ""
 
         def row(infos):

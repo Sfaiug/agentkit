@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import finding_count, reported, scripted, stateful
-from agentkit import config, gate, gitcall, host, notify, run, status, stop, turns, worker
+from agentkit import config, gate, gitcall, host, notify, run, status, stop, transitions, turns, worker
 from agentkit import record
 
 
@@ -176,7 +176,7 @@ sys.exit(1)
         self.assertEqual(self.extensions(directory), [])
         self.assertEqual(len(self.calls("executor")), 3)
         self.assertTrue(run.failed_at_budget(state))
-        self.assertEqual(run.continue_line(state), "")    # past three: split or re-scope
+        self.assertEqual(transitions.continue_line(state), "")    # past three: split or re-scope
 
     # --- (b) no extension is granted, ever ----------------------------------
 
@@ -192,7 +192,7 @@ sys.exit(1)
         self.assertEqual([entry["finding_count"] for entry in state["round_summaries"]],
                          [5, 4, 3])
         self.assertTrue(run.failed_at_budget(state))
-        self.assertEqual(run.continue_line(state), "")    # past three: split or re-scope
+        self.assertEqual(transitions.continue_line(state), "")    # past three: split or re-scope
 
     # --- (c) standing still, and a failing done-when, earn nothing ---------
 
@@ -269,7 +269,7 @@ sys.exit(1)
         self.assertEqual((Path(after["worktree"]) / "deliverable").read_text(), "fixture work\n")
         self.assertIn("- [deliverable](", (directory / "result.md").read_text())
         self.assertFalse(run.failed_at_budget(after))
-        self.assertEqual(run.continue_line(after), "")
+        self.assertEqual(transitions.continue_line(after), "")
 
     def test_v5l_resume_without_a_larger_budget_is_refused_and_names_the_saved_one(self):
         directory, state = self.exhausted_run()
@@ -303,7 +303,7 @@ sys.exit(1)
         run.write_result(merged, record.read_state(merged), ["test -f deliverable"])
         self.assertNotIn("continue: ak run resume", (merged / "result.md").read_text())
         self.assertNotIn("continue: ak run resume", self.status(merged.name))
-        self.assertEqual(run.continue_line(record.read_state(merged)), "")
+        self.assertEqual(transitions.continue_line(record.read_state(merged)), "")
 
     def test_v5l_status_shows_a_spent_budget_with_no_extension(self):
         self.reviews(fail(4), fail(3), fail(2), PASS)

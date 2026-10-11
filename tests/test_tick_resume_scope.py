@@ -82,7 +82,7 @@ class TickResumeScope(unittest.TestCase):
                                        merge_note=CONFLICT_NOTE,
                                        round_summaries=[{"round": 1}])
                 (run_dir / "log.txt").write_text(f"not merged: {CONFLICT_NOTE}\n")
-                self.assertEqual(run.parkable_conflict(record.read_state(run_dir), run_dir,
+                self.assertEqual(transitions.parkable_conflict(record.read_state(run_dir), run_dir,
                                                        now=self.now), not job)
                 with patch.object(transitions, "upstream_sha", return_value="1" * 40):
                     watch.resume_waiting(log=self.logs.append, now=self.now)

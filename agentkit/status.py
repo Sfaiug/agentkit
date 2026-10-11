@@ -5,7 +5,7 @@ import re
 import time
 from pathlib import Path
 
-from . import config, gate, gc, gitcall, history, host, orch, run, scoreboard, staffing, stop, transitions
+from . import config, gate, gc, gitcall, handback, history, host, orch, run, scoreboard, staffing, stop, transitions
 from . import job as jobs
 from . import land as landing
 from . import record as run_record
@@ -39,7 +39,7 @@ def parked_line(state, run_id=None, now=None):
     admission = transitions.tick_admission(state, now=now) if word in ("error", "waiting") else ""
     admitted = f" · {admission}" if admission else ""
     if word in ("error", "waiting") and not admission:
-        return f"run {name} parked: {run.handback_reason(state)}"
+        return f"run {name} parked: {handback.handback_reason(state)}"
     if word == "error":
         at = state.get("error_retry_at")
         if isinstance(at, (int, float)) and not isinstance(at, bool):
@@ -49,7 +49,7 @@ def parked_line(state, run_id=None, now=None):
                 return f"error · retry {time.strftime('%H:%M', time.localtime(at))}" + admitted
             except (OverflowError, OSError, ValueError):
                 return "error · retry due" + admitted
-        return f"run {name} parked: {run.handback_reason(state)}"
+        return f"run {name} parked: {handback.handback_reason(state)}"
     if word == "waiting":
         ref = (state.get("waiting_on") or {}).get("ref") or transitions.conflict_upstream(state)
         return f"waiting · retry after the next merge to {ref}" + admitted
@@ -510,7 +510,7 @@ def status_final_check(directory, state):
                                   landing=not state.get("no_merge"))
             except Exception:
                 pass
-    return run.final_check_line(state, cmds)
+    return handback.final_check_line(state, cmds)
 
 
 def status_details(directory, state, providers=None, cfg=None, index=None):

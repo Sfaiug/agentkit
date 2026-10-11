@@ -23,7 +23,7 @@ from urllib.parse import unquote_to_bytes
 
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.hand_in import records, scripted, stateful
-from agentkit import browser, config, gate, gc, gitcall, host, job as jobs, land, menu, notify, orch, run, status, terminal, watch, worktrees
+from agentkit import browser, config, gate, gc, gitcall, handback, host, job as jobs, land, menu, notify, orch, run, status, terminal, watch, worktrees
 from agentkit import record
 
 SEAT = "seat"
@@ -793,7 +793,7 @@ class HandBack(Sandbox):
         directory = self.failed("run-26")
         states = [record.read_state(directory)]
         # untouched, it is his: one ending needing him on the seat's own bar
-        self.assertEqual(run.seat_tallies(states, now=9995)[SEAT], (0, 1, 0))
+        self.assertEqual(handback.seat_tallies(states, now=9995)[SEAT], (0, 1, 0))
         self.assertTrue(menu.v5o_needs_look(states[0], now=9995))
         # waiting for the seat's next quiet prompt, and once it has been told: neither
         for mark in ({"handback_pending": True}, {"handed_back": 9991}):
@@ -801,7 +801,7 @@ class HandBack(Sandbox):
                 record.save_state(directory, {**record.read_state(directory), **mark})
                 state = record.read_state(directory)
                 self.assertFalse(menu.v5o_needs_look(state, now=9995))
-                self.assertEqual(run.seat_tallies([state], now=9995)[SEAT], (0, 0, 0))
+                self.assertEqual(handback.seat_tallies([state], now=9995)[SEAT], (0, 0, 0))
                 record.save_state(directory, {k: v for k, v in state.items() if k not in mark})
 
     def test_the_owner_glancing_at_a_run_is_not_the_orchestrator_hearing_it(self):
@@ -815,7 +815,7 @@ class HandBack(Sandbox):
         with redirect_stdout(io.StringIO()):
             status.cmd_status([directory.name])
         self.assertTrue(record.read_state(directory)["recovery_acknowledged_at"])
-        self.assertTrue(run.owes_ending(record.read_state(directory)))
+        self.assertTrue(handback.owes_ending(record.read_state(directory)))
         self.screen = "at_prompt"
         self.tick()
         self.assertEqual(len(self.typed), 1)
@@ -827,7 +827,7 @@ class HandBack(Sandbox):
                                    "https://github.com/acme/widget.git", "origin/main").name,
                                    "joined": 100})
         state = record.read_state(directory)
-        self.assertEqual(run.seat_tallies([state], now=200000)[SEAT], (1, 0, 0))
+        self.assertEqual(handback.seat_tallies([state], now=200000)[SEAT], (1, 0, 0))
         self.assertFalse(menu.v5o_needs_look(state, now=200000))
         self.assertFalse(run.needs_recovery(state))
         run.announce(state, directory, self.logs.append)
@@ -859,7 +859,7 @@ class HandBack(Sandbox):
         self.assertEqual((self.typed, self.cards, self.reopened), ([], [], []))
         # the tick runs in another process with no mute of its own: the record has to say
         # the ending went somewhere, or every pass would revive the seat or card the owner
-        self.assertFalse(run.owes_ending(record.read_state(directory)))
+        self.assertFalse(handback.owes_ending(record.read_state(directory)))
         self.tick()
         self.assertEqual((self.typed, self.cards, self.reopened), ([], [], []))
 
@@ -997,7 +997,7 @@ class HandBack(Sandbox):
         run.announce(record.read_state(directory), directory, self.logs.append)
         run.mark_delivery(directory, stale, reported=True)
         self.assertTrue(record.read_state(directory)["handed_back"])
-        self.assertFalse(run.owes_ending(record.read_state(directory)))
+        self.assertFalse(handback.owes_ending(record.read_state(directory)))
 
     def test_an_ending_no_flag_marks_is_still_offered_by_the_tick(self):
         # a resumed attempt that ended carries no pending flag at all: `reap` leaves an
@@ -1005,14 +1005,14 @@ class HandBack(Sandbox):
         directory = self.ended("run-24", owner=SEAT, state="fail", verdict="FAIL",
                                recovery_pending=True, rounds=2, round_summaries=[{}, {}],
                                findings="VERDICT: FAIL\n\n## Findings\n- a.py:1 - one - why\n")
-        self.assertTrue(run.owes_ending(record.read_state(directory)))
+        self.assertTrue(handback.owes_ending(record.read_state(directory)))
         self.rows = [self.live()]
         self.tick()
         self.assertEqual(len(self.typed), 1)
         self.assertIn("finished FAIL: after 2 rounds, open findings: - a.py:1 - one - why",
                       self.typed[0][1])
         # said once: the next tick finds it heard
-        self.assertFalse(run.owes_ending(record.read_state(directory)))
+        self.assertFalse(handback.owes_ending(record.read_state(directory)))
         self.tick()
         self.assertEqual(len(self.typed), 1)
 
@@ -1183,7 +1183,7 @@ class HandBack(Sandbox):
             save=lambda: None, write=lambda: None)
         with patch.object(run, "git", return_value="a" * 40), \
              patch.object(gitcall, "git", return_value="a" * 40), \
-                patch.object(run, "git_out", return_value=(0, "")), \
+                patch.object(run, "git_out", return_value=(0, "")), patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
                 patch.object(gate, "run_done_when",
@@ -1223,7 +1223,7 @@ class HandBack(Sandbox):
             save=lambda: None, write=lambda: None)
         with patch.object(run, "git", return_value="a" * 40), \
              patch.object(gitcall, "git", return_value="a" * 40), \
-                patch.object(run, "git_out", return_value=(0, "")), \
+                patch.object(run, "git_out", return_value=(0, "")), patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
                 patch.object(gate, "run_done_when", return_value=(False, failure)), \
@@ -1397,7 +1397,7 @@ class HandBack(Sandbox):
         followup_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
         bar_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
         with patch.object(run, "start_followups", side_effect=followup_boom), \
-                patch.object(run, "redress_seat", side_effect=bar_boom), \
+                patch.object(run, "redress_seat", side_effect=bar_boom), patch.object(handback, "redress_seat", side_effect=bar_boom), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(worktrees, "settle_run",
@@ -1426,7 +1426,7 @@ class HandBack(Sandbox):
         histories, settles = [], []
         with patch.object(run, "start_followups",
                           side_effect=record.StopRequested("fix-child was stopped")), \
-                patch.object(run, "redress_seat"), \
+                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(worktrees, "settle_run",

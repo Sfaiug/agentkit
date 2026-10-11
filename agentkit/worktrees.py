@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import config, gitcall, retention, run, transitions
+from . import config, gitcall, handback, retention, run, transitions
 from . import record as run_record
 
 
@@ -185,7 +185,7 @@ def settle_run(state, run_dir, log=None):
         browser.close_owned(run=run_id)
     except (OSError, ValueError, TypeError):
         pass
-    if state.get("merged") or state.get("state") == "not_needed" or run.already_handed_back(state):
+    if state.get("merged") or state.get("state") == "not_needed" or handback.already_handed_back(state):
         _drop_told(state, log, run_dir)
 
 

@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, orch, run, staffing, watch, worktrees
+from agentkit import config, gc, gitcall, handback, orch, run, staffing, watch, worktrees
 from agentkit import record
 from fixtures.hand_in import records
 
@@ -119,8 +119,8 @@ class OwnPr(unittest.TestCase):
             patch.object(run.usage, "collect", return_value={}),
             patch.object(run, "review", side_effect=faces[reviewer]),
             patch.object(run, "restore_review_checkout", return_value=None),
-            patch.object(run, "launcher_world", side_effect=lambda *a, **k: nullcontext(False)),
-            patch.object(run, "fetch", return_value=(0, "")),
+            patch.object(run, "launcher_world", side_effect=lambda *a, **k: nullcontext(False)), patch.object(handback, "launcher_world", side_effect=lambda *a, **k: nullcontext(False)),
+            patch.object(run, "fetch", return_value=(0, "")), patch.object(gitcall, "fetch", return_value=(0, "")),
             patch.object(run, "commit_identity", return_value={"head_sha": HEAD, "tree_sha": "c" * 40}),
         ]
 
@@ -455,7 +455,7 @@ class OwnPr(unittest.TestCase):
         with patch.object(orch, "find", return_value={"name": "fix-api"}), \
                 patch.object(watch, "type_at_prompt",
                              side_effect=lambda seat, line, *a, **k: typed.append(line) or True):
-            with patch.object(run, "launcher_world") as world, patch.object(worktrees, "drop_checkout"):
+            with patch.object(run, "launcher_world") as world, patch.object(handback, "launcher_world"), patch.object(worktrees, "drop_checkout"):
                 world.return_value.__enter__.return_value = True
                 world.return_value.__exit__.return_value = False
                 run.announce(record.read_state(run_dir), run_dir, lambda line: None)

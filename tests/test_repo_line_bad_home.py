@@ -18,7 +18,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, job as jobs, menu, orch, run, watch
+from agentkit import config, handback, job as jobs, menu, orch, run, watch
 from agentkit import record
 
 BAD = "~nosuch-acme-owner/acme"
@@ -96,11 +96,11 @@ class RepoLineBadHome(Sandbox):
         self.task(directory / "task.md", self.acme)
         opts = {"--no-merge": False, "--no-worktree": False, "--anyway": False, "--bg": False}
         with chdir(self.root), patch.dict(os.environ, {"AK_MAX_RUNS": "4"}), \
-                patch.object(run, "redress_seat"), redirect_stdout(io.StringIO()):
+                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), redirect_stdout(io.StringIO()):
             run.prepare(directory, opts, lambda _: None)
         self.assertEqual(record.read_state(directory)["state"], "queued")
-        self.assertEqual(run.run_project(record.read_state(directory)), self.acme)
-        self.assertIsNone(run.run_project(broken))
+        self.assertEqual(handback.run_project(record.read_state(directory)), self.acme)
+        self.assertIsNone(handback.run_project(broken))
 
 
 if __name__ == "__main__":

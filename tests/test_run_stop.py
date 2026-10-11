@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, gate, job as jobs, land, menu, orch, run, staffing, status, stop, transitions, watch, worker, worktrees
+from agentkit import config, gate, handback, job as jobs, land, menu, orch, run, staffing, status, stop, transitions, watch, worker, worktrees
 from agentkit import host, record
 from agentkit import task as taskfile
 
@@ -165,7 +165,7 @@ class RunStop(Sandbox):
         self.assertIn("stopped", record.ENDED)
         self.assertFalse(run.needs_recovery(state))
         self.assertFalse(run.unfinished(state))
-        self.assertFalse(run.owes_ending(state))
+        self.assertFalse(handback.owes_ending(state))
         self.assertEqual(state.get("verdict"), "STOPPED")
         # Reaping leaves a deliberate end alone, and resume refuses it.
         self.assertEqual(run.reap(directory, state)["state"], "stopped")

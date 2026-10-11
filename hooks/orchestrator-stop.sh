@@ -62,7 +62,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
-from agentkit.run import handback_reason
+from agentkit.handback import handback_reason
 from agentkit.stop import recorded_ending, ways_out
 from agentkit.watch import owner_question, seat_read, turn_ended
 

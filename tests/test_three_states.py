@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, menu, notify, orch, run, terminal, usage, watch, worker
+from agentkit import config, handback, menu, notify, orch, run, terminal, usage, watch, worker
 from agentkit.guard import commands  # noqa: E402
 from agentkit import record
 
@@ -190,7 +190,7 @@ class ThreeStates(Sandbox):
         self.assertEqual(found["since"], NOW - 900)
         # ... and its tally counts the parked run the reason counts, so the row and
         # `ak orch list` can never disagree about how many are going.
-        tallies = run.seat_tallies(state for _, state in menu.run_records())
+        tallies = handback.seat_tallies(state for _, state in menu.run_records())
         self.assertEqual(tallies["atoll"][0], 1)
         self.assertTrue(menu.tally(tallies["atoll"]).startswith("1 running"))
 

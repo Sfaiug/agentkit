@@ -336,7 +336,7 @@ class Live:
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
         word to that seat's record and to its bar in one go, and a run's step, round and ending
-        touch `config.runs_moved_path` before they move its bar (`run.redress_seat`), so a screen
+        touch `config.runs_moved_path` before they move its bar (`handback.redress_seat`), so a screen
         that reads again when a record changes, as recorded, never shows a row its bar
         contradicts for longer than this.
         The records are noted before every read, so one written while it reads is still news.
@@ -628,7 +628,7 @@ def tally(counts):
     """What a seat's runs add up to, for `ak orch list`: `1 running · 1 merged`,
     `0 running · 1 needs you`, or `no runs yet` for a seat that has launched nothing.
 
-    `counts` is the seat's entry from run.seat_tallies -- (running, needing him, merged) -- or
+    `counts` is the seat's entry from handback.seat_tallies -- (running, needing him, merged) -- or
     None.  Endings that need him come before the merges, because they are what the number
     is for; the merges are the last seven days' only.
     """
@@ -651,7 +651,7 @@ def projects(cfg, found):
     No run ever makes a project or a row here either: `runs` stays
     empty and every group comes from a seat.
     """
-    from . import run
+    from . import handback
     groups = {}
 
     def group(repo, fallback="no project"):
@@ -660,7 +660,7 @@ def projects(cfg, found):
 
     # one pass over run.json for the rows' tallies
     records = run_records()
-    tallies = run.seat_tallies(state for _, state in records)
+    tallies = handback.seat_tallies(state for _, state in records)
     for number, session in enumerate(found, 1):
         item = row(cfg, number, session)
         counts = tallies.get(session["name"])
@@ -937,7 +937,7 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     A project is a checkout under ~/code, or agentkit's own at ~/agentkit -- one of
     `orch.checkouts()` -- and a seat is filed under the one its repo *is* (`orch.checkout_of`):
     the one `ak orch project` filed it under, else the project most of its runs vote for, a
-    queued run's included (`run.join_session_project`), whether it works in one checkout or
+    queued run's included (`handback.join_session_project`), whether it works in one checkout or
     across them from ~/code. Only a seat nobody filed and none of whose runs votes files under
     the fallback heading.
     A run makes no project and no row: no worktree, no throwaway repo under

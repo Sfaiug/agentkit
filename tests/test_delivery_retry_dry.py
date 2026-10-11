@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, record, run, transitions, usage
+from agentkit import config, gc, gitcall, handback, record, run, transitions, usage
 from fixtures.landing import landing
 from test_merge_step import make_repos
 
@@ -36,6 +36,7 @@ class DeliveryRetryDry(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "stop_run_tree"))
         _, _, self.wt = make_repos(self.root)
         self.stack.enter_context(patch.object(run, "launcher_world", return_value=nullcontext(True)))
+        self.stack.enter_context(patch.object(handback, "launcher_world", return_value=nullcontext(True)))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))

@@ -291,7 +291,7 @@ class RulesCapTold(unittest.TestCase):
                     patch.object(run, "own_pr_orchestrator", return_value=(own, "opus" if own else None)), \
                     patch.object(run, "pr_view", return_value=info), \
                     patch.object(run, "checkout_for", return_value=self.repo), \
-                    patch.object(run, "fetch", return_value=(0, "")), \
+                    patch.object(run, "fetch", return_value=(0, "")), patch.object(gitcall, "fetch", return_value=(0, "")), \
                     patch.object(gitcall, "gh", side_effect=github), \
                     patch.object(run, "checks", return_value=(True, "")), \
                     patch.object(run.watch, "ask_inbox", return_value=0), \

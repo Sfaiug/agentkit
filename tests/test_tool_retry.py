@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, handback, run
 
 COMMANDS = (["git", "fetch", "origin", "--prune"], ["gh", "api", "user"],
             ["git", "push", "origin", "fix-api"], ["git", "ls-remote", "origin"],
@@ -147,8 +147,8 @@ class ToolRetry(unittest.TestCase):
                      "head_sha": "1" * 40, "tree_sha": "2" * 40}}
             line = run.handback_line(state, REPO / "acme" / "fix-api", CFG)
             self.assertIn("PASS not merged", line)
-            self.assertEqual(run.retry_command(state), "ak run merge fix-api")
-            self.assertIn(run.retry_command(state), line)
+            self.assertEqual(handback.retry_command(state), "ak run merge fix-api")
+            self.assertIn(handback.retry_command(state), line)
             self.assertNotIn("resume", line.replace(str(REPO), ""))
 
 

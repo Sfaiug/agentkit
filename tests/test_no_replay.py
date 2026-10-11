@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import browser, config, gc, menu, notify, orch, run, status, watch
+from agentkit import browser, config, gc, handback, menu, notify, orch, run, status, watch
 from agentkit import record
 
 SEAT = "seat"
@@ -105,7 +105,7 @@ class NoReplay(Sandbox):
             state = record.read_state(directory)
             self.assertTrue(state["handed_back"])
             self.assertEqual(state["handback_note"], "pre-existing ending; not replayed")
-            self.assertFalse(run.owes_ending(state))
+            self.assertFalse(handback.owes_ending(state))
         self.assertEqual((self.typed, self.cards, self.reopened), ([], [], []))
         self.tick()
         self.assertEqual((self.typed, self.cards, self.reopened), ([], [], []))
@@ -130,14 +130,14 @@ class NoReplay(Sandbox):
         self.assertFalse(state["handed_back"])
         self.assertTrue(state["handback_pending"])
         self.assertEqual(state["handback_wait_reason"], "session closed by the owner")
-        self.assertTrue(run.owes_ending(state))
+        self.assertTrue(handback.owes_ending(state))
         # an hour later the wait is still a wait, not history: the sweep leaves seen endings
         logs = []
         self.assertEqual(watch.sweep_preexisting(logs.append, now=time.time() + 7200), 0)
         self.assertEqual(logs, [])
         state = record.read_state(directory)
         self.assertTrue(state["handback_pending"])
-        self.assertTrue(run.owes_ending(state))
+        self.assertTrue(handback.owes_ending(state))
         found = watch.session_state(SEAT, session={"name": SEAT, "exited": True},
                                     cfg=self.cfg, number=1)
         self.assertIn("session closed by the owner", found["reason"])

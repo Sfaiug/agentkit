@@ -24,7 +24,7 @@ sys.path.insert(0, str(REPO))
 from test_handback import SEAT, HandBack
 from test_health_after_merge import NOW, PR, SEAT as MERGED_SEAT, HealthAfterMerge
 from test_run_notice_fits_a_composer import RunNotice
-from agentkit import config, orch, run, stop, transitions, watch
+from agentkit import config, handback, orch, run, stop, transitions, watch
 from agentkit import record
 
 OPEN = "- [ ] the parser parses\n"     # a plan line the seat still owes

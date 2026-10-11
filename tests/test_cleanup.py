@@ -191,7 +191,7 @@ class Cleanup(Sandbox):
                                              round_summaries=summaries)
         state = run_record.read_state(directory)
         self.assertIn("ak run resume budget --rounds 3",
-                      run.continue_line(state, directory))
+                      transitions.continue_line(state, directory))
         with patch.object(orch, "find", return_value={"name": "seat"}), \
                 patch.object(watch, "type_at_prompt", return_value=True), \
                 patch.object(watch, "is_preexisting", return_value=False), \
@@ -200,7 +200,7 @@ class Cleanup(Sandbox):
         self.assertTrue(wt.is_dir(), "the hand-back took the resume's checkout")
         self.assertNotIn(str(wt), {item["path"] for item in gc.gc_plan()})
         self.assertIn("ak run resume budget --rounds 3",
-                      run.continue_line(run_record.read_state(directory), directory))
+                      transitions.continue_line(run_record.read_state(directory), directory))
         # The seven-day clock still takes it; the branch stays regardless.
         old, old_wt, old_branch = self.receipt("budget-old", state="fail", merged=False,
                                                age=8 * DAY, verdict="FAIL",

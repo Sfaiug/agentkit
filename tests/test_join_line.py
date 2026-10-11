@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gitcall, history, job, land, menu, record, run, scoreboard, staffing, transitions, watch
+from agentkit import config, gate, gitcall, handback, history, job, land, menu, record, run, scoreboard, staffing, transitions, watch
 from test_merge_step import make_loop, make_repos
 from fixtures.sandbox import Sandbox
 
@@ -87,8 +87,8 @@ class JoinLine(Sandbox):
         self.assertFalse(record.process_active(state))
         self.assertEqual(transitions.tick_admission(state), "in line to land")
         self.assertEqual(menu.run_state_word(state), "working")
-        self.assertEqual(run.seat_tallies([state]), {"acme": (1, 0, 0)})
-        self.assertTrue(run.followup_open(state))
+        self.assertEqual(handback.seat_tallies([state]), {"acme": (1, 0, 0)})
+        self.assertTrue(handback.followup_open(state))
         found = watch.session_state(
             "acme", now=3 * 86400, session={"name": "acme", "attached": False},
             cfg=self.cfg, records=[(self.directory, state)], live={}, harness="claude",
@@ -99,7 +99,7 @@ class JoinLine(Sandbox):
             current["state"] = "stopped"
         stopped = self.saved()
         self.assertEqual(menu.run_state_word(stopped), "done")
-        self.assertFalse(run.followup_open(stopped))
+        self.assertFalse(handback.followup_open(stopped))
 
     def retry(self, pr=False):
         self.lp.state.update(state="pass", merge_failed=True, merge_note="push stopped")
@@ -139,7 +139,7 @@ class JoinLine(Sandbox):
                 with patch.object(run, "land", side_effect=park), \
                         patch.object(run, "pr_view", return_value=info), \
                         patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
-                        patch.object(run, "rounds"), patch.object(run, "join_session_project"), \
+                        patch.object(run, "rounds"), patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), \
                         patch.object(run, "finish", return_value=1):
                     if attempt == "loop":
                         run.loop(self.cfg, self.directory, self.directory / "task.md",

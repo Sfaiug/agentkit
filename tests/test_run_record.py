@@ -175,7 +175,7 @@ class MergePipeline(Fixture):
         self.lp.once, self.lp.every = ["true"], []
         with patch.object(run, "git", return_value="a" * 40), \
              patch.object(gitcall, "git", return_value="a" * 40), \
-                patch.object(run, "git_out", return_value=(0, "")), \
+                patch.object(run, "git_out", return_value=(0, "")), patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity", return_value={"head_sha": "a" * 40,
                                                                    "tree_sha": "b" * 40}), \
                 patch.object(gate, "run_done_when", return_value=(True, "$ true\n[exit 0]")):
@@ -282,7 +282,7 @@ class Tick(Fixture):
                 (transitions, "is_superseded", True),          # a later merged run did the work
                 (transitions, "tick_admission", True),
                 (transitions, "exhausted_wait", "window"),
-                (run, "run_workers", []),
+                (staffing, "run_workers", []),
                 (staffing, "executable_models", []),
                 (run, "run_scope_limits", (None, [])),
                 (run, "spawn_bg", 0),

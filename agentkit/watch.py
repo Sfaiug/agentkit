@@ -44,8 +44,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (browser, command_help, config, gc, gitcall, host, notify, orch, staffing, statusbar,
-               transitions, turns, update, usage, worker)
+from . import (browser, command_help, config, gc, gitcall, handback, host, notify, orch, staffing,
+               statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
 
@@ -2116,6 +2116,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     The seat's own runs are gathered before the first rung, because a login the top rung
     reports may be one a run of this seat's parked on rather than the seat's own.
     """
+    from . import handback
     from . import status as status_mod    # status imports run, which imports this module
     if records is None:
         try:
@@ -2262,7 +2263,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                   and not transitions.is_superseded(state, None, index, merged_only=True))]
     if parked and not gone:
         run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
-        name, reason = run_dir.name, run_mod.handback_reason(first)
+        name, reason = run_dir.name, handback.handback_reason(first)
         if first.get("state") == "stalled":
             # from its id, never its error: a long step cuts the command in that one short
             reason = f"run {name} stalled: resume it with `ak run resume {name}`"
@@ -2334,7 +2335,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if unfinished:
             run_dir, state = unfinished[0]
             return {"word": "needs you", "since": last.get("time"), "reason":
-                    f"run {run_dir.name} parked: {run_mod.handback_reason(state)}"}
+                    f"run {run_dir.name} parked: {handback.handback_reason(state)}"}
         line = next((piece for piece in str(last["text"]).splitlines() if piece.strip()), "")
         return {"word": "done", "reason": " ".join(line.split()), "since": last.get("time")}
     # 6. at its prompt with nothing running: a watcher's alert, or nothing at all
@@ -3320,7 +3321,7 @@ def sweep_preexisting(log, now=None):
     is left alone.  Only a candidate takes the delivery lock, and re-verifies under it with the
     mark so nothing lands between them; every other directory costs one unlocked read.
     """
-    from . import run as run_mod
+    from . import handback
     at = time.time() if now is None else now
     try:
         dirs = run_record.run_dirs()
@@ -3332,22 +3333,22 @@ def sweep_preexisting(log, now=None):
             state = run_record.read_state(run_dir)
         except (OSError, ValueError):
             continue
-        if not state or not run_mod.owes_ending(state):
+        if not state or not handback.owes_ending(state):
             continue
         if state.get("handback_pending") or state.get("notification_pending"):
             continue
         if not is_preexisting(state, at):
             continue
         try:
-            with run_mod.delivery_lock(run_dir):
+            with handback.delivery_lock(run_dir):
                 current = run_record.read_state(run_dir) or state
-                if not run_mod.owes_ending(current):
+                if not handback.owes_ending(current):
                     continue
                 if current.get("handback_pending") or current.get("notification_pending"):
                     continue
                 if not is_preexisting(current, at):
                     continue
-                if run_mod.mark_delivery(run_dir, current, handed_back=at,
+                if handback.mark_delivery(run_dir, current, handed_back=at,
                                          handback_note=PREEXISTING_NOTE,
                                          handback_pending=None):
                     marked.append(run_dir.name)
@@ -4345,18 +4346,18 @@ def tell_parked(run_id, step, seat, log):
     True once the notice is delivered -- typed into a live seat, or accepted as a card.
     A refused card stays pending in `stalled_notified` and is retried on a later tick.
     """
+    from . import handback
     line = f"run {run_id} stalled three times at {step}; parked: ak run resume {run_id}"
     if seat:
-        from . import run as run_mod
         try:
-            alive = run_mod.launcher_watched(seat)
+            alive = handback.launcher_watched(seat)
         except (config.Error, OSError):
             alive = False
         if alive:
             found = orch.find(seat) or {"name": seat}
             try:
                 run_dir = config.RUNS / run_id
-                line = run_mod.seat_notice(
+                line = handback.seat_notice(
                     line, run_record.read_state(run_dir) or {}, run_dir,
                     f"run {run_id} stalled three times; parked.",
                     f"Resume: ak run resume {run_id}.")
@@ -4386,14 +4387,14 @@ def note_stall(run_dir, state, entry, line):
 def _resume_ordered(state, now):
     """True while a resume this tick ordered is still the one to adopt the record."""
     at = state.get("stall_resume_at")
-    from . import run as run_mod
+    from . import handback
     return (isinstance(at, (int, float)) and not isinstance(at, bool)
-            and 0 <= now - at < run_mod.STALL_RESUME_GRACE)
+            and 0 <= now - at < handback.STALL_RESUME_GRACE)
 
 
 def _launch_grace(state, now):
     """A queued launch still inside the window where its pid may not be recorded yet."""
-    from . import run as run_mod
+    from . import handback
     if state.get("state") != "queued":
         return False
     if not (state.get("launch_pending") or not state.get("process_identity")):
@@ -4401,7 +4402,7 @@ def _launch_grace(state, now):
     started = state.get("queued_at") or state.get("started_at") or 0
     if not isinstance(started, (int, float)) or isinstance(started, bool):
         return False
-    return now - started < run_mod.QUEUED_GRACE
+    return now - started < handback.QUEUED_GRACE
 
 
 def _dead_parked(state):
@@ -4524,7 +4525,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
     The seat stays `working`: the record is not left `interrupted` for the deaths
     this pass resumes, so no per-run card is sent for them.
     """
-    from . import run as run_mod
+    from . import handback, run as run_mod
     now = time.time() if now is None else now
     for run_dir in run_record.run_dirs():
         try:
@@ -4546,7 +4547,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                 continue
             if run_record.process_active(state):
                 continue
-            if run_mod.memory_cap_reason(state):
+            if handback.memory_cap_reason(state):
                 # The kernel ended this scope on its own memory cap. That is a `fail` for
                 # reap to conclude, with the cap in the reason: resuming a leak repeats it.
                 continue
@@ -5211,7 +5212,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
     moves the very refs it reports on.  A job's run is its job's: the tick's pass
     leaves it, and the job's own ladder passes it as `run` to resume its wait.
     """
-    from . import land, run as run_mod
+    from . import handback, land, run as run_mod
     now = time.time() if now is None else now
     lines = set()
     for run_dir in [run] if run else run_record.run_dirs():
@@ -5283,7 +5284,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                     repair = waiting_on.get("repair")
                     if sha != waiting_on.get("sha"):
                         why = f"{ref} moved ({(waiting_on.get('sha') or '')[:12]}..{sha[:12]})"
-                    elif repair and not run_mod.repair_open(
+                    elif repair and not handback.repair_open(
                             run_record.read_state(config.RUNS / repair) or {}, sha):
                         why = f"its repair {repair} ended"
                     else:
@@ -5344,7 +5345,7 @@ def revive_seats(cfg, log):
     going, or a marker to clear.  Every tick files a seat with no project from the run records
     read here (`orch.file_projectless`), a run going or not.
     """
-    from . import run as run_mod
+    from . import handback
     going, states = {}, []
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
@@ -5378,7 +5379,7 @@ def revive_seats(cfg, log):
         seat_write(name, reopened_at=died)
         why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
                            "pick up where you left off", log, cfg,
-                     prepare=lambda line: run_mod.seat_notice(
+                     prepare=lambda line: handback.seat_notice(
                          line, state, run_dir, f"run {run_id} is still going.",
                          "Pick up where you left off."))
         if why is None:
@@ -5406,17 +5407,17 @@ def wants_github(state):
     was launched with, which is how `ak run resume` reads one, and one so old it saved no
     options at all keeps its work local.  And a run already finished whose
     delivery is the thing that failed, waiting on `ak run merge`: that is what
-    `run.retry_command` answers, so the menu and `ak run status` cannot disagree about which
+    `handback.retry_command` answers, so the menu and `ak run status` cannot disagree about which
     runs are still owed a push.
     """
-    from . import run   # here, not at the top: run imports this module
+    from . import handback  # here, not at the top: run imports this module
     if state.get("state") in run_record.ACTIVE:
         if state.get("review_pr"):
             return True
         if "no_merge" in state:
             return not state["no_merge"]
         return not (state.get("launch_opts") or {"--no-merge": True}).get("--no-merge")
-    return run.retry_command(state) is not None
+    return handback.retry_command(state) is not None
 
 
 def pushing_seats():
@@ -5662,16 +5663,16 @@ def outgoing(state, me, dry_run, log):
 def sent_pending(run_dir, run_state, log):
     """Whether no line ak typed about that run's PR is left unsent in its seat's composer: the
     Enter of one typed and never seen sent (`decision_typed`, the receipt `type_at_prompt`
-    hands back) is pressed first (`run.finish_typed`) and the mark comes off the run; left
+    hands back) is pressed first (`handback.finish_typed`) and the mark comes off the run; left
     there, it would hold every later line back as the owner's draft."""
-    from . import run   # here, not at the top: run imports this module
+    from . import handback  # here, not at the top: run imports this module
     held = (run_state or {}).get("decision_typed")
     if not held:
         return True
-    if not run.finish_typed(transitions.launched_session(run_state), held, log):
+    if not handback.finish_typed(transitions.launched_session(run_state), held, log):
         return False
     if run_dir:
-        run.mark_delivery(run_dir, run_state, decision_typed=None)
+        handback.mark_delivery(run_dir, run_state, decision_typed=None)
     return True
 
 
@@ -5683,15 +5684,15 @@ def say(dry_run, log, text, url, session, merged=False):
     holds that back -- and a live seat is typed the line at its quiet prompt, never into a
     running turn (`type_at_prompt`), exactly as a run's ending is, its mark kept on the run
     (`decision_typed`) so a line typed and never seen sent gets its Enter, not a second copy,
-    and is sent (`run.finish_typed`) before a later decision is typed or a routine merge ends
+    and is sent (`handback.finish_typed`) before a later decision is typed or a routine merge ends
     the following.  A merge is the exception: routine, recorded on the run and typed into no seat, unless its
-    run's seat owes work (`run.routine_ending`), as the follow-ups it put in that seat's plan that no run took.
+    run's seat owes work (`handback.routine_ending`), as the follow-ups it put in that seat's plan that no run took.
     A decision already on the run is not recorded again, so a retry after a failed typing
     tells the seat without recording twice or starting fix runs twice.  True means it has landed everywhere it goes, or that there is nowhere left for it
     to land and following this PR is over; False means the seat is still owed its line and
     the next tick retries it.
     """
-    from . import run   # here, not at the top: run imports this module
+    from . import handback, run   # here, not at the top: run imports this module
     if dry_run:
         log(f"would hand on: {text} ({url})")
         return False
@@ -5703,8 +5704,9 @@ def say(dry_run, log, text, url, session, merged=False):
         log(f"recorded on run {run_dir.name}: {text}")
     def kept(mark):
         # a line typed and never seen sent gets only its Enter from the next tick
+        from . import handback
         if run_dir:
-            run.mark_delivery(run_dir, run_state, decision_typed=mark)
+            handback.mark_delivery(run_dir, run_state, decision_typed=mark)
 
     held = (run_state or {}).get("decision_typed")
 
@@ -5713,14 +5715,14 @@ def say(dry_run, log, text, url, session, merged=False):
         # every later line, back as the owner's draft: it is sent first
         return sent_pending(run_dir, run_state, log)
 
-    if merged and (not run_dir or run.routine_ending(run_state)):
+    if merged and (not run_dir or handback.routine_ending(run_state)):
         return finished()
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
                 "decision on a PR of ours, for you to act on or not.")
         if run_dir:
-            line = run.seat_notice(line, run_state, run_dir,
+            line = handback.seat_notice(line, run_state, run_dir,
                                    f"run {run_dir.name}: the maintainer decided on its PR.")
         if held and held.get("line") != line and not finished():
             return False
@@ -5827,7 +5829,7 @@ def merge_record(repo, sha, pr_url=None):
 
 def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes):
     """Follow the merge's declaration in its original checkout, stopping at its first pass."""
-    from . import history, run
+    from . import handback, history
     inside = now - st["finished_at"] < AFTER_MERGE_WINDOW
     if not st.get("live_at") and "health" not in st and inside and st.get("repo"):
         # a merge that could not read its commit, or one recorded before merges did: the
@@ -5872,10 +5874,10 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
             log(f"would tell its launching seat: {line}")
             return "passed", None, None
         session = transitions.launched_session(st)
-        if run.seat_owes_nothing(st):
+        if handback.seat_owes_nothing(st):
             # no turn of its seat's waits on this (`awaiting_live`), a repair's included:
             # recorded, never typed, and a line an earlier pass typed and never saw sent is sent
-            if run.finish_typed(session, st.get("live_typed"), log):
+            if handback.finish_typed(session, st.get("live_typed"), log):
                 with run_record.record(run_dir) as current:
                     current["live_notified"] = now
                     current.pop("live_typed", None)
@@ -5887,7 +5889,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 with run_record.record(run_dir) as current:
                     current["live_typed"] = mark
 
-            line = run.seat_notice(line, st, run_dir, f"run {run_dir.name} is live.")
+            line = handback.seat_notice(line, st, run_dir, f"run {run_dir.name} is live.")
             if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept):
                 with run_record.record(run_dir) as current:
                     current["live_notified"] = now
@@ -6055,8 +6057,8 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
     tries again, and with the composer's mark kept across retries, so a line whose Enter
     did not land is entered and never typed a second time.  True when the line was told.
     """
-    from . import run as run_mod   # here, not at the top: run imports this module
-    line = run_mod.seat_notice(line, {}, run_dir,
+    from . import handback  # here, not at the top: run imports this module
+    line = handback.seat_notice(line, {}, run_dir,
                               f"run {run_dir.name}: a check failed after its merge.",
                               "Fix the target.")
     try:
@@ -6364,7 +6366,7 @@ def offer_endings(log):
     before those of runs that merged, which only tell it so: a failed run's ending waited
     behind six merged runs' (6 Oct).
     """
-    from . import run
+    from . import handback, run
     ended = []
     for run_dir in run_record.run_dirs():
         try:
@@ -6381,7 +6383,7 @@ def offer_endings(log):
             # on: a hand-back the run could not type goes in at the next quiet prompt, and so
             # does the ending of an attempt that was reaped without one.  `announce` decides
             # again which path it is, so a seat that died since gets the orphan one.
-            if run.owes_ending(receipt):
+            if handback.owes_ending(receipt):
                 run.announce(receipt, run_dir, log)
             # A question the seat never took is typed again before the user hears it; one it
             # took whose ping failed is only pinged, and so is one kept before `asked` was,
@@ -6390,13 +6392,13 @@ def offer_endings(log):
             if question and ask_inbox(
                     config.load(), question["question"], question["url"],
                     question["sha"], log, asked=question.get("asked", True),
-                    typed=lambda: run.mark_delivery(
+                    typed=lambda: handback.mark_delivery(
                         run_dir, receipt, pending_inbox={**question, "asked": True})
                     ) == 0:
                 # struck off the record as it stands, never off this copy of it: the run's own
                 # loop can have handed the ending back while the question was going out, and a
                 # whole save from here would put that back to undelivered and say it twice
-                run.mark_delivery(run_dir, receipt, pending_inbox=None)
+                handback.mark_delivery(run_dir, receipt, pending_inbox=None)
         except PASS_ERRORS as exc:
             log(f"WARN cannot check run {run_dir.name}: {exc}")
 
