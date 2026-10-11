@@ -23,7 +23,7 @@ from urllib.parse import unquote_to_bytes
 
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.hand_in import records, scripted, stateful
-from agentkit import gate, host, browser, config, gc, job as jobs, land, menu, notify, orch, run, worktrees, status, terminal, watch
+from agentkit import browser, config, gate, gc, gitcall, host, job as jobs, land, menu, notify, orch, run, status, terminal, watch, worktrees
 from agentkit import record
 
 SEAT = "seat"
@@ -1484,7 +1484,7 @@ class BlockedRuns(unittest.TestCase):
         self.script(self.bin / "tmux", "import sys\nsys.exit(1)\n")
         for executable in ("gh", "claude", "codex", "muse"):
             self.script(self.bin / executable, 'raise AssertionError("external call")\n')
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("post")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={

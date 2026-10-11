@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import gate, host, config, land, run
+from agentkit import gate, gitcall, host, config, land, run
 from agentkit import record
 
 
@@ -367,7 +367,9 @@ class RedTarget(unittest.TestCase):
                 raise run.Stopped("fixture stop")
             return real_git(repo, *args, **kwargs)
 
-        with patch.object(run, "git", side_effect=stopping_git):
+        # the probe checkouts are gitcall's own: their git is patched there, beside run's
+        with patch.object(run, "git", side_effect=stopping_git), \
+                patch.object(gitcall, "git", side_effect=stopping_git):
             with self.assertRaises(run.Stopped):
                 run.target_fails(lp, "origin/main", "$ false\n[exit 1]\n")
         self.assertIn(("checkout", "--quiet", "ak/fix-api"), calls)

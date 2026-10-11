@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config
+from agentkit import config, gitcall
 from tools import rulebook
 
 VISION = "## What ak is for\n\nBuild acme with fewer steps.\n\n### Quality\n\nCheck the result.\n"
@@ -80,7 +80,7 @@ class RulebookVision(unittest.TestCase):
                                 + "\n## Working here\n\nTests.\n", False)):
             with self.subTest(opens=opens), \
                     patch.object(config, "session_records", return_value={"acme": {"repo": "/x/acme"}}), \
-                    patch("agentkit.run.agents_body", return_value=project):
+                    patch("agentkit.gitcall.agents_body", return_value=project):
                 text = config.seat_rulebook("acme")
                 self.assertEqual(text.count("## What ak is for"), project.count("## What ak is for") + opens, text)
                 self.assertEqual(text.startswith(VISION.rstrip()), opens, text)

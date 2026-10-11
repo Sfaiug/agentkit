@@ -45,7 +45,7 @@ from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import command_help, config, guard, host, motion, plan, retention, terminal, update, usage
+from . import command_help, config, gitcall, guard, host, motion, plan, retention, terminal, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -2364,10 +2364,10 @@ def fetch_project(repo):
     branch as it is now: every branch fetched, as a run fetches before cutting its base, whatever
     the clone's own refspec follows, then `origin/HEAD` pointed again at the branch origin calls
     default, created where the checkout has none and moved where origin changed it.  Only
-    `repo`'s own repository (`run.project_env`): a path whose `.git` is gone or is none
+    `repo`'s own repository (`gitcall.project_env`): a path whose `.git` is gone or is none
     fails."""
     from . import run
-    env = run.project_env(repo)
+    env = gitcall.project_env(repo)
     run.fetch(repo, "--quiet", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*",
               check=True, env=env)
     run.git(repo, "remote", "set-head", "origin", "--auto", env=env)
@@ -2378,7 +2378,7 @@ def fetched(repo):
     `fetch_project` made it, or a clone did."""
     from . import run
     return bool(run.git(repo, "rev-parse", "--verify", "--quiet", config.RULES_REF,
-                        check=False, env=run.project_env(repo)))
+                        check=False, env=gitcall.project_env(repo)))
 
 
 def write_rulebook(session):

@@ -20,8 +20,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import (browser, config, gate, history, host, land, orch, record, run, stop,  # noqa: E402
-                      scoreboard, terminal, watch, worktrees)
+from agentkit import (browser, config, gate, gitcall, history, host, land, orch, record, run,  # noqa: E402
+                      stop, scoreboard, terminal, watch, worktrees)
 
 DAY = 86400
 
@@ -117,7 +117,7 @@ class WaitHistory(unittest.TestCase):
                 (run, "passed_review_head", {"return_value": "reviewed"}),
                 (run, "commit_identity", {"return_value": {
                     "head_sha": "landed", "tree_sha": "checked-tree"}}),
-                (run, "declared_suite", {"return_value": ""}),
+                (gitcall, "declared_suite", {"return_value": ""}),
                 (record, "process_active", {"return_value": False}),
                 (land, "start_line", {"return_value": False})):
             self.stack.enter_context(patch.object(module, name, **options))

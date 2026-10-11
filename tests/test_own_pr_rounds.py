@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import BRANCH, OwnPr, URL
-from agentkit import config, run, worker, worktrees
+from agentkit import config, gitcall, run, worker, worktrees
 from agentkit import record
 
 
@@ -196,7 +196,7 @@ class OwnPrRounds(OwnPr):
                 raise InterruptedError("fixture: loop died while posting")
             return self.gh(cwd, *args)
 
-        with patch.object(run, "gh", side_effect=killed), self.assertRaises(InterruptedError):
+        with patch.object(gitcall, "gh", side_effect=killed), self.assertRaises(InterruptedError):
             self.review(["FAIL", "PASS"])
         self.assert_resumed_post_finishes_round_one()
         self.assertEqual(self.events, ["event=COMMENT", "event=COMMENT"])
@@ -214,7 +214,7 @@ class OwnPrRounds(OwnPr):
         self.assertEqual(self.events, ["event=COMMENT", "event=COMMENT"])
 
     def test_failed_post_retries_without_spending_another_round(self):
-        with patch.object(run, "gh", return_value=(1, "HTTP 502: fixture")):
+        with patch.object(gitcall, "gh", return_value=(1, "HTTP 502: fixture")):
             state = self.review(["FAIL", "PASS"])
         self.assertEqual(state["state"], "error")
         self.assertTrue(worktrees.resume_holds_tree(state, self.run_dir))
@@ -226,7 +226,7 @@ class OwnPrRounds(OwnPr):
                 return 1, "HTTP 502: fixture"
             return self.gh(cwd, *args)
 
-        with patch.object(run, "gh", side_effect=failed):
+        with patch.object(gitcall, "gh", side_effect=failed):
             state = self.review(["FAIL", "FAIL", "PASS"])
         self.assertEqual(state["state"], "error")
         state = self.review(["FAIL", "FAIL", "PASS"])
@@ -292,14 +292,14 @@ class OwnPrRounds(OwnPr):
                 return 1, "HTTP 502: fixture"
             return self.gh(cwd, *args)
 
-        with patch.object(run, "gh", side_effect=failed):
+        with patch.object(gitcall, "gh", side_effect=failed):
             state = self.review(["FAIL", "PASS", "PASS"])
         self.assertEqual(state["state"], "error")
         self.hand_push(2)
         self.assert_moved_round_merges(self.review(["FAIL", "PASS", "PASS"]))
 
     def test_closed_pr_settles_a_pending_round(self):
-        with patch.object(run, "gh", return_value=(1, "HTTP 502: fixture")):
+        with patch.object(gitcall, "gh", return_value=(1, "HTTP 502: fixture")):
             self.assertEqual(self.review(["FAIL"])["state"], "error")
         self.pr["state"] = "CLOSED"
         state = self.review(["FAIL"])

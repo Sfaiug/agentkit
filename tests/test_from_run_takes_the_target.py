@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, run
+from agentkit import config, gc, gitcall, run
 from agentkit import record
 
 
@@ -43,7 +43,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
                             ("pick_models", ("opus", "astra"))):
             self.stack.enter_context(patch.object(run, name, return_value=value))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub")))
         config.ensure_dirs()
         self.cfg = config.load()
         self.origin = self.root / "acme-origin"

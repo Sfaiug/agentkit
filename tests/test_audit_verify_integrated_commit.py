@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
 from fixtures.sandbox import account_home
-from agentkit import host, config, gc, run, stop, usage, worker
+from agentkit import config, gc, gitcall, host, run, stop, usage, worker
 from agentkit import record as run_record
 
 URL = "https://github.com/fixture/repo/pull/1"
@@ -155,7 +155,7 @@ sys.exit(0 if ok else 1)
         self.plan = {}
         self.merge_mode, self.retry_target, self.pr_head = "success", None, None
         self.required, self.check_failure, self.merges = True, False, 0
-        self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         # these tests bind evidence and budgets on the branch's own failures: the target
         # is green, so the red-target probe never parks (test_red_target.py covers it)
         self.stack.enter_context(patch.object(run, "target_fails", return_value=False))

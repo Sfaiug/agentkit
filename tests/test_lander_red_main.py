@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander as fixture
-from agentkit import config, gate, land, record, run, watch
+from agentkit import config, gate, gitcall, land, record, run, watch
 
 SUITE = "test ! -f broken.txt"
 
@@ -314,7 +314,7 @@ class RedMain(unittest.TestCase):
                 return 1, "checkout failed"
             return git_out(repo, *args, **kw)
 
-        with patch.object(run, "git_out", side_effect=checkout):
+        with patch.object(gitcall, "git_out", side_effect=checkout):   # add_worktree runs inside gitcall
             land.check_line(self.turn)
         self.assertIn("fix", self.wait(first))
         self.assertIn("Tree: ", (later / "target-probe.log").read_text())

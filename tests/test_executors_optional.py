@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, menu, orch, run, terminal, usage
+from agentkit import config, gitcall, menu, orch, run, terminal, usage
 from agentkit import record
 
 
@@ -128,7 +128,7 @@ class ExecutorsOptional(Sandbox):
                  "base": "main", "merged": True, "review_pr": "https://github.com/acme/api/pull/7",
                  "own_pr": True, "followups": ["Fix the other endpoint"]}
         record.save_state(directory, state)
-        with patch.object(run, "main_checkout") as checkout, patch.object(run, "spawn_bg") as spawn:
+        with patch.object(gitcall, "main_checkout") as checkout, patch.object(run, "spawn_bg") as spawn:
             self.assertIsNone(run.start_followups(state, directory, lambda _: None, self.cfg))
         checkout.assert_not_called()
         spawn.assert_not_called()

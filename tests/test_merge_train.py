@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from test_lander import LanderFixture, SUITE, land, record, run, gate
+from agentkit import gitcall
 
 
 class MergeTrain(LanderFixture, unittest.TestCase):
@@ -291,7 +292,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                 return 1, "checkout failed"
             return git_out(repo, *args, **kw)
 
-        with patch.object(run, "git_out", side_effect=fail_checkout):
+        with patch.object(gitcall, "git_out", side_effect=fail_checkout):   # add_worktree runs inside gitcall
             land.check_line(self.turn)
         self.assertEqual([call.args[0] for call in self.wake.call_args_list],
                          [first.name, later.name])

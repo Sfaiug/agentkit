@@ -21,7 +21,7 @@ sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
 from fixtures.sandbox import account_home
-from agentkit import host, config, gc, run, status, task, usage
+from agentkit import config, gc, gitcall, host, run, status, task, usage
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/1"
@@ -138,7 +138,7 @@ class V5af(unittest.TestCase):
         run.git(self.wt, "checkout", "-b", "ak/task")
         self.task = self.root / "task.md"
         self.plan = {}
-        self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def script(self, path, text):

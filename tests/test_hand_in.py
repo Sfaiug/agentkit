@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import stateful
-from agentkit import config, hand_in, run, worker
+from agentkit import config, gitcall, hand_in, run, worker
 
 
 class HandIn(unittest.TestCase):
@@ -462,7 +462,7 @@ sys.exit(row.get("code", 0))
         lp = run.Loop({}, self.root, state, {}, lambda *_: None, self.workspace, "", [], "", [])
         lp.findings = hand_in.Review([self.rows()[1]] * 30 + [{"kind": "done"}]).text
         with patch.object(run, "gh_json", return_value=({"headRefOid": "abc123", "state": "OPEN"}, "")), \
-                patch.object(run, "gh", return_value=(0, "")), patch.object(lp, "write"):
+                patch.object(gitcall, "gh", return_value=(0, "")), patch.object(lp, "write"):
             self.assertTrue(run.post_review(lp, "https://github.com/acme/api/pull/1", "PASS"))
         self.assertLess(len((self.root / "review.md").read_text()), 65536)
         self.assertIn("truncated", (self.root / "review.md").read_text())

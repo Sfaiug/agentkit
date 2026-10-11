@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gc, job as jobs, menu, notify, orch, run, status, terminal, watch
+from agentkit import config, gc, gitcall, job as jobs, menu, notify, orch, run, status, terminal, watch
 from agentkit import host, record as run_record
 
 
@@ -61,7 +61,7 @@ sys.exit(1)
             self.script(self.bin / executable, 'raise AssertionError("external call forbidden")\n')
         # Waiting for a systemd launcher does not wait for the recovery worker it starts.
         self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord call")))
         self.notified = self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.seats = []

@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import gate, host, config, land, notify, orch, run, usage, worker
+from agentkit import config, gate, gitcall, host, land, notify, orch, run, usage, worker
 from agentkit import record
 
 NO_VERDICT_PROMPT = ("Your previous turn ended without ak hand-in done. Review the diff now, "
@@ -126,7 +126,7 @@ sys.exit(1)
 ''')
         for executable in ("gh", "claude", "codex", "muse"):
             self.script(self.bin / executable, 'raise AssertionError("external call forbidden")\n')
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(land, "start_line", return_value=False))
         self.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=AssertionError("external launch")))
         self.stack.enter_context(patch.object(run, "stop_run_tree"))
@@ -415,7 +415,7 @@ sys.exit(1)
                 return 0, "[]"
             raise AssertionError(f"unexpected gh: {args[:4]}")
 
-        with patch.object(run, "gh", side_effect=fake_gh):
+        with patch.object(gitcall, "gh", side_effect=fake_gh):
             self.assertEqual(run.cmd_resume([run_dir.name]), 0,
                              (run_dir / "log.txt").read_text())
             parked = record.read_state(run_dir)

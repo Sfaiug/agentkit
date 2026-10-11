@@ -20,7 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, notify, run, worker
+from agentkit import config, gitcall, notify, run, worker
 from agentkit import record
 
 RULE = f"{worker.GATE}\n{worker.REAL_USERS}"
@@ -99,7 +99,7 @@ sys.exit(1)
 ''')
         for executable in ("gh", "claude", "codex", "muse"):
             self.script(bin_dir / executable, 'raise AssertionError("external call forbidden")\n')
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         config.ensure_dirs()
@@ -156,11 +156,11 @@ sys.exit(1)
                 checkout = Path(tempfile.mkdtemp(dir=self.root))
                 if text is not None:
                     (checkout / "AGENTS.md").write_text(text)
-                self.assertEqual(run.users_declared(checkout), want)
+                self.assertEqual(gitcall.users_declared(checkout), want)
         # the `tests:` command is a shell line, quotes and `#` included, and stays as written
         (checkout / "AGENTS.md").write_text(
             "---\nusers: 'real'\ntests: bash -c 'make check' # all of it\n---\n")
-        self.assertEqual(run.declared(checkout, "tests"), "bash -c 'make check' # all of it")
+        self.assertEqual(gitcall.declared(checkout, "tests"), "bash -c 'make check' # all of it")
 
     def test_a_real_users_reviewer_holds_the_hidden_feature_rule(self):
         for front in ("---\nusers: real\n---\n# Repo\n",
