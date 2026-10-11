@@ -11353,6 +11353,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
     def ended(why):
         state.update(state="fail", error=why, finished_at=time.time())
         state.pop("own_pr_wait", None)
+        state.pop("landing_fix", None)      # an ended run holds no landing fix
         lp.write()
         write_result(run_dir, state, lp.cmds or ["(none declared)"], log, cfg)
         log(f"FAIL {why}")
@@ -11377,10 +11378,9 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         # or the fix it pushed (`own_pr_heads`)
         if not pushed and head != reviewed:
             git(lp.wt, "reset", "--hard", reviewed)
-        # the seat's own head is reviewed as a round, as any new head is, whatever red the
-        # landing left behind: a landing fix is only what the fixer turn pushes, and a head
-        # that needs a round the change no longer has goes back to its seat
-        state.pop("landing_fix", None)
+        # the seat's own head is reviewed as a round, as any new head is (`review_pr_round`
+        # holds a landing fix to the heads the run wrote), and a head that needs a round the
+        # change no longer has goes back to its seat
         why = own_pr_budget(url, run_dir, len(state.get("round_summaries") or []))[1]
         if why:
             return ended(why)
@@ -11517,8 +11517,13 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                            "review of the seat's own PR needs its orchestrator")
     summaries = prior.get("round_summaries", []) if is_own else []
     # a landing fix (`fail_pr_landing`) is re-reviewed in the round whose PASS it repairs, which
-    # enters no round history and spends no round, however the budget stands
-    landing_fix = bool(is_own and prior.get("landing_fix"))
+    # enters no round history and spends no round, however the budget stands -- on a head the
+    # run wrote (`own_pr_heads`): one the seat pushed meanwhile is the seat's own, a round
+    landing_fix = bool(is_own and prior.get("landing_fix")
+                       and info["headRefOid"] in own_pr_heads(prior))
+    if is_own and prior.get("landing_fix") and not landing_fix:
+        prior.pop("landing_fix")
+        run_record.save_state(run_dir, prior)
     rnd, turn = own_pr_fix(prior if is_own else {})
     n_rounds = 1
     if is_own:
@@ -11526,6 +11531,18 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         # are what is left, and a fourth round is refused whichever run would spend it
         n_rounds = own_pr_budget(url, run_dir)[0]
         why = own_pr_budget(url, run_dir, 0 if landing_fix else len(summaries))[1]
+        if why and summaries and prior.get("head_sha") != info["headRefOid"]:
+            # a head the seat pushed needs a round the change no longer has: the run ends
+            # with the budget's own sentence, for its seat to decide, as `fix_own_pr` ends one
+            state = {**prior, "head_sha": info["headRefOid"], "state": "fail", "error": why,
+                     "finished_at": time.time()}
+            for key in ("own_pr_wait", "own_pr_round_pending", "waiting_on"):
+                state.pop(key, None)
+            run_record.save_state(run_dir, state)
+            write_result(run_dir, state, pr_loop(cfg, run_dir, state, opts, log).cmds
+                         or ["(none declared)"], log, cfg)
+            log(f"FAIL {why}")
+            return state
         if why:
             raise config.Error(why)
     advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
