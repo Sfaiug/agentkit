@@ -115,7 +115,7 @@ class RedOnTheTip(unittest.TestCase):
         self.assertIsNone(self.red())
 
     def test_a_sharded_suites_red_piece_alone_runs_on_the_tip(self):
-        suite = 'case "$AK_SHARD" in 2/*) test ! -f ../flake;; *) true;; esac'
+        suite = 'case "$AK_SHARD" in 2/*) echo piece-two-broke; test ! -f ../flake;; *) true;; esac'
         self.declare(suite)
         first = self.member()
         self.advance()
@@ -130,12 +130,30 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.checks[-1][2].get("shard"), "2/2")
         self.assertTrue(gate.names_shard("export AK_SHARD=${AK_SHARD:-1/1}; make test"))
         self.assertEqual(self.red()["probe"]["piece"], "2/2")
-        self.assertIn(f"$ {suite}\n[exit 1]\n--- AK_SHARD=2/2 ---", (first / "target-probe.log").read_text())
+        # what the piece printed on the tip is what a repair or a PR's fixer is told
+        shown = f"$ {suite}\n[exit 1]\n--- AK_SHARD=2/2 ---\npiece-two-broke"
+        self.assertIn(shown, (first / "target-probe.log").read_text())
         self.assertIn(f"`{suite}`, its piece AK_SHARD=2/2, fails on origin/main at",
                       self.red()["probe"]["text"])
+        self.assertIn(shown.replace("\n", "\n    "), self.red()["probe"]["text"])
         self.assertIn("fails its piece AK_SHARD=2/2 alone", said[-1])
         self.wake.assert_not_called()
         self.assertEqual(self.prepared, [])
+
+    def test_a_piece_failing_once_by_chance_on_the_tip_runs_again(self):
+        # piece 2 fails on the member every time, and on the tip only its first run
+        suite = ('case "$AK_SHARD" in 2/*) test ! -f broken.txt && '
+                 '{ test -f ../once || { touch ../once; false; }; };; *) true;; esac')
+        self.declare(suite)
+        first = self.member(**{"broken.txt": "own\n"})
+        self.advance()
+        self.clock()
+        with patch.object(gate, "derived_heavy_limit", return_value=2):
+            land.check_line(self.turn)
+        self.assertEqual(self.checks[-1][2].get("shard"), "2/2")
+        self.assertIsNone(self.red())
+        self.assertIn("flaky:", (first / "target-probe.log").read_text())
+        self.wake.assert_called_once_with(first.name, ANY)
 
     def test_the_red_piece_is_read_from_its_exit_never_from_what_a_piece_printed(self):
         # piece 1 prints a red piece's record lines and passes; piece 2 fails on every checkout

@@ -1109,13 +1109,10 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     """
     env = suite_env()
     if shard is not None:
-        header = f"--- AK_SHARD={shard} ---\n"
-        output.write(header.encode())
+        output.write(f"--- AK_SHARD={shard} ---\n".encode())
         output.flush()
-        code, text, killed = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd),
-                                          activity=activity, output=output,
-                                          env={**env, "AK_SHARD": shard}, **kwargs)
-        return code, header + text, killed
+        return worker.boxed(["bash", "-c", command], limit, cwd=str(cwd), activity=activity,
+                            output=output, env={**env, "AK_SHARD": shard}, **kwargs)
     if not names_shard(command):
         path = suite_cost(command, cwd, run_dir)[0] if measure else None
         measured = _SuiteMeasure(run_dir) if measure else None
@@ -1334,7 +1331,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     killed at the limit or never run, and none for those after a kill: what decides a proof,
     never the text, which a command can print anything into.  `pieces`, a dict, gets the same
     for each sharded command's pieces, by command then share (`run_suite`); `shard` runs
-    every command as that one piece alone.
+    every command as that one piece alone, a command like any other, its re-run included.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -1348,7 +1345,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         reason.append(why)
         running.extend(_running_commands(pid))
 
-    suite = next((cmd for cmd in cmds if names_shard(cmd)), None)
+    # a command run as one piece is the one command it is: its output read and re-run as any
+    split = names_shard if shard is None else lambda _: False
+    suite = next((cmd for cmd in cmds if split(cmd)), None)
     with gate_turn(run_dir, log_path, log, suite, cwd) if heavy or suite else nullcontext():
         deadline = time.monotonic() + limit
         def waited(seconds):
@@ -1380,7 +1379,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 with log_path.open("rb") as progress:
                     progress.seek(max(offset, log_path.stat().st_size - run.OUT_CAP))
                     out = progress.read().decode("utf-8", errors="replace")
-                if names_shard(cmd):
+                if split(cmd):
                     out = piece_text
                 if heavy and code == SUITE_BUSY and not killed:
                     if log is not None and not busy:
@@ -1389,7 +1388,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     busy = True
                     deadline += busy_turn(run_dir, log_path, log)
                     continue
-                if code == 0 or killed or first is not None or names_shard(cmd):
+                if code == 0 or killed or first is not None or split(cmd):
                     break
                 first = out
                 first_span = (offset, end)
@@ -1404,7 +1403,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             if marks is not None:
                 marks.append(None if killed else code)
             chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
-                          f"{out if names_shard(cmd) else out[-run.OUT_CAP:]}".rstrip())
+                          f"{out if split(cmd) else out[-run.OUT_CAP:]}".rstrip())
             if first is not None and code == 0:
                 # blank lines dropped: a record is what lies between two, and these are one
                 # both runs read whole from the gate log: the capped `out` starts mid-output
