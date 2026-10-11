@@ -428,7 +428,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     """(whether the checks passed, their output, the red piece of `suite` as `red_piece` reads
     it); with `shard` every command runs as that one piece alone, on one turn."""
     from . import gate, run
-    identity = run.commit_identity(scratch)
+    identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
     # The checker takes a heavy turn without marking any member's record.
     context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
@@ -441,7 +441,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces)
-    if (not clean or run.commit_identity(scratch) != identity
+    if (not clean or gitcall.commit_identity(scratch) != identity
             or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
         ok = False
         text += ("\n\nCheckout changed during the final check; "
@@ -510,7 +510,7 @@ def _landing_checks(directory, state, scratch, tip):
     _, body, _ = task.parse_task(directory / "task.md")
     # A review PR owes the target's suite, never an earlier head's suite too.
     cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
-    return tuple(task.group_commands(run.with_suite(cmds, scratch, ref=tip))[1])
+    return tuple(task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1])
 
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):

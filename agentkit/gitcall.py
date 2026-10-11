@@ -54,8 +54,6 @@ PROMPTED = re.compile(r"terminal prompts disabled|could not read (?:Username|Pas
 LIST_CAP = 500                  # files a scratch run's reviewer is shown before it is told the count
 
 
-PR_PARTS = re.compile(r"^https://github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)/?$")
-
 
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
 

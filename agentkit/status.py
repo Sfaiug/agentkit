@@ -5,7 +5,7 @@ import re
 import time
 from pathlib import Path
 
-from . import config, gate, gc, history, host, orch, run, scoreboard, stop
+from . import config, gate, gc, gitcall, history, host, orch, run, scoreboard, stop
 from . import job as jobs
 from . import land as landing
 from . import record as run_record
@@ -506,7 +506,7 @@ def status_final_check(directory, state):
         wt = state.get("worktree")
         if wt:
             try:
-                cmds = run.with_suite(cmds, Path(wt), state.get("target") or state.get("base"),
+                cmds = gitcall.with_suite(cmds, Path(wt), state.get("target") or state.get("base"),
                                   landing=not state.get("no_merge"))
             except Exception:
                 pass

@@ -30,8 +30,8 @@
 - `gate.py`: run admission (the slot queue and host gates), check commands and host-wide
   heavy-suite turns. API: `slot_lock`, `claim_slot`, `wait_for_slot`, `slot_note`,
   `host_status_line`, `run_done_when`, turn/env helpers and wait notes. For run, land and
-  tests. Leaks: gitcall's `run_child_env` and `dirty_paths`, run's `memory_cap_note`, `OUT_CAP`,
-  `redress_seat`, `run_depth`.
+  tests. Leaks: gitcall's `run_child_env`, `dirty_paths` and `run_depth`, run's
+  `memory_cap_note`, `OUT_CAP`, `redress_seat`.
 - `status.py`: `ak run status`: the run table, one run's details and their dim lines
   (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
   watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`).
