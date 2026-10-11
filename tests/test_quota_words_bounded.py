@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, orch, run, turns, usage, watch  # noqa: E402
+from agentkit import config, harness, orch, run, staffing, turns, usage, watch  # noqa: E402
 from fixtures.clock import Clock
 from fixtures.hand_in import scripted, stateful
 
@@ -127,7 +127,7 @@ class QuotaWordsBounded(unittest.TestCase):
                                      dir=lambda part: run_dir / "round-1" / part)
                 (self.adapters / "plan.json").write_text(json.dumps([
                     {"code": 1, "final.md": BILLING}, DONE]))
-                with patch.object(run, "collect_usage", return_value={}):
+                with patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}):
                     self.assertEqual(run.execute(lp, "executor", "Do the task.", "executor"),
                                      DONE["final.md"])
                 self.assertEqual(harness.load(name).failure(BILLING)[0], harness.SPENT)

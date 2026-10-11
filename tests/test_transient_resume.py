@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, gitcall, run, turns, usage, watch  # noqa: E402
+from agentkit import config, gc, gitcall, run, staffing, turns, usage, watch  # noqa: E402
 from agentkit import record as run_record
 
 
@@ -219,7 +219,7 @@ class TransientResume(unittest.TestCase):
                 patch.object(watch, "kill_tree") as kill, \
                 patch.object(watch, "stop_run_scope", return_value=False) as scope, \
                 patch.object(watch, "launch_resume") as resume, \
-                patch.object(run, "handover_executor") as handover:
+                patch.object(staffing, "handover_executor") as handover:
             code, text, session, dead = run.call_retrying(
                 self.cfg, "opus", "body", self.root, run_dir / "round-1" / "executor",
                 "executor", None, lambda _: None)
@@ -370,7 +370,7 @@ class TransientResume(unittest.TestCase):
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \
                 patch.object(run, "history_start"), \
                 patch.object(run, "exclude_junk"), \
-                patch.object(run, "collect_usage", return_value={}), \
+                patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
                 patch.object(run, "review", side_effect=turns.CannotRun("mimo", line)), \
                 patch.object(run, "post_review", side_effect=AssertionError("posted")):
             state = run.review_pr(self.cfg, run_dir, "https://github.com/o/r/pull/1",

@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import BRANCH, OwnPr, URL
-from agentkit import config, gitcall, run, worker, worktrees
+from agentkit import config, gitcall, run, staffing, worker, worktrees
 from agentkit import record
 
 
@@ -79,7 +79,7 @@ class OwnPrRounds(OwnPr):
         self.addCleanup(setattr, run, "_PICKUP_START", run._PICKUP_START)
         run._PICKUP_START = "aaa1111"
         with patch.object(run, "installed_head", return_value="bbb2222"), \
-                patch.object(run, "ready_order", return_value=["astra", "opus"]), \
+                patch.object(run, "ready_order", return_value=["astra", "opus"]), patch.object(staffing, "ready_order", return_value=["astra", "opus"]), \
                 patch.object(run.os, "execv", side_effect=execv), \
                 patch.object(run, "drive", side_effect=lambda *a, job, **k: job()), \
                 patch.object(run.box, "check"), \
@@ -352,7 +352,7 @@ class OwnPrRounds(OwnPr):
                 raise InterruptedError("the process died before the new head's review")
             return {}
 
-        with patch.object(run, "collect_usage", side_effect=dies_once_checked_out), \
+        with patch.object(run, "collect_usage", side_effect=dies_once_checked_out), patch.object(staffing, "collect_usage", side_effect=dies_once_checked_out), \
                 self.assertRaises(InterruptedError):
             self.review(["FAIL", "PASS"])
         state = record.read_state(self.run_dir)
@@ -381,7 +381,7 @@ class OwnPrRounds(OwnPr):
 
     def test_an_own_prs_first_review_is_refused_past_the_ceiling(self):
         self.hand_push(1)                               # 5000 added lines of fence.txt
-        with patch.object(run, "ready_order", return_value=[]):     # decided from git alone: no reviewer is picked first
+        with patch.object(run, "ready_order", return_value=[]), patch.object(staffing, "ready_order", return_value=[]):     # decided from git alone: no reviewer is picked first
             state = self.review([])
         self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
         self.assertIn("PR #7 adds 5000 lines", state["error"])

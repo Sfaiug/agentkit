@@ -15,8 +15,8 @@ from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import (box, config, gitcall, host, notify, orch, retention, run, task as taskfile,
-               transitions, turns, watch)
+from . import (box, config, gitcall, host, notify, orch, retention, run, staffing,
+               task as taskfile, transitions, turns, watch)
 from . import land, record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
@@ -706,7 +706,7 @@ def job_start_task(cfg, job_dir, task, opts, log):
                 "--bg": False}
     if task.get("rerun_attempted") and run_opts["--review"]:
         kept = run_opts["--review"]
-        if run.same_model(cfg, run_opts["--exec"], kept):
+        if staffing.same_model(cfg, run_opts["--exec"], kept):
             log(f"{task['name']}: reviewer {kept} is the rerun executor's own model; "
                 "the rerun will pick another reviewer")
             run_opts["--review"] = None
@@ -932,7 +932,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             and (transitions.failed_at_budget(run_state) or job_round_shortfall(run_state)) \
             and not run.review_failed(run_state):
         nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"),
-                                run.run_workers(cfg, run_state))
+                                staffing.run_workers(cfg, run_state))
         if nxt:
             # The rerun keeps the job's reviewer unless it is the rerun executor's own
             # model; then the fresh run picks another reviewer (`job_start_task`).
@@ -1290,11 +1290,11 @@ def run_job_loop(cfg, job_dir, job):
             if task.get("budget_wait") and now - last_picker[0] < JOB_PICKER_INTERVAL:
                 continue
             try:
-                providers = run.collect_usage(cfg)
-                run.pick_models(cfg, providers, opts.get("--exec"), opts.get("--review"), lambda _: None)
+                providers = staffing.collect_usage(cfg)
+                staffing.pick_models(cfg, providers, opts.get("--exec"), opts.get("--review"), lambda _: None)
             except turns.Exhausted:
                 # a pair no budget can make is not waited for: the task's run refuses it at launch
-                if not run.pair_refusal(cfg, providers, None, opts.get("--exec"),
+                if not staffing.pair_refusal(cfg, providers, None, opts.get("--exec"),
                                     opts.get("--review")):
                     task["budget_wait"] = True
                     task["retry_after"] = now + JOB_PICKER_INTERVAL

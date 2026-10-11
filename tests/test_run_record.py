@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, gate, gitcall, host, job, orch, run, transitions, watch, worker
+from agentkit import config, gate, gitcall, host, job, orch, run, staffing, transitions, watch, worker
 from agentkit import record
 
 
@@ -283,7 +283,7 @@ class Tick(Fixture):
                 (transitions, "tick_admission", True),
                 (transitions, "exhausted_wait", "window"),
                 (run, "run_workers", []),
-                (run, "executable_models", []),
+                (staffing, "executable_models", []),
                 (run, "run_scope_limits", (None, [])),
                 (run, "spawn_bg", 0),
                 (config, "role_groups", (None, None)),

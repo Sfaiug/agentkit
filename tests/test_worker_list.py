@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, host, notify, run, status, turns, usage, watch
+from agentkit import config, hand_in, host, notify, run, staffing, status, turns, usage, watch
 from agentkit import record
 from fixtures.hand_in import submitting
 
@@ -149,7 +149,7 @@ class WorkerList(unittest.TestCase):
                         run.pick_models(self.cfg, providers, executor, reviewer,
                                         self.logs.append, workers=workers, resuming=resuming)
             lp = self.loop("beta", "delta", workers)
-            with patch.object(run, "collect_usage", return_value=providers):
+            with patch.object(run, "collect_usage", return_value=providers), patch.object(staffing, "collect_usage", return_value=providers):
                 self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "delta")
             self.assertEqual(lp.reviewer, "alpha")
 
@@ -180,9 +180,9 @@ class WorkerList(unittest.TestCase):
         # list left it out: the stalled turn's handover lands inside the list all the same
         lp = self.loop("alpha", "gamma", ["alpha", "gamma", "beta"])
         state = {**lp.state, "review_session": "saved-review"}
-        with patch.object(run, "collect_usage", return_value=self.providers(a=100, c=0)), \
+        with patch.object(run, "collect_usage", return_value=self.providers(a=100, c=0)), patch.object(staffing, "collect_usage", return_value=self.providers(a=100, c=0)), \
                 redirect_stderr(io.StringIO()):
-            self.assertEqual(run.handover_executor(state, self.cfg, "stalled"), "gamma")
+            self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "gamma")
         self.assertIn(state["executor"], ["alpha", "gamma", "beta"])
         self.assertNotEqual(state["executor"], "delta")
         self.assertEqual((state["reviewer"], state["review_session"]), ("beta", None))
@@ -368,6 +368,7 @@ class WorkerList(unittest.TestCase):
                                      self.now + 3600, "usage limit reached", True)
                 with patch.object(run, "call_retrying", side_effect=refusal), \
                         patch.object(run, "collect_usage",
+                                     return_value=usage.Readings(self.providers(b=100))), patch.object(staffing, "collect_usage",
                                      return_value=usage.Readings(self.providers(b=100))), \
                         redirect_stderr(io.StringIO()):
                     with self.assertRaises(run.Exhausted) as parked:
@@ -620,7 +621,7 @@ class WorkerList(unittest.TestCase):
         # roles are re-picked instead, so the cheapest legal pair runs
         lp = self.loop("alpha", "gamma", ["alpha", "gamma", "delta"])
         lp.review_sid = "saved-review"
-        with patch.object(run, "collect_usage", return_value=self.providers(c=30)), \
+        with patch.object(run, "collect_usage", return_value=self.providers(c=30)), patch.object(staffing, "collect_usage", return_value=self.providers(c=30)), \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "gamma")
         self.assertEqual((lp.executor, lp.reviewer), ("gamma", "delta"))

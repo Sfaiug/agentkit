@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 SLEEP = time.sleep                  # the real one, kept where a fixture needs to wait
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gc, host, job as jobs, menu, notify, orch, run, status, stop, terminal, turns, usage, watch, worker
+from agentkit import config, gc, host, job as jobs, menu, notify, orch, run, staffing, status, stop, terminal, turns, usage, watch, worker
 from agentkit import record
 
 # A fake harness, in the two shapes a turn can take: one that authenticates and answers, and
@@ -381,8 +381,8 @@ class Login(unittest.TestCase):
         # column says what it waits for, under the open circle that means nobody must act
         self.assertTrue(run.needs_recovery(state))
         self.assertEqual(menu.run_state_word(state), "waiting for claude login")
-        self.assertEqual(run.waiting_word(state), "waiting for claude login")
-        self.assertEqual(run.waiting(state), "waiting for claude login")
+        self.assertEqual(staffing.waiting_word(state), "waiting for claude login")
+        self.assertEqual(staffing.waiting(state), "waiting for claude login")
         self.assertEqual(terminal.state_text(menu.run_state_word(state)),
                          "\u25cb waiting for claude login")
         with redirect_stdout(io.StringIO()) as out:
@@ -552,7 +552,7 @@ class Login(unittest.TestCase):
         self.assertIn("login is back", after["interruption_reason"])
         self.assertTrue(after["recovery_pending"])
         self.assertNotIn("waiting_for", after)          # it names no login, because none is out
-        self.assertNotIn("login", run.waiting_word(after))
+        self.assertNotIn("login", staffing.waiting_word(after))
         warnings = [line for line in logs if line.startswith("WARN")]
         self.assertEqual(len(warnings), 1)
         self.assertIn("worktree", warnings[0])
@@ -598,7 +598,7 @@ class Login(unittest.TestCase):
             back = tick(logs)                                      # back, but the launch failed
             self.assertEqual(back["word"], "working")
             self.assertTrue(record.read_state(directory)["login_back_at"])
-            self.assertEqual(run.waiting_word(record.read_state(directory)), "waiting to resume")
+            self.assertEqual(staffing.waiting_word(record.read_state(directory)), "waiting to resume")
             # the seats are read before the runs are, so the card comes off on the next pass
             self.assertEqual(tick(logs)["word"], "working")
             self.assertIsNone(notify.last("atoll"))
@@ -609,7 +609,7 @@ class Login(unittest.TestCase):
             # at once; the seats were read before the runs were, so the word and the card
             # follow on the next pass -- the three minutes everything here moves in
             self.assertNotIn("login_back_at", record.read_state(directory))
-            self.assertEqual(run.waiting_word(record.read_state(directory)),
+            self.assertEqual(staffing.waiting_word(record.read_state(directory)),
                              "waiting for claude login")
             out = tick(logs)
         self.assertEqual(out["word"], "needs you")
@@ -640,7 +640,7 @@ class Login(unittest.TestCase):
         after = record.read_state(directory)
         self.assertNotIn("login_back_at", after)
         self.assertNotIn("login_resume_at", after)
-        self.assertEqual(run.waiting_word(after), "waiting for claude login")
+        self.assertEqual(staffing.waiting_word(after), "waiting for claude login")
         # ... and back again, still inside the old window: it resumes at once, because that
         # window was timed against a launch this outage already ended
         self.log_out(False)
@@ -673,7 +673,7 @@ class Login(unittest.TestCase):
         throttled = record.read_state(directory)
         self.assertEqual(throttled["state"], "waiting_login")
         self.assertTrue(throttled["login_back_at"])
-        self.assertEqual(run.waiting_word(throttled), "waiting to resume")
+        self.assertEqual(staffing.waiting_word(throttled), "waiting to resume")
         with patch.object(orch, "sessions", return_value=[seat]), \
                 patch.object(orch, "listing", return_value=[seat]), \
                 patch.object(watch, "seat_model", return_value=("claude", "anthropic")):
@@ -736,7 +736,7 @@ class Login(unittest.TestCase):
         record.save_state(directory, {**state, "launched_session": "atoll"})
         config.save_session(self.cfg, "atoll", "opus", ["astra"], {"cwd": str(self.work)})
         seat = {"name": "atoll", "exited": False, "legacy": False}
-        self.assertEqual(run.waiting_word(record.read_state(directory)),
+        self.assertEqual(staffing.waiting_word(record.read_state(directory)),
                          "waiting for claude login")
         self.log_out(False)
         logs = []
@@ -745,7 +745,7 @@ class Login(unittest.TestCase):
         after = record.read_state(directory)
         self.assertEqual(after["state"], "waiting_login")        # still parked, still retried
         self.assertTrue(after["login_back_at"])
-        self.assertEqual(run.waiting_word(after), "waiting to resume")
+        self.assertEqual(staffing.waiting_word(after), "waiting to resume")
         self.assertEqual(menu.run_state_word(after), "waiting to resume")
         self.assertTrue(any("could not resume" in line for line in logs), logs)
         # the seat reads the run as working, never as a login of his to go and fix

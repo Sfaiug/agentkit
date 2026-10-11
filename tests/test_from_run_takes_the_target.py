@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, run
+from agentkit import config, gc, gitcall, run, staffing
 from agentkit import record
 
 
@@ -99,7 +99,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
                             "staffing began before merging the target")
             return {}
 
-        with patch.object(run, "collect_usage", side_effect=collect_usage):
+        with patch.object(run, "collect_usage", side_effect=collect_usage), patch.object(staffing, "collect_usage", side_effect=collect_usage):
             lp = self.start()
         self.assertTrue((lp.wt / "fixed.txt").is_file(), "round 1 lacks the target's fix")
         self.assertEqual((lp.wt / "fixed.txt").read_text(), "target fix\n")

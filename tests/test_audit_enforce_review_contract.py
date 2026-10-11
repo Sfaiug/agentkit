@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import config, gate, gitcall, host, run, turns, usage, worktrees
+from agentkit import config, gate, gitcall, host, run, staffing, turns, usage, worktrees
 from agentkit import record
 
 
@@ -163,7 +163,7 @@ sys.exit(row["code"])
                 self.assertEqual(state["reviewer"], reviewer)
                 self.assertTrue(run.review_pass(state, self.cfg))
                 self.assertEqual(run.delivery(state), "PASS, delivered")
-                self.assertEqual(run.self_reviewed(state), reviewer == "opus")
+                self.assertEqual(staffing.self_reviewed(state), reviewer == "opus")
 
     def test_only_anthropic_reviews_without_waiting(self):
         self.available("anthropic")
@@ -179,7 +179,7 @@ sys.exit(row["code"])
             self.assertEqual((state["executor"], state["reviewer"]), wanted)
             self.assertTrue(run.review_pass(state, self.cfg))
             self.assertEqual(run.delivery(state), "PASS, delivered")
-            self.assertEqual(run.self_reviewed(state), eligible == ["opus"])
+            self.assertEqual(staffing.self_reviewed(state), eligible == ["opus"])
         self.assertEqual([r["model"] for r in self.calls()],
                          ["opus", "opus", "opus", "fable"])
 

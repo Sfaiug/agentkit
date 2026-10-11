@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, host, land, menu, orch, run, status, stop, transitions, watch
+from agentkit import config, gc, gitcall, host, land, menu, orch, run, staffing, status, stop, transitions, watch
 from agentkit import record
 
 WEEK = 604800
@@ -902,7 +902,7 @@ class Parked(unittest.TestCase):
                 with patch.object(run, "spawn_bg", side_effect=resume), \
                         patch.object(transitions, "upstream_sha", return_value="1" * 40), \
                         patch.object(run, "drive", side_effect=drive), \
-                        patch.object(run, "collect_usage", return_value=providers), \
+                        patch.object(run, "collect_usage", return_value=providers), patch.object(staffing, "collect_usage", return_value=providers), \
                         patch.object(gc, "disk_pressure", return_value=False), \
                         patch.object(run, "exclude_junk"), \
                         patch.object(run, "join_session_project"), \

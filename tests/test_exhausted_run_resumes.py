@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, menu, notify, orch, run, status, usage, watch
+from agentkit import config, host, menu, notify, orch, run, staffing, status, usage, watch
 from agentkit import record
 
 WEEK = 604800
@@ -198,7 +198,7 @@ class ExhaustedResume(unittest.TestCase):
         for prov, at in (("anthropic", self.now + 3600), ("openai", self.now + 7200)):
             providers[prov]["meters"][0]["resets_at"] = at
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "seat"}):
-            provider, _, dry = run.exhausted_waits_for(state=record.read_state(run_dir),
+            provider, _, dry = staffing.exhausted_waits_for(state=record.read_state(run_dir),
                                                        providers=providers, cfg=self.cfg,
                                                        now=self.now)
         self.assertTrue(dry)
@@ -217,7 +217,7 @@ class ExhaustedResume(unittest.TestCase):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
         self.assertEqual(self.logs, [])
         self.assertEqual(record.read_state(run_dir)["state"], "exhausted")
-        self.assertEqual(run.waiting_word(record.read_state(run_dir), self.providers(),
+        self.assertEqual(staffing.waiting_word(record.read_state(run_dir), self.providers(),
                                           self.cfg, now=self.now), "exhausted")
         with redirect_stdout(io.StringIO()) as out:
             self.assertEqual(status.cmd_status([run_dir.name]), 0)
@@ -274,7 +274,7 @@ class ExhaustedResume(unittest.TestCase):
         want = (f"waiting for openai until "
                 f"{time.strftime('%H:%M', time.localtime(known))}")
         state = record.read_state(run_dir)
-        self.assertEqual(run.exhausted_waits_for(state, json.loads(
+        self.assertEqual(staffing.exhausted_waits_for(state, json.loads(
             (config.STATE / "usage.json").read_text())["providers"], cfg=self.cfg,
             now=self.now), ("openai", known, True))
         with redirect_stdout(io.StringIO()) as out:
@@ -286,7 +286,7 @@ class ExhaustedResume(unittest.TestCase):
         self.assertNotIn("exhausted", status_row)
         self.assertEqual(record.read_state(run_dir)["state"], "exhausted")  # drill-down keeps it
         (config.STATE / "usage.json").unlink()
-        self.assertEqual(run.waiting_word(state), "waiting for a provider window")
+        self.assertEqual(staffing.waiting_word(state), "waiting for a provider window")
 
     def test_v5r_no_notification_on_exhaustion_or_resume(self):
         run_dir = self.receipt("20260916-1206-quiet")

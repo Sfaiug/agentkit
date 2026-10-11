@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, gc, gitcall, menu, orch, run, statusbar, terminal, usage, watch
+from agentkit import config, gc, gitcall, menu, orch, run, staffing, statusbar, terminal, usage, watch
 from agentkit import host, record
 
 TALLY = "2 running · 1 needs a look"
@@ -214,7 +214,7 @@ class Writes(Sandbox):
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "herdr"}):
             run.capture_launch(run_dir, {})
             self.calls.clear()
-            with patch.object(run, "pick_models", return_value=("opus", "astra")), \
+            with patch.object(run, "pick_models", return_value=("opus", "astra")), patch.object(staffing, "pick_models", return_value=("opus", "astra")), \
                     patch.object(run, "rounds", return_value=None), \
                     patch.object(run.usage, "collect", return_value={}), \
                     redirect_stdout(io.StringIO()) as out:
@@ -225,7 +225,7 @@ class Writes(Sandbox):
         # launched from no seat, the line is never printed
         with patch.dict(os.environ, {"AGENTKIT_SESSION": ""}):
             run.capture_launch(run_dir, {})
-            with patch.object(run, "pick_models", return_value=("opus", "astra")), \
+            with patch.object(run, "pick_models", return_value=("opus", "astra")), patch.object(staffing, "pick_models", return_value=("opus", "astra")), \
                     patch.object(run, "rounds", return_value=None), \
                     patch.object(run.usage, "collect", return_value={}), \
                     redirect_stdout(io.StringIO()) as out:
@@ -264,7 +264,7 @@ class Writes(Sandbox):
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-worktree": False, "--no-merge": False, "--bg": False}
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "herdr"}), \
-                patch.object(run, "pick_models", wraps=run.pick_models) as picked, \
+                patch.object(run, "pick_models", wraps=staffing.pick_models) as picked, \
                 patch.object(run, "rounds", return_value=None), \
                 patch.object(run.usage, "collect", return_value={}), \
                 redirect_stdout(io.StringIO()) as out:
@@ -363,7 +363,7 @@ class Writes(Sandbox):
                 "--no-worktree": False, "--no-merge": False, "--bg": False}
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "", "AGENTKIT_GC_DISK_PERCENT": "0"}), \
                 patch.object(gc, "gc") as collected, \
-                patch.object(run, "pick_models", return_value=("opus", "astra")), \
+                patch.object(run, "pick_models", return_value=("opus", "astra")), patch.object(staffing, "pick_models", return_value=("opus", "astra")), \
                 patch.object(run, "rounds", return_value=None), \
                 patch.object(run.usage, "collect", return_value={}):
             run.capture_launch(run_dir, {})

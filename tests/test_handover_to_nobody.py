@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, status, run  # noqa: E402
+from agentkit import config, run, staffing, status  # noqa: E402
 from agentkit import record
 
 
@@ -71,7 +71,7 @@ class HandoverToNobody(unittest.TestCase):
 
         with patch.object(run.worker, "call", side_effect=submitting(call)), \
                 patch.object(run.time, "sleep"), \
-                patch.object(run, "collect_usage", return_value=providers):
+                patch.object(run, "collect_usage", return_value=providers), patch.object(staffing, "collect_usage", return_value=providers):
             run.execute(lp, "executor", "Do the thing.", "executor")
         saved = record.read_state(run_dir)
         self.assertEqual(saved["executor"], "alpha")

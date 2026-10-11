@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, gc, gitcall, history, notify, plan, run, status, watch, task as taskfile
+from agentkit import config, gate, gc, gitcall, history, notify, plan, run, staffing, status, task as taskfile, watch
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -200,7 +200,7 @@ class OwnPrReview(unittest.TestCase):
         self.change(40)
         for reviewer, mark in ((None, "(astra review)"), ("opus", "(opus review, self-reviewed)")):
             with self.subTest(reviewer=reviewer), redirect_stdout(io.StringIO()) as out, \
-                    patch.object(run, "refuse_unready"):
+                    patch.object(run, "refuse_unready"), patch.object(staffing, "refuse_unready"):
                 self.assertEqual(self.review(background=True, want_review=reviewer,
                                              launch_only=True)[0], 0)
                 self.assertIn(f"launched: Review PR #7: Mend the fence {mark}", out.getvalue())
@@ -208,7 +208,7 @@ class OwnPrReview(unittest.TestCase):
 
     def test_background_explicit_reviewer_is_refused_in_the_parent(self):
         self.change(40)
-        with patch.object(run, "refuse_unready", side_effect=config.Error("astra cannot run here")), \
+        with patch.object(run, "refuse_unready", side_effect=config.Error("astra cannot run here")), patch.object(staffing, "refuse_unready", side_effect=config.Error("astra cannot run here")), \
                 self.assertRaisesRegex(config.Error, "astra cannot run here"):
             self.review(background=True, want_review="astra", launch_only=True)
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"], {"reviewers": ["astra"]})

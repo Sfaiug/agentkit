@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import browser, config, gc, job as jobs, notify, orch, run, update  # noqa: E402
+from agentkit import browser, config, gc, job as jobs, notify, orch, run, staffing, update  # noqa: E402
 from agentkit import leases, usage, watch  # noqa: E402
 
 # Every pass of the tick, in its order, and whether a dry run runs it too.
@@ -25,7 +25,7 @@ PASSES = (
     (watch, "resume_dead_loops", True), (watch, "resume_dead_jobs", True),
     (watch, "recover_runs", True), (leases, "scan_all", False), (watch, "save_state", False),
     (usage, "collect", False),
-    (run, "_cached_providers", True), (watch, "resume_exhausted", True),
+    (staffing, "_cached_providers", True), (watch, "resume_exhausted", True),
     (watch, "resume_waiting_login", True), (watch, "resume_errored", True),
     (watch, "resume_waiting", True), (watch, "sweep_preexisting", False),
     (watch, "offer_endings", False), (jobs, "deliver_job_handbacks", False),
@@ -73,7 +73,7 @@ class TickPasses(unittest.TestCase):
                 self.assertEqual(sum("WARN" in line for line in said.splitlines()), 1, said)
                 self.assertIn(f": {error}", said)
                 for other, mock in self.passes.items():
-                    if other != "agentkit.run._cached_providers":
+                    if other != "agentkit.staffing._cached_providers":
                         self.assertTrue(mock.called, f"{other} did not run after {name}")
 
     def test_a_dry_run_runs_only_the_passes_that_change_nothing(self):

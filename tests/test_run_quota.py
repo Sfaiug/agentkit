@@ -28,7 +28,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.clock import Clock
 from fixtures.hand_in import submitting, scripted, stateful
-from agentkit import config, gate, gitcall, harness, host, notify, orch, run, status, turns, usage, watch
+from agentkit import config, gate, gitcall, harness, host, notify, orch, run, staffing, status, turns, usage, watch
 from agentkit import record
 
 WEEK = 604800
@@ -155,7 +155,7 @@ class Quota(unittest.TestCase):
         # meta stays funded: the handover needs a legal pair to land on, not just a model
         with patch.object(usage, "collect", return_value=self.providers(meta_used=50)), \
                 redirect_stderr(io.StringIO()):
-            self.assertEqual(run.handover_executor(state, self.cfg, "dry"), "astra")
+            self.assertEqual(staffing.handover_executor(state, self.cfg, "dry"), "astra")
         self.assertEqual(state["executor"], "astra")
         self.assertIsNone(state["exec_session"])
         self.assertEqual(state["executor_history"][0]["from"], "opus")
@@ -166,7 +166,7 @@ class Quota(unittest.TestCase):
         state = {"executor": "opus", "reviewer": "spark"}
         with patch.object(usage, "collect", return_value=providers), \
                 redirect_stderr(io.StringIO()):
-            self.assertIsNone(run.handover_executor(state, self.cfg, "dry"))
+            self.assertIsNone(staffing.handover_executor(state, self.cfg, "dry"))
         self.assertEqual(state["executor"], "opus")
         self.assertNotIn("executor_history", state)
 

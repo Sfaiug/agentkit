@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 
-from . import config, transitions
+from . import config
 
 # Retired keys stay readable so older run copies still parse: `after:` is refused at launch
 # (`launch_refusal`), the time keys draw a warning.

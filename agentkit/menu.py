@@ -129,7 +129,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, motion, notify, orch, terminal, transitions, update, usage, worker
+from . import command_help, config, gitcall, history, motion, notify, orch, staffing, terminal, transitions, update, usage, worker
 from . import record
 from .harness import load as harness_plugin
 
@@ -776,7 +776,6 @@ def seat_runs(name, records=None):
     `records` are the draw's own `run_records`, read here when they are not handed in.  The
     menu row and the seat's own status bar both read this, as they read `seat_progress`.
     """
-    from . import run as _run
     runs = []
     for run_dir, state in run_records() if records is None else records:
         if transitions.launched_session(state) != name:
@@ -798,7 +797,7 @@ def seat_runs(name, records=None):
         # made: one landing, rechecked or waiting on a push is still in the round its summary
         # closed, not the next
         runs.append({"task": task, "doing": doing, "step": step, "since": since,
-                     "round": max(1, _run.started_round(run_dir, state),
+                     "round": max(1, staffing.started_round(run_dir, state),
                                   state.get("step_round") or 0),
                      "rounds": state.get("rounds"), "model": state.get(model) if model else None})
     return sorted(runs, key=lambda run: -FILLS.get(run["step"], 0))
@@ -856,7 +855,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     `index` is a `transitions.supersession_index` over the same states: pass it when testing
     many runs so one draw scans the records once instead of once per run per seat.
     """
-    from . import gc, run as _run
+    from . import gc
     if state.get("recovery_acknowledged_at"):
         return False
     if state.get("state") in ("error", "exhausted") and transitions.going(state, now=now):
@@ -952,7 +951,6 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     conversation to resume into -- and every one of them keeps its row and its
     global number.
     """
-    from . import run as _run
     at = time.time() if now is None else now
     records = run_records() if records is None else list(records)
     all_states = [state for _, state in records]
@@ -1552,7 +1550,6 @@ def session_runs(name):
     """Every run that seat launched which stopping it stops: what `stop.cmd_stop` takes -- each
     one not ended, as `orch.cmd_stop` stops them too, and an `error` still waiting on its
     owner, which the tick would retry."""
-    from . import run as run_mod
     try:
         dirs = record.run_dirs()
     except OSError:
@@ -2114,9 +2111,8 @@ def run_state_word(state):
     It is still nobody's to take up -- the tick resumes it the moment the `auth` verb
     passes -- which is what the circle, and not `needs you`, says.
     """
-    from . import run
     if state.get("state") == "waiting_login":
-        return run.waiting_word(state)
+        return staffing.waiting_word(state)
     if transitions.going(state):
         return "working"
     if transitions.needs_recovery(state) or state.get("state") in record.FAILED:
@@ -2126,7 +2122,6 @@ def run_state_word(state):
 
 def run_age_secs(state):
     """The seconds the age column and the follow header read for a run."""
-    from . import run
     now = time.time()
     started = state.get("started_at") or 0
     if transitions.needs_recovery(state):

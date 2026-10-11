@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import OwnPr
-from agentkit import config, hand_in, run, turns, worker
+from agentkit import config, hand_in, run, staffing, turns, worker
 from agentkit import record
 
 
@@ -33,7 +33,7 @@ class OwnPrFixer(OwnPr):
         turns_clock = self.stack.enter_context(patch.object(turns, "time", wraps=time))
         clock.sleep.side_effect = lambda _seconds: self.fail("the run slept instead of fixing")
         turns_clock.sleep.side_effect = lambda _seconds: self.fail("the run slept instead of fixing")
-        with patch.object(run, "ready_order", return_value=["astra", "opus"]):
+        with patch.object(run, "ready_order", return_value=["astra", "opus"]), patch.object(staffing, "ready_order", return_value=["astra", "opus"]):
             state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])
         self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "PASS"])
@@ -139,13 +139,13 @@ class OwnPrFixer(OwnPr):
 
         self.fix = handed_over
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra", "grok"])
-        with patch.object(run, "ready_order", return_value=["opus", "astra", "grok"]), \
+        with patch.object(run, "ready_order", return_value=["opus", "astra", "grok"]), patch.object(staffing, "ready_order", return_value=["opus", "astra", "grok"]), \
                 self.assertRaises(InterruptedError):
             self.review(["FAIL", "PASS"])
         saved = record.read_state(self.run_dir)
         saved.update(state="queued", pid=999999991)
         record.save_state(self.run_dir, saved)
-        with patch.object(run, "ready_order", return_value=["opus", "astra", "grok"]):
+        with patch.object(run, "ready_order", return_value=["opus", "astra", "grok"]), patch.object(staffing, "ready_order", return_value=["opus", "astra", "grok"]):
             state = self.review(["FAIL", "FAIL", "PASS"])
         self.assertTrue(state["merged"])
         self.assertEqual(state["executor"], "opus")            # round three's fix was the orchestrator's own

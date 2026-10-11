@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, menu, run, status, usage
+from agentkit import config, menu, run, staffing, status, usage
 from agentkit import record
 
 
@@ -146,8 +146,8 @@ class SelfReviewLast(unittest.TestCase):
         self.assertEqual(self.pick("acme-one"), ("acme-one", "acme-one"))
         self.assertEqual(self.pick("acme-two"), ("acme-two", "acme-one"))
         state = {"executor": "acme-two", "reviewer": "acme-one"}
-        self.assertTrue(run.self_reviewed(state, self.cfg))
-        self.assertFalse(run.self_reviewed(state))
+        self.assertTrue(staffing.self_reviewed(state, self.cfg))
+        self.assertFalse(staffing.self_reviewed(state))
         line = run.launch_line("id", "t", "acme-two", "acme-one",
                                self_review=run.same_model(self.cfg, "acme-two",
                                                           "acme-one"))
@@ -175,7 +175,7 @@ class SelfReviewLast(unittest.TestCase):
             out.mkdir(parents=True, exist_ok=True)
             return 0, "No verdict yet." if model == silent else "VERDICT: PASS", "sid", False
 
-        with patch.object(run, "collect_usage", return_value=self.providers), \
+        with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers), \
                 patch.object(run, "call_retrying", side_effect=submitting(call)), \
                 patch.object(run.worker, "call", side_effect=submitting(call)):
             self.assertEqual(run.review(lp, "Work done.", True, "passed"), "PASS")
@@ -190,32 +190,32 @@ class SelfReviewLast(unittest.TestCase):
         lp = self.loop(reviewer="beta-one", spares=["acme-one"])
         self.assertEqual(self.fallback(lp, "beta-one"), ["beta-one", "beta-one", "acme-one"])
         self.assertTrue(run.review_pass(lp.state, self.cfg))
-        self.assertTrue(run.self_reviewed(lp.state))
+        self.assertTrue(staffing.self_reviewed(lp.state))
 
     def test_a_handover_repicks_to_self_review_when_nothing_else_is_left(self):
         lp = self.loop(reviewer="beta-one")
         self.cfg["defaults"]["workers"] = ["acme-one", "beta-one"]
         self.providers = self.meters(acme=100, beta=10)
-        with patch.object(run, "collect_usage", return_value=self.providers):
+        with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "beta-one")
         self.assertEqual((lp.executor, lp.reviewer), ("beta-one", "beta-one"))
         saved = record.read_state(lp.run_dir)
         self.assertEqual((saved["executor"], saved["reviewer"]), ("beta-one", "beta-one"))
-        self.assertTrue(run.self_reviewed(saved))
+        self.assertTrue(staffing.self_reviewed(saved))
 
     def test_a_stall_handover_hands_to_self_review_when_nothing_else_is_left(self):
         state = {"executor": "acme-one", "reviewer": "beta-one",
                  "workers": ["acme-one", "beta-one"]}
         self.providers = self.meters(acme=100, beta=10)
-        with patch.object(run, "collect_usage", return_value=self.providers):
-            self.assertEqual(run.handover_executor(state, self.cfg, "stalled"), "beta-one")
+        with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
+            self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "beta-one")
         self.assertEqual((state["executor"], state["reviewer"]), ("beta-one", "beta-one"))
 
     def test_a_handover_prefers_a_better_tier_over_a_cheaper_self(self):
         lp = self.loop(executor="beta-one", reviewer="beta-one")
         lp.state["workers"] = ["acme-one", "acme-two", "beta-one"]
         lp.state["reviewers"] = ["acme-one"]
-        with patch.object(run, "collect_usage", return_value=self.providers):
+        with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "acme-two")
         self.assertEqual((lp.executor, lp.reviewer), ("acme-two", "acme-one"))
 
@@ -223,15 +223,15 @@ class SelfReviewLast(unittest.TestCase):
         state = {"executor": "beta-one", "reviewer": "beta-one",
                  "workers": ["acme-one", "acme-two", "beta-one"],
                  "reviewers": ["acme-one"]}
-        with patch.object(run, "collect_usage", return_value=self.providers):
-            self.assertEqual(run.handover_executor(state, self.cfg, "stalled"), "acme-two")
+        with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
+            self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "acme-two")
         self.assertEqual((state["executor"], state["reviewer"]), ("acme-two", "acme-one"))
 
     def test_own_pr_picks_against_the_orchestrator_with_self_last(self):
         opts = {"--review-pr": "https://example.com/acme/fix-api/pull/1", "--review": None}
         session = {"name": "seat", "orchestrator": "acme-one",
                    "workers": ["acme-one", "acme-two", "beta-one"]}
-        with patch.object(run, "collect_usage", side_effect=lambda cfg: self.providers), \
+        with patch.object(run, "collect_usage", side_effect=lambda cfg: self.providers), patch.object(staffing, "collect_usage", side_effect=lambda cfg: self.providers), \
                 patch.object(config, "current_session", return_value="seat"), \
                 patch.object(config, "load_session", return_value=session), \
                 patch.object(run, "pr_view", return_value={"author": "owner"}), \
@@ -258,14 +258,14 @@ class SelfReviewLast(unittest.TestCase):
                             "returncode": 0, "verdict": "PASS", "done_when": True}}
         self.assertTrue(run.review_pass(state, self.cfg))
         self.assertEqual(run.delivery(state, self.cfg), "PASS, delivered")
-        self.assertTrue(run.self_reviewed(state))
+        self.assertTrue(staffing.self_reviewed(state))
         other = {"verdict": "PASS", "executor": "acme-one", "reviewer": "beta-one",
                  "scratch": True,
                  "review": {"executor": "acme-one", "executor_provider": "acme",
                             "reviewer": "beta-one", "reviewer_provider": "beta",
                             "returncode": 0, "verdict": "PASS", "done_when": True}}
         self.assertTrue(run.review_pass(other, self.cfg))
-        self.assertFalse(run.self_reviewed(other))
+        self.assertFalse(staffing.self_reviewed(other))
 
     def test_the_setting_is_gone_but_a_stale_key_reads_without_error(self):
         self.assertNotIn("reviews_own_provider", (REPO / "config.default.toml").read_text())

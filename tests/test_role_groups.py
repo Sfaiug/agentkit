@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import test_worker_list as fixtures
 from fixtures.hand_in import smoke, submitting
-from agentkit import config, gate, gc, gitcall, run, status, turns, usage, watch
+from agentkit import config, gate, gc, gitcall, run, staffing, status, turns, usage, watch
 from agentkit import record as run_record
 
 
@@ -173,7 +173,7 @@ class RoleGroups(unittest.TestCase):
         with patch.object(config, "active_session", return_value=None), \
                 patch.object(run, "rounds"), \
                 patch.object(gc, "disk_pressure", return_value=False), \
-                patch.object(run, "collect_usage", return_value=self.providers()), \
+                patch.object(run, "collect_usage", return_value=self.providers()), patch.object(staffing, "collect_usage", return_value=self.providers()), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(self.pick("gamma", "delta"), ("gamma", "delta"))
             self.assertIsNone(run.pair_refusal(self.cfg, self.providers(), None, "gamma", "delta"))
@@ -200,7 +200,7 @@ class RoleGroups(unittest.TestCase):
         opts = {"--rounds": None, "--exec": None, "--review": "delta", "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         message = "'delta' is not a worker of session 'wide'"
-        with patch.object(run, "collect_usage", return_value=self.providers()), \
+        with patch.object(run, "collect_usage", return_value=self.providers()), patch.object(staffing, "collect_usage", return_value=self.providers()), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "refused"), redirect_stdout(io.StringIO()):
             for pick in (lambda: self.pick(reviewer="delta"),
@@ -235,7 +235,7 @@ class RoleGroups(unittest.TestCase):
         directory, state = self.capture()
         self.groups()
         opts = {"--exec": None, "--review": None}
-        with patch.object(run, "collect_usage", return_value=self.providers()):
+        with patch.object(run, "collect_usage", return_value=self.providers()), patch.object(staffing, "collect_usage", return_value=self.providers()):
             self.assertEqual(run.preset_models(self.cfg, opts, self.logs.append, directory),
                              ("alpha", "gamma"))
             self.cfg["models"]["gamma"].update(provider="a", model="alpha")
@@ -248,8 +248,8 @@ class RoleGroups(unittest.TestCase):
         self.groups()
         lp = self.loop("alpha", "gamma", ["alpha", "beta"])
         lp.state["reviewers"] = ["gamma", "delta"]
-        with patch.object(run, "collect_usage", return_value=self.providers(c=0)):
-            self.assertEqual(run.handover_executor(lp.state, self.cfg, "stalled"), "beta")
+        with patch.object(run, "collect_usage", return_value=self.providers(c=0)), patch.object(staffing, "collect_usage", return_value=self.providers(c=0)):
+            self.assertEqual(staffing.handover_executor(lp.state, self.cfg, "stalled"), "beta")
             self.assertEqual(lp.state["reviewer"], "delta")
             self.assertEqual(run.hand_executor(lp, "refused", "transport", set()), "beta")
             self.assertEqual(lp.reviewer, "delta")
@@ -274,7 +274,7 @@ class RoleGroups(unittest.TestCase):
         self.groups(workers=("seat",), reviewers=("seat",))
         with patch.object(run, "rounds") as rounds, \
                 patch.object(gc, "disk_pressure", return_value=False), \
-                patch.object(run, "collect_usage", return_value=self.providers(c=0)) as collect, \
+                patch.object(run, "collect_usage", return_value=self.providers(c=0)) as collect, patch.object(staffing, "collect_usage", return_value=self.providers(c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             state = run.loop(self.cfg, directory, task, opts, self.logs.append)
             self.assertEqual((state["executor"], state["reviewer"]), ("alpha", "delta"))
@@ -334,6 +334,7 @@ class RoleGroups(unittest.TestCase):
         with patch.object(run, "rounds"), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "collect_usage",
+                             return_value=self.providers(a=30, b=10, c=0)), patch.object(staffing, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             run_record.save_state(lp.run_dir, lp.state)
@@ -353,6 +354,7 @@ class RoleGroups(unittest.TestCase):
         with patch.object(run, "rounds"), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "collect_usage",
+                             return_value=self.providers(a=30, b=10, c=0)), patch.object(staffing, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             run_record.save_state(lp.run_dir, lp.state)
@@ -374,6 +376,7 @@ class RoleGroups(unittest.TestCase):
         with patch.object(run, "rounds"), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "collect_usage",
+                             return_value=self.providers(a=30, b=10, c=0)), patch.object(staffing, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             run_record.save_state(lp.run_dir, lp.state)
@@ -397,6 +400,7 @@ class RoleGroups(unittest.TestCase):
         with patch.object(run, "rounds"), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "collect_usage",
+                             return_value=self.providers(a=30, b=10, c=0)), patch.object(staffing, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             run_record.save_state(lp.run_dir, lp.state)
@@ -427,7 +431,7 @@ class RoleGroups(unittest.TestCase):
 
                 with patch.object(run, "call_retrying", side_effect=submitting(call)), \
                         patch.object(run.worker, "call", side_effect=submitting(call)), \
-                        patch.object(run, "collect_usage", return_value=self.providers(c=0)):
+                        patch.object(run, "collect_usage", return_value=self.providers(c=0)), patch.object(staffing, "collect_usage", return_value=self.providers(c=0)):
                     self.assertEqual(run.review(lp, "Done.", True, "passed"), "PASS")
                 self.assertEqual(lp.reviewer, "delta")
                 self.assertNotIn("beta", calls)
@@ -473,7 +477,7 @@ class RoleGroups(unittest.TestCase):
         wt.mkdir()
         info = {"state": "OPEN", "title": "Fix API", "author": "contributor",
                 "baseRefName": "main", "headRefOid": "abc123"}
-        with patch.object(run, "collect_usage", return_value=self.providers(c=0)), \
+        with patch.object(run, "collect_usage", return_value=self.providers(c=0)), patch.object(staffing, "collect_usage", return_value=self.providers(c=0)), \
                 patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "own_pr_orchestrator", return_value=(False, None)), \
                 patch.object(run, "checkout_for", return_value=wt), \

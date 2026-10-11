@@ -5,7 +5,7 @@ import re
 import time
 from pathlib import Path
 
-from . import config, gate, gc, gitcall, history, host, orch, run, scoreboard, stop, transitions
+from . import config, gate, gc, gitcall, history, host, orch, run, scoreboard, staffing, stop, transitions
 from . import job as jobs
 from . import land as landing
 from . import record as run_record
@@ -429,7 +429,7 @@ def status_rows(found, width, index=None, cfg=None):
         if state.get("extended"):
             rounds += f" (+{state['extended']})"
         worker = f"{state.get('executor', '?')}/{state.get('reviewer', '?')}"
-        if run.self_reviewed(state, cfg):
+        if staffing.self_reviewed(state, cfg):
             worker += " self-reviewed"
         rows.append([directory.name, state.get("title") or directory.name,
                      status_state_word(state, index), worker, rounds,
@@ -546,7 +546,7 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
         lines.append(f"  {gate.gate_turn_note(state)}")
     if transitions.needs_recovery(state):
         reason = transitions.recovery_reason(state)
-        wait = run.waiting(state, providers=providers, cfg=cfg)
+        wait = staffing.waiting(state, providers=providers, cfg=cfg)
         # a run sitting out a provider window resumes itself: the lines say
         # what it waits for, never that the owner should reach for its number
         lines.append(f"  {reason}; {wait}" if wait else
@@ -708,7 +708,7 @@ def cmd_status(argv):
     if plain:
         # Read one config for the delivery and waiting words; only waiting needs usage.
         plain_cfg = transitions.report_config()
-        plain_providers = (run._cached_providers() if any(
+        plain_providers = (staffing._cached_providers() if any(
             state.get("state") == "exhausted" for _, state in found) else {})
         # a `waiting_login` row names its harness out of run.json and reads no meters
         for d, state in found:
@@ -718,7 +718,7 @@ def cmd_status(argv):
             if word in ("exhausted", "waiting_login"):
                 # the run waits for a provider window or a login; both lift by themselves,
                 # and the drill-down keeps the state word
-                word = run.waiting_word(state, providers=plain_providers, cfg=plain_cfg)
+                word = staffing.waiting_word(state, providers=plain_providers, cfg=plain_cfg)
             line = (f"{d.name:<40} {word:<11} {str(state.get('verdict')):<5} "
                     f"{executor_line(state)}/{state.get('reviewer', '?')}  "
                     f"{state.get('branch') or 'scratch'}")
@@ -739,7 +739,7 @@ def cmd_status(argv):
                 line += f"  {outcome}"
             if step:
                 line += f"  {step}"
-            if run.self_reviewed(state, plain_cfg):
+            if staffing.self_reviewed(state, plain_cfg):
                 line += "  self-reviewed"
             resumed = resume_age(state)
             if resumed:
@@ -798,7 +798,7 @@ def cmd_status(argv):
                     scope_cfg = config.load()
                 except config.Error:
                     scope_cfg = None
-                scope_providers = run._cached_providers()
+                scope_providers = staffing._cached_providers()
             else:
                 scope_cfg, scope_providers = None, {}
             if groups:

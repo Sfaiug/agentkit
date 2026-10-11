@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, run, staffing
 
 
 class RefusedReviewsLast(unittest.TestCase):
@@ -39,12 +39,13 @@ class RefusedReviewsLast(unittest.TestCase):
                                "resets_at": time.time() + 302400}], "resets": 0}
             for name, used in (("acme", 10), ("beta", 40), ("gamma", 70))}
         self.stack.enter_context(patch.object(run, "collect_usage", return_value=self.providers))
+        self.stack.enter_context(patch.object(staffing, "collect_usage", return_value=self.providers))
 
     def handover(self, reviewers, dry=()):
         state = {"executor": "acme-build", "reviewer": "acme-review",
                  "exec_session": "saved-executor", "review_session": "saved-review",
                  "workers": ["acme-build", "beta-build"], "reviewers": reviewers}
-        self.assertEqual(run.handover_executor(state, self.cfg, "stalled", dry=dry),
+        self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled", dry=dry),
                          "beta-build")
         self.assertIsNone(state["exec_session"])
         self.assertEqual(state["executor_history"][0]["from"], "acme-build")
