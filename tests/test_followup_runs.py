@@ -627,7 +627,8 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("[exit 0]", (child / "round-1/donewhen.log").read_text())
         calls = [json.loads(line) for line in (self.root / "harness/calls.jsonl").read_text().splitlines()]
         self.assertEqual([c["role"] for c in calls], ["executor", "reviewer"])
-        self.assertIn("starts on the target branch's tip, fetched when this run started", calls[0]["prompt"])
+        self.assertIn("starts on the target branch's tip as fetched when this run started", calls[0]["prompt"])
+        self.assertNotIn("origin could not be fetched when this run started", calls[0]["prompt"])
         self.assertIn("another open run of session seat", calls[0]["prompt"])
         self.assertEqual(len(fixed["followup_runs"]), 1)     # the fix run's own follow-up gets a run too
         found = fixed["followups"][0]
@@ -657,6 +658,25 @@ class FollowupRuns(unittest.TestCase):
             self.assertIn("not needed: ", (child / "result.md").read_text())
             self.assertIn("finished DONE: not needed:", self.endings[-1])
         self.assertEqual(self.gh_calls, [])
+
+    def test_not_needed_on_a_checkout_origin_could_not_be_fetched_for_is_checked(self):
+        directory, state = self.source()
+        child = self.start(directory, state)[0]
+        fetch = run.fetch
+
+        def offline(cwd, *args, **kw):      # only the fetch the run cuts its checkout after
+            if "+refs/heads/*:refs/remotes/origin/*" in args:
+                return 1, "Could not resolve host"
+            return fetch(cwd, *args, **kw)
+        with patch.object(run, "fetch", side_effect=offline), \
+                patch.object(run, "verify_work", side_effect=AssertionError("checked")) as checked:
+            _, ended = self.drive(child, "gone")
+        self.assertTrue(checked.called)
+        self.assertNotEqual(ended["state"], "not_needed")
+        self.assertTrue(ended["fetch_failed"])
+        prompt = json.loads((self.root / "harness/calls.jsonl").read_text().splitlines()[0])["prompt"]
+        self.assertIn("origin could not be fetched when this run started, so this checkout may "
+                      "stand behind origin's main.", prompt)
 
     def test_owner_question_ends_blocked_and_reaches_the_session(self):
         directory, state = self.source()

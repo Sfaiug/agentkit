@@ -1572,8 +1572,10 @@ def worker_result(lp, summary, out):
     if closing:
         if closing["kind"] == "blocked":
             raise Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
+        # a checkout origin could not be fetched for may predate the defect: checks and
+        # review judge that one's not-needed
         if (closing["kind"] == "not-needed" and lp.state.get("followup")
-                and not lp.state.get("round_summaries")):
+                and not lp.state.get("round_summaries") and not lp.state.get("fetch_failed")):
             raise NotNeeded(closing["why"])
     # A closing reply may be only an acknowledgement; retain the work prose on restart too.
     name = re.split(r"-retry-(?:hand-in|foreground)", answer.name, maxsplit=1)[0]
@@ -2390,14 +2392,17 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 check = shlex.quote(str(directory / REGRESSION))
                 task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
                         f"# {title}\n\n{item}\n\n")
+                # the run says, above the task, when origin could not be fetched
+                starts = ("Unless the lines above say origin could not be fetched, your checkout "
+                          "starts on the target branch's tip as fetched when this run started; where "
+                          "they say so, ak takes a not-needed to checks and review. ")
                 if split:
                     task += f"## Done when\n```bash\n{split['check']}\n```\n"
                 elif repair or item in checks:
                     # the check is a given failing command, the target's own for a repair and the
                     # reviewer's for a follow-up, and the run makes it pass: one task for both
                     task += (
-                        "Your checkout starts on the target branch's tip, fetched when this run "
-                        "started: run the command below there first. If it "
+                        f"{starts}Run the command below there first. If it "
                         'passes there now, run `ak hand-in not-needed "<why>"`, with no edits or PR. '
                         "Otherwise fix the root cause so it passes, and show it failing before the "
                         "fix and passing afterwards in your summary. If only the owner can decide, "
@@ -2405,8 +2410,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                         f"## Done when\n```bash\n{repair['check'] if repair else checks[item]}\n```\n")
                 else:
                     task += (
-                        "Your checkout starts on the target branch's tip, fetched when this run "
-                        "started: first check that this defect still exists there. "
+                        f"{starts}First check that this defect still exists there. "
                         f"Inspect {config.RUNS}/*/run.json for another open run of session {session} "
                         f"fixing this site in {repo}; exclude this run ({directory.name}). "
                         "If the defect is gone or another open run is fixing it, run "
@@ -5374,7 +5378,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 raise config.Error(f"{task_path}: from: needs a repository; "
                                    "a scratch run has no branch to start from")
             base = target = base_sha = branch = None
-            from_branch, change = "", None
+            from_branch, change, unfetched = "", None, False
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
@@ -5398,7 +5402,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             ref = f"refs/remotes/origin/{name}"
             if code == 0 and git_out(repo, "show-ref", "--verify", "--quiet", ref)[0] != 0:
                 code, out = 1, f"origin has no branch {name}"
-            if code != 0:
+            unfetched = code != 0
+            if unfetched:
                 # git's reason is its first line; the rest is advice
                 log(f"WARN could not fetch {name} from origin; basing this run on the local "
                     f"{spelled}: {out.partition(chr(10))[0]}")
@@ -5452,6 +5457,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             state["from"] = from_branch
         if change:
             state["change"] = change
+        if unfetched:
+            state["fetch_failed"] = True
         if scratch:
             log(f"scratch workspace {wt}: no repository, so no branch, no PR and no merge")
         elif not opts["--no-worktree"]:
@@ -5644,7 +5651,10 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                  "and no PR. What you leave in the workspace is the deliverable.")
     else:
         where = (f"Repo checkout: {wt}\nBranch: {state['branch']} (based on {state['base']}"
-                 + (f", to be merged into {target}" if target != state["base"] else "") + ")")
+                 + (f", to be merged into {target}" if target != state["base"] else "") + ")"
+                 + (f"\norigin could not be fetched when this run started, so this checkout may "
+                    f"stand behind origin's {state['base'].removeprefix('origin/')}."
+                    if state.get("fetch_failed") else ""))
     cmds = round_commands(cmds, wt, target, scratch=state.get("scratch"), landing=not state.get("no_merge"))
     every, once = taskfile.group_commands(cmds)
     body += repo_rules(wt, state.get("base_sha"))
