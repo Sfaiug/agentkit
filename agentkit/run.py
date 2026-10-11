@@ -35,8 +35,10 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 from . import (box, command_help, config, gate, gc, gitcall, hand_in, history, host,
-               job as jobs, land as landing, notify, orch, record as run_record,
-               status, stop, task as taskfile, update, usage, watch, worker, worktrees)
+               job as jobs, land as landing, notify, orch, record as run_record, status, stop,
+               task as taskfile, turns, update, usage, watch, worker, worktrees)
+from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scope_units,
+    finished_answer, scope_is_real, stop_run_tree)
 from .gitcall import (PR_PARTS, Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity,
     commit_leftovers, default_base, dirty_paths, exclude_junk, fetch, git, git_out,
     leftover_junk, log_is_stdout, logger, make_worktree, repo_line, repo_rules,
@@ -586,110 +588,6 @@ def invalidate_saved_pass(state, cfg, log):
                  rounds=max(state["rounds"], rnd))
 
 
-class Exhausted(Exception):
-    pass
-
-
-class QuotaDry(Exhausted):
-    """Out of budget on every eligible provider: wait for a window, then resume."""
-
-
-class Dead(Exception):
-    """The executor outlived its retries: not a FAIL, because nothing was ever judged.
-
-    Kept for the merge pipeline's older receipts; a transient answer never raises it now --
-    the same session is resumed indefinitely instead, so there is nothing left to outlive.
-    """
-
-
-class Killed(Exception):
-    """A worker turn killed by signal twice within a minute: a person must look.
-
-    Not a death on the provider and not a FAIL -- nothing was executed and nothing was
-    judged -- so the run parks as an interruption, resumable, reading `needs you` with the
-    signal for a reason.  The session the killed turn left behind travels with it, so the
-    resume continues it rather than opening a new one.
-    """
-
-    def __init__(self, message, session=None):
-        super().__init__(message)
-        self.session = session
-
-
-class NotNeeded(Exception):
-    """A follow-up's executor found no work left, before any checks or review."""
-
-
-class Blocked(Exception):
-    """The task cannot be done as written, so the run ends here and says why.
-
-    Not a FAIL: a FAIL is a verdict on work, and there is no work to judge -- either a worker
-    ended its turn saying the task contradicts itself, or two fixer rounds left the same
-    checks failing the same way, which is the checks being wrong rather than the code.  There
-    is nothing for another round or a reviewer to add, and nothing a resume could spend, so
-    the orchestrator that wrote the task hears the sentence and writes a new one.  `section`
-    is the `## Blocked` section result.md carries.
-    """
-
-    def __init__(self, reason, section):
-        super().__init__(reason)
-        self.section = section
-
-
-class CannotRun(Blocked):
-    """The harness never ran the turn, and its stderr line says why: see `cannot_run`.
-
-    Not a provider fault, so never one of the transient waits -- no wait installs a harness,
-    teaches it a flag or logs it in -- and not a FAIL, since nothing was judged.  The work
-    goes to another provider first, the way a spent window's does; with nobody left to take
-    it, the run is blocked on that line, which is what this is wherever nobody catches it.
-    """
-
-    def __init__(self, name, line):
-        self.detail = f"cannot run: {line}"
-        super().__init__(f"{name} {self.detail}", f"## Blocked\n\n{name} {self.detail}")
-
-
-class RanDry(Exception):
-    """This worker's provider refused it.
-
-    Not a death and not a FAIL -- nothing was executed and nothing was judged -- so the work
-    goes to another provider rather than being retried where it cannot run.  The refusal and
-    the dead session travel with it, so the post-mortem still has both.
-    """
-
-    def __init__(self, name, mark, code, text, session, until, message, quota):
-        super().__init__(f"{name} refused: {message}")
-        self.name, self.mark, self.code, self.text = name, mark, code, text
-        self.session, self.until = session, until
-        self.message, self.quota = message, quota
-        # and what a role parks with when no one else can take it: a window waits for its refill
-        self.why, self.ending = ("ran dry", QuotaDry) if quota else ("refused", Exhausted)
-        self.detail = f"refused: {message}"
-
-    def remember(self, state):
-        """Remember a short refusal retry, or clear one when a quota window is parked."""
-        if self.quota:
-            state.pop("refusal_retry", None)
-        else:
-            state["refusal_retry"] = {"model": self.name, "at": self.until}
-
-
-class TransientHandover(Exception):
-    """This worker failed on the provider twice in a row and another took the role.
-
-    Not a death and not a FAIL -- nothing was executed and nothing was judged -- so the
-    turn goes to the next worker the way a spent window's does, and the failed provider
-    joins only that round's refused set.  The handover itself already happened inside
-    `call_retrying`'s `handover` callback; this only unwinds to the turn loop so it can
-    restart the role with the new worker, a fresh session and a fresh out dir.
-    """
-
-    def __init__(self, before, new, session, detail):
-        super().__init__(f"{before} failed on the provider twice; handed to {new}: {detail}")
-        self.before, self.new, self.session, self.detail = before, new, session, detail
-
-
 def killed_word(code):
     """How a worker exit by signal reads: `killed (SIGTERM)`, never an exit code.
 
@@ -1181,7 +1079,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         else:
             span = (began, time.time())
         finally:
-            memory_cap_note(run_dir, log)     # however the turn ended
+            turns.memory_cap_note(run_dir, log)     # however the turn ended
         note_turn_meters(cfg, name, target, account)
         last_dir, last_sid = target, result[2] or session
         return result
@@ -1270,7 +1168,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             code, text, tail(target / "stderr.log"), target, entry["harness"])
         if fault:
             log(f"WARN {role} {name} cannot run: {fault}")
-            raise CannotRun(name, fault)
+            raise turns.CannotRun(name, fault)
         # Some adapters exit zero after streaming turn.failed; that event still refused
         # the turn. On a successful exit only failure events speak, never answer text.
         # A spent window, a refusal or an outage, each in the harness's own whole words.  A
@@ -1298,7 +1196,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                     detail = f"transient {mark!r}: {message} (twice in a row)"
                     new = handover(detail)
                     if new is not None:
-                        raise TransientHandover(name, new, session, detail)
+                        raise turns.TransientHandover(name, new, session, detail)
                     log(f"WARN {role} {name} {detail}; no other worker can take it")
                 delay = transient_delay(attempt)
                 log(f"WARN {role} {name} transient {mark!r}: {message} "
@@ -1314,7 +1212,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             parked = (f"; nothing is picked on {entry['provider']} until "
                       + time.strftime("%Y-%m-%d %H:%M", time.localtime(until)))
             log(f"WARN {role} {name} refused: {message}{parked}")
-            raise RanDry(name, quota, code, text, session, until, message, True)
+            raise turns.RanDry(name, quota, code, text, session, until, message, True)
         if sig:
             # The worker died by signal, not on the provider and not on the task: it
             # resumes once, at once, on the session it left behind.  A second kill
@@ -1339,7 +1237,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             detail = f"{why} (twice in a row)"
             new = handover(detail)
             if new is not None:
-                raise TransientHandover(name, new, session, detail)
+                raise turns.TransientHandover(name, new, session, detail)
             log(f"WARN {role} {name} {detail}; no other worker can take it")
         delay = transient_delay(attempt)
         log(f"WARN {role} {name} {why} (attempt {attempt}); retrying in {delay}s"
@@ -1594,188 +1492,6 @@ def hand_executor(lp, why, detail, dry):
     return new
 
 
-def free_dir(lp, name):
-    """`round-N/<name>`, or the next `-attempt<n>` beside it: no attempt overwrites another.
-
-    A resumed round, a reviewer falling back, an executor handed over mid-round -- each writes
-    where the one before it did, and the diagnostics of a call that failed are exactly what the
-    post-mortem needs.
-    """
-    out, attempt = lp.dir(name), 1
-    while out.exists():
-        attempt += 1
-        out = lp.dir(f"{name}-attempt{attempt}")
-    return out
-
-
-def role_base(dirname):
-    """The role directory name without an `-attemptN` suffix."""
-    match = re.fullmatch(r"(.+)-attempt(\d+)", dirname)
-    return match.group(1) if match else dirname
-
-
-def attempt_dirs(round_dir, name):
-    """Out dirs for one role, the first attempt first."""
-    found = []
-    base = Path(round_dir) / name
-    if base.is_dir():
-        found.append((1, base))
-    for path in Path(round_dir).glob(f"{name}-attempt*"):
-        if not path.is_dir():
-            continue
-        suffix = path.name[len(name) + len("-attempt"):]
-        if suffix.isdigit():
-            found.append((int(suffix), path))
-    found.sort()
-    return [path for _, path in found]
-
-
-def session_of(directory):
-    """A conversation id recorded for this turn, from the file or the event stream."""
-    directory = Path(directory)
-    try:
-        text = (directory / "session_id").read_text(errors="replace").strip()
-    except OSError:
-        text = ""
-    if text:
-        return text
-    return worker.recovered_session(directory) or None
-
-
-def latest_turn(round_dir, name):
-    """The last call, including retries a host interruption may have left unfinished."""
-    dirs = attempt_dirs(round_dir, name)
-    if not dirs:
-        return None
-    out = dirs[-1]
-    return max([out, *out.parent.glob(f"{out.name}-retry*")],
-               key=lambda path: (path.stat().st_mtime_ns, path.name))
-
-
-def open_turn(round_dir, name):
-    """`(resume|fresh, session)` when this role's latest attempt never finished.
-
-    A missing `final.md` is a turn the host cut off. An executor answer without a
-    closing still needs its one extra ask. A recorded session is resumed; without one
-    a fresh turn is needed. A finished attempt is `(None, None)`.
-    """
-    latest = latest_turn(round_dir, name)
-    if latest is None:
-        return None, None
-    if (latest / "final.md").exists():
-        submitted = hand_in.read(latest / hand_in.FILE)
-        if (name.startswith("reviewer") or submitted is not None and submitted.closing
-                or "-retry-hand-in" in latest.name or "-retry-foreground" in latest.name):
-            return None, None
-    sid = session_of(latest)
-    if sid:
-        return "resume", sid
-    return "fresh", None
-
-
-def finished_answer(round_dir, name):
-    """The latest attempt's `final.md`, or None when that file was never written."""
-    dirs = attempt_dirs(round_dir, name)
-    if not dirs:
-        return None
-    return read_answer(dirs[-1] / "final.md")
-
-
-def host_ended_prompt(state):
-    """The one sentence a resumed harness session is handed.
-
-    The conversation already holds the task. This says the checkout was not tidied
-    and the turn is the same one, so the model does not start the work over.
-    """
-    when = None
-    deaths = state.get("deaths") or []
-    if deaths and isinstance(deaths[-1], dict):
-        when = deaths[-1].get("at")
-    if not isinstance(when, (int, float)) or isinstance(when, bool):
-        when = state.get("interrupted_at")
-    if not isinstance(when, (int, float)) or isinstance(when, bool):
-        when = time.time()
-    clock = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(when))
-    return (f"Your process was ended by the host at {clock}, not by you; "
-            "the worktree is exactly as you left it. Continue this turn and finish it; "
-            "do not start over.")
-
-
-def latest_worker_turn(round_dir, name=""):
-    """The latest executor/fixer attempt supersedes earlier attempts, even when it closed;
-    `name` keeps one turn's attempts and handovers alone (`own_pr_fix`)."""
-    rd = Path(round_dir)
-    if not rd.is_dir():
-        return None
-    turns = [latest_turn(rd, role_base(path.name)) for path in rd.iterdir()
-             if path.is_dir() and "-retry" not in path.name and path.name.startswith(name)
-             and not path.name.startswith("reviewer")
-             and re.match(r"(?:executor|(?:.+-)?fixer)(?:-|$)", path.name)]
-    return max(turns, key=lambda path: (path.stat().st_mtime_ns, path.name), default=None)
-
-
-def open_worker(lp, name=""):
-    """`(name, kind, session)` of the open executor/fixer attempt, or three Nones."""
-    latest = latest_worker_turn(lp.round_dir, name)
-    if latest is None:
-        return None, None, None
-    name = role_base(latest.name.split("-retry", 1)[0])
-    kind, sid = open_turn(lp.round_dir, name)
-    return (name, kind, sid) if kind else (None, None, None)
-
-
-def open_review(round_dir):
-    """`(name, kind, session)` of the open reviewer attempt, or three Nones.
-
-    A review that fell back to another model writes under `reviewer-<model>`, so the
-    attempt to continue is the newest reviewer directory of any name, not `reviewer`
-    alone: a fallback cut off mid-turn would otherwise start its review over. Retries
-    belong to that same attempt, including a foreground finish ended by the host.
-    """
-    rd = Path(round_dir)
-    if not rd.is_dir():
-        return None, None, None
-    best = None
-    for path in rd.glob("reviewer*"):
-        if not path.is_dir() or "-retry" in path.name or "foreground" in path.name:
-            continue
-        base = role_base(path.name)
-        kind, sid = open_turn(rd, base)
-        if not kind:
-            continue
-        latest = latest_turn(rd, base)
-        try:
-            mtime = latest.stat().st_mtime
-        except OSError:
-            mtime = 0
-        if best is None or mtime >= best[0]:
-            best = (mtime, base, kind, sid)
-    return (None, None, None) if best is None else (best[1], best[2], best[3])
-
-
-def review_turn(round_dir, session, since=""):
-    """The round's latest reviewer turn on `session`, unless it is the one named `since`.
-
-    A review is pending until its verdict is saved, not until its reviewer says `done`, and
-    its pending record keeps where its session stood when it began.  Parked before the
-    verdict (a spent window, an expired login, a stop while its proofs replay), it goes on in
-    a conversation that has handed in what it found already: the next turn starts from the
-    records of the latest turn since, or its `done` alone would pass the work.  A turn from
-    before belongs to a review whose verdict is on the record, and hands on nothing.
-    """
-    turns = [path for path in Path(round_dir).glob("reviewer*")
-             if session and path.is_dir() and session_of(path) == session]
-    latest = max(turns, key=lambda path: (path.stat().st_mtime_ns, path.name), default=None)
-    return None if latest is None or str(latest) == since else latest
-
-
-def saved_worker_answer(round_dir):
-    """The executor or fixer answer file already written for this round."""
-    latest = latest_worker_turn(round_dir)
-    answer = latest / "final.md" if latest is not None else None
-    return answer if answer is not None and answer.is_file() else None
-
-
 def settled_gate(lp):
     """`(ok, log)` when done-when already finished, else None so the gate runs again.
 
@@ -1822,12 +1538,12 @@ def continuation(lp):
     rd = lp.round_dir
     if not rd.is_dir():
         return None
-    if (lp.state.get("step") == "reviewer" or open_review(rd)[1]
+    if (lp.state.get("step") == "reviewer" or turns.open_review(rd)[1]
             or review_files(lp.run_dir, lp.rnd)):
         return "reviewer"
-    if open_worker(lp)[0]:
+    if turns.open_worker(lp)[0]:
         return "worker"
-    if lp.state.get("step") == "done-when" or saved_worker_answer(rd) is not None:
+    if lp.state.get("step") == "done-when" or turns.saved_worker_answer(rd) is not None:
         return "done-when"
     return None
 
@@ -1859,7 +1575,7 @@ def worker_result(lp, summary, out):
             raise NotNeeded(closing["why"])
     # A closing reply may be only an acknowledgement; retain the work prose on restart too.
     name = re.split(r"-retry-(?:hand-in|foreground)", answer.name, maxsplit=1)[0]
-    work = read_answer(answer.with_name(name) / "final.md")
+    work = turns.read_answer(answer.with_name(name) / "final.md")
     if work and work != summary:
         summary = f"{work}\n\n{summary}"
     return summary
@@ -1896,11 +1612,11 @@ def execute(lp, role, text, name):
     # directory would look like a turn that recorded no session.  Off `dir`, which is
     # what free_dir writes through, so the round is read exactly where it is written.
     rd = lp.dir(name).parent
-    kind, sid = open_turn(rd, name) if rd.is_dir() else (None, None)
-    previous = latest_turn(rd, name) if kind else None
+    kind, sid = turns.open_turn(rd, name) if rd.is_dir() else (None, None)
+    previous = turns.latest_turn(rd, name) if kind else None
     if previous is not None:
         record_disputes(lp, previous)
-    out, body, dry = free_dir(lp, name), text, set()
+    out, body, dry = turns.free_dir(lp, name), text, set()
 
     def handover(detail):
         return hand_executor(lp, "transient", detail, dry)
@@ -1909,7 +1625,7 @@ def execute(lp, role, text, name):
     resume = {}
     note = None
     if kind == "resume":
-        body = host_ended_prompt(lp.state)
+        body = turns.host_ended_prompt(lp.state)
         lp.exec_sid = sid
         note = {"at": time.time(), "role": role, "restarted": False}
         lp.state["resume_notice"] = note
@@ -1925,7 +1641,7 @@ def execute(lp, role, text, name):
                        or "-retry-hand-in" in previous.name or "-retry-foreground" in previous.name)
     if closing_asked:
         body = NO_CLOSING_ASK
-        out = free_dir(lp, f"{previous.name}-retry-hand-in")
+        out = turns.free_dir(lp, f"{previous.name}-retry-hand-in")
     if role == "fixer" and "## Reviewer findings to fix\n" in text and lp.state.get("findings_file"):
         findings = Path(lp.state["findings_file"]).with_name(hand_in.FINDINGS_FILE)
         if findings.is_file():
@@ -1947,7 +1663,7 @@ def execute(lp, role, text, name):
             lp.exec_sid = killed.session or lp.exec_sid
             lp.save()           # the killed conversation is in run.json before the run parks
             raise
-        except CannotRun as broken:
+        except turns.CannotRun as broken:
             # Another provider, the way a spent window goes; with nobody left, the run is
             # blocked on the harness's own line.  The turn never ran, so it left nothing
             # for the next model to be told about.
@@ -1955,9 +1671,9 @@ def execute(lp, role, text, name):
                 raise
             body = text
             closing_asked = False
-            out = free_dir(lp, f"{name}-{lp.executor}")
+            out = turns.free_dir(lp, f"{name}-{lp.executor}")
             continue
-        except RanDry as refused:
+        except turns.RanDry as refused:
             lp.exec_sid = refused.session
             refused.remember(lp.state)
             lp.save()           # the refused session is named in run.json before it is dropped
@@ -1971,14 +1687,14 @@ def execute(lp, role, text, name):
                                f"See {out}*/stderr.log")
             body = f"{HANDOVER.format(before=before)}\n\n{text}"
             closing_asked = False
-            out = free_dir(lp, f"{name}-{lp.executor}")
+            out = turns.free_dir(lp, f"{name}-{lp.executor}")
             continue
-        except TransientHandover as handed:
+        except turns.TransientHandover as handed:
             # hand_executor already moved the role inside the callback; the new model
             # joins a round another started, in a fresh out dir on a fresh session.
             body = f"{HANDOVER.format(before=handed.before)}\n\n{text}"
             closing_asked = False
-            out = free_dir(lp, f"{name}-{lp.executor}")
+            out = turns.free_dir(lp, f"{name}-{lp.executor}")
             continue
         finally:
             history_role_tokens(lp.state.get("run_id"), "executor", attempt, lp.log,
@@ -1995,7 +1711,7 @@ def execute(lp, role, text, name):
             resume["previous"] = written_answer(out, summary).parent
             body = NO_CLOSING_ASK
             closing_asked = True
-            out = free_dir(lp, f"{resume['previous'].name}-retry-hand-in")
+            out = turns.free_dir(lp, f"{resume['previous'].name}-retry-hand-in")
             continue
         return worker_result(lp, summary, out)
 
@@ -2374,14 +2090,6 @@ def restore_review_checkout(lp, stage):
         raise config.Error(f"cannot inspect the review checkout after {stage}: {why}")
 
 
-def read_answer(path):
-    """One worker answer from disk, or None when it is not there to be read."""
-    try:
-        return Path(path).read_text(errors="replace")
-    except OSError:
-        return None
-
-
 def review_files(run_dir, rnd):
     """Every reviewer answer one round left, oldest first; the last is the one it recorded.
 
@@ -2414,7 +2122,7 @@ def written_answer(out, text):
                          key=lambda path: (path.stat().st_mtime_ns if path.exists() else 0, path.name),
                          reverse=True)
     for directory in directories:
-        if read_answer(directory / "final.md") == text:
+        if turns.read_answer(directory / "final.md") == text:
             return directory / "final.md"
     for directory in directories:
         if (directory / hand_in.FILE).exists():
@@ -2468,13 +2176,13 @@ def saved_findings(run_dir, state):
     a `run_dir` only the named file is read.
     """
     tail = (state.get("findings") or "").strip()
-    named = read_answer(state.get("findings_file")) if state.get("findings_file") else None
+    named = turns.read_answer(state.get("findings_file")) if state.get("findings_file") else None
     if named is not None and (not tail or named.strip().endswith(tail)):
         return named
     for rnd in (range(len(state.get("round_summaries") or []), 0, -1)
                 if tail and run_dir is not None else ()):
         for path in reversed(review_files(run_dir, rnd)):
-            whole = read_answer(path)
+            whole = turns.read_answer(path)
             if whole is not None and whole.strip().endswith(tail):
                 return whole
     return state.get("findings") or ""
@@ -3024,7 +2732,7 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
                 progress.write(str(exc).encode())
             output = hand_in.output_excerpt(progress, start)
             progress.write(f"\n[{'did not finish' if killed or code < 0 else f'exit {code}'}]\n".encode())
-        memory_cap_note(lp.run_dir, lp.log)
+        turns.memory_cap_note(lp.run_dir, lp.log)
         return {"returncode": code, "output": output, "killed": killed}
     finally:
         try:
@@ -3342,7 +3050,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # parks; a pending record that holds none was written before any turn of it ran
     pending = lp.state.get("review_pending") or {}
     since = pending["since"] if "since" in pending else str(
-        review_turn(lp.dir("reviewer").parent, lp.review_sid) or "")
+        turns.review_turn(lp.dir("reviewer").parent, lp.review_sid) or "")
     # the commit the last review judged (`delta_from`, written by every review) and its findings,
     # what a later round replays, kept on the pending record so no dying attempt overwrites them
     delta_from = lp.state.get("delta_from")
@@ -3451,7 +3159,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # it would start the review over in a directory beside the one holding its session.
     # The round is read off `dir`, which is what free_dir writes through.
     rd = lp.dir("reviewer").parent
-    name = open_review(rd)[0] or "reviewer"
+    name = turns.open_review(rd)[0] or "reviewer"
     def fall_back(reason, out, allow_self=True, ending=Exhausted):
         """The path a dry, twice-silent or twice-transient reviewer takes: next spare, else Exhausted."""
         # Recheck at the point of fallback, including spares from saved/legacy callers, and
@@ -3493,18 +3201,18 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             raise config.Error("task review requires a recorded executor")
         exec_provider, review_provider = review_providers(lp.cfg, lp.executor, lp.reviewer)
         # The open attempt is read before free_dir creates the next directory.
-        turn_kind, turn_sid = open_turn(rd, name)
-        out = free_dir(lp, name)
+        turn_kind, turn_sid = turns.open_turn(rd, name)
+        out = turns.free_dir(lp, name)
         body = rbody if lp.review_sid else rbody_whole
         asked_body, note, resume = body, None, {}
         if ask:
             asked_body, resume, ask = NO_VERDICT_ASK, {"fresh_body": rbody_whole, "previous": ask}, None
         elif turn_kind == "resume":
-            asked_body = host_ended_prompt(lp.state)
+            asked_body = turns.host_ended_prompt(lp.state)
             lp.review_sid = turn_sid
             note = {"at": time.time(), "role": "reviewer", "restarted": False}
             lp.state["resume_notice"] = note
-            resume = {"fresh_body": rbody_whole, "resume_note": note, "previous": latest_turn(rd, name)}
+            resume = {"fresh_body": rbody_whole, "resume_note": note, "previous": turns.latest_turn(rd, name)}
         elif turn_kind == "fresh":
             asked_body = rbody_whole
             lp.review_sid = None
@@ -3512,7 +3220,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.state["resume_notice"] = note
         else:
             # a conversation that cannot resume after all starts fresh on the whole change
-            resume = {"previous": review_turn(rd, lp.review_sid, since), "fresh_body": rbody_whole}
+            resume = {"previous": turns.review_turn(rd, lp.review_sid, since), "fresh_body": rbody_whole}
         why, ending = "died on API/transport errors", Exhausted
         model = lp.reviewer     # a fallback below moves on from it before its tokens are read
         reviewed = config.model(lp.cfg, model)
@@ -3538,7 +3246,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.review_sid = killed.session or lp.review_sid
             lp.save()           # the killed conversation is in run.json before the run parks
             raise
-        except CannotRun as broken:
+        except turns.CannotRun as broken:
             # The spares road, as for a spent window; with no spare left, the run is blocked
             # on the harness's own line rather than waiting for a meter it is not short of.
             try:
@@ -3546,12 +3254,12 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             except Exhausted:
                 raise broken from None
             continue
-        except TransientHandover as handed:
+        except turns.TransientHandover as handed:
             # fall_back already moved the role inside the callback; the spare reviews
             # in a fresh out dir on a fresh session.
             name = handed.new
             continue
-        except RanDry as dry:
+        except turns.RanDry as dry:
             # A spent window is the other way a reviewer stops without judging the diff, so it
             # takes the same road out: the spares, checked against the executor and config.
             dry.remember(lp.state)
@@ -3713,8 +3421,8 @@ def rounds(lp, execv=None):
             # The worker already answered. A done-when that was cut off runs again;
             # a review that was the open step is continued, not preceded by another
             # executor turn.
-            source = saved_worker_answer(lp.round_dir)
-            summary = worker_result(lp, read_answer(source) or "", source.parent) if source else ""
+            source = turns.saved_worker_answer(lp.round_dir)
+            summary = worker_result(lp, turns.read_answer(source) or "", source.parent) if source else ""
             settled = settled_gate(lp) if cut == "reviewer" else None
             if settled is None:
                 if cut == "done-when":
@@ -3733,7 +3441,7 @@ def rounds(lp, execv=None):
                 ok, dw_log = verify_work(lp)
                 lp.log(f"done-when after fix: {'all passed' if ok else 'still FAILING'}")
         else:
-            worker_name = open_worker(lp)[0] if cut == "worker" else None
+            worker_name = turns.open_worker(lp)[0] if cut == "worker" else None
             if worker_name and worker_name != "executor":
                 lp.log(f"--- round {lp.rnd}/{lp.rounds}: continuing {worker_name}")
                 log_path = lp.round_dir / "donewhen.log"
@@ -5040,7 +4748,7 @@ def target_fails(lp, upstream, dw_log):
                             or time.monotonic() - began > lp.done_when_limit):
                         break
                     began += gate.busy_turn(lp.run_dir, probe_log, lp.log)
-            memory_cap_note(lp.run_dir, lp.log)
+            turns.memory_cap_note(lp.run_dir, lp.log)
             # as after a gate: a command that exited may still have left processes behind
             worker.kill_marked(gitcall.run_child_env().get(worker.RUN_MARKER), log=lp.log)
             with probe_log.open("rb") as said:
@@ -7866,12 +7574,6 @@ RUN_MEMORY_DEFAULT_MB = 4096
 RUN_MEMORY_SHARE = 40
 
 
-def scope_is_real(scope):
-    """Whether `scope` names a unit systemd actually holds, not a plain start."""
-    return (isinstance(scope, str) and bool(scope) and scope != "none"
-            and not scope.startswith("none"))
-
-
 def memory_cap_mb(ceiling_mb=None):
     """The cap for one run, in mebibytes.
 
@@ -7890,16 +7592,6 @@ def memory_cap_mb(ceiling_mb=None):
             and ceiling_mb > 0):
         return max(1, (int(ceiling_mb) * RUN_MEMORY_SHARE) // 100)
     return RUN_MEMORY_DEFAULT_MB
-
-
-def memory_cap_line(mb):
-    """The reason a run that hit `mb` mebibytes records: `killed: memory cap N GB`."""
-    gb = mb / 1024
-    if abs(gb - round(gb)) < 1e-9:
-        shown = str(int(round(gb)))
-    else:
-        shown = f"{gb:.2f}".rstrip("0").rstrip(".")
-    return f"killed: memory cap {shown} GB"
 
 
 def run_scope_limits(ceiling_mb=None, *, cap_mb=None, cpu_weight=40):
@@ -7980,15 +7672,6 @@ def remember_memory_cap(state, placement, cap):
     return state
 
 
-def _scope_units(scope):
-    """The unit names a receipt's scope might be, scope first."""
-    if not isinstance(scope, str) or not scope:
-        return ()
-    if scope.endswith(".scope") or scope.endswith(".service"):
-        return (scope,)
-    return (f"{scope}.scope", f"{scope}.service")
-
-
 def _systemctl_fields(unit):
     """(Result, ControlGroup, OOMPolicy) for `unit`, or (None, "", "") when the manager
     cannot be asked.
@@ -8054,44 +7737,8 @@ def memory_cap_reason(state, probe=None):
     except (OSError, subprocess.SubprocessError, TypeError, ValueError):
         return None
     if result == "oom-kill" or (type(kills) is int and kills > 0):
-        return memory_cap_line(cap)
+        return turns.memory_cap_line(cap)
     return None
-
-
-# "<cgroup> <oom_kill count>" this loop has logged.  In the environment, because a loop that
-# picks up new code replaces its interpreter (`pickup_new_code`) in the same scope, and must
-# not say those kills again; a resume in a new scope is a new process that starts without it.
-OOM_LOGGED = "AK_MEMORY_CAP_LOGGED"
-_OOM_LOCK = threading.Lock()   # a reviewer and a suite can end on two threads at once
-
-
-def memory_cap_note(run_dir, log):
-    """Log each process the kernel ended at this run's memory cap since the last look.
-
-    Called as each worker turn and each done-when command ends.  That is all it does: the
-    turn or command the kill ended goes on or ends the run as any failed command or killed
-    worker does.  The count is the cgroup's this loop runs in, and only when that is the
-    run's own scope: a run from a seat's shell sits in the seat's, whose kills are not its.
-    """
-    state = run_record.read_state(Path(run_dir)) or {}
-    cap, scope = state.get("memory_cap_mb"), state.get("scope")
-    if type(cap) is not int or cap <= 0 or not scope_is_real(scope):
-        return
-    cgroup = host.process_cgroup()
-    if cgroup is None:
-        return
-    cgroup = cgroup.strip().rstrip("/")
-    if cgroup.rsplit("/", 1)[-1] not in _scope_units(scope):
-        return
-    with _OOM_LOCK:
-        where, _, said = os.environ.get(OOM_LOGGED, "").rpartition(" ")
-        seen = int(said) if where == cgroup and said.isdigit() else 0
-        kills = host._oom_kill_count(cgroup)
-        if kills > seen:
-            os.environ[OOM_LOGGED] = f"{cgroup} {kills}"
-    for _ in range(kills - seen):
-        log(f"{memory_cap_line(cap).removeprefix('killed: ')} hit: "
-            "the process that grew was ended")
 
 
 def conclude_memory_cap(run_dir, state, reason):
@@ -8124,25 +7771,6 @@ def conclude_memory_cap(run_dir, state, reason):
     except config.Error:
         pass
     return state
-
-
-def stop_run_tree(state, log=lambda _: None, wait=False):
-    """End everything a run started: its marked processes, then its scope.
-
-    The marker sweep is the backstop that runs everywhere: a plain host has no scope at
-    all, and a scope the manager never made answers the stop with nothing stopped. The
-    scope stop goes last and, by default, is fire-and-forget -- the loop calling it is
-    usually inside that scope and on its way out, so nothing of ours still runs after
-    it is asked.  A caller that is already outside the scope, the reaper after a
-    memory-cap death, passes `wait` so the stop finishes and the memory is back.
-    Never only a process group: a child that left its group is still the run's.
-    One sweep ends the run's children too: the marker match covers `<marker>/...`.
-    """
-    scope = state.get("scope") if isinstance(state, dict) else None
-    run_id = state.get("run_id") if isinstance(state, dict) else None
-    if run_id:
-        worker.kill_marked(worker.run_marker(run_id), log=log)
-    orch.stop_scope(scope, log, wait=wait)
 
 
 def tick_resumes(state):
@@ -10276,11 +9904,11 @@ def fixer_words(round_dir, name):
     """What the fixer turn in that round said, for the reviewer of the head it left: its
     answer, and the reason of a not-needed it handed in; '' without a turn.  Read where the
     turn wrote it, so a review resumed after a cut finds it too."""
-    turn = latest_worker_turn(round_dir, name)
+    turn = turns.latest_worker_turn(round_dir, name)
     if turn is None:
         return ""
     answer = turn / "final.md"
-    words = (read_answer(answer) if answer.is_file() else "") or ""
+    words = (turns.read_answer(answer) if answer.is_file() else "") or ""
     submitted = hand_in.read(turn / hand_in.FILE)
     closing = submitted.closing if submitted is not None else None
     if closing and closing["kind"] == "not-needed":
@@ -10389,7 +10017,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         pushed = None
     head = git(lp.wt, "rev-parse", "HEAD")
     if remote["sha"] != reviewed and remote["sha"] != pushed:
-        if latest_worker_turn(lp.round_dir, turn) is not None and not pushed:
+        if turns.latest_worker_turn(lp.round_dir, turn) is not None and not pushed:
             # the seat pushed while the fix was made (the turn cut off before its push):
             # never pushed over its commit, never reviewed as if it were the seat's
             pr_review_failed(lp, "the PR head moved while the fix was made; review it with a new run")
@@ -10414,8 +10042,8 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         # sees a turn handed to another model too): one that closed did its work and HEAD is
         # what it left; one the host cut off is resumed by execute on the checkout as it
         # left it, under its own name; none yet starts from the reviewed head
-        turned = latest_worker_turn(lp.round_dir, turn) is not None
-        name = open_worker(lp, turn)[0]
+        turned = turns.latest_worker_turn(lp.round_dir, turn) is not None
+        name = turns.open_worker(lp, turn)[0]
         if not (turned and name is None):
             if not turned and head != reviewed:
                 git(lp.wt, "reset", "--hard", reviewed)     # the line left the checkout elsewhere

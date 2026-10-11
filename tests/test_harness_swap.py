@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, update, usage  # noqa: E402
+from agentkit import config, run, turns, update, usage  # noqa: E402
 
 MISSING = "adapters/claude.sh: line 70: claude: command not found\n"
 
@@ -112,14 +112,14 @@ class HarnessSwap(unittest.TestCase):
         swap.__enter__()
         ended = lambda _delay: swap.__exit__(None, None, None)
         with patch.object(run.time, "sleep", side_effect=ended), \
-                self.assertRaises(run.CannotRun):
+                self.assertRaises(turns.CannotRun):
             self.call([(127, "", MISSING)])
         # one start again per swap: the second failure began after the swap had ended
         self.assertEqual(len(self.calls), 2)
 
     def test_a_turn_failing_with_no_swap_cannot_run(self):
         with patch.object(run.time, "sleep", side_effect=AssertionError("waited")), \
-                self.assertRaises(run.CannotRun) as broken:
+                self.assertRaises(turns.CannotRun) as broken:
             self.call([(127, "", MISSING)])
         self.assertEqual(len(self.calls), 1)
         self.assertIn("command not found", str(broken.exception))
@@ -135,7 +135,7 @@ class HarnessSwap(unittest.TestCase):
 
         with patch.object(run, "note_turn_meters", side_effect=begin), \
                 patch.object(run.time, "sleep", side_effect=AssertionError("waited")), \
-                self.assertRaises(run.CannotRun):
+                self.assertRaises(turns.CannotRun):
             self.call([(127, "", MISSING)])
         self.assertEqual(len(self.calls), 1)
 
@@ -148,7 +148,7 @@ class HarnessSwap(unittest.TestCase):
             swap.__enter__()
         self.assertEqual(update.swap_end("claude", began, began), began + update.STEP_CAP)
         with patch.object(run.time, "sleep", side_effect=AssertionError("waited")), \
-                self.assertRaises(run.CannotRun):
+                self.assertRaises(turns.CannotRun):
             self.call([(127, "", MISSING)])
         self.assertEqual(len(self.calls), 1)
 

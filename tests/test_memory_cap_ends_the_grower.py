@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, host, config, orch, run, worker
+from agentkit import config, gate, host, orch, run, turns, worker
 from agentkit import record
 
 SCOPE = "agentkit-run-20260930-2300-acme"
@@ -119,7 +119,7 @@ class Loop(Sandbox):
         self.stack.enter_context(patch.object(host, "OWN_CGROUP", own))
         self.stack.enter_context(patch.object(host, "CGROUP_ROOT", self.root / "cgroup"))
         self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
-        os.environ.pop(run.OOM_LOGGED, None)    # the sandbox's patch.dict puts it back
+        os.environ.pop(turns.OOM_LOGGED, None)    # the sandbox's patch.dict puts it back
         self.run_dir = config.RUNS / "20260930-2300-acme"
         self.run_dir.mkdir(parents=True)
         record.save_state(self.run_dir, {
@@ -173,7 +173,7 @@ class Loop(Sandbox):
             except threading.BrokenBarrierError:
                 pass
 
-        ending = [threading.Thread(target=run.memory_cap_note, args=(self.run_dir, log))
+        ending = [threading.Thread(target=turns.memory_cap_note, args=(self.run_dir, log))
                   for _ in range(2)]
         for thread in ending:
             thread.start()
@@ -184,15 +184,15 @@ class Loop(Sandbox):
     def test_new_code_in_the_same_scope_says_no_kill_twice(self):
         # `pickup_new_code` execs a new interpreter with this environment in the same scope
         self.kills(1)
-        run.memory_cap_note(self.run_dir, self.lines.append)
+        turns.memory_cap_note(self.run_dir, self.lines.append)
         self.assertEqual(self.lines, [HIT])
         after_exec = (
             "import sys\nfrom pathlib import Path\n"
             f"sys.path.insert(0, {str(REPO)!r})\n"
-            "from agentkit import host, orch, run\n"
+            "from agentkit import host, orch, run, turns\n"
             f"host.OWN_CGROUP = Path({str(self.root / 'own-cgroup')!r})\n"
             f"host.CGROUP_ROOT = Path({str(self.root / 'cgroup')!r})\n"
-            f"run.memory_cap_note(Path({str(self.run_dir)!r}), print)\n")
+            f"turns.memory_cap_note(Path({str(self.run_dir)!r}), print)\n")
         for count, said in ((1, ""), (2, HIT + "\n")):
             self.kills(count)
             child = subprocess.run([sys.executable, "-c", after_exec], capture_output=True,
@@ -204,7 +204,7 @@ class Loop(Sandbox):
             "0::/user.slice/user-1000.slice/user@1000.service/agentkit-test.slice/"
             "agentkit-seat-acme.scope\n")
         self.kills(1)
-        run.memory_cap_note(self.run_dir, self.lines.append)
+        turns.memory_cap_note(self.run_dir, self.lines.append)
         self.assertEqual(self.lines, [])
 
     def test_a_dead_loop_in_a_scope_that_goes_on_is_no_memory_cap_death(self):

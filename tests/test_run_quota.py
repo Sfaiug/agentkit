@@ -28,7 +28,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.clock import Clock
 from fixtures.hand_in import submitting, scripted, stateful
-from agentkit import config, gate, gitcall, harness, host, notify, orch, run, status, usage, watch
+from agentkit import config, gate, gitcall, harness, host, notify, orch, run, status, turns, usage, watch
 from agentkit import record
 
 WEEK = 604800
@@ -710,7 +710,7 @@ class QuotaDry(unittest.TestCase):
         self.plan({"astra": [{"code": 1, **REFUSALS["codex"], "session": "dead-session"},
                              {"code": 0, "final": "## Summary\nDone."}]})
         lines, log = self.logged()
-        with self.assertRaises(run.RanDry):
+        with self.assertRaises(turns.RanDry):
             run.call_retrying(self.cfg, "astra", "the task", self.root,
                               self.root / "round-1" / "executor", "executor", None, log)
         # exactly as with none held: parked until the date the refusal named, never retried

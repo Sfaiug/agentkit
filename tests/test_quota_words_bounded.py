@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, orch, run, usage, watch  # noqa: E402
+from agentkit import config, harness, orch, run, turns, usage, watch  # noqa: E402
 from fixtures.clock import Clock
 from fixtures.hand_in import scripted, stateful
 
@@ -205,7 +205,7 @@ class QuotaWordsBounded(unittest.TestCase):
         # a harness that never ran the turn hands it over at once, in the words no harness owns
         line = "The model gpt-nonexistent was not found. Try a different model."
         self.assertIn("model … not found", harness.STALL["faults"])
-        with self.assertRaises(run.CannotRun) as broken:
+        with self.assertRaises(turns.CannotRun) as broken:
             self.turn("astra", {"code": 1, "stderr.log": f"{line}\n"})
         self.assertIn(line, str(broken.exception))
         self.sleep.assert_not_called()
@@ -238,7 +238,7 @@ class QuotaWordsBounded(unittest.TestCase):
                               ("astra", "invalid-api_key"), ("astra", "invalid x-api_key"),
                               ("opus", "error: unknown option '--effort'\nrequest count: 500"),
                               ("astra", "error: unknown option '--effort'\nrequest count: 529")):
-            with self.subTest(stderr=stderr), self.assertRaises(run.CannotRun):
+            with self.subTest(stderr=stderr), self.assertRaises(turns.CannotRun):
                 self.turn(model, {"code": 1, "stderr.log": stderr})
         self.sleep.assert_not_called()
         # a warning that something else was not found is no fault, and an outage in any of its

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, record, run, worker
+from agentkit import config, hand_in, record, run, turns, worker
 
 PROSE = ("VERDICT: PASS\n\n## Findings\n- api.py:1 - prose finding - breaks callers\n\n"
          "## Follow-ups\n- api.py:1 - prose follow-up - existed before\n")
@@ -31,7 +31,7 @@ class ReviewerTextIgnored(unittest.TestCase):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         for module, name, value in ((run, "collect_usage", {}), (run, "ready_order", []),
                                     (run, "note_turn_meters", None), (run, "history_role_tokens", None),
-                                    (run, "memory_cap_note", None), (run.history, "update_run", None)):
+                                    (turns, "memory_cap_note", None), (run.history, "update_run", None)):
             self.stack.enter_context(patch.object(module, name, return_value=value))
         config.ensure_dirs()
         workspace = self.root / "acme"

@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import hand_in, host, config, notify, run, status, usage, watch
+from agentkit import config, hand_in, host, notify, run, status, turns, usage, watch
 from agentkit import record
 from fixtures.hand_in import submitting
 
@@ -364,7 +364,7 @@ class WorkerList(unittest.TestCase):
                 if kind == "own-pr":
                     lp.state.update(own_pr=True, own_orchestrator="seat")
                 record.save_state(lp.run_dir, lp.state)
-                refusal = run.RanDry("gamma", "b", 1, "usage limit reached", None,
+                refusal = turns.RanDry("gamma", "b", 1, "usage limit reached", None,
                                      self.now + 3600, "usage limit reached", True)
                 with patch.object(run, "call_retrying", side_effect=refusal), \
                         patch.object(run, "collect_usage",

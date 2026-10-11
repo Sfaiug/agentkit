@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, usage, watch  # noqa: E402
+from agentkit import config, run, turns, usage, watch  # noqa: E402
 from agentkit import record
 
 
@@ -180,7 +180,7 @@ class RefusalTests(unittest.TestCase):
             code=0,
             events='{"type":"turn.failed","error":{"message":"usage limit"}}')
         with patch.object(run.worker, "call", side_effect=fake):
-            with self.assertRaises(run.RanDry):
+            with self.assertRaises(turns.RanDry):
                 run.call_retrying(self.cfg, "astra", "body", self.root,
                                   self.out, "executor", None, lambda _: None)
         self.assertEqual(len(calls), 1)
