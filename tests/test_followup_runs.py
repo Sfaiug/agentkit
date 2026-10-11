@@ -627,7 +627,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("[exit 0]", (child / "round-1/donewhen.log").read_text())
         calls = [json.loads(line) for line in (self.root / "harness/calls.jsonl").read_text().splitlines()]
         self.assertEqual([c["role"] for c in calls], ["executor", "reviewer"])
-        self.assertIn("First fetch the target branch", calls[0]["prompt"])
+        self.assertIn("starts on the target branch's tip, fetched when this run started", calls[0]["prompt"])
         self.assertIn("another open run of session seat", calls[0]["prompt"])
         self.assertEqual(len(fixed["followup_runs"]), 1)     # the fix run's own follow-up gets a run too
         found = fixed["followups"][0]

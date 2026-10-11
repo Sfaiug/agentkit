@@ -2396,7 +2396,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                     # the check is a given failing command, the target's own for a repair and the
                     # reviewer's for a follow-up, and the run makes it pass: one task for both
                     task += (
-                        "First fetch the target branch and run the command below on its tip. If it "
+                        "Your checkout starts on the target branch's tip, fetched when this run "
+                        "started: run the command below there first. If it "
                         'passes there now, run `ak hand-in not-needed "<why>"`, with no edits or PR. '
                         "Otherwise fix the root cause so it passes, and show it failing before the "
                         "fix and passing afterwards in your summary. If only the owner can decide, "
@@ -2404,7 +2405,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                         f"## Done when\n```bash\n{repair['check'] if repair else checks[item]}\n```\n")
                 else:
                     task += (
-                        "First fetch the target branch and check that this defect still exists there. "
+                        "Your checkout starts on the target branch's tip, fetched when this run "
+                        "started: first check that this defect still exists there. "
                         f"Inspect {config.RUNS}/*/run.json for another open run of session {session} "
                         f"fixing this site in {repo}; exclude this run ({directory.name}). "
                         "If the defect is gone or another open run is fixing it, run "
