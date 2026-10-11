@@ -44,8 +44,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (browser, command_help, config, gc, gitcall, host, notify, orch, statusbar, update,
-               usage, worker)
+from . import (browser, command_help, config, gc, gitcall, host, notify, orch, statusbar, turns,
+               update, usage, worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
 
@@ -3587,7 +3587,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     refusal = outcome in (SPENT, LIMITED)
     now = time.time()
     observed = live.get("usage_refusal") or {}
-    until = run.try_again_at(line) if refusal else None
+    until = turns.try_again_at(line) if refusal else None
     handled = observed.get("line") == line and observed.get("handled")
     if handled and not waiting and not spent(current):
         return True       # a consumed refusal is still history when its transcript is redrawn
@@ -4060,7 +4060,7 @@ def stall_clock(run_dir, state):
     A freeze stops every write a run could make, so the silence under one is the host's and
     not the run's; the clock starts again where the freeze was lifted, never where it began.
     A transient wait is the loop's own -- up to an hour at a time, on a provider that is down,
-    writing nothing -- so the clock starts where that wait ends (`run.transient_wait`).  Only
+    writing nothing -- so the clock starts where that wait ends (`turns.transient_wait`).  Only
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
     its silence is its own. A live loop waiting for another delivery's repository lock is
     silent for as long as that takes, so its clock starts now, every tick, until the wait
@@ -4738,7 +4738,7 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                     continue
                 note_freeze(run_dir, frozen, now)
                 continue
-            minutes = run_mod.stall_minutes_for(run_dir, state)
+            minutes = turns.stall_minutes_for(run_dir, state)
             silent = now - stall_clock(run_dir, state)
             if silent < minutes * 60:
                 continue
@@ -4759,7 +4759,7 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                     continue
                 rnd = len(state.get("round_summaries") or []) + 1
                 stalls = list(state.get("stalls") or [])
-                line = stall_line(run_mod.stall_minutes_for(run_dir, state), rnd, step)
+                line = stall_line(turns.stall_minutes_for(run_dir, state), rnd, step)
                 if dry_run:
                     rung = "park" if len(stalls) >= 2 else (
                         "resume" if len(stalls) >= 1 or kind == "none" else "kill the step")

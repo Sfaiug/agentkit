@@ -25,11 +25,11 @@ class ExecutorTextIgnored(unittest.TestCase):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
-        for module, name in ((run, "note_turn_meters"), (run, "history_role_tokens"),
+        for module, name in ((turns, "note_turn_meters"), (run, "history_role_tokens"),
                              (turns, "memory_cap_note"), (run.history, "update_run"),
                              (run, "pickup_new_code")):
             self.stack.enter_context(patch.object(module, name, return_value=None))
-        self.stack.enter_context(patch.object(run, "transient_wait",
+        self.stack.enter_context(patch.object(turns, "transient_wait",
                                              side_effect=AssertionError("unexpected wait")))
         config.ensure_dirs()
         workspace = self.root / "acme"
@@ -252,7 +252,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.text = "## Blocked"
         self.background = True
         self.checked()
-        self.assertIn(run.FINISH_IN_FOREGROUND, self.calls[1][0])
+        self.assertIn(turns.FINISH_IN_FOREGROUND, self.calls[1][0])
 
     def test_extra_closing_turn_leaving_background_work_does_not_buy_a_third_turn(self):
         self.text = "## Blocked"

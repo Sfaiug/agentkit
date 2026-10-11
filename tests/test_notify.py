@@ -19,7 +19,7 @@ from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, run, watch
+from agentkit import config, menu, notify, orch, run, turns, watch
 
 
 class Notifications(unittest.TestCase):
@@ -296,17 +296,18 @@ sys.exit(p.returncode)
         # time.sleep, as often as the host's load makes it, and only the backoff is counted here
         sleep = Mock()
         with patch.object(config, "adapter", return_value=adapter), \
-                patch.object(run, "time", SimpleNamespace(**{**vars(time), "sleep": sleep})):
+                patch.object(run, "time", SimpleNamespace(**{**vars(time), "sleep": sleep})), \
+                patch.object(turns, "time", SimpleNamespace(**{**vars(time), "sleep": sleep})):
             for role in roles:
                 out = run_dir / "round-1" / role
-                code, _, _, dead = run.call_retrying(cfg, model, "task", self.root, out,
+                code, _, _, dead = turns.call_retrying(cfg, model, "task", self.root, out,
                                                      role, None, lambda _: None)
                 self.assertEqual((code, dead), (0, False))
                 env = json.loads((out / "env.json").read_text())
                 self.assertEqual(env["AK_RUN_ROLE"], "worker")
                 self.assertNotIn(config.RUN_DIR_ENV, env)
                 self.assertIn("suppressed", (out / "attempt.txt").read_text())
-        sleep.assert_called_once_with(run.TRANSIENT_BACKOFF[0])
+        sleep.assert_called_once_with(turns.TRANSIENT_BACKOFF[0])
         self.assertEqual(len((run_dir / "log.txt").read_text().splitlines()), len(roles) + 1)
         self.assertEqual(self.requests, [])
         self.assertNotEqual(os.environ.get("AK_RUN_ROLE"), "worker")

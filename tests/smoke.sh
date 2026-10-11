@@ -1686,7 +1686,7 @@ PY
 import runpy, sys, time
 from types import SimpleNamespace
 from unittest.mock import patch
-from agentkit import run
+from agentkit import turns
 
 now = time.time()
 def sleep(seconds):
@@ -1695,13 +1695,13 @@ def sleep(seconds):
     print(f"test clock advanced {seconds}s", flush=True)
 
 clock = SimpleNamespace(time=lambda: now, sleep=sleep)
-wait = run.transient_wait
+wait = turns.transient_wait
 def wait_on_clock(out_dir, delay):
     # Exercise the real wait and its record; every other clock stays real.
-    with patch.object(run, "time", clock):
+    with patch.object(turns, "time", clock):
         wait(out_dir, delay)
 
-with patch.object(run, "transient_wait", wait_on_clock):
+with patch.object(turns, "transient_wait", wait_on_clock):
     sys.argv = sys.argv[1:]
     runpy.run_path(sys.argv[0], run_name="__main__")
 PY_RETRY_CLOCK

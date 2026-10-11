@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, gitcall, host, config, run, status, watch, worker
+from agentkit import config, gate, gitcall, host, run, status, turns, watch, worker
 from agentkit import record
 from agentkit import task as taskfile
 from test_suites_never_collide import E2E, SMOKE, lock_argv, lock_program
@@ -215,7 +215,7 @@ class Silence(unittest.TestCase):
         # the run directory as the out dir's grandparent, and one level up here is the checkout
         out = self.root / "turns" / "executor"
         with patch.object(worker.time, "monotonic", side_effect=Clock(600, self.emitted(out))), \
-                patch.object(run, "TRANSIENT_BACKOFF", (0, 0)):
+                patch.object(turns, "TRANSIENT_BACKOFF", (0, 0)):
             code, text, sid, dead = run.call_retrying(
                 cfg, "fixture", "do it", self.root, out, "executor", None, logs.append)
         self.assertEqual((code, sid, dead), (0, "sid", False))
@@ -250,7 +250,7 @@ class Silence(unittest.TestCase):
 
         with patch.object(worker.time, "monotonic", side_effect=clock), \
                 patch.object(worker, "ACTIVITY_POLL", .05), \
-                patch.object(run, "transient_wait", side_effect=AssertionError(
+                patch.object(turns, "transient_wait", side_effect=AssertionError(
                     "the chatty turn must finish without retries")):
             code, text, _, dead = run.call_retrying(
                 cfg, "fixture", "do it", self.root, out,
@@ -275,7 +275,7 @@ class Silence(unittest.TestCase):
             record.save_state(self.root, saved)
             lp = run.Loop({}, self.root, saved, {}, lambda _: None, self.root, "", [], "", [])
             self.assertEqual((lp.turn_limit, lp.done_when_limit), (17 * 60, 5 * 3600))
-            self.assertEqual(run.stall_minutes_for(self.root, saved), 17)
+            self.assertEqual(turns.stall_minutes_for(self.root, saved), 17)
             self.assertAlmostEqual(watch.stall_allowance(saved, "done-when", 17),
                                    17 + (worker.KILL_GRACE + 2 * worker.ACTIVITY_POLL) / 60)
         self.assertEqual((saved["silence_minutes"], saved["ceiling_hours"]), (17, 5))
@@ -469,7 +469,7 @@ class Silence(unittest.TestCase):
                 out = self.root / harness / "executor"
                 with patch.object(worker.time, "monotonic",
                                   side_effect=Clock(600, self.emitted(out))), \
-                        patch.object(run, "TRANSIENT_BACKOFF", (0, 0, 0, 0, 0)):
+                        patch.object(turns, "TRANSIENT_BACKOFF", (0, 0, 0, 0, 0)):
                     code, text, _, dead = run.call_retrying(
                         cfg, "fixture", "do it", self.root, out, "executor", None, lambda _: None)
                 self.assertEqual((code, dead), (0, False))

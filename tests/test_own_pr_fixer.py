@@ -30,7 +30,9 @@ class OwnPrFixer(OwnPr):
 
         self.fix = leaves_a_fix
         clock = self.stack.enter_context(patch.object(run, "time", wraps=time))
+        turns_clock = self.stack.enter_context(patch.object(turns, "time", wraps=time))
         clock.sleep.side_effect = lambda _seconds: self.fail("the run slept instead of fixing")
+        turns_clock.sleep.side_effect = lambda _seconds: self.fail("the run slept instead of fixing")
         with patch.object(run, "ready_order", return_value=["astra", "opus"]):
             state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])

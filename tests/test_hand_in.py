@@ -177,11 +177,11 @@ class HandIn(unittest.TestCase):
                         event = {"type": run.watch.terminal(harness), "result": text}
                         (self.root / "events.jsonl").write_text(json.dumps(event) + "\n")
                         for failures_only in (False, True):
-                            self.assertEqual(run.harness_said(self.root, text, harness,
+                            self.assertEqual(turns.harness_said(self.root, text, harness,
                                                               failures_only=failures_only), "")
                         event.update(is_error=True, error="rate limit")
                         (self.root / "events.jsonl").write_text(json.dumps(event) + "\n")
-                        self.assertIn("rate limit", run.harness_said(self.root, text, harness,
+                        self.assertIn("rate limit", turns.harness_said(self.root, text, harness,
                                                                     failures_only=True))
 
     def review(self, *plan, ok=True, reviewer="astra", prior=(), prior_suffix="", overrides=()):
@@ -221,9 +221,9 @@ sys.exit(row.get("code", 0))
             stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(self.root)}))
             for module, name, value in ((config, "adapter", adapter), (worker, "auth_ok", (True, "fixture")),
                                         (worker, "marked_pids", []), (run, "collect_usage", {}),
-                                        (run, "ready_order", ["spark"]), (run, "note_turn_meters", None),
+                                        (run, "ready_order", ["spark"]), (turns, "note_turn_meters", None),
                                         (run, "history_role_tokens", None), (turns, "memory_cap_note", None),
-                                        (run, "transient_wait", None), (run.update, "swap_end", None),
+                                        (turns, "transient_wait", None), (run.update, "swap_end", None),
                                         (run.usage, "account", (None, True)), (run.history, "update_run", None)):
                 stack.enter_context(patch.object(module, name, return_value=value))
             for override in overrides:
@@ -309,7 +309,7 @@ sys.exit(row.get("code", 0))
         self.cli("finding", "api.py:1", "API Error: quota exceeded", "capacity refusal",
                  "--quote", "first line")
         for code in (False, True):
-            said = run.harness_said(self.root, "", "codex", failures_only=code)
+            said = turns.harness_said(self.root, "", "codex", failures_only=code)
             self.assertNotIn("API Error", said)
             self.assertNotIn("quota exceeded", said)
 
@@ -323,12 +323,12 @@ sys.exit(row.get("code", 0))
                 for closing in (text, "## Summary\n" + text):
                     (self.root / "events.jsonl").write_text(json.dumps({"type": terminal, "result": closing}) + "\n")
                     for failures_only in (False, True):
-                        said = run.harness_said(self.root, closing, harness, failures_only=failures_only)
+                        said = turns.harness_said(self.root, closing, harness, failures_only=failures_only)
                         self.assertEqual(run.harness_plugin(harness).failure(said), (None, None), said)
                     # A real terminal error still speaks, even after the worker handed in records.
                     (self.root / "events.jsonl").write_text(json.dumps({
                         "type": terminal, "is_error": True, "error": "rate limit"}) + "\n")
-                    said = run.harness_said(self.root, closing, harness, failures_only=True)
+                    said = turns.harness_said(self.root, closing, harness, failures_only=True)
                     self.assertIn("rate limit", said)
 
     def test_a_plain_closing_keeps_the_finding_without_parking_its_provider(self):
@@ -352,10 +352,10 @@ sys.exit(row.get("code", 0))
                 terminal = run.watch.terminal(harness)
                 event = {"type": terminal, "result": text}
                 (self.root / "events.jsonl").write_text(json.dumps(event) + "\n")
-                self.assertEqual(run.harness_said(self.root, text, harness, failures_only=True), "")
+                self.assertEqual(turns.harness_said(self.root, text, harness, failures_only=True), "")
                 event.update(is_error=True, error="usage limit reached")
                 (self.root / "events.jsonl").write_text(json.dumps(event) + "\n")
-                self.assertIn("usage limit reached", run.harness_said(
+                self.assertIn("usage limit reached", turns.harness_said(
                     self.root, text, harness, failures_only=True))
 
     def test_no_records_and_no_done_reasks_the_same_reviewer_without_parking(self):
@@ -395,7 +395,7 @@ sys.exit(row.get("code", 0))
                         code, text = -15, ""
                     elif reason == "foreground":
                         code, text = 0, "Handed in."
-                        overrides.append(patch.object(run, "turn_unfinished", side_effect=[True, False]))
+                        overrides.append(patch.object(turns, "turn_unfinished", side_effect=[True, False]))
                     verdict, lp, calls, _ = self.review(
                         {"commands": [finding, followup], "text": text, "code": code},
                         {"commands": [["done"]]}, overrides=overrides)

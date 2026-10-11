@@ -31,7 +31,7 @@ import shutil
 import tempfile
 import time
 
-from . import config, gitcall
+from . import config, gitcall, turns
 from . import record as run_record
 
 DIR = "leases"
@@ -384,9 +384,9 @@ def restart(log=print, now=None):
             try:
                 (directory / "task.md").write_text(
                     task_naming(run_dir, directory, state.get("repo")), encoding="utf-8")
-                if (run_dir / run.REGRESSION.parent).is_dir():      # links kept as links
-                    shutil.copytree(run_dir / run.REGRESSION.parent,
-                                    directory / run.REGRESSION.parent, symlinks=True)
+                if (run_dir / turns.REGRESSION.parent).is_dir():      # links kept as links
+                    shutil.copytree(run_dir / turns.REGRESSION.parent,
+                                    directory / turns.REGRESSION.parent, symlinks=True)
                 (directory / "log.txt").touch()
                 gitcall.logger(directory)(f"started again for {run_dir.name}: {why}; its earlier "
                                       f"attempt is kept on branch {state.get('branch')}")

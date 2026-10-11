@@ -15,7 +15,7 @@ from unittest.mock import call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, record, run
+from agentkit import config, record, run, turns
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 
@@ -48,18 +48,18 @@ class TransientBackoffClock(unittest.TestCase):
         return script[1]
 
     def test_normal_runs_keep_the_production_schedule_and_sleep(self):
-        self.assertEqual(run.TRANSIENT_BACKOFF, (60, 300, 900, 1800, 3600))
-        self.assertEqual([run.transient_delay(i) for i in range(1, 8)],
+        self.assertEqual(turns.TRANSIENT_BACKOFF, (60, 300, 900, 1800, 3600))
+        self.assertEqual([turns.transient_delay(i) for i in range(1, 8)],
                          [60, 300, 900, 1800, 3600, 3600, 3600])
         out = self.root / "normal" / "round-1" / "executor"
         with patch.object(run.time, "sleep") as sleep:
             for attempt in (1, 2):
-                run.transient_wait(out, run.transient_delay(attempt))
+                turns.transient_wait(out, turns.transient_delay(attempt))
         self.assertEqual(sleep.call_args_list, [call(60), call(300)])
 
     def test_test_clock_advances_deadlines_and_leaves_other_waits_alone(self):
         script = self.clock_script()
-        real_clock, real_wait = run.time, run.transient_wait
+        real_clock, real_wait = turns.time, turns.transient_wait
         run_dir = self.root / "clock-run"
         run_dir.mkdir()
         record.save_state(run_dir, {"state": "running"})
@@ -67,17 +67,17 @@ class TransientBackoffClock(unittest.TestCase):
 
         def launch(path, run_name, **_kw):
             self.assertEqual((path, run_name), (str(REPO / "bin/ak"), "__main__"))
-            self.assertIs(run.time, real_clock)
+            self.assertIs(turns.time, real_clock)
             deadlines = []
             for delay in (60, 300, 1):
-                run.transient_wait(out, delay)
+                turns.transient_wait(out, delay)
                 wait = record.read_state(run_dir)["transient_wait"]
                 self.assertEqual(wait["pid"], os.getpid())
                 deadlines.append(wait["until"])
-                self.assertIs(run.time, real_clock)
+                self.assertIs(turns.time, real_clock)
             self.assertEqual(deadlines[1] - deadlines[0], 300)
             self.assertEqual(deadlines[2] - deadlines[1], 1)
-            run.time.sleep(0.25)
+            turns.time.sleep(0.25)
 
         output = io.StringIO()
         with patch.object(sys, "argv", ["-", str(REPO / "bin/ak"), "run"]), \
@@ -85,7 +85,7 @@ class TransientBackoffClock(unittest.TestCase):
                 patch.object(real_clock, "sleep") as sleep, redirect_stdout(output):
             exec(script, {})
         sleep.assert_called_once_with(0.25)
-        self.assertIs(run.transient_wait, real_wait)
+        self.assertIs(turns.transient_wait, real_wait)
         self.assertEqual(output.getvalue().splitlines(), [
             "test clock advanced 60s", "test clock advanced 300s", "test clock advanced 1s"])
 

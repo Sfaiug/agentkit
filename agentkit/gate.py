@@ -1042,7 +1042,7 @@ class _SuiteMeasure:
         self.run_id = state.get("run_id")
         relative = host.process_cgroup() if state.get("scope") else None
         self.group = (host.cgroup_path(relative) if relative and
-                      Path(relative).name in run._scope_units(state["scope"]) else None)
+                      Path(relative).name in turns._scope_units(state["scope"]) else None)
         self.cpu = host._slice_cpu_stat(self.group) or {}
         reading = host._scope_readings(self.group) if self.group is not None else None
         self.baseline = reading[1] if reading else None
@@ -1241,7 +1241,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 results[index - 1] = code, piece, killed
                 piece.seek(0, os.SEEK_END)
                 size = piece.tell()
-                piece.seek(max(0, size - run.OUT_CAP))
+                piece.seek(max(0, size - turns.OUT_CAP))
                 text = piece.read().decode("utf-8", errors="replace").rstrip()
                 # Existing failure diagnostics read the last output; leave a red piece last.
                 (red if code else chunks).append(f"--- AK_SHARD={shard} ---\n"
@@ -1377,7 +1377,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)
                 with log_path.open("rb") as progress:
-                    progress.seek(max(offset, log_path.stat().st_size - run.OUT_CAP))
+                    progress.seek(max(offset, log_path.stat().st_size - turns.OUT_CAP))
                     out = progress.read().decode("utf-8", errors="replace")
                 if split(cmd):
                     out = piece_text
@@ -1403,7 +1403,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             if marks is not None:
                 marks.append(None if killed else code)
             chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
-                          f"{out if split(cmd) else out[-run.OUT_CAP:]}".rstrip())
+                          f"{out if split(cmd) else out[-turns.OUT_CAP:]}".rstrip())
             if first is not None and code == 0:
                 # blank lines dropped: a record is what lies between two, and these are one
                 # both runs read whole from the gate log: the capped `out` starts mid-output

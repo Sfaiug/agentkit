@@ -259,7 +259,7 @@ class Harness:
         """What a failed turn's own output says, in its `[stall]` words: (outcome, word).
 
         `said` is the harness's own -- its stderr, its failure events, a final.md nothing
-        answered (`run.harness_said`), a seat's error line -- never the model's answer, and a
+        answered (`turns.harness_said`), a seat's error line -- never the model's answer, and a
         word counts only standing on its own (`says`).  A spent window (`quotas`) outranks a
         refusal (`refusals`), and a refusal an outage (`outages`); where every quota word said
         is only a rate limit (`limited`), the window is LIMITED rather than SPENT, with the

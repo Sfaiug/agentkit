@@ -96,7 +96,7 @@ class HarnessSwap(unittest.TestCase):
             self.sleeps.append(delay)
             swap.__exit__(None, None, None)
 
-        with patch.object(run, "note_turn_meters", side_effect=begin), \
+        with patch.object(turns, "note_turn_meters", side_effect=begin), \
                 patch.object(run.time, "sleep", side_effect=sleep):
             code, _, _, _ = self.call([(1, "", ""),
                                        (127, "", MISSING + "Background tasks still running\n"),
@@ -133,7 +133,7 @@ class HarnessSwap(unittest.TestCase):
             with patch.object(update.time, "time", return_value=time.time() + 1):
                 swap.__enter__()
 
-        with patch.object(run, "note_turn_meters", side_effect=begin), \
+        with patch.object(turns, "note_turn_meters", side_effect=begin), \
                 patch.object(run.time, "sleep", side_effect=AssertionError("waited")), \
                 self.assertRaises(turns.CannotRun):
             self.call([(127, "", MISSING)])

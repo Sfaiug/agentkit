@@ -35,7 +35,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import command_help, config, terminal, usage_probe, worker
+from . import command_help, config, terminal, turns, usage_probe, worker
 from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
@@ -1576,7 +1576,7 @@ def review_pair(cfg, providers):
     try:
         executor, reviewer = run.pick_models(cfg, providers, None, None, lambda _: None,
                                              quiet=True)
-    except run.QuotaDry:
+    except turns.QuotaDry:
         return None
     return {"executor": executor, "reviewer": reviewer,
             "same_provider": config.model(cfg, executor)["provider"] ==

@@ -24,7 +24,7 @@ from urllib.parse import quote
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, usage, watch  # noqa: E402
+from agentkit import config, orch, run, turns, usage, watch  # noqa: E402
 from agentkit.harness import claude, codex  # noqa: E402
 
 MODELS = {"claude": ("opus", "anthropic"), "codex": ("astra", "openai")}
@@ -245,7 +245,7 @@ class SeatErrorRecord(unittest.TestCase):
                 self.assertEqual(bool(signature), outcome == "auth")
                 self.assertEqual(word is None, outcome == "auth")
                 self.account(name)
-                until = run.try_again_at(text)
+                until = turns.try_again_at(text)
                 self.assertEqual(self.marked,
                                  [(self.provider, until)] if outcome == "spent" else [])
                 if outcome == "spent" and harness == "codex":
