@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, config, land, run, status, worker  # noqa: E402
+from agentkit import gate, config, gitcall, land, run, status, worker  # noqa: E402
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"
@@ -153,6 +153,7 @@ class First(unittest.TestCase):
 
     def test_first_waits_its_gate_turn_behind_an_earlier_waiter(self):
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
+        self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")

@@ -15,7 +15,7 @@ from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import box, config, host, notify, orch, retention, run, task as taskfile, watch
+from . import box, config, gitcall, host, notify, orch, retention, run, task as taskfile, watch
 from . import land, record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
@@ -82,7 +82,7 @@ def job_logger(job_dir):
     def log(message):
         line = f"{datetime.now():%H:%M:%S} {message}"
         print(line, flush=True)
-        if not run.log_is_stdout(Path(job_dir)):
+        if not gitcall.log_is_stdout(Path(job_dir)):
             with (Path(job_dir) / "log.txt").open("a") as fh:
                 fh.write(line + "\n")
     return log
@@ -137,7 +137,7 @@ def job_scheduler_owns(run_id, state):
 
 def job_make_id(first_title):
     stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
-    base = f"{stamp}-{run.slugify(first_title)}"
+    base = f"{stamp}-{gitcall.slugify(first_title)}"
     job_dir = config.JOBS / base
     n = 1
     while job_dir.exists():
@@ -227,7 +227,7 @@ def job_create(cfg, task_paths, opts, parallel):
         refusal = taskfile.launch_refusal(info["meta"], info["cmds"])
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
-        run.repo_line(info["meta"], info["path"])
+        gitcall.repo_line(info["meta"], info["path"])
     if not opts.get("--anyway"):
         for info in infos:
             rivals = run.already_under_way(info["path"], info["meta"], info["title"], info["cmds"])
@@ -478,7 +478,7 @@ def job_now(job, alive, cfg=None, index=None):
 
 def job_allocate_run_dir(title):
     """An ordinary run directory with a name no concurrent task takes: mkdir wins the race."""
-    run_id = f"{datetime.now():%Y%m%d-%H%M}-{run.slugify(title)}"
+    run_id = f"{datetime.now():%Y%m%d-%H%M}-{gitcall.slugify(title)}"
     n = 1
     while True:
         run_dir = config.RUNS / (run_id if n == 1 else f"{run_id}-{n}")
@@ -672,7 +672,7 @@ def job_end_legacy_run(cfg, task, run_dir):
                 or record.process_active(state) or run.landing_line(state)):
             return None
         try:
-            ended = run.end_on_dependency(cfg, run_dir, state, run.logger(run_dir), why)
+            ended = run.end_on_dependency(cfg, run_dir, state, gitcall.logger(run_dir), why)
         except (config.Error, OSError) as exc:
             # its record says what it got to; the task still goes back with the run and its branch
             ended = {**(record.read_state(run_dir) or state), "error": f"{why}; ending it: {exc}"}
@@ -709,7 +709,7 @@ def job_start_task(cfg, job_dir, task, opts, log):
             log(f"{task['name']}: reviewer {kept} is the rerun executor's own model; "
                 "the rerun will pick another reviewer")
             run_opts["--review"] = None
-    run.prepare(run_dir, run_opts, run.logger(run_dir), cfg, job_id=job_dir.name, task_file=task_path)
+    run.prepare(run_dir, run_opts, gitcall.logger(run_dir), cfg, job_id=job_dir.name, task_file=task_path)
     log(f"{task['name']} start: {run_dir.name}")
     return run_dir, run_opts
 
@@ -777,7 +777,7 @@ def job_drive(cfg, run_dir, run_opts, box, scoped=False):
             box["state"] = job_await(run_dir)
             box["rc"] = 0 if job_classify(box["state"], cfg) in ("merged", "passed") else 1
             return
-        log = run.logger(run_dir)
+        log = gitcall.logger(run_dir)
         with job_muted():
             box["rc"] = run.drive(cfg, run_dir, run_opts, log)
         box["state"] = record.read_state(run_dir) or {}

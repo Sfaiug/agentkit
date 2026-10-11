@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, host, config, run, status, watch, worker
+from agentkit import gate, gitcall, host, config, run, status, watch, worker
 from agentkit import record
 from agentkit import task as taskfile
 from test_suites_never_collide import E2E, SMOKE, lock_argv, lock_program
@@ -62,6 +62,7 @@ class Silence(unittest.TestCase):
                                 "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
                                 "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}).start()
         patch.object(run, "dirty_paths", return_value=[]).start()
+        patch.object(gitcall, "dirty_paths", return_value=[]).start()
         patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}).start()

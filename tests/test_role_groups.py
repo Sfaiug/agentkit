@@ -481,6 +481,7 @@ class RoleGroups(unittest.TestCase):
                 patch.object(gitcall, "git", return_value=""), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
+                patch.object(gitcall, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
                 patch.object(run, "make_worktree", return_value=(wt, "ak/fix-api")), \
                 patch.object(run, "exclude_junk"), \
                 patch.object(gc, "disk_pressure", return_value=False), \

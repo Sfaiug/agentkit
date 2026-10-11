@@ -39,11 +39,13 @@ from . import (box, command_help, config, gate, gc, gitcall, hand_in, history, h
                task as taskfile, turns, update, usage, watch, worker, worktrees)
 from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scope_units,
     finished_answer, scope_is_real, stop_run_tree)
-from .gitcall import (PR_PARTS, Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity,
-    commit_leftovers, default_base, dirty_paths, exclude_junk, fetch, git, git_out,
-    leftover_junk, log_is_stdout, logger, make_worktree, repo_line, repo_rules,
-    round_commands, run_depth, slugify, stopped, tool_env, tool_run, with_suite)
+from .gitcall import (Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity, commit_leftovers,
+    default_base, dirty_paths, exclude_junk, fetch, git, git_out, leftover_junk,
+    log_is_stdout, logger, make_worktree, repo_line, repo_rules, round_commands, run_depth,
+    slugify, stopped, tool_env, tool_run, with_suite)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
+
+PR_PARTS = re.compile(r"^https://github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)/?$")
 
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024

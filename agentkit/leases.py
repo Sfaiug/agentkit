@@ -388,7 +388,7 @@ def restart(log=print, now=None):
                     shutil.copytree(run_dir / run.REGRESSION.parent,
                                     directory / run.REGRESSION.parent, symlinks=True)
                 (directory / "log.txt").touch()
-                run.logger(directory)(f"started again for {run_dir.name}: {why}; its earlier "
+                gitcall.logger(directory)(f"started again for {run_dir.name}: {why}; its earlier "
                                       f"attempt is kept on branch {state.get('branch')}")
                 run.launch_for_seat(
                     directory, state,

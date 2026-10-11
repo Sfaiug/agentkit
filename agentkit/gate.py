@@ -314,7 +314,7 @@ def wait_for_slot(run_dir):
                 # drive also accepts a saved receipt directly (the job/recovery API).
                 state.update(run_id=run_dir.name, state="queued", slot_waiting=True,
                              queued_at=time.time(), **run_record.process_owner())
-                state.setdefault("run_depth", run.run_depth())
+                state.setdefault("run_depth", gitcall.run_depth())
                 # A new queue episode starts with no memory of the last one's wait.
                 for key in ("slot_waited", "slot_wait_reason", "slot_wait_kind"):
                     state.pop(key, None)
@@ -1335,7 +1335,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
-    before = set(run.dirty_paths(cwd))
+    before = set(gitcall.dirty_paths(cwd))
     chunks, ok = [], True
     spent, killed, kept = None, False, ""   # the command the limit ran out on, whether it had
                                             # begun, and the output it had produced by then
@@ -1440,7 +1440,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     # The gate is over and its children are not the round's: a command that exited 0 may
     # still have left processes behind, and they die with the gate, however detached.
     worker.kill_marked(gitcall.run_child_env().get(worker.RUN_MARKER), log=log)
-    artifacts.update(set(run.dirty_paths(cwd)) - before)
+    artifacts.update(set(gitcall.dirty_paths(cwd)) - before)
     return ok, text
 
 

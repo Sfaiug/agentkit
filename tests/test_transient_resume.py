@@ -366,6 +366,7 @@ class TransientResume(unittest.TestCase):
                 patch.object(gitcall, "git", return_value="sha"), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
+                patch.object(gitcall, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \
                 patch.object(run, "history_start"), \
                 patch.object(run, "exclude_junk"), \
