@@ -134,9 +134,10 @@ class SizeGate(Sandbox):
                          "most 400; split it")
         self.assertIsNone(run.pr_size_refusal(7, 1000, 600))
 
-    def test_a_deleted_line_carries_one_copy_and_generated_files_carry_none(self):
-        # git marks every copy of a deleted block moved, and pairs blocks with generated files
-        block = lambda tag: "".join(f"def {tag}_{n}(value):\n    return {tag} * {n}\n" for n in range(50))
+    def test_a_deleted_block_carries_one_copy_and_generated_files_carry_none(self):
+        # git marks every copy of a deleted block moved, and pairs blocks with generated files;
+        # the blocks share their return lines, which say nothing of where a block came from
+        block = lambda tag: "".join(f"def {tag}_{n}(value):\n    return value * {n} + {n}\n" for n in range(50))
         self.git("checkout", "-q", self.base)
         self.git("checkout", "-qb", "paste")
         self.write({"big.py": block("pasted"), "mod.py": block("built"), "dist/old.js": block("vendored"),

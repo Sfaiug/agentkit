@@ -6980,29 +6980,31 @@ def _generated(repo, source, names):
 
 
 def carried_lines(repo, base, head="HEAD"):
-    """Added lines a reviewer need not read: the blocks git's own moved-line detection marks
-    moved, whitespace aside -- `--color-moved=blocks`, a block of at least twenty alphanumeric
-    characters deleted in one place of the diff and added in another -- each deleted line
-    carrying one added line that reads as it, so a block pasted in several places carries once,
-    a module split across files adds what its new lines come to, and a new blank line, brace or
-    lone line that reads as a deleted one is not moved.  Generated files are left out on both
-    sides, as `diff_lines` leaves them out: a line moved from or into one is new.  Git does the
-    pairing, in its own time: nothing here grows with the diff's copies."""
+    """Added lines a reviewer need not read: the blocks git's own moved-line detection finds
+    moved, whitespace aside -- `--color-moved=zebra`, a block of at least twenty alphanumeric
+    characters deleted in one place of the diff and added in another -- where an added block
+    reads whole as a deleted block, each deleted block carrying one, so a block pasted in
+    several places carries once, a module split across files adds what its new lines come to,
+    and a new blank line, brace or lone line that reads as a deleted one is not moved.
+    Generated files are left out on both sides, as `diff_lines` leaves them out: a block moved
+    from or into one is new.  Git finds the blocks, in its own time: nothing here grows with the
+    diff's copies."""
     # the patch git prints itself, whatever the user's config says of prefixes, drivers,
     # submodules and colours: every colour off but the moved marks, so a moved line alone
-    # starts with a colour code
-    off = [arg for name in ("new", "old", "meta", "frag", "func", "commit", "whitespace",
-                            "context", "oldMovedAlternative", "newMovedAlternative")
-           for arg in ("-c", f"color.diff.{name}=normal")]
-    diff = git(repo, "-c", "core.quotePath=false", "-c", "color.diff.newMoved=reverse",
-               "-c", "color.diff.oldMoved=reverse", *off,
-               "diff", "-U0", "--color=always", "--color-moved=blocks",
+    # starts with a colour code, and the next block of a run with the other one
+    colours = dict.fromkeys(("new", "old", "meta", "frag", "func", "commit", "whitespace",
+                             "context"), "normal")
+    colours.update(newMoved="reverse", oldMoved="reverse", newMovedAlternative="bold",
+                   oldMovedAlternative="bold")
+    settings = [arg for name, colour in colours.items() for arg in ("-c", f"color.diff.{name}={colour}")]
+    diff = git(repo, "-c", "core.quotePath=false", *settings, "diff", "-U0", "--color=always", "--color-moved=zebra",
                "--color-moved-ws=ignore-all-space", "--find-renames", "--no-ext-diff",
                "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "--submodule=short",
                f"{base}...{head}", check=False)
-    moved, names, hunk = {"+": {}, "-": {}}, {}, False
+    blocks, names, hunk, last = {"+": {}, "-": {}}, {}, False, None
     for marked in diff.split("\n"):
-        line = re.sub(r"\x1b\[[0-9;]*m", "", marked)
+        line, mark = re.sub(r"\x1b\[[0-9;]*m", "", marked), re.match(r"\x1b\[[0-9;]*m", marked)
+        key = None
         if line.startswith("diff --git "):
             names, hunk = {}, False
         elif line.startswith("@@"):
@@ -7011,15 +7013,21 @@ def carried_lines(repo, base, head="HEAD"):
             # a file's header, where Git ends a name holding a space with a tab
             if line.startswith(("--- a/", "+++ b/")):
                 names[line[0]] = line[6:].removesuffix("\t")
-        elif marked.startswith("\x1b[") and line[:1] in names:
-            moved[line[0]].setdefault(names[line[0]], []).append("".join(line[1:].split()))
-    # git marks every copy of a deleted block moved: each deleted line carries one of them
+        elif mark and line[:1] in names:
+            key = (line[0], mark.group())
+            if key != last:
+                block = []
+                blocks[line[0]].setdefault(names[line[0]], []).append(block)
+            block.append("".join(line[1:].split()))
+        last = key
+    # git marks every copy of a deleted block moved, paired with a generated file or not, and
+    # never says with which: an added block carries only as a whole deleted one, each once
     kept = []
     for sign, source in (("+", head), ("-", base)):
-        generated = _generated(repo, source, sorted(moved[sign]))
-        kept.append(Counter(text for name, texts in moved[sign].items() if name not in generated
-                            for text in texts))
-    return sum((kept[0] & kept[1]).values())
+        generated = _generated(repo, source, sorted(blocks[sign]))
+        kept.append(Counter(tuple(block) for name, found in blocks[sign].items()
+                            if name not in generated for block in found))
+    return sum(len(block) * count for block, count in (kept[0] & kept[1]).items())
 
 
 def history_finish(state, log=None):
