@@ -6917,17 +6917,23 @@ def carried_lines(repo, base, head="HEAD"):
     the same diff deletes, a deleted line paired with one added line at most, so a module
     split across files adds what its new lines come to.  Generated files are left out, as
     `diff_lines` leaves them out; a blank line pairs with a deleted blank line."""
-    diff = git(repo, "-c", "core.quotePath=false", "diff", "-U0", "--find-renames",
-               "--no-color", f"{base}...{head}", check=False)
+    # the patch Git prints itself, whatever the user's config says of prefixes and drivers
+    diff = git(repo, "-c", "core.quotePath=false", "diff", "-U0", "--find-renames", "--no-color",
+               "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
+               f"{base}...{head}", check=False)
     added, deleted = {}, {}
-    new = old = None
+    new = old = hunk = None
     for line in diff.split("\n"):
         if line.startswith("diff --git "):
-            new = old = None
-        elif line.startswith("--- "):
-            old = line[6:] if line.startswith("--- a/") else None
-        elif line.startswith("+++ "):
-            new = line[6:] if line.startswith("+++ b/") else None
+            new = old = hunk = None
+        elif line.startswith("@@"):
+            hunk = True
+        elif not hunk:
+            # a file's header, where Git ends a name holding a space with a tab
+            if line.startswith("--- a/"):
+                old = line[6:].removesuffix("\t")
+            elif line.startswith("+++ b/"):
+                new = line[6:].removesuffix("\t")
         elif line.startswith("+") and new is not None:
             added.setdefault(new, Counter())[" ".join(line[1:].split())] += 1
         elif line.startswith("-") and old is not None:

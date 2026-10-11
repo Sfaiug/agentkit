@@ -27,7 +27,7 @@ class SizeGate(Sandbox):
         self.git("init", "-q", "-b", "main")
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@localhost")
-        (self.repo / ".gitattributes").write_text("dist/* linguist-generated\n")
+        (self.repo / ".gitattributes").write_text("dist/*.js linguist-generated\n")
         (self.repo / "dist").mkdir()
         self.write({"api.py": "a\nb\nc\n", "dist/app.js": "built\n", "old.py": "1\n2\n3\n4\n"}, "Base")
         self.base = self.git("rev-parse", "HEAD")
@@ -93,21 +93,31 @@ class SizeGate(Sandbox):
     def test_lines_moved_unchanged_from_what_the_diff_deletes_never_count(self):
         self.git("checkout", "-q", self.base)
         self.git("checkout", "-qb", "split-big")
-        body = [f"line {n} = {n}" for n in range(500)] + ["", "", "tail = True"]
+        # lines Git prints as `--- ` and `+++ ` inside a hunk are text, not a file's header
+        body = (["-- schema", "++ counter"] + [f"line {n} = {n}" for n in range(498)]
+                + ["", "", "tail = True"])
         self.write({"big.py": "\n".join(body) + "\n"}, "A big module")
         base = self.git("rev-parse", "HEAD")
         (self.repo / "big.py").unlink()
+        (self.repo / "old.py").unlink()
         (self.repo / "parts").mkdir()
         # one half moves as it was, the other re-indented into a class; two lines are new, and
-        # a line the base had once is added twice
+        # a line the base had once is added twice; a generated file, its name holding a space,
+        # takes old.py's lines
         self.write({"parts/a.py": "import os\n" + "\n".join(body[:250]) + "\n",
                     "parts/b.py": "class Half:\n" + "\n".join("    " + line for line in body[250:])
                     + "\ntail = True\n",
-                    "dist/app.js": "tail = True\n" * 3}, "Split it")
+                    "dist/app bundle.js": "1\n2\n3\n4\n" + "tail = True\n" * 3}, "Split it")
         head = self.git("rev-parse", "HEAD")
         self.assertEqual(run.carried_lines(self.repo, base, head), 503)
         added = run.diff_lines(self.repo, base, head, added_only=True)
         self.assertEqual(added, 506)
+        # the user's own diff settings change nothing
+        (self.repo / ".git/info/attributes").write_text("* diff=blank\n")
+        for key, value in (("diff.noprefix", "true"), ("diff.external", "true"),
+                           ("diff.blank.textconv", "true")):
+            self.git("config", key, value)
+        self.assertEqual(run.carried_lines(self.repo, base, head), 503)
         self.assertIsNone(run.pr_size_refusal(7, added, 503))
         self.assertEqual(run.pr_size_refusal(7, 1000, 599),
                          "PR #7 adds 1000 lines, 599 of them moved unchanged from lines it deletes "
